@@ -67,6 +67,57 @@ export interface HorseQueueGameInfo {
   bigBlind: number | null;
 }
 
+/* ── A REPEAT JOIN KEEPS ITS PLACE (2026-11-22) ─────────────────────────────
+   cash_game_waitlist_one_open allows one OPEN row per (game, player), and open
+   means 'waiting' OR 'notified' (the tick has called the name into a chair and
+   is holding it). The fleet's queue read used to ask for 'waiting' rows only,
+   so a horse whose name had just been called looked like it was on no list,
+   the planner could put it down for that game again, and the database refused
+   the whole batch insert (23505): 67 refusals in the 24 hours to 02:21 UTC on
+   2026-11-23, all from this insert, all 60 players horses, and in each case
+   read back the row had been called and was later seated or expired. Every
+   other game's arrival in that batch was lost with it. A person's door
+   (fn_cash_game_join) already answers a repeat join with the place they hold
+   (ON CONFLICT DO NOTHING, then their position); this is the same answer for
+   the fleet. */
+
+/** One open row of a game's list as the fleet reads it. */
+export interface OpenListRow {
+  id: string;
+  game_id: string;
+  user_id: string;
+  status: string;
+}
+
+/** The statuses cash_game_waitlist_one_open treats as one open place. */
+export const OPEN_LIST_STATUSES = ['waiting', 'notified'] as const;
+
+/**
+ * PURE. The plan with every arrival removed whose horse will still hold an
+ * open place on that game's list once this cycle's cancels land. A 'notified'
+ * row is never cancelled here (the cancel only touches 'waiting' rows), so it
+ * always holds its place; a 'waiting' row holds it unless this plan cancels it.
+ * Nothing else changes: every cancel, every other arrival and every existing
+ * row (its place in line included) stay exactly as planned.
+ */
+export function keepHeldPlaces(
+  plan: HorseQueuePlan,
+  openRows: readonly OpenListRow[]
+): HorseQueuePlan {
+  if (plan.add.length === 0 || openRows.length === 0) return plan;
+  const cancelled = new Set(plan.cancel);
+  const held = new Set<string>();
+  for (const r of openRows) {
+    if (r.status !== 'notified' && (r.status !== 'waiting' || cancelled.has(r.id))) continue;
+    held.add(`${r.game_id}\u0000${r.user_id}`);
+  }
+  if (held.size === 0) return plan;
+  return {
+    cancel: plan.cancel,
+    add: plan.add.filter((a) => !held.has(`${a.game_id}\u0000${a.user_id}`)),
+  };
+}
+
 /** How long a horse stays in line before it gives up, 25 to 55 minutes. */
 export function queuePatienceMs(rowId: string): number {
   return (25 + (mix32(horseHash(`${rowId}:patience`)) % 31)) * 60_000;
