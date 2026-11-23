@@ -3353,6 +3353,35 @@ export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze(
     a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
     b: { holdemPersonaPostflop: true },
   },
+  // 2026-11-22 Horse Switch lane (v87RiverBlockBetTrapIsPriced, default OFF, dark):
+  // arm B keeps production v87RiverBlockBetTrap on; arm A switches on its EV-priced replacement
+  // (HorseHoldemV87RiverBlockBetTrapIsPriced.ts) at both the OOP river lead and facing-raise sites.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v87_river_block_bet_trap_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v87RiverBlockBetTrap: true, v87RiverBlockBetTrapIsPriced: true },
+    b: { v87RiverBlockBetTrap: true },
+  },
+  // The same question heads-up, where OOP heads-up river block-bet trap spots are frequent.
+  {
+    name: 'hu_v87_river_block_bet_trap_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v87RiverBlockBetTrap: true, v87RiverBlockBetTrapIsPriced: true },
+    b: { v87RiverBlockBetTrap: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

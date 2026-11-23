@@ -28,6 +28,12 @@ import {
   type HoldemLineStreet,
   type HoldemPricedSpot,
 } from './HorseHoldemValueAndCallsArePriced.js';
+import {
+  v87RiverBlockBetTrapFacingRaiseApplies,
+  v87RiverBlockBetTrapFacingRaiseVerdict,
+  v87RiverBlockBetTrapLeadApplies,
+  v87RiverBlockBetTrapLeadVerdict,
+} from './HorseHoldemV87RiverBlockBetTrapIsPriced.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -5925,6 +5931,13 @@ export interface HorseDecideOpts {
    * `heroBubbleFactor`. Single-board hands (`!multiBoard36`) and OFF: 100% byte-identical. */
   multiBoardBluffTrimIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
+  /** v87RiverBlockBetTrapIsPriced (2026-11-22, Horse Switch lane, default OFF, read === true):
+   * dark priced replacement for V87 river block-bet nut trap (lead + facing-raise sites) in
+   * single-board 2-card NLH. Replaces hash-unit coin flips and blind 3-bets with deterministic EV
+   * comparisons using pot/bet/stack/equity and measured NLH response curves from
+   * holdemEmpiricalPriors (HorseHoldemV87RiverBlockBetTrapIsPriced). Independent of
+   * v87RiverBlockBetTrap; zero PLO4/5/6 reach; bit-identical when OFF. */
+  v87RiverBlockBetTrapIsPriced?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
 }
@@ -26052,6 +26065,73 @@ export class HorseLogic {
             return { action: 'check', thinkTime: 0 };
           }
           if (
+            opts.v87RiverBlockBetTrapIsPriced === true &&
+            v87RiverBlockBetTrapLeadApplies({
+              enabled: opts.v87RiverBlockBetTrapIsPriced,
+              isV87Nlh,
+              isRiver,
+              inPosition: ip,
+              oppCount,
+              oppLive: oppLive87,
+              initiative,
+              trueRiverNutTrap: trueRiverNutTrap87,
+              multiBoard: multiBoard36,
+              bombPot: gs.bombPot === true,
+              allInOrFold: gs.allInOrFold === true,
+              satelliteActive: sat37.active,
+              pot,
+              heroStack: stack,
+              villainStack: singleOppStack87,
+            })
+          ) {
+            const scope87 = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+            const counters87 =
+              useMind && singleOpp87
+                ? HorseMind.getExploitCounters(singleOpp87, scope87)
+                : undefined;
+            const exactNuts87 = hasRiverNuts(player, gs, true);
+            const verdict87 = v87RiverBlockBetTrapLeadVerdict({
+              pot,
+              heroStack: stack,
+              villainStack: singleOppStack87,
+              bigBlind: bb87,
+              equity,
+              isExactRiverNuts: exactNuts87,
+              callDeductionFraction: callDeductionFraction ?? rakeMarg,
+              exploitCounters: counters87,
+            });
+            if (verdict87.decision === 'trap_block_lead' && verdict87.betPotFrac !== null) {
+              if (tele15) noteFire('v87_river_block_bet_trap_priced_block_lead_seen');
+              pendingRaisePlan = 'commit';
+              v87RiverBlockTrapPending = true;
+              return this.betSize(
+                planHandKey,
+                pot,
+                verdict87.betPotFrac,
+                player,
+                gs,
+                vi,
+                { ...params, sizingMultiplier: 1 },
+                false
+              );
+            }
+            if (verdict87.decision === 'normal_value_lead' && verdict87.betPotFrac !== null) {
+              if (tele15) noteFire('v87_river_block_bet_trap_priced_value_lead_seen');
+              pendingRaisePlan = 'commit';
+              return this.betSize(
+                planHandKey,
+                pot,
+                verdict87.betPotFrac,
+                player,
+                gs,
+                vi,
+                { ...params, sizingMultiplier: 1 },
+                false
+              );
+            }
+            if (tele15) noteFire('v87_river_block_bet_trap_priced_check_seen');
+            return { action: 'check', thinkTime: 0 };
+          } else if (
             opts.v87RiverBlockBetTrap !== false &&
             trueRiverNutTrap87 &&
             singleOppStack87 > pot * 0.45 &&
@@ -29325,27 +29405,82 @@ export class HorseLogic {
       // V87 Ecosystem #1: hero's small (<= 36% pot) river block bet was
       // raised big. Nut traps bet-3-bet; bare one pair does not pay it off
       // when raised-river-bet one-pair discipline is enabled.
-      if (
-        isRiver &&
-        raisedAfterAggr &&
-        !multiBoard36 &&
-        v87HeroRiverBlockBetFrac(gs.actionHistory, player.user_id, gs.pot, toCall) !== null
-      ) {
-        if (opts.v87RiverBlockBetTrap !== false && trueRiverNutTrap87) {
-          if (tele15) noteFire('v87_river_block_trap_reraise');
-          if (stack <= (pot + toCall) * 1.5)
-            return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
-          return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
-        }
-        // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
-        if (
-          (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
-          (cat <= 2 || (cat === 3 && pairedBoard)) &&
-          toCall < stack &&
-          potFracAfterPlan87 >= 0.3
-        ) {
-          if (tele15) noteFire('v87_river_block_raised_one_pair_fold');
-          return { action: 'fold', thinkTime: 0 };
+      if (isRiver && raisedAfterAggr && !multiBoard36) {
+        const blockBetFrac87 = v87HeroRiverBlockBetFrac(
+          gs.actionHistory,
+          player.user_id,
+          gs.pot,
+          toCall
+        );
+        if (blockBetFrac87 !== null) {
+          if (
+            opts.v87RiverBlockBetTrapIsPriced === true &&
+            v87RiverBlockBetTrapFacingRaiseApplies({
+              enabled: opts.v87RiverBlockBetTrapIsPriced,
+              isV87Nlh,
+              isRiver,
+              oppCount,
+              raisedAfterAggr,
+              planCallOnly: planCallOnly23,
+              trueRiverNutTrap: trueRiverNutTrap87,
+              multiBoard: multiBoard36,
+              bombPot: gs.bombPot === true,
+              allInOrFold: gs.allInOrFold === true,
+              blockBetFrac: blockBetFrac87,
+              pot,
+              toCall,
+              heroStack: stack,
+            })
+          ) {
+            const raiserObj87 =
+              bettor87 != null ? opponents.find((o) => o.user_id === bettor87) : opponents[0];
+            const raiserStack87 =
+              raiserObj87 != null && !raiserObj87.is_all_in && Number.isFinite(raiserObj87.stack)
+                ? Math.max(0, raiserObj87.stack)
+                : 0;
+            const exactNuts87 = hasRiverNuts(player, gs, true);
+            const verdict87 = v87RiverBlockBetTrapFacingRaiseVerdict({
+              pot,
+              toCall,
+              heroBet: player.bet ?? 0,
+              currentBet,
+              heroStack: stack,
+              villainStack: raiserStack87,
+              bigBlind: bb87,
+              minRaiseTo: gs.minRaiseTo ?? null,
+              equity,
+              isExactRiverNuts: exactNuts87,
+              callDeductionFraction: callDeductionFraction ?? rakeMarg,
+            });
+            if (verdict87.decision === 'reraise' && verdict87.raiseTo !== null) {
+              if (tele15) noteFire('v87_river_block_bet_trap_priced_reraise_seen');
+              if (verdict87.raiseTo >= (player.bet ?? 0) + stack - 1e-4) {
+                return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
+              }
+              return this.raiseTo(planHandKey, verdict87.raiseTo, player, gs, vi);
+            }
+            if (tele15) noteFire('v87_river_block_bet_trap_priced_call_seen');
+            return this.legalize({ action: 'call', thinkTime: 0 }, player, gs, vi);
+          } else if (
+            opts.v87RiverBlockBetTrapIsPriced !== true &&
+            opts.v87RiverBlockBetTrap !== false &&
+            trueRiverNutTrap87
+          ) {
+            if (tele15) noteFire('v87_river_block_trap_reraise');
+            if (stack <= (pot + toCall) * 1.5)
+              return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
+            return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
+          }
+          // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
+          if (
+            (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
+            (cat <= 2 || (cat === 3 && pairedBoard)) &&
+            toCall < stack &&
+            potFracAfterPlan87 >= 0.3
+          ) {
+            if (tele15) noteFire('v87_river_block_raised_one_pair_fold');
+            return { action: 'fold', thinkTime: 0 };
+          }
         }
       }
       // V87 DEEP CASH: 150bb+ effective, bare one pair (AA-JJ and TPTK
