@@ -1195,6 +1195,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'dark zero-migration priced replacement for unowned V86 multi-board non-freeroll dead-half fold and strong-board open/raise branches (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   multiBoardBluffTrimIsPriced:
     'dark zero-migration priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  nashCallVsTightJammerRespect:
+    'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */
