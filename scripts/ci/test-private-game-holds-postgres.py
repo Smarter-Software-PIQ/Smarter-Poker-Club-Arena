@@ -50,6 +50,7 @@ FILES = [
     MIG / '20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql',
 ]
 SIT_AND_GO = MIG / '20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql'
+PRIVATE_MATCHES = MIG / '20261123191738_player_created_private_heads_up_and_spin_matches.sql'
 BOOT = ROOT / 'scripts/ci/fixtures/private-game-holds/bootstrap.sql'
 CLUB = '00000000-0000-4000-8000-0000000000c1'
 TARGET = '00000000-0000-4000-8000-0000000000a7'
@@ -595,6 +596,90 @@ try:
     register(red, invx)
     j(f"SELECT public.fn_invite_to_private_game('{red}', 5)", invx)
     ok(refused(register_sql(red), strn), 'with the trigger attached a stranger cannot register into a held Sit & Go seat')
+
+    # ── 11. Player-created strictly link-only Private Heads-Up & Private Spins (20261123191738) ──
+    run([PG / 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-h', str(sock), '-U', 'postgres', '-d', 'postgres', '-f', PRIVATE_MATCHES])
+    pm_creator = person()
+    pm_friend1 = person()
+    pm_stranger = person()
+    pm_horse = person(horse=True)
+
+    # 11a. Offered Heads-Up board -> creates permanent private 2-max, seats creator atomically.
+    offered_hu = board(2, 'sng')
+    res_hu = j(f"SELECT public.fn_create_private_seat_first_match('{offered_hu}')", pm_creator)
+    ok(res_hu['ok'] and res_hu['created'] and res_hu['format'] == 'heads_up'
+       and res_hu['permanent_private'] is True and res_hu['exclusive'] is True
+       and balance(pm_creator) == 90.0,
+       'fn_create_private_seat_first_match clones offered Heads-Up and buys creator into Seat 1')
+    pm_hu_id = res_hu['tournament_id']
+    pm_hu_tbl = res_hu['table_id']
+    pm_hu_tok = res_hu['invite_token']
+
+    # 11b. Cannot clone a private match itself or a non-HU/Spin board.
+    ok(j(f"SELECT public.fn_create_private_seat_first_match('{pm_hu_id}')", pm_stranger)['reason'] == 'source_not_offered',
+       'cannot clone another private match as an offered template')
+    ok(j(f"SELECT public.fn_create_private_seat_first_match('{sit_and_go(6)}')", pm_stranger)['reason'] == 'format_not_supported',
+       'cannot create a private match from a 6-seat SNG')
+
+    # 11c. Lobby visibility hides the private match from strangers and exposes it to creator.
+    vis_stranger = j(f"SELECT public.fn_private_seat_first_lobby_state('{CLUB}')", pm_stranger)
+    vis_creator = j(f"SELECT public.fn_private_seat_first_lobby_state('{CLUB}')", pm_creator)
+    ok(pm_hu_id in vis_stranger['hidden_tournament_ids'] and len(vis_stranger['my_matches']) == 0,
+       'lobby state hides open private matches from uninvited players')
+    ok(any(m['tournament_id'] == pm_hu_id and m['is_creator'] is True and m['invite_token'] == pm_hu_tok
+           for m in vis_creator['my_matches']),
+       'lobby state surfaces creator open private match with invite_token')
+
+    # 11d. Permanent privacy: even past nominal hold_expires_at, still live, exclusive, and refuses strangers & horses.
+    q(f"UPDATE public.private_game_holds SET hold_expires_at = now() - interval '1 hour', hold_started_at = now() - interval '70 minutes' WHERE tournament_id = '{pm_hu_id}'", None, 'postgres')
+    v_hu = view(pm_hu_id)
+    ok(v_hu['live'] is True and v_hu['exclusive'] is True and v_hu['permanent_private'] is True,
+       'permanent private match NEVER expires open after 10 minutes')
+    live_holds = j("SELECT public.fn_private_game_live_holds()", None, 'postgres')
+    ok(any(h['tournament_id'] == pm_hu_id and h['live'] is True and h['exclusive'] is True for h in live_holds),
+       'fn_private_game_live_holds keeps permanent private match visible to engine past nominal deadline')
+    ok(refused(f"SELECT public.fn_take_seat_and_buy_in('{pm_hu_tbl}', 2)", pm_stranger)
+       and balance(pm_stranger) == 100.0,
+       'stranger is refused seat on permanent private match even past 10 minutes')
+    ok(refused(f"SELECT public.fn_seat_horse_in_seat_first_game('{pm_hu_id}', '{pm_horse}')", None, 'postgres'),
+       'horse is refused seat on permanent private match even past 10 minutes')
+    ok(j(f"SELECT public.fn_cancel_private_game_hold('{pm_hu_id}')", pm_creator)['reason'] == 'use_close_private_match',
+       'plain cancel hold is refused on permanent private match (cannot downgrade to public)')
+
+    # 11e. Private Spin (3-max): creator + 1 invited friend seated; non-creator cannot close; creator Unregister & Close refunds BOTH and permanently closes.
+    offered_spin = board(3, 'spin')
+    q(f"UPDATE public.tournaments SET format_contract = 'spin-v1' WHERE id = '{offered_spin}'", None, 'postgres')
+    res_spin = j(f"SELECT public.fn_create_private_seat_first_match('{offered_spin}')", pm_creator)
+    ok(res_spin['ok'] and res_spin['format'] == 'spin' and balance(pm_creator) == 80.0,
+       'fn_create_private_seat_first_match clones offered 3-max Spin and seats creator')
+    pm_sp_id = res_spin['tournament_id']
+    pm_sp_tbl = res_spin['table_id']
+    pm_sp_tok = res_spin['invite_token']
+
+    acc_sp = j(f"SELECT public.fn_accept_private_game_invite('{pm_sp_id}', '{pm_sp_tok}')", pm_friend1)
+    ok(acc_sp['ok'] and acc_sp['allowed'] and acc_sp['admitted'], 'invited friend admitted to Private Spin with valid token')
+    ok(j(f"SELECT public.fn_take_seat_and_buy_in('{pm_sp_tbl}', 2)", pm_friend1)['ok'] and balance(pm_friend1) == 90.0,
+       'invited friend buys into Seat 2 of Private Spin')
+
+    ok(j(f"SELECT public.fn_close_private_seat_first_match('{pm_sp_id}')", pm_friend1)['reason'] == 'not_creator',
+       'non-creator cannot close someone else private match')
+    cl_sp = j(f"SELECT public.fn_close_private_seat_first_match('{pm_sp_id}')", pm_creator)
+    ok(cl_sp['ok'] and cl_sp['closed'] is True and cl_sp['refunded_count'] == 2
+       and balance(pm_creator) == 90.0 and balance(pm_friend1) == 100.0
+       and q(f"SELECT status FROM public.tournaments WHERE id = '{pm_sp_id}'") == 'CANCELLED'
+       and q(f"SELECT status FROM public.tables WHERE id = '{pm_sp_tbl}'") == 'closed',
+       'creator Unregister & Close atomically refunds ALL seated players and permanently closes event')
+    acc_closed = j(f"SELECT public.fn_accept_private_game_invite('{pm_sp_id}', '{pm_sp_tok}')", pm_stranger)
+    ok(acc_closed['allowed'] is False and acc_closed['reason'] == 'private_game_closed',
+       'closed private match permanently refuses future invite links')
+
+    # Close the Heads-Up private match too and verify idempotent close.
+    cl_hu = j(f"SELECT public.fn_close_private_seat_first_match('{pm_hu_id}')", pm_creator)
+    ok(cl_hu['ok'] and cl_hu['refunded_count'] == 1 and balance(pm_creator) == 100.0,
+       'creator Unregister & Close on Private Heads-Up refunds full buy-in and closes match')
+    cl_hu2 = j(f"SELECT public.fn_close_private_seat_first_match('{pm_hu_id}')", pm_creator)
+    ok(cl_hu2['ok'] and cl_hu2['already_closed'] is True and cl_hu2['refunded_count'] == 0 and balance(pm_creator) == 100.0,
+       'repeat close is idempotent and never double-refunds')
 
     # ── 9. The trigger is the cause: remove it and the stranger gets in ──────
     q("DROP TRIGGER trg_private_game_entry_guard ON public.tournament_players")

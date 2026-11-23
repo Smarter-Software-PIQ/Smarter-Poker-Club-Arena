@@ -21,6 +21,7 @@ on:
       - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
       - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
       - supabase/migrations/20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql
+      - supabase/migrations/20261123191738_player_created_private_heads_up_and_spin_matches.sql
   push:
     branches: [main]
     paths:
@@ -31,6 +32,7 @@ on:
       - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
       - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
       - supabase/migrations/20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql
+      - supabase/migrations/20261123191738_player_created_private_heads_up_and_spin_matches.sql
   workflow_dispatch:
 concurrency:
   group: private-game-holds-${{ github.event.pull_request.number || github.ref }}

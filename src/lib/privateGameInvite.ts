@@ -53,6 +53,8 @@ export interface PrivateGameHold {
   live: boolean;
   outcome: string;
   exclusive: boolean;
+  /** True for player-created strictly link-only Heads-Up Matches and Private Spins. */
+  permanentPrivate?: boolean;
   seatsHeld: number;
   heldOpen: number;
   expiresAtMs: number | null;
@@ -90,12 +92,15 @@ export function privateSeatsHoldable(maxPlayers: number): number {
   return n >= 2 && n <= 9 ? n - 1 : 0;
 }
 
-type InviteFormatRow = {
-  variant?: string | null;
-  max_players?: number | null;
-  maxPlayers?: number | null;
-  format_contract?: unknown;
-} | null | undefined;
+type InviteFormatRow =
+  | {
+      variant?: string | null;
+      max_players?: number | null;
+      maxPlayers?: number | null;
+      format_contract?: unknown;
+    }
+  | null
+  | undefined;
 
 /**
  * Is this a Sit & Go of four to nine seats, held in place? The database reads
@@ -146,7 +151,8 @@ export function parsePrivateGameHold(raw: unknown, tournamentId: string): Privat
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   if (r.held === false) return null;
-  const token = typeof r.invite_token === 'string' && TOKEN_RE.test(r.invite_token) ? r.invite_token : null;
+  const token =
+    typeof r.invite_token === 'string' && TOKEN_RE.test(r.invite_token) ? r.invite_token : null;
   return {
     tournamentId: String(r.tournament_id ?? tournamentId),
     tableId: typeof r.table_id === 'string' && r.table_id ? r.table_id : null,
@@ -155,17 +161,22 @@ export function parsePrivateGameHold(raw: unknown, tournamentId: string): Privat
     live: r.live === true,
     outcome: String(r.outcome ?? ''),
     exclusive: r.exclusive === true,
+    permanentPrivate: r.permanent_private === true,
     seatsHeld: Number(r.seats_held ?? 0) || 0,
     heldOpen: Number(r.held_open ?? 0) || 0,
     expiresAtMs: parseMs(r.hold_expires_at),
-    inviterName: typeof r.inviter_name === 'string' && r.inviter_name.trim() ? r.inviter_name.trim() : null,
+    inviterName:
+      typeof r.inviter_name === 'string' && r.inviter_name.trim() ? r.inviter_name.trim() : null,
     tokenValid: r.token_valid === true,
     admitted: r.admitted === true,
   };
 }
 
 function isMissingDoor(error: { code?: string; message?: string } | null | undefined): boolean {
-  return !!error && (error.code === 'PGRST202' || /Could not find the function/i.test(error.message ?? ''));
+  return (
+    !!error &&
+    (error.code === 'PGRST202' || /Could not find the function/i.test(error.message ?? ''))
+  );
 }
 
 /** INVITE TO GAME: open or reserve the private game, buying the inviter in when it is new. */
@@ -209,7 +220,11 @@ export async function acceptPrivateGameInvite(
     p_invite_token: inviteToken,
   });
   if (error) {
-    return { allowed: false, reason: error.message || 'unknown', unavailable: isMissingDoor(error) };
+    return {
+      allowed: false,
+      reason: error.message || 'unknown',
+      unavailable: isMissingDoor(error),
+    };
   }
   const res = (data ?? {}) as { allowed?: boolean; reason?: string };
   return { allowed: res.allowed !== false, reason: res.reason ?? null, unavailable: false };
@@ -301,7 +316,10 @@ export function isPrivateGameSeatHeldError(err: unknown): boolean {
 }
 
 /** "9:41" until the hold ends; "0:00" once it has. */
-export function formatHoldRemaining(expiresAtMs: number | null, nowMs: number = Date.now()): string {
+export function formatHoldRemaining(
+  expiresAtMs: number | null,
+  nowMs: number = Date.now()
+): string {
   if (expiresAtMs === null || !Number.isFinite(expiresAtMs)) return '0:00';
   const left = Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
   const seconds = left % 60;
@@ -311,10 +329,18 @@ export function formatHoldRemaining(expiresAtMs: number | null, nowMs: number = 
 /** Plain words for every refusal. Title Case, no em dashes (CLAUDE.md 5.7). */
 export function privateGameRefusalText(reason: string | null | undefined): string {
   const r = String(reason ?? '');
+  if (/private_game_closed/.test(r)) return 'This Private Match Has Been Closed By Its Host';
+  if (/source_not_offered/.test(r)) return 'Only Games And Stakes Currently Offered Can Be Created';
+  if (/too_many_open_private_matches/.test(r))
+    return 'Close An Open Private Match Before Creating Another';
+  if (/not_creator/.test(r)) return 'Only The Creator Can Close This Private Match';
+  if (/use_close_private_match/.test(r))
+    return 'Use Unregister And Close To End This Private Match';
   if (/private_game_seat_held|PRIVATE_GAME_SEAT_HELD|heads_up_invite_required/.test(r))
     return 'This Seat Is Held For An Invited Friend';
   if (/private_game_full/.test(r)) return 'Every Held Seat In This Game Is Already Taken';
-  if (/another_invite_is_holding/.test(r)) return 'Another Player Is Already Holding Seats In This Game';
+  if (/another_invite_is_holding/.test(r))
+    return 'Another Player Is Already Holding Seats In This Game';
   if (/no_open_seat/.test(r)) return 'There Is No Open Seat Left To Hold';
   if (/game_already_started/.test(r)) return 'This Game Has Already Started';
   if (/format_not_supported/.test(r))
@@ -325,7 +351,8 @@ export function privateGameRefusalText(reason: string | null | undefined): strin
   if (/registration_closed|tournament_full/.test(r)) return 'This Game Is No Longer Taking Entries';
   if (/platform_frozen|daily_maintenance_window|spin_sng_closed_until_reopen/.test(r))
     return 'New Games Are Paused For Maintenance, Please Try Again Soon';
-  if (/board_not_reproducible/.test(r)) return 'This Game Cannot Be Made Private, Please Share It Instead';
+  if (/board_not_reproducible/.test(r))
+    return 'This Game Cannot Be Made Private, Please Share It Instead';
   return 'Could Not Start A Private Game, Please Try Again';
 }
 
@@ -340,13 +367,17 @@ let engineSupportCache: { at: number; value: EngineHoldSupport } | null = null;
 
 /** The serving engine's answer, read from /health and kept for a minute. */
 async function engineHoldSupport(): Promise<EngineHoldSupport> {
-  if (engineSupportCache && Date.now() - engineSupportCache.at < 60_000) return engineSupportCache.value;
+  if (engineSupportCache && Date.now() - engineSupportCache.at < 60_000)
+    return engineSupportCache.value;
   const base =
     import.meta.env.VITE_GAME_SERVER_URL ||
     (import.meta.env.PROD ? 'https://engine.smarter.poker' : 'http://localhost:8080');
   let value: EngineHoldSupport = { seatFirst: false, sitAndGo: false };
   try {
-    const response = await fetch(`${base}/health`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    const response = await fetch(`${base}/health`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
     if (response.ok) {
       const health = (await response.json()) as {
         privateGameHolds?: unknown;
