@@ -1,0 +1,3 @@
+# tests/a-wake-ack-never-holds-a-wake-while-it-waits.law.test.ts
+
+A wake acknowledgement never holds a wake while it waits. fn_ack_tournament_manager_wakes locks its wake ids in id order, while a bounty rebuy upserts its bounty_settled and rebuy wakes in code order whatever their ids, and the two deadlocked. Migration 20261123025756 gives each tournament one wake key: every writer of a wake row (fn_emit_tournament_manager_wake, fn_retire_manager_wakes_after_terminal_status) takes it shared before it writes, and an acknowledgement of two or more wakes takes it exclusively before it locks any, so it waits for writers in flight while holding nothing.
