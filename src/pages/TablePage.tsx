@@ -94,6 +94,7 @@ import {
   readPrivateGameHold,
   type PrivateGameHold,
 } from '../lib/privateGameInvite';
+import { closePrivateSeatFirstMatch } from '../lib/privateSeatFirstMatch';
 import {
   appendHeadsUpInviteToken,
   fromHeadsUpWaitModeDb,
@@ -6759,7 +6760,14 @@ function LiveTablePage({
   const seatFirstSeatsForHold = seatFirstBuyIn?.seats ?? 0;
   useEffect(() => {
     const tournId = tableState.tournamentId;
-    if (!tableId || !tournId || !userId || userId === 'guest' || !seatFirstSeatsForHold || playHasBegun)
+    if (
+      !tableId ||
+      !tournId ||
+      !userId ||
+      userId === 'guest' ||
+      !seatFirstSeatsForHold ||
+      playHasBegun
+    )
       return;
     let cancelled = false;
     void privateGameHoldsSupported();
@@ -6793,7 +6801,14 @@ function LiveTablePage({
   useEffect(() => {
     const held = privateHold;
     const tournId = tableState.tournamentId;
-    if (!held?.isCreator || !held.live || held.expiresAtMs === null || !tournId || playHasBegun)
+    if (
+      !held?.isCreator ||
+      !held.live ||
+      held.permanentPrivate ||
+      held.expiresAtMs === null ||
+      !tournId ||
+      playHasBegun
+    )
       return;
     const localEnd = held.expiresAtMs + dbClockOffsetMsRef.current;
     const timer = window.setTimeout(
@@ -6843,26 +6858,6 @@ function LiveTablePage({
     },
     [navigate, privateBusy, tableId, toast]
   );
-
-  const handlePrivateCancel = useCallback(async () => {
-    const tournId = tableStateRef.current.tournamentId;
-    if (!tournId || privateBusy) return;
-    setPrivateBusy(true);
-    try {
-      if (await cancelPrivateGameHold(tournId)) {
-        setPrivateHold((prev) => (prev ? { ...prev, live: false, outcome: 'cancelled' } : prev));
-        setHeadsUpWaitMode(null);
-        setHeadsUpInviteToken(null);
-        setHeadsUpHoldExpiresAtMs(null);
-        setPrivateStep(null);
-        toast?.info?.('Hold Cancelled, The Seat Is Open To Anyone');
-      } else {
-        setPrivateError('Could Not Cancel The Hold, Please Try Again');
-      }
-    } finally {
-      setPrivateBusy(false);
-    }
-  }, [privateBusy, toast]);
 
   /* The friend's Take Seat: the held seat is the first open chair. The price
      is still confirmed on the ordinary buy-in sheet before anything is paid. */
@@ -7177,6 +7172,55 @@ function LiveTablePage({
    * a fine place to land; the union's treasury is not.
    */
   const lobbyClubIdRef = useRef<string | null>(null);
+
+  const handlePrivateCancel = useCallback(async () => {
+    const tournId = tableStateRef.current.tournamentId;
+    if (!tournId || privateBusy) return;
+    setPrivateBusy(true);
+    try {
+      if (privateHold?.permanentPrivate && privateHold?.isCreator) {
+        const res = await closePrivateSeatFirstMatch(tournId);
+        if (res.ok) {
+          heroSeatRef.current = 0;
+          setPendingSeat(null);
+          setSeatFirstConfirm(null);
+          setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+          setPrivateHold((prev) => (prev ? { ...prev, live: false, outcome: 'closed' } : prev));
+          setPrivateStep(null);
+          toast?.success?.('Private Match Closed. Your Buy-In Has Been Refunded.');
+          if (tableId && userId) {
+            masterBus.emit('SESSION_ENDED', { tableId, userId });
+            playerStatusService.clearPlayingAt(userId);
+          }
+          const backTo = lobbyClubIdRef.current;
+          if (backTo) navigate(`/clubs/${backTo}`);
+        } else {
+          setPrivateError(privateGameRefusalText(res.reason));
+        }
+        return;
+      }
+      if (await cancelPrivateGameHold(tournId)) {
+        setPrivateHold((prev) => (prev ? { ...prev, live: false, outcome: 'cancelled' } : prev));
+        setHeadsUpWaitMode(null);
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+        setPrivateStep(null);
+        toast?.info?.('Hold Cancelled, The Seat Is Open To Anyone');
+      } else {
+        setPrivateError('Could Not Cancel The Hold, Please Try Again');
+      }
+    } finally {
+      setPrivateBusy(false);
+    }
+  }, [
+    navigate,
+    privateBusy,
+    privateHold?.isCreator,
+    privateHold?.permanentPrivate,
+    tableId,
+    toast,
+    userId,
+  ]);
   /* The same value as state, for the things that RENDER off it. A ref does not
      re-render, and the diamonds-to-chips door on a buy-in modal has to appear
      the moment the club resolves, not on whatever render happens next. */
@@ -13141,12 +13185,24 @@ function LiveTablePage({
         // toast lands over the lobby.
         showLobbyNow();
         try {
-          const result = await tournamentService.leaveTournamentSeatAndRefund(tableId, userId);
-          heroSeatRef.current = 0;
-          setPendingSeat(null);
-          setSeatFirstConfirm(null);
-          setTableState((prev) => ({ ...prev, heroSeat: 0 }));
-          toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
+          if (privateHold?.permanentPrivate && privateHold?.isCreator && tableState.tournamentId) {
+            const closed = await closePrivateSeatFirstMatch(tableState.tournamentId);
+            if (!closed.ok) {
+              throw new Error(closed.reason || 'close_refused');
+            }
+            heroSeatRef.current = 0;
+            setPendingSeat(null);
+            setSeatFirstConfirm(null);
+            setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+            toast?.success?.('Private Match Closed. Your Buy-In Has Been Refunded.');
+          } else {
+            const result = await tournamentService.leaveTournamentSeatAndRefund(tableId, userId);
+            heroSeatRef.current = 0;
+            setPendingSeat(null);
+            setSeatFirstConfirm(null);
+            setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+            toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
+          }
           masterBus.emit('SESSION_ENDED', { tableId, userId });
           playerStatusService.clearPlayingAt(userId);
           showLobbyNow();
@@ -32242,7 +32298,9 @@ function LiveTablePage({
         <PrivateGameInviteModal
           isOpen={isVisible}
           step={privateStep}
-          formatLabel={seatFirstBuyIn.label === 'Heads Up' ? 'Heads Up Sit N Go' : seatFirstBuyIn.label}
+          formatLabel={
+            seatFirstBuyIn.label === 'Heads Up' ? 'Heads Up Sit N Go' : seatFirstBuyIn.label
+          }
           tableName={tournamentEventName || tableState.tableName || seatFirstBuyIn.label}
           costLabel={Number(seatFirstBuyIn.cost || 0).toLocaleString()}
           maxHoldable={
@@ -32642,6 +32700,11 @@ function LiveTablePage({
               {seatFillDots(tableState.players.filter(Boolean).length, seatFirstBuyIn.seats)}
               {' · '}
               {(() => {
+                if (privateHold?.permanentPrivate && privateHold?.live) {
+                  return seatFirstBuyIn.seats > 2
+                    ? 'Private Spin: Waiting For Invited Players'
+                    : 'Private Match: Waiting For Invited Player';
+                }
                 const holdEnds = partnerHoldEndsLocalMs(seatFirstBuyIn.startTimeMs);
                 const openSeats = seatFirstBuyIn.seats - tableState.players.filter(Boolean).length;
                 if (openSeats > 0 && holdEnds > seatFillClock) {
@@ -32656,7 +32719,10 @@ function LiveTablePage({
               type="button"
               className="spectator-footer-bar__cta spectator-footer-bar__cta--invite"
               onClick={() => {
-                if (seatFirstBuyIn.label === 'Heads Up') {
+                if (privateHold?.permanentPrivate && privateHold?.isCreator) {
+                  setPrivateError(null);
+                  setPrivateStep('held');
+                } else if (seatFirstBuyIn.label === 'Heads Up') {
                   setHeadsUpPromptStep(headsUpWaitMode === null ? 'choice' : 'invite');
                   setHeadsUpPromptOpen(true);
                 } else {
@@ -32675,27 +32741,31 @@ function LiveTablePage({
                 setSeatFirstPending(true);
                 void (async () => {
                   try {
-                    const result = await tournamentService.leaveTournamentSeatAndRefund(
-                      tableId,
-                      userId!
-                    );
-                    heroSeatRef.current = 0;
-                    /* THE SEAT IS RELEASED, SO NOTHING MAY STILL CLAIM IT
-                       (2026-08-28). `pendingSeat` is set by the successful
-                       buy-in and had no clear on this path — only the CASH
-                       BuyInModal callbacks ever cleared it. Left set after a
-                       refund it does two visible wrongs: `canSit` requires
-                       `pendingSeat === null`, so EVERY seat at the table
-                       renders as an inert EMPTY plate the player can never
-                       tap again; and `isHeroReservedSeat` matches it, so the
-                       seat they just refunded keeps reading YOUR SEAT while
-                       the database has it vacated. On a direct /table/:id
-                       link there is no navigation away, so that contradiction
-                       is where the player stays. */
-                    setPendingSeat(null);
-                    setSeatFirstConfirm(null);
-                    setTableState((prev) => ({ ...prev, heroSeat: 0 }));
-                    toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
+                    if (
+                      privateHold?.permanentPrivate &&
+                      privateHold?.isCreator &&
+                      tableState.tournamentId
+                    ) {
+                      const closed = await closePrivateSeatFirstMatch(tableState.tournamentId);
+                      if (!closed.ok) {
+                        throw new Error(closed.reason || 'close_refused');
+                      }
+                      heroSeatRef.current = 0;
+                      setPendingSeat(null);
+                      setSeatFirstConfirm(null);
+                      setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+                      toast?.success?.('Private Match Closed. Your Buy-In Has Been Refunded.');
+                    } else {
+                      const result = await tournamentService.leaveTournamentSeatAndRefund(
+                        tableId,
+                        userId!
+                      );
+                      heroSeatRef.current = 0;
+                      setPendingSeat(null);
+                      setSeatFirstConfirm(null);
+                      setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+                      toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
+                    }
                     // UNION LAW (Dan 2026-08-23): the union-filtered lobby club,
                     // not actualClubIdRef — that is the union's hub club on a
                     // union game and must never be a player destination.
@@ -32720,7 +32790,9 @@ function LiveTablePage({
                 })();
               }}
             >
-              Leave Seat
+              {privateHold?.permanentPrivate && privateHold?.isCreator
+                ? 'Unregister & Close'
+                : 'Leave Seat'}
             </button>
           </div>
         ) : /* STATE, NOT A REF READ AT RENDER TIME.

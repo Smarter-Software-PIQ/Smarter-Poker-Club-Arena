@@ -38,6 +38,7 @@ CREATE TABLE public.engine_maintenance_thaws (freeze_started_at timestamptz PRIM
 CREATE TABLE public.engine_maintenance_break (id boolean PRIMARY KEY DEFAULT true, phase text NOT NULL,
   announced_at timestamptz NOT NULL DEFAULT now(), break_started_at timestamptz);
 CREATE TABLE public.ca_declared_money_triggers (table_name text, trigger_name text, note text, PRIMARY KEY (table_name, trigger_name));
+CREATE TABLE public.union_clubs (union_id uuid NOT NULL, club_id uuid NOT NULL, PRIMARY KEY (union_id, club_id));
 CREATE TABLE public.fixture_knobs (name text PRIMARY KEY, value text);
 
 CREATE FUNCTION public.fn_caller_session_is_live() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
@@ -65,7 +66,8 @@ BEGIN
     'REGISTERING', (p_config->'blind_structure')::text, (p_config->'payout_structure')::text,
     (p_config->>'start_time')::timestamptz, COALESCE(NULLIF(p_config->>'late_reg_levels','')::integer,0),
     COALESCE(NULLIF(p_config->>'late_reg_mins','')::integer,0), NULLIF(p_config->>'satellite_target_id','')::uuid,
-    NULLIF(p_config->>'satellite_seats','')::integer, p_config->>'short_description', 'sng-v1')
+    NULLIF(p_config->>'satellite_seats','')::integer, p_config->>'short_description',
+    CASE WHEN lower(COALESCE(p_config->>'variant','')) = 'spin' THEN 'spin-v1' ELSE 'sng-v1' END)
   RETURNING * INTO v;
   INSERT INTO public.tables (tournament_id, max_players) VALUES (p_tournament_id, v.max_players) RETURNING id INTO v_table;
   RETURN jsonb_build_object('ok', true, 'tournament', to_jsonb(v), 'table_id', v_table);
@@ -169,3 +171,29 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee);
 END $$;
 GRANT EXECUTE ON FUNCTION public.fn_unregister_from_tournament(uuid) TO authenticated;
+
+-- Exact unregister/refund authority stand-in called by fn_close_private_seat_first_match.
+CREATE FUNCTION public.fn_ca_unregister_tournament_player_exact(
+  p_tournament_id uuid,
+  p_user_id uuid,
+  p_table_id uuid,
+  p_reason text
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_t public.tournaments%ROWTYPE;
+BEGIN
+  SELECT * INTO v_t FROM public.tournaments WHERE id = p_tournament_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'reason', 'tournament_not_found'); END IF;
+  UPDATE public.tournament_players SET status = 'unregistered'
+   WHERE tournament_id = v_t.id AND user_id = p_user_id AND status IN ('registered', 'playing');
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'reason', 'not_registered'); END IF;
+  IF p_table_id IS NOT NULL THEN
+    UPDATE public.table_seats SET left_at = now()
+     WHERE table_id = p_table_id AND user_id = p_user_id AND left_at IS NULL;
+  END IF;
+  UPDATE public.wallets_fixture SET balance = balance + v_t.buy_in_amount + v_t.buy_in_fee WHERE user_id = p_user_id;
+  UPDATE public.tournaments SET current_players = GREATEST(COALESCE(current_players, 0) - 1, 0) WHERE id = v_t.id;
+  RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee, 'reason', p_reason);
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) TO service_role;

@@ -23,7 +23,13 @@
  * taken.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { copyText, gameInviteText, hasShareSheet, shareButtonLabel, shareLink } from '../../lib/share';
+import {
+  copyText,
+  gameInviteText,
+  hasShareSheet,
+  shareButtonLabel,
+  shareLink,
+} from '../../lib/share';
 import { formatHoldRemaining, type PrivateGameHold } from '../../lib/privateGameInvite';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -168,6 +174,7 @@ export function PrivateGameInviteModal({
   }, [inviteUrl, onNotify]);
 
   const left = formatHoldRemaining(hold?.expiresAtMs ?? null, now);
+  const permanentPrivate = hold?.permanentPrivate === true;
   const seatsWord = (hold?.seatsHeld ?? 1) === 1 ? 'Seat' : 'Seats';
   const friendsWord = friends === 1 ? 'Seat' : 'Seats';
 
@@ -261,8 +268,8 @@ export function PrivateGameInviteModal({
             : `You Buy In ${costLabel ? `For ${costLabel} ` : 'At The Normal Price '}Now At A Private Table Of This Game, And The Other Seat Is Held For The Friend You Send The Link To.`}
         </p>
         <p className="hu-waiting-dialog__hint">
-          Nobody Else Can Take A Held Seat For 10 Minutes. If Your Friend Does Not Sit Down In
-          Time, The Seat Opens And The Game Fills As Usual.
+          Nobody Else Can Take A Held Seat For 10 Minutes. If Your Friend Does Not Sit Down In Time,
+          The Seat Opens And The Game Fills As Usual.
         </p>
         {errorMessage && (
           <p className="hu-waiting-dialog__error" role="alert">
@@ -277,12 +284,22 @@ export function PrivateGameInviteModal({
         as="div"
         onClose={onClose}
         eyebrow={formatLabel}
-        title={`${seatsWord} Held For Your Friend`}
+        title={
+          permanentPrivate
+            ? (hold?.seatsHeld ?? 1) > 1
+              ? 'Private Spin Ready'
+              : 'Private Match Ready'
+            : `${seatsWord} Held For Your Friend`
+        }
         titleId="private-invite-title"
-        pill={`${left} Left`}
-        pillInk="blue"
+        pill={permanentPrivate ? 'Private Only' : `${left} Left`}
+        pillInk={permanentPrivate ? 'gold' : 'blue'}
         plates={{
-          secondary: { label: 'Cancel Hold', disabled: busy, onClick: onCancelHold },
+          secondary: {
+            label: permanentPrivate ? (busy ? 'Closing...' : 'Unregister & Close') : 'Cancel Hold',
+            disabled: busy,
+            onClick: onCancelHold,
+          },
           primary: {
             ink: 'white',
             label: copied ? 'Link Copied' : shareButtonLabel(),
@@ -291,9 +308,13 @@ export function PrivateGameInviteModal({
         }}
       >
         <p className="hu-waiting-dialog__prompt">
-          {sitAndGo
-            ? `Send This Link To Your Friends. Nobody Else Can Take The Held ${seatsWord} Until The Time Runs Out, And The Game Starts When Every Seat Is Taken.`
-            : `Send This Link To Your Friend. The Game Starts When They Sit Down, And Nobody Else Can Take The Held ${seatsWord} Until The Time Runs Out.`}
+          {permanentPrivate
+            ? (hold?.seatsHeld ?? 1) > 1
+              ? 'Send This Link To The Players You Want To Play Against. Nobody Else Can Join This Private Spin. Unregister And Close At Any Time To Refund And End This Event.'
+              : 'Send This Link To The Player You Want To Play Against. Nobody Else Can Join This Private Match. Unregister And Close At Any Time To Refund And End This Event.'
+            : sitAndGo
+              ? `Send This Link To Your Friends. Nobody Else Can Take The Held ${seatsWord} Until The Time Runs Out, And The Game Starts When Every Seat Is Taken.`
+              : `Send This Link To Your Friend. The Game Starts When They Sit Down, And Nobody Else Can Take The Held ${seatsWord} Until The Time Runs Out.`}
         </p>
         {sitAndGo && hold && hold.heldOpen > 0 && (
           <p className="hu-waiting-dialog__hint">
@@ -303,7 +324,11 @@ export function PrivateGameInviteModal({
         <div className="hu-waiting-dialog__linkbox">
           <span className="hu-waiting-dialog__url">{inviteUrl}</span>
           {hasShareSheet() && (
-            <button type="button" className="hu-waiting-dialog__copy-inline" onClick={() => void copyOnly()}>
+            <button
+              type="button"
+              className="hu-waiting-dialog__copy-inline"
+              onClick={() => void copyOnly()}
+            >
               {copied ? 'Copied' : 'Copy'}
             </button>
           )}
@@ -338,7 +363,9 @@ export function PrivateGameInviteModal({
                 tableName={tableName || formatLabel}
                 inviteCode={friendInviteTarget.inviteCode}
                 inviteToken={friendInviteTarget.inviteToken}
-                onInviteSent={(contact) => onNotify?.('success', `Invite Sent To ${contact.displayName}`)}
+                onInviteSent={(contact) =>
+                  onNotify?.('success', `Invite Sent To ${contact.displayName}`)
+                }
               />
             )}
           </div>
@@ -351,22 +378,31 @@ export function PrivateGameInviteModal({
         as="div"
         onClose={onClose}
         eyebrow={formatLabel}
-        title="Your Seat Is Held"
+        title={permanentPrivate ? 'Private Match Invite' : 'Your Seat Is Held'}
         titleId="private-invite-title"
-        pill={`${left} Left`}
+        pill={permanentPrivate ? 'Private Only' : `${left} Left`}
         pillInk="gold"
         plates={{
           secondary: { label: 'Not Now', disabled: busy, onClick: onClose },
-          primary: { ink: 'white', label: busy ? 'Opening Seat...' : 'Take Seat', disabled: busy, onClick: onTakeSeat },
+          primary: {
+            ink: 'white',
+            label: busy ? 'Opening Seat...' : 'Take Seat',
+            disabled: busy,
+            onClick: onTakeSeat,
+          },
         }}
       >
         <p className="hu-waiting-dialog__prompt">
-          {`${hold?.inviterName || 'Your Friend'} Is Holding A Seat For You At This Table.`}
+          {permanentPrivate
+            ? `${hold?.inviterName || 'Your Friend'} Invited You To This Private Match.`
+            : `${hold?.inviterName || 'Your Friend'} Is Holding A Seat For You At This Table.`}
         </p>
         <p className="hu-waiting-dialog__hint">
-          {sitAndGo
-            ? 'Take It Before The Time Runs Out. You Register At The Normal Price, And The Game Starts When Every Seat Is Taken.'
-            : 'Take It Before The Time Runs Out. You Buy In At The Normal Price When You Sit Down.'}
+          {permanentPrivate
+            ? 'Nobody Else Can Join Without This Link. You Buy In At The Normal Price When You Sit Down.'
+            : sitAndGo
+              ? 'Take It Before The Time Runs Out. You Register At The Normal Price, And The Game Starts When Every Seat Is Taken.'
+              : 'Take It Before The Time Runs Out. You Buy In At The Normal Price When You Sit Down.'}
         </p>
         {errorMessage && (
           <p className="hu-waiting-dialog__error" role="alert">

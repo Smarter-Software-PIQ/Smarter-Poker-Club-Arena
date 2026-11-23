@@ -1,0 +1,9 @@
+{
+  "_owner": "feat/private-heads-up-and-spins. Migration 20261123191738_player_created_private_heads_up_and_spin_matches: player-created strictly link-only Private Heads-Up Matches and Private Spins cloned only from currently offered club/union boards (src/lib/privateSeatFirstMatch.ts).",
+  "tables": ["private_seat_first_matches"],
+  "functions": [
+    "fn_close_private_seat_first_match",
+    "fn_create_private_seat_first_match",
+    "fn_private_seat_first_lobby_state"
+  ]
+}

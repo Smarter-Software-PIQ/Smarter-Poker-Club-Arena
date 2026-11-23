@@ -1,0 +1,86 @@
+/* Player-created Private Heads-Up & Private Spin modal additions on SpadeConsole.
+   Zero :hover rules (Club Arena touch-first CSS law). */
+
+.private-create-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.private-create-modal__label {
+  color: #8fb4d8;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.private-create-modal__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.private-create-modal__chip {
+  min-height: 44px;
+  min-width: 56px;
+  padding: 8px 14px;
+  border: 1px solid rgb(138 168 198 / 32%);
+  border-radius: 8px;
+  background: rgb(11 22 36 / 86%);
+  color: #dce9f7;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.private-create-modal__chip.is-selected {
+  border-color: #45adff;
+  background: linear-gradient(180deg, rgb(69 173 255 / 26%) 0%, rgb(15 49 92 / 78%) 100%);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(69 173 255 / 35%);
+}
+
+.private-create-modal__chip:active:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.private-create-modal__chip:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.private-create-modal__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgb(125 162 198 / 24%);
+  border-radius: 10px;
+  background: rgb(6 14 24 / 72%);
+  margin-bottom: 10px;
+}
+
+.private-create-modal__fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.private-create-modal__fact span {
+  color: #8ca0b5;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.private-create-modal__fact strong {
+  color: #f3f7fc;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
