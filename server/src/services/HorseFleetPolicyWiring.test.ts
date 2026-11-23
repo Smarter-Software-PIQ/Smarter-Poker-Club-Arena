@@ -204,9 +204,15 @@ describe('a disabled or paused fleet seats nobody and removes nobody', () => {
        manager's only reference to a seat row is the read it has always done. */
     expect(SRC).not.toMatch(/\.from\('table_seats'\)[\s\S]{0,120}\.delete\(/);
     expect(SRC).not.toContain('leaveTable');
-    expect(SRC.match(/from\('table_seats'\)/g)?.length ?? 0).toBe(1);
-    expect(SRC.match(/left_at/g)?.length ?? 0).toBe(1);
-    expect(SRC).toContain(".is('left_at', null)");
+    // Every reference to a seat row is a READ of seated players. Two since
+    // 2026-11-22: the cycle's read, and the line asked for the moment a game
+    // fills (askLineOnArrival). Neither can stand anyone up.
+    const seatRefs = SRC.match(/from\('table_seats'\)/g)?.length ?? 0;
+    const seatReads = SRC.match(/from\('table_seats'\)\s*\.select\(/g)?.length ?? 0;
+    expect(seatRefs).toBe(seatReads);
+    expect(seatReads).toBe(2);
+    expect(SRC.match(/left_at/g)?.length ?? 0).toBe(seatReads);
+    expect(SRC.match(/\.is\('left_at', null\)/g)?.length ?? 0).toBe(seatReads);
   });
 });
 

@@ -664,6 +664,17 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_cash_hourly_call_admissible(uuid,uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_call_admissible(uuid,uuid) TO service_role;
+-- Restated with every replaced body (the engine is their only caller, as
+-- service_role): CREATE OR REPLACE keeps the installed ACL, and saying it
+-- here keeps the file honest about it.
+REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_admissions() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_admissions() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_lightning_admission_policy() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_lightning_admission_policy() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_admit(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_admit(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_offer_open_seat(uuid,interval,interval) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_offer_open_seat(uuid,interval,interval) TO service_role;
 
 -- Read back what was installed, or abort the whole file.
 DO $readback$
