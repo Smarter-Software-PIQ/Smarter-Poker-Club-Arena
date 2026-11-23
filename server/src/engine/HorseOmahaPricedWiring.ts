@@ -39,7 +39,9 @@ import { omahaSlowplayUnit } from './HorseOmahaStrongHandSlowplayMix.js';
 import {
   omahaDecisionRaises,
   omahaRaiseNeedsNutsCall,
+  omahaRaiseNeedsNutsKeeps,
   omahaRaiseNeedsNutsScope,
+  type OmahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import {
   withOmahaPricedMode,
@@ -78,6 +80,12 @@ export interface OmahaPricedDeps {
    * priced comparisons' call-versus-fold answer; null when it does not price the spot.
    */
   facingVerdict?: () => { call: boolean; ev: number } | null;
+  /**
+   * omahaLateFlattenedCallIsPriced only (default absent): true when the call given to the turn and river raise
+   * rule is a river raise that call_large_river_boat_wager flattened after the facing-bet EV stage had stood
+   * aside for the raise, and that stage's verdict could not price it (HorseLogic.omahaLateFlattenedCallIsPricedRule).
+   */
+  lateFlattenedCall?: () => boolean;
 }
 
 const num = (v: unknown): number =>
@@ -387,6 +395,18 @@ function raiseVerdictOf(
  * another owner chose stays unless a raise is priced above it. A nut-class
  * hand keeps the raise or the call it was given (its raise is never worth
  * less than its call; the slow-play mix owns its call).
+ *
+ * omahaPricedRaiseNeverMakesNonNutRaise (PLO-OWNER lead-5 2026-11-22, default OFF, read `=== true`; owner
+ * 2026-11-15 12:52 / 12:53 and 12:30: a non-nut hand facing a turn or river bet folds or at best calls, and a
+ * draw raises only in position with a combo draw): with it on, this rule returns a raise only for a hand that is
+ * nut class now, or for the in-position turn combo draw raising (HorseOmahaTurnRiverRaiseNeedsNuts
+ * .omahaRaiseNeedsNutsKeeps, the one classifier). Every other raise it is given becomes the priced call or
+ * fold it already computed (verdict.callStands; the call when nothing could be priced), and a call or fold it is
+ * given is never turned into a raise. Off or unset: byte-identical.
+ *
+ * omahaLateFlattenedCallIsPriced (PLO-OWNER lead-5 2026-11-22, default OFF, read `=== true`): a call this rule
+ * is given that is a late-flattened river raise no verdict priced (deps.lateFlattenedCall) is folded where the
+ * priced call does not stand. Nothing else changes. Off or unset: byte-identical.
  */
 export function omahaPricedTurnRiverRaiseRule(
   decision: HorseDecision,
@@ -398,8 +418,10 @@ export function omahaPricedTurnRiverRaiseRule(
   if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, opts))
     return null;
   const tele = telemetryOn(opts);
+  const neverNonNut = opts.omahaPricedRaiseNeverMakesNonNutRaise === true;
+  let scope: ReturnType<typeof omahaRaiseNeedsNutsScope> = null;
   try {
-    const scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
+    scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
     if (!scope) return null;
     const raises = omahaDecisionRaises(decision, player, scope);
     if (
@@ -412,6 +434,32 @@ export function omahaPricedTurnRiverRaiseRule(
     if (omahaNutClassNow(player, gs)) {
       if (tele && raises) noteFire('omaha_priced_raise_kept');
       return decision;
+    }
+    // omahaPricedRaiseNeverMakesNonNutRaise: the hand is not nut class. Only the in-position turn combo draw
+    // that is already raising goes on to the priced comparison below; every other decision leaves here as a
+    // call or a fold.
+    if (neverNonNut && !(raises && omahaRaiseNeedsNutsKeeps(player, gs, scope) === 'combo_draw')) {
+      const nonNut = raiseVerdictOf(decision, player, gs, opts, deps);
+      const wanted =
+        nonNut !== null &&
+        (nonNut.verdict.action === 'raise' || nonNut.verdict.action === 'all_in');
+      if (!raises) {
+        // A call or fold it was given is never turned into a raise.
+        if (tele && wanted) noteFire('omaha_priced_raise_non_nut_raise_not_made');
+        return omahaLateFlattenedCallPriced(decision, player, scope, opts, deps, nonNut?.verdict);
+      }
+      if (!nonNut) {
+        // Nothing could be priced: the chips the raise would add stay out and the hand calls.
+        if (tele) noteFire('omaha_priced_raise_non_nut_unpriced_called');
+        return omahaRaiseNeedsNutsCall(decision, scope);
+      }
+      if (tele && wanted) noteFire('omaha_priced_raise_non_nut_raise_not_made');
+      if (nonNut.verdict.callStands) {
+        if (tele) noteFire('omaha_priced_raise_called');
+        return omahaRaiseNeedsNutsCall(decision, scope);
+      }
+      if (tele) noteFire('omaha_priced_raise_folded');
+      return folded(decision);
     }
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
@@ -455,7 +503,7 @@ export function omahaPricedTurnRiverRaiseRule(
       delete raised.continuationGuard;
       return raised;
     }
-    if (!raises) return decision;
+    if (!raises) return omahaLateFlattenedCallPriced(decision, player, scope, opts, deps, verdict);
     if (verdict.callStands) {
       if (tele) noteFire('omaha_priced_raise_called');
       return omahaRaiseNeedsNutsCall(decision, scope);
@@ -464,8 +512,49 @@ export function omahaPricedTurnRiverRaiseRule(
     return folded(decision);
   } catch {
     if (tele) noteFire('omaha_strategy_rule_failed');
+    // omahaPricedRaiseNeverMakesNonNutRaise: a failure inside scope never leaves a non-nut raise standing, and
+    // never folds on one either (as the nut rule's own failure path): the hand calls.
+    if (neverNonNut && scope) {
+      try {
+        if (
+          omahaDecisionRaises(decision, player, scope) &&
+          omahaRaiseNeedsNutsKeeps(player, gs, scope) === null
+        )
+          return omahaRaiseNeedsNutsCall(decision, scope);
+      } catch {
+        return decision;
+      }
+    }
     return decision;
   }
+}
+/**
+ * omahaLateFlattenedCallIsPriced at the turn and river raise rule: the call it was given is returned as it is
+ * unless the option is on, the street is the river, the decision is a call (or the all-in call) that
+ * deps.lateFlattenedCall marks as a late-flattened raise no verdict priced, and the comparison priced it. Then
+ * the priced call stands or the hand folds. Receipts omaha_late_flattened_call_priced_kept / _folded.
+ */
+function omahaLateFlattenedCallPriced(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  scope: OmahaRaiseNeedsNutsScope,
+  opts: HorseDecideOpts,
+  deps: OmahaPricedDeps,
+  verdict: { callStands: boolean } | null | undefined
+): HorseDecision {
+  if (opts.omahaLateFlattenedCallIsPriced !== true || scope.street !== 'river' || !verdict)
+    return decision;
+  const calls =
+    decision.action === 'call' ||
+    (decision.action === 'all_in' && !omahaDecisionRaises(decision, player, scope));
+  if (!calls || deps.lateFlattenedCall?.() !== true) return decision;
+  const tele = telemetryOn(opts);
+  if (verdict.callStands) {
+    if (tele) noteFire('omaha_late_flattened_call_priced_kept');
+    return decision;
+  }
+  if (tele) noteFire('omaha_late_flattened_call_priced_folded');
+  return folded(decision);
 }
 function proposedMatches(decision: HorseDecision, player: SeatPlayer, to: number): boolean {
   if (decision.action === 'all_in')

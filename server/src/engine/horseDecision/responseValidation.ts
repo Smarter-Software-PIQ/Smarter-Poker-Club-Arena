@@ -1054,6 +1054,13 @@ export interface HorseDecisionReceiptContext {
    */
   omahaMathCore?: boolean;
   /**
+   * PLO-OWNER lead-5 2026-11-22: true when the worker may have run this decision with
+   * omahaPricedRaiseNeverMakesNonNutRaise on (omahaNonNutRaiseInLightningGate). Only then is the nut rule's
+   * raise -> call admitted in a Lightning pool (the rule reads its spot there only under that option). Absent
+   * or false, the validator is exactly as before.
+   */
+  omahaNonNutRaiseInLightning?: boolean;
+  /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
    * option). Absent or false, the validator is exactly as before.
@@ -1753,7 +1760,12 @@ function policyGraphIsValidInScope(
       ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
-      omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+      omahaRaiseNeedsNutsAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount,
+        context.omahaNonNutRaiseInLightning === true
+      );
     // Owner 2026-11-17 11:49 (HorseOmahaPricedWiring, options
     // omahaTurnRiverRaiseIsPriced and omahaBigBetCallsArePriced): on the
     // PLO4/PLO5 cash turn and river a raise that is not priced above the call
@@ -2395,6 +2407,34 @@ export function omahaMathCoreGate(
     try {
       const parsed = parseOptionSwitchConfig(config);
       return parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaMathCore === true;
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
+/**
+ * omahaPricedRaiseNeverMakesNonNutRaise (PLO-OWNER lead-5 2026-11-22): whether the worker may have run this
+ * decision with the option on, read exactly as omahaMathCoreGate reads omahaMathCore: the request's own option,
+ * the switch row this client last delivered, or the configuration before the last change while it still counts.
+ * Any of them on admits the nut rule's raise -> call in a Lightning pool (still only in the rule's own spot,
+ * with a hand it would not keep raising, for the exact chips of the call).
+ */
+export function omahaNonNutRaiseInLightningGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  if (requestOpts?.omahaPricedRaiseNeverMakesNonNutRaise === true) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return (
+        parsed.ok &&
+        (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)
+          .omahaPricedRaiseNeverMakesNonNutRaise === true
+      );
     } catch {
       return false;
     }
