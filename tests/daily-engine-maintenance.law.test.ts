@@ -25,9 +25,14 @@ function admit(
   message: string,
   health: string,
   schedule = '30 * * * *',
-  createdAt = '2026-10-21T08:30:01Z',
+  createdAt?: string,
   owner?: { windows: string; ancestor: boolean; served?: boolean; witness?: string; floor?: string }
 ) {
+  // O18 (2026-11-23): every original event, a push included, is judged by its
+  // run's created_at. The push cases here are daytime pushes, so their run was
+  // created at 13:20 CDT, outside every daily and three-hourly preparation
+  // window; the schedule cases keep the 03:30 preparation instant.
+  const created = createdAt ?? (event === 'push' ? '2026-10-21T18:20:00Z' : '2026-10-21T08:30:01Z');
   const dir = mkdtempSync(join(tmpdir(), 'daily-admission-'));
   try {
     // The admission reads server/release/owner-maintenance-windows.json from
@@ -128,7 +133,7 @@ cat '${join(dir, 'policy.json')}'
           EVENT_NAME: event,
           HOUR: hour,
           SCHEDULE_EXPRESSION: schedule,
-          RUN_CREATED_AT: createdAt,
+          RUN_CREATED_AT: created,
           REPO: 'test/repo',
           RUN_ID: '123',
           GITHUB_RUN_ATTEMPT: '1',

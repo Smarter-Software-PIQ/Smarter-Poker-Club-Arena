@@ -120,7 +120,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           SENDER_TYPE: ${{ github.event.sender.type }}
-          PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -146,11 +145,20 @@ jobs:
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::A daily reservation cannot be replayed."; exit 1; }
           # Original event time selects one bounded reservation date. A delayed
           # event cannot claim an expired date, and a rerun cannot reserve again.
+          #
+          # ONE TIME BASIS FOR THE RUN AND THE ELECTION (2026-11-23, O18). The
+          # election below names the owner by each run's created_at, so a run
+          # must judge its own eligibility by its created_at too. A push run
+          # used to judge itself by repository.pushed_at instead: c0706e2b3563
+          # was pushed at 04:49:59Z, one second before the 01:00 CST cycle's
+          # window opened at 04:50:00Z, and its run 45114163784 was created at
+          # 04:50:01Z. That run prepared nothing, every later run deferred to it
+          # as the earlier owner, and nobody prepared the cycle, so the
+          # certified candidate was never selected. Every original event now
+          # uses its run's created_at; an unreadable answer prepares nothing.
           moment=''
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || [ "$EVENT_NAME" = push ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
             moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
-          elif [ "$EVENT_NAME" = push ]; then
-            moment="${PUSHED_AT:-}"
           fi
           window=''
           if [ -n "$moment" ]; then

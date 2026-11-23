@@ -66,8 +66,7 @@ type Case = {
   event: 'push' | 'schedule' | 'repository_dispatch' | 'workflow_run';
   sender?: string;
   attempt?: number;
-  createdAt?: string; // schedule: the run's own created_at from the API
-  pushedAt?: string; // push: github.event.repository.pushed_at (epoch seconds)
+  createdAt?: string; // every original event: the run's own created_at from the API (O18)
   runs?: Run[];
   totalCount?: number;
   listFails?: boolean;
@@ -145,7 +144,6 @@ cat '${join(dir, 'policy.json')}'
           EVENT_NAME: c.event,
           SENDER_TYPE: c.sender ?? 'User',
           GITHUB_RUN_ATTEMPT: String(c.attempt ?? 1),
-          PUSHED_AT: c.pushedAt ?? '',
           RUN_CREATED_AT: c.createdAt ?? '',
           RUNS_JSON: JSON.stringify(
             c.pages ?? {
@@ -305,7 +303,7 @@ describe('the daily preparation reserves early and executes at the unchanged cut
   it('a protected-main push inside the window is just as able to prepare', () => {
     const { outputs, listed } = admit({
       event: 'push',
-      pushedAt: epoch('2026-11-01T09:40:00Z'),
+      createdAt: '2026-11-01T09:40:00Z',
     });
     expect(outputs.allowed).toBe('true');
     expect(outputs.daily_preparation).toBe('true');
@@ -313,9 +311,9 @@ describe('the daily preparation reserves early and executes at the unchanged cut
     expect(listed).toEqual([
       'repos/test/repo/actions/workflows/stage-engine-release.yml/runs?created=2026-11-01T04:30:00Z..2026-11-01T09:50:00Z&per_page=100',
     ]);
-    // Daytime pushes still queue, and no push instant is still no admission.
-    for (const pushedAt of [epoch('2026-11-01T19:40:00Z'), '']) {
-      const queued = admit({ event: 'push', pushedAt });
+    // Daytime pushes still queue, and an unreadable run time is still no admission.
+    for (const createdAt of ['2026-11-01T19:40:00Z', '']) {
+      const queued = admit({ event: 'push', createdAt });
       expect(queued.outputs.allowed).toBe('false');
       expect(queued.outputs.daily_preparation).toBe('false');
       expect(queued.listed).toEqual([]);
@@ -323,8 +321,41 @@ describe('the daily preparation reserves early and executes at the unchanged cut
   });
 });
 
+// O18 replay (2026-11-23): c0706e2b3563 was pushed at 04:49:59Z, one second
+// before the 01:00 CST cycle's window opened at 04:50:00Z; its run 45114163784
+// was created at 04:50:01Z. The election counted that run as the owner by its
+// created_at, but the run judged itself by the push instant and prepared
+// nothing, so nobody prepared the cycle. Run and election now share one clock.
+describe('a run and the election judge the window by the same clock (O18)', () => {
+  it('a push run created inside the window owns it even when the push was a second earlier', () => {
+    const owner = admit({ event: 'push', createdAt: '2026-11-01T04:30:01Z' });
+    expect(owner.outputs.allowed).toBe('true');
+    expect(owner.outputs.daily_preparation).toBe('true');
+    expect(owner.outputs.daily_preparation_date).toBe('2026-11-01');
+    // The later run defers to exactly the run that now prepares.
+    const later = admit({
+      event: 'schedule',
+      createdAt: '2026-11-01T09:31:00Z',
+      runs: [
+        {
+          id: 100,
+          event: 'push',
+          created_at: '2026-11-01T04:30:01Z',
+          display_title: 'Daily engine reservation',
+        },
+      ],
+    });
+    expect(later.outputs.daily_preparation).toBe('false');
+    expect(later.stdout).toContain('belongs to earlier run 100');
+    // A run created before the window still prepares nothing and is not an owner.
+    expect(
+      admit({ event: 'push', createdAt: '2026-11-01T04:29:59Z' }).outputs.daily_preparation
+    ).toBe('false');
+  });
+});
+
 describe('the preparation happens once per Chicago date', () => {
-  const inWindow = { event: 'push' as const, pushedAt: epoch('2026-11-01T09:44:00Z') };
+  const inWindow = { event: 'push' as const, createdAt: '2026-11-01T09:44:01Z' };
 
   it('admits the automatic Backup completion in the original window and preserves the cutoff', () => {
     expect(stage.on.workflow_run).toEqual({
@@ -346,7 +377,7 @@ describe('the preparation happens once per Chicago date', () => {
     expect(
       admit({ event: 'workflow_run', createdAt: '2026-11-08T09:50:00Z' }).outputs.daily_preparation
     ).toBe('false');
-    const push = { event: 'push' as const, pushedAt: epoch('2026-11-08T09:44:00Z') };
+    const push = { event: 'push' as const, createdAt: '2026-11-08T09:44:00Z' };
     expect(admit({ ...push, runs: [automatic] }).outputs.daily_preparation).toBe('false');
     expect(
       admit({
@@ -461,7 +492,9 @@ describe('the workflow adds chances, not authority', () => {
   });
 
   it('the admission itself only reads: no dispatch, no write, no wait', () => {
-    expect(admissionStep.env.PUSHED_AT).toBe("${{ github.event.repository.pushed_at || '' }}");
+    // O18: one time basis. No run judges itself by the push instant.
+    expect(admissionStep.env.PUSHED_AT).toBeUndefined();
+    expect(admission).not.toContain('PUSHED_AT');
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(admission).not.toMatch(/dispatches|--method|-X POST|sleep|while true/);
     expect(admission).toContain('WINDOW_MINUTES = 20');

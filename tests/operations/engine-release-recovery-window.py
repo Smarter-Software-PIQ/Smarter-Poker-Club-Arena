@@ -699,11 +699,11 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                         if selector == 'host':
                             script = 'set -euo pipefail\n' + prefix + function + '\nowner_window_reason "$HEALTH"\n'
                         else:
-                            script = prefix + 'date() { printf 14; }\ncurl() { printf "%s" "$HEALTH"; }\n' + stage + '\ncat "$GITHUB_OUTPUT"\n'
+                            script = prefix + 'date() { printf 14; }\ngh() { return 1; }\ncurl() { printf "%s" "$HEALTH"; }\n' + stage + '\ncat "$GITHUB_OUTPUT"\n'
                         result = subprocess.run(['bash', '-c', script], cwd=repo,
                             env={**env, 'REPO_DIR': tmp, 'SHA': target, 'HEALTH': health,
                                  'EVENT_NAME': 'push', 'GITHUB_SHA': target, 'GITHUB_OUTPUT': str(output),
-                                 'GITHUB_RUN_ATTEMPT': '1', 'PUSHED_AT': '', 'RUNNER_TEMP': tmp},
+                                 'GITHUB_RUN_ATTEMPT': '1', 'RUNNER_TEMP': tmp},
                             text=True, capture_output=True, timeout=15)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout
