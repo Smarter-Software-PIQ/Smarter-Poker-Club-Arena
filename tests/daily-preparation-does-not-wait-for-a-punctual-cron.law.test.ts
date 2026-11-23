@@ -461,11 +461,21 @@ describe('the workflow adds chances, not authority', () => {
       { cron: '31,35,39,43 12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
+      'cutover-log-keep-serving',
       'detect',
       'selection',
       'signal',
       'window-migrations',
     ]);
+    // cutover-log-keep-serving (O20) is reporting-only on issue #11599:
+    // no contents:write, no environment/secrets, continue-on-error: true.
+    expect(stage.jobs['cutover-log-keep-serving'].permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+      issues: 'write',
+    });
+    expect(stage.jobs['cutover-log-keep-serving']['continue-on-error']).toBe(true);
+    expect(stage.jobs['cutover-log-keep-serving'].environment).toBeUndefined();
   });
 
   it('the admission itself only reads: no dispatch, no write, no wait', () => {

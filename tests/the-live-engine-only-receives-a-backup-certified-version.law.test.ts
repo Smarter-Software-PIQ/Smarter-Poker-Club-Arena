@@ -9,7 +9,7 @@
  * certified, before tests, database doors, SSH or any Hetzner contact.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -368,5 +368,127 @@ python3() { cp "${stub}" daily-selection.json; return 0; }
     expect(quietKeepServing.status, quietKeepServing.stderr).toBe(0);
     expect(quietKeepServing.outputs).toContain('send=false');
     expect(quietKeepServing.stdout).not.toContain('::error');
+  });
+});
+
+describe('O20: Stage posts keep-serving cycles to issue #11599 without altering release authority', () => {
+  const stage = parse(
+    readFileSync(resolve(__dirname, '..', '.github/workflows/stage-engine-release.yml'), 'utf8')
+  );
+  const job = stage.jobs['cutover-log-keep-serving'];
+  const serving = '735299cd5fda6b59c43d1379371d1a3dfb1a050f';
+  const candidate = 'c0706e2b35631627a88dc26aec4bce830c3ec615';
+
+  it('is reporting-only, gated to daily keep-serving on attempt 1, and holds no contents:write', () => {
+    expect(job).toBeDefined();
+    expect(job['continue-on-error']).toBe(true);
+    expect(job.needs).toEqual(['detect', 'selection']);
+    expect(job.permissions).toEqual({ actions: 'read', contents: 'read', issues: 'write' });
+    expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
+    expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
+    expect(job.if).toContain("needs.selection.result == 'success'");
+    expect(job.if).toContain("needs.selection.outputs.send != 'true'");
+    expect(job.if).toContain('github.run_attempt == 1');
+  });
+
+  function runComment(releaseDate: string, selection: Record<string, unknown> | null) {
+    const step = job.steps.find((s: any) => s.id === 'comment');
+    expect(step).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), 'stage-log-o20-'));
+    const postedFile = join(dir, 'posted.txt');
+    const artifactDir = join(dir, 'selection-artifact');
+    if (selection !== null) {
+      mkdirSync(artifactDir, { recursive: true });
+      writeFileSync(join(artifactDir, 'daily-selection.json'), JSON.stringify(selection));
+    }
+    const harness = `
+gh() {
+  printf '%s\\n' "$@" > "${postedFile}"
+  return 0
+}
+`;
+    try {
+      const result = spawnSync('bash', ['-c', harness + step.run], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          REPO: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+          LOG_ISSUE: '11599',
+          RELEASE_DATE: releaseDate,
+          RUN_URL:
+            'https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/45134198393',
+        },
+      });
+      let posted = '';
+      try {
+        posted = readFileSync(postedFile, 'utf8');
+      } catch {
+        posted = '';
+      }
+      return {
+        status: result.status,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        posted,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('posts one KEEP-SERVING comment with cycle, serving SHA, reason, deferred details and never Sealed SHA', () => {
+    const r = runComment('2026-11-23', {
+      schema: 1,
+      outcome: 'keep-serving',
+      reason: 'no selectable candidate matched production schema',
+      servingSha: serving,
+      targetSha: null,
+      deferredCandidates: [
+        {
+          sha: candidate,
+          reason: 'backup copy schema mismatch',
+          detail: 'copy held 20261123002808 absent from production',
+        },
+      ],
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.posted).toContain(
+      'repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/issues/11599/comments'
+    );
+    expect(r.posted).toContain('Cycle: 2026-11-23 04:00 CST');
+    expect(r.posted).toContain('Result: KEEP-SERVING (the serving engine keeps running)');
+    expect(r.posted).toContain(`Serving SHA: \`${serving}\``);
+    expect(r.posted).toContain('c0706e2b3563: backup copy schema mismatch');
+    expect(r.posted).not.toContain('Sealed SHA:');
+
+    const threeHourly = runComment('2026-11-23T01', {
+      schema: 1,
+      outcome: 'keep-serving',
+      reason: 'current',
+      servingSha: serving,
+      targetSha: null,
+      deferredCandidates: [],
+    });
+    expect(threeHourly.status, threeHourly.stderr).toBe(0);
+    expect(threeHourly.posted).toContain('Cycle: 2026-11-23 01:00 CST');
+    expect(threeHourly.posted).toContain('Deferred candidates: (none)');
+  });
+
+  it('skips posting when outcome is selected or the selection artifact is missing', () => {
+    const selected = runComment('2026-11-23T10', {
+      schema: 1,
+      outcome: 'selected',
+      servingSha: serving,
+      targetSha: candidate,
+      deferredCandidates: [],
+    });
+    expect(selected.status, selected.stderr).toBe(0);
+    expect(selected.posted).toBe('');
+
+    const missing = runComment('2026-11-23T10', null);
+    expect(missing.status, missing.stderr).toBe(0);
+    expect(missing.posted).toBe('');
+    expect(missing.stdout).toContain('daily-selection.json missing');
   });
 });
