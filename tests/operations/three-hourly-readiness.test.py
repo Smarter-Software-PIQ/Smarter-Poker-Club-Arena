@@ -1236,6 +1236,250 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertIn("run 3 [queued, repository_dispatch] cccccccccccc", out)
         self.assertIn("run 4 [queued] dddddddddddd", out)
 
+    def test_default_walk_extends_past_ten_to_find_older_selectable_candidate(self):
+        # O19 (D1) replay of 2026-11-23 08:18Z: 14 newer commits landed after
+        # the certified candidate (#15). Default walk (limit=None) must extend
+        # up to SELECTABLE_SEARCH_LIMIT (60), skip CTRL=DIFF commits without
+        # burning status calls, and return READY; explicit --limit 10 stays capped.
+        serving = _sha("0")
+        commits = [(f"{i:040x}", f"commit {i}") for i in range(1, 17)]
+        head = commits[0][0]
+        target = commits[14][0]  # 15th commit (index 14)
+        ctrl_diff_sha = commits[11][0]  # 12th commit has diverged CONTROL_INPUTS
+        now = datetime(2026, 11, 23, 8, 18, tzinfo=timezone.utc)
+        status_calls = []
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                return {"workflow_runs": []}
+            if "backup-engine.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 45116020341,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "workflow_dispatch",
+                            "head_sha": target,
+                            "created_at": "2026-11-23T05:09:38Z",
+                            "updated_at": "2026-11-23T06:11:33Z",
+                        }
+                    ]
+                }
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": head}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 45114163817,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": target,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-23T05:42:40Z",
+                        }
+                    ]
+                }
+            if "/commits/" in path and path.endswith("/status"):
+                sha = path.split("/commits/")[1].split("/")[0]
+                status_calls.append(sha)
+                if sha == target:
+                    return {
+                        "statuses": [
+                            {
+                                "context": mod.BACKUP_STATUS_CONTEXT,
+                                "state": "success",
+                                "target_url": "https://github.com/o/r/actions/runs/45116020341",
+                                "updated_at": "2026-11-23T06:11:33Z",
+                            }
+                        ]
+                    }
+                return {"statuses": []}
+            raise AssertionError(f"unexpected gh_get: {path}")
+
+        def proj(sha):
+            return "diverged" if sha == ctrl_diff_sha else "same-control"
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(head, serving, commits),
+            projection_fn=proj,
+        )
+        self.assertEqual(report["verdict"], "READY")
+        self.assertEqual(report["selectableSha"], target)
+        self.assertTrue(report["git"]["extendedSearchUsed"])
+        self.assertEqual(report["git"]["extendedSearchInspected"], 15)
+        self.assertNotIn(ctrl_diff_sha, status_calls)
+        self.assertNotIn(commits[15][0], status_calls)
+        table = mod.render_table(report)
+        self.assertIn("searched 15", table)
+        self.assertIn("SELECTABLE", table)
+
+        # Explicit limit=10 must stay strictly bounded to 10 commits.
+        capped = mod.collect_readiness(
+            repo="o/r",
+            limit=10,
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(head, serving, commits),
+            projection_fn=proj,
+        )
+        self.assertEqual(capped["verdict"], "NO_CANDIDATE")
+        self.assertFalse(capped["git"]["extendedSearchUsed"])
+        self.assertEqual(len(capped["candidates"]), 10)
+
+    def test_copy_time_migration_hold_advisory_triggers_before_o3_deferral(self):
+        # O19 (W8a): when the migration gate is OPEN and a certifying (non-post-seal)
+        # or selectable Backup copy started before O3 deferral, readiness advises
+        # holding ordinary migrations immediately from that copy time.
+        serving = _sha("0")
+        head = _sha("a")
+        # 2026-11-23T14:02Z (08:02 CST): next cycle is 10:00 CST (16:00Z),
+        # O3 deferral starts at 14:30Z, gate is currently OPEN.
+        now = datetime(2026, 11, 23, 14, 2, tzinfo=timezone.utc)
+
+        def run_with_backups(backup_runs, backup_status_state="absent", backup_status_run=None):
+            def gh_get(path):
+                if "stage-engine-release.yml/runs" in path:
+                    return {"workflow_runs": []}
+                if "backup-engine.yml/runs" in path:
+                    return {"workflow_runs": backup_runs}
+                if path.endswith("/git/ref/heads/main"):
+                    return {"object": {"sha": head}}
+                if "engine-release-prequalification.yml/runs" in path:
+                    return {
+                        "workflow_runs": [
+                            {
+                                "id": 9100,
+                                "status": "completed",
+                                "conclusion": "success",
+                                "event": "push",
+                                "head_branch": "main",
+                                "path": mod.PREQUAL_PATH,
+                                "head_sha": head,
+                                "run_attempt": 1,
+                                "updated_at": "2026-11-23T13:50:00Z",
+                            }
+                        ]
+                    }
+                if f"/commits/{head}/status" in path:
+                    if backup_status_state == "absent":
+                        return {"statuses": []}
+                    return {
+                        "statuses": [
+                            {
+                                "context": mod.BACKUP_STATUS_CONTEXT,
+                                "state": backup_status_state,
+                                "target_url": f"https://github.com/o/r/actions/runs/{backup_status_run}",
+                                "updated_at": "2026-11-23T14:00:00Z",
+                            }
+                        ]
+                    }
+                raise AssertionError(path)
+
+            return mod.collect_readiness(
+                repo="o/r",
+                now_utc=now,
+                health_fn=lambda: _health(release_sha=serving),
+                gh_get_fn=gh_get,
+                git_fn=_make_git_stub(head, serving, [(head, "fix: candidate")]),
+                projection_fn=lambda _sha: "same-control",
+            )
+
+        # Active workflow_dispatch Backup started at 13:56:39Z (before 14:30Z O3).
+        active_report = run_with_backups(
+            [
+                {
+                    "id": 45188945088,
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "event": "workflow_dispatch",
+                    "head_sha": head,
+                    "created_at": "2026-11-23T13:56:39Z",
+                }
+            ]
+        )
+        adv = active_report["migrationHoldAdvisory"]
+        self.assertTrue(adv["active"])
+        self.assertEqual(adv["source"], "active_backup")
+        self.assertEqual(adv["runId"], 45188945088)
+        self.assertEqual(adv["sinceUtc"], "2026-11-23T13:56:39Z")
+        self.assertIn("copyHold:      ACTIVE NOW", mod.render_table(active_report))
+
+        # Certified SELECTABLE candidate copied at 13:20:00Z (before 14:30Z O3).
+        sel_report = run_with_backups(
+            [
+                {
+                    "id": 45180000001,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "event": "push",
+                    "head_sha": head,
+                    "created_at": "2026-11-23T13:20:00Z",
+                }
+            ],
+            backup_status_state="success",
+            backup_status_run=45180000001,
+        )
+        self.assertTrue(sel_report["migrationHoldAdvisory"]["active"])
+        self.assertEqual(sel_report["migrationHoldAdvisory"]["source"], "selectable_backup")
+        self.assertEqual(sel_report["migrationHoldAdvisory"]["sinceUtc"], "2026-11-23T13:20:00Z")
+
+        # Post-seal repository_dispatch Backup alone does not trigger a candidate copy hold.
+        postseal_report = run_with_backups(
+            [
+                {
+                    "id": 45180000002,
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "event": "repository_dispatch",
+                    "head_sha": serving,
+                    "created_at": "2026-11-23T13:02:00Z",
+                }
+            ]
+        )
+        self.assertFalse(postseal_report["migrationHoldAdvisory"]["active"])
+        self.assertNotIn("copyHold:", mod.render_table(postseal_report))
+
+    def test_extended_search_reports_no_candidate_cleanly_when_none_selectable(self):
+        serving = _sha("0")
+        commits = [(f"{i:040x}", f"commit {i}") for i in range(1, 15)]
+        head = commits[0][0]
+        now = datetime(2026, 11, 23, 13, 53, tzinfo=timezone.utc)
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path or "backup-engine.yml/runs" in path:
+                return {"workflow_runs": []}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": head}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {"workflow_runs": []}
+            if "/commits/" in path and path.endswith("/status"):
+                return {"statuses": []}
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(head, serving, commits),
+            projection_fn=lambda _sha: "same-control",
+        )
+        self.assertEqual(report["verdict"], "NO_CANDIDATE")
+        self.assertTrue(report["git"]["extendedSearchUsed"])
+        self.assertEqual(report["git"]["extendedSearchInspected"], 14)
+        self.assertEqual(len(report["candidates"]), 10)
+        self.assertIn("searched 14", mod.render_table(report))
+
 
 if __name__ == "__main__":
     unittest.main()
