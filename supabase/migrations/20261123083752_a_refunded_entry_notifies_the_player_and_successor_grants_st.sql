@@ -140,8 +140,10 @@ BEGIN
     RETURN false;
   END IF;
 
-  SELECT nullif(btrim(t.name), '') INTO v_event_name
-    FROM public.tournaments t WHERE t.id = p_tournament_id;
+  IF to_regclass('public.tournaments') IS NOT NULL THEN
+    EXECUTE 'SELECT nullif(btrim(t.name), '''') FROM public.tournaments t WHERE t.id = $1'
+       INTO v_event_name USING p_tournament_id;
+  END IF;
   v_event_part := CASE WHEN v_event_name IS NOT NULL THEN ' To ' || v_event_name ELSE '' END;
   v_amt_txt := trim(to_char(p_refund_amount, 'FM999999999999990.00'));
   v_locked_txt := trim(to_char(p_promo_kept_locked, 'FM999999999999990.00'));

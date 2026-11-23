@@ -172,7 +172,8 @@ def main():
    rn_fn_end=rn_sql.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_emit_refund_notice')
    rn_fn_end=rn_sql.index(';',rn_fn_end)+1
    db.run(rn_sql[rn_table_start:rn_fn_end])
-   db.run("CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_daily_digest(date)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %',n,f;END IF;END LOOP;END$$;")
+   db.run("CREATE TABLE IF NOT EXISTS public.tournaments(id uuid PRIMARY KEY,name text)")
+   db.run("CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_daily_digest(date)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %: %',n,f,(SELECT string_agg(c.message,' | ') FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error');END IF;END LOOP;END$$;")
    proof=next(line.split('-- @live-proof: ',1)[1] for line in MIG.read_text().splitlines() if line.startswith('-- @live-proof: '))
    check('declared live proof validates all source producers and observer storage',db.one('SELECT '+proof),'t')
    check('private notices cannot be called by browser',db.one("SELECT has_function_privilege('authenticated','fn_ca_promo_emit_notice(uuid,text,numeric,numeric,numeric)','EXECUTE')"),'f')
