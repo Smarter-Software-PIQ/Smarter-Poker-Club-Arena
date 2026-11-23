@@ -19,19 +19,9 @@ on:
           - dry-run
           - apply
       slow_ms:
-        description: Backoff threshold in ms for page reads (2000 suits the 500-row pages; 1000-60000)
+        description: Backoff threshold in ms for page reads (measured 6000 for 1,500-hand pages)
         required: false
-        default: '2000'
-        type: string
-      window_hours:
-        description: Optional hours of hand history per reader window (blank = the script default of 4; 1-168)
-        required: false
-        default: ''
-        type: string
-      concurrency:
-        description: Optional number of concurrent page readers (blank = the script default of 4; 1-6)
-        required: false
-        default: ''
+        default: '6000'
         type: string
 
 concurrency:
@@ -65,29 +55,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BACKFILL_MODE: ${{ inputs.mode }}
           BACKFILL_SLOW_MS: ${{ inputs.slow_ms }}
-          BACKFILL_WINDOW_HOURS: ${{ inputs.window_hours }}
-          BACKFILL_CONCURRENCY: ${{ inputs.concurrency }}
         run: |
           set -euo pipefail
           [[ "$BACKFILL_MODE" == "dry-run" || "$BACKFILL_MODE" == "apply" ]] || { echo "::error::Invalid mode"; exit 1; }
           [[ "$BACKFILL_SLOW_MS" =~ ^[0-9]+$ ]] && [ "$BACKFILL_SLOW_MS" -ge 1000 ] && [ "$BACKFILL_SLOW_MS" -le 60000 ] || { echo "::error::Invalid slow_ms"; exit 1; }
           [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "::error::Required Supabase service env missing"; exit 1; }
-          EXTRA_ARGS=()
-          if [ -n "${BACKFILL_WINDOW_HOURS:-}" ]; then
-            [[ "$BACKFILL_WINDOW_HOURS" =~ ^[0-9]{1,3}(\.[0-9]{1,2})?$ ]] && awk -v h="$BACKFILL_WINDOW_HOURS" 'BEGIN { exit !(h >= 1 && h <= 168) }' || { echo "::error::Invalid window_hours"; exit 1; }
-            EXTRA_ARGS+=(--window-hours "$BACKFILL_WINDOW_HOURS")
-          fi
-          if [ -n "${BACKFILL_CONCURRENCY:-}" ]; then
-            [[ "$BACKFILL_CONCURRENCY" =~ ^[1-6]$ ]] || { echo "::error::Invalid concurrency"; exit 1; }
-            EXTRA_ARGS+=(--concurrency "$BACKFILL_CONCURRENCY")
-          fi
           OUT_DIR="$RUNNER_TEMP/opponent-hud-backfill"
           install -d -m 0700 "$OUT_DIR"
           cd server
           if [ "$BACKFILL_MODE" = "dry-run" ]; then
-            npx tsx scripts/opponent-hud-build.ts --from-db --dry-run --slow-ms "$BACKFILL_SLOW_MS" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --out "$OUT_DIR/dry-run.json" 2>&1 | tee "$OUT_DIR/backfill.log"
+            npx tsx scripts/opponent-hud-build.ts --from-db --dry-run --slow-ms "$BACKFILL_SLOW_MS" --out "$OUT_DIR/dry-run.json" 2>&1 | tee "$OUT_DIR/backfill.log"
           else
-            npx tsx scripts/opponent-hud-build.ts --from-db --apply --slow-ms "$BACKFILL_SLOW_MS" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} 2>&1 | tee "$OUT_DIR/backfill.log"
+            npx tsx scripts/opponent-hud-build.ts --from-db --apply --slow-ms "$BACKFILL_SLOW_MS" 2>&1 | tee "$OUT_DIR/backfill.log"
           fi
       - name: Upload backfill log and summary artifact
         if: always()
