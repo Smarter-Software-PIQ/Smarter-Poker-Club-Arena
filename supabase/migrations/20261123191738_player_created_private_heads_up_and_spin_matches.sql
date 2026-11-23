@@ -33,7 +33,7 @@ BEGIN
      OR to_regclass('public.private_game_admissions') IS NULL
      OR to_regprocedure('public.fn_ca_private_game_hold_open(uuid,uuid,uuid,integer,boolean)') IS NULL
      OR to_regprocedure('public.fn_create_seat_first_game_atomic(uuid,jsonb)') IS NULL
-     OR to_regprocedure('public.fn_ca_unregister_tournament_player_exact(uuid,uuid,uuid,text)') IS NULL THEN
+     OR to_regprocedure('public.fn_ca_unregister_tournament_player_exact(uuid,uuid,uuid,text,uuid)') IS NULL THEN
     RAISE EXCEPTION 'private seat-first matches require private_game_holds and seat-first creation/refund doors';
   END IF;
 END;
