@@ -60,6 +60,10 @@ body='''
  terminal_case=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-terminal-cash-refund.sql';remember(terminal_case)
  e.sql(db,file=terminal_case,label='actual-terminal-principal-cash-refund',seconds=60)
  e.report['native'].append({'case':'actual-terminal-principal-cash-refund-safe-refusal','assertions':10,'limit':'Already funded terminal entry and prior refund liability are explicit openings; original fee/terminal loss and immutable financial refusal are actual. No positive postterminal refund claim.'})
+ keeps_case=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/refunded-entry-keeps-promo.sql';remember(keeps_case)
+ e.sql(db,"DO $$BEGIN IF position('JOIN public.ca_promo_original_entry_loss_basis fs' IN (SELECT prosrc FROM pg_proc WHERE proname='fn_ca_promo_return_spent_event_fee'))=0 OR position('fn_ca_promo_restore_refunded_entry_cost' IN (SELECT prosrc FROM pg_proc WHERE proname='fn_ca_promo_return_spent_event_fee'))=0 THEN RAISE EXCEPTION 'full-stack spent-fee owner lost its restore route or unified loss basis';END IF;END$$;",label='full-stack-refund-owner-shape')
+ e.sql(db,file=keeps_case,label='actual-refunded-entry-keeps-promo-with-the-member',seconds=60)
+ e.report['native'].append({'case':'actual-refunded-entry-keeps-promo-with-the-member','assertions':13,'limit':'Already funded REGISTERING entry is an explicit opening; fee consumption, exact refund, restore, replay, journals and deferred guards are actual on the full custody, integrity and profit stack.'})
  e.report['status']='passed';e.report['scope']='Actual public PKO P1 plus W1.5 payout and mystery payouts, fresh reentry/rebuy and exact replay under original financial guards; initial source investment/head/accepted hand are explicit openings.'
 finally:
  e.report['source_sha256']={**manifest['source_sha256'],**tested}

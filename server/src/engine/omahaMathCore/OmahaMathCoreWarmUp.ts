@@ -22,7 +22,9 @@
  * caches are cleared after it, it reads no switch, and a worker with the core off decides exactly as before.
  */
 import type { SeatPlayer } from '../../types.js';
+import { restoreFastRandom, saveFastRandom } from '../HorseEval.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
+import { warmOmahaDecidePaths } from '../horseDecision/warmOmahaDecidePaths.js';
 import { decideOmahaMathCore, rakeNet } from './OmahaMathCore.js';
 import { resetOmahaBestMemo } from './OmahaMathCoreEval.js';
 import { clearPlaybookBlockerCache } from './OmahaMathCorePlaybookBlockers.js';
@@ -202,10 +204,25 @@ export function warmOmahaMathCore(now: () => number = () => performance.now()): 
   const t0 = now();
   let ok = false;
   const warmed: string[] = [];
+  const savedRng = saveFastRandom();
   try {
     ok = true;
+    const plo4CbetShape: WarmShape = {
+      variant: 'plo4',
+      stage: 'flop',
+      stacks: [194, 194],
+      bets: [0, 0],
+      history: [
+        { seat: 1, action: 'raise', amount: 6, stage: 'preflop' },
+        { seat: 2, action: 'call', amount: 6, stage: 'preflop' },
+        { seat: 2, action: 'check', amount: 0, stage: 'flop' },
+      ],
+      legal: ['check', 'bet'],
+      pot: 13,
+    };
     const shapes = [
       ...SHAPES,
+      plo4CbetShape,
       ...OMAHA_MATH_CORE_WARM_STREETS.map(({ variant, stage }) => streetShape(variant, stage)),
     ];
     for (const shape of shapes) {
@@ -246,9 +263,20 @@ export function warmOmahaMathCore(now: () => number = () => performance.now()): 
         ok = false;
       }
     }
+    // Audit P1-1 (2026-11-22): warm HorseLogic.decide + Plo4LivePolicy (plo4Policy) + B2 cbetRaiseShare
+    // + OmahaVariantLivePolicy + B3 turn/river rule on synthetic public PLO4/PLO5 spots before READY,
+    // eliminating the ~83-145 ms cold item-#0 JIT spike that trips the 150 ms Hetzner shadow breaker.
+    // Runs with mind: false, observeMind: false, telemetry: false so pre-existing HorseMind state is
+    // never mutated or wiped; RNG and core caches are restored in finally.
+    ok = ok && warmOmahaDecidePaths();
   } catch {
     ok = false;
   } finally {
+    try {
+      restoreFastRandom(savedRng);
+    } catch {
+      /* a warm-up never stops a worker */
+    }
     try {
       clearOmahaMathCoreCaches();
     } catch {

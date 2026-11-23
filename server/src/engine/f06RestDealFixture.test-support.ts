@@ -111,11 +111,28 @@ export function fixture(
   engine.persistPresenceForRestart = vi.fn(async () => {});
   const startedAt: number[] = [];
   const started = vi.fn(() => startedAt.push(Date.now()));
+  const originalHandleHandEvent = engine.handleHandEvent.bind(engine);
+  engine.handleHandEvent = vi.fn(async (event: any, ...rest: unknown[]) => {
+    if (event?.type === 'HAND_START') {
+      started();
+      return;
+    }
+    return originalHandleHandEvent(event, ...rest);
+  });
   engine.refreshBlinds = vi.fn(async () => {});
-  // Reached after the reservation and the controller build: stop the real
-  // hand from running so the test observes only whether it was started.
+  // Reached after the reservation and the controller build: emit HAND_START
+  // through the real HandContinuationLane so seq-1 retention and the rest gate
+  // are exercised end-to-end without running action timers or horse turns.
   engine.fetchTimeBankExtras = async () => {
-    engine.handController.start = started;
+    const controller = engine.handController;
+    controller.start = () => {
+      (controller as any).handStarted = true;
+      (controller as any).emit({
+        type: 'HAND_START',
+        handNumber: engine.handCount,
+        players: controller.getState().players,
+      });
+    };
     return new Map();
   };
   const recorded = vi.spyOn(engine, 'recordRecoveryEvent');
