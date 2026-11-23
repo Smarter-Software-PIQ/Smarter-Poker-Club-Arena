@@ -48,6 +48,7 @@ import {
 
 import { useState, useEffect, useRef, memo } from 'react';
 import { gameInviteText, shareLink, tournamentShareUrl } from '../../lib/share';
+import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 /* Dan 2026-08-28: this card is the SatellitesTab of TournamentDetails, which
@@ -262,6 +263,9 @@ function TournamentLobbyCardInner({
   user,
 }: TournamentLobbyCardProps & { user: ReturnType<typeof useAuthUser>['user'] }) {
   const navigate = useAppNavigate();
+  /* Invite To Game on a Spin or Heads Up still taking seats holds the
+     friend's seat (2026-11-22, usePrivateGameInviteLauncher). */
+  const privateInvite = usePrivateGameInviteLauncher();
   const registrationRead = useRef(0);
   const registrationAbort = useRef<AbortController | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -309,6 +313,23 @@ function TournamentLobbyCardInner({
 
   const handleInviteToTournament = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const row = tournament as unknown as Record<string, unknown>;
+    void privateInvite
+      .offer({
+        id: tournament.id,
+        name: tournament.name,
+        status: String(row.status ?? ''),
+        variant: typeof row.variant === 'string' ? row.variant : null,
+        max_players: Number(row.maxPlayers ?? row.max_players ?? 0),
+        started_at: typeof row.started_at === 'string' ? row.started_at : null,
+        alreadySeated: isRegistered,
+      })
+      .then((taken) => {
+        if (!taken) shareTournamentLink();
+      });
+  };
+
+  const shareTournamentLink = () => {
     const url = tournamentShareUrl(tournament.id);
     setInviteFallbackUrl('');
     void shareLink({
@@ -865,6 +886,8 @@ function TournamentLobbyCardInner({
       : undefined;
   const Section = unframed ? ClubPageSection : SpadeConsole;
   return (
+    <>
+    {privateInvite.element}
     <Section
       data-unframed={unframed || undefined}
       as="div"
@@ -1134,6 +1157,7 @@ function TournamentLobbyCardInner({
         </div>
       )}
     </Section>
+    </>
   );
 }
 export default memo(function TournamentLobbyCard(props: TournamentLobbyCardProps) {

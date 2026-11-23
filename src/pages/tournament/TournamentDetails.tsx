@@ -113,6 +113,7 @@ import { subscribeTournamentStandings } from '../../services/tournamentStandings
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
 import {
   findNextOpenGame,
   inviteLandingState,
@@ -1804,6 +1805,34 @@ export default function TournamentDetails({
     else if (outcome === 'failed') setShareFallbackUrl(url);
   }, [tournament?.id, tournament?.name, toast]);
 
+  /* INVITE TO GAME HOLDS A PRIVATE SEAT (2026-11-22). A Spin, Heads Up or
+     satellite still taking seats is a game that fills and starts within
+     minutes, so its link alone reaches a friend too late. The invite holds
+     the friend's seat instead (usePrivateGameInviteLauncher); every other
+     game, and an engine that does not honour held seats, shares the link. */
+  const privateInvite = usePrivateGameInviteLauncher((kind, message) => {
+    if (kind === 'success') toast?.success?.(message);
+    else toast?.error?.(message);
+  });
+  const inviteToGame = useCallback(async () => {
+    if (
+      tournament &&
+      (await privateInvite.offer({
+        id: tournament.id,
+        name: tournament.name,
+        status: tournament.status,
+        variant: tournament.variant,
+        max_players: tournament.max_players,
+        buy_in_amount: tournament.buy_in_amount,
+        buy_in_fee: tournament.buy_in_fee,
+        started_at: (tournament as { started_at?: string | null }).started_at ?? null,
+        alreadySeated: isRegistered,
+      }))
+    )
+      return;
+    await shareTournament();
+  }, [tournament, privateInvite, isRegistered, shareTournament]);
+
   /**
    * The stored structure spells the level length three ways, and one of them is
    * a TRAP: `duration` holds SECONDS (every Spin stores `duration: 180`), while
@@ -2270,6 +2299,7 @@ export default function TournamentDetails({
         data-lobby-tab={inLobbyTab}
       >
         {recoveryNotice}
+        {privateInvite.element}
         {goneTournamentId && (
           <div
             role="status"
@@ -2323,7 +2353,7 @@ export default function TournamentDetails({
               <TournamentRegisterButton
                 className="btn-invite-game"
                 data-testid="tournament-invite-btn"
-                onClick={() => void shareTournament()}
+                onClick={() => void inviteToGame()}
               >
                 Invite To Game
               </TournamentRegisterButton>
