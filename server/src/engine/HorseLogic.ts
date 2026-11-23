@@ -994,7 +994,9 @@ import {
   holdemDrawRead,
 } from './HorseFlopTurnBluffRange.js';
 import {
-  classifyHoldemFlopTexture,
+  // Aliased: HorseSlowplayPriced (HORSE DECISIONS) exports a different
+  // classifyHoldemFlopTexture(board, pairedBoardHint) that the slowplay path uses.
+  classifyHoldemFlopTexture as classifyFlopTurnBluffFlopTexture,
   holdemFlopTurnBluffIsPricedApplies,
   holdemFlopTurnBluffPricedVerdict,
   isHoldemBoardThreeFlush,
@@ -28556,7 +28558,7 @@ export class HorseLogic {
               selection: eligFt.selection,
               opponents: opponents.length,
               inPosition: ip,
-              flopTexture: classifyHoldemFlopTexture(board),
+              flopTexture: classifyFlopTurnBluffFlopTexture(board),
               pairedBoard: eligFt.pairedBoard,
               threeFlushBoard: isHoldemBoardThreeFlush(board),
               nutFlushDraw: drawReadFtPriced.nutFlushDraw,
