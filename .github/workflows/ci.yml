@@ -543,6 +543,21 @@ jobs:
       - name: The matte baseline is a record, not a list of excuses
         run: npx vitest run tests/an-asset-never-ships-a-white-matte.law.test.ts
 
+      # A DOCS CHANGE RUNS THE TESTS THAT READ IT (2026-11-22). A docs-only
+      # pull request skips the client suite and the server shards. #11791
+      # changed only docs/horse-option-authority.d/, skipped the one test that
+      # reads it, and left main red for every later pull request; docs/laws.d/
+      # and docs/evidence/ did the same before and were each named by hand in
+      # the classifier. This step runs exactly the tests that read a docs/ path
+      # this change touched, whenever their suite is skipped, so the fast path
+      # stays fast for docs nobody reads. scripts/ci/run-docs-readers.mjs;
+      # tests/a-docs-change-runs-the-tests-that-read-it.law.test.ts.
+      - name: A docs change runs the tests that read it
+        env:
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
+          CI_HEAD_SHA: ${{ github.sha }}
+        run: node scripts/ci/run-docs-readers.mjs
+
       - name: UI selection proves presentation boundaries and retains unknown readers
         run: node --test tests/operations/ui-test-selection.test.mjs tests/operations/publisher-ui-selection-base.test.mjs tests/operations/client-vitest-worker-budget.test.mjs
       - name: Actual client runtime retention refuses incomplete and changed inputs

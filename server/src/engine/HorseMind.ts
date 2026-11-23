@@ -5729,6 +5729,12 @@ export class HorseMind {
     return (successes + m * prior) / (opportunities + m);
   }
 
+  /** Read-only view of the exploit counters the active decision scope selects for `userId`
+   *  (durable profile when enabled, else scoped in-process counters), without telemetry receipts. */
+  static currentExploitCounters(userId: string): Readonly<ExploitCounters> | undefined {
+    return this.decisionExploitCounters(userId);
+  }
+
   /** The exploit counters a decision reads for this opponent, as opponentRead
    *  selects them, without its telemetry receipts. */
   private static decisionExploitCounters(userId: string): ExploitCounters | undefined {
