@@ -20,6 +20,7 @@
  */
 import { readFileSync, writeFileSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { backfillPopulationRows } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
 import {
   HUD_FAMILIES,
   HUD_STATS,
@@ -334,16 +335,18 @@ async function main(): Promise<void> {
       });
     }
     console.log(`KEPT ${kept} stored profiles that hold more hands than this rebuild read`);
-    for (const fam of HUD_FAMILIES)
-      rows.push({
-        user_id: '*',
-        family: fam,
-        version: 1,
-        hands: 0,
-        wm_ms: Math.round(lastHandAt),
-        profile: s.priors[fam],
-        rebuild: true,
-      });
+    // the population rows and their sync point; none when the rebuild applied no hand (never wm_ms -1, review P2-4)
+    const populationRows = backfillPopulationRows({
+      families: HUD_FAMILIES,
+      hands,
+      lastHandAtMs: lastHandAt,
+      priors: s.priors,
+    });
+    if (!populationRows.length)
+      console.log(
+        'NO HANDS applied by this rebuild: the stored population rows and sync point are left as they are'
+      );
+    rows.push(...populationRows);
     // save calls of at most 25 rows and 1.5 MB (a busy Horse's three day lists make his row several times the median)
     let written = 0;
     let calls = 0;

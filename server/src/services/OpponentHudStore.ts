@@ -124,6 +124,11 @@ export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
 export const HUD_CATCHUP_APPLY_SLICE = 50;
 export const HUD_CATCHUP_SEAT_WAIT_MS = 4_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
+/** what a page read says when the option went off between its attempts (never transient: nothing is retried) */
+export const HUD_SWITCHED_OFF = 'opponent hud switched off';
+
+/** where a nightly verification that could not complete stopped */
+export type HudReconcileFailureStage = 'hands_page' | 'page_limit' | 'compare';
 
 export type HudAlertName =
   | 'OpponentHudLoadFailing'
@@ -252,6 +257,18 @@ export class OpponentHudStore {
     extra: number;
     miscounted: number;
   } | null = null;
+  /** the last nightly verification that could NOT complete (null once a later one completes): its day, where it
+   *  stopped ('hands_page': a hand_history page could not be read, after the bounded retries; 'page_limit': the day
+   *  holds more pages than HUD_RECONCILE_MAX_PAGES; 'compare': loading or comparing the profiles) and one bounded
+   *  line of the error. Its zero counts mean "not verified", never "clean". */
+  lastReconcileFailure: {
+    day: string;
+    stage: HudReconcileFailureStage;
+    reason: string;
+    at: number;
+  } | null = null;
+  /** nightly verifications that could not complete since the process started (operator report) */
+  reconcileFailures = 0;
   /** the time of the newest hand the ring has dropped: a profile first asked for before it may have missed hands */
   private ringDroppedAt = -1;
   /** failed load attempts per player since his last ready profile (the retry schedule's position) */
@@ -433,41 +450,40 @@ export class OpponentHudStore {
           st.pausedMs += pause;
         }
         await yieldToSeats();
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-        (t as { unref?: () => void }).unref?.();
-        try {
-          const t0 = this.deps.now();
-          const rows = await this.deps.handsPage!(
-            afterAt,
-            afterId,
-            HUD_CATCHUP_PAGE_ROWS,
-            ac.signal,
-            untilIso
-          );
-          const took = this.deps.now() - t0;
-          st.pages += 1;
-          st.dbMs += took;
-          if (took > HUD_CATCHUP_SLOW_MS) {
-            pause = Math.min(HUD_CATCHUP_MAX_PAUSE_MS, pause * 2);
-            st.backoffs += 1;
-            noteFire('opponent_hud_catchup_backoff');
-          } else pause = Math.max(HUD_CATCHUP_PAUSE_MS, Math.floor(pause / 2));
-          st.maxPauseMs = Math.max(st.maxPauseMs, pause);
-          if (!Array.isArray(rows) || !rows.length) return;
-          st.rows += rows.length;
-          let n = 0;
-          for (const r of rows) {
-            const rec = handRecordFromRow(r);
-            if (typeof rec !== 'string') visit(rec);
-            if (++n % HUD_CATCHUP_APPLY_SLICE === 0) await sleep(0);
+        const t0 = this.deps.now();
+        // the same bounded adaptive retry as catchUp / reconcileDay (at most 4 retries of a page, each on half the
+        // rows): one statement timeout no longer ends the switch-on / gap catch-up. A retry is never started once
+        // the option is off, and a slow or retried page still doubles the pause below (its time includes the waits).
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_CATCHUP_PAGE_ROWS,
+          untilIso,
+          () => this.armedState,
+          () => {
+            st.retries += 1;
           }
-          afterAt = rows[rows.length - 1].created_at;
-          afterId = rows[rows.length - 1].id;
-          if (rows.length < HUD_CATCHUP_PAGE_ROWS) return;
-        } finally {
-          clearTimeout(t);
+        );
+        const took = this.deps.now() - t0;
+        st.pages += 1;
+        st.dbMs += took;
+        if (took > HUD_CATCHUP_SLOW_MS) {
+          pause = Math.min(HUD_CATCHUP_MAX_PAUSE_MS, pause * 2);
+          st.backoffs += 1;
+          noteFire('opponent_hud_catchup_backoff');
+        } else pause = Math.max(HUD_CATCHUP_PAUSE_MS, Math.floor(pause / 2));
+        st.maxPauseMs = Math.max(st.maxPauseMs, pause);
+        if (!rows.length) return;
+        st.rows += rows.length;
+        let n = 0;
+        for (const r of rows) {
+          const rec = handRecordFromRow(r);
+          if (typeof rec !== 'string') visit(rec);
+          if (++n % HUD_CATCHUP_APPLY_SLICE === 0) await sleep(0);
         }
+        afterAt = rows[rows.length - 1].created_at;
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < usedLimit) return;
       }
       walked = false; // the page bound ran out before the last hand
     };
@@ -515,7 +531,8 @@ export class OpponentHudStore {
   }
   /** seat / hand warm loads in flight (the catch-up yields to them) */
   private seatLoads = 0;
-  /** the switch-on catch-up's rate-limit counters (pages, rows, database ms, pauses, backoffs, yields to seats) */
+  /** the switch-on catch-up's rate-limit counters (pages, rows, database ms, pauses, backoffs, yields to seats,
+   *  page reads repeated after a transient error) */
   readonly catchupStats = {
     pages: 0,
     rows: 0,
@@ -524,6 +541,8 @@ export class OpponentHudStore {
     maxPauseMs: 0,
     backoffs: 0,
     yieldedToSeats: 0,
+    /** page reads repeated after a transient database error (statement timeout, 502/503/504, ...) */
+    retries: 0,
   };
   armed(): boolean {
     return this.armedState;
@@ -1142,13 +1161,17 @@ export class OpponentHudStore {
 
   /**
    * Bounded transient-retry + adaptive page-halving wrapper for handsPage reads
-   * (AUDIT-24H P1-2: protects catchUp & nightly reconcileDay from PostgREST 8s timeouts).
+   * (AUDIT-24H P1-2: protects catchUp, the nightly reconcileDay and the switch-on / gap catch-up catchUpInto from
+   * PostgREST 8s timeouts). `keepGoing` false stops before the next attempt (the option was switched off): the
+   * error it throws is not transient, so nothing is retried and the caller's own failure path runs.
    */
   private async fetchHandsPageWithRetry(
     afterAt: string,
     afterId: string,
     baseLimit: number,
-    untilIso?: string
+    untilIso?: string,
+    keepGoing?: () => boolean,
+    onRetried?: () => void
   ): Promise<{ rows: { id: string; created_at: string }[]; usedLimit: number }> {
     let pageLimit = Math.min(HUD_BACKFILL_PAGE_LIMIT, Math.max(1, baseLimit));
     const sleep = (ms: number): Promise<void> =>
@@ -1160,6 +1183,7 @@ export class OpponentHudStore {
           });
     const rows = await withTransientBackfillRetry(
       async () => {
+        if (keepGoing && !keepGoing()) throw new Error(HUD_SWITCHED_OFF);
         const ac = new AbortController();
         const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
         (t as { unref?: () => void }).unref?.();
@@ -1175,6 +1199,8 @@ export class OpponentHudStore {
         retryBaseMs: 250,
         sleep,
         onRetry: () => {
+          noteFire('opponent_hud_hands_page_retry');
+          onRetried?.();
           pageLimit = Math.max(
             Math.min(HUD_BACKFILL_MIN_PAGE_LIMIT, baseLimit),
             Math.floor(pageLimit / 2)
@@ -1359,10 +1385,20 @@ export class OpponentHudStore {
     missed: number;
     extra: number;
     miscounted: number;
+    /** present only when the verification could not complete: the counts are then "not verified", never "clean" */
+    failed?: HudReconcileFailureStage;
   }> {
-    const out = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
+    const out: {
+      compared: number;
+      drifted: number;
+      missed: number;
+      extra: number;
+      miscounted: number;
+      failed?: HudReconcileFailureStage;
+    } = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
     if (!this.deps.handsPage || this.reconciling) return out;
     this.reconciling = true;
+    let stage: HudReconcileFailureStage = 'hands_page';
     try {
       // the day's UTC bounds (a Chicago day starts at 05:00Z or 06:00Z)
       const guess = Date.parse(`${day}T12:00:00Z`);
@@ -1406,7 +1442,11 @@ export class OpponentHudStore {
         if (rows.length < usedLimit) complete = true;
         await new Promise<void>((r) => setImmediate(r));
       }
-      if (!complete) throw new Error('verification page limit');
+      if (!complete) {
+        stage = 'page_limit';
+        throw new Error('verification page limit');
+      }
+      stage = 'compare';
       // every player of the day warm (bounded loads), then compare
       for (const family of HUD_FAMILIES) {
         // only players not already warm: a warm profile holds hands not yet saved and is never replaced
@@ -1435,6 +1475,7 @@ export class OpponentHudStore {
         if (missed || extra || miscounted) out.drifted += 1;
       }
       this.lastReconcile = { day, ...out };
+      this.lastReconcileFailure = null;
       noteFire(out.drifted ? 'opponent_hud_reconcile_drift' : 'opponent_hud_reconcile_clean');
       this.setAlert(
         'OpponentHudDrift',
@@ -1443,9 +1484,32 @@ export class OpponentHudStore {
           `(${out.missed} hands not counted, ${out.extra} counted but not in hand_history, ${out.miscounted} profiles ` +
           `with a different day sum); nothing was rewritten: find the cause, then rebuild with scripts/opponent-hud-build.ts`
       );
-    } catch {
+    } catch (err) {
+      // NOT a clean night: the caller gets `failed`, the operator report gets the stage and one bounded line of the
+      // error, and the counts found so far are dropped so a partial comparison is never read as a result. Nothing is
+      // retried here and nothing is thrown (the engine process is never at risk from a verification).
+      const reason = (err instanceof Error ? err.message : String(err ?? ''))
+        .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 200);
+      out.compared = out.drifted = out.missed = out.extra = out.miscounted = 0;
+      out.failed = stage;
+      this.reconcileFailures += 1;
+      this.lastReconcileFailure = {
+        day,
+        stage,
+        reason: reason || 'no message',
+        at: this.deps.now(),
+      };
       noteFire('opponent_hud_reconcile_failed');
-      this.setAlert('OpponentHudDrift', true, `verification of ${day} could not complete`);
+      noteFire(`opponent_hud_reconcile_failed_${stage}`);
+      this.setAlert(
+        'OpponentHudDrift',
+        true,
+        `verification of ${day} could not complete (${stage}: ${reason || 'no message'}); ` +
+          `no profile was compared, so the day is NOT verified`
+      );
     } finally {
       this.reconciling = false;
     }

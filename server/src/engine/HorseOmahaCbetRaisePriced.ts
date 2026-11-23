@@ -133,6 +133,17 @@ export function omahaCbetLineOf(
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   if (variant !== 'plo4' && variant !== 'plo5') return null;
   if (omahaIsTournamentMode(gs)) return null;
+  if (gs.gameMode !== undefined && gs.gameMode !== 'cash') return null;
+  if (gs.bombPot === true) return null;
+  if (
+    (gs.boardCount ?? 1) > 1 ||
+    (gs.communityCards2?.length ?? 0) > 0 ||
+    (gs.communityCards3?.length ?? 0) > 0
+  )
+    return null;
+  if (gs.variantRules?.splitLow8OrBetter === true) return null;
+  if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
+    return null;
   if (gs.stage !== 'flop' || (gs.communityCards ?? []).length !== 3) return null;
   let preLevel = 0;
   let preAggressor: number | null = null;

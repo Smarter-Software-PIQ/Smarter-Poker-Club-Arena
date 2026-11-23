@@ -1,5 +1,9 @@
 -- 20261123002808_the_promo_a_refund_took_goes_back_to_the_two_members.sql
 --
+-- SUPERSEDED BY 20261123024924
+-- HELD AND NEVER EXECUTED. One of its two members was re-sent his promo by his
+-- agent before this file could run; running it would have paid him twice.
+--
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
