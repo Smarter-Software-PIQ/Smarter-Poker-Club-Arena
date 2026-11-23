@@ -32,11 +32,7 @@
       "passed": true,
       "detail": {
         "deadlocks": 0,
-        "hand": [
-          0,
-          "b0000000-0000-0000-0000-000000000001\nhand-done",
-          ""
-        ],
+        "hand": [0, "b0000000-0000-0000-0000-000000000001\nhand-done", ""],
         "sweep": [
           0,
           "{\"errors\": 0, \"success\": true, \"to_club\": 0, \"to_union\": 0, \"pools_swept\": 0, \"total_swept\": 0, \"busy_retry_next_run\": 1}",
@@ -93,11 +89,7 @@
           "",
           "ERROR:  deadlock detected\nDETAIL:  Process 16383 waits for ShareLock on transaction 796; blocked by process 16385.\nProcess 16385 waits for ShareLock on transaction 795; blocked by process 16383.\nHINT:  See server log for query details.\nCONTEXT:  while inserting index tuple (0,1) in relation \"player_stats\"\nSQL statement \"INSERT INTO player_stats AS ps(user_id, club_id, hands_dealt)\n  SELECT DISTINCT (pl->>'userId')::uuid, 'a0000000-0000-0000-0000-000000000001'::uuid, 1\n    FROM hand_history h, jsonb_array_elements(h.players) pl WHERE h.id = p_hand_id\n   ORDER BY 1\n  ON CONFLICT (user_id, club_id) DO UPDATE SET hands_dealt = ps.hands_dealt + 1, updated_at = now()\"\nPL/pgSQL function fn_project_hand_side_effects_after_post_commit_20260908(uuid) line 5 at SQL statement\nPL/pgSQL function fn_project_hand_side_effects(uuid) line 82 at RETURN"
         ],
-        "s2": [
-          0,
-          "{\"ok\": true, \"hand_id\": \"d1000000-0000-0000-0000-000000000002\"}",
-          ""
-        ]
+        "s2": [0, "{\"ok\": true, \"hand_id\": \"d1000000-0000-0000-0000-000000000002\"}", ""]
       }
     },
     {
@@ -110,16 +102,8 @@
       "passed": true,
       "detail": {
         "deadlocks": 0,
-        "s1": [
-          0,
-          "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000001\"}",
-          ""
-        ],
-        "s2": [
-          0,
-          "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000002\"}",
-          ""
-        ]
+        "s1": [0, "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000001\"}", ""],
+        "s2": [0, "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000002\"}", ""]
       }
     },
     {
@@ -444,12 +428,7 @@
           ]
         ],
         "outbox": 0,
-        "wallet": [
-          104.62,
-          104.62,
-          1000,
-          0
-        ],
+        "wallet": [104.62, 104.62, 1000, 0],
         "findings": 0,
         "envelopes": [
           [
@@ -1196,11 +1175,7 @@
     {
       "name": "hand bank: the pool lock, the pool row and the wallet row are held",
       "passed": true,
-      "detail": [
-        "",
-        "1",
-        "held"
-      ]
+      "detail": ["", "1", "held"]
     },
     {
       "name": "hand bank: BEFORE, with #11256 installed the BBJ hand envelope waits on the held pool and gives up",
@@ -1344,14 +1319,7 @@
       "passed": true,
       "detail": {
         "felt": 995.68,
-        "pool": [
-          0.09,
-          0.34,
-          1.27,
-          1.7,
-          1.7,
-          3
-        ],
+        "pool": [0.09, 0.34, 1.27, 1.7, 1.7, 3],
         "pools": 1,
         "alerts": 0,
         "ledger": [
@@ -1525,13 +1493,7 @@
           ]
         ],
         "outbox": 0,
-        "wallet": [
-          104.62,
-          104.62,
-          1000,
-          0,
-          8.0
-        ],
+        "wallet": [104.62, 104.62, 1000, 0, 8.0],
         "findings": 0,
         "envelopes": [
           [
@@ -1614,29 +1576,11 @@
             "insurance"
           ]
         ],
-        "alloc_state": [
-          [
-            "b0000000-0000-0000-0000-0000000000b1",
-            -0.005,
-            0.0
-          ]
-        ],
+        "alloc_state": [["b0000000-0000-0000-0000-0000000000b1", -0.005, 0.0]],
         "rake_records": [
-          [
-            "e0000000-0000-0000-0000-000000000001",
-            1.25,
-            0.5
-          ],
-          [
-            "e0000000-0000-0000-0000-000000000002",
-            0.37,
-            0.2
-          ],
-          [
-            "e0000000-0000-0000-0000-000000000003",
-            3.0,
-            1.0
-          ]
+          ["e0000000-0000-0000-0000-000000000001", 1.25, 0.5],
+          ["e0000000-0000-0000-0000-000000000002", 0.37, 0.2],
+          ["e0000000-0000-0000-0000-000000000003", 3.0, 1.0]
         ],
         "contributions": [
           [
@@ -1861,11 +1805,7 @@
     {
       "name": "hand bank: the pool lock, the pool row and the wallet row are held",
       "passed": true,
-      "detail": [
-        "",
-        "1",
-        "held"
-      ]
+      "detail": ["", "1", "held"]
     },
     {
       "name": "hand bank: AFTER, the BBJ hand envelope completes while the pool and the wallet are held",
@@ -2543,16 +2483,8 @@
       "name": "hand bank race: two first insurance legs for a union with no bank row merge, as the old upsert did",
       "passed": true,
       "detail": {
-        "first": [
-          0,
-          "",
-          ""
-        ],
-        "second": [
-          0,
-          "leg:true",
-          ""
-        ]
+        "first": [0, "", ""],
+        "second": [0, "leg:true", ""]
       }
     },
     {
@@ -3038,11 +2970,7 @@
           "c0000000-0000-0000-0000-0000000000f1",
           "ERROR:  deadlock detected\nDETAIL:  Process 19847 waits for ShareLock on transaction 2570; blocked by process 19849.\nProcess 19849 waits for ShareLock on transaction 2569; blocked by process 19847.\nHINT:  See server log for query details.\nCONTEXT:  while locking tuple (0,1) in relation \"tournaments\"\nSQL statement \"SELECT 1 FROM ONLY \"public\".\"tournaments\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x\""
         ],
-        "board": [
-          0,
-          "existing_active",
-          ""
-        ]
+        "board": [0, "existing_active", ""]
       }
     },
     {
@@ -3055,16 +2983,8 @@
       "passed": true,
       "detail": {
         "deadlocks": 0,
-        "reg": [
-          0,
-          "c0000000-0000-0000-0000-0000000000f1\nregistration-done",
-          ""
-        ],
-        "board": [
-          0,
-          "existing_active",
-          ""
-        ]
+        "reg": [0, "c0000000-0000-0000-0000-0000000000f1\nregistration-done", ""],
+        "board": [0, "existing_active", ""]
       }
     },
     {
