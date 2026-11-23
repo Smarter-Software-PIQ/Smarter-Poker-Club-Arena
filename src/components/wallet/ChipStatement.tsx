@@ -169,6 +169,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   bbj_payout: 'Jackpot Payout',
   promo: 'Promo Chips',
   refund: 'Refund',
+  tournament_refund: 'Tournament Refund',
   overlay: 'Overlay',
   adjustment: 'Adjustment',
   correction: 'Correction',
@@ -194,6 +195,7 @@ const COUNTERPARTY_LABEL: Record<string, string> = {
   spin_reserve: 'The Spin Reserve',
   promo_wallet: 'A Promo Wallet',
   agent_wallet: 'An Agent',
+  escrow: 'Escrow',
   settlement_suspense: 'Settlement',
   system_mint: 'The Mint',
   system_burn: 'The Mint',
@@ -216,6 +218,7 @@ export function categoryLabel(category: string): string {
 const COUNTERPARTY_ACCOUNT_LABEL: Record<string, string> = {
   'clubs.chip_treasury': 'Club Treasury',
   'clubs.promo_balance': 'Club Promo Wallet',
+  'agents.promo_wallet_balance': 'Agent Promo Wallet',
   'union_wallets.chip_balance': 'Union Bank',
   'union_wallets.rake_wallet': 'Union Rake Wallet',
   'union_wallets.promo_wallet': 'Union Promo Wallet',
@@ -225,6 +228,7 @@ const COUNTERPARTY_ACCOUNT_LABEL: Record<string, string> = {
   'spin_bonus_pools.balance': 'Spin Pool',
   'tournaments.prize_pool': 'Prize Pool',
   'tournaments.prize_pool+total_rake': 'Prize Pool And Rake',
+  'tournament_tickets.value': 'Tournament Ticket',
 };
 
 const STORAGE_PATH = /^[a-z][a-z0-9_]*\.[a-z0-9_+]+$/;
@@ -265,6 +269,13 @@ export function counterpartyLabel(leg: StatementLeg): string {
  * Every other leg keeps the category and counterparty it always printed.
  */
 export const PROMO_RETURN_DESCRIPTION = 'Promo Principal Returned To Original Fund';
+export const PROMO_TICKET_RETURN_DESCRIPTION =
+  'Original Promotional Principal Returned To Original Fund';
+
+export const PROMO_RETURN_DESCRIPTIONS: ReadonlySet<string> = new Set([
+  PROMO_RETURN_DESCRIPTION,
+  PROMO_TICKET_RETURN_DESCRIPTION,
+]);
 
 const PROMO_SPONSOR_BY_STORAGE: Record<string, string> = {
   'union_wallets.promo_wallet': 'The Union Promo Wallet',
@@ -273,7 +284,9 @@ const PROMO_SPONSOR_BY_STORAGE: Record<string, string> = {
 };
 
 export function isPromoReturnLeg(leg: StatementLeg): boolean {
-  return leg.category === 'reversal' && (leg.description || '').trim() === PROMO_RETURN_DESCRIPTION;
+  return (
+    leg.category === 'reversal' && PROMO_RETURN_DESCRIPTIONS.has((leg.description || '').trim())
+  );
 }
 
 export interface StatementLegCopy {
@@ -287,18 +300,28 @@ export function statementLegCopy(leg: StatementLeg, eventName?: string | null): 
   const side = leg.direction === 'in' ? 'From ' : 'To ';
   const event = titleCase((eventName || '').trim());
   if (isPromoReturnLeg(leg)) {
-    const sponsor = PROMO_SPONSOR_BY_STORAGE[(leg.counterparty_label || '').trim()];
-    return leg.direction === 'out'
-      ? {
-          title: 'Promo Chips Returned To Sponsor',
-          route: `To ${sponsor || counterpartyLabel(leg)}`,
-        }
-      : { title: 'Promo Chips Returned By A Member', route: `From ${counterpartyLabel(leg)}` };
+    const label = (leg.counterparty_label || '').trim();
+    const sponsor = PROMO_SPONSOR_BY_STORAGE[label];
+    if (leg.direction === 'out') {
+      return {
+        title: 'Promo Chips Returned To Sponsor',
+        route: `To ${sponsor || counterpartyLabel(leg)}`,
+      };
+    }
+    if (label === 'tournament_tickets.value') {
+      return {
+        title: 'Promo Chips Returned From Ticket',
+        route: 'From A Refunded Tournament Ticket',
+      };
+    }
+    return { title: 'Promo Chips Returned By A Member', route: `From ${counterpartyLabel(leg)}` };
   }
   const fromPrizePool = leg.counterparty_type === 'prize_liability';
   return {
     title:
-      leg.category === 'refund' && fromPrizePool && leg.direction === 'in'
+      (leg.category === 'refund' || leg.category === 'tournament_refund') &&
+      fromPrizePool &&
+      leg.direction === 'in'
         ? 'Tournament Refund'
         : categoryLabel(leg.category || ''),
     route: fromPrizePool && event ? `${side}${event}` : `${side}${counterpartyLabel(leg)}`,

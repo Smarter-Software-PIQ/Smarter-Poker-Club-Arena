@@ -2,6 +2,8 @@
  * The chip statement shows both directions, the audit line, and refuses to
  * guess (phase 7, roadmap 9.5).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +41,7 @@ vi.mock('../../src/hooks/useCashoutScope', () => ({
 vi.mock('../../src/components/tournament/TournamentPaymentStatus', () => ({ default: () => null }));
 
 import ChipStatement, {
+  PROMO_TICKET_RETURN_DESCRIPTION,
   categoryLabel,
   counterpartyLabel,
   isPromoReturnLeg,
@@ -496,6 +499,83 @@ describe('ChipStatement', () => {
           })
         )
       ).toEqual({ title: 'Promo Chips Returned By A Member', route: 'From A Player' });
+
+      // Ticket-refund promo returns (fn_ca_promo_returned_ticket_principal_fee)
+      // carry their own description and come from tournament_tickets.value.
+      const ticketPromoOut = promoReturn({
+        description: PROMO_TICKET_RETURN_DESCRIPTION,
+        counterparty_type: 'union_wallet',
+        counterparty_label: 'union_wallets.promo_wallet',
+      });
+      expect(isPromoReturnLeg(ticketPromoOut)).toBe(true);
+      expect(statementLegCopy(ticketPromoOut)).toEqual({
+        title: 'Promo Chips Returned To Sponsor',
+        route: 'To The Union Promo Wallet',
+      });
+      const ticketPromoIn = promoReturn({
+        direction: 'in',
+        description: PROMO_TICKET_RETURN_DESCRIPTION,
+        counterparty_type: 'escrow',
+        counterparty_label: 'tournament_tickets.value',
+      });
+      expect(isPromoReturnLeg(ticketPromoIn)).toBe(true);
+      expect(statementLegCopy(ticketPromoIn)).toEqual({
+        title: 'Promo Chips Returned From Ticket',
+        route: 'From A Refunded Tournament Ticket',
+      });
+      expect(statementLegCopy(ticketPromoIn).title.length).toBeLessThanOrEqual(32);
+
+      // Agent promo wallet credits display the account detail cleanly.
+      expect(
+        statementLegCopy(
+          leg({
+            category: 'promo',
+            counterparty_type: 'agent_wallet',
+            counterparty_label: 'agents.promo_wallet_balance',
+            tournament_id: null,
+          }) as StatementLeg
+        )
+      ).toEqual({ title: 'Promo Chips', route: 'From An Agent (Agent Promo Wallet)' });
+
+      // Both refund and tournament_refund from a prize pool read identically.
+      expect(
+        statementLegCopy(
+          leg({
+            category: 'tournament_refund',
+            counterparty_type: 'prize_liability',
+          }) as StatementLeg,
+          'Nightly 20K'
+        )
+      ).toEqual({ title: 'Tournament Refund', route: 'From Nightly 20K' });
+    });
+
+    it('recognizes every promo-return reversal description written by the database owners', () => {
+      const root = resolve(__dirname, '..', '..');
+      const walletOwnerSql = readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql'
+        ),
+        'utf8'
+      );
+      const ticketOwnerSql = readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261123071237_a_refunded_entry_keeps_its_promo_on_a_ticket_and_past_a_clos.sql'
+        ),
+        'utf8'
+      );
+      const walletMatch = walletOwnerSql.match(/'reversal',holder_club,'([^']+)'/);
+      const ticketMatch = ticketOwnerSql.match(/'reversal',r\.club_id,key,'([^']+)'/);
+      expect(walletMatch?.[1]).toBeTruthy();
+      expect(ticketMatch?.[1]).toBeTruthy();
+      for (const description of [walletMatch![1], ticketMatch![1]]) {
+        const row = promoReturn({ description });
+        expect(isPromoReturnLeg(row), `unmapped promo return description: ${description}`).toBe(
+          true
+        );
+        expect(statementLegCopy(row).title).not.toBe('Reversal');
+      }
     });
 
     it('any other reversal keeps its own name: the leg does not say it was promo', () => {
