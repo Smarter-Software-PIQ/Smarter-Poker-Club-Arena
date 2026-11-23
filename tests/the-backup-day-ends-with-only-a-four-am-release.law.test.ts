@@ -199,6 +199,7 @@ python3() {
     ['unsealed', false, false],
     ['missing receipt job', false, false],
     ['stale instance', false, false],
+    ['own run not yet listed', true, true],
     ['unreadable custody', false, false],
   ])('checks the post-release clone request for %s', (scenario, ok, claimed) => {
     const sha = 'b'.repeat(40);
@@ -229,13 +230,21 @@ python3() {
         },
       ],
     };
+    // O15 (2026-11-22): GitHub's created-filtered list lags a new run by
+    // seconds; Backup 45075415442 read an empty list for itself and refused
+    // the 16:00 CST seal. A readable list always holds this run; only an
+    // unreadable list refuses.
     const runs = {
       workflow_runs:
-        scenario === 'unreadable custody'
+        scenario === 'own run not yet listed'
           ? []
           : [{ id: scenario === 'replay' ? 80 : 99, display_title: 'Backup after seal 11-1' }],
     };
-    const shell = `gh() { case "$*" in *workflows/backup-engine.yml*) echo '${JSON.stringify(runs)}';; *jobs?*) echo '${JSON.stringify(jobs)}';; *) echo '${JSON.stringify(parent)}';; esac; }
+    const runsReply =
+      scenario === 'unreadable custody'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `echo '${JSON.stringify(runs)}'`;
+    const shell = `gh() { case "$*" in *workflows/backup-engine.yml*) ${runsReply};; *jobs?*) echo '${JSON.stringify(jobs)}';; *) echo '${JSON.stringify(parent)}';; esac; }
 curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: scenario === 'stale instance' ? '111-aaaaaaaa' : instance })}'; }
 `;
     const result = planShell(shell + backup.jobs.plan.steps.find((s: any) => s.id === 'seal').run, {
@@ -253,6 +262,10 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
     });
     expect(result.status === 0, result.stderr).toBe(ok);
     expect(result.stdout.includes('sha=' + sha)).toBe(claimed);
+    // Every refusal names its reason instead of a bare exit 1.
+    if (!ok) expect(result.stdout).toContain('::error::');
+    if (scenario === 'replay')
+      expect(result.stdout).toContain('Original Backup run 80 owns sealed receiver 11-1');
   });
   it.each(['a'.repeat(40), 'b'.repeat(40)])(
     'keeps queued push candidate %s instead of moving main',
@@ -2065,6 +2078,63 @@ gh() {
           expect(inh.stdout).toContain(`INHERITED: Inherited from ${f.shas.c1}`);
           expect(inh.stdout).toContain('inherited=1');
           expect(inh.calls).toContain(`repos/o/r/statuses/${f.shas.c3}`);
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O13: late_retarget follows a release-control commit newer than main newest server commit, and keeps the server head when CONTROL_INPUTS is unreadable or that commit changed backup-engine.yml', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          // c4 touches only a CONTROL_INPUTS path (no server/ file) after c3.
+          f.write('scripts/ci/select-daily-engine.py', 'print("selector 2")\n');
+          const c4 = f.commit('c4: release control only');
+          origin.pushMain();
+          f.git('checkout', '-q', f.shas.c1);
+          const followed = runLateRetarget(f, { sha: f.shas.c1, head: f.shas.c3 });
+          expect(followed.status, followed.stderr).toBe(0);
+          expect(followed.stdout).toContain(
+            `FOLLOWING RELEASE CONTROLS: main's newest release-control commit ${c4} is newer than its newest server commit ${f.shas.c3}.`
+          );
+          expect(followed.stdout).toContain(`RETARGETED IN-PLACE: ${f.shas.c1} -> ${c4}`);
+          expect(followed.stdout).toContain(`sha=${c4}`);
+          expect(followed.stdout).toContain(`control_sha=${c4}`);
+          expect(followed.stdout).toContain('retargeted=1');
+          expect(f.git('rev-parse', 'HEAD')).toBe(c4);
+          expect(followed.calls).not.toContain('commits?sha=main&path=scripts');
+
+          // Unreadable CONTROL_INPUTS keeps the old server-head behavior.
+          f.git('checkout', '-q', f.shas.c1);
+          const preq = resolve(f.dir, 'scripts/ci/read-engine-prequalification.py');
+          const preqBody = readFileSync(preq, 'utf8');
+          writeFileSync(preq, 'raise SystemExit(7)\n');
+          const unreadable = runLateRetarget(f, { sha: f.shas.c1, head: f.shas.c3 });
+          writeFileSync(preq, preqBody);
+          expect(unreadable.status, unreadable.stderr).toBe(0);
+          expect(unreadable.stdout).toContain('could not read CONTROL_INPUTS; following main');
+          expect(unreadable.stdout).toContain(`RETARGETED IN-PLACE: ${f.shas.c1} -> ${f.shas.c3}`);
+          expect(unreadable.stdout).toContain(`sha=${f.shas.c3}`);
+          expect(unreadable.stdout).not.toContain('FOLLOWING RELEASE CONTROLS');
+
+          // A newer release-control commit that changed backup-engine.yml keeps
+          // the exact SHA (producer provenance), exactly as for a server head.
+          f.git('checkout', '-q', '-f', 'main');
+          f.write('.github/workflows/backup-engine.yml', 'name: changed\n');
+          const c5 = f.commit('c5: backup workflow changed');
+          origin.pushMain();
+          f.git('checkout', '-q', f.shas.c1);
+          const changedWorkflow = runLateRetarget(f, { sha: f.shas.c1, head: f.shas.c3 });
+          expect(changedWorkflow.status, changedWorkflow.stderr).toBe(0);
+          expect(changedWorkflow.stdout).toContain(
+            `FOLLOWING RELEASE CONTROLS: main's newest release-control commit ${c5}`
+          );
+          expect(changedWorkflow.stdout).toContain(
+            `changed .github/workflows/backup-engine.yml relative to ${f.shas.c1}`
+          );
+          expect(changedWorkflow.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(changedWorkflow.stdout).toContain('retargeted=0');
         } finally {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
