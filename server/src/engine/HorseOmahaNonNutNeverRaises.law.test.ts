@@ -33,6 +33,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { seedHorseBetSizeRandom } from './horsePublicBetSize.js';
 import { seedHorseTimingRandom } from './horsePublicActionTime.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { withFrozenDecisionClock } from './testing/frozenDecisionClock.js';
 import { HORSE_DATA_LEDGER, ledgerReceiptFor } from './HorseDataLedger.js';
 import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { OMAHA_OPTION_GAME_SCOPE_OPTIONS } from './HorseOmahaOptionGameScope.js';
@@ -93,18 +94,21 @@ const seedAll = (seed: number): void => {
 };
 const run = (s: State, extra: HorseDecideOpts): HorseDecision => {
   seedAll(1);
-  return HorseLogic.decide(
-    s.player,
-    s.gs,
-    s.style as never,
-    s.mods as never,
-    {
-      ...PROD,
-      ...extra,
-      telemetry: false,
-      observeMind: false,
-      decisionTimeMs: NOW,
-    } as HorseDecideOpts
+  // performance.now() is frozen: the decision's wall-clock budgets cannot differ between two compared runs
+  return withFrozenDecisionClock(() =>
+    HorseLogic.decide(
+      s.player,
+      s.gs,
+      s.style as never,
+      s.mods as never,
+      {
+        ...PROD,
+        ...extra,
+        telemetry: false,
+        observeMind: false,
+        decisionTimeMs: NOW,
+      } as HorseDecideOpts
+    )
   );
 };
 /** The decision is a raise by a hand the one existing classifier does not let raise (Lightning read too). */
@@ -201,13 +205,15 @@ describe('LAW: with omahaPricedRaiseNeverMakesNonNutRaise on, no non-nut hand ra
   it('the outermost raise rule: a call it is handed never comes back a raise, and a non-nut raise it is handed comes back a call or a fold', () => {
     const rule = (s: State, d: HorseDecision, extra: HorseDecideOpts): HorseDecision => {
       seedAll(1);
-      return omahaTurnRiverRaiseNeedsNutsRule(d, s.player, s.gs, {
-        ...PROD,
-        ...extra,
-        telemetry: false,
-        observeMind: false,
-        decisionTimeMs: NOW,
-      } as HorseDecideOpts);
+      return withFrozenDecisionClock(() =>
+        omahaTurnRiverRaiseNeedsNutsRule(d, s.player, s.gs, {
+          ...PROD,
+          ...extra,
+          telemetry: false,
+          observeMind: false,
+          decisionTimeMs: NOW,
+        } as HorseDecideOpts)
+      );
     };
     let callBecameRaiseOff = 0;
     let callBecameRaiseOn = 0;
@@ -291,13 +297,15 @@ describe('the three real hands (rebuilt with HorseComplaintReplay.stateAt from t
       enableBrainTelemetry();
       drainFires();
     }
-    const d = HorseLogic.decide(h.player, h.gs, hy.style, { ...hy.mods }, {
-      ...PROD,
-      ...extra,
-      telemetry,
-      observeMind: false,
-      decisionTimeMs: NOW,
-    } as HorseDecideOpts);
+    const d = withFrozenDecisionClock(() =>
+      HorseLogic.decide(h.player, h.gs, hy.style, { ...hy.mods }, {
+        ...PROD,
+        ...extra,
+        telemetry,
+        observeMind: false,
+        decisionTimeMs: NOW,
+      } as HorseDecideOpts)
+    );
     const fires = telemetry ? drainFires().map((f) => f.feature) : [];
     return { d, h, fires };
   };
