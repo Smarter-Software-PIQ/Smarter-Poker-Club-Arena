@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
+    "scripts/ci/apply-recorded-migration.mjs": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -186,5 +186,12 @@
     },
     "review": "The only change in apply-recorded-migration.mjs is one import of handPathParts from hand-path-shared-writes.mjs and the atomic history binding splicing its two pieces into the same single replace, right after the stale-pin pieces: for migrations from 20261118084747 on that can change the function/trigger graph, a snapshot of the hand path's shared-row writes right after BEGIN; and a check before the history insert that refuses a migration adding one (or dropping a hand door). Both are empty for older or data-only files. Nothing else sent, bound or recorded changes. Restamped here too (this binding pins the same file); diff read by the incident 075013fd coordinator: one import of handPathParts and its snapshot/check spliced right after the stale-pin pieces, nothing else.",
     "reason": "2026-11-17 incident 075013fd: union_wallets on every raked hand (8,303 timeouts), after club_wallets (2026-10-02) and clubs.total_rake (2026-09-29); nothing stopped the class."
+  },
+  "aMigrationCannotForceTheInstallersClaimCheck20261123": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
+    "after": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
+    "review": "Eight added lines only: one import of installerClaimRisks and isClaimChecked from scripts/ci/migration-installer-claim-shape.mjs and, directly after the unchanged install-budget refusal, a refusal (via the existing refused()) of a migration from 20261123024924 on whose install text runs SET CONSTRAINTS ALL IMMEDIATE outside the shape IF <condition> THEN SET CONSTRAINTS ALL IMMEDIATE; RAISE EXCEPTION. Nothing removed or reordered; it runs before any connection, so it can only refuse earlier and send nothing. Every file before 20261123024924 takes exactly the old path, and 20261123024924 itself passes. Same rule as the merge check tests/a-migration-cannot-force-the-installers-claim-check.law.test.ts. No financial, native-fixture or production qualification is restamped or claimed.",
+    "reason": "2026-11-23: 20261123024924 (#11810) forced all deferred constraints on its install path; the applier's own deferred claim check (ca_migration_applier_claim_is_recorded, 20261119053515) fired before the history row existed and production refused the install at 04:10 UTC with migration_applier_claim_unrecorded, nothing applied. Repaired in #11822."
   }
 }

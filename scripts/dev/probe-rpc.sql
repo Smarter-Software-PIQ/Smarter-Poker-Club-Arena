@@ -160,3 +160,33 @@ $mcp_probe$;
 --     http call, a NOTIFY that a listener already acted on. If the function
 --     you are probing reaches off the database, section 2 does not contain it
 --     and you need a real staging target instead.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 3. A PROBE PROVES THE MOMENT IT RAN. THE MIGRATION INSTALLS LATER.
+-- ───────────────────────────────────────────────────────────────────────────
+-- A settlement proven here still waits for its merge and an install slot,
+-- sometimes hours. On 2026-11-23 a member's agent re-sent him his 10.00 by
+-- hand while 20261123002808 waited; it checked only its own idempotency keys
+-- and would have paid him twice. So the migration re-checks at install:
+--
+--   * header:  -- @already-made-whole-guard: <one sentence naming what is checked>
+--   * body:    IF EXISTS (SELECT 1 FROM public.chip_ledger l
+--                          WHERE <member, fund, categories>
+--                            AND l.created_at > <the triggering event's time>)
+--              THEN RAISE EXCEPTION ...;
+--
+-- (CLAUDE.md 10.9; scripts/ci/migration-made-whole-guard.mjs refuses the merge
+-- without both; worked example 20261123024924.)
+--
+-- And if the migration forces its deferred checks for the probe, it does so
+-- ONLY in the branch that raises:
+--
+--   IF v_probe THEN
+--     SET CONSTRAINTS ALL IMMEDIATE;
+--     RAISE EXCEPTION 'PROBE OK (rolled back): ...';
+--   END IF;
+--
+-- On the install path that statement fires the applier's own deferred claim
+-- check before its history row exists, and the install is refused
+-- (scripts/ci/migration-installer-claim-shape.mjs).
