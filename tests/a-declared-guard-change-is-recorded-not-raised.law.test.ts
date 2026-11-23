@@ -41,6 +41,9 @@ const DECLARE = 'fn_ca_declare_guard_redefinition';
 /** Ratchet added after an unapplied migration tried to declare an unlisted trigger. */
 const DECLARATION_TARGET_LAW =
   '20261006012010_a_resolved_incident_never_predates_its_detection.sql';
+/** Ratchet added after 20261122222254 patched a guard via pg_get_functiondef(::regprocedure) + EXECUTE. */
+const REGPROCEDURE_PATCH_LAW =
+  '20261122222254_a_sit_and_go_whose_launch_has_begun_cannot_be_unregistered.sql';
 
 /**
  * An already-installed migration is immutable. Each of these omitted its
@@ -115,11 +118,19 @@ const installedWatchTimeoutDeclarations: InstalledOmission[] = [
   successorSha256: WATCH_TIMEOUT_SUCCESSOR_SHA256,
   guard,
 }));
+const installedSngLaunchUnregisterDeclaration: InstalledOmission = {
+  original: '20261122222254_a_sit_and_go_whose_launch_has_begun_cannot_be_unregistered.sql',
+  originalSha256: '678ac1b98f096a0651e0b95ca91c123dc743f5f7e40daaa3029c202ad236f87d',
+  successor: '20261123150909_declare_installed_sng_launch_unregister_guard.sql',
+  successorSha256: 'b0ee6cb8f6db595f916b50c7d8c78c426df8c18d69b53927dd123388cff464bf',
+  guard: 'fn_poker_diamond_tournament_unregister',
+};
 const installedOmissions: InstalledOmission[] = [
   installedFundingDeclaration,
   installedEscalationTickDeclaration,
   installedAutoledgerDeclaration,
   ...installedWatchTimeoutDeclarations,
+  installedSngLaunchUnregisterDeclaration,
 ];
 const sha256 = (sql: string): string => createHash('sha256').update(sql).digest('hex');
 const matchesOmission = (
@@ -199,14 +210,17 @@ const likeToRegExp = (pattern: string): RegExp =>
   );
 
 /** Does this migration text redefine (or alter pg_get_functiondef of) `guard`? */
-const redefines = (sql: string, guard: string): boolean => {
+const redefines = (sql: string, guard: string, migrationName?: string): boolean => {
+  const checkRegprocedure = !migrationName || migrationName >= REGPROCEDURE_PATCH_LAW;
   if (
     sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}(`) ||
     sql.includes(`CREATE OR REPLACE FUNCTION public.${guard}\n`) ||
     // the asserted-substitution shape: read the live definition, replace, EXECUTE
     (sql.includes('pg_get_functiondef') &&
       sql.includes('EXECUTE') &&
-      sql.includes(`p.proname = '${guard}'`))
+      (sql.includes(`p.proname = '${guard}'`) ||
+        (checkRegprocedure &&
+          new RegExp(`:=\\s*pg_get_functiondef\\s*\\(\\s*'public\\.${guard}\\(`, 'i').test(sql))))
   ) {
     return true;
   }
@@ -341,7 +355,7 @@ describe('a declared guard change is recorded, not raised', () => {
       for (const g of guards) {
         // history for THIS guard: it was not on the list when the migration ran
         if (m.name < (from.get(g) ?? LAW)) continue;
-        if (redefines(m.sql, g) && !hasExactInstalledDeclaration(m, g, migrationCorpus())) {
+        if (redefines(m.sql, g, m.name) && !hasExactInstalledDeclaration(m, g, migrationCorpus())) {
           offenders.push(`${m.name} redefines ${g}`);
         }
       }
