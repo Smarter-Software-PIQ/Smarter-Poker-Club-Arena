@@ -19,10 +19,12 @@ import {
 import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
 import {
   sixSeatPhoneRail,
-  sixSeatTopCaptionDrop,
-  sixSeatTopRailShift,
   stationIsOnTheTopRail,
-} from '../components/table/sixSeatTopRail';
+  topChairCaptionDrop,
+  topChairRailShift,
+  topChairRailViewport,
+  topChairRest,
+} from '../components/table/topChairRail';
 import {
   placeProtectedCardRow,
   placeHiddenFans,
@@ -146,10 +148,15 @@ export function useProtectedCardLayout(
       return false;
     };
     refreshGeometry();
+    // Every top-cap chair, tournament or cash, belongs to the top lane wherever
+    // top chairs stand on their rail (topChairRail.ts): a tournament's top
+    // chairs carry no `--top` tag, and before 2026-11-22 they were left on the
+    // felt by CSS alone.
     const topPods = () =>
       Array.from(
         scaler.querySelectorAll<HTMLElement>(
-          (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480) ||
+          topChairRailViewport(window.innerWidth, window.innerHeight) ||
+            (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480) ||
             (page.getAttribute('data-seats') === '9' &&
               matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
                 .matches)
@@ -747,6 +754,15 @@ export function useProtectedCardLayout(
         window.innerWidth <= 640 &&
         window.innerHeight > window.innerWidth &&
         (page.getAttribute('data-seats') === '6' || page.getAttribute('data-seats') === '9');
+      // Dan 2026-11-22: every top chair stands on its rail (topChairRail.ts).
+      const railRule = topChairRailViewport(window.innerWidth, window.innerHeight);
+      const railRest = topChairRest(
+        page.getAttribute('data-seats'),
+        window.innerWidth,
+        window.innerHeight
+      );
+      // The six-max phone top chair's caption rides above its crown, so it is
+      // the one whose caption can be dropped clear of the tab bar.
       const railTopSeat = sixSeatPhoneRail(
         page.getAttribute('data-seats'),
         window.innerWidth,
@@ -905,26 +921,28 @@ export function useProtectedCardLayout(
         const plateNow = (pod: HTMLElement) =>
           pod.querySelector('.seat__info')?.getBoundingClientRect().top;
         for (const entry of placed) {
-          if (sixMax) {
-            // Dan 2026-11-22: on the phone the six-max top chair is placed
-            // from the rail up, never from the tab bar down. Its plate rests
-            // on its own rail station; the crown goes wherever that leaves it
-            // (under the bar, which paints above it). sixSeatTopRail.ts.
-            const station = parseFloat(railLine(entry.pod));
-            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
-            if (railTopSeat && plate && stationIsOnTheTopRail(station)) {
-              const ring = scaler.getBoundingClientRect();
-              entry.shift = sixSeatTopRailShift({
-                ringTop: ring.top,
-                ringHeight: ring.height,
-                stationPct: station,
-                plateTop: entry.plateTop,
-                plateHeight: plate.height,
-                scale,
-              });
-            }
+          // Dan 2026-11-22: on a portrait phone or tablet every top chair is
+          // placed from the rail up, never from the tab bar or the jackpot
+          // plate down. Its plate rests on its own rail station; the crown
+          // goes wherever that leaves it (under the jackpot plaque and the tab
+          // bar, which paint above it). Two chairs on one rail line share the
+          // station, so they sit level. topChairRail.ts.
+          const station = parseFloat(railLine(entry.pod));
+          const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
+          if (railRule && plate && stationIsOnTheTopRail(station)) {
+            const ring = scaler.getBoundingClientRect();
+            entry.shift = topChairRailShift({
+              ringTop: ring.top,
+              ringHeight: ring.height,
+              stationPct: station,
+              plateTop: entry.plateTop,
+              plateHeight: plate.height,
+              scale,
+              rest: railRest,
+            });
             continue;
           }
+          if (sixMax) continue;
           let level = entry.plateTop + entry.shift * scale;
           for (const other of placed)
             if (railLine(other.pod) === railLine(entry.pod))
@@ -935,19 +953,9 @@ export function useProtectedCardLayout(
             if (railLine(pod) === railLine(entry.pod) && top !== undefined)
               level = Math.min(level, top);
           }
-          if (inwardFans && page.getAttribute('data-seats') === '9') {
-            // The cap stations are six percent down the chassis. Centre each
-            // nameplate on that rail even when the observer footer changes height.
-            const ring = scaler.getBoundingClientRect();
-            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
-            if (plate)
-              entry.shift =
-                (ring.top +
-                  (ring.height * parseFloat(railLine(entry.pod))) / 100 -
-                  plate.height / 2 -
-                  entry.plateTop) /
-                scale;
-          } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
+          // Off the rail rule (a landscape or wide viewport whose table page is
+          // 768px or narrower): each pod's own placement, levelled with its line.
+          entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {
           pod.style.translate = `0px ${shift}px`;
@@ -964,10 +972,11 @@ export function useProtectedCardLayout(
       scaler
         .querySelectorAll('.seat')
         .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
-      // The rail-placed top chair keeps its action caption in the lane above
+      // The six-max phone top chair keeps its action caption in the lane above
       // its crown wherever that lane is on screen, and just under the tab bar
       // where the crown has gone behind it. Read every pass from the current
-      // crown rise; the chair never moves for it.
+      // crown rise; the chair never moves for it. Every other top chair's
+      // caption hangs below its plate (SeatSlot.css), so it needs no drop.
       for (const pod of scaler.querySelectorAll<HTMLElement>(
         '.seat-wrapper--cap, .seat-wrapper--top'
       )) {
@@ -981,7 +990,7 @@ export function useProtectedCardLayout(
           .closest('.multi-table-page')
           ?.querySelector('.multi-table-page__tab-bar-wrapper');
         const seatStyle = getComputedStyle(seat);
-        const drop = sixSeatTopCaptionDrop({
+        const drop = topChairCaptionDrop({
           seatTop: seat.getBoundingClientRect().top,
           rise: parseFloat(seatStyle.getPropertyValue('--sp-art-rise')) || 0,
           tagHeight: parseFloat(seatStyle.getPropertyValue('--sp-tag-h')) || 20,

@@ -606,19 +606,28 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
     }
   }
-  // THE SIX-MAX TOP SEAT STANDS ON THE RAIL (Dan 2026-11-22: "THEY MUST 100% OF
-  // THE TIME BE ON THE RAIL AND NEVER ON TOP OF THE TABLE OR OVERLAPPING THE
-  // FELT ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). The plate
-  // rests on the chair's own rail station, neither it nor the portrait reaches
-  // the felt window, and the tab bar paints above the portrait. Seated and
-  // watched tables alike; src/components/table/sixSeatTopRail.ts.
-  if (
-    table.dataset.seats === '6' &&
-    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
-  ) {
+  // EVERY TOP CHAIR STANDS ON THE RAIL (Dan 2026-11-22: "THEY MUST 100% OF THE
+  // TIME BE ON THE RAIL AND NEVER ON TOP OF THE TABLE OR OVERLAPPING THE FELT
+  // ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). On a portrait
+  // phone or tablet (up to 768px wide), every ring and every top chair, cash
+  // or tournament, seated or watched: the plate rests on the chair's own rail
+  // station (the nine-seat phone ring keeps its plates centred on it, never
+  // past the felt), neither the plate nor the portrait reaches the felt window,
+  // the tab bar and the jackpot plaque paint above the portrait, and nothing
+  // covers the jackpot plaque. src/components/table/topChairRail.ts.
+  const railViewport = innerWidth <= 768 && innerHeight > innerWidth;
+  if (railViewport) {
     const chassisNode = table.querySelector('.table-scaler');
     const feltNode = table.querySelector('.table-surface');
     const header = document.querySelector('.multi-table-page__tab-bar-wrapper');
+    const jackpots = Array.from(table.querySelectorAll('.bbj-widget, .bbj-mini-plate')).filter(
+      visible
+    );
+    const centred =
+      table.dataset.seats === '9' &&
+      innerWidth > 480 &&
+      innerWidth <= 640 &&
+      innerHeight > innerWidth;
     for (const wrapper of table.querySelectorAll<HTMLElement>(
       '.seat-wrapper--cap:not(.seat-wrapper--hero),.seat-wrapper--top:not(.seat-wrapper--hero)'
     )) {
@@ -626,20 +635,35 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       const plate = seat?.querySelector(':scope > .seat__info');
       if (!seat || !plate || !visible(plate) || !chassisNode || !feltNode || !visible(feltNode))
         continue;
+      const name = `Top Seat ${seat.dataset.seatNum ?? '?'}`;
       const chassis = box(chassisNode),
         felt = box(feltNode),
         label = box(plate);
       const station = chassis.top + (chassis.height * parseFloat(wrapper.style.top)) / 100;
-      if (!(station < felt.top)) violations.push('Six-Max Top Seat Station Is Not On The Rail');
-      if (Math.abs(label.bottom - station) > 1.5)
+      if (!(station < felt.top)) violations.push(`${name} Station Is Not On The Rail`);
+      const rest = centred ? Math.min(station + label.height / 2, felt.top) : station;
+      if (Math.abs(label.bottom - rest) > 1.5)
         violations.push(
-          `Six-Max Top Seat Plate Left Its Rail Station By ${(label.bottom - station).toFixed(1)}px`
+          `${name} Plate Left Its Rail Station By ${(label.bottom - rest).toFixed(1)}px`
         );
-      if (label.bottom > felt.top + 0.5) violations.push('Six-Max Top Seat Plate Over The Felt');
+      if (label.bottom > felt.top + 0.5) violations.push(`${name} Plate Over The Felt`);
+      for (const jackpot of jackpots)
+        if (intersects(label, box(jackpot))) violations.push(`${name} Plate Covers The Jackpot`);
       const portrait = seat.querySelector('.seat__avatar-img');
       if (portrait && visible(portrait)) {
-        if (box(portrait).bottom > felt.top + 0.5)
-          violations.push('Six-Max Top Seat Portrait Over The Felt');
+        const art = box(portrait);
+        if (art.bottom > felt.top + 0.5) violations.push(`${name} Portrait Over The Felt`);
+        // Where the portrait reaches up behind the jackpot plaque, the plaque
+        // is what is drawn there: the portrait never covers the jackpot.
+        for (const jackpot of jackpots) {
+          const j = box(jackpot);
+          if (!intersects(art, j)) continue;
+          const x = (Math.max(art.left, j.left) + Math.min(art.right, j.right)) / 2;
+          const y = (Math.max(art.top, j.top) + Math.min(art.bottom, j.bottom)) / 2;
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || !jackpot.contains(hit))
+            violations.push(`${name} Portrait Covers The Jackpot`);
+        }
         if (header && visible(header) && header.parentElement) {
           // Paint order where the two meet: the bar and the branch holding the
           // portrait are siblings under the bar's parent.
@@ -648,7 +672,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
             branch = branch.parentElement;
           const layer = (element: Element) => parseInt(getComputedStyle(element).zIndex, 10) || 0;
           if (!branch || layer(header) <= layer(branch))
-            violations.push('Six-Max Top Seat Portrait Is Not Under The Tab Bar');
+            violations.push(`${name} Portrait Is Not Under The Tab Bar`);
           const bar = getComputedStyle(header)
             .backgroundColor.match(/[\d.]+/g)
             ?.map(Number);
@@ -1121,7 +1145,18 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     largeHand && capPlate && head
       ? Math.max(12, (cardWidth * 92) / 64 + 10 - (box(capPlate).top - headTop!))
       : 12;
-  if (table.getAttribute('data-seats') === '6' && box(table).width > 480 && head && visible(head)) {
+  // Outside the rail viewport (landscape, desktop, a tiled table) the top chair
+  // keeps its earlier placement: crown to the bar on six-max, close under the
+  // Mini BBJ elsewhere. On a portrait phone or tablet the rail checks above
+  // replace both (Dan 2026-11-22: the head may run under the bar).
+  if (railViewport) {
+    // The rail block above owns the top chair here.
+  } else if (
+    table.getAttribute('data-seats') === '6' &&
+    box(table).width > 480 &&
+    head &&
+    visible(head)
+  ) {
     const scaler = table.querySelector<HTMLElement>('.table-scaler')!;
     const scale = box(scaler).width / scaler.offsetWidth || 1;
     const source = (head as HTMLImageElement).currentSrc || (head as HTMLImageElement).src;

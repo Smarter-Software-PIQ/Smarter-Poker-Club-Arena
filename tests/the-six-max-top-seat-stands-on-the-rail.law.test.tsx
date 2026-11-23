@@ -18,7 +18,9 @@
  * 2026-11-18), 16.0% watched on a 600x1065 canvas. The felt window starts at
  * 8.9%.
  *
- * The chair is now placed from the RAIL UP (src/components/table/sixSeatTopRail.ts):
+ * The chair is now placed from the RAIL UP (src/components/table/topChairRail.ts,
+ * generalised the same day to every top chair on every ring:
+ * tests/every-top-chair-stands-on-the-rail.law.test.tsx):
  * the plate's bottom edge rests on the chair's own rail station (y 5), nothing
  * above the chair is an input, the allocator never nudges it, and the tab bar
  * paints above the portrait. No portrait changes size (CLAUDE.md 10.7c).
@@ -30,10 +32,10 @@ import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   sixSeatPhoneRail,
-  sixSeatTopCaptionDrop,
-  sixSeatTopRailShift,
   stationIsOnTheTopRail,
-} from '../src/components/table/sixSeatTopRail';
+  topChairCaptionDrop as sixSeatTopCaptionDrop,
+  topChairRailShift as sixSeatTopRailShift,
+} from '../src/components/table/topChairRail';
 import { FELT_WINDOW } from '../src/components/table/tableGeometry';
 import {
   SIX_SEAT_PHONE_BUST_SCALE,
@@ -72,7 +74,7 @@ describe('the station is the rail', () => {
     expect(stationIsOnTheTopRail(25)).toBe(false);
     expect(stationIsOnTheTopRail(Number.NaN)).toBe(false);
   });
-  it('applies to the phone reference layout only', () => {
+  it('the caption drop belongs to the six-max phone reference layout only', () => {
     expect(sixSeatPhoneRail('6', 600, 1298)).toBe(true);
     expect(sixSeatPhoneRail('6', 600, 1065)).toBe(true);
     expect(sixSeatPhoneRail('9', 600, 1298)).toBe(false);
@@ -115,10 +117,10 @@ describe('the plate rests on the station, by arithmetic', () => {
     expect(Object.keys({ ...base, plateTop: 0 }).sort()).toEqual(
       ['plateHeight', 'plateTop', 'ringHeight', 'ringTop', 'scale', 'stationPct'].sort()
     );
-    const source = read('src/components/table/sixSeatTopRail.ts');
+    const source = read('src/components/table/topChairRail.ts');
     const from = source.indexOf(
       '}): number {',
-      source.indexOf('export function sixSeatTopRailShift')
+      source.indexOf('export function topChairRailShift')
     );
     const shiftBody = source.slice(from, source.indexOf('\n}\n', from));
     expect(shiftBody).toContain('stationPct');
@@ -127,7 +129,7 @@ describe('the plate rests on the station, by arithmetic', () => {
   it('the approved portrait sizes are what they were (10.7c): room is made, nothing shrinks', () => {
     expect(SIX_SEAT_PHONE_BUST_SCALE).toBe(2.1);
     expect(SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE).toBe(2.3);
-    expect(read('src/components/table/sixSeatTopRail.ts')).not.toMatch(
+    expect(read('src/components/table/topChairRail.ts')).not.toMatch(
       /localStorage|sessionStorage|bust-scale|--sp-mobile-art-scale/
     );
   });
@@ -263,11 +265,13 @@ describe('the mechanisms that put it on the felt stay out', () => {
   const allocator = read('src/components/table/opponentAvatarLayout.ts');
   const fitter = read('src/components/table/mobileAvatarEnlargement.ts');
 
-  it('the hook places the phone six-max top pod with sixSeatTopRailShift', () => {
+  it('the hook places the phone six-max top pod with topChairRailShift', () => {
     const branch = hook.slice(hook.indexOf('for (const entry of placed) {'));
-    const sixMax = branch.slice(branch.indexOf('if (sixMax) {'), branch.indexOf('let level ='));
-    expect(sixMax).toContain('sixSeatTopRailShift(');
-    expect(sixMax).toContain('stationIsOnTheTopRail(station)');
+    const rail = branch.slice(0, branch.indexOf('let level ='));
+    expect(rail).toContain('topChairRailShift(');
+    expect(rail).toContain('railRule && plate && stationIsOnTheTopRail(station)');
+    // The rail placement comes first, before the six-max lane's own exit.
+    expect(rail.indexOf('topChairRailShift(')).toBeLessThan(rail.indexOf('if (sixMax) continue;'));
   });
   it('the chair allocator never nudges the rail-placed chair', () => {
     // It is a fixed fact for the other chairs, not an item to be solved.
@@ -292,10 +296,11 @@ describe('the mechanisms that put it on the felt stay out', () => {
     expect(hold).toContain("setProperty('--sp-opponent-y', '0px')");
     expect(hold).toContain('state.shifts.set(seat, [0, 0])');
   });
-  it('the size fitter lets that one portrait pass behind the tab bar instead of shrinking', () => {
+  it('the size fitter lets that portrait pass behind the tab bar instead of shrinking', () => {
     expect(fitter).toMatch(
-      /element\.matches\('\.table-tab-bar'\)\)\s*boxes\.push\(\{ box, owner: railTop, layer: false, overlay: true \}\)/
+      /element\.matches\('\.table-tab-bar'\)\)\s*boxes\.push\(\{ box, owner: null, layer: false, overlayFor: railTop \}\)/
     );
+    expect(fitter).toContain('!o.overlayFor?.has(e.seat)');
     expect(fitter).toContain('item.openTop ? openTopViewport : viewport');
   });
   it('the tab bar paints above the table, opaque, so a crown behind it is hidden', () => {

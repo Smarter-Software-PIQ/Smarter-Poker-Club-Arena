@@ -1,6 +1,6 @@
 import { NINE_SEAT_PHONE_RAIL_BUST } from './mobileAvatarSize';
 import { privateCardLane } from './heroPrivateReservations';
-import { sixSeatPhoneRail } from './sixSeatTopRail';
+import { topChairRailViewport } from './topChairRail';
 import {
   crownActionReservation,
   nineSeatHeroArtRatio,
@@ -1211,16 +1211,17 @@ export function createOpponentAvatarLayout(
     const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
     return !!wrapper && parseFloat(wrapper.style.top) > 50 && parseFloat(wrapper.style.left) !== 50;
   };
-  /* THE SIX-MAX TOP SEAT STANDS ON THE RAIL (Dan 2026-11-22, sixSeatTopRail.ts).
-     On the phone that chair is placed by its rail station alone and is never
-     nudged: not by the joint solver, not by a wager making room. This
-     allocator used to hold its crown and the caption lane above it under the
-     tab bar, and the only way to do that was to push the whole pod, plate
-     first, down onto the felt. The chair is a fixed fact for every other
-     chair instead: they keep clear of it exactly as they keep clear of the
-     board, and it keeps its place in the ring order. */
+  /* EVERY TOP CHAIR STANDS ON THE RAIL (Dan 2026-11-22, topChairRail.ts).
+     On a portrait phone or tablet a top chair is placed by its rail station
+     alone and is never nudged: not by the joint solver, not by a wager making
+     room. This allocator used to hold its crown (and, on six-max, the caption
+     lane above it) under the tab bar and clear of the jackpot plate, and the
+     only way to do that was to push the whole pod, plate first, down onto the
+     felt. The chair is a fixed fact for every other chair instead: they keep
+     clear of it exactly as they keep clear of the board, and it keeps its
+     place in the ring order. */
   const railCapSeat = (seat: HTMLElement) =>
-    sixSeatPhoneRail(page.dataset.seats, window.innerWidth, window.innerHeight) &&
+    topChairRailViewport(window.innerWidth, window.innerHeight) &&
     seat !== anchorSeat() &&
     !!seat.closest('.seat-wrapper--cap,.seat-wrapper--top');
   const railCapSeats = () =>
