@@ -806,7 +806,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v87HoldemOverhaul',
-    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, SPR postflop gameplan, anti-LAG bully-breaker, river block-bet balance, Hollywood tank mix, and tournament bubble/PKO discipline; false only to ablate',
+    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, low-stakes multiway defence, straddle normalization, and master gate for V87 postflop sub-flags; false only to ablate',
     'V87'
   ),
   flag(
@@ -827,6 +827,76 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'v87FlopStabCheckRaise',
     'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87RangeCbet',
+    'V87 heads-up IP dry-flop 30-36% range c-bet (decoupled from v87HoldemOverhaul); default on, false only for isolated ablation',
+    'V87'
+  ),
+  flag(
+    'v87LowSprCommit',
+    'V87 low-SPR (<=3.5) flop/turn commitment bet or jam with TPTK, overpair, two-pair+ or 12+ out flop combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87TurnTakeaway',
+    'V87 IP heads-up turn 62-72% takeaway bet after flop stabber checks turn (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpCheckbackTrap',
+    'V87 IP heads-up dry-flop check-back trap (~25%) with non-QQ+ sets, two pair, straights and flushes (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87OopStabTrap',
+    'V87 OOP flop check-trap into high-frequency flop stabber (~42%) with TPTK+ or 12+ out combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87MultiwayWetAirCheck',
+    'V87 multiway wet-flop air check without 8+ clean outs (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BubblePostflop',
+    'V87 tournament bubble/ITM postflop covered-medium pot-control check and cover-stack turn/river pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockBalance',
+    'V87 OOP river block-bet balance non-trap branches: LAG one-pair check, nut-blocker block bluff, and raised block-bet bare one-pair fold/maniac-skip (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DoubleBoardDeadHalfFold',
+    'V87 NLH double-board turn/river dead-half fold facing 60%+ pot pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DeepCashOnePairPotControl',
+    'V87 150bb+ deep cash bare one-pair river pot-control fold and maniacCallDown stack-off refusal (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87ComboDrawPump',
+    'V87 12+ clean-out NLH flop combo-draw semi-bluff raise/jam pump outside baseline HU owner (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockerBluffRaise',
+    'V87 V64-safe river air nut-blocker bluff-raise against observed non-station bettor (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpFlopFloat',
+    'V87 IP flop float facing <=55% pot stab from high-stab or turn-give-up opponent (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BullyReadAdjust',
+    'V87 postflop bully-breaker read adjustments: turn/river give-up decay in maniacCallDown, V80 cap +0.05 vs LAG, and 3-way V53 pressure vs LAG/stabber (decoupled from v87HoldemOverhaul); default on',
     'V87'
   ),
   flag(
@@ -888,6 +958,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v66BetRaisedOnePair',
     '2026-10-31 Hold em flop/turn bet-then-raised one pair (or air with no real draw): hero own wager this street no longer counts toward commitment, the call carries a raise shade of up to 0.10 equity scaled by the raise size, and the class calls or folds at that price without jamming; measured 7-day review calls won 33-36% at an average raise of 0.86 pot; explicit off arm retained',
     'V66'
+  ),
+  flag(
+    'v66BetRaisedOnePairIsPriced',
+    '2026-11-21 (Horse Switch lane, dark default OFF, read === true): priced replacement for V66 on flop/turn bet-then-raised one pair or bluff-catch hands with no real draw in single-board 2-card NLH; computes EV(call) vs EV(fold) = 0 from pot odds, SPR/street/position/scare-texture realization, and combo-level Monte-Carlo equity against the raiser narrowed line range (HorseHoldemV66RaisedOnePairIsPriced); independent of v66BetRaisedOnePair, zero fixed 0.42 floor, zero hardcoded class fold or jam, never enters PLO4/5/6',
+    'Horse Switch'
   ),
   flag(
     'v67RiverBetRaisedOnePair',
@@ -1805,7 +1880,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v69TurnCallGaps',
-    '2026-10-31 Hold em single-board TURN call gaps left by V65/V68: one-pair calls lose the implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call, the V65 draw exemption counts only a draw a hole card is part of, and the opt-in V32 draw pass-through falls through to the normal line when there is no room to be paid; explicit off arm retained',
+    '2026-10-31 Hold em single-board TURN one-pair implied-odds no-room rule (V69 (1)): one-pair calls lose the 0.04 implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call; decoupled from V69 (2) hole-card draw exemption (v69HoleDrawExemption) and V69 (3) V32 turn draw pass-through no-room check (v69V32DrawNoRoom); explicit off arm retained',
+    'V69'
+  ),
+  flag(
+    'v69HoleDrawExemption',
+    '2026-10-31 (#8902) Hold em turn one-pair shade draw exemption (V69 (2)): V65 and Pillar 2 turn one-pair shades count only a draw a hole card is part of (holdemHoleDrawPresent), so a board-only four-flush or four-rank window no longer exempts the hand; decoupled from v69TurnCallGaps so disabling one-pair implied-odds suppression never re-enables the board-only draw exemption defect; default on',
+    'V69'
+  ),
+  flag(
+    'v69V32DrawNoRoom',
+    '2026-10-31 (#8902) Hold em V32 turn draw pass-through no-room check (V69 (3)): when opt-in v32FacingDefense is on, a turn draw pass-through with no room to be paid (v68NoRoomToBePaid) falls through to the normal line instead of guaranteeing a turn call; decoupled from v69TurnCallGaps and v69HoleDrawExemption; default on',
     'V69'
   ),
   flag(
@@ -9810,6 +9895,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_tourney_aggro_priced_one_card_flush_call_seen',
     'HorseLogic committed 4-flush call (holdemTournamentAggressionIsPriced)',
     'a single-board 2-card NLH tournament one-card flush on a 4-flush board called deterministically because Bayesian + ICM EV(call) >= 0 at the offered price',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_call_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand called by positive EV against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_fold_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand folded because EV(call) <= 0 against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_unpriced',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a flop/turn bet-then-raised one-pair spot could not be priced heads-up (multiway, side pot, or empty range); existing behavior ran unchanged',
     'Horse Switch'
   ),
 

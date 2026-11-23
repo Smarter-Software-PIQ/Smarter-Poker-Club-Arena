@@ -18,31 +18,14 @@
  */
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { RUNTIME_SETTINGS_REGISTRY } from '../src/engine/runtimeSettings/registry.js';
-import { validateRuntimeSettingValues } from '../src/engine/runtimeSettings/snapshot.js';
+import { checkRuntimeSettingsJson } from '../src/engine/runtimeSettings/snapshot.js';
+import {
+  validateSingleBlanketOffStep,
+  type BlanketOffSettingsInput,
+} from '../src/engine/HorseBlanketOffSingleStepGuard.js';
 
-export function checkRuntimeSettingsFile(text: string): {
-  ok: boolean;
-  lines: string[];
-  settings?: Record<string, number>;
-} {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    return {
-      ok: false,
-      lines: [`not JSON: ${error instanceof Error ? error.message : String(error)}`],
-    };
-  }
-  const checked = validateRuntimeSettingValues(parsed);
-  if (!checked.ok) return { ok: false, lines: [`refused: ${checked.reason}`] };
-  const lines = RUNTIME_SETTINGS_REGISTRY.map((spec) => {
-    const value = checked.values[spec.key];
-    const changed = value !== spec.compiledDefault;
-    return `${changed ? '*' : ' '} ${spec.key} = ${value}${changed ? ` (compiled ${spec.compiledDefault})` : ''}`;
-  });
-  return { ok: true, lines, settings: parsed as Record<string, number> };
+export function checkRuntimeSettingsFile(text: string, previousSettings?: BlanketOffSettingsInput) {
+  return checkRuntimeSettingsJson(text, previousSettings);
 }
 
 const sqlText = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -65,6 +48,7 @@ function arg(name: string): string | undefined {
 
 async function main(): Promise<number> {
   const file = arg('--check') ?? arg('--sql') ?? arg('--publish');
+  const previousFile = arg('--previous');
   const rollback = arg('--rollback');
   const note = arg('--note');
   const actor = arg('--actor');
@@ -72,9 +56,20 @@ async function main(): Promise<number> {
     console.error('usage: see the header of scripts/runtime-settings-publish.ts');
     return 2;
   }
+  let previousFromFile: BlanketOffSettingsInput | undefined;
+  if (previousFile) {
+    try {
+      previousFromFile = JSON.parse(readFileSync(previousFile, 'utf8')) as BlanketOffSettingsInput;
+    } catch (error) {
+      console.error(
+        `refused: --previous is not readable JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return 1;
+    }
+  }
   let settings: Record<string, number> | undefined;
   if (file) {
-    const result = checkRuntimeSettingsFile(readFileSync(file, 'utf8'));
+    const result = checkRuntimeSettingsFile(readFileSync(file, 'utf8'), previousFromFile);
     for (const line of result.lines) console.log(line);
     if (!result.ok) return 1;
     settings = result.settings;
@@ -100,6 +95,22 @@ async function main(): Promise<number> {
   }
   const { createClient } = await import('@supabase/supabase-js');
   const client = createClient(url, key, { auth: { persistSession: false } });
+  if (rollback === undefined) {
+    const current = await client.rpc('fn_ca_engine_runtime_settings_current');
+    if (current.error) {
+      console.error(`refused: could not read current settings version: ${current.error.message}`);
+      return 1;
+    }
+    const prevSettings =
+      current.data && typeof current.data === 'object' && 'settings' in current.data
+        ? ((current.data as { settings?: BlanketOffSettingsInput }).settings ?? {})
+        : {};
+    const step = validateSingleBlanketOffStep(prevSettings, settings);
+    if (!step.ok) {
+      console.error(`refused: ${step.reason}`);
+      return 1;
+    }
+  }
   const { data, error } =
     rollback !== undefined
       ? await client.rpc('fn_ca_engine_runtime_settings_rollback', {

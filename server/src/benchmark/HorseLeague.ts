@@ -3562,6 +3562,35 @@ export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze(
     b: { riverBluffMultiway: true },
   },
   ...HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS,
+  // 2026-11-21 Horse Switch lane (v66BetRaisedOnePairIsPriced, default OFF, dark):
+  // arm B keeps production V66 on; arm A switches on its EV-priced replacement
+  // (HorseHoldemV66RaisedOnePairIsPriced.ts) at the flop/turn bet-then-raised one-pair site.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v66_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v66BetRaisedOnePair: true, v66BetRaisedOnePairIsPriced: true },
+    b: { v66BetRaisedOnePair: true },
+  },
+  // The same question heads-up, where flop/turn bet-then-raised one-pair spots are frequent.
+  {
+    name: 'hu_v66_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v66BetRaisedOnePair: true, v66BetRaisedOnePairIsPriced: true },
+    b: { v66BetRaisedOnePair: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

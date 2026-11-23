@@ -17,6 +17,7 @@ import {
   holdemDangerBoardBettorEquity,
 } from './HorseHoldemCommittedPricing.js';
 import {
+  holdemEquityOfShare,
   holdemFillEquities,
   holdemHandIsMade,
   holdemLineLikelihood,
@@ -38,6 +39,12 @@ import {
   holdemRiverBluffIsPricedApplies,
   holdemRiverBluffPricedVerdict,
 } from './HorseHoldemRiverBluffIsPriced.js';
+import {
+  v66BoardScareTexture,
+  v66RaiseLineKeep,
+  v66RaisedOnePairPricedApplies,
+  v66RaisedOnePairPricedVerdict,
+} from './HorseHoldemV66RaisedOnePairIsPriced.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -3396,6 +3403,13 @@ export interface HorseDecideOpts {
    * price and never jams. Default on; explicit false keeps today's
    * committed-branch pricing. */
   v66BetRaisedOnePair?: boolean;
+  /** v66BetRaisedOnePairIsPriced (2026-11-21, Horse Switch lane, default OFF, read === true):
+   * priced replacement for V66 on flop/turn bet-then-raised one pair (or bluff-catch class with
+   * no real draw) in single-board 2-card NLH. Computes EV(call) vs EV(fold) = 0 from pot odds,
+   * SPR/street/position/scare-board realization, and combo-level Monte-Carlo equity against the
+   * raiser's narrowed line range (HorseHoldemV66RaisedOnePairIsPriced) with no fixed 0.42 floor
+   * and no hardcoded class fold or jam. Independent of v66BetRaisedOnePair. */
+  v66BetRaisedOnePairIsPriced?: boolean;
   /** V67 (2026-10-31): a hold'em one-pair (or board-paired two pair) hand
    * that bet the river and was raised is priced against the raise: the V63
    * shade plus a raise-specific V67_RIVER_RAISE_SHADE (capped at
@@ -5057,8 +5071,10 @@ export interface HorseDecideOpts {
    *  in / out of position equity multiplier, then depth) read on a reference
    *  continue order of pairs, suited hands and AKo/AQo, instead of a fixed
    *  top-of-the-deck bar. Value 4-bets, the 4-bet bluff, the 5-bet branch
-   *  and the dominated-offsuit fold are unchanged. Default on; explicit
-   *  false keeps today's. */
+   *  and the dominated-offsuit fold are unchanged. Decoupled from
+   *  v75SqueezeDefence: explicit false disables only the pure 3-bet node and
+   *  leaves squeezed-opener defence intact. Default on; explicit false keeps
+   *  today's. */
   v73Vs3BetDefence?: boolean;
   /** V75 (2026-11-01): the V73 opener-facing-a-3-bet width also answers the
    *  SQUEEZE (hero's open was called, then one player re-raised, nobody has
@@ -5067,9 +5083,10 @@ export interface HorseDecideOpts {
    *  behind hero narrows it by the V75 realisation factor
    *  (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR). Same scope bounds as
    *  V73 otherwise; value 4-bets, the 5-bet branch, the dominated-offsuit
-   *  fold and the V18 squeeze exploit read are unchanged. Default on;
-   *  explicit false keeps the squeeze node on today's fixed bar (V73's pure
-   *  3-bet node is untouched by this flag). */
+   *  fold and the V18 squeeze exploit read are unchanged. Independently gated
+   *  from v73Vs3BetDefence so turning v73Vs3BetDefence OFF never disables
+   *  squeeze defence. Default on; explicit false keeps the squeeze node on
+   *  today's fixed bar (V73's pure 3-bet node is untouched by this flag). */
   v75SqueezeDefence?: boolean;
   /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
    *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
@@ -5290,15 +5307,28 @@ export interface HorseDecideOpts {
   /** V68 league-only scale on the (b) air shade (1 shipped; 0.5 is the
    *  half-strength fallback). Production never sets it. */
   v68AirShadeScaleOverride?: number;
-  /** V69 (2026-10-31): three hold'em single-board TURN call gaps left by
-   *  V65/V68. (1) One-pair calls lose the implied-odds bonus under V68's
-   *  no-room-to-be-paid rule. (2) V65's draw exemption counts only a draw a
-   *  hole card is part of, so a board-only four-flush or four-rank window no
-   *  longer withholds the shade. (3) The V32 defend layer's draw
-   *  pass-through on the turn falls through to the normal line when there is
-   *  no room to be paid. Default on; explicit false keeps today's behaviour
-   *  for all three. */
+  /** V69 (1) (2026-10-31): hold'em single-board TURN one-pair calls lose the
+   *  0.04 implied-odds bonus under V68's no-room-to-be-paid rule (bet >= 0.7
+   *  pot with under 1.5x pot behind after the call). Decoupled from V69 (2)
+   *  (`v69HoleDrawExemption`) and V69 (3) (`v69V32DrawNoRoom`) so disabling
+   *  one-pair implied-odds suppression never alters V65/Pillar 2 draw
+   *  exemption or V32 draw pass-through. Default on; explicit false disables
+   *  only V69 (1). */
   v69TurnCallGaps?: boolean;
+  /** V69 (2) (2026-10-31, #8902): hold'em turn one-pair shade draw exemption
+   *  (V65 and Pillar 2 deep-dive turn shade) counts only a draw a hole card is
+   *  part of (`holdemHoleDrawPresent`), so a board-only four-flush or
+   *  four-rank window no longer withholds the shade. Decoupled from
+   *  `v69TurnCallGaps` so turning `v69TurnCallGaps` OFF never re-enables the
+   *  board-only draw exemption defect for V65 or Pillar 2. Default on;
+   *  explicit false disables only V69 (2). */
+  v69HoleDrawExemption?: boolean;
+  /** V69 (3) (2026-10-31, #8902): the opt-in V32 defend layer's turn draw
+   *  pass-through falls through to the normal line when there is no room to be
+   *  paid (`v68NoRoomToBePaid`), instead of guaranteeing a turn call.
+   *  Decoupled from `v69TurnCallGaps` and `v69HoleDrawExemption`. Default on;
+   *  explicit false disables only V69 (3). */
+  v69V32DrawNoRoom?: boolean;
   /** V62 (2026-10-30) Hold'em river bettor polarity: a river wager's sampled
    *  hand is drawn from a bluff / two pair+ / top pair / weaker pair stratum
    *  by bet size (HorseEval V62_BLUFF_SHARE / V62_VALUE_MIX), placed exactly
@@ -6007,6 +6037,23 @@ export interface HorseDecideOpts {
   v87RiverBlockBetTrapIsPriced?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
+  /** V87 postflop sub-flags (decoupled from v87HoldemOverhaul; default true,
+   *  explicit false isolates only that postflop sub-rule without disabling
+   *  preflop V87 ranges or any other postflop V87 sub-rule). */
+  v87RangeCbet?: boolean;
+  v87LowSprCommit?: boolean;
+  v87TurnTakeaway?: boolean;
+  v87IpCheckbackTrap?: boolean;
+  v87OopStabTrap?: boolean;
+  v87MultiwayWetAirCheck?: boolean;
+  v87BubblePostflop?: boolean;
+  v87RiverBlockBalance?: boolean;
+  v87DoubleBoardDeadHalfFold?: boolean;
+  v87DeepCashOnePairPotControl?: boolean;
+  v87ComboDrawPump?: boolean;
+  v87RiverBlockerBluffRaise?: boolean;
+  v87IpFlopFloat?: boolean;
+  v87BullyReadAdjust?: boolean;
 }
 
 /**
@@ -7116,13 +7163,14 @@ function maniacCallDown(
     // V87: one-and-done flop stabbers whose turn/river barrel rate drops off
     // only fire later barrels with polarized value; decay maniac call-down
     // credit on the turn (* 0.65) and river (* 0.35).
-    const betRate = bullyRead87?.turnGiveUp
-      ? street === 'turn'
-        ? rawBetRate * 0.65
-        : street === 'river'
-          ? rawBetRate * 0.35
-          : rawBetRate
-      : rawBetRate;
+    const betRate =
+      opts.v87BullyReadAdjust !== false && bullyRead87?.turnGiveUp
+        ? street === 'turn'
+          ? rawBetRate * 0.65
+          : street === 'river'
+            ? rawBetRate * 0.35
+            : rawBetRate
+        : rawBetRate;
     // A wide preflop raiser that does NOT bet postflop far more than horses
     // do is a preflop maniac only; its postflop bets keep their meaning.
     if (street !== 'preflop' && betRate < 0.55) return decision;
@@ -7131,6 +7179,7 @@ function maniacCallDown(
       // V87 Ecosystem #1: never let maniacCallDown auto-pay off a large river
       // raise over hero's small (<= 35% pot) block-bet with bare one-pair.
       if (
+        opts.v87RiverBlockBalance !== false &&
         street === 'river' &&
         catManiac87 <= 2 &&
         toCall >= Math.max(1e-9, gs.pot - toCall) * 0.3 &&
@@ -7147,6 +7196,7 @@ function maniacCallDown(
       );
       const callManiac87 = Math.min(toCall, player.stack);
       if (
+        opts.v87DeepCashOnePairPotControl !== false &&
         !isTournamentMode(gs) &&
         catManiac87 <= 2 &&
         (investedManiac87 + player.stack) / bbManiac87 >= 150 &&
@@ -18683,6 +18733,7 @@ export class HorseLogic {
       const blockTrap87 =
         v87RiverBlockTrapPending &&
         opts.v87HoldemOverhaul !== false &&
+        opts.v87RiverBlockBetTrap !== false &&
         gs.stage === 'river' &&
         shoveDisciplined.action === 'bet' &&
         Number.isFinite(shoveDisciplined.amount) &&
@@ -21660,7 +21711,6 @@ export class HorseLogic {
     // width on the seat's continue order (HorseGtoVs3BetRanges). Both seats
     // are indexed from the dealt census, never from who anybody is.
     const gtoVs3Bet73 = (() => {
-      if (opts.v73Vs3BetDefence === false) return undefined;
       if (raises !== 2 || !heroWasInitialRaiser || lastRaiserSeat < 0) return undefined;
       if (callers !== 0 || limpers !== 0) return undefined;
       // ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══ hero's open was called
@@ -21671,7 +21721,14 @@ export class HorseLogic {
       // arithmetic) and its live cards cost realisation
       // (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR).
       const squeeze75 = callersOfPreviousRaise >= 1;
-      if (squeeze75 && opts.v75SqueezeDefence === false) return undefined;
+      // Decoupled (REVIEW-HOLDEM-OFFLIST #19): pure 3-bet nodes gate on
+      // v73Vs3BetDefence alone; squeeze nodes gate on v75SqueezeDefence alone,
+      // so turning v73Vs3BetDefence OFF never silently disables V75 squeeze defence.
+      if (squeeze75) {
+        if (opts.v75SqueezeDefence === false) return undefined;
+      } else {
+        if (opts.v73Vs3BetDefence === false) return undefined;
+      }
       if (callersOfPreviousRaise !== 0 && !squeeze75) return undefined;
       if (player.cards.length !== 2) return undefined;
       if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
@@ -25672,7 +25729,16 @@ export class HorseLogic {
     /** V34: the solver said CALL with a drawing hand; the semi-bluff raise
      *  gates below get first refusal, and the call is guaranteed after them. */
     let solverCall32 = false;
-    const v69Gaps = (opts.v69TurnCallGaps ?? true) !== false;
+    // Decoupled (REVIEW-HOLDEM-OFFLIST #12): split V69's three distinct
+    // turn-call effects onto independent default-ON flags so turning off any
+    // single effect never cross-disables the others or alters V65 / Pillar 2
+    // draw exemption:
+    //   (1) v69OnePairImplied (opts.v69TurnCallGaps) — one-pair implied-odds no-room check
+    //   (2) v69HoleDraw (opts.v69HoleDrawExemption) — hole-card-only draw exemption
+    //   (3) v69V32Draw (opts.v69V32DrawNoRoom) — V32 turn draw pass-through no-room check
+    const v69OnePairImplied = (opts.v69TurnCallGaps ?? true) !== false;
+    const v69HoleDraw = opts.v69HoleDrawExemption !== false;
+    const v69V32Draw = opts.v69V32DrawNoRoom !== false;
     // ═══ V32 FACING A BET — the solver's own betting range (2026-08-30) ═══
     // Phase 2 of 7. V29/V30/V31 answer only with the LEAD; this is the other
     // half. The bettor's open-node cell gives P(bet at this size | holding)
@@ -25808,9 +25874,9 @@ export class HorseLogic {
             // V69 (3): on the turn, a draw call the stacks behind cannot pay
             // off (V68's no-room-to-be-paid rule) is not guaranteed here; it
             // falls through to the normal line, which prices it without the
-            // implied-odds allowance.
+            // implied-odds allowance. Independently gated on v69V32DrawNoRoom.
             if (
-              v69Gaps &&
+              v69V32Draw &&
               street === 'turn' &&
               v68NoRoomToBePaid(
                 toCall / Math.max(pot - toCall, 1e-9),
@@ -26009,6 +26075,7 @@ export class HorseLogic {
         // (1) Covered medium stack on the bubble / pay jump: pot-control bare
         // one pair on wet turns and rivers (never a QQ+/AK Rule 3 hand).
         if (
+          opts.v87BubblePostflop !== false &&
           coveredMedium87 &&
           (street === 'turn' || isRiver) &&
           wetness >= 0.45 &&
@@ -26022,6 +26089,7 @@ export class HorseLogic {
         // real two pair+ and 12+ out flop combo draws instead of checking when
         // hero is not OOP facing a prior-street aggressor.
         if (
+          opts.v87LowSprCommit !== false &&
           !isRiver &&
           initiative !== 'opp' &&
           spr <= 3.5 &&
@@ -26047,6 +26115,7 @@ export class HorseLogic {
         // (3) IP dry-flop check-back trap (~25%): non-QQ+ sets, two pair,
         // straights and flushes only. QQ+/AK made hands keep Rule 3.
         if (
+          opts.v87IpCheckbackTrap !== false &&
           street === 'flop' &&
           ip &&
           oppCount === 1 &&
@@ -26066,6 +26135,7 @@ export class HorseLogic {
         // (4) OOP check-trap into a high-frequency flop stabber (~42%):
         // strong top pair+ and 12+ out combo draws check to check-raise.
         if (
+          opts.v87OopStabTrap !== false &&
           street === 'flop' &&
           !ip &&
           oppCount <= 2 &&
@@ -26081,6 +26151,7 @@ export class HorseLogic {
         }
         // (5) Turn takeaway: the flop stabber checked the turn. Fire 62-72%.
         if (
+          opts.v87TurnTakeaway !== false &&
           street === 'turn' &&
           ip &&
           oppCount === 1 &&
@@ -26117,6 +26188,7 @@ export class HorseLogic {
         }
         // (6) Multiway wet flop: no air c-bets without 8+ clean outs.
         if (
+          opts.v87MultiwayWetAirCheck !== false &&
           street === 'flop' &&
           initiative === 'hero' &&
           oppCount >= 2 &&
@@ -26131,6 +26203,7 @@ export class HorseLogic {
         // respecting V10 c-bet off-controls, station / low fold-to-cbet reads,
         // and HorseFlopTurnBluffRange ownership.
         if (
+          opts.v87RangeCbet !== false &&
           street === 'flop' &&
           useCbet10 &&
           initiative === 'hero' &&
@@ -26225,7 +26298,7 @@ export class HorseLogic {
             singleOpp87 != null
               ? (opponents.find((o) => o.user_id === singleOpp87)?.stack ?? 0)
               : (opponents[0]?.stack ?? 0);
-          if (lag87 && cat === 2 && equity < 0.62 + mw) {
+          if (opts.v87RiverBlockBalance !== false && lag87 && cat === 2 && equity < 0.62 + mw) {
             if (tele15) noteFire('v87_river_block_lag_check');
             return { action: 'check', thinkTime: 0 };
           }
@@ -26316,6 +26389,7 @@ export class HorseLogic {
             }
           }
           if (
+            opts.v87RiverBlockBalance !== false &&
             cat <= 1 &&
             equity < 0.35 &&
             blocker87 >= 0.5 &&
@@ -26332,6 +26406,7 @@ export class HorseLogic {
         // (9) Bubble cover stack: extra turn/river pressure into covered
         // 15-45bb stacks.
         if (
+          opts.v87BubblePostflop !== false &&
           coverBoost87 &&
           (street === 'turn' || isRiver) &&
           oppCount <= 2 &&
@@ -29215,7 +29290,7 @@ export class HorseLogic {
     // ═══ Facing a bet ═══
     // (V10 rake drag `rakeMarg` is computed above the V32 consult — V34.)
 
-    if (isV87Nlh) {
+    if (isV87Nlh && opts.v87DoubleBoardDeadHalfFold !== false) {
       const potFrac87 = toCall > 0 ? toCall / Math.max(1e-9, pot - toCall) : 0;
       // V87 NLH DOUBLE-BOARD DEAD HALF: one pair or worse on a board, facing
       // 60%+ pot turn/river pressure, without a locked or nutted other board,
@@ -29932,6 +30007,7 @@ export class HorseLogic {
           ? 0.315
           : strong80 &&
               isV87Nlh &&
+              opts.v87BullyReadAdjust !== false &&
               useMind &&
               bettor79 !== null &&
               lag87 &&
@@ -30190,6 +30266,7 @@ export class HorseLogic {
           }
           // Decoupled from v61RiverOnePairShade so V61 OFF leaves V67 independently gated.
           if (
+            opts.v87RiverBlockBalance !== false &&
             (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
             (cat <= 2 || (cat === 3 && pairedBoard)) &&
             toCall < stack &&
@@ -30204,6 +30281,7 @@ export class HorseLogic {
       // included) facing multi-street big barrels on the river does not
       // stack off unless the bettor is a verified multi-street maniac.
       if (
+        opts.v87DeepCashOnePairPotControl !== false &&
         !isTournamentMode(gs) &&
         cat === 2 &&
         isRiver &&
@@ -30301,6 +30379,53 @@ export class HorseLogic {
       !holdemRealDraw(player.cards, board) &&
       toCall > 0 &&
       pot > 0;
+    // ═══ V66 PRICED REPLACEMENT (2026-11-21, Horse Switch lane, DARK / DEFAULT OFF) ═══
+    // Read strictly as === true so OFF/absent produces 0 bytes of behavior change across all formats.
+    // Independently of v66BetRaisedOnePair, prices flop/turn bet-then-raised one-pair / bluff-catch
+    // hands by EV(call) vs EV(fold) = 0 against the raiser's narrowed combo-weighted line range,
+    // replacing V66's fixed shade and the committed branch's fixed 0.42 floor / jam.
+    if (
+      opts.v66BetRaisedOnePairIsPriced === true &&
+      v66RaisedOnePairPricedApplies({
+        enabled: opts.v66BetRaisedOnePairIsPriced,
+        street,
+        raisedAfterAggr,
+        isTournament: isTournamentMode(gs),
+        isOmaha: vi.isOmaha,
+        isShortDeck: vi.isShortDeck,
+        isFixedLimit: vi.isFixedLimit,
+        holeCount: vi.holeCount,
+        playerCardCount: player.cards.length,
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+        cat,
+        pairedBoard,
+        hasRealDraw: holdemRealDraw(player.cards, board),
+        toCall,
+        pot,
+      })
+    ) {
+      const priced66 = this.v66BetRaisedOnePairPriced(
+        player,
+        gs,
+        opts,
+        street as 'flop' | 'turn',
+        ip,
+        pot,
+        toCall,
+        stack,
+        callDeductionFraction ?? 0
+      );
+      if (priced66 === 'call') {
+        if (tele15) noteFire('v66_bet_raised_one_pair_priced_call_taken');
+        return { action: 'call', amount: Math.min(toCall, stack), thinkTime: 0 };
+      }
+      if (priced66 === 'fold') {
+        if (tele15) noteFire('v66_bet_raised_one_pair_priced_fold_taken');
+        return { action: 'fold', thinkTime: 0 };
+      }
+      if (tele15) noteFire('v66_bet_raised_one_pair_priced_unpriced');
+    }
     // ═══ STYLE READ #4 RAISE RESPECT (2026-11-13, default off) ═══ a flop or
     // turn RAISE from a player whose postflop raise frequency is credibly
     // below the Horse mean is value more often than the generic read prices:
@@ -30814,10 +30939,7 @@ export class HorseLogic {
         (cat <= 2 || (cat === 3 && pairedBoard)) &&
         toCall > 0 &&
         pot > 0 &&
-        !((opts.v69TurnCallGaps ?? true) !== false ? holdemHoleDrawPresent : holdemDrawPresent)(
-          player.cards,
-          board
-        )
+        !(v69HoleDraw ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board)
           ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
           : 0;
       if (opts.v87DeepDiveDiscipline !== false)
@@ -30993,7 +31115,11 @@ export class HorseLogic {
       drawsLive &&
       (oppCount === 1 ||
         (oppCount === 2 &&
-          (vi.isOmaha ? v86 : isV87Nlh && (lag87 || bully87?.highFlopStab === true)))) &&
+          (vi.isOmaha
+            ? v86
+            : isV87Nlh &&
+              opts.v87BullyReadAdjust !== false &&
+              (lag87 || bully87?.highFlopStab === true)))) &&
       !multiBoard36
     ) {
       try {
@@ -31564,6 +31690,7 @@ export class HorseLogic {
     // ═══ V87 FLOP COMBO-DRAW PUMP (outside baseline HU semi-bluff & combo_draw_pressure) ═══
     if (
       isV87Nlh &&
+      opts.v87ComboDrawPump !== false &&
       street === 'flop' &&
       !ftRaiseOwned &&
       !planCallOnly23 &&
@@ -31776,6 +31903,7 @@ export class HorseLogic {
     // sized under 38% of the stack (V78) or not at all.
     if (
       isV87Nlh &&
+      opts.v87RiverBlockerBluffRaise !== false &&
       isRiver &&
       useMind &&
       oppCount === 1 &&
@@ -31819,6 +31947,7 @@ export class HorseLogic {
     // gutshot hands float instead of folding; the turn takeaway follows.
     if (
       isV87Nlh &&
+      opts.v87IpFlopFloat !== false &&
       street === 'flop' &&
       ip &&
       oppCount <= 2 &&
@@ -32207,7 +32336,9 @@ export class HorseLogic {
       pot > 0 &&
       // V69 (2): only a draw a hole card is part of exempts the hand; a
       // board-only four-flush or four-rank window is everyone's draw.
-      !(v69Gaps ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board);
+      // Independently gated on v69HoleDrawExemption so V69 (1) OFF never
+      // re-enables board-only draw exemptions for V65 or Pillar 2.
+      !(v69HoleDraw ? holdemHoleDrawPresent : holdemDrawPresent)(player.cards, board);
     let shade65 = 0;
     if ((opts.v65TurnOnePairShade ?? true) !== false && turnOnePairShadeEligible65) {
       shade65 = v65TurnOnePairShade(
@@ -32217,7 +32348,7 @@ export class HorseLogic {
       );
       if (shade65 > 0 && tele15) {
         noteFire('v65_turn_one_pair_shade');
-        if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
+        if (v69HoleDraw && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
       }
     }
     // Decoupled from v65TurnOnePairShade so V65 OFF never silently removes
@@ -32282,9 +32413,9 @@ export class HorseLogic {
     // no-room-to-be-paid rule, applied to one pair (cat 2) under the same
     // gates: the 0.04 implied-odds allowance assumes a river bet gets paid,
     // and against a 0.7-pot-plus turn wager with under 1.5x the pot behind
-    // there is no such bet to win.
+    // there is no such bet to win. Independently gated on v69TurnCallGaps.
     if (
-      v69Gaps &&
+      v69OnePairImplied &&
       useIQ &&
       street === 'turn' &&
       !vi.isOmaha &&
@@ -33211,6 +33342,217 @@ export class HorseLogic {
     } catch {
       if (tele) noteFire('holdem_priced_unpriced');
       return decision;
+    }
+  }
+
+  /**
+   * v66BetRaisedOnePairIsPriced (2026-11-21, Horse Switch lane, default OFF, read === true):
+   * computes EV(call) vs EV(fold) = 0 for a single-board 2-card NLH flop/turn bet-then-raised
+   * bluff-catch hand against the raiser's narrowed combo-weighted line range
+   * (HorseHoldemV66RaisedOnePairIsPriced). Uses holdemFillEquities's private deterministic PRNG
+   * (never draws from fastRandom) and returns 'unpriced' when multiway, side-potted, or no range
+   * can be constructed so the existing path handles it untouched.
+   */
+  private static v66BetRaisedOnePairPriced(
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    opts: HorseDecideOpts,
+    street: 'flop' | 'turn',
+    inPosition: boolean,
+    pot: number,
+    toCall: number,
+    heroStack: number,
+    callDeductionFraction: number
+  ): 'call' | 'fold' | 'unpriced' {
+    try {
+      const board = gs.communityCards ?? [];
+      if (board.length < 3 || board.length > 4 || player.cards.length !== 2) return 'unpriced';
+      const liveOpps = (gs.players ?? []).filter(
+        (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+      );
+      if (liveOpps.length !== 1) return 'unpriced';
+      const opp = liveOpps[0];
+      const variant = 'nlh';
+      const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+      const envelope = exploitEnvelopeFor(scope, variant);
+      if (!envelope) return 'unpriced';
+      const counters =
+        opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+      const foldAtReference = statRead(
+        counters?.foldToBet ?? 0,
+        counters?.foldToBetOpp ?? 0,
+        envelope.foldToBet
+      ).mean;
+      const betWhenCheckedTo = statRead(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0,
+        envelope.betCheckedTo
+      ).mean;
+      let raiseAggressionShift = 0;
+      if (opts.mind !== false) {
+        try {
+          const style = HorseMind.styleRead(opp.user_id);
+          const sr = style?.signals?.streetRaise?.[street];
+          if (style?.consumersMayAct && sr && sr.confidence > 0) {
+            const strength = Math.max(0, Math.min(1, sr.magnitude * sr.confidence));
+            const cap = Math.max(0, Math.min(1, style.confidenceCap));
+            if (sr.side === 'low') raiseAggressionShift = -0.12 * strength * cap;
+            else if (sr.side === 'high') raiseAggressionShift = 0.16 * strength * cap;
+          }
+        } catch {
+          raiseAggressionShift = 0;
+        }
+      }
+      const scareTexture = v66BoardScareTexture(board);
+      const history = gs.actionHistory ?? [];
+      const preflop = history.filter((x) => x.stage === 'preflop');
+      let band: [number, number] | null = null;
+      try {
+        band = HorseMind.bandFor(
+          opp.user_id,
+          preflop,
+          gs.bigBlind,
+          true,
+          null,
+          undefined,
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+        );
+      } catch {
+        band = null;
+      }
+      const posteriorOf = (h: typeof history, stage: 'flop' | 'turn' | 'river' = street) =>
+        computeActionLinePosterior({
+          villainUserId: opp.user_id,
+          villainSeat: opp.seat,
+          heroSeat: player.seat,
+          stage,
+          board,
+          pot: gs.pot,
+          bigBlind: gs.bigBlind,
+          actionHistory: h as never,
+          multiwayCount: 2,
+        });
+      const streets = ['flop', 'turn', 'river'] as const;
+      const isOpp = (x: (typeof history)[number]) =>
+        x.userId === opp.user_id || (x.userId === undefined && x.seat === opp.seat);
+      let totalHistoryAdded = 0;
+      {
+        let stScan = 'preflop';
+        let commScan = new Map<string, number>();
+        for (const x of history) {
+          const st = x.stage ?? 'preflop';
+          if (st !== stScan) {
+            stScan = st;
+            commScan = new Map();
+          }
+          const key = x.userId ?? `s${x.seat}`;
+          const prev = commScan.get(key) ?? 0;
+          const amt = Math.max(0, Number(x.amount ?? 0));
+          const total =
+            x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+          totalHistoryAdded += Math.max(0, total - prev);
+          commScan.set(key, total);
+        }
+      }
+      const line: HoldemLineStreet[] = [];
+      const appliedCheckStreets = new Set<string>();
+      const pushCheckStreetIfOnlyChecks = (stName: string) => {
+        const k = streets.indexOf(stName as never);
+        if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+        appliedCheckStreets.add(stName);
+        const mine = history.filter((y) => y.stage === stName && isOpp(y));
+        if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+        const upTo = (end: number) =>
+          history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+        line.push({
+          board: board.slice(0, k + 3),
+          likelihood: holdemLineLikelihood(
+            posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+            posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+          ),
+        });
+      };
+      let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
+      let streetOf = 'preflop';
+      let committedMap = new Map<string, number>();
+      let facingTo = 0;
+      let oppNarrowedPostflop = false;
+      for (let idx = 0; idx < history.length; idx++) {
+        const x = history[idx];
+        const st = x.stage ?? 'preflop';
+        if (st !== streetOf) {
+          pushCheckStreetIfOnlyChecks(streetOf);
+          streetOf = st;
+          committedMap = new Map();
+          facingTo = 0;
+        }
+        const key = x.userId ?? `s${x.seat}`;
+        const prev = committedMap.get(key) ?? 0;
+        const amt = Math.max(0, Number(x.amount ?? 0));
+        const wager = x.action === 'raise' || x.action === 'all_in' || x.action === 'bet';
+        const total =
+          x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+        const added = Math.max(0, total - prev);
+        const k = streets.indexOf(st as never);
+        if (k >= 0 && k + 3 <= board.length && isOpp(x)) {
+          const sb = board.slice(0, k + 3);
+          if (x.action === 'call' || (x.action === 'all_in' && total <= facingTo + 1e-9)) {
+            const sub = holdemLineRange(player.cards, board, band, line);
+            const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
+            line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+            oppNarrowedPostflop = true;
+          } else if (wager && total > facingTo + 1e-9) {
+            const upTo = history.slice(0, idx + 1);
+            const betShare = oppNarrowedPostflop
+              ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+              : betWhenCheckedTo;
+            const postBluff = posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+            if (facingTo > 0 && (st === 'flop' || st === 'turn')) {
+              const keep = v66RaiseLineKeep({
+                street: st,
+                betShare,
+                posteriorBluffShare: postBluff,
+                raisePotFrac: runningPot > 1e-9 ? added / runningPot : 0,
+                scareTexture: v66BoardScareTexture(sb),
+                raiseAggressionShift: st === street ? raiseAggressionShift : 0,
+              });
+              line.push({ board: sb, keep: { top: keep.top, bottom: keep.bottom } });
+            } else {
+              const half = facingTo > 0 ? 0.5 : 1;
+              line.push({
+                board: sb,
+                keep: {
+                  top: betShare * (1 - postBluff) * half,
+                  bottom: betShare * postBluff * half,
+                },
+              });
+            }
+            oppNarrowedPostflop = true;
+          }
+        }
+        if (total > facingTo) facingTo = total;
+        committedMap.set(key, total);
+        runningPot += added;
+      }
+      pushCheckStreetIfOnlyChecks(streetOf);
+      const range = holdemLineRange(player.cards, board, band, line);
+      if (range.total <= 0) return 'unpriced';
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const rawEquity = holdemEquityOfShare(range, 1).equity;
+      const verdict = v66RaisedOnePairPricedVerdict({
+        street,
+        inPosition,
+        pot,
+        toCall,
+        heroStack,
+        villainStack: Math.max(0, Number(opp.stack ?? 0)),
+        rawEquity,
+        scareTexture,
+        callDeductionFraction,
+      });
+      return verdict.decision;
+    } catch {
+      return 'unpriced';
     }
   }
 
