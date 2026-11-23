@@ -10,7 +10,10 @@ import { MemoryRouter } from 'react-router-dom';
  *
  * What this pins:
  *   1. the page asks the statement RPC for the caller's own player statement,
- *      and never touches chip_transactions (or any table) directly;
+ *      and never reads chip_transactions (or any table) for a movement. The
+ *      one table read it may make is the NAME of an event a prize-pool leg
+ *      already points at (2026-11-23: "Refund, From A Prize Pool" named
+ *      nothing); every amount, sign and line still comes from the journal;
  *   2. money in and money out both render, with signs and plain-word labels;
  *   3. a tab returning after a while, and a wallet change elsewhere in the app,
  *      both read the statement again rather than leaving it stale.
@@ -146,7 +149,8 @@ it("reads the caller's own chip statement, never chip_transactions", async () =>
     p_cursor: null,
     p_limit: TRANSACTION_PAGE_SIZE,
   });
-  expect(backend.from).not.toHaveBeenCalled();
+  await waitFor(() => expect(backend.from).toHaveBeenCalled());
+  expect(backend.from.mock.calls.map(([table]) => table)).toEqual(['tournaments']);
 
   const source = readFileSync(
     join(__dirname, '..', '..', 'src', 'pages', 'TransactionHistoryPage.tsx'),

@@ -246,6 +246,76 @@ export function counterpartyLabel(leg: StatementLeg): string {
   return detail && detail !== base ? `${base} (${detail})` : base;
 }
 
+/**
+ * A LINE SAYS WHAT HAPPENED, IN A PLAYER'S WORDS (2026-11-23).
+ *
+ * A member read nine "Reversal, To The Union (Union Promo Wallet)" lines under
+ * one "Refund, From A Prize Pool" and told the owner her spin prizes had been
+ * reversed. Nothing had been: an event she entered was refunded, and the promo
+ * part of her entry went back to the fund that sponsored it. The journal's
+ * category and storage names were printed where a sentence was owed.
+ *
+ * Only what the leg itself states is used, never a guess:
+ *   - the promo return path writes category `reversal` with this exact
+ *     description on every leg (fn_ca_promo_return_* since 20261116154719).
+ *     The reason (refund, expiry, leaving the club) is NOT on the leg, so the
+ *     line says where the promo went and does not claim why;
+ *   - a `refund` whose counterparty is a prize pool is a tournament refund,
+ *     and is named by its event when the event's name could be read.
+ * Every other leg keeps the category and counterparty it always printed.
+ */
+export const PROMO_RETURN_DESCRIPTION = 'Promo Principal Returned To Original Fund';
+
+const PROMO_SPONSOR_BY_STORAGE: Record<string, string> = {
+  'union_wallets.promo_wallet': 'The Union Promo Wallet',
+  'agents.promo_wallet_balance': 'An Agent Promo Wallet',
+  'clubs.promo_balance': 'The Club Promo Wallet',
+};
+
+export function isPromoReturnLeg(leg: StatementLeg): boolean {
+  return leg.category === 'reversal' && (leg.description || '').trim() === PROMO_RETURN_DESCRIPTION;
+}
+
+export interface StatementLegCopy {
+  /** The bold line: what happened. */
+  title: string;
+  /** The small line: where the chips came from or went, "From ..." / "To ...". */
+  route: string;
+}
+
+export function statementLegCopy(leg: StatementLeg, eventName?: string | null): StatementLegCopy {
+  const side = leg.direction === 'in' ? 'From ' : 'To ';
+  const event = titleCase((eventName || '').trim());
+  if (isPromoReturnLeg(leg)) {
+    const sponsor = PROMO_SPONSOR_BY_STORAGE[(leg.counterparty_label || '').trim()];
+    return leg.direction === 'out'
+      ? {
+          title: 'Promo Chips Returned To Sponsor',
+          route: `To ${sponsor || counterpartyLabel(leg)}`,
+        }
+      : { title: 'Promo Chips Returned By A Member', route: `From ${counterpartyLabel(leg)}` };
+  }
+  const fromPrizePool = leg.counterparty_type === 'prize_liability';
+  return {
+    title:
+      leg.category === 'refund' && fromPrizePool && leg.direction === 'in'
+        ? 'Tournament Refund'
+        : categoryLabel(leg.category || ''),
+    route: fromPrizePool && event ? `${side}${event}` : `${side}${counterpartyLabel(leg)}`,
+  };
+}
+
+/** The legs whose small line can name an event: the prize pool is theirs. */
+function eventIdsToName(legs: readonly StatementLeg[], known: Record<string, string>): string[] {
+  const ids = new Set<string>();
+  for (const leg of legs) {
+    if (leg.counterparty_type === 'prize_liability' && leg.tournament_id) {
+      if (!(leg.tournament_id in known)) ids.add(leg.tournament_id);
+    }
+  }
+  return [...ids];
+}
+
 /** Every statement figure is exact to the cent (Dan 2026-11-13). */
 function statementChips(n: number | null | undefined): string {
   return compactChips(Number(n ?? 0));
@@ -666,6 +736,38 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
     };
   }, [loadFirst, scope, clubId]);
 
+  /* Event names for the prize-pool legs. A read that fails or returns nothing
+     leaves the line saying "A Prize Pool", exactly as before; an empty name is
+     remembered so the same event is not asked for again. */
+  const [eventNames, setEventNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = eventIdsToName(legs, eventNames);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const found: Record<string, string> = Object.fromEntries(ids.map((id) => [id, '']));
+      try {
+        const { data, error: readError } = await supabase
+          .from('tournaments')
+          .select('id, name')
+          .in('id', ids);
+        if (!readError && Array.isArray(data)) {
+          for (const row of data) {
+            if (row && typeof row.id === 'string' && typeof row.name === 'string') {
+              found[row.id] = row.name;
+            }
+          }
+        }
+      } catch {
+        /* The line keeps its prize-pool wording. */
+      }
+      if (!cancelled && isScopeCurrent()) setEventNames((prev) => ({ ...found, ...prev }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [legs, eventNames, isScopeCurrent]);
+
   const audit = statement?.audit;
   const auditTone = useMemo(() => {
     if (!audit) return 'neutral';
@@ -817,33 +919,34 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
           <div className="chip-statement__empty">No Chip Movements Yet.</div>
         ) : (
           <ol className="chip-statement__legs" aria-label="Chip Movements" tabIndex={0}>
-            {legs.map((leg) => (
-              <li
-                key={`${leg.id}:${leg.direction}`}
-                className={`chip-statement__leg chip-statement__leg--${leg.direction}`}
-              >
-                <div className="chip-statement__leg-main">
-                  <span className="chip-statement__leg-category">
-                    {categoryLabel(leg.category)}
-                  </span>
-                  <span
-                    className={`chip-statement__leg-amount chip-statement__leg-amount--${leg.direction}`}
-                  >
-                    {signedStatementChips(leg.direction, leg.amount)}
-                  </span>
-                </div>
-                <div className="chip-statement__leg-meta">
-                  <span>
-                    {leg.direction === 'in' ? 'From ' : 'To '}
-                    {counterpartyLabel(leg)}
-                  </span>
-                  <time dateTime={leg.at}>{when(leg.at)}</time>
-                </div>
-                {scope === 'player' && WEEKLY_RECEIPT_CATEGORIES.has(leg.category) && (
-                  <WeeklyRakebackReceipt ledgerId={leg.id} />
-                )}
-              </li>
-            ))}
+            {legs.map((leg) => {
+              const copy = statementLegCopy(
+                leg,
+                leg.tournament_id ? eventNames[leg.tournament_id] : null
+              );
+              return (
+                <li
+                  key={`${leg.id}:${leg.direction}`}
+                  className={`chip-statement__leg chip-statement__leg--${leg.direction}`}
+                >
+                  <div className="chip-statement__leg-main">
+                    <span className="chip-statement__leg-category">{copy.title}</span>
+                    <span
+                      className={`chip-statement__leg-amount chip-statement__leg-amount--${leg.direction}`}
+                    >
+                      {signedStatementChips(leg.direction, leg.amount)}
+                    </span>
+                  </div>
+                  <div className="chip-statement__leg-meta">
+                    <span>{copy.route}</span>
+                    <time dateTime={leg.at}>{when(leg.at)}</time>
+                  </div>
+                  {scope === 'player' && WEEKLY_RECEIPT_CATEGORIES.has(leg.category) && (
+                    <WeeklyRakebackReceipt ledgerId={leg.id} />
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
 

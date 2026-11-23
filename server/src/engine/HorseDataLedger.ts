@@ -1699,6 +1699,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'plo6FacingBetIsPricedV2',
+    'PLO6 root-cause V2 (2026-11-21, default OFF, read === true; HorsePlo6FacingBetPricedV2.ts): six-card native facing-bet pricing model for PLO6 cash (table and Lightning; never tournament, bomb pot, All-In-Or-Fold, hi-lo or multi-board) fixing V1 valueShare blowup, low-SPR jam bucketing, six-card bluff priors, paired-board fold preservation, and river-only call->fold. Off: byte-identical to base brain. League card plo6_facing_bet_is_priced_v2.',
+    'V94'
+  ),
+  flag(
     'plo6NoMultiwayBetWithWeakMadeHand',
     'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, the board pair with such a pair, or an overpair: a pocket pair above the top card of an unpaired board) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 90 such bets in 85 hands, hand net -2,715.1 bb (of them the overpair 28 bets, -1,008.2 bb), in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -2620,6 +2625,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'holdemDangerBoardEquityIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of the 'board discipline' flat -0.15 in Antigravity 633eec005d5 and 6496e1610f0). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, turn or river, a four-flush or four-straight board, one pair facing a bet: the decision equity is hero's exact equity against the bettor's range on this board (HorseHoldemCommittedPricing.holdemDangerBoardBettorEquity: the unseen combos split by what they make now, no pair / one pair / two pair or better, weighted by what people who bet such boards showed down, MEASURED 3 / 5 / 42 of 50, NLH cash 2026-10-20..11-19). Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'cashDefenceTrimColdCalls',
+    "Hold'em Strategy lane 2026-11-21 (HVH48-D cash preflop loose-call repair under v72DefenceByOpener + V85 + V87). Default off (read === true). No-limit hold'em cash tables facing a single open inside gtoDefend72: restores non-BTN IP per-player-behind cold-call discipline (1.8 percentage points per extra player behind beyond BTN, floored at value + bluff + 1) and removes V85 multiF + V87 perCaller multiway double-stacking and non-BTN IP V87 flatting bloat while preserving V85/V87 3-bet widths (valueBar, bluffProb), V85 opens, single-raised HU/BB/SB/BTN defends, and every tournament decision. Off: byte-identical.",
     "Hold'em Strategy"
   ),
   flag(
@@ -6684,6 +6694,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'plo6_facing_bet_priced_v2_called',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash facing a bet (V2 native six-card model): a fold became the call because EV(call) clears the V2 margin on native six-card quantiles',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_folded',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a call or raise became the fold because EV(call) fails the V2 fold margin and no raise is priced',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raise_to_call',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a standing raise became the call because no raise clears the V2 priced-raise margin above the call',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raised',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): the answer became the raise at its V2 priced size because EV(raise) beats call and fold by the priced-raise margin',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_river_nut_rule_not_run',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet with a call or raise (V2 native six-card model): plo6RiverNutDiscipline (V58/V59) did not run; the V2 priced verdict answers outermost',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_paired_fold_priced_out',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash (V2 native six-card model): paired-board fold stood aside because pairedBoardGuardStands is false and callPriced holds (a flop or turn raise became the call)',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_mixed_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaPricedMix)',
     'the same decision with omahaPricedMix on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and kept at the size given (with omahaSampledRaiseIsPricedAtEverySize on, the size given is the size of highest value)',
@@ -9545,6 +9591,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_danger_board_equity_priced',
     'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
     'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'cash_defence_trim_cold_calls_seen',
+    'HorseLogic facing-open cash (cashDefenceTrimColdCalls)',
+    'no-limit hold-em cash facing-open spot trimmed non-BTN IP cold-call width or multiway V85+V87 double-stacking',
     "Hold'em Strategy"
   ),
   receipt(

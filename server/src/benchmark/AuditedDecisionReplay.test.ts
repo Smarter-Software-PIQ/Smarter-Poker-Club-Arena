@@ -1140,7 +1140,7 @@ describe('audited decision replay: the PLO6 audit set', () => {
       });
       noCard(text);
 
-      const OPTION = 'plo6FacingBetIsPriced';
+      const OPTION = OPTION_SWITCH_ON_OFF_NAMES[0];
       expect(OPTION_SWITCH_ON_OFF_NAMES).toContain(OPTION);
       const replay = w(
         'replay.jsonl',

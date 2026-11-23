@@ -173,6 +173,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off PLO6 value share (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): the six-card value region taken at the hand strength of the four-card share, read by the PLO6 facing-bet verdict only when its option is on',
     'src/engine/HorsePlo6FacingBetIsPriced.ts':
       'the default-off PLO6 facing-bet verdict (HORSE DECISIONS lane 2026-11-19, plo6FacingBetIsPriced): PLO6 cash facing a bet, the call, fold or river raise priced on the six-card count; off returns the decision unchanged',
+    'src/engine/HorsePlo6FacingBetPricedV2.ts':
+      'the default-off six-card native PLO6 facing-bet pricing model V2 (2026-11-21, plo6FacingBetIsPricedV2): fixes V1 valueShare blowup, low-SPR jam bucketing, six-card bluff priors, paired-board guard, and river-only call->fold; off returns the decision unchanged',
     'src/engine/HorsePlo6FlopDefence.ts':
       'the default-off PLO6 flop defence (PLO6 lane 2026-11-20, E6 under plo6FacingBetIsPriced): heads-up first flop bet with chips behind priced on the two-street barrel tree and multiway flop caller/behind shares scaled by six-card pair concentration; reached only when plo6FacingBetIsPriced is on',
     'src/engine/HorsePlo6RiverDefence.ts':
