@@ -3,6 +3,8 @@
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
+-- @live-proof: (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key LIKE 'promo_refund_make_good:0be6a4b5-7a9a-4072-84ec-2353cedaed03:%') = 2
+--
 -- AUTHORITY. Owner Dan, in chat, 2026-11-22 17:42 America/Chicago, forwarding
 -- a member's chip statement: "SHE SAYS THAT ALL OF HER DIAMOND SPINS
 -- TRANSACTIONS WERE REVERSED ... I NEED YOU TO INVESTIGATE THIS, GET TO THE
