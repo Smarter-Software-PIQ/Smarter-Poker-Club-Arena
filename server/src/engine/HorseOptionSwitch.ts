@@ -1205,6 +1205,8 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'dark zero-migration priced replacement for the unowned V17 Short Deck multiway overlay (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until people evidence and switch-list registration',
   v17PosIsPriced:
     'dark zero-migration priced replacement for the unowned V17 players-behind bluff multiplier, single-board NLH flop and turn (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until real-human evidence (people n >= 20) and switch-list registration',
+  nashCallVsTightJammerRespect:
+    'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

@@ -638,17 +638,36 @@ export function evaluateSystemGate(input) {
     }
   }
 
-  // 2. shepherd.lock absent
+  // 2. shepherd.lock absent, or (opt-in) present while the machine is lightly loaded.
+  // A push holding shepherd.lock is one pre-push run; on a lightly loaded host a nice'd grade job
+  // beside it changes neither result (grades are seeded and deterministic). The opt-in ceiling
+  // must be strictly below the ordinary load ceiling; without it the lock always refuses.
   const shepherdAbsent = input.shepherdLockExists === false;
+  const lockedCeiling = input.maxLoad1mWhilePushLocked;
+  const lockedCeilingValid =
+    typeof lockedCeiling === 'number' &&
+    Number.isFinite(lockedCeiling) &&
+    lockedCeiling > 0 &&
+    lockedCeiling < maxLoad1m;
+  const loadForLock = input.load1m;
+  const allowedUnderLock =
+    !shepherdAbsent &&
+    lockedCeilingValid &&
+    typeof loadForLock === 'number' &&
+    Number.isFinite(loadForLock) &&
+    loadForLock < lockedCeiling;
   checks.shepherdLock = {
-    ok: shepherdAbsent,
+    ok: shepherdAbsent || allowedUnderLock,
     exists: Boolean(input.shepherdLockExists),
     path: input.shepherdLockPath ?? DEFAULT_SHEPHERD_LOCK,
+    allowedUnderLockBelowLoad: lockedCeilingValid ? lockedCeiling : null,
   };
-  if (!shepherdAbsent) {
+  if (!shepherdAbsent && !allowedUnderLock) {
     failures.push({
       code: 'SHEPHERD_LOCK_PRESENT',
-      reason: `shepherd.lock is present at ${checks.shepherdLock.path}; never run grades while shepherd.lock exists`,
+      reason: lockedCeilingValid
+        ? `shepherd.lock is present at ${checks.shepherdLock.path} and 1-minute load (${String(loadForLock)}) is not below ${lockedCeiling}`
+        : `shepherd.lock is present at ${checks.shepherdLock.path}; never run grades while shepherd.lock exists`,
     });
   }
 
@@ -1970,13 +1989,19 @@ export function parseGradeCliArgs(argv, lockResolutionOptions = {}) {
     laneLock: null,
     laneOwner: null,
     maxLoad1m: null,
+    maxLoad1mWhilePushLocked: null,
     json: false,
+    resume: false,
   };
 
   for (let i = 1; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--json') {
       flags.json = true;
+      continue;
+    }
+    if (arg === '--resume') {
+      flags.resume = true;
       continue;
     }
     const eqIdx = arg.indexOf('=');
@@ -2031,6 +2056,9 @@ export function parseGradeCliArgs(argv, lockResolutionOptions = {}) {
         break;
       case 'max-load':
         flags.maxLoad1m = Number(val);
+        break;
+      case 'max-load-while-push-locked':
+        flags.maxLoad1mWhilePushLocked = Number(val);
         break;
       default:
         throw new Error(`Unknown CLI flag: "--${key}"`);

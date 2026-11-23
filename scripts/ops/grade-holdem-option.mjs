@@ -55,7 +55,7 @@ Usage:
 
   node scripts/ops/grade-holdem-option.mjs run \\
     --manifest=<manifest.json> --criteria-sha=<64-hex> --out=<out-dir> \\
-    [--workdir=<repo>] [--lane-lock=<path> --lane-owner=<id>] [--json]
+    [--workdir=<repo>] [--lane-lock=<path> --lane-owner=<id>] [--resume] [--json]
 
   node scripts/ops/grade-holdem-option.mjs score \\
     --manifest=<manifest.json> --results=<results.jsonl> [--criteria-sha=<64-hex>] \\
@@ -78,6 +78,15 @@ Options:
   --lane-lock=<path>         Optional owner-checked lane lock file (never steals foreign lock)
   --lane-owner=<id>          Lane owner string matching --lane-lock
   --max-load=<num>           Override 1-minute load ceiling (default: manifest.bars.maxLoad1m or 35)
+  --max-load-while-push-locked=<num>
+                             Opt-in: a present shepherd.lock does not refuse a job while the
+                             1-minute load is below <num> (must be below the load ceiling).
+                             Unset (default): any shepherd.lock refuses.
+  --resume                   (run) Keep the cell-seed jobs an earlier run of this exact grade
+                             already finished (same manifest, criteria, git HEAD/tree and harness
+                             bytes) and run only the rest. A gate abort no longer throws away
+                             finished cells. A finished job that failed is never re-run: the
+                             grade stays refused (ONE-LOOK).
   --json                     Emit machine-readable JSON to stdout
 `;
 
@@ -85,7 +94,10 @@ Options:
 // Mirrors horseLeagueCard.ts offline semantics with a = b = matchup.b (OFF-vs-OFF).
 // Uses a namespace dynamic import for HorseLeague.js so DEVELOPMENT_LEAGUE_CARDS is resolved
 // when exported and gracefully falls back to [] on older branches without that export.
-export const CONTROL_RUNNER_SOURCE = `
+// The body is async (dynamic imports). `tsx -e` compiles eval input as CommonJS, where top-level
+// await is a syntax error, so the shipped source wraps the body in an async function and exits 1 on
+// any error. (2026-11-22: the unwrapped body failed every CONTROL cell before any hand was dealt.)
+export const CONTROL_RUNNER_BODY = `
 process.env.EQUITY_GOVERNOR = 'off';
 process.env.SUPABASE_URL = 'https://supabase.invalid';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'horse-league-card-offline-placeholder';
@@ -119,6 +131,13 @@ console.log('DEVRESULT ' + JSON.stringify({
 }));
 process.exit(0);
 `.trim();
+
+export const CONTROL_RUNNER_SOURCE = `(async () => {
+${CONTROL_RUNNER_BODY}
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});`;
 
 // --- Default I/O Dependencies (all injectable for unit tests) ----------------------------------
 
@@ -396,6 +415,7 @@ function runPreflightCheck(flags, deps) {
   const gate = evaluateSystemGate({
     shepherdLockExists: deps.exists(flags.shepherdLock),
     shepherdLockPath: flags.shepherdLock,
+    maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
     laneLock,
     expectedLaneOwner: flags.laneOwner,
     load1m: deps.getLoad1m(),
@@ -449,6 +469,75 @@ async function handlePreflight(flags, deps) {
   return { exitCode: gate.ok ? EXIT_OK : EXIT_REFUSED, data: payload };
 }
 
+// Reads the cell-seed results an earlier run of this exact grade finished, for --resume.
+// Reuse requires the identical provenance key; any finished job that failed refuses the grade
+// rather than being re-run (re-running a failure until it passes would be a second look).
+function loadResumableRecords({ deps, manifest, resumeKey, resumeKeyPath, resultsJsonlPath }) {
+  const hasKey = deps.exists(resumeKeyPath);
+  const hasResults = deps.exists(resultsJsonlPath);
+  if (!hasKey && !hasResults) return { ok: true, records: [] };
+  if (!hasKey) {
+    return {
+      ok: false,
+      status: 'RESUME_PROVENANCE_UNKNOWN',
+      message: `${resultsJsonlPath} exists without resume-key.json; its results cannot be tied to this exact grade. Use a fresh --out directory.`,
+    };
+  }
+  let savedKey;
+  try {
+    savedKey = JSON.parse(deps.readFileUtf8(resumeKeyPath));
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'RESUME_PROVENANCE_UNKNOWN',
+      message: `resume-key.json is unreadable: ${err.message}`,
+    };
+  }
+  const fields = Object.keys(resumeKey);
+  const mismatched = fields.filter((f) => savedKey?.[f] !== resumeKey[f]);
+  if (mismatched.length > 0 || Object.keys(savedKey ?? {}).length !== fields.length) {
+    return {
+      ok: false,
+      status: 'RESUME_PROVENANCE_MISMATCH',
+      message: `earlier results were produced under a different ${mismatched.join(', ') || 'key'}; they are not reused. Use a fresh --out directory.`,
+      savedKey,
+    };
+  }
+  if (!hasResults) return { ok: true, records: [] };
+  let prior;
+  try {
+    prior = parseResultsJsonl(deps.readFileUtf8(resultsJsonlPath));
+  } catch (err) {
+    return { ok: false, status: 'RESUME_RESULTS_UNREADABLE', message: err.message };
+  }
+  const declared = new Set();
+  for (const cell of manifest.cells) for (const seed of cell.seeds) declared.add(`${cell.id}::${seed}`);
+  const seen = new Set();
+  const failed = {};
+  for (const rec of prior) {
+    const key = `${rec.cellId}::${rec.seed}`;
+    if (!declared.has(key) || seen.has(key)) {
+      return {
+        ok: false,
+        status: 'RESUME_RESULTS_UNREADABLE',
+        message: `results.jsonl holds ${seen.has(key) ? 'a duplicate' : 'an undeclared'} cell-seed ${key}`,
+      };
+    }
+    seen.add(key);
+    if (rec.exitCode !== 0) failed[key] = rec.exitCode;
+  }
+  if (Object.keys(failed).length > 0) {
+    return {
+      ok: false,
+      status: 'ONE_LOOK_REFUSED_NONZERO_EXIT',
+      message:
+        'An earlier run of this exact grade finished a cell-seed job with a non-zero exit; it is not re-run and the grade is not scored (ONE-LOOK rule).',
+      cellExitCodes: failed,
+    };
+  }
+  return { ok: true, records: prior };
+}
+
 async function handleRun(flags, deps) {
   if (!flags.outDir) {
     throw new Error('--out=<out-dir> is required for run');
@@ -483,6 +572,17 @@ async function handleRun(flags, deps) {
   const statusPath = join(outDir, 'run-status.json');
   const verdictJsonPath = join(outDir, 'verdict.json');
   const verdictMdPath = join(outDir, 'VERDICT.md');
+  const resumeKeyPath = join(outDir, 'resume-key.json');
+  // Everything a finished cell-seed result depends on. A result is reused only under this exact key.
+  const resumeKey = {
+    option: manifest.option,
+    manifestSha256,
+    criteriaSha256: pre.criteriaVerification.actualSha256,
+    gitHead: gate.provenance.gitHead,
+    gitTree: gate.provenance.gitTree,
+    runnerSha256,
+    libSha256,
+  };
 
   // Optional owner-checked lane lock acquisition
   let acquiredLaneLock = false;
@@ -498,19 +598,56 @@ async function handleRun(flags, deps) {
   }
 
   try {
-    deps.writeFileUtf8(frozenManifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    deps.writeFileUtf8(resultsJsonlPath, '');
-
     const records = [];
     const cellExitCodes = {};
     let anyNonZero = false;
+    const finished = new Set();
+
+    if (flags.resume) {
+      const prior = loadResumableRecords({
+        deps,
+        manifest,
+        resumeKey,
+        resumeKeyPath,
+        resultsJsonlPath,
+      });
+      if (!prior.ok) {
+        const payload = {
+          command: 'run',
+          option: manifest.option,
+          status: prior.status,
+          message: prior.message,
+          ...(prior.cellExitCodes ? { cellExitCodes: prior.cellExitCodes } : {}),
+          ...(prior.savedKey ? { savedKey: prior.savedKey, currentKey: resumeKey } : {}),
+        };
+        deps.writeFileUtf8(statusPath, `${JSON.stringify(payload, null, 2)}\n`);
+        if (flags.json) deps.stdout(JSON.stringify(payload, null, 2));
+        else deps.stderr(`RESUME REFUSED (${prior.status}): ${prior.message}`);
+        return { exitCode: EXIT_REFUSED, data: payload };
+      }
+      for (const rec of prior.records) {
+        const key = `${rec.cellId}::${rec.seed}`;
+        finished.add(key);
+        cellExitCodes[key] = 0;
+        records.push(rec);
+      }
+    }
+
+    deps.writeFileUtf8(frozenManifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    deps.writeFileUtf8(resumeKeyPath, `${JSON.stringify(resumeKey, null, 2)}\n`);
+    deps.writeFileUtf8(
+      resultsJsonlPath,
+      records.length > 0 ? records.map((r) => `${JSON.stringify(r)}\n`).join('') : ''
+    );
 
     for (const cell of manifest.cells) {
       for (const seed of cell.seeds) {
+        if (finished.has(`${cell.id}::${seed}`)) continue;
         // Re-check system gate before EVERY cell-seed job
         const midGate = evaluateSystemGate({
           shepherdLockExists: deps.exists(flags.shepherdLock),
           shepherdLockPath: flags.shepherdLock,
+          maxLoad1mWhilePushLocked: flags.maxLoad1mWhilePushLocked,
           laneLock: flags.laneLock ? deps.readLaneLock(flags.laneLock) : null,
           expectedLaneOwner: flags.laneOwner,
           load1m: deps.getLoad1m(),

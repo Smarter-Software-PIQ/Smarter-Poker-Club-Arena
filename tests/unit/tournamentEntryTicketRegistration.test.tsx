@@ -125,7 +125,7 @@ describe('human tournament registration with entry-only tickets', () => {
       if (startsWhenFull) {
         expect(screen.getByText('When Full')).toBeInTheDocument();
         /* A starts-when-full Sit And Go is unregistered until it actually
-           starts (2026-11-22, migration 20261122192807), so the note is true
+           starts (2026-11-22, migration 20261122185915), so the note is true
            for it too. */
         expect(screen.getByText(/You Can Unregister Any Time/)).toBeInTheDocument();
       } else {

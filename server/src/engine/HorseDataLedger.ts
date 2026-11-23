@@ -2738,6 +2738,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'NashV2'
   ),
   flag(
+    'nashCallVsTightJammerRespect',
+    "2026-11-21 default OFF prototype (read === true only; held in OPTION_SWITCH_REFUSED without a switch-list migration during the 4 PM hold): when nashCallVsJam answers a lone open-jam at > 10bb and <= 20bb (standing down to exact Nash at <= 10bb or Harrington M = depthBB / (1.5 + anteBB) <= 4 where all-depth RFI underestimates short-stack push/fold ranges, ramping linearly to full weight at >= 13bb and M >= 5.5) and the jammer has an evidenced tight/nit style read (tightOpenerRespect, >= 15 decayed hands, not presumed, not stood down by fast-window release), tighten the Nash caller table smoothly toward the jammer's shrunk observed open-raise width (nashV2TightJammerCallProbability); unknown jammers, short-stack desperation spots, and realistic Nash jammers stay untouched; receipt nash_call_vs_tight_jammer_seen; league cards nlh_nash_call_vs_tight_jammer_respect_vs_tight_15bb, _vs_nash_12bb, _vs_nash_15bb; docs/changelog/2026-11-21-nash-call-vs-tight-jammer-respect.md",
+    'NashV2'
+  ),
+  flag(
     'aofClosingSeatNashCall',
     "2026-11-15 default OFF (HVH2D-NLH-005, draft #10653, owner hold): All-In-Or-Fold no-limit hold'em table, cash or tournament (the flag is set on All-In-Or-Fold tournament tables too), hero facing a lone all-in (one raise, the raiser all in, no caller, no limper, hero has not acted, no straddle) answers from the nashCallVsJam caller table (nashV2CallProbability) only when the effective stack is 12 big blinds or less (NASH_AOF_CLOSING_CALL_MAX_BB) and hero closes the action (everyLiveOpponentIsAllIn: every other player still in the hand is all in; a sitting-out seat is not a player behind); the call is returned as all_in; otherwise, and with the option off, the fixed All-In-Or-Fold strength bar decides as before; measured before (development data, HVH2D-NLH-005 equity rows, closing seat at 12 big blinds or less): 17 of 41 folds against Horse all-ins gave up a profitable call against the table's range, 11 against half width, 0 against a top 10 percent range; 3 folds against human all-ins, none profitable; fixed-input replay: six real closing-seat requests from the production journal (Q9s small blind with the big blind sitting out, five big blinds at 4.4 to 12 big blinds) fold on main and with the option off and go all in with it on, on 12 seeds and from the recorded generator state; seats with a player behind, depth above 12 big blinds and every table that is not All-In-Or-Fold unchanged; tournament utility arbiter still runs after it; no league card (refused matchup aof_closing_seat_nash_call: the league deals no All-In-Or-Fold table); docs/changelog/2026-11-12-an-all-in-or-fold-closing-seat-calls-from-the-nash-table.md",
     'AofClosingSeat'
@@ -8929,6 +8934,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'nash_call_vs_jam',
     'HorseLogic (nashCallVsJam)',
     "nashCallVsJam: a no-limit hold'em seat facing a lone open-jam at <= 20bb called or folded from the Nash push/fold V2 caller table",
+    'NashV2'
+  ),
+  receipt(
+    'nash_call_vs_tight_jammer_seen',
+    'HorseLogic (nashCallVsTightJammerRespect)',
+    'default-off nashCallVsTightJammerRespect: nashCallVsJam tightened its caller table lookup against an evidenced tight/nit lone open-jammer; occurrence counter, named *_seen',
     'NashV2'
   ),
   receipt(
