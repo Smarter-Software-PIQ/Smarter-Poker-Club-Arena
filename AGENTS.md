@@ -35,6 +35,11 @@ This is the active instruction for local and cloud agents. Read [PUBLISHING.md](
 
 The restored provider routes have successful production evidence; this does not certify every pending application package, a green whole-application suite or a guaranteed six-minute delivery. Selected historical source references were Club Arena `c35e9403a043457c8c8d495dd50cf86c35290919` and World Hub `89043c690147e991d6872bace8bec1fb329e402a`. They are historical references, not instructions to reset newer protected application work. Necessary restoration corrections and global telemetry removal were recorded separately.
 
+## Shared-machine rules: stash and temp folders (November 23, 2026)
+
+- Never run `git stash` in any form: `push`, `pop`, `apply`, `drop` or `clear`. Every worktree of a clone shares one stash list, and it holds other agents' entries. The `.husky/reference-transaction` hook refuses a new entry and a `stash clear`. Git runs no hook before `stash pop`, `stash apply` or the drop of one entry among several, so nothing stops those except this rule: a pop in your worktree applies whatever entry is on top, usually another agent's. To set work aside, commit it on your own branch or copy the files to your own folder.
+- Use your own temp folder. Before a push, test run or build, export `TMPDIR` to a folder that belongs to your worktree alone (for example `<your lane folder>/tmp-<your worktree name>` on the SSD) and create it yourself. When you finish, delete only that folder. Never empty, clean or delete a shared or parent folder: `/tmp`, the system temp folder, a lane folder's shared `tmp`, or any folder another agent may also use. Other agents' running pushes and tests keep their files there, and removing them fails their work without telling them.
+
 Code graph (optional, advisory): `scripts/dev/graphify-bootstrap.sh` builds a local Graphify code graph for faster code location; install, use, refresh, revision matching, limits and removal are in `CLAUDE.md` section 14. Source code stays authoritative.
 
 On the owner's Mac, also read `/Users/smarter.poker/Documents/AGENTS.md` and `/Users/smarter.poker/Documents/AGENT-HARDENING-STANDARD.md` at task start, after context loss and before completion. Their absence in a cloud checkout does not remove the instructions above. Later explicit owner instructions take precedence.
