@@ -13849,12 +13849,11 @@ function omahaLateFlattenedCallIsPricedRule(
       omahaLateFlattenedUnpricedMemo = { player, gs, opts };
       return afterBoat;
     }
-    const tele = telemetryOn(opts);
     if (ev.verdict.call) {
-      if (tele) noteFire('omaha_late_flattened_call_priced_kept');
+      if (telemetryOn(opts)) noteFire('omaha_late_flattened_call_priced_kept');
       return afterBoat;
     }
-    if (tele) noteFire('omaha_late_flattened_call_priced_folded');
+    if (telemetryOn(opts)) noteFire('omaha_late_flattened_call_priced_folded');
     const folded: HorseDecision = { ...afterBoat, action: 'fold' };
     delete folded.amount;
     delete folded.continuationGuard;
