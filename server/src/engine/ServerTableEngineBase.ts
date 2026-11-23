@@ -187,6 +187,7 @@ import {
   noteSeatArrival,
   seatArrivalGeneration,
 } from '../cluster/seatBoundarySignals.js';
+import { noteCashSeatCommitted } from '../cluster/cashSeatCommittedSignal.js';
 import { ChipContinuityTracker } from './ChipContinuity.js';
 import { SeatArrivalDisplay } from './SeatArrivalDisplay.js';
 import {
@@ -6544,6 +6545,15 @@ export abstract class ServerTableEngineBase {
     const variant = this.activeHandVariant();
     if (moved.length) warmOpponentHudSeats(moved, variant, tournamentTable, 'move');
     warmOpponentHudSeats(seated, variant, tournamentTable, 'sit');
+    /* A GAME THAT FILLS ASKS FOR ITS LINE WHEN IT FILLS (Dan 2026-11-22): a
+       roster that gained a player and fills this cash table tells the fleet
+       at this boundary (services/HorseLineOnArrival). */
+    if (
+      !tournamentTable &&
+      nextRoster.length >= (Number(this.tableInfo?.max_players) || Infinity) &&
+      nextRoster.some((p) => !previous.has(p.user_id))
+    )
+      noteCashSeatCommitted(this.tableId);
     // The roster now speaks for every committed arrival (SeatArrivalDisplay).
     this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one
