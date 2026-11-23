@@ -173,11 +173,13 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.fn_unregister_from_tournament(uuid) TO authenticated;
 
 -- Exact unregister/refund authority stand-in called by fn_close_private_seat_first_match.
+-- Matches live production signature (20261102154336): 5 args with p_request_id DEFAULT NULL.
 CREATE FUNCTION public.fn_ca_unregister_tournament_player_exact(
   p_tournament_id uuid,
   p_user_id uuid,
-  p_table_id uuid,
-  p_reason text
+  p_expected_table_id uuid DEFAULT NULL::uuid,
+  p_description text DEFAULT NULL::text,
+  p_request_id uuid DEFAULT NULL::uuid
 )
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_t public.tournaments%ROWTYPE;
@@ -187,13 +189,13 @@ BEGIN
   UPDATE public.tournament_players SET status = 'unregistered'
    WHERE tournament_id = v_t.id AND user_id = p_user_id AND status IN ('registered', 'playing');
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'reason', 'not_registered'); END IF;
-  IF p_table_id IS NOT NULL THEN
+  IF p_expected_table_id IS NOT NULL THEN
     UPDATE public.table_seats SET left_at = now()
-     WHERE table_id = p_table_id AND user_id = p_user_id AND left_at IS NULL;
+     WHERE table_id = p_expected_table_id AND user_id = p_user_id AND left_at IS NULL;
   END IF;
   UPDATE public.wallets_fixture SET balance = balance + v_t.buy_in_amount + v_t.buy_in_fee WHERE user_id = p_user_id;
   UPDATE public.tournaments SET current_players = GREATEST(COALESCE(current_players, 0) - 1, 0) WHERE id = v_t.id;
-  RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee, 'reason', p_reason);
+  RETURN jsonb_build_object('ok', true, 'refunded', v_t.buy_in_amount + v_t.buy_in_fee, 'reason', p_description);
 END $$;
-REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid, uuid, uuid, text, uuid) TO service_role;
