@@ -3468,6 +3468,49 @@ export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze(
     a: { flopTurnBluffBaseline: true, holdemFlopTurnBluffIsPriced: true },
     b: { flopTurnBluffBaseline: true },
   },
+  // 2026-11-22 Horse Switch lane (holdemRiverBluffMultiwayIsPriced, default OFF, dark):
+  // arm B keeps production riverBluffMultiway on; arm A switches on its EV-priced replacement
+  // (HorseHoldemRiverBluffMultiwayIsPriced.ts) on unopened / checked-to single-board 2-card NLH
+  // multiway rivers (opponents >= 2). Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS);
+  // graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
+  // Full-ring 9-max guard card: highest multiway river frequency (3-way and 4-way+ rivers).
+  {
+    name: 'cash9_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
+  // Heads-up inert guard card: proves 0 divergent pairs heads-up (strict opponents >= 2 isolation).
+  {
+    name: 'hu_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

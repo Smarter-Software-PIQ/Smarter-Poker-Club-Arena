@@ -2949,6 +2949,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff multiway'
   ),
   flag(
+    'holdemRiverBluffMultiwayIsPriced',
+    'dark priced replacement for riverBluffMultiway (A5, HorseHoldemRiverBluffMultiwayIsPriced): on single-board 2-card NLH unopened / checked-to multiway rivers (opponents >= 2) with air, nut blocker, and a capped-field story, deterministically prices candidate legal bluff sizes (0.50x, 0.75x, 1.00x, 1.25x pot / stack cap) against EV(check) via per-opponent empirical fold curves with EB shrinkage, exact multiway compounding pFoldAll = prod_i pFold_i, multiway called-range equity, strict calling-station veto, and ICM-protected risk margins; default OFF (read === true), dark in OPTION_SWITCH_REFUSED, zero HU or PLO4/5/6 reach (Horse Switch lane, 2026-11-22)',
+    'Horse Switch'
+  ),
+  flag(
     'riverFastCalldown',
     'the fast call-down read (HorseFastCalldownRead): the river bluff layers (heads-up baseline, its leads, multiway) treat a player whose recent river calling has credibly risen as a station and price with his recent river fold rate; null without recent river evidence; default on, false ablates (2026-11-07)',
     'River fast call-down'
@@ -9710,6 +9715,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_flop_turn_bluff_priced_illegal_seen',
     'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
     'a single-board 2-card NLH flop or turn priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_bet_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate placed a priced bluff bet because EV(bestBluff) beat EV(check) by its risk-calibrated margin under exact multiway compounding pFoldAll = prod_i pFold_i',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_overbet_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate selected an overbet (> 1.0x pot) as its highest net-EV legal bluff size',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_check_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate checked deterministically because no legal bluff size beat EV(check) by its risk-calibrated margin (or a calling-station veto applied)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate checked deterministically because at least one live opponent was a confirmed river calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river priced bluff bet could not be legalized as a bet or all-in',
     'Horse Switch'
   ),
 
