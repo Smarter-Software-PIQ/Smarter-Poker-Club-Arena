@@ -479,4 +479,43 @@ describe('responsive premium Club Arena', () => {
       /\.arena-lobby-card-list \.arena-game-card\s*\{[^}]*width:\s*100%[^}]*max-width:\s*none/s
     );
   });
+
+  it('organizes the lobby into three sections: unified welcome+identity+BBJ above line 1, centered Find Your Game + families + centered Favorites above line 2', () => {
+    const mobilePremiumCss = readFileSync(
+      resolve(ROOT, 'src/pages/ClubHomeMobilePremium.css'),
+      'utf8'
+    );
+    const frameBlock = PAGE_CSS.slice(PAGE_CSS.lastIndexOf('.club-lobby-frame {'));
+
+    expect(frameBlock).toMatch(
+      /\.club-home--unified-mobile \.club-lobby-frame > \.club-mobile-welcome\s*\{[^}]*border-bottom:\s*0/s
+    );
+    expect(frameBlock).toMatch(
+      /\.club-home--unified-mobile \.club-lobby-frame > \.lobby-top\s*\{[^}]*border-bottom:\s*1px solid #25313a/s
+    );
+
+    const headingIdx = PAGE.indexOf('className="lobby-controls__heading"');
+    const sectionsIdx = PAGE.indexOf('<LobbyGameSections', headingIdx);
+    const favoritesRowIdx = PAGE.indexOf('className="lobby-controls__favorites-row"', sectionsIdx);
+    const favoritesBtnIdx = PAGE.indexOf('className="lobby-controls__favorites"', favoritesRowIdx);
+    const sectionControlsIdx = PAGE.indexOf('id="lobby-game-section-controls"', favoritesBtnIdx);
+
+    expect(headingIdx).toBeGreaterThan(-1);
+    expect(sectionsIdx).toBeGreaterThan(headingIdx);
+    expect(favoritesRowIdx).toBeGreaterThan(sectionsIdx);
+    expect(favoritesBtnIdx).toBeGreaterThan(favoritesRowIdx);
+    expect(sectionControlsIdx).toBeGreaterThan(favoritesBtnIdx);
+    expect(PAGE.slice(headingIdx, sectionsIdx)).not.toContain('lobby-controls__favorites');
+
+    expect(TOP_CSS).not.toContain('.lobby-controls__heading:has(.lobby-controls__favorites)');
+    expect(TOP_CSS).toMatch(
+      /\.lobby-controls__favorites-row\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*center/s
+    );
+    expect(TOP_CSS).toMatch(
+      /#lobby-game-section-controls\s*\{[^}]*border-top:\s*1px solid #25313a/s
+    );
+    expect(mobilePremiumCss).toMatch(
+      /#lobby-game-section-controls::before\s*\{[^}]*height:\s*1px[^}]*background:\s*#25313a/s
+    );
+  });
 });

@@ -237,4 +237,32 @@
   .club-home--unified-mobile .club-lobby-frame .lobby-controls__heading {
     padding: 0 0 8px;
   }
+
+  /* Section 2 (Find Your Game + Cash Games / Tournaments + centered Favorites)
+     closes with a matching edge-to-edge section divider above the game-type tabs. */
+  .club-home--unified-mobile
+    .club-lobby-frame
+    .club-lobby-command-top
+    .lobby-controls
+    #lobby-game-section-controls {
+    position: relative;
+    margin-block-start: 8px;
+    padding-block-start: 12px;
+    border-top: 0;
+  }
+
+  .club-home--unified-mobile
+    .club-lobby-frame
+    .club-lobby-command-top
+    .lobby-controls
+    #lobby-game-section-controls::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -8px;
+    right: -8px;
+    height: 1px;
+    background: #25313a;
+    pointer-events: none;
+  }
 }

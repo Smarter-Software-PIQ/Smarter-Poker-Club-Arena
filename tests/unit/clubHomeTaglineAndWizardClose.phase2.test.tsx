@@ -431,6 +431,24 @@ describe('Find Your Game starts with two separate sections', () => {
     fireEvent.click(tournaments);
     await flush();
     expect(names()).toEqual(["MTT'S", 'SPINS', "SIT N GO'S", 'SATELLITES']);
+    const headingEl = document.querySelector('.lobby-controls__heading');
+    const sectionsEl = document.querySelector('.lobby-game-sections');
+    const favoritesRowEl = document.querySelector('.lobby-controls__favorites-row');
+    const favoritesBtnEl = document.querySelector('.lobby-controls__favorites');
+    const sectionControlsEl = document.getElementById('lobby-game-section-controls');
+    expect(headingEl?.querySelector('.lobby-controls__favorites')).toBeNull();
+    expect(favoritesRowEl?.contains(favoritesBtnEl)).toBe(true);
+    expect(
+      Boolean(
+        headingEl &&
+        sectionsEl &&
+        favoritesRowEl &&
+        sectionControlsEl &&
+        headingEl.compareDocumentPosition(sectionsEl) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        sectionsEl.compareDocumentPosition(favoritesRowEl) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        favoritesRowEl.compareDocumentPosition(sectionControlsEl) & Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ).toBe(true);
     expect(
       document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
     ).not.toBeNull();
