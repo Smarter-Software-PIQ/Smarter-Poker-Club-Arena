@@ -1232,6 +1232,8 @@ plainly what you did. You do not open with a question.
 
 If any of the five fails, diagnose and resolve the missing evidence or invariant before the financial write. Complete independent assigned work and report any genuinely unavailable input precisely; do not turn it into a renewed approval gate.
 
+**Prove, then re-check at install (2026-11-23).** The install can be hours after the proof. 20261123002808 waited ninety minutes; in that gap the member's agent re-sent him the same 10.00 by hand, and the file, checking only its own keys, would have paid him twice. A migration that calls `fn_ca_adjustment_under_10_9` carries one header line `-- @already-made-whole-guard: <what is checked>` and refuses if `chip_ledger` shows a competing credit after the triggering event (worked example 20261123024924; rule `scripts/ci/migration-made-whole-guard.mjs`). Force deferred checks only in the probe branch, `IF v_probe THEN` / `SET CONSTRAINTS ALL IMMEDIATE;` / `RAISE EXCEPTION ...;` on three lines: on the install path that statement trips the installer's own claim check (`scripts/ci/migration-installer-claim-shape.mjs`).
+
 ### When the evidence disagrees with itself, prefer the witness that was there
 
 Settling the 12:00 AM freeroll, re-deriving all 215 finishing places from
