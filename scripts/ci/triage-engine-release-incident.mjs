@@ -304,7 +304,7 @@ async function runInspect() {
                   o.evidence->>'status' AS ev_status,
                   o.evidence->>'reason' AS ev_reason,
                   t.club_id, t.union_id, t.game_type, t.name AS table_name,
-                  (t.lightning_cluster_id IS NOT NULL) AS is_lightning
+                  (t.cluster_id IS NOT NULL) AS has_cluster
              FROM public.union_pnl_cash_outcomes o
              LEFT JOIN public.tables t ON t.id = o.table_id
             WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
@@ -315,7 +315,7 @@ async function runInspect() {
                  WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
               )
          )
-         SELECT ev_status, ev_reason, is_lightning, game_type, union_id,
+         SELECT ev_status, ev_reason, has_cluster, game_type, union_id,
                 date_trunc('day', recognized_at) AS utc_day,
                 count(*) AS n,
                 count(DISTINCT table_id) AS tables,
@@ -331,7 +331,7 @@ async function runInspect() {
         `SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at, o.game_scope,
                 o.evidence,
                 p.status AS prov_status, p.issues AS prov_issues, p.manifest_id,
-                (t.lightning_cluster_id IS NOT NULL) AS is_lightning, t.name AS table_name
+                t.cluster_id, t.name AS table_name
            FROM public.union_pnl_cash_outcomes o
            LEFT JOIN public.cash_hand_provenance_receipts p
              ON p.table_id = o.table_id AND p.hand_number = o.hand_number
@@ -388,7 +388,7 @@ async function runInspect() {
     );
     const unpickedCriticalAlerts24h = await safeSelect(
       `SELECT e.id, e.source, e.alertname, e.severity, e.status, e.received_at,
-              e.investigation_status, e.investigation_note
+              e.investigation_status, e.investigation
          FROM public.operational_alert_events e
         WHERE (e.received_at >= now() - interval '24 hours'
                AND e.severity = 'critical'
