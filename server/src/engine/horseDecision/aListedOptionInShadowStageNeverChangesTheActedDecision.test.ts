@@ -967,3 +967,76 @@ describe('the worker-start math core warm-up (2026-11-21, lane CORE-POOLED-3)', 
     expect(warm.calls).toEqual(cold.calls);
   });
 });
+
+describe('deferred staged shadow re-enters the acted decision observer sandbox (zero false-positive drift)', () => {
+  it('matches the acted decision when ambient HorseMind differs from the observer read view and stages Turn 4B options by street', async () => {
+    const { spot, config } = dealToFlop('plo5', 'cash', 1);
+    const tpl = riverSnapshot();
+    const opp = spot.state.players.find((p) => p.seat !== spot.hero.seat)!;
+    const req = fastRequest(
+      {
+        ...tpl,
+        fence: `${config.tableId}:${config.handNumber}:${spot.hero.seat}:1:1`,
+        player: spot.hero,
+        gameState: spot.state,
+        handJournalContext: captureHorseHandJournalContext(spot.state.actionHistory!),
+      } as unknown as FastHorseDecisionRequest,
+      1
+    );
+    // Pollute ambient HorseMind outside observerReads: without runReadOnly, deferred shadow would
+    // read this ambient record (hands > 0) while the acted decision read the clean observer sandbox.
+    const noOpReadingMind: Decide = (_p, g) => {
+      const gs = g as { players?: Array<{ user_id: string }> };
+      const villain = (gs.players ?? []).find((p) => p.user_id === opp.user_id);
+      const stats = villain ? HorseMind.getStats(villain.user_id) : undefined;
+      return (stats?.hands ?? 0) > 0 ? CALL : FOLD;
+    };
+    const r = await run(
+      [req],
+      noOpReadingMind,
+      { omahaCbetRaiseIsPriced: 'shadow' } as unknown as OptionSwitchStates,
+      {
+        async startServices() {
+          prepareTournamentFutureHandFacts();
+          HorseMind.observe(
+            [
+              {
+                stage: 'preflop',
+                seat: opp.seat,
+                userId: opp.user_id,
+                action: 'raise',
+                amount: 6,
+                timestamp: DECISION_TIME_MS - 10_000,
+              },
+              {
+                stage: 'flop',
+                seat: opp.seat,
+                userId: opp.user_id,
+                action: 'bet',
+                amount: 12,
+                timestamp: DECISION_TIME_MS - 5_000,
+              },
+            ],
+            spot.state.players,
+            undefined,
+            undefined,
+            2,
+            'pot_limit'
+          );
+          expect(HorseMind.getStats(opp.user_id)?.hands ?? 0).toBeGreaterThan(0);
+          return readiness();
+        },
+      }
+    );
+    expect(r.staged.length).toBe(1);
+    expect(r.staged[0]!.receipt.option).toBe('omahaCbetRaiseIsPriced');
+    expect(r.staged[0]!.receipt.changed).toBe(false);
+    expect(r.staged[0]!.receipt.actual).toEqual(r.staged[0]!.receipt.would);
+
+    // Also prove omahaStabDefenceIsPriced skips flop (turn/river only, P1-3)
+    const rFlopStab = await run([req], noOpReadingMind, {
+      omahaStabDefenceIsPriced: 'shadow',
+    } as unknown as OptionSwitchStates);
+    expect(rFlopStab.staged.length).toBe(0);
+  });
+});

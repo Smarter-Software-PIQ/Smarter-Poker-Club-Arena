@@ -49,7 +49,7 @@ export function omahaBigBetSizeScope(
   if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
     return null;
   if (gs.bombPot === true) return null;
-  if (gs.gameMode === 'tournament' || Boolean(gs.tournament)) return null;
+  if (gs.gameMode !== 'cash' || Boolean(gs.tournament)) return null;
   if (
     (gs.boardCount ?? 1) > 1 ||
     (gs.communityCards2?.length ?? 0) > 0 ||

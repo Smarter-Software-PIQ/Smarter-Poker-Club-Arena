@@ -129,6 +129,28 @@ describe('the c-bet line', () => {
         false
       )
     ).toBeNull();
+    // P1-5: bomb pot, multi-board, hi-lo, fixed-limit, AoF, capped all fail closed to null
+    expect(omahaCbetLineOf(P(1), gsOf('plo4', [], { bombPot: true }), false)).toBeNull();
+    expect(omahaCbetLineOf(P(1), gsOf('plo4', [], { boardCount: 2 }), false)).toBeNull();
+    expect(
+      omahaCbetLineOf(
+        P(1),
+        gsOf('plo4', [], { communityCards2: [{ rank: '2', suit: 'hearts' }] } as never),
+        false
+      )
+    ).toBeNull();
+    expect(
+      omahaCbetLineOf(
+        P(1),
+        gsOf('plo4', [], { variantRules: { splitLow8OrBetter: true } as never }),
+        false
+      )
+    ).toBeNull();
+    expect(
+      omahaCbetLineOf(P(1), gsOf('plo4', [], { bettingStructure: 'fixed_limit' }), false)
+    ).toBeNull();
+    expect(omahaCbetLineOf(P(1), gsOf('plo4', [], { allInOrFold: true }), false)).toBeNull();
+    expect(omahaCbetLineOf(P(1), gsOf('plo4', [], { wagersCapped: true }), false)).toBeNull();
   });
 });
 
