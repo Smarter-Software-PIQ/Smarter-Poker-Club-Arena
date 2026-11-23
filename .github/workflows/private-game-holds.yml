@@ -3,9 +3,12 @@ name: Private game holds
 # else, a horse by the same rule as a person, that the friend's token admits
 # them, that the hold expires, is thawed by every frozen second and ends when
 # its inviter leaves or cancels, and that a failed inviter buy-in leaves no
-# game, hold or charge (docs/changelog/2026-11-22-invite-to-game-holds-a-private-seat.md).
-# Runs on any change to the two hold migrations, the Heads Up hold they build
-# on, the harness or its fixture, and on the same paths at main so
+# game, hold or charge (docs/changelog/2026-11-22-invite-to-game-holds-a-private-seat.md),
+# and that a six or nine seat Sit & Go holds its friends' seats in place while
+# every other seat fills as usual
+# (docs/changelog/2026-11-23-a-sit-and-go-holds-seats-for-invited-friends.md).
+# Runs on any change to the hold migrations, the Heads Up hold they build on,
+# the harness or its fixture, and on the same paths at main so
 # check-main-is-green reads its result.
 on:
   pull_request:
@@ -17,6 +20,7 @@ on:
       - supabase/migrations/20261122025900_heads_up_wait_mode_and_invite_hold.sql
       - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
       - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
+      - supabase/migrations/20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql
   push:
     branches: [main]
     paths:
@@ -26,6 +30,7 @@ on:
       - supabase/migrations/20261122025900_heads_up_wait_mode_and_invite_hold.sql
       - supabase/migrations/20261123013126_a_private_game_holds_its_seats_for_invited_friends.sql
       - supabase/migrations/20261123013136_a_held_seat_is_refused_to_anyone_but_its_invited_holder.sql
+      - supabase/migrations/20261123071654_a_sit_and_go_holds_seats_for_invited_friends.sql
   workflow_dispatch:
 concurrency:
   group: private-game-holds-${{ github.event.pull_request.number || github.ref }}

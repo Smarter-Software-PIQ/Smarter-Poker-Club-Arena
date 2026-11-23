@@ -114,6 +114,7 @@ import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
+import { usePrivateSitAndGoHold } from '../../hooks/usePrivateSitAndGoHold';
 import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { parseTournamentInviteParams } from '../../lib/mustMoveInviteRouting';
 import TournamentClubJoinGate from '../../components/tournament/TournamentClubJoinGate';
@@ -1819,11 +1820,62 @@ export default function TournamentDetails({
      minutes, so its link alone reaches a friend too late. The invite holds
      the friend's seat instead (usePrivateGameInviteLauncher); every other
      game, and an engine that does not honour held seats, shares the link. */
-  const privateInvite = usePrivateGameInviteLauncher((kind, message) => {
-    if (kind === 'success') toast?.success?.(message);
-    else toast?.error?.(message);
+  /* A SIT & GO HOLDS ITS FRIENDS' SEATS ON THIS PAGE (2026-11-23). A six or
+     nine seat Sit & Go has no table before it starts, so its held seats, the
+     friend's Take Seat and the expiry message live here
+     (usePrivateSitAndGoHold). The token rides the shared link as `invite`;
+     only the real route reads it (a lobby tab's query is the table's). */
+  const handleRegisterRef = useRef(handleRegister);
+  handleRegisterRef.current = handleRegister;
+  const sitAndGoInviteToken = useMemo(
+    () => (tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken),
+    [tournamentIdOverride, tournamentId, search]
+  );
+  const sitAndGoHeldParam = useMemo(() => {
+    try {
+      return new URLSearchParams(search).get('held') === '1';
+    } catch {
+      return false;
+    }
+  }, [search]);
+  const sitAndGoHold = usePrivateSitAndGoHold({
+    tournament: tournament
+      ? {
+          id: tournament.id,
+          name: tournament.name,
+          status: tournament.status,
+          variant: tournament.variant,
+          max_players: tournament.max_players,
+          format_contract: (tournament as { format_contract?: unknown }).format_contract,
+          started_at: (tournament as { started_at?: string | null }).started_at ?? null,
+        }
+      : null,
+    userId: user?.id,
+    isRegistered,
+    inviteToken: sitAndGoInviteToken,
+    heldParam: sitAndGoHeldParam,
+    inviteCode: shareInviteCode,
+    onRegister: () => handleRegisterRef.current(false),
+    notify: (kind, message) => {
+      if (kind === 'success') toast?.success?.(message);
+      else if (kind === 'error') toast?.error?.(message);
+      else toast?.info?.(message);
+    },
   });
+  const privateInvite = usePrivateGameInviteLauncher(
+    (kind, message) => {
+      if (kind === 'success') toast?.success?.(message);
+      else toast?.error?.(message);
+    },
+    (hold) => {
+      sitAndGoHold.showHeld(hold);
+      setIsRegistered(true);
+      void loadTournament(undefined, { quiet: true });
+    }
+  );
   const inviteToGame = useCallback(async () => {
+    // A Sit & Go whose seats this player already holds: reopen that hold.
+    if (sitAndGoHold.reopenHeld()) return;
     if (
       tournament &&
       (await privateInvite.offer({
@@ -1832,6 +1884,8 @@ export default function TournamentDetails({
         status: tournament.status,
         variant: tournament.variant,
         max_players: tournament.max_players,
+        format_contract: (tournament as { format_contract?: unknown }).format_contract,
+        current_players: tournament.current_players ?? null,
         buy_in_amount: tournament.buy_in_amount,
         buy_in_fee: tournament.buy_in_fee,
         started_at: (tournament as { started_at?: string | null }).started_at ?? null,
@@ -1840,7 +1894,7 @@ export default function TournamentDetails({
     )
       return;
     await shareTournament();
-  }, [tournament, privateInvite, isRegistered, shareTournament]);
+  }, [tournament, privateInvite, isRegistered, shareTournament, sitAndGoHold]);
 
   /**
    * The stored structure spells the level length three ways, and one of them is
@@ -2329,6 +2383,7 @@ export default function TournamentDetails({
       >
         {recoveryNotice}
         {privateInvite.element}
+        {sitAndGoHold.element}
         {goneTournamentId && (
           <div
             role="status"

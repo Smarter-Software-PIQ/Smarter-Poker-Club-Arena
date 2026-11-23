@@ -47,8 +47,10 @@ seat doors read it: a held seat could be bought by anyone, a horse included.
   `PrivateGameInviteModal`); the table shows the held seat and time left, with
   Cancel; the friend's landing shows Take Seat.
 
-Six and nine seat Sit & Gos start only when full, so a friend can already join
-one through the link; they are not part of this change.
+Six and nine seat Sit & Gos were left out here, on the belief that a friend
+could join one through the link. That was wrong: the field fills around the
+people in it. They now hold seats too, by the same hold, in place:
+`2026-11-23-a-sit-and-go-holds-seats-for-invited-friends.md` (20261123071654).
 
 ## How it is pinned
 
