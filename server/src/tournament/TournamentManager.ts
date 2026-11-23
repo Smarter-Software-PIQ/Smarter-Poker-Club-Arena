@@ -4409,20 +4409,47 @@ export class TournamentManager extends TournamentManagerEliminations {
     // Re-fetch after potential break (tables may have changed)
     // Same rule as the break step above: the tables that hold players, not the
     // tables that happen to be dealing.
+    const freshBoardEpoch = this.balanceBoardEpoch;
+    const freshBoardReadAtMs = Date.now();
     const freshTableIds = await this.liveTournamentTableIdsWithPlayers();
     if (!this.eliminationMutationAllowed()) return;
     if (freshTableIds === null) {
       this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       return;
     }
+    // Hand the balanced board we just read to any fenced source that parked
+    // while this sweep held the manager so onEliminationSweepSettled releases
+    // it immediately without a duplicate 5-query Supabase board read (~950 ms).
+    // Epoch-gated identically to prepareBoundaryBalancePlan.
+    const seedBalancedBoardForParkedSources = (tables: BalancerTable[] | null): void => {
+      if (
+        this.hasParkedGapBalanceSource() &&
+        freshBoardEpoch === this.balanceBoardEpoch &&
+        this.seatMoveBatchesInFlight === 0 &&
+        this.boundaryPlanLifecycleAllowed()
+      ) {
+        this.preparedBoundaryPlan = {
+          epoch: freshBoardEpoch,
+          preparedAtMs: freshBoardReadAtMs,
+          liveTableIds: freshTableIds,
+          tables,
+        };
+      }
+    };
     // A fenced source this fresh plan does not need is handed back now, while
     // its completion hold is still playing (see releaseGapFencesNotIn).
-    if (freshTableIds.length <= 1) this.releaseGapFencesNotIn(new Set());
+    if (freshTableIds.length <= 1) {
+      this.releaseGapFencesNotIn(new Set());
+      seedBalancedBoardForParkedSources(null);
+    }
     if (freshTableIds.length > 1) {
       const freshTables = await this.loadBalancerTables(freshTableIds, 'balanceFresh');
       if (!freshTables) return;
 
-      if (!this.tableBalancer.shouldRebalance(freshTables)) this.releaseGapFencesNotIn(new Set());
+      if (!this.tableBalancer.shouldRebalance(freshTables)) {
+        this.releaseGapFencesNotIn(new Set());
+        seedBalancedBoardForParkedSources(freshTables);
+      }
       if (this.tableBalancer.shouldRebalance(freshTables)) {
         const moves = this.tableBalancer.calculateMoves(freshTables);
         this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
@@ -4559,6 +4586,10 @@ export class TournamentManager extends TournamentManagerEliminations {
     const engine = this.tableEngines.get(tableId);
     if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return;
     this.gapBalanceFencedSources.add(tableId);
+    // If the source already settled and is playing out its completion hold,
+    // onManagedHandSettled ran before this fence existed. Register it now so
+    // onEliminationSweepSettled prepares the boundary plan under the hold.
+    if (engine.isInCompletionPresentationHold?.()) this.boundaryPlanAwaitingPark.add(tableId);
     void engine
       .parkForTournamentMove(this.tournamentMoveBoundaryOwner, 0)
       .then((parked) => {
@@ -4577,6 +4608,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       .catch((error) => {
         this.gapBalanceFencedSources.delete(tableId);
         this.gapBalanceClaimedSources.delete(tableId);
+        this.boundaryPlanAwaitingPark.delete(tableId);
         reportError(error, 'Tournament.rebalance_source_hold_failed', {
           tournamentId: this.tournamentId,
           tableId,

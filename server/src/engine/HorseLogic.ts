@@ -799,8 +799,10 @@ import { nashJamProbability, V71_PUSH_FOLD_MAX_BB } from './HorseAnteAwarePushFo
 import {
   nashV2CallProbability,
   nashV2JamProbability,
+  nashV2TightJammerCallProbability,
   NASH_V2_CALL_MAX_BB,
   type NashCallerKind,
+  type NashTightJammerInput,
 } from './HorseNashPushFoldV2.js';
 // V29 (Dan 2026-08-29): the flop plays from the solver — class-mean mixes
 // aggregated offline from the 8.8M-solution warehouse, preloaded by
@@ -4938,6 +4940,15 @@ export interface HorseDecideOpts {
    *  bb/100, every card above 2 stderr on two seeds, none below); explicit
    *  false keeps the strength bar. */
   nashCallVsJam?: boolean;
+  /** NASH CALL VS TIGHT JAMMER RESPECT (2026-11-21, default OFF prototype):
+   *  when nashCallVsJam answers a lone open-jam at <= 20bb and the jammer has
+   *  an evidenced tight/nit style read (tightOpenerRespect, >= 15 decayed
+   *  hands, not presumed, not stood down by fast-window release), tighten the
+   *  caller table smoothly toward the jammer's shrunk observed open-raise
+   *  width (nashV2TightJammerCallProbability). Unknown jammers and realistic
+   *  Nash jammers stay untouched. Default OFF: read === true only; unset or
+   *  false is 100% byte-identical. Receipt nash_call_vs_tight_jammer_seen. */
+  nashCallVsTightJammerRespect?: boolean;
   /** ALL-IN-OR-FOLD CLOSING SEAT (2026-11-15, HVH2D-NLH-005, draft #10653):
    *  at an All-In-Or-Fold hold'em table (cash or tournament), a hero facing a
    *  lone all-in who closes the action (every other player still in the hand
@@ -16573,8 +16584,9 @@ export function holdemAllInCallReversal(
  * The end of the reference (holdemTournamentAllInCallIsPriced). Preflop, runs after the reference chooses its
  * action so a raise or raising all-in is never removed and exact Nash V2 / PioSolver chart_bb_defend answers
  * on lone open-jams stay intact; every other in-scope fold or call is answered by its price (clearing any
- * variant_price route when the priced answer takes ownership). Postflop the price is taken here (the engine's
- * equity is known now) and a call or fold beyond the lock is turned to the priced answer.
+ * chart_open_jam or variant_price route to the active preflop reference owner — intent_engine under V7,
+ * legacy_preflop otherwise — when the priced answer takes ownership). Postflop the price is taken here (the
+ * engine's equity is known now) and a call or fold beyond the lock is turned to the priced answer.
  */
 function holdemAllInCallReference(
   decision: HorseDecision,
@@ -16604,7 +16616,7 @@ function holdemAllInCallReference(
       phase6Ref &&
       (phase6Ref.route === 'chart_open_jam' || phase6Ref.route === 'variant_price')
     ) {
-      phase6Ref.route = 'legacy_preflop';
+      phase6Ref.route = (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop';
       phase6Ref.lookup = null;
     }
     if (tele) {
@@ -20020,8 +20032,50 @@ export class HorseLogic {
             : null;
         if (payJumpCall !== null && telemetryOn(opts)) noteFire('pay_jump_push_fold_seen');
         const bubble = payJumpCall ?? 1;
+        const handCls = gtoHandClass(player.cards[0], player.cards[1]);
+        if (opts.nashCallVsTightJammerRespect === true && opts.mind !== false) {
+          let tightRead: NashTightJammerInput | null = null;
+          try {
+            const jammerExploit = HorseMind.opponentRead(jammer.user_id);
+            if (jammerExploit?.presumed !== true) {
+              const jammerStyle = HorseMind.styleReadUncounted(jammer.user_id);
+              const tight = tightOpenerRespect(jammerStyle);
+              if (tight !== null) {
+                const scope = HorseMind.currentScope();
+                const counters = HorseMind.currentExploitCounters(jammer.user_id);
+                const env = scope ? exploitEnvelopeFor(scope, gs.gameVariant) : null;
+                let observedOpenWidth = Math.max(tight.rangeWidth, jammerStyle.signals.vpip.mean);
+                if (counters && env && (counters.rfiOpp ?? 0) >= 8) {
+                  observedOpenWidth = statRead(counters.rfi, counters.rfiOpp, env.rfi, [
+                    'high',
+                    'low',
+                  ]).mean;
+                }
+                const confidence =
+                  Math.max(0, Math.min(1, jammerStyle.participation.confidence)) *
+                  (1 - jammerStyle.release.fraction);
+                tightRead = { observedOpenWidth, confidence };
+              }
+            }
+          } catch {
+            tightRead = null;
+          }
+          const adjusted = nashV2TightJammerCallProbability({
+            hand: handCls,
+            jammerBehind,
+            callerKind: kind,
+            depthBB: depth,
+            anteBB,
+            bubble,
+            tightRead,
+          });
+          if (adjusted.tightened && telemetryOn(opts)) {
+            noteFire('nash_call_vs_tight_jammer_seen');
+          }
+          return adjusted.probability;
+        }
         return nashV2CallProbability({
-          hand: gtoHandClass(player.cards[0], player.cards[1]),
+          hand: handCls,
           jammerBehind,
           callerKind: kind,
           depthBB: depth,

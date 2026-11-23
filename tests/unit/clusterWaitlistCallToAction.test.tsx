@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   waiting: 0,
   position: null as number | null,
   onList: false,
+  tables: [] as Array<{ id: string; lifecycle: string; open_seats: number }>,
 }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: state.rpc } }));
 vi.mock('../../src/stores/useUserStore', () => ({
@@ -28,7 +29,7 @@ import { joinCashGame, leaveCashGameWaitlist } from '../../src/services/cashGame
 
 const lobby = (game = 'game') => ({
   game: { id: game },
-  tables: [],
+  tables: state.tables,
   must_move_list: [],
   waitlist: { waiting: state.waiting },
   me: {
@@ -48,6 +49,7 @@ beforeEach(() => {
   state.waiting = 0;
   state.position = null;
   state.onList = false;
+  state.tables = [];
   state.rpc.mockReset().mockImplementation(async (rpc: string, args: { p_game_id: string }) => {
     if (rpc === 'fn_cash_game_join') {
       state.waiting = 1;
@@ -67,6 +69,41 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+});
+
+describe('a full table of a game with a seat open says where the seat is (Dan 2026-11-22)', () => {
+  it('prints the open seats of the game, never "0 Waiting", and still counts a real list', async () => {
+    state.tables = [
+      { id: 'main', lifecycle: 'live', open_seats: 0 },
+      { id: 'feeder', lifecycle: 'live', open_seats: 2 },
+      { id: 'old', lifecycle: 'breaking', open_seats: 5 },
+    ];
+    const { unmount } = render(<ClusterWaitlistCallToAction gameId="game" onClick={vi.fn()} />);
+    await flush();
+    expect(
+      screen.getByRole('button', {
+        name: 'Table Full · 2 Seats Open In This Game. Join The Game',
+      })
+    ).toBeTruthy();
+    unmount();
+
+    // A real line outranks it: the list is what the plate counts.
+    state.waiting = 4;
+    render(<ClusterWaitlistCallToAction gameId="game" onClick={vi.fn()} />);
+    await flush();
+    expect(
+      screen.getByRole('button', { name: 'Table Full · 4 Waiting. Join The Waiting List' })
+    ).toBeTruthy();
+  });
+
+  it('a game with every chair taken and nobody waiting still offers the list', async () => {
+    state.tables = [{ id: 'main', lifecycle: 'live', open_seats: 0 }];
+    render(<ClusterWaitlistCallToAction gameId="game" onClick={vi.fn()} />);
+    await flush();
+    expect(
+      screen.getByRole('button', { name: 'Table Full · 0 Waiting. Join The Waiting List' })
+    ).toBeTruthy();
+  });
 });
 
 describe('the felt repeats the game lobby waiting list', () => {

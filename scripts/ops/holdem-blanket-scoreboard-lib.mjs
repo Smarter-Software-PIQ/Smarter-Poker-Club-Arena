@@ -1068,25 +1068,25 @@ WITH
     WHERE day >= ((now() AT TIME ZONE 'UTC')::date - ${offsetDays})
       AND fires > 0
       AND (
-        feature LIKE 'holdem_%'
-        OR feature LIKE 'horse_%'
-        OR feature LIKE 'river_%'
-        OR feature LIKE 'flop_turn_%'
-        OR feature LIKE 'probe_%'
-        OR feature LIKE 'committed_%'
-        OR feature LIKE 'nash_%'
-        OR feature LIKE 'limp_%'
-        OR feature LIKE 'hu_%'
-        OR feature LIKE 'v9_%'
-        OR feature LIKE 'v21_%'
+        feature LIKE 'holdem\\_%' ESCAPE '\\'
+        OR feature LIKE 'horse\\_%' ESCAPE '\\'
+        OR feature LIKE 'river\\_%' ESCAPE '\\'
+        OR feature LIKE 'flop\\_turn\\_%' ESCAPE '\\'
+        OR feature LIKE 'probe\\_%' ESCAPE '\\'
+        OR feature LIKE 'committed\\_%' ESCAPE '\\'
+        OR feature LIKE 'nash\\_%' ESCAPE '\\'
+        OR feature LIKE 'limp\\_%' ESCAPE '\\'
+        OR feature LIKE 'hu\\_%' ESCAPE '\\'
+        OR feature LIKE 'v9\\_%' ESCAPE '\\'
+        OR feature LIKE 'v21\\_%' ESCAPE '\\'
         OR feature LIKE 'v5%'
         OR feature LIKE 'v6%'
         OR feature LIKE 'v7%'
         OR feature LIKE 'v8%'
-        OR feature LIKE 'option_shadow_%'
-        OR feature LIKE 'option_switch_config_%'
+        OR feature LIKE 'option\\_shadow\\_%' ESCAPE '\\'
+        OR feature LIKE 'option\\_switch\\_config\\_%' ESCAPE '\\'
       )
-      AND feature NOT LIKE 'fmt_%'
+      AND feature NOT LIKE 'fmt\\_%' ESCAPE '\\'
     GROUP BY feature
   )
 SELECT jsonb_build_object(

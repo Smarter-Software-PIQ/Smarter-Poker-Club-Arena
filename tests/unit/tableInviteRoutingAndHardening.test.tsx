@@ -417,12 +417,14 @@ describe('Must-Move ?cluster= smart routing logic & bounded ref guard', () => {
     ).toEqual({
       inviteCode: 'ABC2345',
       clusterId: CLUSTER_UUID,
+      inviteToken: null,
       returnPath: `/table/${TABLE_UUID}?cluster=${CLUSTER_UUID}`,
     });
 
     expect(parseTableInviteParams(TABLE_UUID, '?i=BAD&cluster=invalid')).toEqual({
       inviteCode: null,
       clusterId: null,
+      inviteToken: null,
       returnPath: `/table/${TABLE_UUID}`,
     });
   });

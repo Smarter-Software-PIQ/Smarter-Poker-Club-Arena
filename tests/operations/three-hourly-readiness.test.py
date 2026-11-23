@@ -1133,6 +1133,109 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
             with self.assertRaises(mod.ReadError):
                 mod.load_prequalification_module(fake_repo, control_sha=bad_module_sha)
 
+    def _abandoned_gh_get(self, sha, backup_runs):
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                return {"workflow_runs": []}
+            if "backup-engine.yml/runs" in path:
+                return {"workflow_runs": backup_runs}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": sha}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 888,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "push",
+                            "head_branch": "main",
+                            "path": mod.PREQUAL_PATH,
+                            "head_sha": sha,
+                            "run_attempt": 1,
+                            "updated_at": "2026-11-22T00:05:00Z",
+                        }
+                    ]
+                }
+            if f"/commits/{sha}/status" in path:
+                return {
+                    "statuses": [
+                        {
+                            "context": mod.BACKUP_STATUS_CONTEXT,
+                            "state": "pending",
+                            "target_url": "https://github.com/o/r/actions/runs/777",
+                            "updated_at": "2026-11-22T00:01:00Z",
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        return gh_get
+
+    def test_pending_left_by_completed_backup_run_is_not_in_flight(self):
+        serving = _sha("0")
+        sha = _sha("e")
+        now = datetime(2026, 11, 22, 0, 15, tzinfo=timezone.utc)
+
+        def run(gh_get):
+            return mod.collect_readiness(
+                repo="o/r",
+                now_utc=now,
+                health_fn=lambda: _health(release_sha=serving),
+                gh_get_fn=gh_get,
+                git_fn=_make_git_stub(sha, serving, [(sha, "fix: yielded")]),
+                projection_fn=lambda _sha: "same-tree",
+            )
+
+        yielded = {"id": 777, "status": "completed", "conclusion": "success", "head_sha": sha, "event": "push"}
+        report = run(self._abandoned_gh_get(sha, [yielded]))
+        cand = report["candidates"][0]
+        self.assertEqual(report["verdict"], "NO_CANDIDATE")
+        self.assertEqual(cand["status"], "PENDING")
+        self.assertEqual(cand["backup"]["abandonedByRun"], {"id": 777, "conclusion": "success"})
+        self.assertIn("left by completed run 777", cand["reason"])
+        self.assertIn("pending (#777 ended)", mod.render_table(report))
+
+        # An active Backup run on the same SHA keeps it in flight.
+        rerun = {"id": 999, "status": "in_progress", "head_sha": sha, "event": "repository_dispatch"}
+        report = run(self._abandoned_gh_get(sha, [rerun, yielded]))
+        self.assertEqual(report["verdict"], "IN_FLIGHT")
+        self.assertNotIn("abandonedByRun", report["candidates"][0]["backup"])
+
+        # An owning run outside the single recent-runs read stays plain pending.
+        report = run(self._abandoned_gh_get(sha, []))
+        self.assertEqual(report["verdict"], "IN_FLIGHT")
+        self.assertNotIn("abandonedByRun", report["candidates"][0]["backup"])
+        self.assertIn("backup=pending (run 777)", report["candidates"][0]["reason"])
+
+        # Still running: never abandoned.
+        running = dict(yielded, status="in_progress", conclusion=None)
+        report = run(self._abandoned_gh_get(sha, [running]))
+        self.assertEqual(report["verdict"], "IN_FLIGHT")
+
+    def test_active_workflow_lines_name_the_triggering_event(self):
+        report = {
+            "verdict": "IN_FLIGHT",
+            "summary": "s",
+            "checkedAtUtc": "2026-11-22T00:00:00Z",
+            "checkedAtChicagoLabel": "x",
+            "activeRuns": {
+                "stage": [{"id": 1, "status": "in_progress", "event": "schedule", "headSha": _sha("a"), "displayTitle": "Stage"}],
+                "backup": [
+                    {"id": 2, "status": "in_progress", "event": "push", "headSha": _sha("b")},
+                    {"id": 3, "status": "queued", "event": "repository_dispatch", "headSha": _sha("c")},
+                    {"id": 4, "status": "queued", "event": "", "headSha": _sha("d")},
+                ],
+            },
+            "candidates": [],
+            "errors": [],
+        }
+        out = mod.render_table(report)
+        self.assertIn("run 1 [in_progress, schedule] aaaaaaaaaaaa", out)
+        self.assertIn("run 2 [in_progress, push] bbbbbbbbbbbb", out)
+        self.assertIn("run 3 [queued, repository_dispatch] cccccccccccc", out)
+        self.assertIn("run 4 [queued] dddddddddddd", out)
+
 
 if __name__ == "__main__":
     unittest.main()

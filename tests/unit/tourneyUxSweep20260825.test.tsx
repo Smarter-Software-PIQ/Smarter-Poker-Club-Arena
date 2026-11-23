@@ -878,9 +878,10 @@ describe('Audit - the dialog cannot confirm a buy-in nobody was shown', () => {
   });
 
   it('does not tell a late registrant they cannot unregister near the start', () => {
-    // A late registration cannot be unregistered at all, and an SNG has no
-    // start time for the rule to be about.
-    expect(src).toMatch(/!o\.isLateRegistration && !o\.startsWhenFull && !!startLabel/);
+    // A late registration cannot be unregistered at all. A starts-when-full
+    // Sit And Go can, until it actually starts (2026-11-22), so it keeps the note.
+    expect(src).toMatch(/!o\.isLateRegistration && !!startLabel && \(/);
+    expect(src).not.toMatch(/!o\.isLateRegistration && !o\.startsWhenFull/);
   });
 
   it('traps focus and gives it back', () => {

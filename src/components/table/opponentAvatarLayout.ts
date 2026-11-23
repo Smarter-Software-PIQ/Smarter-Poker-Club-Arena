@@ -1,5 +1,6 @@
 import { NINE_SEAT_PHONE_RAIL_BUST } from './mobileAvatarSize';
 import { privateCardLane } from './heroPrivateReservations';
+import { sixSeatPhoneRail } from './sixSeatTopRail';
 import {
   crownActionReservation,
   nineSeatHeroArtRatio,
@@ -1210,6 +1211,24 @@ export function createOpponentAvatarLayout(
     const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
     return !!wrapper && parseFloat(wrapper.style.top) > 50 && parseFloat(wrapper.style.left) !== 50;
   };
+  /* THE SIX-MAX TOP SEAT STANDS ON THE RAIL (Dan 2026-11-22, sixSeatTopRail.ts).
+     On the phone that chair is placed by its rail station alone and is never
+     nudged: not by the joint solver, not by a wager making room. This
+     allocator used to hold its crown and the caption lane above it under the
+     tab bar, and the only way to do that was to push the whole pod, plate
+     first, down onto the felt. The chair is a fixed fact for every other
+     chair instead: they keep clear of it exactly as they keep clear of the
+     board, and it keeps its place in the ring order. */
+  const railCapSeat = (seat: HTMLElement) =>
+    sixSeatPhoneRail(page.dataset.seats, window.innerWidth, window.innerHeight) &&
+    seat !== anchorSeat() &&
+    !!seat.closest('.seat-wrapper--cap,.seat-wrapper--top');
+  const railCapSeats = () =>
+    Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
+      (seat) => !seat.classList.contains('seat--empty') && railCapSeat(seat)
+    );
+  /** Chairs the allocator may nudge: every opponent but a rail-placed one. */
+  const spacedSeats = () => movableSeats().filter((seat) => !railCapSeat(seat));
   const movableSeats = (includeEmpty = false) => {
     const anchor = anchorSeat();
     return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
@@ -1222,7 +1241,10 @@ export function createOpponentAvatarLayout(
      position. */
   const otherChairs = (): ChairPoint[] =>
     Array.from(scaler.querySelectorAll<HTMLElement>('.seat'))
-      .filter((seat) => seat === anchorSeat() || seat.classList.contains('seat--empty'))
+      .filter(
+        (seat) =>
+          seat === anchorSeat() || seat.classList.contains('seat--empty') || railCapSeat(seat)
+      )
       .map((seat) => box(seat))
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 }));
@@ -1301,10 +1323,12 @@ export function createOpponentAvatarLayout(
     const scale = tableRenderScale(scaler);
     const rect = box(seat);
     const style = getComputedStyle(seat);
+    // A rail-placed top chair's lane is clamped under the tab bar (SeatSlot.css).
+    const drop = parseFloat(seat.style.getPropertyValue('--sp-rail-caption-drop')) || 0;
     return [
       crownActionReservation({
         seatLeft: rect.left + (dx || 0) * scale,
-        seatTop: rect.top + (dy || 0) * scale,
+        seatTop: rect.top + ((dy || 0) + drop) * scale,
         seatWidth: rect.width,
         rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
         tagHeight: parseFloat(style.getPropertyValue('--sp-tag-h')) || 20,
@@ -1717,10 +1741,36 @@ export function createOpponentAvatarLayout(
     if (ringChanged) schedule();
     return ringChanged;
   };
+  /** Everything a rail-placed chair draws, as fixed facts for the others. */
+  const railCapFacts = (): Box[] =>
+    railCapSeats().flatMap((seat) => {
+      const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
+      return [
+        ...(image && resolved.get(source(image)) ? peerPaint(image) : []),
+        ...futureCaption(seat),
+        ...Array.from(
+          seat.querySelectorAll(
+            ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+          )
+        ).map(box),
+      ].filter((r) => r.width > 0 && r.height > 0);
+    });
+  /** A rail-placed chair carries no nudge, whatever an earlier layout left. */
+  const holdRailCapSeats = () => {
+    for (const seat of railCapSeats()) {
+      delete seat.dataset.opponentLane;
+      if (seat.style.getPropertyValue('--sp-opponent-x') !== '0px')
+        seat.style.setProperty('--sp-opponent-x', '0px');
+      if (seat.style.getPropertyValue('--sp-opponent-y') !== '0px')
+        seat.style.setProperty('--sp-opponent-y', '0px');
+      state.shifts.set(seat, [0, 0]);
+    }
+  };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
     if (
       fixedPhoneRail() ||
+      railCapSeat(seat) ||
       state.locked ||
       !old ||
       !Number.isFinite(deltaY) ||
@@ -1758,8 +1808,8 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const hero = anchorImage();
     if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
-    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
-    const seats = movableSeats();
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards(), ...railCapFacts());
+    const seats = spacedSeats();
     if (seats.some((other) => !state.shifts.has(other))) return false;
     const board = page.querySelector('.community-area');
     const lowerLane = lowerLaneLimits();
@@ -2078,8 +2128,9 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const heroImage = anchorImage();
     if (heroImage && resolved.get(source(heroImage))) fixed.push(...paintedParts(heroImage));
-    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
-    const seats = movableSeats();
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards(), ...railCapFacts());
+    holdRailCapSeats();
+    const seats = spacedSeats();
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
