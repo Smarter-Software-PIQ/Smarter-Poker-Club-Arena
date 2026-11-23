@@ -10,6 +10,10 @@
  *    spends nothing and counts nothing;
  *  - the 50 ms acted-time budget for a staged option, the 15 ms budget unchanged for any other;
  *  - the Horse-only cap, the latency breaker (it trips, it stays tripped), the companions;
+ *  - the breaker charges the time a re-decision ran (2026-11-23, lead-5 PHASE4): min(wall, the worker thread's own
+ *    CPU). A re-decision that computes trips it exactly as before; a pause of the thread with little CPU behind it
+ *    (here a synchronous sleep) does not; with no CPU reading it is the wall-time breaker of before; acted decisions
+ *    are the same with or without the CPU clock;
  *  - with the production brain over every recorded FAST decision: a staged option in shadow (companion included)
  *    leaves the acted decision, its RNG positions and its plan effects those of no row at all;
  *  - an option that is not staged behaves exactly as before with the stage table present;
@@ -43,6 +47,7 @@ import type {
 import { buildHorseDecisionKey } from './protocol.js';
 import {
   HorseDecisionWorkerRuntime,
+  liveThreadCpuMs,
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
 import {
@@ -242,9 +247,11 @@ import {
   OPTION_SHADOW_STAGE_SLOW_MS,
   OPTION_SHADOW_STAGE_SLOW_STRIKES,
   OPTION_SHADOW_STAGE_WINDOW,
+  optionShadowStageChargedMs,
   optionShadowStageCompanions,
   OptionShadowStageGuard,
   optionShadowStageInScope,
+  optionShadowStageWallOnlySlow,
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import { OPTION_SWITCH_REGISTRY } from '../HorseOptionSwitch.js';
@@ -768,6 +775,218 @@ describe('the latency breaker and the Horse-only cap (the guard alone)', () => {
     expect(g.admitHorseOnly(59_999)).toBe(false);
     expect(g.admitHorseOnly(60_000)).toBe(true);
     expect(g.admitHorseOnly(Number.NaN)).toBe(false);
+  });
+});
+
+describe('the breaker charges the time a re-decision ran: a pause it did not cause never trips it (2026-11-23)', () => {
+  /** A deterministic stream in [0, 1). */
+  const lcg = (seed: number) => () =>
+    (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  /** Wall times around both lines: under the slow line, between the lines, over the hard line. */
+  const wallOf = (r: () => number) => {
+    const x = r();
+    if (x < 0.6) return r() * OPTION_SHADOW_STAGE_SLOW_MS;
+    if (x < 0.9)
+      return (
+        OPTION_SHADOW_STAGE_SLOW_MS +
+        r() * (OPTION_SHADOW_STAGE_HARD_MS - OPTION_SHADOW_STAGE_SLOW_MS)
+      );
+    return OPTION_SHADOW_STAGE_HARD_MS + r() * 200;
+  };
+  /** The re-decision at which a guard trips, fed one stream; -1 when it never does. */
+  const tripAt = (samples: Array<[number, number | undefined]>) => {
+    const g = new OptionShadowStageGuard();
+    return samples.findIndex(([wall, cpu]) => g.note('a', wall, cpu));
+  };
+
+  it('the charge: min(wall, CPU); the wall time when there is no CPU reading; never above the wall time', () => {
+    expect(optionShadowStageChargedMs(195.8, 20)).toBe(20);
+    expect(optionShadowStageChargedMs(60, 75)).toBe(60);
+    for (const none of [undefined, null, Number.NaN, -1, Number.POSITIVE_INFINITY])
+      expect(optionShadowStageChargedMs(195.8, none)).toBe(195.8);
+    expect(optionShadowStageChargedMs(Number.NaN, 5)).toBeNaN();
+    const r = lcg(11);
+    for (let i = 0; i < 10_000; i++) {
+      const wall = wallOf(r);
+      expect(optionShadowStageChargedMs(wall, r() * 400)).toBeLessThanOrEqual(wall);
+    }
+  });
+
+  it('(a) an option that computes (its CPU is its wall time, or above it) trips at the same re-decision as before', () => {
+    // the breaker of before is the guard fed wall time alone
+    for (let seed = 1; seed <= 400; seed++) {
+      const r = lcg(seed);
+      const walls = Array.from({ length: 60 }, () => wallOf(r));
+      const before = tripAt(walls.map((w) => [w, undefined]));
+      expect(tripAt(walls.map((w) => [w, w])), `seed ${seed}`).toBe(before);
+      expect(tripAt(walls.map((w) => [w, w + r() * 2])), `seed ${seed}`).toBe(before);
+    }
+    // one over the hard line, and three over the slow line in twenty: as the two guard tests above
+    expect(tripAt([[OPTION_SHADOW_STAGE_HARD_MS + 0.1, OPTION_SHADOW_STAGE_HARD_MS + 0.1]])).toBe(
+      0
+    );
+    const slow = OPTION_SHADOW_STAGE_SLOW_MS + 1;
+    expect(
+      tripAt(Array.from({ length: OPTION_SHADOW_STAGE_SLOW_STRIKES }, () => [slow, slow]))
+    ).toBe(OPTION_SHADOW_STAGE_SLOW_STRIKES - 1);
+    // a time that is not a number still trips at once, CPU reading or not
+    expect(tripAt([[Number.NaN, 3]])).toBe(0);
+  });
+
+  it('(b) a wall-clock spike with little CPU behind it does not trip; nor do slow-strike spikes; CPU-heavy ones do', () => {
+    // the live trip of 2026-11-23 07:22Z: 195.8 ms wall; the Mac measured at most 27.5 ms of CPU on this path warm
+    expect(tripAt([[195.8, 27.5]])).toBe(-1);
+    expect(optionShadowStageWallOnlySlow(195.8, 27.5)).toBe(true);
+    expect(tripAt(Array.from({ length: 20 }, () => [392.2, 6.4] as [number, number]))).toBe(-1);
+    expect(tripAt([[195.8, OPTION_SHADOW_STAGE_HARD_MS + 0.1]])).toBe(0);
+    expect(optionShadowStageWallOnlySlow(195.8, OPTION_SHADOW_STAGE_HARD_MS + 0.1)).toBe(false);
+    expect(optionShadowStageWallOnlySlow(40, 10)).toBe(false);
+  });
+
+  it('it trips nowhere the wall-time breaker did not, and never earlier', () => {
+    for (let seed = 1; seed <= 400; seed++) {
+      const r = lcg(1000 + seed);
+      const samples = Array.from({ length: 60 }, () => {
+        const wall = wallOf(r);
+        return [wall, r() < 0.5 ? wall : r() * wall] as [number, number];
+      });
+      const now = tripAt(samples);
+      const before = tripAt(samples.map(([w]) => [w, undefined]));
+      if (now >= 0) expect(before, `seed ${seed}`).toBeGreaterThanOrEqual(0);
+      if (now >= 0) expect(before, `seed ${seed}`).toBeLessThanOrEqual(now);
+    }
+  });
+
+  /** Blocks this thread for `ms` without running (a pause the re-decision did not cause). */
+  const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  /** Computes until this thread has spent `ms` of CPU (so the wall time is at least that, whatever the load). */
+  const spin = (ms: number) => {
+    const c0 = liveThreadCpuMs();
+    while (liveThreadCpuMs() - c0 < ms) {
+      /* computing */
+    }
+  };
+  const slowly =
+    (how: (ms: number) => void): Decide =>
+    (p, g, s, m, o = {}) => {
+      if (o[STAGED] === true) how(OPTION_SHADOW_STAGE_HARD_MS + 15);
+      return scripted(STAGED, true, CALL, RAISE)(p, g, s, m, o);
+    };
+  const four = () => [1, 2, 3, 4].map((i) => fastRequest(plo4With('person'), i));
+  const count = (r: { features: string[] }, k: string) => r.features.filter((f) => f === k).length;
+
+  it('(b) through the worker: a re-decision paused for 165 ms with the live CPU clock does not trip; the next three are re-decided', async () => {
+    const requests = four();
+    const r = await run(
+      requests,
+      slowly(sleep),
+      { [STAGED]: 'shadow' },
+      {
+        ...stage(),
+        threadCpuMs: liveThreadCpuMs,
+      }
+    );
+    expect(r.calls).toHaveLength(8);
+    expect(r.staged.map((x) => x.requestId)).toEqual([1, 2, 3, 4]);
+    expect(count(r, 'option_shadow_stage_self_disabled_seen')).toBe(0);
+    expect(count(r, 'option_shadow_skipped_stage_disabled_seen')).toBe(0);
+    expect(count(r, 'option_shadow_stage_wall_only_slow_seen')).toBe(4);
+    const wall = r.latency
+      .filter(([k]) => k === 'option_shadow_stage_redecide')
+      .map(([, ms]) => ms);
+    const cpu = r.latency
+      .filter(([k]) => k === 'option_shadow_stage_redecide_cpu')
+      .map(([, ms]) => ms);
+    expect(wall).toHaveLength(4);
+    expect(cpu).toHaveLength(4);
+    for (const ms of wall) expect(ms).toBeGreaterThan(OPTION_SHADOW_STAGE_HARD_MS);
+    for (const ms of cpu) expect(ms).toBeLessThan(OPTION_SHADOW_STAGE_SLOW_MS);
+    console.log(
+      `paused re-decisions: wall ${wall.map((x) => x.toFixed(1)).join(', ')} ms, thread CPU ${cpu.map((x) => x.toFixed(1)).join(', ')} ms`
+    );
+    const none = await run(requests, slowly(sleep), null, stage());
+    expect(r.fasts.map(comparable)).toEqual(none.fasts.map(comparable));
+  });
+
+  it('(a) through the worker: a re-decision that computes for 165 ms with the live CPU clock trips exactly as the wall-time breaker', async () => {
+    const requests = four();
+    expect(Number.isFinite(liveThreadCpuMs())).toBe(true);
+    const withCpu = await run(
+      requests,
+      slowly(spin),
+      { [STAGED]: 'shadow' },
+      {
+        ...stage(),
+        threadCpuMs: liveThreadCpuMs,
+      }
+    );
+    const wallOnly = await run(requests, slowly(spin), { [STAGED]: 'shadow' }, stage());
+    for (const r of [withCpu, wallOnly]) {
+      expect(r.calls).toHaveLength(5);
+      expect(r.staged.map((x) => x.requestId)).toEqual([1]);
+      expect(count(r, 'option_shadow_stage_self_disabled_seen')).toBe(1);
+      expect(count(r, 'option_shadow_skipped_stage_disabled_seen')).toBe(3);
+      expect(count(r, 'option_shadow_stage_wall_only_slow_seen')).toBe(0);
+    }
+    expect(shadowKeys(withCpu.features)).toEqual(shadowKeys(wallOnly.features));
+    const cpu = withCpu.latency.find(([k]) => k === 'option_shadow_stage_redecide_cpu')![1];
+    expect(cpu).toBeGreaterThan(OPTION_SHADOW_STAGE_HARD_MS);
+    expect(withCpu.fasts.map(comparable)).toEqual(wallOnly.fasts.map(comparable));
+  });
+
+  it('no CPU reading: the paused re-decision trips as before (the wall-time breaker, unchanged)', async () => {
+    const requests = four();
+    for (const threadCpuMs of [
+      undefined,
+      () => Number.NaN,
+      () => {
+        throw new Error('unreadable');
+      },
+    ]) {
+      const extra = threadCpuMs ? { ...stage(), threadCpuMs } : stage();
+      const r = await run(requests, slowly(sleep), { [STAGED]: 'shadow' }, extra);
+      expect(r.calls).toHaveLength(5);
+      expect(count(r, 'option_shadow_stage_self_disabled_seen')).toBe(1);
+      expect(count(r, 'option_shadow_skipped_stage_disabled_seen')).toBe(3);
+      expect(r.latency.some(([k]) => k === 'option_shadow_stage_redecide_cpu')).toBe(false);
+    }
+  });
+
+  it('(c) acted decisions: the CPU clock is read only around a staged re-decision and changes nothing acted', async () => {
+    const log: string[] = [];
+    const clock = () => {
+      log.push('cpu');
+      return 0;
+    };
+    const base = scripted(STAGED, true, CALL, RAISE);
+    const brain: Decide = (p, g, s, m, o = {}) => {
+      log.push(o[STAGED] === true ? 'redecide' : 'acted');
+      return base(p, g, s, m, o);
+    };
+    const requests = four();
+    // no row, and an option that is not staged (the inline option shadow): never read, nothing changes
+    for (const states of [null, { [NOT_STAGED]: 'shadow' }] as const) {
+      log.length = 0;
+      const r = await run(requests, brain, states, { ...stage(), threadCpuMs: clock });
+      expect(log.filter((e) => e === 'cpu')).toEqual([]);
+      const plain = await run(requests, brain, states, stage());
+      expect(r.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+      expect(shadowKeys(r.features)).toEqual(shadowKeys(plain.features));
+    }
+    // staged: one read on each side of each re-decision, none around an acted decision
+    log.length = 0;
+    const r = await run(
+      requests,
+      brain,
+      { [STAGED]: 'shadow' },
+      { ...stage(), threadCpuMs: clock }
+    );
+    expect(log).toEqual(requests.flatMap(() => ['acted', 'cpu', 'redecide', 'cpu']));
+    const plain = await run(requests, brain, { [STAGED]: 'shadow' }, stage());
+    expect(r.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+    expect(r.staged.map((x) => x.receipt)).toEqual(plain.staged.map((x) => x.receipt));
+    const none = await run(requests, brain, null, stage());
+    expect(r.fasts.map(comparable)).toEqual(none.fasts.map(comparable));
   });
 });
 
