@@ -104,6 +104,8 @@ describe('1. a finalized prize pool is not filled', () => {
       return { data: { ok: true, seat_number: 3 }, error: null };
     });
     svc = new TournamentRecurringService();
+    // No game in this file holds a seat for an invited friend (privateGameHolds.ts).
+    vi.spyOn(svc.privateGameHolds, 'snapshot').mockResolvedValue(new Map());
     pick = vi
       .spyOn(svc as unknown as { pickFreeHorses: () => Promise<string[]> }, 'pickFreeHorses')
       .mockResolvedValue(['free-1', 'free-2', 'free-3']);
@@ -311,6 +313,8 @@ describe('2. the held-empty hold is the human window', () => {
       return { data: { ok: true, seat_number: 1 }, error: null };
     });
     svc = new TournamentRecurringService();
+    // No game in this file holds a seat for an invited friend (privateGameHolds.ts).
+    vi.spyOn(svc.privateGameHolds, 'snapshot').mockResolvedValue(new Map());
     pick = vi
       .spyOn(svc as unknown as { pickFreeHorses: () => Promise<string[]> }, 'pickFreeHorses')
       .mockResolvedValue(['h1', 'h2', 'h3']);

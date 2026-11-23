@@ -2411,9 +2411,30 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
           nowEpoch?: string;
           soakSeconds?: number;
           breakRemote?: boolean;
+          // O16: what production's installed set says about the soaking copy.
+          copyState?: 'stale' | 'definitions' | 'current' | 'unreadable' | 'no-evidence';
         }
       ) {
         const dir = mkdtempSync(resolve(tmpdir(), 'backup-o1-certify-'));
+        const copyState = opts.copyState ?? 'no-evidence';
+        const A64 = 'a'.repeat(64);
+        const toolOut: Record<string, string> = {
+          stale:
+            "printf '%s\\n' due=true production=" +
+            A64 +
+            " pending=; echo 'reason=the copy (bbbbbbbbbbbb) lacks installed migration 20261123002808; production holds aaaaaaaaaaaa' >&2",
+          definitions:
+            "printf '%s\\n' due=true production=" +
+            A64 +
+            ' pending=; echo "reason=the copy does not hold production\'s definition of public.fn_x()" >&2',
+          current:
+            "printf '%s\\n' due=false production=" +
+            A64 +
+            " pending=; echo 'reason=the copy holds production installed set aaaaaaaaaaaa' >&2",
+          unreadable:
+            "echo due=true; echo 'reason=production installed migrations are unreadable (psql exit 2); refreshing' >&2",
+          'no-evidence': 'echo UNEXPECTED_TOOL_CALL >> "$CALLS"; echo due=true',
+        };
         const calls = resolve(dir, 'calls');
         const summary = resolve(dir, 'summary.md');
         const soakS = opts.soakSeconds ?? 4;
@@ -2428,8 +2449,21 @@ ssh() {
     *'stop_for_restore'*)
       echo "CLEANUP_CALLED" >> "$CALLS"
       return 0 ;;
+    *'schema-evidence.json'*)
+      ${copyState === 'no-evidence' ? 'return 0' : `echo '{"fixture":"copy-evidence"}'`} ;;
+    *'database.json'*)
+      ${copyState === 'no-evidence' ? 'return 0' : `echo '${'c'.repeat(64)}'`} ;;
     *) return 0 ;;
   esac
+}
+python3() {
+  if [ "$1" = -B ] && [ "$2" = server/scripts/engine-release-installed-migrations.py ] && [ "$3" = refresh-due ]; then
+    echo "TOOL $*" >> "$CALLS"
+    [ -n "\${DATABASE_URL:-}" ] || { echo "TOOL_WITHOUT_DATABASE_URL" >> "$CALLS"; }
+    ${toolOut[copyState]}
+    return 0
+  fi
+  command python3 "$@"
 }
 scp() {
   echo "scp $*" >> "$CALLS"
@@ -2471,6 +2505,7 @@ gh() {
               GITHUB_REPOSITORY: 'o/r',
               YIELD_CHECK_INTERVAL: '1',
               O1_NOW_EPOCH: opts.nowEpoch ?? CLOSE_TO_CUTOFF_EPOCH,
+              DATABASE_URL: 'postgres://fixture',
             },
             repo.dir
           );
@@ -2497,6 +2532,15 @@ gh() {
         expect(certifyStep.env.FREEZE_BASELINE).toBe('${{ needs.plan.outputs.freeze_baseline }}');
         expect(certifyStep.env.PLAN_PRIORITY).toBe('${{ needs.plan.outputs.priority }}');
         expect(certifyStep.env.RUN_ID).toBe('${{ github.run_id }}');
+        // O16: the migration-only yield reads production's installed set read-only.
+        expect(certifyStep.env.DATABASE_URL).toBe('${{ secrets.DATABASE_URL }}');
+        expect(certifyCheckout.with['sparse-checkout']).toContain('server/scripts');
+        expect(certifyCheckout.with['sparse-checkout']).toContain(
+          'server/standby/schema-evidence.py'
+        );
+        expect(certifyStep.run).toContain(
+          'python3 -B server/scripts/engine-release-installed-migrations.py refresh-due'
+        );
         expect(publishStep.env.YIELDED).toBe('${{ steps.certify.outputs.yielded }}');
         expect(publishStep.if).toBe('always()');
       });
@@ -2515,6 +2559,10 @@ gh() {
           expect(r.status, r.stderr).toBe(0);
           expect(r.stdout).toContain('YIELDED_OBSOLETE:');
           expect(r.stdout).toContain('control_projection_diverged');
+          // A release-control divergence needs no production read (O16).
+          expect(r.calls).not.toContain(
+            'TOOL -B server/scripts/engine-release-installed-migrations.py refresh-due'
+          );
           expect(r.stdout).toContain('yielded=1');
           expect(r.stdout).not.toContain('rc=1');
           expect(r.calls).toContain('CLEANUP_CALLED');
@@ -2553,7 +2601,7 @@ gh() {
         }
       });
 
-      it('yields cleanly mid-soak when supabase/migrations diverges on origin/main within 75m of cutoff with a waiting push run', () => {
+      it('yields cleanly mid-soak when supabase/migrations diverges on origin/main AND production installed what the copy lacks (or changed a required definition), within 75m of cutoff with a waiting push run', () => {
         const f = fixture();
         const origin = withOrigin(f);
         try {
@@ -2563,12 +2611,68 @@ gh() {
           origin.pushMain();
           f.git('checkout', '-q', soakingSha);
 
-          const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10 });
-          expect(r.status, r.stderr).toBe(0);
-          expect(r.stdout).toContain('YIELDED_OBSOLETE:');
-          expect(r.stdout).toContain('migrations_tree_diverged');
-          expect(r.stdout).toContain('yielded=1');
-          expect(r.calls).toContain('CLEANUP_CALLED');
+          for (const copyState of ['stale', 'definitions'] as const) {
+            const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 10, copyState });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('YIELDED_OBSOLETE:');
+            expect(r.stdout).toContain('migrations_tree_diverged,migrations_installed_after_copy');
+            expect(r.stdout).toContain('yielded=1');
+            expect(r.calls).toContain('CLEANUP_CALLED');
+            expect(r.calls).toContain(
+              `TOOL -B server/scripts/engine-release-installed-migrations.py refresh-due --copy-evidence o1-copy-evidence.json --copy-evidence-sha ${'c'.repeat(64)}`
+            );
+            expect(r.calls).not.toContain('TOOL_WITHOUT_DATABASE_URL');
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      // O16 replay (Backup 45099104481, 2026-11-23T02:44:02Z): f2fa22672808 merged
+      // 20261123002808 inside the O3 deferral, so production had not installed
+      // it and a9fde5791f0a was still the one selectable candidate.
+      it('O16: does NOT yield on a merged-but-uninstalled (deferred) migration, nor when the copy or production is unreadable; keeps soaking and says so once', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.write('supabase/migrations/20261123002808_deferred.sql', 'select 1;\n');
+          f.commit('c4: migration merged inside the O3 deferral');
+          origin.pushMain();
+          f.git('checkout', '-q', soakingSha);
+
+          const deferred = runCertifyStep(f, {
+            sha: soakingSha,
+            soakSeconds: 4,
+            copyState: 'current',
+          });
+          expect(deferred.status, deferred.stderr).toBe(0);
+          expect(deferred.stdout).toContain('rc=0');
+          expect(deferred.stdout).not.toContain('yielded=1');
+          expect(deferred.stdout).not.toContain('YIELDED_OBSOLETE');
+          expect(deferred.calls).not.toContain('CLEANUP_CALLED');
+          expect(deferred.calls).toContain(
+            'TOOL -B server/scripts/engine-release-installed-migrations.py refresh-due'
+          );
+          const notes = deferred.stdout.split('production has not installed them').length - 1;
+          expect(notes).toBe(1);
+
+          for (const copyState of ['unreadable', 'no-evidence'] as const) {
+            const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 3, copyState });
+            expect(r.status, r.stderr).toBe(0);
+            expect(r.stdout).toContain('rc=0');
+            expect(r.stdout).not.toContain('yielded=1');
+            expect(r.calls).not.toContain('CLEANUP_CALLED');
+            expect(r.stdout).toContain(
+              'could not tell whether production installed a migration the copy lacks'
+            );
+            // Without bound copy evidence the production read is never attempted.
+            if (copyState === 'no-evidence') {
+              expect(r.calls).not.toContain('refresh-due');
+              expect(r.calls).not.toContain('UNEXPECTED_TOOL_CALL');
+            }
+          }
         } finally {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });

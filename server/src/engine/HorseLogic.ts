@@ -660,6 +660,7 @@ import {
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
 import {
   applyOmahaBigBetSizeRange,
+  omahaBigBetSizeScope,
   omahaPricedLimpedPotSize,
 } from './HorseOmahaBigBetSizeIsPriced.js';
 import { omahaBluffIsPricedAgainstTheTargetRule } from './HorseOmahaBluffPricedAgainstTheTarget.js';
@@ -13212,8 +13213,10 @@ function omahaLimpedPotMinBetFloor(
   if (decision.action !== 'bet') return decision;
   // omahaSmallBetIsPriced owns the size of the bet it placed: this floor was priced against it there (omahaSmallBetRule).
   if (omahaSmallBetOwns(decision)) return decision;
-  // omahaBigBetSizeIsPriced (default off): priced EV comparison owns the limped-pot small-bet spot and supersedes the blanket floor.
-  if (opts.omahaBigBetSizeIsPriced === true) {
+  // omahaBigBetSizeIsPriced (default off): priced EV comparison owns the limped-pot small-bet spot in PLO4/PLO5 cash
+  // and supersedes the blanket floor only in scope; out-of-scope games (tournaments, PLO6, bomb pots, multi-board)
+  // fall through untouched to omahaBigBetIsPotShare.
+  if (opts.omahaBigBetSizeIsPriced === true && omahaBigBetSizeScope(player, gs) !== null) {
     const tele = telemetryOn(opts);
     const rake = rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat));
     const priced = omahaPricedLimpedPotSize(decision, player, gs, rake, tele);

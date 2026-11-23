@@ -36,6 +36,7 @@ import {
 import type { GameState, SeatedPlayer } from '../types.js';
 import { loadSeatedPlayers, loadSeatHoldIdentity } from '../services/supabase.js';
 import type { SeatArrival } from './SeatArrivalDisplay.js';
+import { noteCashSeatCommitted } from '../cluster/cashSeatCommittedSignal.js';
 import {
   projectLiveHandState,
   projectResyncHandState,
@@ -856,9 +857,13 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     }
     if (request.state === 'seated') {
       if (changed) this.publishSeatArrivals();
-      return committed.some((p) => p.user_id === userId)
-        ? { ok: true }
-        : { ok: false, reason: 'not_seated' };
+      const seatedNow = committed.some((p) => p.user_id === userId);
+      /* A GAME THAT FILLS ASKS FOR ITS LINE WHEN IT FILLS (Dan 2026-11-22): a
+         buy-in that took this table's last chair tells the fleet now, not at
+         its next cycle (services/HorseLineOnArrival). */
+      if (seatedNow && committed.length >= (Number(this.tableInfo.max_players) || Infinity))
+        noteCashSeatCommitted(this.tableId);
+      return seatedNow ? { ok: true } : { ok: false, reason: 'not_seated' };
     }
     const identity = await loadSeatHoldIdentity(userId);
     if (!identity) {

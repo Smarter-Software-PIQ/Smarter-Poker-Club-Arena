@@ -94,6 +94,8 @@ different deal. Not a sweep or a repair job: the rule is in the seat decision.
 
 ## Not covered, stated plainly
 
+All three are closed by `2026-11-22-a-called-name-keeps-its-place.md`.
+
 - A person who takes the last chair fills the game; the next fleet cycle
   (30 s) puts a name on the list.
 - A table the hourly cap has marked excess gets no new names (the seating walk

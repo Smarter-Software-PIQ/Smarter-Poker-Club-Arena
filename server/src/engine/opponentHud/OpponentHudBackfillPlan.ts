@@ -16,6 +16,42 @@ export interface BackfillProfileLike {
   hands: number;
 }
 
+/**
+ * The population rows ('*', one per family) an --apply writes: the fitted priors, and as their watermark the newest
+ * hand the rebuild applied, which is the sync point the engine catches up from when the option is switched on.
+ * A rebuild that applied NO hand has neither: it writes no population row at all (review P2-4: it used to write
+ * wm_ms -1 with priors fitted from nothing over the stored rows, which erases the stored priors and the sync point,
+ * so the next switch-on would find no sync point and hold it for a backfill).
+ */
+export function backfillPopulationRows<F extends string>(input: {
+  families: readonly F[];
+  /** hands the rebuild applied */
+  hands: number;
+  /** created_at (ms) of the newest hand applied; -1 when none */
+  lastHandAtMs: number;
+  priors: Readonly<Record<string, unknown>>;
+}): {
+  user_id: '*';
+  family: F;
+  version: 1;
+  hands: 0;
+  wm_ms: number;
+  profile: unknown;
+  rebuild: true;
+}[] {
+  if (!(input.hands > 0) || !Number.isFinite(input.lastHandAtMs) || !(input.lastHandAtMs > 0))
+    return [];
+  return input.families.map((family) => ({
+    user_id: '*' as const,
+    family,
+    version: 1 as const,
+    hands: 0 as const,
+    wm_ms: Math.round(input.lastHandAtMs),
+    profile: input.priors[family],
+    rebuild: true as const,
+  }));
+}
+
 export interface BackfillPlan<P extends BackfillProfileLike> {
   ok: boolean;
   /** why nothing may be written (ok false) */
@@ -229,8 +265,14 @@ export class SharedBackfillPacer {
   }
 }
 
+/**
+ * `supabase_timeout` is the database client's own per-request deadline (services/supabase/client.ts,
+ * SUPABASE_TIMEOUT_MS, default 15 s): the request was given up on this side, so nothing says the statement failed.
+ * A page read is idempotent, so it is retried like a statement timeout (dry run 45094876915 died on its first one,
+ * at window 535 of 741, on launch-day volume).
+ */
 const TRANSIENT_BACKFILL_ERR_RE =
-  /statement timeout|canceling statement|502|503|504|bad gateway|service unavailable|gateway timeout|fetch failed|econnreset|etimedout|socket hang up|temporarily unavailable|connection terminated/i;
+  /supabase_timeout|statement timeout|canceling statement|502|503|504|bad gateway|service unavailable|gateway timeout|fetch failed|econnreset|etimedout|socket hang up|temporarily unavailable|connection terminated/i;
 
 export function isTransientBackfillError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');

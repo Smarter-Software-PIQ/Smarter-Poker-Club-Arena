@@ -56,6 +56,8 @@ SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_mi
 PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_installs_are_switched*.sql'))
 # 20261119064912: the hour starts when the dispatcher may send (incident dc479141).
 FREEZE_FIX = next(MIGRATIONS.glob('*_the_install_watch_hour_starts_when_the_dispatcher_may_send.sql'))
+# 20261123000830: the install watch follows three-hourly O3 deferral (incident ba9d1133).
+O3_FIX = next(MIGRATIONS.glob('*_the_install_watch_follows_three_hourly_deferral.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -519,6 +521,58 @@ def main():
         assert alert_status(FIXKEY) == 'resolved'
         sql("DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261112050000'")
         ok('installing the fixed file resolves its page')
+
+        # THREE-HOURLY O3 DEFERRAL (20261123000830, incident ba9d1133, alerts
+        # 447640/447641). Optimization O3 defers ordinary merges inside
+        # [cycleStart - 90m, cycleStart + 10m) Central until cycleStart + 10m.
+        if os.environ.get('MIGWATCH_PRE_O3') != '1':
+            for attempt in (1, 2):
+                r = psql(['-f', str(O3_FIX)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', O3_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'o3-fix live proof must hold after install'
+            ok('the three-hourly O3 fix amends the anchor once, installs twice idempotently and its live proof holds')
+
+        # Exact incident ba9d1133 scenario: merged at 15:35 CST (21:35:11Z),
+        # inside the 16:00 CST O3 deferral [14:30, 16:10) CST. Must stay quiet
+        # at 16:40 CST (22:40Z, the old false page) and 17:09 CST (23:09Z), and
+        # page at 17:10 CST (23:10Z = 16:10 + 60m).
+        O3A = 'supabase/migrations/20261122192807_merged_inside_o3_deferral.sql'
+        merge(43, '2026-11-22T21:35:11Z', [{'filename': O3A, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-22 21:40:00Z')
+        watch('2026-11-22 22:40:00Z')                                   # 16:40 CST: old false page
+        watch('2026-11-22 23:09:00Z')                                   # 17:09 CST: 59m after 16:10 clear
+        assert alert_status('20261122192807') == '', 'an O3-deferred file must not page before cycle clear + 60m'
+        watch('2026-11-22 23:10:00Z')                                   # 17:10 CST: 60m after 16:10 clear
+        assert alert_status('20261122192807') == 'firing'
+        assert 'Dispatch Apply Merged Migration for it' in summary('20261122192807')
+        ok('a file merged inside a three-hourly O3 deferral window pages one hour after cycle+10m, never at merge+60')
+
+        # Merged at 14:00 CST (20:00Z, before 16:00 O3 deferral) and refused:
+        # its 60m page fires at 15:00 CST (21:00Z), INSIDE the 16:00 O3 window,
+        # so the page must say do NOT hand-dispatch (never "dispatch it").
+        O3R = 'supabase/migrations/20261122200000_refused_before_o3_window.sql'
+        merge(44, '2026-11-22T20:00:00Z', [{'filename': O3R, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-22 20:10:00Z')
+        watch('2026-11-22 21:00:00Z')                                   # 15:00 CST: inside [14:30, 16:10)
+        assert alert_status('20261122200000') == 'firing'
+        assert 'do NOT hand-dispatch' in summary('20261122200000'), summary('20261122200000')
+        assert '16:10 Central' in summary('20261122200000'), summary('20261122200000')
+        assert 'Dispatch Apply Merged Migration for it' not in summary('20261122200000')
+        ok('a page raised inside a three-hourly O3 deferral window warns do NOT hand-dispatch')
+
+        # Merged at 23:30 CST (05:30Z): 01:00 O3 deferral clears at 01:10 CST,
+        # which is inside the 23:45-04:15 nightly freeze, so due_at chains to
+        # 04:15 + 60m = 05:15 CST (11:15Z).
+        O3F = 'supabase/migrations/20261123053000_o3_handoff_to_nightly_freeze.sql'
+        merge(45, '2026-11-23T05:30:00Z', [{'filename': O3F, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-23 05:40:00Z')
+        watch('2026-11-23 08:20:00Z')                                   # 02:20 CST (past 01:10 + 60m, still in freeze)
+        watch('2026-11-23 11:14:00Z')                                   # 05:14 CST
+        assert alert_status('20261123053000') == '', '23:30 CST O3 deferral meeting nightly freeze must hold to 04:15 + 60m'
+        watch('2026-11-23 11:15:00Z')                                   # 05:15 CST
+        assert alert_status('20261123053000') == 'firing'
+        ok('23:30 CST O3 deferral chains cleanly into the 23:45-04:15 nightly freeze')
 
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "

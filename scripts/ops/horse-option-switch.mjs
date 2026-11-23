@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -22,6 +22,8 @@ import {
   EVIDENCE_REQUIRED_STATES,
   LEGAL_STATES,
   SHADOW_STATES,
+  SWITCH_STATE_FILE,
+  applySwitchStateChange,
   assertSafeOptionName,
   assertSafeState,
   buildEvidenceLookupSql,
@@ -31,14 +33,17 @@ import {
   buildStatusQueries,
   buildSwitchNote,
   buildSwitchSetSql,
+  buildSwitchStateSnapshotSql,
   checkMaintenanceAndCutoverHold,
   evaluatePickup,
   evaluatePreflight,
   extractAlarmBaseline,
   formatSwitchChangeLogLine,
+  formatSwitchStateSnapshot,
   parseCliArgs,
   parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
+  snapshotFromRows,
 } from './horse-option-switch-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +55,9 @@ export const USAGE = `Usage:
   node scripts/ops/horse-option-switch.mjs status [--json] [--health-url <url>] [--windows-file <path>] [--inbox-file <path>]
   node scripts/ops/horse-option-switch.mjs preflight <option> <off|shadow|on_shadow|on> [flags]
   node scripts/ops/horse-option-switch.mjs set <option> <off|shadow|on_shadow|on> --reason <text> --authority <ref> [--evidence-sha <64-hex>] --changed-by <actor> [--log-file <path>] [--dry-run] [--rollback] [--allow-window-override]
+  node scripts/ops/horse-option-switch.mjs snapshot [--state-file <path>] [--dry-run] [--json]
+      rewrite docs/horse-option-switch-state.json from the live switch rows (read-only query)
+  set also rewrites that file after a verified write (--state-file <path>, or --no-state-file to skip)
   node scripts/ops/horse-option-switch.mjs verify-pickup <option> <off|shadow|on_shadow|on> [--baseline <n>] [--min-workers <n>] [--alarm-baseline <json>]
 
 Legal states: ${LEGAL_STATES.join(', ')}
@@ -131,6 +139,11 @@ export function defaultReadFileBuffer(filePath) {
 
 export function defaultAppendLogLine(logFile, line) {
   appendFileSync(logFile, `${line}\n`, 'utf8');
+}
+
+/** Writes the live switch state snapshot (docs/horse-option-switch-state.json) in this checkout. */
+export function defaultWriteStateFile(stateFile, text) {
+  writeFileSync(resolve(REPO_ROOT, stateFile), text, 'utf8');
 }
 
 function loadOwnerWindows(windowsFile, readFile) {
@@ -513,6 +526,26 @@ async function handleSet(positionals, flags, deps) {
     deps.appendLogLine(flags.logFile, logLine);
   }
 
+  // Authority-doc drift guard: record the verified state in the committed snapshot of this checkout.
+  let stateFileWritten = null;
+  if (deps.writeStateFile && !flags.noStateFile) {
+    const stateFile = flags.stateFile || SWITCH_STATE_FILE;
+    let current = null;
+    try {
+      current = JSON.parse(deps.readFile(stateFile));
+    } catch {
+      current = null;
+    }
+    const next = applySwitchStateChange(current, {
+      option,
+      state: targetState,
+      auditId: row.latest_audit_id ?? null,
+      changedAt: row.updated_at || nowUtc,
+    });
+    deps.writeStateFile(stateFile, formatSwitchStateSnapshot(next));
+    stateFileWritten = stateFile;
+  }
+
   const payload = {
     command: 'set',
     executed: true,
@@ -526,6 +559,7 @@ async function handleSet(positionals, flags, deps) {
     preAlarmBaseline,
     logFile: flags.logFile || null,
     logLine,
+    stateFile: stateFileWritten,
   };
 
   const alarmBaselineArg =
@@ -542,6 +576,9 @@ async function handleSet(positionals, flags, deps) {
         `   updated_at: ${row.updated_at} (audit#${row.latest_audit_id ?? '?'})`,
         `   log line:   ${logLine}`,
         flags.logFile ? `   appended:   ${flags.logFile}` : '   log file:   (not provided)',
+        stateFileWritten
+          ? `   state file: ${stateFileWritten} updated: commit it with ${option}'s authority-doc State line in one PR`
+          : '   state file: (not written)',
         `   next step:  node scripts/ops/horse-option-switch.mjs verify-pickup ${option} ${targetState} --baseline ${preBaseline}${alarmBaselineArg}`,
       ].join('\n')
     );
@@ -595,6 +632,30 @@ async function handleVerifyPickup(positionals, flags, deps) {
   return { exitCode: verdict.ok ? 0 : 2, data: payload };
 }
 
+async function handleSnapshot(flags, deps) {
+  const rows = deps.queryDb(buildSwitchStateSnapshotSql());
+  const snapshot = snapshotFromRows(rows, deps.now().toISOString());
+  const stateFile = flags.stateFile || SWITCH_STATE_FILE;
+  const text = formatSwitchStateSnapshot(snapshot);
+  if (!flags.dryRun) {
+    if (!deps.writeStateFile) throw new Error('snapshot: no state-file writer in this run');
+    deps.writeStateFile(stateFile, text);
+  }
+  const payload = {
+    command: 'snapshot',
+    stateFile,
+    written: !flags.dryRun,
+    rows: Object.keys(snapshot.rows).length,
+    auditMax: snapshot.auditMax,
+  };
+  if (flags.json) deps.stdout(JSON.stringify(payload, null, 2));
+  else
+    deps.stdout(
+      `== SNAPSHOT ${payload.rows} switch rows (audit max ${payload.auditMax ?? '?'}) ${payload.written ? `written to ${stateFile}` : '(dry run, not written)'}`
+    );
+  return { exitCode: 0, data: payload };
+}
+
 export async function runCli(argv, injectedDeps = {}) {
   const { command, positionals, flags } = parseCliArgs(argv);
   const deps = {
@@ -603,6 +664,8 @@ export async function runCli(argv, injectedDeps = {}) {
     readFile: defaultReadFile,
     readFileBuffer: defaultReadFileBuffer,
     appendLogLine: defaultAppendLogLine,
+    // Only a direct CLI run writes the committed snapshot; tests and library callers inject their own.
+    writeStateFile: null,
     now: () => new Date(),
     stdout: (msg) => console.log(msg),
     stderr: (msg) => console.error(msg),
@@ -617,9 +680,10 @@ export async function runCli(argv, injectedDeps = {}) {
   if (command === 'preflight') return handlePreflight(positionals, flags, deps);
   if (command === 'set') return handleSet(positionals, flags, deps);
   if (command === 'verify-pickup') return handleVerifyPickup(positionals, flags, deps);
+  if (command === 'snapshot') return handleSnapshot(flags, deps);
 
   throw new Error(
-    `Unknown subcommand "${command}". Expected: status, preflight, set, verify-pickup`
+    `Unknown subcommand "${command}". Expected: status, preflight, set, verify-pickup, snapshot`
   );
 }
 
@@ -627,7 +691,7 @@ const isDirectRun =
   process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  runCli(process.argv.slice(2))
+  runCli(process.argv.slice(2), { writeStateFile: defaultWriteStateFile })
     .then(({ exitCode }) => {
       process.exit(exitCode);
     })

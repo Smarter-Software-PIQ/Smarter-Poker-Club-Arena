@@ -4,12 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import {
+  HUD_CACHE_MAX,
   HUD_CATCHUP_MAX_PAUSE_MS,
   HUD_CATCHUP_PAGE_ROWS,
   HUD_CATCHUP_PAUSE_MS,
   HUD_READY_DEADLINE_MS,
+  HUD_RECONCILE_PAGE_ROWS,
   HUD_RING_MS,
   OpponentHudStore,
+  opponentHudSnapshotField,
+  setOpponentHudStoreForTest,
+  supabaseHudDeps,
   type HudStoredRow,
   type OpponentHudStoreDeps,
 } from './OpponentHudStore.js';
@@ -760,5 +765,518 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       store.indexOf('export function armOpponentHudFromSwitch(')
     );
     expect(field).not.toMatch(/\bawait\b|\basync\b/);
+  });
+
+  it('AUDIT-24H P1-2: opponentHudSnapshotField attaches packets ONLY for PLO4/PLO5 cash (never NLH or tournaments)', () => {
+    const store = new OpponentHudStore(fakeDeps(new Map()));
+    store.setArmed(true);
+    setOpponentHudStoreForTest(store);
+    try {
+      const players = [{ user_id: U(1) }, { user_id: U(2) }];
+      // PLO4 and PLO5 cash get packets
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo4', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        ).opponentHud?.family
+      ).toBe('plo4');
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo5', gameMode: 'cash', stage: 'turn', players, bigBlind: 2 },
+          U(1),
+          T0
+        ).opponentHud?.family
+      ).toBe('plo5');
+      // NLH cash, NLH tournament, PLO4/PLO5 tournaments, and PLO6 get {} (zero IPC bloat)
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'nlh', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'nlh', gameMode: 'tournament', stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo5', gameMode: 'tournament', stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo4', tournament: { id: 't1' }, stage: 'flop', players, bigBlind: 200 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+      expect(
+        opponentHudSnapshotField(
+          { gameVariant: 'plo6', gameMode: 'cash', stage: 'flop', players, bigBlind: 2 },
+          U(1),
+          T0
+        )
+      ).toEqual({});
+    } finally {
+      setOpponentHudStoreForTest(null);
+    }
+  });
+
+  it('AUDIT-24H P1-2: boot prewarm queries only PLO4/PLO5 and NLH cache traffic can never evict PLO4/PLO5 profiles', async () => {
+    const p1 = emptyHudProfile(U(1), 'plo4');
+    const p3 = emptyHudProfile(U(3), 'nlh');
+    const stored = new Map<string, HudStoredRow>([
+      [
+        `plo4|${U(1)}`,
+        { user_id: U(1), family: 'plo4', version: 1, hands: 0, wm_ms: -1, rev: 1, profile: p1 },
+      ],
+      [`plo5|${U(2)}`, lifetime(2, 5)],
+      [
+        `nlh|${U(3)}`,
+        { user_id: U(3), family: 'nlh', version: 1, hands: 0, wm_ms: -1, rev: 1, profile: p3 },
+      ],
+    ]);
+    const prewarmFamilies: string[] = [];
+    const deps = fakeDeps(stored);
+    const baseRecent = deps.recent;
+    deps.recent = async (family, sinceIso, afterUser, limit, signal) => {
+      prewarmFamilies.push(family);
+      return baseRecent(family, sinceIso, afterUser, limit, signal);
+    };
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    await store.prewarm();
+    // prewarm never queries NLH (only PLO4 & PLO5)
+    expect(new Set(prewarmFamilies)).toEqual(new Set(['plo4', 'plo5']));
+    expect(prewarmFamilies).not.toContain('nlh');
+    expect(store.ready(U(1), 'plo4')).toBe(true);
+    expect(store.ready(U(2), 'plo5')).toBe(true);
+    expect(store.ready(U(3), 'nlh')).toBe(false);
+
+    // Flood NLH past HUD_CACHE_MAX clean entries: NLH evicts only NLH, never PLO4 or PLO5
+    const nlhBatch = Array.from({ length: HUD_CACHE_MAX + 5 }, (_, i) => U(10_000 + i));
+    const batchSize = 250;
+    for (let i = 0; i < nlhBatch.length; i += batchSize) {
+      store.warm(nlhBatch.slice(i, i + batchSize), 'nlh', 'sit');
+    }
+    await flush();
+    await flush();
+    expect(store.ready(U(1), 'plo4')).toBe(true);
+    expect(store.ready(U(2), 'plo5')).toBe(true);
+  });
+
+  it('AUDIT-24H P1-2: catchUp and reconcileDay cap page limits <= 500 and recover via adaptive retry on transient statement timeouts', async () => {
+    const dayStart = Date.parse('2027-01-14T12:00:00Z');
+    const hands = [
+      row(70_001, 1, 2, dayStart + 1000),
+      row(70_002, 1, 2, dayStart + 2000),
+      row(70_003, 1, 2, dayStart + 3000),
+    ];
+    const deps = fakeDeps(new Map());
+    deps.sleep = async () => {};
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+
+    const catchUpLimits: number[] = [];
+    let catchUpTimedOut = false;
+    deps.handsPage = async (afterAt, afterId, limit) => {
+      catchUpLimits.push(limit);
+      if (!catchUpTimedOut) {
+        catchUpTimedOut = true;
+        throw new Error('canceling statement due to statement timeout');
+      }
+      return hands
+        .filter((r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId))
+        .slice(0, limit);
+    };
+    const applied = await store.catchUp(new Date(dayStart).toISOString());
+    expect(applied).toBe(6);
+    expect(Math.max(...catchUpLimits)).toBeLessThanOrEqual(HUD_CATCHUP_PAGE_ROWS);
+    expect(catchUpLimits[0]).toBe(HUD_CATCHUP_PAGE_ROWS);
+    expect(catchUpLimits[1]).toBe(Math.floor(HUD_CATCHUP_PAGE_ROWS / 2));
+
+    // Now test reconcileDay with a transient timeout on attempt 1
+    const reconcileLimits: number[] = [];
+    let reconcileTimedOut = false;
+    deps.handsPage = async (afterAt, afterId, limit) => {
+      reconcileLimits.push(limit);
+      if (!reconcileTimedOut) {
+        reconcileTimedOut = true;
+        throw new Error('canceling statement due to statement timeout');
+      }
+      return hands
+        .filter((r) => r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId))
+        .slice(0, limit);
+    };
+    const rec = await store.reconcileDay('2027-01-14');
+    expect(rec.drifted).toBe(0);
+    expect(Math.max(...reconcileLimits)).toBeLessThanOrEqual(HUD_RECONCILE_PAGE_ROWS);
+    expect(reconcileLimits[0]).toBe(HUD_RECONCILE_PAGE_ROWS);
+    expect(reconcileLimits[1]).toBe(Math.floor(HUD_RECONCILE_PAGE_ROWS / 2));
+  });
+});
+
+describe('OpponentHudStore: the production hands-page dependency lets the adaptive retry see a database timeout', () => {
+  const dayStart = Date.parse('2027-01-14T12:00:00Z');
+  const hands = [
+    row(71_001, 1, 2, dayStart + 1000),
+    row(71_002, 1, 2, dayStart + 2000),
+    row(71_003, 1, 2, dayStart + 3000),
+  ];
+  type DbError = { code: string; message: string; details?: string; hint?: string };
+  type DbAnswer = { data: unknown; error: DbError | null; status: number };
+  /** A database client as the production dependencies call it: `.rpc(name, args).abortSignal(signal)`. */
+  function stubClient(handsPage: (args: Record<string, unknown>, call: number) => DbAnswer) {
+    const pageCalls: Record<string, unknown>[] = [];
+    // closed while the store is armed and warmed (its switch-on catch-up reads pages too): only the read under test counts
+    const gate = { open: false };
+    const client = {
+      rpc(name: string, args: Record<string, unknown>) {
+        return {
+          async abortSignal(): Promise<DbAnswer> {
+            if (name !== 'fn_opponent_hud_hands_page' || !gate.open)
+              return { data: [], error: null, status: 200 };
+            pageCalls.push(args);
+            return handsPage(args, pageCalls.length);
+          },
+        };
+      },
+    };
+    return { client, pageCalls, gate };
+  }
+  const page = (args: Record<string, unknown>): DbAnswer => ({
+    data: hands
+      .filter(
+        (r) =>
+          r.created_at > String(args.p_after_at) ||
+          (r.created_at === args.p_after_at && r.id > String(args.p_after_id))
+      )
+      .slice(0, Number(args.p_limit)),
+    error: null,
+    status: 200,
+  });
+  async function storeOver(client: unknown) {
+    const store = new OpponentHudStore({
+      ...supabaseHudDeps(client),
+      sleep: async () => {},
+      now: () => dayStart,
+    });
+    store.setArmed(true);
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+    await flush();
+    await flush();
+    return store;
+  }
+
+  it('a statement timeout from the database is retried on a smaller page and the read then succeeds', async () => {
+    const { client, pageCalls, gate } = stubClient((args, call) =>
+      call === 1
+        ? {
+            data: null,
+            error: { code: '57014', message: 'canceling statement due to statement timeout' },
+            status: 500,
+          }
+        : page(args)
+    );
+    const store = await storeOver(client);
+    gate.open = true;
+    const applied = await store.catchUp(new Date(dayStart).toISOString());
+    expect(applied).toBe(6);
+    expect(pageCalls.length).toBeGreaterThanOrEqual(2);
+    expect(pageCalls[0].p_limit).toBe(HUD_CATCHUP_PAGE_ROWS);
+    expect(pageCalls[1].p_limit).toBe(Math.floor(HUD_CATCHUP_PAGE_ROWS / 2));
+  });
+
+  it('a database error that is not transient still fails on the first attempt', async () => {
+    const { client, pageCalls, gate } = stubClient(() => ({
+      data: null,
+      error: {
+        code: '42501',
+        message: 'permission denied for function fn_opponent_hud_hands_page',
+      },
+      status: 403,
+    }));
+    const store = await storeOver(client);
+    gate.open = true;
+    expect(await store.catchUp(new Date(dayStart).toISOString())).toBe(0);
+    expect(pageCalls.length).toBe(1);
+    // the nightly comparison reads through the same wrapper: one more call, again no retry, nothing compared
+    expect((await store.reconcileDay('2027-01-14')).compared).toBe(0);
+    expect(pageCalls.length).toBe(2);
+    const ac = new AbortController();
+    await expect(
+      supabaseHudDeps(client).handsPage!(new Date(dayStart).toISOString(), H(0), 500, ac.signal)
+    ).rejects.toThrow(
+      /^opponent hud hands page failed \(code 42501, http 403\): permission denied/
+    );
+  });
+
+  it('the error carries the code, the status and one bounded line of the message: no details, hint or address', async () => {
+    const { client, gate } = stubClient(() => ({
+      data: null,
+      error: {
+        code: '08006',
+        message: `connection to postgresql://svc:hunter2@db.internal:5432/postgres lost\n${'x'.repeat(900)}`,
+        details: 'Failing row contains (secret-row-value)',
+        hint: 'secret-hint',
+      },
+      status: 503,
+    }));
+    gate.open = true;
+    const ac = new AbortController();
+    const err = await supabaseHudDeps(client).handsPage!(
+      new Date(dayStart).toISOString(),
+      H(0),
+      500,
+      ac.signal
+    ).then(
+      () => null,
+      (e: Error) => e
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message.startsWith('opponent hud hands page failed (code 08006, http 503): ')).toBe(
+      true
+    );
+    expect(message).not.toMatch(/hunter2|db\.internal|secret-row-value|secret-hint|\n/);
+    expect(message.length).toBeLessThanOrEqual(300);
+  });
+});
+
+describe('OpponentHudStore: the switch-on catch-up reads its pages through the bounded adaptive retry (production dependencies)', () => {
+  const dayStart = Date.parse('2027-01-14T12:00:00Z');
+  const hands = [
+    row(72_001, 1, 2, dayStart + 1000),
+    row(72_002, 1, 2, dayStart + 2000),
+    row(72_003, 1, 2, dayStart + 3000),
+  ];
+  type DbAnswer = {
+    data: unknown;
+    error: { code: string; message: string } | null;
+    status: number;
+  };
+  const timeout: DbAnswer = {
+    data: null,
+    error: { code: '57014', message: 'canceling statement due to statement timeout' },
+    status: 500,
+  };
+  const page = (args: Record<string, unknown>): DbAnswer => ({
+    data: hands
+      .filter(
+        (r) =>
+          r.created_at > String(args.p_after_at) ||
+          (r.created_at === args.p_after_at && r.id > String(args.p_after_id))
+      )
+      .slice(0, Number(args.p_limit)),
+    error: null,
+    status: 200,
+  });
+  /** A database client as the production dependencies call it; every statement that is not a hands page is empty. */
+  function stubClient(handsPage: (args: Record<string, unknown>, call: number) => DbAnswer) {
+    const pageCalls: Record<string, unknown>[] = [];
+    const client = {
+      rpc(name: string, args: Record<string, unknown>) {
+        return {
+          async abortSignal(): Promise<DbAnswer> {
+            if (name !== 'fn_opponent_hud_hands_page')
+              return { data: [], error: null, status: 200 };
+            pageCalls.push(args);
+            return handsPage(args, pageCalls.length);
+          },
+        };
+      },
+    };
+    return { client, pageCalls };
+  }
+  /** Switch the option on over the production dependencies and wait for the switch-on catch-up (catchUpInto). */
+  async function switchOn(client: unknown) {
+    enableBrainTelemetry();
+    drainFires();
+    const store = new OpponentHudStore({
+      ...supabaseHudDeps(client),
+      sleep: async () => {},
+      now: () => dayStart + 60_000,
+    });
+    store.setArmed(true);
+    for (let i = 0; i < 400 && !store.lastActivation; i++) await flush();
+    const fires = drainFires().map((f) => f.feature);
+    return { store, fires };
+  }
+
+  it('one statement timeout is retried on half the rows and the catch-up then applies every hand', async () => {
+    const { client, pageCalls } = stubClient((args, call) => (call === 1 ? timeout : page(args)));
+    const { store, fires } = await switchOn(client);
+    expect(store.lastActivation).toMatchObject({ applied: 6 });
+    expect(pageCalls[0].p_limit).toBe(HUD_CATCHUP_PAGE_ROWS);
+    expect(pageCalls[1].p_limit).toBe(Math.floor(HUD_CATCHUP_PAGE_ROWS / 2));
+    expect(pageCalls.length).toBe(3); // pass 1: the timeout, its retry; pass 2: one page
+    expect(store.catchupStats.retries).toBe(1);
+    expect(fires).toContain('opponent_hud_hands_page_retry');
+    expect(fires).not.toContain('opponent_hud_catchup_failed');
+    expect(fires).not.toContain('opponent_hud_catchup_incomplete');
+    store.setArmed(false);
+    await flush();
+  });
+
+  it('a page that keeps timing out is read at most 5 times (4 retries, halving to the floor), then the catch-up is incomplete', async () => {
+    const { client, pageCalls } = stubClient(() => timeout);
+    const { store, fires } = await switchOn(client);
+    expect(pageCalls.map((c) => c.p_limit)).toEqual([250, 125, 62, 31, 25]);
+    expect(store.lastActivation).toMatchObject({ applied: 0 });
+    expect(store.catchupStats.retries).toBe(4);
+    expect(fires).toContain('opponent_hud_catchup_failed');
+    expect(fires).toContain('opponent_hud_catchup_incomplete');
+    store.setArmed(false);
+    await flush();
+  });
+
+  it('a database error that is not transient fails on the first attempt', async () => {
+    const { client, pageCalls } = stubClient(() => ({
+      data: null,
+      error: {
+        code: '42501',
+        message: 'permission denied for function fn_opponent_hud_hands_page',
+      },
+      status: 403,
+    }));
+    const { store, fires } = await switchOn(client);
+    expect(pageCalls.length).toBe(1);
+    expect(store.lastActivation).toMatchObject({ applied: 0 });
+    expect(store.catchupStats.retries).toBe(0);
+    expect(fires).not.toContain('opponent_hud_hands_page_retry');
+    expect(fires).toContain('opponent_hud_catchup_failed');
+    expect(fires).toContain('opponent_hud_catchup_incomplete');
+    store.setArmed(false);
+    await flush();
+  });
+
+  it('no retry is started once the option is off', async () => {
+    const holder: { store: OpponentHudStore | null } = { store: null };
+    const { client, pageCalls } = stubClient(() => {
+      holder.store?.setArmed(false); // switched off while the first page is being read
+      return timeout;
+    });
+    const store = new OpponentHudStore({
+      ...supabaseHudDeps(client),
+      sleep: async () => {},
+      now: () => dayStart + 60_000,
+    });
+    holder.store = store;
+    store.setArmed(true);
+    for (let i = 0; i < 400 && !store.lastActivation; i++) await flush();
+    await flush();
+    expect(pageCalls.length).toBe(1);
+    expect(store.armed()).toBe(false);
+  });
+});
+
+describe('OpponentHudStore: a nightly verification that could not complete is reported, never read as a clean night', () => {
+  const day0 = Date.parse('2027-01-14T18:00:00Z'); // noon Chicago
+  const hands = [row(73_001, 1, 2, day0), row(73_002, 1, 2, day0 + 60_000)];
+  async function armed() {
+    const alerts: [string, boolean, string][] = [];
+    const deps = fakeDeps(new Map());
+    deps.sleep = async () => {};
+    deps.alert = (name, firing, summary) => alerts.push([name, firing, summary]);
+    const store = new OpponentHudStore(deps);
+    store.setArmed(true);
+    await flush();
+    store.warm([U(1), U(2)], 'plo5', 'sit');
+    await flush();
+    store.onAcceptedHand(row(72_900, 1, 2, day0 - 86_400_000));
+    for (const h of hands) store.onAcceptedHand(h);
+    enableBrainTelemetry();
+    drainFires();
+    return { store, deps, alerts };
+  }
+  const reader =
+    (rows: ReturnType<typeof row>[]) =>
+    async (afterAt: string, afterId: string, limit: number, _s: AbortSignal, until?: string) =>
+      rows
+        .filter(
+          (r) =>
+            (r.created_at > afterAt || (r.created_at === afterAt && r.id > afterId)) &&
+            (!until || r.created_at <= until)
+        )
+        .slice(0, limit);
+
+  it('a hands page that cannot be read: the result says failed, the store keeps the stage and reason, a counter and the alert fire, nothing throws', async () => {
+    const { store, deps, alerts } = await armed();
+    let calls = 0;
+    deps.handsPage = async () => {
+      calls += 1;
+      throw new Error(
+        'opponent hud hands page failed (code 42501, http 403): permission denied for function fn_opponent_hud_hands_page'
+      );
+    };
+    const before = JSON.stringify(store.profile(U(1), 'plo5'));
+    const writes = deps.upserts.length;
+    const res = await store.reconcileDay('2027-01-14');
+    expect(res).toEqual({
+      compared: 0,
+      drifted: 0,
+      missed: 0,
+      extra: 0,
+      miscounted: 0,
+      failed: 'hands_page',
+    });
+    expect(calls).toBe(1);
+    expect(store.lastReconcileFailure).toMatchObject({ day: '2027-01-14', stage: 'hands_page' });
+    expect(store.lastReconcileFailure!.reason).toMatch(/code 42501, http 403.*permission denied/);
+    expect(store.lastReconcile).toBeNull();
+    expect(store.reconcileFailures).toBe(1);
+    const fires = drainFires().map((f) => f.feature);
+    expect(fires).toContain('opponent_hud_reconcile_failed');
+    expect(fires).toContain('opponent_hud_reconcile_failed_hands_page');
+    expect(fires).not.toContain('opponent_hud_reconcile_clean');
+    expect(alerts.length).toBe(1);
+    expect(alerts[0][0]).toBe('OpponentHudDrift');
+    expect(alerts[0][1]).toBe(true);
+    expect(alerts[0][2]).toMatch(/could not complete \(hands_page: .*NOT verified/);
+    // verification only: no profile changed, nothing was written
+    expect(JSON.stringify(store.profile(U(1), 'plo5'))).toBe(before);
+    expect(deps.upserts.length).toBe(writes);
+
+    // the next night that completes clears the failure and resolves the alert
+    deps.handsPage = reader(hands);
+    const ok = await store.reconcileDay('2027-01-14');
+    expect(ok).toEqual({ compared: 2, drifted: 0, missed: 0, extra: 0, miscounted: 0 });
+    expect('failed' in ok).toBe(false);
+    expect(store.lastReconcileFailure).toBeNull();
+    expect(store.lastReconcile).toMatchObject({ day: '2027-01-14', compared: 2, drifted: 0 });
+    expect(store.reconcileFailures).toBe(1);
+    expect(alerts.map((a) => [a[0], a[1]])).toEqual([
+      ['OpponentHudDrift', true],
+      ['OpponentHudDrift', false],
+    ]);
+  });
+
+  it('a page that keeps timing out is given up after the bounded retries and reported the same way, with one bounded line of reason', async () => {
+    const { store, deps } = await armed();
+    const limits: number[] = [];
+    deps.handsPage = async (_a, _i, limit) => {
+      limits.push(limit);
+      throw new Error(
+        `canceling statement due to statement timeout at postgresql://svc:hunter2@db.internal:5432/postgres\n${'x'.repeat(900)}`
+      );
+    };
+    const res = await store.reconcileDay('2027-01-14');
+    expect(res.failed).toBe('hands_page');
+    expect(res.compared).toBe(0);
+    expect(limits).toEqual([500, 250, 125, 62, 31]);
+    const reason = store.lastReconcileFailure!.reason;
+    expect(reason).toMatch(/statement timeout/);
+    expect(reason).not.toMatch(/hunter2|db\.internal|\n/);
+    expect(reason.length).toBeLessThanOrEqual(200);
   });
 });

@@ -57,6 +57,7 @@ import { observeLobbyScrollClearance } from './lobbyScrollClearance';
 import { observeLobbyTableWarmups, warmTable } from '../../services/tableWarmup';
 import { useSpinTierAvailability } from '../../hooks/useSpinTierAvailability';
 import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
+import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 import {
@@ -1383,6 +1384,9 @@ function InviteRowButton({
 }) {
   const [feedback, setFeedback] = useState<'idle' | 'copied' | 'shared'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Invite To Game on a Spin or Heads Up still taking seats holds the
+     friend's seat (2026-11-22, usePrivateGameInviteLauncher). */
+  const privateInvite = usePrivateGameInviteLauncher();
 
   useEffect(
     () => () => {
@@ -1397,6 +1401,28 @@ function InviteRowButton({
 
   const handleInvite = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (entry.kind === 'spin' || entry.kind === 'sng') {
+      const raw = entry.raw as unknown as Record<string, unknown>;
+      void privateInvite
+        .offer({
+          id: entry.id,
+          name: entry.name,
+          status: typeof raw.status === 'string' ? raw.status : null,
+          variant: typeof raw.variant === 'string' ? raw.variant : null,
+          max_players: Number(raw.max_players ?? entry.capacity ?? 0),
+          buy_in_amount: raw.buy_in_amount as number | string | null | undefined,
+          buy_in_fee: raw.buy_in_fee as number | string | null | undefined,
+          started_at: typeof raw.started_at === 'string' ? raw.started_at : null,
+        })
+        .then((taken) => {
+          if (!taken) shareRowLink();
+        });
+      return;
+    }
+    shareRowLink();
+  };
+
+  const shareRowLink = () => {
     const url = gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }));
     void shareLink({
       source: 'LobbyTable.inviteToGame',
@@ -1415,6 +1441,7 @@ function InviteRowButton({
   };
 
   return (
+    <>
     <button
       type="button"
       className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
@@ -1427,6 +1454,8 @@ function InviteRowButton({
       <InviteLinkIcon />
       <span>{feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}</span>
     </button>
+    {privateInvite.element}
+    </>
   );
 }
 

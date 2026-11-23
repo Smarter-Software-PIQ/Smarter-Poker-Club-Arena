@@ -1033,6 +1033,8 @@ function TournamentLobbyBoard() {
                       id: tournament.id,
                       format_contract: tournament.format_contract,
                       name: tournament.name,
+                      club_id: tournament.clubId,
+                      union_id: tournament.unionId ?? null,
                       type:
                         getTournamentFormatKind(tournament) === 'sng'
                           ? 'sng'
