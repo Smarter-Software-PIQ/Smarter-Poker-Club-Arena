@@ -1784,6 +1784,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'plo6FacingBetIsPricedV2',
+    'PLO6 root-cause V2 (2026-11-21, default OFF, read === true; HorsePlo6FacingBetPricedV2.ts): six-card native facing-bet pricing model for PLO6 cash (table and Lightning; never tournament, bomb pot, All-In-Or-Fold, hi-lo or multi-board) fixing V1 valueShare blowup, low-SPR jam bucketing, six-card bluff priors, paired-board fold preservation, and river-only call->fold. Off: byte-identical to base brain. League card plo6_facing_bet_is_priced_v2.',
+    'V94'
+  ),
+  flag(
     'plo6NoMultiwayBetWithWeakMadeHand',
     'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, the board pair with such a pair, or an overpair: a pocket pair above the top card of an unpaired board) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 90 such bets in 85 hands, hand net -2,715.1 bb (of them the overpair 28 bets, -1,008.2 bb), in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -2703,6 +2708,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   flag(
+    'horseSlowplayIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (H4 monster slowplay mix priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket wetness < 0.5 && fastRandom() < params.slowplayFreq coin flip with deterministic EV pricing (HorseSlowplayPriced.priceMonsterSlowplay) using holdemEmpiricalPriors fold / betWhenCheckedTo shrinkage, continuous board-wetness free-card equity erosion, and heroBubbleFactor. Draws no random number. OFF / Omaha / Fixed-Limit: byte-identical.',
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
@@ -2718,6 +2728,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'cashDefenceTrimColdCalls',
+    "Hold'em Strategy lane 2026-11-21 (HVH48-D cash preflop loose-call repair under v72DefenceByOpener + V85 + V87). Default off (read === true). No-limit hold'em cash tables facing a single open inside gtoDefend72: restores non-BTN IP per-player-behind cold-call discipline (1.8 percentage points per extra player behind beyond BTN, floored at value + bluff + 1) and removes V85 multiF + V87 perCaller multiway double-stacking and non-BTN IP V87 flatting bloat while preserving V85/V87 3-bet widths (valueBar, bluffProb), V85 opens, single-raised HU/BB/SB/BTN defends, and every tournament decision. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'multiBoardNonFreerollIsPriced',
     'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG, zero-hash EV pricing (HorseMultiBoardNonFreerollPriced) for unowned V86 multi-board non-freeroll hands (v86 && multiBoard36 && boardEq36.length >= 2 && lockShare36 < 1 / nBoards36). Facing a bet, replaces BOTH v86_multiboard_dead_half_fold (fixed cliff potFrac36 >= 0.6 && minBoardEq86 < 0.18 && maxBoardEq86 < 0.88) AND v86_multiboard_or_plo8 facing-bet raise (v86Hash01 < 0.78) with argmax { EV(fold)=0, EV(call), max_r EV(raise, r) } using continuous non-river dead-board realization penalty (0 on river), shrunk fold-to-raise priors, heroBubbleFactor risk utility, and strict Pot-Limit cap enforcement (v86_multiboard_priced_fold / v86_multiboard_priced_call / v86_multiboard_priced_raise). Not facing a bet (!isRiver && barrelPlan !== true), replaces v86_multiboard_or_plo8 open bet (v86Hash01 < 0.85) with max_b EV(bet, b) vs EV(check) using shrunk fold/stab priors, continuous free-card erosion across boards, and heroBubbleFactor (v86_multiboard_priced_open_bet / v86_multiboard_priced_open_check). Single-board hands, freeroll hands (lockShare36 >= 1 / nBoards36), and OFF remain 100% byte-identical.',
     'V86'
@@ -2726,6 +2741,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'multiBoardBluffTrimIsPriced',
     'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): deterministic zero-RNG public-info priced replacement (HorseMultiBoardBluffTrimPriced) for unowned V36 multi-board bluff-trim blanket multiplier (v36_multiboard_bluff_trim: bluffScale *= nBoards36 >= 3 ? 0.35 : 0.5). Computes shrunk per-opponent single-board fold probability F_1_i from holdemEmpiricalPriors + public ExploitCounters (street, potSize, effStack, wetness), public multi-board independence exponent effBoards in [1, nBoards] from board-rank/pair/suit overlap and hero cross-board blockers (zero opponent hole cards), all-boards fold probability F_all = prod_i(F_1_i^effBoards), risk-adjusted break-even FE_be = (bf*s)/(1+bf*s) at s=0.65 with heroBubbleFactor, and smoothly maps pure-bluff evPerPot to a bounded multiplier in [0.0, 1.0] (receipt v36_multiboard_bluff_trim_priced, zero double-counting of legacy v36_multiboard_bluff_trim). Single-board hands (!multiBoard36) and OFF remain 100% byte-identical.',
     'V36'
+  ),
+  flag(
+    'horseRunItTwiceIsPriced',
+    'HORSE DECISIONS lane (UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22; dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): main-thread all-in Run-It-Twice priced replacement (HorseRunItTwicePriced / HorseRunItTwiceSwitch / ServerTableEngineRunout.horseRitRuns). Replaces fixed HorseRunItTwice.horseRunItTwiceRuns thresholds with the EV-equal measured people-curve mix (role chooser/responder, normalized variance share e(1-e), ln potBB, compiled offline in HorseRunItTwicePeople.data.ts) plus bounded +/-0.5 logit own-persona tilt, deterministic FNV-1a hash draw, unknown-equity single-run fallback, and explicit owner lopsided cut (equity <= 0.25 or >= 0.75 always runs once). Emits horse_rit_priced_owner_cut / horse_rit_priced_equity_unknown / horse_rit_priced_three / horse_rit_priced_multi / horse_rit_priced_once. OFF path is byte-identical to horseRunItTwiceRuns.',
+    'RIT'
+  ),
+  flag(
+    'v17ShortDeckIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): replaces the fixed V17 Short Deck multiway overlay (mw += 0.015 + (oppCount - 1) * 0.012) with HorseShortDeckMultiwayPriced: delta = e - e^rho, rho = (1 + kappa_SD g) / (1 + kappa_NLH g), g = mean live-opponent f/(1-f), f = measured Short Deck fold-to-first-bet prior shrunk with each opponent own fold-to-bet record; kappa measured per street with the engine scorer for both decks (river: no measured difference, shift 0). Deterministic, zero draws, public info only. Criteria CRITERIA-V17-SHORTDECK-PRICED.md sha256 420f5649922688c9f2fa406be518e6f5fcca67dd00fe9a2afb5d89675df8b73d',
+    'V17'
+  ),
+  flag(
+    'v17PosIsPriced',
+    "HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): priced replacement (HorsePlayersBehindBluffPriced.ts) for the unowned V17 players-behind bluff multiplier (x1.1 / 1.0 / 0.72 / 0.5) in single-board no-limit Hold'em flop and turn spots: the measured probability that the whole respondable field folds, by each opponent's seat relation (bettor in / out of position) and own fold-to-bet read, against the bubble-factor break-even at the reference size. Zero RNG, public info only. OFF, river, Omaha, Short Deck, Fixed Limit, pot-limit, pineapple, multi-board and bomb pots byte-identical.",
+    'V17'
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -2751,6 +2781,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v78NoCommittingBluffRaise',
     '2026-11-02 (Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"; hand 6a30e154: A-T, 8-6-9-3, check-raised a 15 bet to 67 with 84 effective, then called the jam) a hold\'em postflop semi-bluff or check-raise bluff raise (the generic semi-bluff branch, which needs no real draw, and the V8 scare-card check-raise) that legalized is NOT all-in yet puts 40% or more of hero\'s remaining stack in is not made: a stack that small cannot fold to the re-shove, so the never-raise-to-fold rule turns it into a forced call-off; the hand falls through to the priced call / fold verdict and its barrel plan is withdrawn; all-in sizings, smaller raises and every value raise (two pair+, the value branch) untouched; every random roll consumed in its original order; explicit off arm keeps today',
     'V78'
+  ),
+  flag(
+    'v78NoCommittingBluffRaiseIsPriced',
+    "Hold'em Strategy / HORSE DECISIONS 2026-11-22 (dark, default OFF, read === true, OPTION_SWITCH_REFUSED, zero SQL migrations; criteria CRITERIA-V78-COMMITTING-BLUFF-RAISE-PRICED.md sha256 fd504c6f3cac198dda396fbe8e9dba4e3db08087011302c1e9797af324c6b8f0): replaces the blanket 40%-of-stack bluff-raise veto (v78NoCommittingBluffRaise) in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit, non-Pot Limit, non-bomb-pot, single board) with deterministic public-info EV pricing (HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise) over measured NLH empirical fold priors (holdemEmpiricalPriors.ts: river all-in vs non-all-in fold-to-raise, flop texture/SPR/size and turn size fold curves with HUD/ExploitCounters shrinkage) and tournament heroBubbleFactor: EV(bluffRaise) = F * pot + (1 - F) * u(e * (pot + add + callAdd) - add) vs baseline = max(0, u(e * (pot + toCall) - toCall)), allowing the raise iff EV(bluffRaise) > baseline and failing closed to veto on unpriceable inputs. Zero fastRandom() draws, zero opponent hole cards. Off / unset / false (and all Omaha, Short Deck, multi-board, and bomb-pot hands): byte-identical to origin/main.",
+    "Hold'em Strategy"
   ),
   flag(
     'v70FacingOpenZone',
@@ -6804,6 +6839,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'plo6_facing_bet_priced_v2_called',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash facing a bet (V2 native six-card model): a fold became the call because EV(call) clears the V2 margin on native six-card quantiles',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_folded',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a call or raise became the fold because EV(call) fails the V2 fold margin and no raise is priced',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raise_to_call',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): a standing raise became the call because no raise clears the V2 priced-raise margin above the call',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_raised',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet (V2 native six-card model): the answer became the raise at its V2 priced size because EV(raise) beats call and fold by the priced-raise margin',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_river_nut_rule_not_run',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash river facing a bet with a call or raise (V2 native six-card model): plo6RiverNutDiscipline (V58/V59) did not run; the V2 priced verdict answers outermost',
+    'V94'
+  ),
+  receipt(
+    'plo6_facing_bet_priced_v2_paired_fold_priced_out',
+    'HorseLogic (wager_rules, plo6FacingBetIsPricedV2; HorsePlo6FacingBetPricedV2)',
+    'PLO6 cash (V2 native six-card model): paired-board fold stood aside because pairedBoardGuardStands is false and callPriced holds (a flop or turn raise became the call)',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_mixed_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaPricedMix)',
     'the same decision with omahaPricedMix on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and kept at the size given (with omahaSampledRaiseIsPricedAtEverySize on, the size given is the size of highest value)',
@@ -7263,6 +7334,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V78)',
     "Hold'em semi-bluff / check-raise bluff withheld: legalized it committed 40%+ of the stack without being all-in",
     'V78',
+    'decide_nlh'
+  ),
+  receipt(
+    'v78_committing_bluff_raise_priced_allowed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise allowed by EV pricing (EV(bluffRaise) > baseline) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
+    'decide_nlh'
+  ),
+  receipt(
+    'v78_committing_bluff_raise_priced_vetoed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise vetoed by EV pricing (EV(bluffRaise) <= baseline or unpriceable) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
     'decide_nlh'
   ),
   receipt(
@@ -9626,6 +9711,84 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   receipt(
+    'horse_slowplay_priced_checked',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose check (EV(check) > EV(bet)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_slowplay_priced_bet',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_rit_priced_owner_cut',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision enforced explicit owner lopsided cut (equity <= 0.25 or >= 0.75) and ran once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_equity_unknown',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision had unknown public all-in equity and fell back to running once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_three',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced chooser decision selected 3 runs from the measured people curve (maxRuns === 3, inside non-lopsided band)',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_multi',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 2 runs from the measured people curve + bounded own-persona tilt',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_once',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 1 run (measured single-run draw or maxRuns < 2)',
+    'RIT'
+  ),
+  receipt(
+    'v17_short_deck_priced_tighter',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift raised the multiway bars (delta > 0): this hand loses more against the continuing range in a 36-card deck than in the NLH terms the bars were built in',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_looser',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift lowered or kept the multiway bars (delta <= 0): the continuing range costs this hand less in a 36-card deck than in NLH terms (river: no measured difference, delta 0)',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_unpriceable',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift could not be priced (equity not finite, no live opponent, or a street other than flop/turn/river): delta 0, the fixed overlay is not re-applied',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_trim',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: two or more players behind and the field folds below the risk-adjusted price; bluffScale multiplied by the priced multiplier (< 1) instead of the fixed 0.72 / 0.5',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_neutral',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: zero or one player behind, or the field still folds often enough to beat the risk-adjusted price; priced multiplier 1 (the fixed table would have used 1.1 / 1.0 / 0.72 / 0.5)',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_unpriced',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn spot the pricing could not read (no dealer seat, no respondable opponent, zero pot or stack); kept the fixed V17 table',
+    'V17'
+  ),
+  receipt(
     'holdem_priced_value_raise_deferred',
     'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
     "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
@@ -9719,6 +9882,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_danger_board_equity_priced',
     'HorseLogic facing-bet equity (holdemDangerBoardEquityIsPriced)',
     'one pair facing one bettor on a four-flush or four-straight turn or river is priced at its exact equity against his range on this board',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'cash_defence_trim_cold_calls_seen',
+    'HorseLogic facing-open cash (cashDefenceTrimColdCalls)',
+    'no-limit hold-em cash facing-open spot trimmed non-BTN IP cold-call width or multiway V85+V87 double-stacking',
     "Hold'em Strategy"
   ),
   receipt(

@@ -24,10 +24,10 @@
  *      linearly, predicting 28.6%-32.0% fold on a 0.33x pot IP flop c-bet, whereas the
  *      live pool folds 37.9% (Horses 36.7%, Humans 42.2%) overall, 40.3% on paired
  *      boards, and only 23.8% on monotone boards / 26.5% at SPR < 3.
- *   3. `OpponentHudStore` (#11680) currently indexes `HUD_FAMILIES = ['plo4', 'plo5']`
- *      only (`opponent_hud_profiles` has 0 NLH rows today). Every estimator here reads
- *      `HudPacketOpponent` counts smoothly when available, optionally falls back to
- *      `ExploitCounters` where semantically valid, and degrades 100% cleanly to the
+ *   3. `OpponentHudStore` indexes `HUD_FAMILIES = ['plo4', 'plo5', 'nlh']` (#11680, #11722),
+ *      while individual opponents or fresh NLH pools may still have sparse or zero HUD samples.
+ *      Every estimator here reads `HudPacketOpponent` counts smoothly when available, optionally
+ *      falls back to `ExploitCounters` where semantically valid, and degrades 100% cleanly to the
  *      measured NLH empirical pool prior when opponent HUD sample is 0 or unavailable.
  */
 import type { ExploitCounters } from './HorseOpponentExploit.js';
@@ -382,13 +382,17 @@ export function readHudOpponentStat(
 }
 
 /**
- * Compute the villain's TRUE pot-odds price when facing hero's raise to `heroRaiseTo`:
- *   villainCall = min(heroRaiseTo - villainIn, villainStack)
- *   heroAdd     = min(heroRaiseTo - heroIn, heroStack)
- *   price       = villainCall / (potBeforeRaise + heroAdd + villainCall)
+ * Compute the villain's TRUE pot-odds price when facing hero's raise to `heroRaiseTo`,
+ * capping both hero's raise and villain's call to effective stacks so uncalled excess
+ * chips from either side never distort the contested pot:
+ *   actualRaiseTo     = min(heroRaiseTo, heroIn + max(0, heroStack))
+ *   villainCall       = max(0, min(actualRaiseTo - villainIn, max(0, villainStack)))
+ *   matchedHeroAdd    = max(0, min(max(0, heroStack), villainIn + villainCall - heroIn))
+ *   potAfterHeroRaise = max(0, potBeforeRaise) + matchedHeroAdd
+ *   price             = villainCall / (potAfterHeroRaise + villainCall)
  *
  * Fixes the raise-pricing bias in `wagerValue` (which passes hero's `add` against `pot` instead
- * of villain's incremental call against `pot + heroAdd`).
+ * of villain's incremental call against `pot + matchedHeroAdd`).
  */
 export function holdemVillainRaiseCallPrice(
   potBeforeRaise: number,
@@ -398,9 +402,13 @@ export function holdemVillainRaiseCallPrice(
   heroStack: number,
   villainStack: number
 ): number {
-  const heroAdd = Math.max(0, Math.min(heroRaiseTo - heroIn, heroStack));
-  const villainCall = Math.max(0, Math.min(heroRaiseTo - villainIn, villainStack));
-  const potAfterHeroRaise = Math.max(0, potBeforeRaise) + heroAdd;
+  const actualRaiseTo = Math.min(heroRaiseTo, heroIn + Math.max(0, heroStack));
+  const villainCall = Math.max(0, Math.min(actualRaiseTo - villainIn, Math.max(0, villainStack)));
+  const matchedHeroAdd = Math.max(
+    0,
+    Math.min(Math.max(0, heroStack), villainIn + villainCall - heroIn)
+  );
+  const potAfterHeroRaise = Math.max(0, potBeforeRaise) + matchedHeroAdd;
   if (!(villainCall > 0) || !(potAfterHeroRaise + villainCall > 0)) return 0;
   return clamp01(villainCall / (potAfterHeroRaise + villainCall));
 }

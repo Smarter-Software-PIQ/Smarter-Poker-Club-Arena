@@ -114,7 +114,7 @@ describe('a tournament deal pays nothing after the rest', () => {
   // ENGINE_BETWEEN_HANDS_BUDGET_MS.
   const IN_PROCESS_MS = 80;
 
-  it('the state read, fn_f06_begin_hand and the seq-0 save ride under the rest', async () => {
+  it('the state read, fn_f06_begin_hand, seq-0 and seq-1 saves all ride under the rest', async () => {
     const f = fixture({ rpcLatencyMs: RTT });
     const armedAt = Date.now();
     f.engine.armNextHandRest(REST);
@@ -122,11 +122,15 @@ describe('a tournament deal pays nothing after the rest', () => {
     await f.dealsTheNextHand();
     const gap = f.startedAt[0] - armedAt;
     expect(f.beginAt[0]).toBeLessThan(armedAt + REST);
-    // The save was asked for, and answered, before the rest ended.
+    // Both seq-0 (prepared original) and seq-1 (opening HAND_START batch)
+    // were asked for, and answered, before the rest ended.
+    expect(f.retainedAt.length).toBeGreaterThanOrEqual(2);
     expect(f.retainedAt[0] + RTT).toBeLessThanOrEqual(armedAt + REST);
+    expect(f.retainedAt[1] + RTT).toBeLessThanOrEqual(armedAt + REST);
     expect(gap).toBeGreaterThanOrEqual(REST);
-    // rest + in-process work, and no round trip: the pre-2026-11-18 order
-    // paid rest + begin + save (+ state read); #11314 rest + save.
+    // rest + in-process work, and no round trip after the rest: pre-2026-11-18
+    // paid rest + begin + seq-0 + seq-1; 2026-11-19 still paid rest + seq-1
+    // (~130 ms median in prod); 2026-11-22 hides seq-1 under SEQ1_RETAIN_LEAD_MS.
     expect(gap).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
     expect(IN_PROCESS_MS).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
   }, 10_000);
@@ -180,10 +184,7 @@ describe('every wait between the hold and the deal is named', () => {
     );
     const b = DEALING.indexOf('      } finally {\n        handStarted = attempt.started;', a);
     const r = DEALING.indexOf('  protected async runOriginalController(');
-    const rest = DEALING.indexOf(
-      'await this.awaitNextHandRest();\n      if (\n        this.handController !== preparedController ||',
-      r
-    );
+    const rest = DEALING.indexOf('await this.awaitNextHandRest();', r);
     const rEnd = DEALING.indexOf('return new Promise<void>((resolve) => {', r);
     expect(a).toBeGreaterThan(-1);
     expect(r).toBeGreaterThan(-1);
@@ -198,11 +199,14 @@ describe('every wait between the hold and the deal is named', () => {
       'Promise.all', // time-bank reads for players NEW to the table only
       'this.runOriginalController',
     ]);
-    // Before the rest ends: the seq-0 save, then the rest itself.
+    // Before the rest ends: the seq-0 save, then the rest lead (stopping
+    // SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest before HAND_START).
     expect(awaitsIn(DEALING.slice(r, restEnd))).toEqual([
       'this.retainOriginalBatch', // the prepared deck made durable, under the rest
-      'this.awaitNextHandRest', // the owed rest, finished after the save
+      'this.awaitNextHandRest', // stops SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest
     ]);
+    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 400;');
+    expect(DEALING).toContain('finishRestBeforeFirstDispatch');
     // After the rest: no round trip on the path that deals. A saved hand the
     // last look (or a later hold) refuses is released in dealHand's finally,
     // off this path: it deals nothing.

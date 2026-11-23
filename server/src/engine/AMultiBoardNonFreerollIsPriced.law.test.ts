@@ -600,6 +600,120 @@ describe('LAW: multiBoardNonFreerollIsPriced (V86 Multi-Board Non-Freeroll Price
       expect(deepNlhFacing.action).toBe('raise');
       expect(deepNlhFacing.raiseTo).toBeLessThanOrEqual(400);
     });
+
+    it('excludes villain uncallable excess (potBeforeBet = max(0, pot - toCall)) on short-stack all-in calls (toCall > heroStack)', () => {
+      // Pre-bet pot = 100, villain shoves 1000 -> raw pot = 1100, toCall = 1000, heroStack = 50.
+      // Uncallable excess (950) is returned to villain; hero calls 50 to contest 100 + 2*50 = 200.
+      // At 5% avg equity, exact EV(call) = 0.05 * (100 + 50) - 0.95 * 50 = -40 -> MUST fold.
+      const shortStackTrash = priceMultiBoardNonFreerollFacingBet({
+        ...baseFacing,
+        boardEquities: [0.08, 0.02],
+        pot: 1100,
+        currentBet: 1000,
+        playerBet: 0,
+        toCall: 1000,
+        minRaise: 1000,
+        heroStack: 50,
+        deepestOppStack: 500,
+        street: 'river',
+      });
+      expect(shortStackTrash.evCall).toBeCloseTo(-40, 8);
+      expect(shortStackTrash.action).toBe('fold');
+      expect(shortStackTrash.reason).toBe('ev_fold_exceeds_or_equals_continue');
+
+      // Same short-stack excess check with non-zero playerBet = 20 (pot = 100 + 20 + 1000 = 1120,
+      // toCall = 980, potBeforeBet = 140, contested pot = 140 + 100 = 240, win net = 190).
+      const shortStackWithBet = priceMultiBoardNonFreerollFacingBet({
+        ...baseFacing,
+        boardEquities: [0.08, 0.02],
+        pot: 1120,
+        currentBet: 1000,
+        playerBet: 20,
+        toCall: 980,
+        minRaise: 980,
+        heroStack: 50,
+        deepestOppStack: 500,
+        street: 'river',
+      });
+      expect(shortStackWithBet.evCall).toBeCloseTo(0.05 * 190 - 0.95 * 50, 8);
+      expect(shortStackWithBet.action).toBe('fold');
+
+      // Genuinely +EV short-stack all-in call (50% avg equity calling 50 to win 150) calls cleanly.
+      const shortStackGood = priceMultiBoardNonFreerollFacingBet({
+        ...baseFacing,
+        boardEquities: [0.85, 0.15],
+        pot: 1100,
+        currentBet: 1000,
+        playerBet: 0,
+        toCall: 1000,
+        minRaise: 1000,
+        heroStack: 50,
+        deepestOppStack: 500,
+        street: 'river',
+      });
+      expect(shortStackGood.evCall).toBeCloseTo(50, 8);
+      expect(shortStackGood.action).toBe('call');
+    });
+
+    it('prices rakeFraction in [0, 0.25] consistently with raked pot-odds and shrinks EV monotonically', () => {
+      // Exact break-even identity at bf = 1: w / ((P + 2w) * (1 - r)).
+      const p = 100;
+      const w = 60;
+      const r = 0.1;
+      const beEq = w / ((p + 2 * w) * (1 - r));
+      expect(riskAdjustedUtility(beEq, p, w, 1, r)).toBeCloseTo(0, 10);
+      expect(riskAdjustedUtility(0.5, p, w, 1, -0.5)).toBeCloseTo(
+        riskAdjustedUtility(0.5, p, w, 1, 0),
+        10
+      );
+      expect(riskAdjustedUtility(0.5, p, w, 1, 0.8)).toBeCloseTo(
+        riskAdjustedUtility(0.5, p, w, 1, 0.25),
+        10
+      );
+
+      // Marginal facing-bet call (30% avg equity vs 60 into 160 -> rake-free BE 27.27%, 12% rake BE 30.99%):
+      // calls at 0% rake and folds at 12% rake.
+      const marginalFacing: PriceMultiBoardNonFreerollFacingBetInput = {
+        ...baseFacing,
+        boardEquities: [0.39, 0.21],
+        pot: 160,
+        currentBet: 60,
+        toCall: 60,
+        street: 'river',
+      };
+      const noRake = priceMultiBoardNonFreerollFacingBet({ ...marginalFacing, rakeFraction: 0 });
+      const withRake = priceMultiBoardNonFreerollFacingBet({
+        ...marginalFacing,
+        rakeFraction: 0.12,
+      });
+      expect(noRake.evCall).toBeGreaterThan(0);
+      expect(noRake.action).toBe('call');
+      expect(withRake.evCall).toBeLessThan(0);
+      expect(withRake.action).toBe('fold');
+
+      // Open bet, check, and raise EVs strictly decrease with rakeFraction.
+      const open0 = priceMultiBoardNonFreerollOpen({ ...baseOpen, rakeFraction: 0 });
+      const open5 = priceMultiBoardNonFreerollOpen({ ...baseOpen, rakeFraction: 0.05 });
+      const open15 = priceMultiBoardNonFreerollOpen({ ...baseOpen, rakeFraction: 0.15 });
+      expect(open5.evBet).toBeLessThan(open0.evBet);
+      expect(open15.evBet).toBeLessThan(open5.evBet);
+      expect(open5.evCheck).toBeLessThan(open0.evCheck);
+      expect(open15.evCheck).toBeLessThan(open5.evCheck);
+
+      const raise0 = priceMultiBoardNonFreerollFacingBet({
+        ...baseFacing,
+        boardEquities: [0.9, 0.72],
+        street: 'turn',
+        rakeFraction: 0,
+      });
+      const raise10 = priceMultiBoardNonFreerollFacingBet({
+        ...baseFacing,
+        boardEquities: [0.9, 0.72],
+        street: 'turn',
+        rakeFraction: 0.1,
+      });
+      expect(raise10.evRaise).toBeLessThan(raise0.evRaise);
+    });
   });
 
   describe('end-to-end HorseLogic.decide byte-identity, receipts, and legality', () => {
@@ -950,6 +1064,165 @@ describe('LAW: multiBoardNonFreerollIsPriced (V86 Multi-Board Non-Freeroll Price
       expect(dCheck.action).toBe('check');
       const bsNlhOpen = calculateBettingState(100, 0, 0, 2, 2, false);
       expect(validateAction(dCheck.action, dCheck.amount, 400, bsNlhOpen).valid).toBe(true);
+    });
+
+    it('wires cash rakeFraction from HorseLogic into multiBoardNonFreerollIsPriced', () => {
+      // Borderline PLO4 river call: equity lies between rake-free pot odds (100/300 = 33.3%) and
+      // 15% uncapped cash rake pot odds (100/(300*0.85) = 39.2%), so HorseLogic's wired
+      // `callDeductionFraction ?? rakeMarg` flips the marginal decision from call to fold.
+      const base = multiBoardState({
+        variant: 'plo4',
+        heroHole: 'Th9d6c4s',
+        board1: '8h7h6hJd2c',
+        board2: 'AsKsQd5d3s',
+        currentBet: 100,
+        pot: 200,
+        heroStack: 500,
+        oppStack: 500,
+        stage: 'river',
+      });
+      const foldedSeat = seat(3, '40000000-0000-4000-8000-0000000000b3', 500, 0, 0, '', true);
+      const zeroRakeGs = {
+        ...base.gs,
+        players: [...base.gs.players, foldedSeat],
+        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+      };
+      const highRakeGs = {
+        ...base.gs,
+        players: [...base.gs.players, foldedSeat],
+        rakeConfig: { percent: 15, cap: 100, noFlopNoDrop: true },
+      };
+
+      seedFastRandom(606);
+      drainFires();
+      const dZeroRake = HorseLogic.decide(base.hero, zeroRakeGs, 'balanced', undefined, {
+        telemetry: true,
+        observeMind: false,
+        multiBoardNonFreerollIsPriced: true,
+      });
+      const firesZero = firesMap();
+
+      seedFastRandom(606);
+      drainFires();
+      const dHighRake = HorseLogic.decide(base.hero, highRakeGs, 'balanced', undefined, {
+        telemetry: true,
+        observeMind: false,
+        multiBoardNonFreerollIsPriced: true,
+      });
+      const firesHigh = firesMap();
+
+      expect(dZeroRake.action).toBe('call');
+      expect(firesZero.v86_multiboard_priced_call ?? 0).toBeGreaterThanOrEqual(1);
+      expect(dHighRake.action).toBe('fold');
+      expect(firesHigh.v86_multiboard_priced_fold ?? 0).toBeGreaterThanOrEqual(1);
+    });
+
+    it('co-activation with multiBoardBluffTrimIsPriced suppresses superseded bluff-trim receipts while preserving river fall-through', () => {
+      // 1. Flop open superseded by multiBoardNonFreerollIsPriced: emits v86_multiboard_priced_open_*
+      //    and does NOT emit a misleading v36_multiboard_bluff_trim_priced receipt.
+      const flopOpen = multiBoardState({
+        variant: 'plo4',
+        heroHole: 'JsJdTsTd',
+        board1: 'Jh9h7c',
+        board2: 'Th8c6s',
+        currentBet: 0,
+        pot: 100,
+        heroStack: 1000,
+        oppStack: 1000,
+        stage: 'flop',
+      });
+      seedFastRandom(707);
+      drainFires();
+      const dOpenBoth = HorseLogic.decide(flopOpen.hero, flopOpen.gs, 'balanced', undefined, {
+        telemetry: true,
+        observeMind: false,
+        multiBoardNonFreerollIsPriced: true,
+        multiBoardBluffTrimIsPriced: true,
+      });
+      const firesOpenBoth = firesMap();
+      expect(
+        (firesOpenBoth.v86_multiboard_priced_open_bet ?? 0) +
+          (firesOpenBoth.v86_multiboard_priced_open_check ?? 0)
+      ).toBe(1);
+      expect(firesOpenBoth.v36_multiboard_bluff_trim_priced ?? 0).toBe(0);
+      expect(firesOpenBoth.v36_multiboard_bluff_trim ?? 0).toBe(0);
+      expect(
+        validateAction(
+          dOpenBoth.action,
+          dOpenBoth.amount,
+          1000,
+          calculateBettingState(100, 0, 0, 2, 2, true)
+        ).valid
+      ).toBe(true);
+
+      // 2. Facing-bet spot superseded by multiBoardNonFreerollIsPriced: emits v86_multiboard_priced_*
+      //    and does NOT emit v36_multiboard_bluff_trim_priced.
+      const riverFacing = multiBoardState({
+        variant: 'plo4',
+        heroHole: 'Th9d6c4s',
+        board1: '8h7h6hJd2c',
+        board2: 'AsKsQd5d3s',
+        currentBet: 60,
+        pot: 160,
+        stage: 'river',
+      });
+      seedFastRandom(808);
+      drainFires();
+      const dFaceBoth = HorseLogic.decide(riverFacing.hero, riverFacing.gs, 'balanced', undefined, {
+        telemetry: true,
+        observeMind: false,
+        multiBoardNonFreerollIsPriced: true,
+        multiBoardBluffTrimIsPriced: true,
+      });
+      const firesFaceBoth = firesMap();
+      expect(firesFaceBoth.v86_multiboard_priced_call ?? 0).toBe(1);
+      expect(firesFaceBoth.v36_multiboard_bluff_trim_priced ?? 0).toBe(0);
+      expect(firesFaceBoth.v36_multiboard_bluff_trim ?? 0).toBe(0);
+      expect(dFaceBoth.action).toBe('call');
+
+      // 3. River open (NOT intercepted by multiBoardNonFreerollIsPriced): falls through to the
+      //    bluff ladder, emits v36_multiboard_bluff_trim_priced cleanly, and matches
+      //    multiBoardBluffTrimIsPriced-only identically.
+      const riverOpen = multiBoardState({
+        variant: 'nlh',
+        heroHole: '6c5d',
+        board1: 'Kh9d4c2s7h',
+        board2: 'Qs8h3dTc2c',
+        currentBet: 0,
+        pot: 100,
+        stage: 'river',
+      });
+      seedFastRandom(909);
+      drainFires();
+      const dRiverTrimOnly = HorseLogic.decide(
+        riverOpen.hero,
+        riverOpen.gs,
+        'balanced',
+        undefined,
+        {
+          telemetry: true,
+          observeMind: false,
+          multiBoardBluffTrimIsPriced: true,
+        }
+      );
+      const firesRiverTrimOnly = firesMap();
+
+      seedFastRandom(909);
+      drainFires();
+      const dRiverBoth = HorseLogic.decide(riverOpen.hero, riverOpen.gs, 'balanced', undefined, {
+        telemetry: true,
+        observeMind: false,
+        multiBoardNonFreerollIsPriced: true,
+        multiBoardBluffTrimIsPriced: true,
+      });
+      const firesRiverBoth = firesMap();
+
+      expect(firesRiverTrimOnly.v36_multiboard_bluff_trim_priced).toBe(1);
+      expect(firesRiverBoth.v36_multiboard_bluff_trim_priced).toBe(1);
+      expect(firesRiverBoth.v36_multiboard_bluff_trim ?? 0).toBe(0);
+      expect(firesRiverBoth.v86_multiboard_priced_open_bet ?? 0).toBe(0);
+      expect(firesRiverBoth.v86_multiboard_priced_open_check ?? 0).toBe(0);
+      expect(stableDecision(dRiverBoth)).toEqual(stableDecision(dRiverTrimOnly));
     });
   });
 
