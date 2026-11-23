@@ -298,152 +298,9 @@ async function runInspect() {
           LIMIT 10`
       );
       const periodEnd = inc.scope?.period_end || '2026-11-23T08:00:00+00:00';
-      context.missingScopeCashOutcomesByGroup = await safeSelect(
-        `WITH missing AS (
-           SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
-                  o.evidence->>'status' AS ev_status,
-                  o.evidence->>'reason' AS ev_reason,
-                  t.club_id, t.union_id, t.game_type, t.name AS table_name,
-                  (t.cluster_id IS NOT NULL) AS has_cluster
-             FROM public.union_pnl_cash_outcomes o
-             LEFT JOIN public.tables t ON t.id = o.table_id
-            WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
-              AND o.recognized_at < $1::timestamptz
-              AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
-              AND NOT EXISTS (
-                SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
-                 WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
-              )
-         )
-         SELECT ev_status, ev_reason, has_cluster, game_type, union_id,
-                date_trunc('day', recognized_at) AS utc_day,
-                count(*) AS n,
-                count(DISTINCT table_id) AS tables,
-                min(recognized_at) AS first_at,
-                max(recognized_at) AS last_at
-           FROM missing
-          GROUP BY 1, 2, 3, 4, 5, 6
-          ORDER BY utc_day DESC, n DESC
-          LIMIT 30`,
-        [periodEnd]
-      );
-      context.missingScopeCashOutcomesSample = await safeSelect(
-        `SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at, o.game_scope,
-                o.evidence,
-                p.status AS prov_status, p.issues AS prov_issues, p.manifest_id,
-                t.cluster_id, t.name AS table_name
-           FROM public.union_pnl_cash_outcomes o
-           LEFT JOIN public.cash_hand_provenance_receipts p
-             ON p.table_id = o.table_id AND p.hand_number = o.hand_number
-           LEFT JOIN public.tables t ON t.id = o.table_id
-          WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
-            AND o.recognized_at < $1::timestamptz
-            AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
-            AND NOT EXISTS (
-              SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
-               WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
-            )
-          ORDER BY o.recognized_at DESC
-          LIMIT 8`,
-        [periodEnd]
-      );
-      if (
-        Array.isArray(context.missingScopeCashOutcomesSample) &&
-        context.missingScopeCashOutcomesSample.length > 0
-      ) {
-        const firstSample = context.missingScopeCashOutcomesSample[0];
-        context.sampleLinkProofCheck = await safeSelect(
-          `SELECT table_id, hand_number,
-                  proof->>'status' AS proof_status,
-                  proof->>'reason' AS proof_reason,
-                  proof->'issues' AS proof_issues,
-                  proof->>'roster_source' AS roster_source,
-                  proof->'game_scope' AS proof_scope
-             FROM public.fn_union_pnl_prove_cash_outcome_links(
-                    $1::timestamptz - interval '30 seconds',
-                    $1::timestamptz + interval '30 seconds'
-                  )
-            WHERE table_id = $2::uuid AND hand_number = $3::bigint
-            LIMIT 3`,
-          [firstSample.recognized_at, firstSample.table_id, firstSample.hand_number]
-        );
-        context.sampleLightningProofCheck = await safeSelect(
-          `SELECT public.fn_lightning_original_pnl_proof($1::uuid, $2::bigint) AS proof`,
-          [firstSample.table_id, firstSample.hand_number]
-        );
-      }
-      context.missingScopeProvenancePins = await safeSelect(
-        `SELECT md5(pg_get_functiondef('public.fn_union_pnl_resolve_cash_outcome_links(timestamp with time zone,timestamp with time zone,text,boolean)'::regprocedure)) AS resolver_md5,
-                md5(pg_get_functiondef('public.fn_union_pnl_prove_cash_outcome_links(timestamp with time zone,timestamp with time zone)'::regprocedure)) AS prover_md5,
-                md5(pg_get_functiondef('public.fn_union_pnl_cash_outcome_link(union_pnl_cash_outcomes)'::regprocedure)) AS link_md5,
-                md5(pg_get_functiondef('public.fn_union_pnl_linked_cash_outcomes(uuid,timestamp with time zone,timestamp with time zone)'::regprocedure)) AS linked_md5,
-                (SELECT count(*)
-                   FROM public.union_pnl_cash_outcomes o
-                   JOIN smarter_private.cash_hand_provenance_explained_gaps g
-                     ON g.table_id = o.table_id AND g.hand_number = o.hand_number
-                  WHERE o.recognized_at >= ($1::timestamptz - interval '7 days')
-                    AND o.recognized_at < $1::timestamptz
-                    AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
-                    AND NOT EXISTS (SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
-                                     WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number)) AS in_explained_gaps,
-                (SELECT count(*)
-                   FROM public.union_pnl_cash_outcomes o
-                  WHERE o.recognized_at >= $1::timestamptz
-                    AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
-                    AND NOT EXISTS (SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
-                                     WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number)) AS open_week_missing`,
-        [periodEnd]
-      );
-      context.missingScopeBuckets = await safeSelect(
-        `SELECT date_bin(interval '5 minutes', o.recognized_at, '2026-11-18T20:14:00Z'::timestamptz) AS bucket,
-                count(*) AS n,
-                COALESCE(sum((o.evidence->>'accepted_rake')::numeric), 0) AS rake,
-                min(o.recognized_at) AS first_at,
-                max(o.recognized_at) AS last_at
-           FROM public.union_pnl_cash_outcomes o
-          WHERE o.recognized_at >= '2026-11-18T20:14:00Z'::timestamptz
-            AND o.recognized_at < '2026-11-18T21:06:00Z'::timestamptz
-            AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
-            AND NOT EXISTS (
-              SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r
-               WHERE r.table_id = o.table_id AND r.hand_number = o.hand_number
-            )
-          GROUP BY 1
-          ORDER BY 1`
-      );
       const periodStart = '2026-11-16T08:00:00+00:00';
       const midwayUnion = 'fade0000-0000-0000-0000-000000000001';
-      context.weekRakeTotals = await safeSelect(
-        `WITH acc AS (
-           SELECT COALESCE(sum((x->>'rake')::numeric) FILTER (WHERE (x->>'kind')::int = 0), 0) AS accepted_rake,
-                  COALESCE(sum((x->>'hands')::bigint) FILTER (WHERE (x->>'kind')::int = 0), 0) AS hands,
-                  count(DISTINCT p.window_start) AS windows
-             FROM public.accounting_close_partials p
-             CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.value->'groups', '[]'::jsonb)) x
-            WHERE p.kind = 'pnl_hands_window'
-              AND p.union_id = $1::uuid
-              AND p.period_start = $2::timestamptz
-              AND p.period_end = $3::timestamptz
-         ),
-         earned AS (
-           SELECT COALESCE(sum(s.rake_credit), 0) AS cash_rake,
-                  count(*) AS src_rows
-             FROM public.accounting_payable_earning_sources s
-            WHERE s.union_id = $1::uuid
-              AND s.source_type = 'cash_rake_accrual'
-              AND s.earned_at >= $2::timestamptz
-              AND s.earned_at < $3::timestamptz
-         ),
-         str AS (
-           SELECT public.fn_union_pnl_week_rake_straddle($1::uuid, $2::timestamptz, $3::timestamptz) AS straddle
-         )
-         SELECT a.windows, a.hands, e.src_rows, a.accepted_rake, e.cash_rake, s.straddle,
-                (a.accepted_rake - e.cash_rake) AS raw_diff,
-                (a.accepted_rake - s.straddle - e.cash_rake) AS net_diff
-           FROM acc a CROSS JOIN earned e CROSS JOIN str s`,
-        [midwayUnion, periodStart, periodEnd]
-      );
-      context.dayRakeTotals = await safeSelect(
+      context.weekAndDayRakeTotals = await safeSelect(
         `WITH acc AS (
            SELECT date_trunc('day', p.window_start) AS utc_day,
                   COALESCE(sum((x->>'rake')::numeric) FILTER (WHERE (x->>'kind')::int = 0), 0) AS accepted_rake,
@@ -465,37 +322,47 @@ async function runInspect() {
               AND s.earned_at >= $2::timestamptz
               AND s.earned_at < $3::timestamptz
             GROUP BY 1
+         ),
+         daily AS (
+           SELECT COALESCE(a.utc_day, e.utc_day)::text AS utc_day,
+                  COALESCE(a.hands, 0) AS hands,
+                  COALESCE(a.accepted_rake, 0) AS accepted_rake,
+                  COALESCE(e.cash_rake, 0) AS cash_rake,
+                  (COALESCE(a.accepted_rake, 0) - COALESCE(e.cash_rake, 0)) AS diff
+             FROM acc a
+             FULL OUTER JOIN earned e ON e.utc_day = a.utc_day
          )
-         SELECT COALESCE(a.utc_day, e.utc_day) AS utc_day,
-                COALESCE(a.hands, 0) AS hands,
-                COALESCE(a.accepted_rake, 0) AS accepted_rake,
-                COALESCE(e.cash_rake, 0) AS cash_rake,
-                (COALESCE(a.accepted_rake, 0) - COALESCE(e.cash_rake, 0)) AS diff
-           FROM acc a
-           FULL OUTER JOIN earned e ON e.utc_day = a.utc_day
+         SELECT utc_day, hands, accepted_rake, cash_rake, diff, NULL::numeric AS straddle
+           FROM daily
+         UNION ALL
+         SELECT 'TOTAL'::text,
+                COALESCE(sum(hands), 0),
+                COALESCE(sum(accepted_rake), 0),
+                COALESCE(sum(cash_rake), 0),
+                COALESCE(sum(diff), 0),
+                public.fn_union_pnl_week_rake_straddle($1::uuid, $2::timestamptz, $3::timestamptz)
+           FROM daily
           ORDER BY 1`,
         [midwayUnion, periodStart, periodEnd]
       );
-      context.nov20HandLevelDiff = await safeSelect(
+      context.nov20HandLevelDiff12to14 = await safeSelect(
         `WITH outs AS (
            SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
                   (o.evidence->>'accepted_rake')::numeric AS accepted_rake,
-                  o.game_scope->>'game_union_id' AS own_union,
                   'own'::text AS src_kind
              FROM public.union_pnl_cash_outcomes o
-            WHERE o.recognized_at >= '2026-11-20T06:00:00Z'::timestamptz
+            WHERE o.recognized_at >= '2026-11-20T12:00:00Z'::timestamptz
               AND o.recognized_at < '2026-11-20T14:00:00Z'::timestamptz
               AND o.game_scope->>'game_union_id' = $1::text
               AND COALESCE((o.evidence->>'accepted_rake')::numeric, 0) > 0
            UNION ALL
            SELECT o.hand_id, o.table_id, o.hand_number, o.recognized_at,
                   (r.evidence->>'accepted_rake')::numeric AS accepted_rake,
-                  r.game_scope->>'game_union_id' AS own_union,
                   'linked'::text AS src_kind
              FROM public.union_pnl_cash_outcomes o
              JOIN public.union_pnl_cash_outcome_link_resolutions r
                ON r.table_id = o.table_id AND r.hand_number = o.hand_number AND r.hand_id = o.hand_id
-            WHERE o.recognized_at >= '2026-11-20T06:00:00Z'::timestamptz
+            WHERE o.recognized_at >= '2026-11-20T12:00:00Z'::timestamptz
               AND o.recognized_at < '2026-11-20T14:00:00Z'::timestamptz
               AND r.game_scope->>'game_union_id' = $1::text
               AND COALESCE((r.evidence->>'accepted_rake')::numeric, 0) > 0
@@ -518,7 +385,8 @@ async function runInspect() {
                   AND s.source_type = 'cash_rake_accrual'
              ) es ON true
          )
-         SELECT count(*) FILTER (WHERE accepted_rake IS DISTINCT FROM earned_rake) AS mismatched_hands,
+         SELECT count(*) AS total_outs,
+                count(*) FILTER (WHERE accepted_rake IS DISTINCT FROM earned_rake) AS mismatched_hands,
                 COALESCE(sum(accepted_rake - earned_rake) FILTER (WHERE accepted_rake IS DISTINCT FROM earned_rake), 0) AS mismatched_sum,
                 count(*) FILTER (WHERE rake_record_id IS NULL) AS missing_rake_record,
                 count(*) FILTER (WHERE rake_record_id IS NOT NULL AND src_count = 0) AS missing_earning_source,
@@ -546,91 +414,14 @@ async function runInspect() {
           WHERE s.union_id = $1::uuid
             AND s.source_type = 'cash_rake_accrual'
             AND (
-              (s.earned_at >= $2::timestamptz AND s.earned_at < $2::timestamptz + interval '6 hours'
+              (s.earned_at >= $2::timestamptz AND s.earned_at < $2::timestamptz + interval '3 hours'
                AND (o.hand_id IS NULL OR o.recognized_at < $2::timestamptz))
-              OR (s.earned_at >= $3::timestamptz AND s.earned_at < $3::timestamptz + interval '6 hours'
+              OR (s.earned_at >= $3::timestamptz AND s.earned_at < $3::timestamptz + interval '3 hours'
                   AND o.recognized_at >= $2::timestamptz AND o.recognized_at < $3::timestamptz)
             )
           ORDER BY s.earned_at
           LIMIT 30`,
         [midwayUnion, periodStart, periodEnd]
-      );
-      context.cashRakeHandlessAndPins = await safeSelect(
-        `SELECT (SELECT count(*)
-                   FROM public.rake_records r
-                  WHERE r.hand_id IS NULL
-                    AND r.rake_amount > 0
-                    AND r.created_at >= $1::timestamptz
-                    AND r.created_at < $2::timestamptz) AS handless_rake_records,
-                (SELECT COALESCE(sum(r.rake_amount), 0)
-                   FROM public.rake_records r
-                  WHERE r.hand_id IS NULL
-                    AND r.rake_amount > 0
-                    AND r.created_at >= $1::timestamptz
-                    AND r.created_at < $2::timestamptz) AS handless_rake_amount,
-                md5(pg_get_functiondef('public.fn_union_pnl_evidence_report(uuid,timestamp with time zone,timestamp with time zone)'::regprocedure)) AS evidence_report_md5,
-                md5(pg_get_functiondef('public.fn_union_pnl_week_rake_straddle(uuid,timestamp with time zone,timestamp with time zone)'::regprocedure)) AS straddle_md5`,
-        [periodStart, periodEnd]
-      );
-      context.weeklyPrepTimeline = await safeSelect(
-        `SELECT date_bin(interval '15 minutes', started_at, $1::timestamptz) AS bucket,
-                count(*) AS runs,
-                sum(units) AS units,
-                round(avg(extract(epoch FROM (finished_at - started_at)))::numeric, 1) AS avg_sec,
-                round(max(extract(epoch FROM (finished_at - started_at)))::numeric, 1) AS max_sec,
-                count(*) FILTER (WHERE last_error IS NOT NULL) AS errors,
-                min(last_unit) AS min_unit,
-                max(last_unit) AS max_unit
-           FROM smarter_private.weekly_prep_shard_runs
-          WHERE period_end = $1::timestamptz
-          GROUP BY 1
-          ORDER BY 1 ASC
-          LIMIT 30`,
-        [periodEnd]
-      );
-      context.weeklyPartialsSummary = await safeSelect(
-        `SELECT kind, count(*) AS n, min(computed_at) AS min_at, max(computed_at) AS max_at
-           FROM public.accounting_close_partials
-          WHERE period_end = $1::timestamptz
-          GROUP BY 1
-          ORDER BY 1`,
-        [periodEnd]
-      );
-      context.weeklySplitPartsSummary = await safeSelect(
-        `SELECT club_id, kind, count(*) AS n, min(computed_at) AS min_at, max(computed_at) AS max_at
-           FROM public.accounting_recompute_split_parts
-          WHERE period_start = (($1::timestamptz - interval '7 days') AT TIME ZONE 'America/Los_Angeles')::date
-          GROUP BY 1, 2
-          ORDER BY 1, 2`,
-        [periodEnd]
-      );
-      context.weeklyOwnAgentCleanSummary = await safeSelect(
-        `SELECT count(*) AS n, min(checked_at) AS min_at, max(checked_at) AS max_at
-           FROM smarter_private.own_agent_clean_windows
-          WHERE period_end = $1::timestamptz`,
-        [periodEnd]
-      );
-      context.weeklySourceChanges = await safeSelect(
-        `SELECT scope_kind, scope_id, calculator_club, affects_calculation,
-                count(*) AS n, min(changed_at) AS min_at, max(changed_at) AS max_at
-           FROM smarter_private.weekly_payout_source_changes
-          WHERE period_start = ($1::timestamptz - interval '7 days')
-          GROUP BY 1, 2, 3, 4
-          ORDER BY max_at DESC
-          LIMIT 20`,
-        [periodEnd]
-      );
-      context.plpgsqlCheckConfig = await safeSelect(
-        `SELECT name, setting, source, reset_val
-           FROM pg_settings
-          WHERE name LIKE 'plpgsql_check%'
-          ORDER BY name`
-      );
-      context.weeklyCronJobs = await safeSelect(
-        `SELECT jobid, jobname, schedule, active, command
-           FROM cron.job
-          WHERE jobname LIKE 'weekly%' OR command LIKE '%weekly_prep_shard%' OR command LIKE '%weekly_payout%'
-          ORDER BY jobid`
       );
     }
     const openDriftIncidents = await safeSelect(
