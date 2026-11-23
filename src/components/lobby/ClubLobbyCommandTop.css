@@ -211,21 +211,19 @@
 }
 
 /* The heading belongs to this composition, not its child family buttons. */
+.club-home .club-lobby-command-top .lobby-controls {
+  grid-template-rows: auto;
+}
 .club-home .club-lobby-command-top .lobby-controls__heading {
   padding: 12px 8px 8px;
 }
 
-.club-home .club-lobby-command-top .lobby-controls__heading:has(.lobby-controls__favorites) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px;
-  gap: 8px;
-  text-align: left;
-}
-.club-home
-  .club-lobby-command-top
-  .lobby-controls__heading:has(.lobby-controls__favorites)
-  .lobby-controls__title {
-  font-size: clamp(16px, 5cqw, 22px);
+.club-home .club-lobby-command-top .lobby-controls__favorites-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding-block: 2px 4px;
 }
 .club-home .club-lobby-command-top .lobby-controls__favorites {
   position: relative;
@@ -2732,6 +2730,9 @@
 }
 .club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls {
   container: premium-lobby-controls / inline-size;
+  margin-block-start: 6px;
+  padding-block-start: 10px;
+  border-top: 1px solid #25313a;
 }
 .club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .game-bar {
   display: block;
