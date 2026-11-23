@@ -676,6 +676,30 @@ GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_admit(uuid,uuid) TO servic
 REVOKE ALL ON FUNCTION public.fn_offer_open_seat(uuid,interval,interval) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_offer_open_seat(uuid,interval,interval) TO service_role;
 
+-- @probe-for: public.fn_cash_hourly_table_admit
+DO $probe$
+BEGIN
+  -- A table that does not exist is not a cash table: the admission returns.
+  PERFORM public.fn_cash_hourly_table_admit(gen_random_uuid(), gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_offer_open_seat
+DO $probe$
+DECLARE
+  v_res jsonb;
+BEGIN
+  v_res := public.fn_offer_open_seat(gen_random_uuid());
+  IF v_res->>'reason' IS DISTINCT FROM 'table_not_found' THEN
+    RAISE EXCEPTION 'unexpected probe result from fn_offer_open_seat: %', v_res;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 -- Read back what was installed, or abort the whole file.
 DO $readback$
 BEGIN
