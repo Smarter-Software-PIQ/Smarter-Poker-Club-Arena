@@ -21,9 +21,12 @@ import {
   evaluateInboxFreezeState,
   evaluatePickup,
   evaluatePreflight,
+  extractAlarmBaseline,
   formatSwitchChangeLogLine,
   inferLaneFromActor,
+  parseAlarmBaselineJson,
   parseCliArgs,
+  parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
   sqlLiteral,
 } from '../../scripts/ops/horse-option-switch-lib.mjs';
@@ -500,6 +503,92 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       expect(healthMismatch.holds[0]).toMatch(/revision mismatch/);
     });
 
+    it('partitions hardFreezeHolds vs advisoryCutoverHolds so emergency --rollback is never blocked by inbox booking, owner window, or /health blip', () => {
+      const activeInbox =
+        '## 2026-11-22T14:00:00Z FROM RELEASE-15 TO ALL LANES — SUBJECT: CUTOVER-11 BOOKING (window 16:00Z)';
+      const activeOwnerWindows = {
+        version: 1,
+        windows: [
+          {
+            id: '2026-11-21-planned-window',
+            notBefore: '2026-11-21T15:00:00Z',
+            notAfter: '2026-11-21T16:00:00Z',
+          },
+        ],
+      };
+      const unreachableHealth = { error: 'fetch failed: ECONNREFUSED' };
+
+      // Non-rollback is strictly blocked by advisory cutover/health holds
+      const normalBlocked = checkMaintenanceAndCutoverHold({
+        nowUtc: SAFE_NOW,
+        dbMaintenance: { platformFrozen: false, breakRows: [], windowRows: [] },
+        ownerWindowsConfig: activeOwnerWindows,
+        engineHealth: unreachableHealth,
+        inboxText: activeInbox,
+        requireInbox: true,
+        isRollback: false,
+      });
+      expect(normalBlocked.ok).toBe(false);
+      expect(normalBlocked.hardFreezeHolds).toEqual([]);
+      expect(normalBlocked.advisoryCutoverHolds).toHaveLength(3);
+
+      // Emergency --rollback with zero hardFreezeHolds returns ok:true with explicit warnings
+      const rollbackAllowed = checkMaintenanceAndCutoverHold({
+        nowUtc: SAFE_NOW,
+        dbMaintenance: { platformFrozen: false, breakRows: [], windowRows: [] },
+        ownerWindowsConfig: activeOwnerWindows,
+        engineHealth: unreachableHealth,
+        inboxText: activeInbox,
+        requireInbox: true,
+        isRollback: true,
+      });
+      expect(rollbackAllowed.ok).toBe(true);
+      expect(rollbackAllowed.hardFreezeHolds).toEqual([]);
+      expect(rollbackAllowed.advisoryCutoverHolds).toHaveLength(3);
+      expect(rollbackAllowed.warnings).toHaveLength(3);
+      expect(rollbackAllowed.warnings.join(' | ')).toMatch(/CUTOVER-11 booked/);
+      expect(rollbackAllowed.warnings.join(' | ')).toMatch(/ECONNREFUSED/);
+
+      // Full evaluatePreflight propagates advisory hold warnings on rollback without failing
+      const pfRollback = evaluatePreflight(
+        basePreflightInput({
+          targetState: 'off',
+          isRollback: true,
+          authority: '',
+          evidenceSha: '',
+          ownerWindowsConfig: activeOwnerWindows,
+          engineHealth: unreachableHealth,
+          inboxText: activeInbox,
+          requireInbox: true,
+        })
+      );
+      expect(pfRollback.ok).toBe(true);
+      expect(pfRollback.warnings.length).toBeGreaterThanOrEqual(3);
+
+      // Active DB platform freeze or engine_maintenance_break STILL blocks even --rollback
+      const rollbackBlockedByDbFreeze = checkMaintenanceAndCutoverHold({
+        nowUtc: SAFE_NOW,
+        dbMaintenance: { platformFrozen: true, breakRows: [], windowRows: [] },
+        inboxText: activeInbox,
+        isRollback: true,
+      });
+      expect(rollbackBlockedByDbFreeze.ok).toBe(false);
+      expect(rollbackBlockedByDbFreeze.hardFreezeHolds).toHaveLength(1);
+      expect(rollbackBlockedByDbFreeze.reason).toMatch(/fn_platform_frozen/);
+
+      const rollbackBlockedByBreak = checkMaintenanceAndCutoverHold({
+        nowUtc: SAFE_NOW,
+        dbMaintenance: {
+          platformFrozen: false,
+          breakRows: [{ phase: 'counting_down', enforce_freeze: false }],
+          windowRows: [],
+        },
+        isRollback: true,
+      });
+      expect(rollbackBlockedByBreak.ok).toBe(false);
+      expect(rollbackBlockedByBreak.hardFreezeHolds).toHaveLength(1);
+    });
+
     it('correctly parses minute-only timestamps, CUTOVER-N BOOKING/SEALED, and NOT_YET clauses (fixing old switch.sh freeze_state)', () => {
       // Unreadable inbox fails closed
       expect(evaluateInboxFreezeState(null).frozen).toBe(true);
@@ -896,6 +985,195 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       expect(() => parseCliArgs(['status', '--unknown-flag'])).toThrow(/Unknown flag/);
       expect(() => parseCliArgs(['verify-pickup', 'v7', 'on', '--baseline', '-1'])).toThrow(
         /non-negative integer/
+      );
+
+      // --alarm-baseline JSON parsing and strict validation
+      const withAlarmBase = parseCliArgs([
+        'verify-pickup',
+        'styleTightPlayerExploit',
+        'on_shadow',
+        '--baseline',
+        '4',
+        '--alarm-baseline',
+        '{"option_switch_config_stale_seen":2}',
+      ]);
+      expect(withAlarmBase.flags.alarmBaseline).toEqual({
+        option_switch_config_stale_seen: 2,
+      });
+      expect(() =>
+        parseCliArgs(['verify-pickup', 'v7', 'on', '--alarm-baseline', 'not-json'])
+      ).toThrow(/Invalid --alarm-baseline JSON/);
+      expect(() =>
+        parseCliArgs(['verify-pickup', 'v7', 'on', '--alarm-baseline', '{"bad_key":1}'])
+      ).toThrow(/must match option_switch_config_/);
+      expect(() =>
+        parseCliArgs([
+          'verify-pickup',
+          'v7',
+          'on',
+          '--alarm-baseline',
+          '{"option_switch_config_stale_seen":-1}',
+        ])
+      ).toThrow(/non-negative integer/);
+    });
+
+    it('captures preAlarmBaseline in set and honors --alarm-baseline in verify-pickup so historical alarms do not permanently block pickup', async () => {
+      const mSet = createMockDeps({
+        telemetryRows: [
+          { feature: 'option_switch_styleTightPlayerExploit_on_shadow_seen', fires: 4 },
+          { feature: 'option_switch_config_stale_seen', fires: 2 },
+        ],
+      });
+      const setRes = await runCli(
+        [
+          'set',
+          'styleTightPlayerExploit',
+          'on_shadow',
+          '--reason',
+          'SHADOW-PLAN-1 step 2',
+          '--authority',
+          'docs/horse-option-authority.d/styleTightPlayerExploit.md',
+          '--evidence-sha',
+          VALID_SHA,
+          '--changed-by',
+          'Horse SWITCH lane (Antigravity 151f9a34)',
+        ],
+        mSet.deps
+      );
+      expect(setRes.exitCode).toBe(0);
+      expect(setRes.data.preAlarmBaseline).toEqual({ option_switch_config_stale_seen: 2 });
+      expect(mSet.stdoutLines.join('\n')).toContain(
+        `--alarm-baseline '{"option_switch_config_stale_seen":2}'`
+      );
+      expect(
+        extractAlarmBaseline([
+          { feature: 'option_switch_config_stale_seen', fires: 2 },
+          { feature: 'option_switch_styleTightPlayerExploit_on_shadow_seen', fires: 4 },
+        ])
+      ).toEqual({ option_switch_config_stale_seen: 2 });
+      expect(parseAlarmBaselineJson('{"option_switch_config_invalid_seen":0}')).toEqual({
+        option_switch_config_invalid_seen: 0,
+      });
+
+      // Historical alarm count unchanged (2 -> 2): verify-pickup PASSES with --alarm-baseline
+      const mPickupPass = createMockDeps({
+        telemetryRows: [
+          { feature: 'option_switch_styleTightPlayerExploit_on_shadow_seen', fires: 12 },
+          { feature: 'option_switch_config_stale_seen', fires: 2 },
+        ],
+      });
+      const passRes = await runCli(
+        [
+          'verify-pickup',
+          'styleTightPlayerExploit',
+          'on_shadow',
+          '--baseline',
+          '4',
+          '--alarm-baseline',
+          '{"option_switch_config_stale_seen":2}',
+        ],
+        mPickupPass.deps
+      );
+      expect(passRes.exitCode).toBe(0);
+      expect(passRes.data.ok).toBe(true);
+      expect(passRes.data.alarms).toEqual([]);
+
+      // New alarm fires (2 -> 3): verify-pickup FAILS with +1 delta
+      const mPickupFail = createMockDeps({
+        telemetryRows: [
+          { feature: 'option_switch_styleTightPlayerExploit_on_shadow_seen', fires: 12 },
+          { feature: 'option_switch_config_stale_seen', fires: 3 },
+        ],
+      });
+      const failRes = await runCli(
+        [
+          'verify-pickup',
+          'styleTightPlayerExploit',
+          'on_shadow',
+          '--baseline',
+          '4',
+          '--alarm-baseline',
+          '{"option_switch_config_stale_seen":2}',
+        ],
+        mPickupFail.deps
+      );
+      expect(failRes.exitCode).toBe(2);
+      expect(failRes.data.ok).toBe(false);
+      expect(failRes.data.alarms).toHaveLength(1);
+      expect(failRes.data.alarms[0].delta).toBe(1);
+    });
+
+    it('resolves releaseDefaultOn from HorseOptionSwitch.ts in preflight so shadow on an explicit-on release-default-ON option passes (and removes dead ternary)', async () => {
+      const switchTsSource = readFileSync(
+        resolve('server/src/engine/HorseOptionSwitch.ts'),
+        'utf8'
+      );
+      const defaultOnSet = parseReleaseDefaultOnOptions(switchTsSource);
+      expect(defaultOnSet.has('v80TopPairStrongKicker')).toBe(true);
+      expect(defaultOnSet.has('styleTightPlayerExploit')).toBe(false);
+
+      // Verify dead ternary is removed from CLI source
+      const cliSource = readFileSync(resolve('scripts/ops/horse-option-switch.mjs'), 'utf8');
+      expect(cliSource).not.toContain('requireInbox ? null : null');
+
+      // Explicit-on release-default-ON option entering plain `shadow` passes preflight
+      const mDefaultOn = createMockDeps({
+        currentRows: [{ option: 'v80TopPairStrongKicker', state: 'on' }],
+      });
+      mDefaultOn.deps.queryDb = vi.fn((sql: string) => {
+        if (sql.includes('FROM public.ca_horse_style_switch ORDER BY')) {
+          return [{ option: 'v80TopPairStrongKicker', state: 'on' }];
+        }
+        if (sql.includes('FROM public.ca_horse_style_switch_audit ORDER BY')) return [];
+        if (sql.includes('FROM public.ca_horse_option_registry_serving')) {
+          return baseServingRegistry({
+            v80TopPairStrongKicker: ['off', 'shadow', 'on_shadow', 'on'],
+            styleTightPlayerExploit: ['off', 'shadow', 'on_shadow', 'on'],
+          });
+        }
+        if (sql.includes('fn_ca_horse_option_registry_refusal')) return [{ refusal: null }];
+        if (sql.includes('fn_platform_frozen()')) {
+          return [{ platform_frozen: false, has_break_table: false, has_windows_table: false }];
+        }
+        return [];
+      });
+      mDefaultOn.deps.readFile = vi.fn((filePath: string) => {
+        if (filePath.includes('HorseOptionSwitch.ts')) return switchTsSource;
+        return JSON.stringify({ version: 1, windows: [] });
+      });
+
+      const allowed = await runCli(
+        ['preflight', 'v80TopPairStrongKicker', 'shadow', '--json'],
+        mDefaultOn.deps
+      );
+      expect(allowed.exitCode).toBe(0);
+      expect(allowed.data.ok).toBe(true);
+
+      // Non-default-ON option currently `on` entering plain `shadow` is STILL refused
+      mDefaultOn.deps.queryDb = vi.fn((sql: string) => {
+        if (sql.includes('FROM public.ca_horse_style_switch ORDER BY')) {
+          return [{ option: 'styleTightPlayerExploit', state: 'on' }];
+        }
+        if (sql.includes('FROM public.ca_horse_style_switch_audit ORDER BY')) return [];
+        if (sql.includes('FROM public.ca_horse_option_registry_serving')) {
+          return baseServingRegistry({
+            styleTightPlayerExploit: ['off', 'shadow', 'on_shadow', 'on'],
+          });
+        }
+        if (sql.includes('fn_ca_horse_option_registry_refusal')) return [{ refusal: null }];
+        if (sql.includes('fn_platform_frozen()')) {
+          return [{ platform_frozen: false, has_break_table: false, has_windows_table: false }];
+        }
+        return [];
+      });
+
+      const refused = await runCli(
+        ['preflight', 'styleTightPlayerExploit', 'shadow', '--json'],
+        mDefaultOn.deps
+      );
+      expect(refused.exitCode).toBe(2);
+      expect(refused.data.failures.map((f: { code: string }) => f.code)).toContain(
+        'SHADOW_WOULD_DISABLE_LIVE_ON_ROW'
       );
     });
   });

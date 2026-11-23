@@ -5258,6 +5258,20 @@
   }
 }
 
+/* THE SIX-MAX TOP SEAT STANDS ON THE RAIL (Dan 2026-11-22). Its plate rests on
+   its rail station and its crown may run up behind the tab bar, so the lane
+   above the crown can be behind the bar too. The caption then sits just under
+   the bar instead (--sp-rail-caption-drop, 0 whenever the lane is on screen;
+   useProtectedCardLayout writes it from sixSeatTopCaptionDrop). The chair
+   never moves down to make that room: that is what put it on the felt. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='6'] .seat-wrapper--cap .seat > .seat__action {
+    top: calc(
+      -1 * var(--sp-art-rise, 0px) - var(--sp-tag-h, 20px) - 6px + var(--sp-rail-caption-drop, 0px)
+    );
+  }
+}
+
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   /* The bottom chair keeps its visual prominence for a tournament observer.
      Identity, private cards and controls still belong only to the actual hero. */

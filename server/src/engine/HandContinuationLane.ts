@@ -97,7 +97,8 @@ export class HandContinuationLane {
     private readonly current: () => boolean,
     private readonly reportFailure: (error: unknown) => void,
     initialReplay?: () => Promise<void>,
-    private readonly retainedInputReady?: () => Promise<void>
+    private readonly retainedInputReady?: () => Promise<void>,
+    private readonly beforeFirstDispatch?: () => Promise<void>
   ) {
     if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error('Invalid Hand Sequence');
     this.sequence = sequence;
@@ -171,6 +172,10 @@ export class HandContinuationLane {
           const ready = this.retentionWaiters.filter((w) => w.sequence <= sequence);
           this.retentionWaiters = this.retentionWaiters.filter((w) => w.sequence > sequence);
           for (const waiter of ready) waiter.resolve();
+          if (sequence === 1 && this.beforeFirstDispatch) {
+            await this.beforeFirstDispatch();
+            if (this.closed || !this.current()) throw new Error('Hand Continuation Is Fenced');
+          }
           for (const [index, event] of batch.events.entries()) {
             if (this.closed || !this.current()) throw new Error('Hand Continuation Is Fenced');
             await this.dispatch(cloneContinuationEvent(event), { sequence, index });

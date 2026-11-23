@@ -14,6 +14,14 @@ INSERT INTO public.hand_atomic_commits(hand_id,table_id,hand_number,committed_at
 SELECT md5('other-in-window-'||n)::uuid,:'table',40000+n,now()-interval '30 minutes'
 FROM generate_series(1,:window_rows) n;
 \endif
+-- Incident 9408cfd4 (2026-11-22): a member whose own recent postings fill the
+-- size probe, inside a window holding more hands than that. These zero-fee
+-- postings sit outside both intervals below, so every answer is unchanged.
+\if :{?recent_rows}
+INSERT INTO public.rake_attributions(hand_id,club_id,player_id,rake_amount,created_at)
+SELECT md5('recent-fee-'||n)::uuid,:'club',:'member',0,now()-interval '90 minutes'
+FROM generate_series(1,:recent_rows) n;
+\endif
 CREATE TEMP TABLE fee_clock_case (
   n integer PRIMARY KEY, posted interval NOT NULL, retained interval,
   original interval, amount numeric NOT NULL
@@ -50,7 +58,27 @@ BEGIN
     RAISE EXCEPTION 'legacy posting fallback changed: %',legacy;
   END IF;
 END $$;
+-- Every scan of the fee postings in this transaction, by table or by index.
+CREATE FUNCTION pg_temp.fee_posting_scans() RETURNS bigint LANGUAGE sql AS $$
+  SELECT COALESCE(pg_stat_get_xact_numscans('public.rake_attributions'::regclass),0)
+       + COALESCE((SELECT sum(pg_stat_get_xact_numscans(i.indexrelid))
+                     FROM pg_index i WHERE i.indrelid='public.rake_attributions'::regclass),0)
+$$;
+SELECT pg_temp.fee_posting_scans() AS scans_before \gset
 SELECT pg_temp.check_window(:'club',:'member');
+-- The clock window probes the postings once per hand in the window. A member
+-- is never sent there when the window holds more hands than the member has
+-- postings: reading this member must not cost one probe per platform hand.
+\if :{?recent_rows}
+CREATE FUNCTION pg_temp.require_member_route(p_before bigint,p_window bigint) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE spent bigint := pg_temp.fee_posting_scans() - p_before;
+BEGIN
+  IF spent >= p_window THEN
+    RAISE EXCEPTION 'a heavy member was sent through the global clock window: % posting scans for % window hands',spent,p_window;
+  END IF;
+END $$;
+SELECT pg_temp.require_member_route(:scans_before,:window_rows);
+\endif
 
 -- Nonfinite historical commits provide no earned time. A minus-infinity
 -- commit did admit an otherwise future posting to the original integrity check.

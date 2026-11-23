@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  LOCK_DIR_CANDIDATES,
   ONE_SIGMA_TAIL_ALPHA,
   compareVerdictsForRecompute,
   computeZFam,
@@ -10,17 +11,21 @@ import {
   evaluateSystemGate,
   normalCdf,
   normalQuantile,
+  parseGradeCliArgs,
   parseHorseLeagueOutput,
   parseResultsJsonl,
   poolEqualWeight,
   poolInverseVariance,
   renderVerdictMarkdown,
+  resolveDefaultLockPaths,
+  resolveLockDir,
   serializeResultsJsonl,
   sha256Hex,
   validateCriteriaManifest,
   verifyCriteriaContent,
 } from '../../scripts/ops/grade-holdem-option-lib.mjs';
 import {
+  CONTROL_RUNNER_BODY,
   CONTROL_RUNNER_SOURCE,
   EXIT_OK,
   EXIT_REFUSED,
@@ -364,6 +369,44 @@ describe('Unified Holdem Grade Harness — system gate evaluator', () => {
     expect(foreignLock.ok).toBe(false);
     expect(foreignLock.failures.map((f: { code: string }) => f.code)).toContain(
       'LANE_LOCK_FOREIGN_OWNER'
+    );
+  });
+});
+
+describe('Unified Holdem Grade Harness — opt-in grading beside a push on a quiet host (2026-11-22)', () => {
+  it('36. with --max-load-while-push-locked a present lock passes only below that load; unset, it always refuses', () => {
+    const quiet = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: true, load1m: 12, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(quiet.ok).toBe(true);
+    expect(quiet.checks.shepherdLock.allowedUnderLockBelowLoad).toBe(16);
+
+    const busy = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: true, load1m: 16, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(busy.ok).toBe(false);
+    expect(busy.failures.map((f: { code: string }) => f.code)).toContain('SHEPHERD_LOCK_PRESENT');
+
+    // Default (unset) keeps the original rule even on an idle host.
+    const unset = evaluateSystemGate(makeCleanGateInput({ shepherdLockExists: true, load1m: 1 }));
+    expect(unset.ok).toBe(false);
+    expect(unset.failures.map((f: { code: string }) => f.code)).toContain('SHEPHERD_LOCK_PRESENT');
+
+    // A ceiling at or above the ordinary load ceiling, or not a positive number, is ignored (fail closed).
+    for (const bad of [35, 40, 0, -1, Number.NaN]) {
+      const g = evaluateSystemGate(
+        makeCleanGateInput({ shepherdLockExists: true, load1m: 1, maxLoad1mWhilePushLocked: bad })
+      );
+      expect(g.ok).toBe(false);
+      expect(g.checks.shepherdLock.allowedUnderLockBelowLoad).toBe(null);
+    }
+
+    // The ordinary load ceiling still applies with no lock present.
+    const noLockHigh = evaluateSystemGate(
+      makeCleanGateInput({ shepherdLockExists: false, load1m: 35, maxLoad1mWhilePushLocked: 16 })
+    );
+    expect(noLockHigh.failures.map((f: { code: string }) => f.code)).toContain(
+      'SYSTEM_LOAD_TOO_HIGH'
     );
   });
 });
@@ -1068,6 +1111,235 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(recomputeRes.data.verdict).toBe('PASS');
   });
 
+  describe('--resume keeps finished cell-seed jobs across a gate abort (2026-11-22)', () => {
+    const LOCK = '/locks/shepherd.lock';
+    const baseArgs = [
+      'run',
+      '--manifest=/grade/manifest.json',
+      `--criteria-sha=${CRITERIA_SHA}`,
+      '--out=/grade/out',
+      '--workdir=/repo',
+      `--shepherd-lock=${LOCK}`,
+      '--json',
+    ];
+    function cellRunner(
+      recordMap: Map<string, Record<string, unknown>>,
+      calls: string[],
+      onCall?: (n: number) => void
+    ) {
+      return ({ cell, seed }: { cell: { id: string; role: string }; seed: number }) => {
+        calls.push(`${cell.id}::${seed}`);
+        onCall?.(calls.length);
+        const rec = recordMap.get(`${cell.id}::${seed}`)!;
+        if (cell.role === 'CONTROL') {
+          return {
+            exitCode: 0,
+            stdout: `DEVRESULT ${JSON.stringify(rec)}\n`,
+            stderr: '',
+            command: 'nice ...',
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `RESULT_JSON ${JSON.stringify({ seed, pairs: 6000, engineRevision: GIT_HEAD, result: rec })}\n`,
+          stderr: '',
+          command: 'nice ...',
+        };
+      };
+    }
+
+    it('33. a lock that appears mid-grade aborts, and --resume runs only the unfinished jobs to the same verdict', async () => {
+      const manifest = makeV80Manifest();
+      const total = manifest.cells.reduce(
+        (n: number, c: { seeds: number[] }) => n + c.seeds.length,
+        0
+      );
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+
+      // Reference: one uninterrupted run.
+      const ref = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(manifest),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const refCalls: string[] = [];
+      const straight = await runGradeCli(baseArgs, {
+        ...ref.deps,
+        runCellCommand: cellRunner(recordMap, refCalls),
+      });
+      expect(straight.exitCode).toBe(EXIT_OK);
+
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(manifest),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const firstCalls: string[] = [];
+      // Another lane takes shepherd.lock after the second job.
+      const first = await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, firstCalls, (n) => {
+          if (n === 2) vfs.files.set(resolve(LOCK), 'other lane');
+        }),
+      });
+      expect(first.exitCode).toBe(EXIT_REFUSED);
+      expect(first.data.status).toBe('MIDRUN_GATE_ABORTED');
+      expect(firstCalls).toHaveLength(2);
+      expect(vfs.files.has(resolve('/grade/out/verdict.json'))).toBe(false);
+
+      vfs.files.delete(resolve(LOCK));
+      const secondCalls: string[] = [];
+      const second = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, secondCalls),
+      });
+      expect(second.exitCode).toBe(EXIT_OK);
+      // The two finished jobs are not run again; every other job runs exactly once.
+      expect(secondCalls).toHaveLength(total - 2);
+      expect(secondCalls.some((k) => firstCalls.includes(k))).toBe(false);
+      expect([...firstCalls, ...secondCalls]).toEqual(refCalls);
+      // Same raw results, same verdict as the uninterrupted run.
+      expect(vfs.files.get(resolve('/grade/out/results.jsonl'))).toBe(
+        ref.files.get(resolve('/grade/out/results.jsonl'))
+      );
+      expect(second.data.verdict).toBe(straight.data.verdict);
+    });
+
+    it('34. --resume never re-runs a finished job that failed (ONE-LOOK) and writes no verdict', async () => {
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const calls: string[] = [];
+      const crashing = cellRunner(recordMap, calls);
+      const first = await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: (arg: { cell: { id: string; role: string }; seed: number }) => {
+          if (arg.cell.id === 'cash6_v80' && arg.seed === 20261124) {
+            calls.push('crash');
+            return { exitCode: 137, stdout: '', stderr: 'Killed', command: 'nice ...' };
+          }
+          return crashing(arg);
+        },
+      });
+      expect(first.data.status).toBe('ONE_LOOK_REFUSED_NONZERO_EXIT');
+
+      const retryCalls: string[] = [];
+      const retry = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, retryCalls),
+      });
+      expect(retry.exitCode).toBe(EXIT_REFUSED);
+      expect(retry.data.status).toBe('ONE_LOOK_REFUSED_NONZERO_EXIT');
+      expect(retry.data.cellExitCodes['cash6_v80::20261124']).toBe(137);
+      expect(retryCalls).toHaveLength(0);
+      expect(vfs.files.has(resolve('/grade/out/verdict.json'))).toBe(false);
+    });
+
+    it('35. --resume refuses results from another git tree, and refuses results with no provenance key', async () => {
+      const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+      const vfs = makeVirtualFs({
+        '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+        '/grade/CRITERIA.md': CRITERIA_TEXT,
+      });
+      const calls: string[] = [];
+      await runGradeCli(baseArgs, {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, calls, (n) => {
+          if (n === 1) vfs.files.set(resolve(LOCK), 'other lane');
+        }),
+      });
+      vfs.files.delete(resolve(LOCK));
+      const kept = vfs.files.get(resolve('/grade/out/results.jsonl'));
+      expect(kept).toBeTruthy();
+
+      const otherTreeCalls: string[] = [];
+      const otherTree = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        readGitState: () => ({ gitHead: GIT_HEAD, gitTree: 'f'.repeat(40), gitPorcelain: '' }),
+        runCellCommand: cellRunner(recordMap, otherTreeCalls),
+      });
+      expect(otherTree.exitCode).toBe(EXIT_REFUSED);
+      expect(otherTree.data.status).toBe('RESUME_PROVENANCE_MISMATCH');
+      expect(otherTree.data.message).toContain('gitTree');
+      expect(otherTreeCalls).toHaveLength(0);
+      // The refused resume does not wipe the earlier results.
+      expect(vfs.files.get(resolve('/grade/out/results.jsonl'))).toBe(kept);
+
+      vfs.files.delete(resolve('/grade/out/resume-key.json'));
+      const noKey = await runGradeCli([...baseArgs, '--resume'], {
+        ...vfs.deps,
+        runCellCommand: cellRunner(recordMap, []),
+      });
+      expect(noKey.data.status).toBe('RESUME_PROVENANCE_UNKNOWN');
+    });
+  });
+
+  it('37. --max-load-while-push-locked reaches the mid-run gate: a lock taken mid-grade on a quiet host does not abort', async () => {
+    const LOCK = '/locks/shepherd.lock';
+    const args = [
+      'run',
+      '--manifest=/grade/manifest.json',
+      `--criteria-sha=${CRITERIA_SHA}`,
+      '--out=/grade/out',
+      '--workdir=/repo',
+      `--shepherd-lock=${LOCK}`,
+      '--json',
+    ];
+    const recordMap = new Map(makePassingV80Records().map((r) => [`${r.cellId}::${r.seed}`, r]));
+    const runner = (vfs: ReturnType<typeof makeVirtualFs>) => {
+      let n = 0;
+      return ({ cell, seed }: { cell: { id: string; role: string }; seed: number }) => {
+        n += 1;
+        if (n === 1) vfs.files.set(resolve(LOCK), 'other lane pushing');
+        const rec = recordMap.get(`${cell.id}::${seed}`)!;
+        if (cell.role === 'CONTROL') {
+          return {
+            exitCode: 0,
+            stdout: `DEVRESULT ${JSON.stringify(rec)}\n`,
+            stderr: '',
+            command: 'nice ...',
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `RESULT_JSON ${JSON.stringify({ seed, pairs: 6000, engineRevision: GIT_HEAD, result: rec })}\n`,
+          stderr: '',
+          command: 'nice ...',
+        };
+      };
+    };
+    // Without the flag the lock aborts the grade (load is 8.5 in the virtual host).
+    const strict = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const strictRes = await runGradeCli(args, { ...strict.deps, runCellCommand: runner(strict) });
+    expect(strictRes.data.status).toBe('MIDRUN_GATE_ABORTED');
+
+    // With a ceiling above the load, the grade finishes and scores.
+    const quiet = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const quietRes = await runGradeCli([...args, '--max-load-while-push-locked=16'], {
+      ...quiet.deps,
+      runCellCommand: runner(quiet),
+    });
+    expect(quietRes.exitCode).toBe(EXIT_OK);
+    expect(quietRes.data.verdict).toBe('PASS');
+
+    // With a ceiling below the load, it aborts as before.
+    const busy = makeVirtualFs({
+      '/grade/manifest.json': JSON.stringify(makeV80Manifest()),
+      '/grade/CRITERIA.md': CRITERIA_TEXT,
+    });
+    const busyRes = await runGradeCli([...args, '--max-load-while-push-locked=8'], {
+      ...busy.deps,
+      runCellCommand: runner(busy),
+    });
+    expect(busyRes.data.status).toBe('MIDRUN_GATE_ABORTED');
+  });
+
   it('25. source security invariant: harness never reads .env, secrets, or mutates Supabase/switch tables', () => {
     const libSrc = readFileSync(
       resolve(__dirname, '../../scripts/ops/grade-holdem-option-lib.mjs'),
@@ -1091,6 +1363,21 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(cliSrc).toContain('src/scripts/horseLeagueCard.ts');
   });
 
+  it('38. CONTROL_RUNNER_SOURCE compiles as the CommonJS that `tsx -e` emits (no top-level await) and wraps the body', async () => {
+    const { transformSync } = await import('esbuild');
+    // tsx -e compiles eval input with esbuild to cjs; top-level await is a hard error there.
+    expect(() => transformSync(CONTROL_RUNNER_BODY, { loader: 'ts', format: 'cjs' })).toThrow(
+      /Top-level await/
+    );
+    expect(() =>
+      transformSync(CONTROL_RUNNER_SOURCE, { loader: 'ts', format: 'cjs' })
+    ).not.toThrow();
+    expect(CONTROL_RUNNER_SOURCE).toContain(CONTROL_RUNNER_BODY);
+    expect(CONTROL_RUNNER_SOURCE).toMatch(
+      /\.catch\(\(err\) => \{\s*console\.error\(err\);\s*process\.exit\(1\);/
+    );
+  });
+
   it('26. CONTROL_RUNNER_SOURCE resolves DEVELOPMENT_LEAGUE_CARDS and falls back cleanly when undefined', async () => {
     expect(CONTROL_RUNNER_SOURCE).toContain("await import('./src/benchmark/HorseLeague.js')");
     expect(CONTROL_RUNNER_SOURCE).toContain('HL.DEVELOPMENT_LEAGUE_CARDS ?? []');
@@ -1106,7 +1393,7 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     ) {
       const capturedLogs: string[] = [];
       let exitCode: number | null = null;
-      const rewritten = CONTROL_RUNNER_SOURCE.replace(
+      const rewritten = CONTROL_RUNNER_BODY.replace(
         /await import\((['"][^'"]+['"])\)/g,
         'await __import($1)'
       );
@@ -1474,5 +1761,66 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
         bars: { ...manifestBase.bars, primaryPoolingMethod: 'median' },
       })
     ).toThrow(/primaryPoolingMethod/);
+  });
+
+  it('32. resolves lock dir via HS_LOCK_DIR env override and portable SmarterWork / SmarterWork 1 auto-discovery', () => {
+    expect(LOCK_DIR_CANDIDATES).toEqual([
+      '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+    ]);
+
+    // 1. HS_LOCK_DIR env override wins (and trims trailing slashes)
+    expect(
+      resolveLockDir({
+        env: { HS_LOCK_DIR: '  /custom/ssd2/locks/// ' },
+        pathExists: () => true,
+      })
+    ).toBe('/custom/ssd2/locks');
+
+    // 2. Auto-discovers canonical /Volumes/SmarterWork path when present
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: (p: string) =>
+          p === '/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      })
+    ).toBe('/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 3. Auto-discovers suffixed /Volumes/SmarterWork 1 path when canonical mount is absent
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: (p: string) =>
+          p === '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+      })
+    ).toBe('/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 4. Falls back cleanly to first candidate when no mount exists
+    expect(
+      resolveLockDir({
+        env: {},
+        pathExists: () => false,
+      })
+    ).toBe('/Volumes/SmarterWork/agent-work/shared-capacity/hs-locks-01UxDLnM4');
+
+    // 5. resolveDefaultLockPaths and parseGradeCliArgs wire HS_LOCK_DIR and suffixed mount cleanly
+    const suffixedPaths = resolveDefaultLockPaths({
+      env: {},
+      pathExists: (p: string) =>
+        p === '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4',
+    });
+    expect(suffixedPaths.shepherdLock).toBe(
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/shepherd.lock'
+    );
+    expect(suffixedPaths.coreGateScript).toBe(
+      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/core-gate-running.py'
+    );
+
+    const parsedEnv = parseGradeCliArgs(['preflight', '--manifest=m.json'], {
+      env: { HS_LOCK_DIR: '/env/locks' },
+      pathExists: () => false,
+    });
+    expect(parsedEnv.flags.shepherdLock).toBe('/env/locks/shepherd.lock');
+    expect(parsedEnv.flags.coreGateScript).toBe('/env/locks/core-gate-running.py');
   });
 });

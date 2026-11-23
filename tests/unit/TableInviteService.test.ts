@@ -186,7 +186,7 @@ describe('TableInviteService', () => {
 
       expect(cashRes).toEqual({
         ok: true,
-        actionUrl: '/table/tbl-42?i=tok_abc&cluster=cl-7&invite=CLUB77',
+        actionUrl: '/table/tbl-42?i=CLUB77&cluster=cl-7&invite=tok_abc',
         cooldownMs: TABLE_INVITE_COOLDOWN_MS,
       });
 
@@ -196,7 +196,7 @@ describe('TableInviteService', () => {
       expect(inserted.title).toBe('Table Invite');
       expect(inserted.message).toBe('KingFish Invited You To Join Diamond Holdem');
       expect(inserted.message).not.toMatch(/\u2014/);
-      expect(inserted.action_url).toBe('/table/tbl-42?i=tok_abc&cluster=cl-7&invite=CLUB77');
+      expect(inserted.action_url).toBe('/table/tbl-42?i=CLUB77&cluster=cl-7&invite=tok_abc');
       expect(inserted.read).toBe(false);
       expect(inserted.data).toMatchObject({
         table_id: 'tbl-42',
@@ -216,7 +216,7 @@ describe('TableInviteService', () => {
         fromUserId: 'hero-1',
         from_name: 'KingFish',
         fromName: 'KingFish',
-        action_url: '/table/tbl-42?i=tok_abc&cluster=cl-7&invite=CLUB77',
+        action_url: '/table/tbl-42?i=CLUB77&cluster=cl-7&invite=tok_abc',
       });
 
       // Lightning invite
@@ -231,11 +231,11 @@ describe('TableInviteService', () => {
       });
       expect(lightningRes).toMatchObject({
         ok: true,
-        actionUrl: '/lightning/lgt-99?i=ltok',
+        actionUrl: '/lightning/lgt-99?invite=ltok',
       });
       const lightningRow = insertMock.mock.calls[1][0] as Record<string, unknown>;
       expect(lightningRow.title).toBe('Lightning Table Invite');
-      expect(lightningRow.action_url).toBe('/lightning/lgt-99?i=ltok');
+      expect(lightningRow.action_url).toBe('/lightning/lgt-99?invite=ltok');
 
       // Tournament invite
       const tourneyRes = await sendInAppTableInvite({

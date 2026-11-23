@@ -1,0 +1,4 @@
+{
+  "_owner": "20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql updates existing live promo functions fn_ca_promo_lock_grant_funds and fn_ca_promo_play_through_record_grant.",
+  "functions": ["fn_ca_promo_lock_grant_funds", "fn_ca_promo_play_through_record_grant"]
+}

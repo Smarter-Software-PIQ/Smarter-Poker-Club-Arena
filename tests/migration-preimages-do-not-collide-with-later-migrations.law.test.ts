@@ -100,6 +100,53 @@ describe('migration pre-image MD5 freshness check', () => {
     });
   });
 
+  it('reads the catalog-row spelling of @live-proof (the newest image of a function wins)', () => {
+    // 20261118024233 on main declares its result this way. Until 2026-11-22 the
+    // analyzer skipped it, kept the older image as current, and refused a
+    // correct later pin (PR #11775, incident 9408cfd4).
+    const rowProof = (md5: string) =>
+      `-- @live-proof: (SELECT md5(pg_get_functiondef(oid))='${md5}' AND prosecdef FROM pg_proc WHERE oid='public.fn_row(uuid,timestamptz)'::regprocedure)`;
+    const pin = (md5: string) => `
+      DO $before$
+      BEGIN
+        IF md5(pg_get_functiondef('public.fn_row(uuid,timestamptz)'::regprocedure)) <> '${md5}' THEN
+          RAISE EXCEPTION 'changed';
+        END IF;
+      END
+      $before$;`;
+    const first = {
+      file: 'supabase/migrations/20261118010000_first.sql',
+      sql: `-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_row(uuid,timestamptz)'::regprocedure)) = '${MD5_A}')`,
+    };
+    const second = {
+      file: 'supabase/migrations/20261118020000_second.sql',
+      sql: rowProof(MD5_B) + pin(MD5_A),
+    };
+
+    expect(
+      findPreimageCollisions([
+        first,
+        second,
+        {
+          file: 'supabase/migrations/20261122010000_current.sql',
+          sql: rowProof(MD5_C) + pin(MD5_B),
+        },
+      ])
+    ).toEqual([]);
+
+    const stale = findPreimageCollisions([
+      first,
+      second,
+      { file: 'supabase/migrations/20261122010000_stale.sql', sql: pin(MD5_A) },
+    ]);
+    expect(stale).toHaveLength(1);
+    expect(stale[0]).toMatchObject({
+      expectedPreMd5: MD5_A,
+      earlierFile: 'supabase/migrations/20261118020000_second.sql',
+      earlierPostMd5: MD5_B,
+    });
+  });
+
   it('passes clean chaining when the later migration pins post-image Y from the earlier migration', () => {
     const migrations = [
       {

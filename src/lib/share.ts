@@ -441,11 +441,62 @@ export function lobbyEntryInviteTarget(
   };
 }
 
+export interface TableInviteContext {
+  tableId: string;
+  /** The Lightning cluster this room belongs to, when it is a Lightning room. */
+  lightningClusterId?: string | null;
+  isTournament: boolean;
+  tournamentId?: string | null;
+  /** Must-Move cash game id of a cash table. */
+  clusterId?: string | null;
+  inviteCode?: string | null;
+  /**
+   * The Heads Up seat-hold token while the inviter holds the other seat for
+   * one named player (wait mode "Specific Player"), else null.
+   */
+  seatHoldToken?: string | null;
+}
+
+/**
+ * WHAT AN INVITE SENT FROM A TABLE POINTS AT (2026-11-22). One decision for
+ * the link, the system share sheet and the in-app friend invite, so the three
+ * can never name different games.
+ *
+ * A tournament table is NOT the game's address. A Spin, a Sit & Go and a
+ * satellite recycle their tables, a running MTT moves the inviter from table
+ * to table, and a friend sent to "the table I am at" lands as a spectator at
+ * a felt with other people seated, or on "Table Unavailable". The tournament
+ * is the address: its page knows whether the game is still open, where its
+ * live table is, and which game replaced it once it started.
+ *
+ * The one exception is a Heads Up seat being held for a named player: the
+ * hold's token opens that one seat at that one table, so that link is the
+ * table with the token.
+ */
+export function tableInviteTarget(ctx: TableInviteContext): GameInviteTarget {
+  const inviteCode = normalizeInviteCode(ctx.inviteCode);
+  const code = inviteCode ? { inviteCode } : {};
+  if (ctx.lightningClusterId) {
+    return { kind: 'lightning', id: ctx.lightningClusterId, ...code };
+  }
+  if (ctx.isTournament) {
+    const seatHoldToken = normalizeInviteToken(ctx.seatHoldToken);
+    if (seatHoldToken) {
+      return { kind: 'table', id: ctx.tableId, ...code, inviteToken: seatHoldToken };
+    }
+    if (ctx.tournamentId) return { kind: 'tournament', id: ctx.tournamentId, ...code };
+    return { kind: 'table', id: ctx.tableId, ...code };
+  }
+  const clusterId = normalizeUuid(ctx.clusterId);
+  return { kind: 'table', id: ctx.tableId, ...code, ...(clusterId ? { clusterId } : {}) };
+}
+
 /**
  * Canonical invite URL for any Club Arena game: Lightning clusters point at
- * their Lightning join route; classic cash tables and seated seat-first tables
- * point directly at the table; MTTs, multi-seat SNGs, Spins and Satellites
- * shared from the lobby point at the tournament preview link.
+ * their Lightning join route; classic cash tables, and a Heads Up seat held
+ * for a named player, point directly at the table; every other tournament
+ * (MTT, Sit & Go, Spin, Heads Up, Satellite) points at the tournament preview
+ * link, from the lobby and from the table alike (tableInviteTarget).
  */
 export function gameInviteUrl(
   target: GameInviteTarget,

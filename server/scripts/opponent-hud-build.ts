@@ -27,6 +27,7 @@ import {
   applyHudHandToProfiles,
   emptyHudProfile,
   handRecordFromRow,
+  type HudHandRecord,
   type OpponentHudProfile,
 } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
@@ -36,8 +37,12 @@ import {
 } from '../src/engine/opponentHud/OpponentHud.js';
 import { extractHandDeltas } from '../src/engine/opponentHud/OpponentHudProfile.js';
 import {
+  HUD_BACKFILL_DEFAULT_CONCURRENCY,
+  HUD_BACKFILL_DEFAULT_WINDOW_HOURS,
+  HUD_BACKFILL_MAX_CONCURRENCY,
   HUD_BACKFILL_PAGE_LIMIT,
-  pageAllOpponentHudHands,
+  SharedBackfillPacer,
+  pageAllOpponentHudHandsConcurrent,
   planOpponentHudBackfill,
   withTransientBackfillRetry,
 } from '../src/engine/opponentHud/OpponentHudBackfillPlan.js';
@@ -57,8 +62,7 @@ let hands = 0;
 let lastHandAt = -1;
 const t0 = Date.now();
 
-function take(row: unknown): void {
-  const rec = handRecordFromRow(row);
+function takeRecord(rec: HudHandRecord | string): void {
   if (typeof rec === 'string') {
     refusals.set(rec, (refusals.get(rec) ?? 0) + 1);
     return;
@@ -89,6 +93,10 @@ function take(row: unknown): void {
   });
 }
 
+function take(row: unknown): void {
+  takeRecord(handRecordFromRow(row));
+}
+
 async function fromJsonl(file: string): Promise<void> {
   const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) if (line.trim()) take(JSON.parse(line));
@@ -109,6 +117,14 @@ async function db() {
  */
 const BASE_PAUSE_MS = Math.max(0, Number(opt('--pause-ms') ?? 200) || 0);
 const SLOW_MS = Math.max(1000, Number(opt('--slow-ms') ?? 1000) || 1000);
+const CONCURRENCY = Math.min(
+  HUD_BACKFILL_MAX_CONCURRENCY,
+  Math.max(1, Math.floor(Number(opt('--concurrency') ?? HUD_BACKFILL_DEFAULT_CONCURRENCY) || 1))
+);
+const WINDOW_HOURS = Math.min(
+  168,
+  Math.max(1, Number(opt('--window-hours') ?? HUD_BACKFILL_DEFAULT_WINDOW_HOURS) || 4)
+);
 let pauseMs = BASE_PAUSE_MS;
 async function paced<T>(call: () => PromiseLike<T>): Promise<T> {
   const t0 = Date.now();
@@ -146,34 +162,58 @@ async function firstRetainedHandMs(): Promise<number | null> {
 
 async function fromDb(since: string, until: string): Promise<void> {
   const client = await db();
-  const res = await pageAllOpponentHudHands({
+  const pacer = new SharedBackfillPacer({
+    maxConcurrency: CONCURRENCY,
+    basePauseMs: BASE_PAUSE_MS,
+    slowMs: SLOW_MS,
+  });
+  process.stderr.write(
+    `fromDb start: concurrency=${CONCURRENCY} windowHours=${WINDOW_HOURS} limit=${HUD_BACKFILL_PAGE_LIMIT} slowMs=${SLOW_MS} basePauseMs=${BASE_PAUSE_MS}\n`
+  );
+  const res = await pageAllOpponentHudHandsConcurrent<
+    { id: string; created_at: string },
+    HudHandRecord | string
+  >({
     since,
     until,
+    concurrency: CONCURRENCY,
+    windowMs: Math.round(WINDOW_HOURS * 3600 * 1000),
     limit: HUD_BACKFILL_PAGE_LIMIT,
+    pacer,
     fetchPage: async ({ afterAt, afterId, until: u, limit }) => {
-      const { data, error } = await paced(() =>
-        client.rpc('fn_opponent_hud_hands_page', {
-          p_after_at: afterAt,
-          p_after_id: afterId,
-          p_until: u,
-          p_limit: limit,
-        })
-      );
+      const { data, error } = await client.rpc('fn_opponent_hud_hands_page', {
+        p_after_at: afterAt,
+        p_after_id: afterId,
+        p_until: u,
+        p_limit: limit,
+      });
       if (error) throw new Error(`hands page failed: ${error.message}`);
       return (data ?? []) as { id: string; created_at: string }[];
     },
-    onRow: (r) => take(r),
-    onPage: ({ afterAt }) => {
-      process.stderr.write(`hands ${hands} through ${afterAt}\n`);
+    mapRow: (r) => handRecordFromRow(r),
+    onItem: (rec) => takeRecord(rec),
+    onWindowComplete: ({
+      windowIndex,
+      totalWindows,
+      rows,
+      until: winUntil,
+      effectiveConcurrency,
+      pauseMs: curPause,
+    }) => {
+      if (rows > 0 || windowIndex === totalWindows - 1) {
+        process.stderr.write(
+          `window ${windowIndex + 1}/${totalWindows} hands ${hands} through ${winUntil} (c=${effectiveConcurrency} pause=${curPause}ms)\n`
+        );
+      }
     },
-    onRetry: ({ attempt, prevLimit, nextLimit, delayMs, afterAt, message }) => {
+    onRetry: ({ windowIndex, attempt, prevLimit, nextLimit, delayMs, afterAt, message }) => {
       process.stderr.write(
-        `hands page retry #${attempt} at ${afterAt} (limit ${prevLimit} -> ${nextLimit}, wait ${delayMs}ms): ${message}\n`
+        `hands page retry #${attempt} [w${windowIndex}] at ${afterAt} (limit ${prevLimit} -> ${nextLimit}, wait ${delayMs}ms): ${message}\n`
       );
     },
   });
   process.stderr.write(
-    `fromDb complete: pages=${res.pages} rows=${res.rows} retries=${res.retries} last=${res.afterAt}\n`
+    `fromDb complete: windows=${res.windows} pages=${res.pages} rows=${res.rows} retries=${res.retries} last=${res.afterAt}\n`
   );
 }
 
