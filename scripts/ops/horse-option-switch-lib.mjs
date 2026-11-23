@@ -1439,7 +1439,6 @@ export function parseCliArgs(argv) {
   return { command, positionals, flags };
 }
 
-
 // ── Live switch state snapshot (authority-doc drift guard, 2026-11-23, Horse SWITCH lane) ─────────────
 //
 // docs/horse-option-switch-state.json is the committed copy of public.ca_horse_style_switch as the last
@@ -1462,7 +1461,11 @@ export function buildSwitchStateSnapshotSql() {
 
 function toIsoUtc(value) {
   if (value === null || value === undefined || value === '') return null;
-  const d = new Date(String(value).replace(' ', 'T').replace(/\+00(:00)?$/, 'Z'));
+  const d = new Date(
+    String(value)
+      .replace(' ', 'T')
+      .replace(/\+00(:00)?$/, 'Z')
+  );
   return Number.isNaN(d.getTime()) ? String(value) : d.toISOString();
 }
 
@@ -1486,7 +1489,10 @@ export function snapshotFromRows(rows, asOfUtc) {
 export function applySwitchStateChange(snapshot, { option, state, auditId, changedAt }) {
   assertSafeOptionName(option);
   const base =
-    snapshot && snapshot.schema === SWITCH_STATE_SCHEMA && snapshot.rows && typeof snapshot.rows === 'object'
+    snapshot &&
+    snapshot.schema === SWITCH_STATE_SCHEMA &&
+    snapshot.rows &&
+    typeof snapshot.rows === 'object'
       ? snapshot
       : { schema: SWITCH_STATE_SCHEMA, asOfUtc: null, auditMax: null, rows: {} };
   const rows = { ...base.rows };
@@ -1495,8 +1501,13 @@ export function applySwitchStateChange(snapshot, { option, state, auditId, chang
   const auditMax =
     auditId !== null && auditId !== undefined
       ? Math.max(Number(base.auditMax ?? 0), Number(auditId))
-      : base.auditMax ?? null;
-  return { schema: SWITCH_STATE_SCHEMA, asOfUtc: toIsoUtc(changedAt) ?? base.asOfUtc, auditMax, rows };
+      : (base.auditMax ?? null);
+  return {
+    schema: SWITCH_STATE_SCHEMA,
+    asOfUtc: toIsoUtc(changedAt) ?? base.asOfUtc,
+    auditMax,
+    rows,
+  };
 }
 
 export function formatSwitchStateSnapshot(snapshot) {
@@ -1539,7 +1550,8 @@ export function findAuthorityDocStateDrift({ snapshot, docs }) {
       (parsed.state === 'off' && (live === 'off' || live === 'default')) ||
       (parsed.state === 'shadow' && live === 'shadow') ||
       (parsed.state === 'on_shadow' && live === 'on_shadow');
-    if (!ok) drift.push({ option, docState: parsed.state, docStateText: parsed.raw, liveState: live });
+    if (!ok)
+      drift.push({ option, docState: parsed.state, docStateText: parsed.raw, liveState: live });
   }
   return drift.sort((a, b) => a.option.localeCompare(b.option));
 }

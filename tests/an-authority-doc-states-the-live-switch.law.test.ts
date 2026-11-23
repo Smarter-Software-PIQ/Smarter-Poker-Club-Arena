@@ -45,16 +45,23 @@ describe('an authority doc states the live switch', () => {
     expect(snapshot.schema).toBe(SWITCH_STATE_SCHEMA);
     expect(typeof snapshot.asOfUtc).toBe('string');
     expect(Object.keys(snapshot.rows).length).toBeGreaterThan(0);
-    for (const [option, row] of Object.entries(snapshot.rows as Record<string, { state: string }>)) {
+    for (const [option, row] of Object.entries(
+      snapshot.rows as Record<string, { state: string }>
+    )) {
       expect(option).toMatch(/^[A-Za-z][A-Za-z0-9_]*$/);
       expect(['on', 'off', 'shadow', 'on_shadow', 'canary']).toContain(row.state);
     }
-    expect(readFileSync(join(ROOT, SWITCH_STATE_FILE), 'utf8')).toBe(formatSwitchStateSnapshot(snapshot));
+    expect(readFileSync(join(ROOT, SWITCH_STATE_FILE), 'utf8')).toBe(
+      formatSwitchStateSnapshot(snapshot)
+    );
   });
 
   it('no authority doc states a switch state the snapshot does not hold', () => {
     const drift = findAuthorityDocStateDrift({ snapshot, docs: registeredAuthorityDocs() });
-    expect(drift, `authority docs out of step with ${SWITCH_STATE_FILE}: ${JSON.stringify(drift)}`).toEqual([]);
+    expect(
+      drift,
+      `authority docs out of step with ${SWITCH_STATE_FILE}: ${JSON.stringify(drift)}`
+    ).toEqual([]);
   });
 
   it('reads the State token the docs use', () => {
@@ -72,8 +79,20 @@ describe('an authority doc states the live switch', () => {
   it('judges each pairing of doc State and live row', () => {
     const snap = snapshotFromRows(
       [
-        { option: 'aOn', state: 'on', updated_at: '2026-11-23 01:25:29+00', audit_id: 186, audit_max: 189 },
-        { option: 'bOff', state: 'off', updated_at: '2026-11-22 19:51:28+00', audit_id: 181, audit_max: 189 },
+        {
+          option: 'aOn',
+          state: 'on',
+          updated_at: '2026-11-23 01:25:29+00',
+          audit_id: 186,
+          audit_max: 189,
+        },
+        {
+          option: 'bOff',
+          state: 'off',
+          updated_at: '2026-11-22 19:51:28+00',
+          audit_id: 181,
+          audit_max: 189,
+        },
       ],
       '2026-11-23T05:05:00Z'
     );
@@ -92,7 +111,15 @@ describe('an authority doc states the live switch', () => {
 
   it('a verified write updates one row, and a cleared row goes back to the release default', () => {
     const base = snapshotFromRows(
-      [{ option: 'v79TopPairWeakKicker', state: 'off', updated_at: '2026-11-23 02:26:33+00', audit_id: 187, audit_max: 187 }],
+      [
+        {
+          option: 'v79TopPairWeakKicker',
+          state: 'off',
+          updated_at: '2026-11-23 02:26:33+00',
+          audit_id: 187,
+          audit_max: 187,
+        },
+      ],
       '2026-11-23T02:30:00Z'
     );
     const on = applySwitchStateChange(base, {
@@ -122,8 +149,20 @@ describe('an authority doc states the live switch', () => {
     const writes: Array<{ file: string; text: string }> = [];
     const deps = {
       queryDb: () => [
-        { option: 'zLast', state: 'off', updated_at: '2026-11-23 04:17:47+00', audit_id: 188, audit_max: 189 },
-        { option: 'aFirst', state: 'on', updated_at: '2026-11-23 01:25:29+00', audit_id: 186, audit_max: 189 },
+        {
+          option: 'zLast',
+          state: 'off',
+          updated_at: '2026-11-23 04:17:47+00',
+          audit_id: 188,
+          audit_max: 189,
+        },
+        {
+          option: 'aFirst',
+          state: 'on',
+          updated_at: '2026-11-23 01:25:29+00',
+          audit_id: 186,
+          audit_max: 189,
+        },
       ],
       writeStateFile: (file: string, text: string) => writes.push({ file, text }),
       now: () => new Date('2026-11-23T05:05:00Z'),
