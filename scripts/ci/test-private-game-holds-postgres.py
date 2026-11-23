@@ -484,12 +484,13 @@ try:
             time.sleep(0.05)
         return False
 
+    def finish_psql(p, timeout=15):
+        assert p.stdout is not None and p.stderr is not None
+        p.wait(timeout=timeout)
+        return p.stdout.read(), p.stderr.read()
+
     def release_barrier(p, extra_sql=''):
-        assert p.stdin is not None
-        p.stdin.write(f"{extra_sql}\nCOMMIT;\n")
-        p.stdin.flush()
-        p.stdin.close()
-        out, err = p.communicate(timeout=15)
+        out, err = p.communicate(input=f"{extra_sql}\nCOMMIT;\n", timeout=15)
         if p.returncode != 0:
             raise RuntimeError(f'barrier commit failed: {out} {err}')
 
@@ -504,7 +505,7 @@ try:
     # Acquire the event row while still holding (530090, 1): would deadlock (40P01)
     # if fn_invite_to_private_game locked tournaments before calling the door.
     release_barrier(b1, f"SELECT 1 FROM public.tournaments WHERE id = '{race_lock}' FOR NO KEY UPDATE;")
-    out1, err1 = p_inv_lock.communicate(timeout=15)
+    out1, err1 = finish_psql(p_inv_lock)
     r_lock = json.loads(out1.strip().splitlines()[-1]) if p_inv_lock.returncode == 0 else {}
     ok(p_inv_lock.returncode == 0 and 'deadlock' not in err1.lower() and r_lock.get('ok') is True
        and r_lock.get('seats_held') == 2 and balance(inv_lock) == 90.0 and entries(race_lock) == 1,
@@ -519,8 +520,8 @@ try:
     ok(wait_waiting_locks(2),
        'concurrency two-inviters: both unregistered inviters pass early reads and queue on (530090, 1)')
     release_barrier(b2)
-    oa, ea = pa.communicate(timeout=15)
-    ob, eb = pb.communicate(timeout=15)
+    oa, ea = finish_psql(pa)
+    ob, eb = finish_psql(pb)
     ra = json.loads(oa.strip().splitlines()[-1]) if pa.returncode == 0 and oa.strip() else {'ok': False, 'err': ea}
     rb = json.loads(ob.strip().splitlines()[-1]) if pb.returncode == 0 and ob.strip() else {'ok': False, 'err': eb}
     ok('deadlock' not in (ea + eb).lower() and pa.returncode == 0 and pb.returncode == 0,
@@ -545,8 +546,8 @@ try:
     ok(wait_waiting_locks(2),
        'concurrency inviter-vs-stranger: both queue on (530090, 1) with two open seats left')
     release_barrier(b3)
-    ois, eis = p_is.communicate(timeout=15)
-    oss, ess = p_ss.communicate(timeout=15)
+    ois, eis = finish_psql(p_is)
+    oss, ess = finish_psql(p_ss)
     ok('deadlock' not in (eis + ess).lower() and p_is.returncode == 0,
        'concurrency inviter-vs-stranger: zero deadlock')
     ris = json.loads(ois.strip().splitlines()[-1])
@@ -577,8 +578,8 @@ try:
     ok(wait_waiting_locks(2),
        'concurrency registered-inviter-vs-horse: both queue on the tournaments event lock')
     release_barrier(b4)
-    oih, eih = p_ih.communicate(timeout=15)
-    ohh, ehh = p_hh.communicate(timeout=15)
+    oih, eih = finish_psql(p_ih)
+    ohh, ehh = finish_psql(p_hh)
     ok('deadlock' not in (eih + ehh).lower() and p_ih.returncode == 0,
        'concurrency registered-inviter-vs-horse: zero deadlock')
     rih = json.loads(oih.strip().splitlines()[-1])
