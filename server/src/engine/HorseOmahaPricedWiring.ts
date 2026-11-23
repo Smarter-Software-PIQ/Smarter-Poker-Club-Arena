@@ -24,12 +24,21 @@ import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire, telemetryOn } from './BrainTelemetry.js';
 import { saveFastRandom } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
-import { hudLifetimeCountOf, hudStat } from './opponentHud/OpponentHud.js';
+import { HUD_DEFAULT_K, hudLifetimeCountOf, hudStat } from './opponentHud/OpponentHud.js';
 import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
-import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
+import { omahaBetSizeBucket, type OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_FLOP_EV_PRIOR_OTHER,
+  OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND,
+  OMAHA_FLOP_EV_VALUE_SHARE,
+  omahaFlopEvCounts,
+  omahaFlopFittedRealization,
+  omahaFlopHandClass,
+} from './HorseOmahaFlopFacingBetEv.js';
 import {
   OMAHA_BIG_DRAW_OOP_REALISATION,
   omahaBigDrawEquities,
+  omahaComboDrawForRaise,
   omahaDrawRaiseBarOf,
   omahaHeroInPosition,
 } from './HorseOmahaBigDrawAggression.js';
@@ -92,6 +101,22 @@ const num = (v: unknown): number =>
 export type OmahaPricedScopeOpts = Pick<HorseDecideOpts, 'omahaPricedInLightning' | 'telemetry'>;
 export const omahaPricedInLightningOn = (opts: OmahaPricedScopeOpts | null | undefined): boolean =>
   opts?.omahaPricedInLightning === true;
+
+/**
+ * omahaTurnRiverRaiseIsPricedInLightning (PLO-OWNER lead-4 2026-11-22, default OFF, read `=== true`):
+ * opens Lightning PLO4/PLO5 cash ONLY to omahaTurnRiverRaiseIsPriced (so #2 omahaRiverNutRaiseOnly has
+ * a priced Lightning owner without widening omahaPricedInLightning to every other priced rule).
+ * NUTS ONLY (Turn 5b 2026-11-22, owner ruling 2026-11-15 12:52): in a Lightning pool with this option on,
+ * the rule never makes a raise with a hand that is not nut class (omahaNutClassNow) and never keeps one
+ * another owner proposed; the price only chooses between the call and the fold for it.
+ */
+export const omahaTurnRiverRaiseInLightningOn = (
+  opts:
+    | Pick<HorseDecideOpts, 'omahaPricedInLightning' | 'omahaTurnRiverRaiseIsPricedInLightning'>
+    | null
+    | undefined
+): boolean =>
+  opts?.omahaPricedInLightning === true || opts?.omahaTurnRiverRaiseIsPricedInLightning === true;
 
 /**
  * PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning (Lightning too when the decision's
@@ -382,7 +407,9 @@ function raiseVerdictOf(
  * omahaRiverNutRaiseOnly in PLO4/PLO5 cash). The outermost answer on the turn
  * and river facing a wager: fold, call and a raise to each legal size are
  * priced on the exact hand. A raise is made when it is worth more than the
- * best other action by the margin, with any hand; a raise another owner
+ * best other action by the margin, with any hand (NOT in a Lightning pool
+ * with omahaTurnRiverRaiseIsPricedInLightning on: there only a nut-class
+ * hand raises, see nutsOnly below); a raise another owner
  * proposed that is not becomes the priced call or fold; a call or fold
  * another owner chose stays unless a raise is priced above it. A nut-class
  * hand keeps the raise or the call it was given (its raise is never worth
@@ -395,11 +422,20 @@ export function omahaPricedTurnRiverRaiseRule(
   opts: HorseDecideOpts,
   deps: OmahaPricedDeps
 ): HorseDecision | null {
-  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, opts))
+  const inLightning = omahaTurnRiverRaiseInLightningOn(opts);
+  const scopeOpts =
+    inLightning === omahaPricedInLightningOn(opts)
+      ? opts
+      : { ...opts, omahaPricedInLightning: true };
+  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, scopeOpts))
     return null;
   const tele = telemetryOn(opts);
+  const narrowLightning =
+    opts.omahaTurnRiverRaiseIsPricedInLightning === true &&
+    opts.omahaPricedInLightning !== true &&
+    gs.publicMemoryDomain?.speed === 'lightning';
   try {
-    const scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
+    const scope = omahaRaiseNeedsNutsScope(player, gs, inLightning);
     if (!scope) return null;
     const raises = omahaDecisionRaises(decision, player, scope);
     if (
@@ -409,9 +445,29 @@ export function omahaPricedTurnRiverRaiseRule(
       decision.action !== 'all_in'
     )
       return decision;
+    if (tele && narrowLightning) noteFire('omaha_turn_river_raise_in_lightning');
     if (omahaNutClassNow(player, gs)) {
       if (tele && raises) noteFire('omaha_priced_raise_kept');
       return decision;
+    }
+    // omahaTurnRiverRaiseIsPricedInLightning, NUTS ONLY (owner ruling 2026-11-15 12:52: on the turn and
+    // river facing a bet a hand that is not the nuts folds or at best calls). In a Lightning pool with the
+    // option on, a call or a fold is never priced up to a raise, and a raise another owner proposed is
+    // never kept: the price chooses its call or its fold; with no price it is the call (the brain wanted
+    // more chips in with this hand, and no price is no evidence that folding beats calling).
+    const nutsOnly =
+      opts.omahaTurnRiverRaiseIsPricedInLightning === true &&
+      gs.publicMemoryDomain?.speed === 'lightning';
+    if (nutsOnly) {
+      if (!raises) return decision;
+      if (tele) noteFire('omaha_turn_river_raise_in_lightning_non_nut_no_raise');
+      const pricedNonNut = raiseVerdictOf(decision, player, gs, opts, deps);
+      if (!pricedNonNut || pricedNonNut.verdict.callStands) {
+        if (tele && pricedNonNut) noteFire('omaha_priced_raise_called');
+        return omahaRaiseNeedsNutsCall(decision, scope);
+      }
+      if (tele) noteFire('omaha_priced_raise_folded');
+      return folded(decision);
     }
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
@@ -479,11 +535,16 @@ export function omahaPricedOwnsTurnRiverRaise(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
+  const inLightning = omahaTurnRiverRaiseInLightningOn(opts);
+  const scopeOpts =
+    inLightning === omahaPricedInLightningOn(opts)
+      ? opts
+      : { ...opts, omahaPricedInLightning: true };
   return (
     opts.omahaTurnRiverRaiseIsPriced === true &&
-    omahaPricedInScope(player, gs, opts) &&
+    omahaPricedInScope(player, gs, scopeOpts) &&
     // every spot in scope, priceable or not (#11212): the inner nut rule never decides one
-    omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts)) !== null
+    omahaRaiseNeedsNutsScope(player, gs, inLightning) !== null
   );
 }
 
@@ -684,6 +745,391 @@ const potRaiseTo = (player: SeatPlayer, gs: HorseGameStateV2, toCall: number): n
   const max = Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : cap;
   return Math.min(max, num(player.bet) + num(player.stack));
 };
+
+/** What omahaSemiBluffRaiseIsPriced answers at one of the brain's semi-bluff raise sites. */
+export interface OmahaPricedSemiBluffRaise {
+  /** the raise is proven worth more than the call and the fold */
+  raise: boolean;
+  /** the raise-to of highest value (a pot-limit legal size of the decision); 0 when not priced */
+  to: number;
+  jam: boolean;
+  /** raise value less the better of the call and the fold, and the proof it had to clear (chips) */
+  gap: number;
+  proof: number;
+}
+/**
+ * The population share of flop raises that are raised again (HUD cell `f.rRaise`: he wagered on the flop, was
+ * raised, and re-raises), used only where no packet supplies the cell's own population prior. MEASURED once (lane
+ * REPLACEMENTS-3 2026-11-21, criteria CRITERIA-REPLACEMENTS-3-RERAISE-POPULATION.md, written before any bench): the
+ * provider's fitHudPriors at e65149c76498 over 33,689 public PLO4/PLO5 cash hands (public actions only), family
+ * level. Not tuned to any result.
+ */
+export const OMAHA_SEMIBLUFF_RERAISE_POPULATION: Readonly<Record<'plo4' | 'plo5', number>> =
+  Object.freeze({
+    plo4: 0.12,
+    plo5: 0.13,
+  });
+
+/**
+ * R1 v2 (lead-4 approved 2026-11-21): single conservative population prior for an unread flop bettor's fold
+ * when his flop bet is raised (F5 resolution; avoids inflating fold equity from Horse-mixed HUD priors or
+ * `foldToBet * 0.65 * (model / 0.30)` upward extrapolation on small flop bets). Lifetime HUD `f.fRaise`
+ * shrinks smoothly toward this prior by `n / (n + k)`, no cliff.
+ */
+export const OMAHA_SEMIBLUFF_FOLD_TO_RAISE_POPULATION = 0.26;
+/** Reference pot-odds model laid by a pot-sized raise; smaller raises scale down linearly, never above 1.0. */
+export const OMAHA_SEMIBLUFF_SIZE_MODEL_REF = 0.45;
+
+/**
+ * OWNER RULING 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION
+ * WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS"), enforced on omahaSemiBluffRaiseIsPriced (Turn 5b,
+ * 2026-11-22): the one hand this rule may raise on price is the combo draw IN POSITION, by the existing
+ * definitions (HorseOmahaBigDrawAggression: omahaHeroInPosition, omahaComboDrawForRaise; no new threshold).
+ * False out of position (whatever the hand), and in position for a bare flush draw, a bare straight draw or
+ * wrap, a pair with a draw, a made hand and a hand with no draw: for those this rule makes no raise and the
+ * decision it was given stands. Reads the Horse's own cards, the board and the seats; no opponent hole card,
+ * no person-versus-Horse key.
+ */
+export function omahaSemiBluffRaiseHandMayRaise(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  try {
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    if (live.length === 0) return false;
+    if (
+      !omahaHeroInPosition(
+        player.seat,
+        gs.dealerSeat,
+        live.map((p) => p.seat)
+      )
+    )
+      return false;
+    return omahaComboDrawForRaise(
+      player.cards ?? [],
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? []
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * omahaSemiBluffRaiseIsPriced (lanes REPLACEMENTS-1..5 2026-11-21, R1 v2, default OFF; PLO4/PLO5 cash):
+ * the raise facing a FLOP bet answered by price alone, wherever a raise is legal. FLOP ONLY.
+ * ONE source of opponent reads: the lifetime HUD provider (OpponentHud.hudStat / public actions only):
+ *  - `f.fRaise` shrunk `n / (n + k)` toward the conservative single population prior `0.26`, scaled by
+ *    `min(1.0, model / 0.45)` so raising a small flop bet never hallucinates fold equity above `f.fRaise`.
+ *  - `f.rRaise` shrunk `n / (n + k)` toward the cell's population prior (or OMAHA_SEMIBLUFF_RERAISE_POPULATION).
+ * Continuing-range equity is conditioned on the opponent having ALREADY bet the flop via memoized
+ * `omahaFlopEvCounts` (`counts.top(bettorRange * (1 - fold))`), and non-all-in raises realize via
+ * `omahaFlopFittedRealization` by Hero's hand class (`made`/`draw`/`pair`) and position.
+ * Legal sizes are checked by `omahaSemiBluffRaiseLegalTo` (HU-only cover-cut clamp up to `minRaiseTo`).
+ */
+export function omahaPricedSemiBluffRaise(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): OmahaPricedSemiBluffRaise | null {
+  if (opts.omahaSemiBluffRaiseIsPriced !== true) return null;
+  if (String(gs.stage ?? '') !== 'flop') return null;
+  if (!omahaPricedInScope(player, gs, opts)) return null;
+  const none: OmahaPricedSemiBluffRaise = { raise: false, to: 0, jam: false, gap: 0, proof: 0 };
+  const tele = telemetryOn(opts);
+  // OWNER RULING 2026-11-15 12:30 (Turn 5b): no price overrides it. Out of position, or without the combo
+  // draw, this rule never answers "raise" and prices nothing.
+  if (!omahaSemiBluffRaiseHandMayRaise(player, gs)) {
+    if (tele) noteFire('omaha_semibluff_raise_priced_owner_ruling_no_raise');
+    return none;
+  }
+  try {
+    const spot = sampledSpot(player, gs);
+    if (!spot) {
+      if (tele) noteFire('omaha_semibluff_raise_priced_unpriced_no_raise');
+      return none;
+    }
+    const family: 'plo4' | 'plo5' = (player.cards ?? []).length === 5 ? 'plo5' : 'plo4';
+    if (spot.street !== 'flop') return null;
+    const pot = num(gs.pot);
+    const heroBet = num(player.bet);
+    const stack = num(player.stack);
+    const cur = num(gs.currentBet);
+    if (!(pot > 0) || !(spot.toCall > 0.005) || !(stack > spot.toCall + 0.005)) {
+      if (tele) noteFire('omaha_semibluff_raise_priced_unpriced_no_raise');
+      return none;
+    }
+    const hole = player.cards ?? [];
+    const board = gs.communityCards ?? [];
+    const dead = player.knownDeadCards ?? [];
+    const facingRaise =
+      heroBet > 0.005 ||
+      (gs.players ?? []).some(
+        (p) => p.seat !== player.seat && num(p.bet) > 0.005 && num(p.bet) < cur - 0.005
+      );
+    const potBefore = Math.max(1, pot - spot.toCall);
+    const potFrac = spot.toCall / potBefore;
+    const bucket = facingRaise ? ('raise' as const) : omahaBetSizeBucket(potFrac);
+    const bettorValue = OMAHA_FLOP_EV_VALUE_SHARE[bucket];
+    const priorOther = OMAHA_FLOP_EV_PRIOR_OTHER[bucket];
+    const bettorRange = Math.min(0.95, bettorValue / Math.max(0.1, 1 - priorOther));
+    const counts = omahaFlopEvCounts(hole, board, dead, bettorValue);
+    if (!counts) {
+      if (tele) noteFire('omaha_semibluff_raise_priced_unpriced_no_raise');
+      return none;
+    }
+    const klass = omahaFlopHandClass(hole, board, dead);
+
+    const mind = opts.mind !== false;
+    let thin = Infinity;
+    let kThin = HUD_DEFAULT_K;
+    let measured = false;
+    let nobodyReraises = 1;
+    const oppInputs = spot.live.map((p) => {
+      const id = String(p.user_id ?? '');
+      let foldBase = OMAHA_SEMIBLUFF_FOLD_TO_RAISE_POPULATION;
+      let n = 0;
+      let k = HUD_DEFAULT_K;
+      let rn = 0;
+      let rh = 0;
+      let rk = HUD_DEFAULT_K;
+      let rp = OMAHA_SEMIBLUFF_RERAISE_POPULATION[family];
+      if (mind && id) {
+        const fr = hudStat(id, family, 'f.fRaise', OMAHA_SEMIBLUFF_FOLD_TO_RAISE_POPULATION, tele);
+        n = fr.n;
+        k = fr.k;
+        if (fr.p !== null) foldBase = fr.p;
+        const rr = hudStat(id, family, 'f.rRaise', undefined, false);
+        rn = rr.n;
+        rh = rr.hits;
+        rk = rr.k;
+        if (rr.prior !== null) rp = rr.prior;
+      }
+      if (n < thin) {
+        thin = n;
+        kThin = k;
+      }
+      if (n > 0) measured = true;
+      nobodyReraises *= 1 - Math.min(1, Math.max(0, (rh + rk * rp) / (rn + rk)));
+      return {
+        stack: num(p.stack),
+        bet: num(p.bet),
+        foldBase: Math.min(0.95, Math.max(0.02, foldBase)),
+      };
+    });
+
+    const total = heroBet + stack;
+    const cover = Math.max(...oppInputs.map((o) => o.stack + o.bet));
+    const cap = Math.min(total, cover);
+    const sizes = legalSampledSizes(player, gs, spot.toCall);
+    const tos = omahaPricedSampledCandidates(
+      {
+        stack,
+        heroBet,
+        currentBet: cur,
+        to: potRaiseTo(player, gs, spot.toCall),
+        opponents: oppInputs.map((o) => ({ stack: o.stack, bet: o.bet })),
+      },
+      sizes
+    );
+    if (tos.length === 0) {
+      if (tele) noteFire('omaha_semibluff_raise_priced_unpriced_no_raise');
+      return none;
+    }
+
+    const m = oppInputs.length;
+    const eqValue = counts.value.win + counts.value.tie / 2;
+    const eqOther = counts.other.win + counts.other.tie / 2;
+    const eqVsBettor1 = (1 - priorOther) * eqValue + priorOther * eqOther;
+    // Multiway call: only players already in for the bet are definitely in; players behind continue ~40%
+    const alreadyIn = Math.max(1, oppInputs.filter((o) => o.bet >= cur - 0.005).length);
+    const behind = Math.max(0, m - alreadyIn);
+    const callOpps = alreadyIn + 0.4 * behind;
+    const eqCall = callOpps <= 1 ? eqVsBettor1 : Math.pow(Math.max(0, eqVsBettor1), callOpps);
+    const effCall = Math.min(stack, Math.max(...oppInputs.map((o) => o.stack)));
+    const laterCall = Math.min(
+      1,
+      Math.max(
+        0,
+        Math.max(0, effCall - spot.toCall) /
+          Math.max(1e-9, (pot + spot.toCall) * OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND)
+      )
+    );
+    const realCall = omahaFlopFittedRealization(1, klass, spot.inPosition, laterCall).realization;
+    const evCall = realCall * eqCall * (pot + spot.toCall) - spot.toCall;
+
+    const nThin = Number.isFinite(thin) ? thin : 0;
+    const laid = pot + spot.toCall;
+    let best: { to: number; jam: boolean; ev: number; spread: number; sampleSe: number } | null =
+      null;
+    for (const to of tos) {
+      const cost = to - heroBet;
+      const x = to - cur;
+      if (!(cost > 0) || !(x > 0.005)) continue;
+      let fold = 1;
+      for (const o of oppInputs) {
+        const hisCall = Math.max(0, Math.min(to, o.bet + o.stack) - o.bet);
+        const model = Math.min(0.95, Math.max(0.03, hisCall / Math.max(1e-9, laid + hisCall)));
+        // Capped at 1.0: raising a small flop bet never extrapolates fold equity above f.fRaise
+        const factor = Math.min(1, model / OMAHA_SEMIBLUFF_SIZE_MODEL_REF);
+        fold *= Math.min(0.95, Math.max(0.02, o.foldBase * factor));
+      }
+      const each = Math.pow(fold, 1 / m);
+      // Multiway raise/jam: conditional on >= 1 opponent continuing, Hero faces the tightened top slice
+      // of an order-statistic range across `expectedCallers` continuing opponents simultaneously.
+      const expectedCallers = m === 1 ? 1 : (m * (1 - each)) / Math.max(1e-9, 1 - fold);
+      // Pot-odds MDF continuing bound: capping fold equity at f.fRaise must not leave a 3x-10x pot jam
+      // priced against a wide 74% continuing range; villain's calling share tightens at least to laid / (laid + x).
+      const mdfCont = laid / Math.max(1e-9, laid + x);
+      const contFrac = Math.min(1 - each, mdfCont);
+      const contShare = Math.min(1, Math.max(0.02, (bettorRange * contFrac) / Math.sqrt(m)));
+      const topShare = counts.top(contShare);
+      const eqCont1 = topShare.win + topShare.tie / 2;
+      const eqCont = m === 1 ? eqCont1 : Math.pow(Math.max(0, eqCont1), expectedCallers);
+      const jam = to >= cap - 0.005;
+      const effBehind = Math.max(0, cap - to);
+      const laterRaise = jam
+        ? 0
+        : Math.min(
+            1,
+            Math.max(
+              0,
+              effBehind / Math.max(1e-9, (pot + cost + x) * OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND)
+            )
+          );
+      const realRaise = jam
+        ? 1
+        : omahaFlopFittedRealization(1, klass, spot.inPosition, laterRaise).realization;
+      const called = realRaise * eqCont * (pot + cost + x) - cost;
+      const reraise = jam
+        ? 0
+        : Math.min(1, Math.max(0, (1 - nobodyReraises) / Math.max(1e-9, 1 - fold)));
+      const continued = (1 - reraise) * called + reraise * -cost;
+      const ev = fold * pot + (1 - fold) * continued;
+      const sdEach = Math.sqrt((each * (1 - each)) / (nThin + kThin + 1));
+      const spread = m * Math.pow(each, m - 1) * sdEach * Math.max(0, pot - continued);
+      const sampleSe = (0.5 / Math.sqrt(Math.max(1, counts.samples))) * (pot + cost + x);
+      if (best === null || ev - spread - sampleSe > best.ev - best.spread - best.sampleSe)
+        best = { to, jam, ev, spread, sampleSe };
+    }
+    if (best === null) return none;
+    if (tele && measured) noteFire('omaha_semibluff_raise_priced_fold_measured');
+    const proof = best.sampleSe + best.spread;
+    const gap = best.ev - Math.max(evCall, 0);
+    const raise = gap > proof && best.ev > 0;
+    if (tele)
+      noteFire(
+        raise ? 'omaha_semibluff_raise_priced_raise' : 'omaha_semibluff_raise_priced_no_raise'
+      );
+    return { raise, to: best.to, jam: best.jam, gap, proof };
+  } catch {
+    return none;
+  }
+}
+
+/**
+ * The brain's two legacy semi-bluff frequency sites with omahaSemiBluffRaiseIsPriced on and in scope: the roll is
+ * still drawn, in order, and never raises there (an answer that never raises); the price is consulted once, on the
+ * finished decision, wherever a raise is legal (omahaSemiBluffRaisePricedFinal). FLOP ONLY. Null out of scope and on
+ * every other street: today's roll.
+ */
+export function omahaSemiBluffRaiseSiteStandsAside(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): OmahaPricedSemiBluffRaise | null {
+  if (opts.omahaSemiBluffRaiseIsPriced !== true) return null;
+  if (String(gs.stage ?? '') !== 'flop') return null;
+  if (!omahaPricedInScope(player, gs, opts)) return null;
+  return { raise: false, to: 0, jam: false, gap: 0, proof: 0 };
+}
+
+/**
+ * LEGAL BY ARITHMETIC (EMERG lane RULES-FIX-1 2026-11-21, AUDIT-B item 10): the raise-to the priced semi-bluff raise
+ * is made at, or null (stand aside). The sampler cuts a size to what the shortest opponent covers, which can fall
+ * under the minimum raise (he raised nearly all-in: cover 191, minimum raise to 192). Moving it up to the minimum is
+ * free only HEADS-UP: there the opponent is the shortest stack, covered at either size, so the chips at risk are the
+ * same. Multiway a deeper opponent can win or lose more at the minimum than at the priced size: that size was never
+ * priced, so the raise is not made. With no minimum on the state (gs.minRaiseTo absent) no size can be proved legal:
+ * the raise is not made. A size above the pot-limit maximum is not made at all.
+ */
+export function omahaSemiBluffRaiseLegalTo(
+  pricedTo: number,
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): number | null {
+  if (!Number.isFinite(pricedTo)) return null;
+  if (!Number.isFinite(gs.minRaiseTo)) return null;
+  const minTo = gs.minRaiseTo as number;
+  let to = pricedTo;
+  if (to < minTo - 0.005) {
+    const opponents = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    ).length;
+    if (opponents !== 1) return null;
+    to = minTo;
+  }
+  if (Number.isFinite(gs.maxRaiseTo) && to > (gs.maxRaiseTo as number) + 0.005) return null;
+  return to;
+}
+
+/**
+ * omahaSemiBluffRaiseIsPriced on the finished decision: a call or a fold facing a FLOP bet becomes the
+ * raise of highest proven value where the price proves it (omahaPricedSemiBluffRaise) AND the hand is the
+ * combo draw in position (omahaSemiBluffRaiseHandMayRaise, owner ruling 2026-11-15 12:30); a raise that
+ * came in with a draw the ruling bars becomes the call; anything else is returned as it came. It never makes
+ * a fold, so it cannot fold the nuts, and never calls a stack off. Draws no random number. The decision
+ * itself with the option off or out of scope.
+ */
+export function omahaSemiBluffRaisePricedFinal(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaSemiBluffRaiseIsPriced !== true) return decision;
+  if (String(gs.stage ?? '') !== 'flop') return decision;
+  const isLegacyRaise = decision.action === 'raise' || decision.action === 'all_in';
+  if (!isLegacyRaise && decision.action !== 'call' && decision.action !== 'fold') return decision;
+  try {
+    if (isLegacyRaise) {
+      // R1 v4: when #06 omahaNoDrawRaiseOutOfPosition is off, legacy flop draw raises from sites
+      // outside ft/v53/v86 (which omahaNoDrawRaiseFinal previously caught) are withheld to a call
+      // here (never calling a stack off).
+      const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+      const toCall = Number.isFinite(gs.toCall)
+        ? Math.max(0, gs.toCall as number)
+        : Math.max(0, (gs.currentBet || 0) - heroBet);
+      const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+      if (toCall <= 0.005 || stack <= toCall + 0.005) return decision;
+      if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
+      // Turn 5b: a draw raise the owner ruling bars (out of position, a bare flush draw, a bare straight
+      // draw: omahaDrawRaiseBarOf) is never kept on price. It becomes the call, with the bar's own switch
+      // (omahaNoDrawRaiseOutOfPosition) on or off. A raise the ruling allows (null) stands as it came.
+      if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
+      if (telemetryOn(opts)) noteFire('omaha_semibluff_raise_priced_owner_ruling_no_raise');
+      const withheld: HorseDecision = { ...decision, action: 'call', amount: toCall };
+      delete withheld.continuationGuard;
+      delete withheld.valueSize;
+      return withheld;
+    }
+    const priced = omahaPricedSemiBluffRaise(player, gs, opts);
+    if (!priced || !priced.raise || !(priced.to > num(gs.currentBet) + 0.005)) return decision;
+    const to = omahaSemiBluffRaiseLegalTo(priced.to, player, gs);
+    if (to === null) return decision;
+    const allIn = to >= num(player.bet) + num(player.stack) - 0.005;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes(allIn ? 'all_in' : 'raise'))
+      return decision;
+    const out: HorseDecision = allIn
+      ? { ...decision, action: 'all_in' }
+      : { ...decision, action: 'raise', amount: to };
+    if (allIn) delete out.amount;
+    delete out.continuationGuard;
+    delete out.valueSize;
+    return out;
+  } catch {
+    return decision;
+  }
+}
 
 /** True where omahaDrawRaiseIsPriced owns the draw raise (the bar at the brain's raise sites stands aside). */
 export function omahaPricedOwnsDrawRaise(

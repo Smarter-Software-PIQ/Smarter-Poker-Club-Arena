@@ -140,6 +140,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-22 (HORSE DECISIONS lane): HorseLeague deals single-board hands only (boardCount: 1),
         // while multiBoardBluffTrimIsPriced acts strictly on multiBoard36 hands (nBoards36 >= 2).
         'multiboard_bluff_trim_is_priced',
+        // 2026-11-22 (PLO-OWNER lead-4 LEAKS-RULES): narrow Lightning scope for omahaTurnRiverRaiseIsPriced (frees #2).
+        'plo5_omaha_turn_river_raise_in_lightning',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

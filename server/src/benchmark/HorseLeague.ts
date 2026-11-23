@@ -4476,6 +4476,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverCheckedToBetIsMeasured: true },
     b: {},
   })),
+  // 2026-11-21 lane REPLACEMENTS-1 (default OFF, PLO4/PLO5 cash): omahaSemiBluffRaiseIsPriced (the semi-bluff raise
+  // answered by price alone, both bars it replaces off); b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_semibluff_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaSemiBluffRaiseIsPriced: true,
+      omahaNoDrawRaiseOutOfPosition: false,
+      v74OmahaSemiBluffNeedsDraw: false,
+    },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane OFFENCE-BUILD (default OFF, PLO4/PLO5 cash): omahaRiverFirstToActBetIsPriced (the river
   // first-to-act heads-up check priced beside the bets on the measured response); a switches it on, b is today's brain.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -4703,6 +4717,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaBigDrawBetIsPricedOnHisResponse: true },
+    b: {},
+  })),
+  // 2026-11-22 R5 v3 (omahaMadeAndPairedBetsArePricedOnHisResponse, default OFF): replaces the
+  // bet-or-check halves of #19 and #9/#10/#11 on turn/river in PLO4/PLO5 cash using ONE
+  // lifetime HUD source (fb.sm/fb.bg, rBet, stab) via omahaCardImpact; a switches it on.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_made_and_paired_bets_are_priced_on_his_response`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaMadeAndPairedBetsArePricedOnHisResponse: true },
     b: {},
   })),
   // 2026-11-15 12:30 owner ruling (no draw raise out of position, no bare
@@ -7414,6 +7439,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +
       'deals the Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and ' +
       'sets the domain.',
+  },
+  {
+    // PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22: omahaTurnRiverRaiseIsPriced on in BOTH arms; the one-arm
+    // question is its own Lightning scope (unblocks #2 omahaRiverNutRaiseOnly in Lightning without widening
+    // omahaPricedInLightning to any other priced rule).
+    name: 'plo5_omaha_turn_river_raise_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaTurnRiverRaiseIsPriced: true,
+      omahaTurnRiverRaiseIsPricedInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnRiverRaiseIsPriced: true },
+    reason:
+      'No Lightning domain in the league table. omahaTurnRiverRaiseIsPricedInLightning is DEFAULT OFF ' +
+      '(HorseOmahaPricedWiring.omahaTurnRiverRaiseInLightningOn: opts.omahaTurnRiverRaiseIsPricedInLightning === true) ' +
+      'and it changes one thing: the scope of omahaTurnRiverRaiseIsPriced no longer refuses a decision whose ' +
+      'gs.publicMemoryDomain.speed is "lightning". The league deals its own tables and no league context carries ' +
+      'a Lightning public memory domain, so both arms play identical poker by construction. Measured 2026-11-22 by ' +
+      'running this refused matchup through runMatchup: 0 of 300 pairs diverged (run seed 20261120, inert by ' +
+      'construction). It is measured where the Lightning domain exists: LightningPairedEval (paired Lightning pool ' +
+      'evaluation). What would change this: a league context that deals the Lightning contract and sets ' +
+      'publicMemoryDomain.speed = "lightning".',
   },
   {
     // EMERG lane OPEN-ITEMS-3 2026-11-20: omahaCheckedToBetIsPriced on in BOTH arms; the one-arm question is its

@@ -655,4 +655,21 @@ describe('B4: priced six-max preflop read on lifetime HUD cells', () => {
     expect(fires).not.toContain('plo_opponent_presumed_aggressive');
     void hero;
   });
+
+  it('Law 12 yields at raises >= 2 when R3 (omahaPreflopReraiseDefenceOnLifetimeHud) is ON', () => {
+    const { hero, gs } = makeSixMaxState({
+      pot: 14,
+      actionHistory: [
+        { stage: 'preflop', seat: 4, userId: OPP1, action: 'raise', amount: 3.5, timestamp: T },
+        { stage: 'preflop', seat: 5, userId: OPP2, action: 'raise', amount: 11, timestamp: T + 1 },
+      ],
+    });
+    expect(
+      priceOmahaPreflopHudSixMax(hero, gs, 5, {
+        omahaOpponentLifetimeHud: true,
+        omahaPreflopReadIsPricedFromLifetime: true,
+        omahaPreflopReraiseDefenceOnLifetimeHud: true,
+      })
+    ).toBeNull();
+  });
 });

@@ -1060,6 +1060,12 @@ export interface HorseDecisionReceiptContext {
    */
   omahaPricedInLightning?: boolean;
   /**
+   * PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22: the decision's own omahaTurnRiverRaiseIsPricedInLightning,
+   * read `=== true`. Opens Lightning admission ONLY for omahaPricedAdmitsRaiseToCall (without widening any
+   * other priced rule in Lightning). Absent or false, the validator is exactly as before.
+   */
+  omahaTurnRiverRaiseIsPricedInLightning?: boolean;
+  /**
    * HORSE DECISIONS lane 2026-11-19: the decision's own omahaBluffIsPricedAgainstTheTarget, read `=== true`.
    * Only then are its two conversions admitted (a heads-up wager facing no bet -> the check; a flop or turn
    * raise facing a bet -> the call, for the exact chips), in its own spot re-derived from the request. Absent
@@ -1776,7 +1782,8 @@ function policyGraphIsValidInScope(
         context.player,
         context.gameState,
         transition.after.amount,
-        context.omahaPricedInLightning === true
+        context.omahaPricedInLightning === true ||
+          context.omahaTurnRiverRaiseIsPricedInLightning === true
       );
     // Lane HORSE DECISIONS 2026-11-19 (HorseOmahaPricedWiring, option
     // omahaSampledRaiseIsPricedAtEverySize with omahaDrawRaiseIsPriced or
@@ -2530,6 +2537,28 @@ export function omahaMultiwayIsPricedInTournamentsGateCandidates(
   );
 }
 
+export function omahaTurnRiverRaiseInLightningGateCandidates(
+  requestOpts:
+    | { omahaTurnRiverRaiseIsPricedInLightning?: unknown; omahaOptionGameScope?: unknown }
+    | null
+    | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const out = decisionOptionGateCandidates(
+    'omahaTurnRiverRaiseIsPricedInLightning',
+    requestOpts as Readonly<Record<string, unknown>> | null | undefined,
+    switchConfig,
+    previousSwitchConfig
+  );
+  if (
+    omahaOptionGameScoped(requestOpts, ['omahaTurnRiverRaiseIsPricedInLightning']) &&
+    !out.includes(false)
+  )
+    out.push(false);
+  return out;
+}
+
 /**
  * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
  * gate (and, when given, each candidate omahaPricedInLightning gate and each
@@ -2548,6 +2577,7 @@ export function horseDecisionReceiptRefusalForGates(
     | 'omahaStrategyInPlo6'
     | 'omahaPricedRaise'
     | 'omahaPricedInLightning'
+    | 'omahaTurnRiverRaiseIsPricedInLightning'
     | 'omahaSlowplayMixInLightning'
     | 'omahaBluffPricedAgainstTheTarget'
     | 'plo6FacingBetIsPriced'
@@ -2559,44 +2589,49 @@ export function horseDecisionReceiptRefusalForGates(
   slowplayMixInLightningGates: readonly boolean[] = [false],
   bluffPricedGates: readonly boolean[] = [false],
   plo6FacingBetPricedGates: readonly boolean[] = [false],
-  multiwayTourneyGates: readonly boolean[] = [false]
+  multiwayTourneyGates: readonly boolean[] = [false],
+  turnRiverRaiseInLightningGates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const mwGate of multiwayTourneyGates.length > 0 ? multiwayTourneyGates : [false])
-    for (const plo6PricedGate of plo6FacingBetPricedGates.length > 0
-      ? plo6FacingBetPricedGates
-      : [false])
-      for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
-        for (const slowplayGate of slowplayMixInLightningGates.length > 0
-          ? slowplayMixInLightningGates
-          : [false]) {
-          for (const lightningGate of pricedInLightningGates.length > 0
-            ? pricedInLightningGates
+  for (const trLightningGate of turnRiverRaiseInLightningGates.length > 0
+    ? turnRiverRaiseInLightningGates
+    : [false])
+    for (const mwGate of multiwayTourneyGates.length > 0 ? multiwayTourneyGates : [false])
+      for (const plo6PricedGate of plo6FacingBetPricedGates.length > 0
+        ? plo6FacingBetPricedGates
+        : [false])
+        for (const bluffGate of bluffPricedGates.length > 0 ? bluffPricedGates : [false])
+          for (const slowplayGate of slowplayMixInLightningGates.length > 0
+            ? slowplayMixInLightningGates
             : [false]) {
-            for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-              const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-                value,
-                expectedVariant,
-                {
-                  ...context,
-                  ...(gate ? { omahaPricedRaise: true } : {}),
-                  ...(lightningGate ? { omahaPricedInLightning: true } : {}),
-                  ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
-                  ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
-                  ...(plo6PricedGate ? { plo6FacingBetIsPriced: true } : {}),
-                  ...(mwGate ? { omahaMultiwayPricedInTournaments: true } : {}),
-                },
-                plo6Gates
-              );
-              if (refusal === null) return null;
-              if (!seen) {
-                first = refusal;
-                seen = true;
+            for (const lightningGate of pricedInLightningGates.length > 0
+              ? pricedInLightningGates
+              : [false]) {
+              for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+                const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+                  value,
+                  expectedVariant,
+                  {
+                    ...context,
+                    ...(gate ? { omahaPricedRaise: true } : {}),
+                    ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+                    ...(trLightningGate ? { omahaTurnRiverRaiseIsPricedInLightning: true } : {}),
+                    ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
+                    ...(bluffGate ? { omahaBluffPricedAgainstTheTarget: true } : {}),
+                    ...(plo6PricedGate ? { plo6FacingBetIsPriced: true } : {}),
+                    ...(mwGate ? { omahaMultiwayPricedInTournaments: true } : {}),
+                  },
+                  plo6Gates
+                );
+                if (refusal === null) return null;
+                if (!seen) {
+                  first = refusal;
+                  seen = true;
+                }
               }
             }
           }
-        }
   return first;
 }
 

@@ -116,6 +116,7 @@ export interface SixMaxPreflopScopeOpts {
   omahaOpponentLifetimeHud?: boolean;
   omahaPreflopReadIsPricedFromLifetime?: boolean;
   omahaPreflopReraiseDefencePricedInPosition?: boolean;
+  omahaPreflopReraiseDefenceOnLifetimeHud?: boolean;
   omahaFourBetFoldPricedCall?: boolean;
   mind?: boolean;
 }
@@ -341,10 +342,11 @@ export function priceOmahaPreflopHudSixMax(
       a.action === 'bet' ||
       (a.action === 'all_in' && a.isFullRaise !== false)
   ).length;
-  // Law 12: never double-price 3-bet/4-bet defence spots owned by dedicated priced rules
+  // Law 12: never double-price 3-bet/4-bet defence spots owned by dedicated priced rules (incl. R3)
   if (
     raises >= 2 &&
     (opts.omahaPreflopReraiseDefencePricedInPosition === true ||
+      opts.omahaPreflopReraiseDefenceOnLifetimeHud === true ||
       opts.omahaFourBetFoldPricedCall === true)
   ) {
     return null;

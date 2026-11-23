@@ -1,9 +1,11 @@
 /**
- * Lane CORE-POOLED-3 (2026-11-21, lead-2 order): omahaMathCorePlo5Flop is back on the shadow stage table with
- * omahaMathCore as its companion. Its staged re-decision is picked only in a PLO5 cash flop decision (never PLO4,
- * PLO6, a tournament, a bomb pot, or the PLO5 preflop / turn / river), it carries omahaMathCore true only when the
- * flag is flipped to true, and no other core street flag is staged. Real recorded PLO5 decisions
- * (HorseOmahaPricedRules.fixture.json), every street the record holds.
+ * Lane CORE-POOLED-3 (2026-11-21) & PLO-OWNER lead-4 lane core-repair (2026-11-22): all six math core street flags
+ * (PLO5/PLO4 x flop/turn/river) are on OPTION_SHADOW_STAGE with omahaMathCore as their companion and listed in
+ * OPTION_SWITCH_RELEASE_DEFAULT_OFF so the registry accepts `shadow` for each. Every staged street flag is picked
+ * ONLY on its exact (game, street) in cash play (never another street, never another Omaha variant, never PLO6,
+ * never a tournament, never a bomb pot), carries omahaMathCore true only when flipped to true, and the parent
+ * omahaMathCore switch itself is never staged. Real recorded Omaha decisions (HorseOmahaPricedRules.fixture.json),
+ * every street the record holds.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,54 +13,98 @@ import {
   optionShadowStageCompanions,
   optionShadowStageInScope,
 } from './HorseOptionShadowStage.js';
+import {
+  OPTION_SWITCH_RELEASE_DEFAULT_OFF,
+  OPTION_SWITCH_SHADOW_NAMES,
+} from './HorseOptionSwitch.js';
 import { recordedState, type RecordedDecision } from './HorseOmahaPricedRules.test-support.js';
 import RECORDED from './HorseOmahaPricedRules.fixture.json';
 
-const FLAG = 'omahaMathCorePlo5Flop';
+const STREET_FLAGS = [
+  { flag: 'omahaMathCorePlo5Flop', game: 5 as const, variant: 'plo5', street: 'flop' },
+  { flag: 'omahaMathCorePlo4Flop', game: 4 as const, variant: 'plo4', street: 'flop' },
+  { flag: 'omahaMathCorePlo5Turn', game: 5 as const, variant: 'plo5', street: 'turn' },
+  { flag: 'omahaMathCorePlo5River', game: 5 as const, variant: 'plo5', street: 'river' },
+  { flag: 'omahaMathCorePlo4Turn', game: 4 as const, variant: 'plo4', street: 'turn' },
+  { flag: 'omahaMathCorePlo4River', game: 4 as const, variant: 'plo4', street: 'river' },
+] as const;
+
 const RECORDS = RECORDED as unknown as RecordedDecision[];
-const picked = (player: unknown, gs: unknown) =>
-  optionShadowStageInScope([FLAG, 'streetIQ'], player, gs).includes(FLAG);
+const picked = (flag: string, player: unknown, gs: unknown) =>
+  optionShadowStageInScope([flag, 'streetIQ'], player, gs).includes(flag);
 
-describe('the staged math core flop flag', () => {
-  it('is listed for PLO5 flop only, with omahaMathCore as its companion; no other core flag is staged', () => {
-    expect(OPTION_SHADOW_STAGE[FLAG]).toEqual({
-      games: [5],
-      streets: ['flop'],
-      companions: ['omahaMathCore'],
-    });
-    const core = Object.keys(OPTION_SHADOW_STAGE).filter((n) => n.startsWith('omahaMathCore'));
-    expect(core).toEqual([FLAG]);
-  });
-
-  it('is picked on every recorded PLO5 flop decision and on no recorded preflop, turn or river decision', () => {
-    const by: Record<string, [number, number]> = {};
-    for (const r of RECORDS) {
-      const { hero, gs } = recordedState(r);
-      const row = (by[String(gs.stage)] ??= [0, 0]);
-      row[0]++;
-      if (picked(hero, gs)) row[1]++;
+describe('the staged math core street flags', () => {
+  it('list all six PLO4/PLO5 postflop street flags with exact (game, street) and companion omahaMathCore; no other core flag is staged', () => {
+    for (const { flag, game, street } of STREET_FLAGS) {
+      expect(OPTION_SHADOW_STAGE[flag], flag).toEqual({
+        games: [game],
+        streets: [street],
+        companions: ['omahaMathCore'],
+      });
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF, flag).toContain(flag);
+      expect(OPTION_SWITCH_SHADOW_NAMES, flag).toContain(flag);
     }
-    expect(by.flop![0]).toBeGreaterThanOrEqual(10);
-    expect(by.flop![1]).toBe(by.flop![0]);
-    for (const [street, [, n]] of Object.entries(by))
-      if (street !== 'flop') expect(n, street).toBe(0);
+    const core = Object.keys(OPTION_SHADOW_STAGE).filter((n) => n.startsWith('omahaMathCore'));
+    expect(core).toEqual(STREET_FLAGS.map((s) => s.flag));
+    expect(core).not.toContain('omahaMathCore');
   });
 
-  it('is never picked on the same flop decisions as PLO4, PLO6, a tournament or a bomb pot', () => {
-    for (const r of RECORDS.filter((x) => x.street === 'flop')) {
-      const { hero, gs } = recordedState(r);
-      const plo4Hero = { ...hero, cards: (hero.cards ?? []).slice(0, 4) };
-      expect(picked(plo4Hero, { ...gs, gameVariant: 'plo4' })).toBe(false);
-      expect(picked(hero, { ...gs, gameVariant: 'plo6' })).toBe(false);
-      expect(picked(hero, { ...gs, gameMode: 'tournament' })).toBe(false);
-      expect(picked(hero, { ...gs, bombPot: true })).toBe(false);
-      expect(picked(hero, gs)).toBe(true);
+  it('picks each street flag on every recorded decision of its exact (game, street) and on no other street or variant', () => {
+    for (const { flag, variant, street } of STREET_FLAGS) {
+      const otherVariant = variant === 'plo5' ? 'plo4' : 'plo5';
+      const by: Record<string, [number, number]> = {};
+      let otherVariantHits = 0;
+      for (const r of RECORDS) {
+        const { hero, gs } = recordedState(r);
+        const heroForVariant =
+          variant === 'plo4' ? { ...hero, cards: (hero.cards ?? []).slice(0, 4) } : hero;
+        const gsForVariant = { ...gs, gameVariant: variant };
+        const stName = String(gsForVariant.stage);
+        const row = (by[stName] ??= [0, 0]);
+        row[0]++;
+        if (picked(flag, heroForVariant, gsForVariant)) row[1]++;
+
+        const heroForOther =
+          otherVariant === 'plo4' ? { ...hero, cards: (hero.cards ?? []).slice(0, 4) } : hero;
+        if (picked(flag, heroForOther, { ...gs, gameVariant: otherVariant })) otherVariantHits++;
+      }
+      expect(by[street]?.[0] ?? 0, `${flag} ${street} total`).toBeGreaterThanOrEqual(5);
+      expect(by[street]?.[1], `${flag} ${street} picked`).toBe(by[street]?.[0]);
+      for (const [stName, [, n]] of Object.entries(by)) {
+        if (stName !== street) expect(n, `${flag} off-street ${stName}`).toBe(0);
+      }
+      expect(otherVariantHits, `${flag} wrong variant ${otherVariant}`).toBe(0);
+    }
+  });
+
+  it('never picks any street flag on PLO6, a tournament, or a bomb pot', () => {
+    for (const { flag, variant, street } of STREET_FLAGS) {
+      const matching = RECORDS.filter((x) => x.street === street);
+      expect(matching.length, `${flag} ${street} fixtures`).toBeGreaterThanOrEqual(5);
+      for (const r of matching) {
+        const { hero, gs } = recordedState(r);
+        const heroForVariant =
+          variant === 'plo4' ? { ...hero, cards: (hero.cards ?? []).slice(0, 4) } : hero;
+        const gsForVariant = { ...gs, gameVariant: variant };
+        expect(picked(flag, hero, { ...gs, gameVariant: 'plo6' }), `${flag} plo6`).toBe(false);
+        expect(
+          picked(flag, heroForVariant, { ...gsForVariant, gameMode: 'tournament' }),
+          `${flag} tournament`
+        ).toBe(false);
+        expect(
+          picked(flag, heroForVariant, { ...gsForVariant, bombPot: true }),
+          `${flag} bombPot`
+        ).toBe(false);
+        expect(picked(flag, heroForVariant, gsForVariant), `${flag} cash`).toBe(true);
+      }
     }
   });
 
   it('carries omahaMathCore true only when flipped to true and the core is not already on', () => {
-    expect(optionShadowStageCompanions(FLAG, true, {})).toEqual({ omahaMathCore: true });
-    expect(optionShadowStageCompanions(FLAG, true, { omahaMathCore: true })).toEqual({});
-    expect(optionShadowStageCompanions(FLAG, false, {})).toEqual({});
+    for (const { flag } of STREET_FLAGS) {
+      expect(optionShadowStageCompanions(flag, true, {}), flag).toEqual({ omahaMathCore: true });
+      expect(optionShadowStageCompanions(flag, true, { omahaMathCore: true }), flag).toEqual({});
+      expect(optionShadowStageCompanions(flag, false, {}), flag).toEqual({});
+    }
   });
 });

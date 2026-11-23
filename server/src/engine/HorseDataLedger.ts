@@ -1237,6 +1237,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaSemiBluffRaiseIsPriced',
+    "Lane REPLACEMENTS-1 2026-11-21 (owner: there may never be any blanket rules in the PLO4/PLO5 Horses; a rule that loses chips when removed alone needs a priced replacement). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, FLOP ONLY (lead ruling Nov 21: one priced mechanism per street, the turn and river raise stay with omahaTurnRiverRaiseIsPriced), facing a wager, default OFF, strict === true. The brain's two semi-bluff raise sites (the flop/turn raise and the pressure semi-bluff) stop rolling a frequency (bluffFreq x aggression, the legacy semi-bluff raise that answered whenever omahaNoDrawRaiseOutOfPosition or v74OmahaSemiBluffNeedsDraw was off). The raise is made only where its expected value at the pot-limit legal size of highest value (sampled equity against the range that continues; the opponent's fold measured at the price laid from his lifetime public record, shrunk to the population n/(n+k)) beats the better of the call and the fold by more than the sample's standard error plus the standard error of his fold rate (0.5/sqrt(n+k) of the pot). One or two opponents, none all in; any other spot is not raised by these sites. No hand class, size band, position or opponent kind is read. It stands alone: it needs neither bar, and lets both go off. PLO6, hi-lo, bomb pots, hold'em and tournaments are out of scope.",
+    'V94'
+  ),
+  flag(
     'omahaRiverFirstToActBetIsPriced',
     "EMERG lane OFFENCE-BUILD 2026-11-20 (owner 3:05 PM Chicago: upgrade the Horses' offence, deny the equity, put the humans in difficult spots; every decision priced). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). In the wager_rules node, before the river current-nuts floor: on the river, heads-up, nothing to call and the opponent still to act (the Horse acts first), the node's final check is priced beside the engine's bet sizes with the card-impact model and the measured pooled response curve of river first-to-act heads-up bets (hands with a person seated, Nov 13-17, every player pooled, no responder above 20% of a cell), the called branch at the lower of the model's and the production-fitted continue equity, a raise charged as the bet lost; the best bet replaces the check only when it beats it by more than the comparison's standard error. No identity, no hand class. HorseOmahaRiverFirstToActBet.ts",
     'V94'
@@ -1429,6 +1434,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaBigDrawBetIsPricedOnHisResponse',
     'R4 (PLO-OWNER lane REPLACEMENTS-5, 2026-11-21; default OFF, read === true): PLO4/PLO5 cash flop/turn checked-to big-draw bet priced on lifetime HUD fold (fb.bg), raise-back (rBet) and stab cells with a prove-it-to-bet uncertainty bar (sampleSe + readSpread), replacing the checked-to half of omahaBigDrawAggression without categorical OOP bars (HorseOmahaBigDrawBetPriced.ts).',
+    'V94'
+  ),
+  flag(
+    'omahaMadeAndPairedBetsArePricedOnHisResponse',
+    'PLO-OWNER lane REPLACEMENTS-5 2026-11-21 (R5; freeing #19 omahaMadeHandDefenseVsValueLeader and #9/#10/#11 value-leader / paired-board bet-or-check rules). PLO4/PLO5 cash (table and Lightning where omahaPricedInLightning opens it), high only, one board, no bomb pot, turn and river only; default OFF, strict === true. Prices turn/river bets in the #19 and #9/#10/#11 spots (HU and multiway, acting even when those legacy switches are OFF) via omahaCardImpact with each live opponent lifetime HUD response curve (fb.{sm|bg}.{hu|mw}, rBet.{hu|mw}, stab.{hu|mw}), shrunk n/(n+k) with no cliff and no person-vs-Horse key, and prove-it-to-check guard (evBet - evCheck >= -(sampleSe + readSpread)). PLO6, hi-lo, bomb pots, hold-em and tournaments are out of scope.',
     'V94'
   ),
   flag(
@@ -1631,6 +1641,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaCheckedToBetInLightning',
     "EMERG lane OPEN-ITEMS-3 2026-11-20. A scope option, default OFF (read === true): with it on, the game of omahaCheckedToBetIsPriced (HorseLogic omahaCheckedToBetIsPricedRule) includes the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') without omahaPricedInLightning, which opens every priced family there at once and graded negative facing a wager on the journal replay of 2026-11-18..19 (fit -334 bb, SE 161). It switches the rule on nowhere by itself and changes no other rule; the bet it makes is a wager of the wager_rules node and needs no admission of its own. PLO6 untouched (the rule's scope is PLO4/PLO5). Graded with omahaCheckedToBetIsPriced on the same replay against the opponents' real cards (offline only): archive woowoo-48h-audit-01BNteGYgf repairs/EMERG/OPEN-ITEMS-3.md",
+    'V94'
+  ),
+  flag(
+    'omahaTurnRiverRaiseIsPricedInLightning',
+    "PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-22. A scope option, default OFF (read === true): with it on (and omahaTurnRiverRaiseIsPriced on), omahaPricedTurnRiverRaiseRule and omahaPricedOwnsTurnRiverRaise (HorseOmahaPricedWiring.ts) include the Lightning PLO4/PLO5 cash pools (gs.publicMemoryDomain.speed === 'lightning') without widening omahaPricedInLightning to any other priced rule, giving #2 omahaRiverNutRaiseOnly a priced Lightning owner so Packet 09 can be off-listed cleanly. Admits ONLY omahaPricedAdmitsRaiseToCall in responseValidation.ts for Lightning pools. Zero new pricing math, zero blast radius on other rules, zero PLO6/hold'em/hi-lo/tournament/bomb-pot/multi-board reach.",
     'V94'
   ),
   flag(
@@ -6430,6 +6445,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_made_paired_bet_on_his_response_kept',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'a turn or river made-hand or paired-board bet stands under prove-it-to-check (evBet - evCheck >= -(sampleSe + readSpread)) on lifetime HUD fold/raise-back/stab response',
+    'V94'
+  ),
+  receipt(
+    'omaha_made_paired_bet_on_his_response_checked',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'the same spot: checking beats the bet beyond sampling and lifetime HUD uncertainty, so the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_made_paired_bet_on_his_response_unpriced_legacy',
+    'HorseOmahaMadeAndPairedBetsPriced (HorseLogic #19/#9/#10/#11 bet-or-check sites; omahaMadeAndPairedBetsArePricedOnHisResponse)',
+    'the same spot could not be priced (an opponent all in, invalid stack/pot, no card-impact sample): the rule does not decide and the legacy bet-or-check path of the site runs',
+    'V94'
+  ),
+  receipt(
     'omaha_no_draw_raise_ft_semibluff',
     'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
     'PLO4/PLO5 cash flop or turn, the baseline flop/turn semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
@@ -6717,6 +6750,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_draw_raise_site_admitted',
     'HorseOmahaPricedWiring (HorseLogic decidePostflop raise sites; omahaDrawRaiseIsPriced)',
     'PLO4/PLO5 cash flop or turn, one of the three draw-raise sites of the brain, a draw the bar names: the pot raise is priced above the call, so the site makes its raise',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'a PLO4/PLO5 cash flop or turn decision facing a wager at a semi-bluff raise site: the raise is priced above the better of the call and the fold by more than its uncertainty (the site then makes it at the priced size unless a later bar of that site stops it)',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_no_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'the same site: the raise is not proven above the call and the fold, so the site falls through to its own call or fold whatever its frequency roll says',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_fold_measured',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    "the same site: the price read the opponent's own fold-to-raise record of this street (at least one opportunity), not the population figure alone",
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_owner_ruling_no_raise',
+    'HorseOmahaPricedWiring (omahaPricedSemiBluffRaise, omahaSemiBluffRaisePricedFinal; omahaSemiBluffRaiseIsPriced)',
+    'a PLO4/PLO5 cash flop decision facing a wager with the option on: the owner ruling of 2026-11-15 12:30 decides before any price (out of position, or in position without the combo draw: no semi-bluff raise is priced or made; a draw raise that came in barred by the ruling became the call)',
+    'V94'
+  ),
+  receipt(
+    'omaha_semibluff_raise_priced_unpriced_no_raise',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop semi-bluff raise sites; omahaSemiBluffRaiseIsPriced)',
+    'the same site in a spot the sample cannot price (three or more opponents, one all in, no legal raise): no semi-bluff raise is made',
     'V94'
   ),
   receipt(
@@ -7029,6 +7092,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_checked_to_bet_in_lightning',
     'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetInLightning)',
     'the checked-to river comparison was priced in a Lightning pool because omahaCheckedToBetInLightning opened the pool to that one rule (omahaPricedInLightning off); fires with omaha_checked_to_bet_priced_bet or omaha_checked_to_bet_priced_check_kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_in_lightning',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule, omahaTurnRiverRaiseIsPricedInLightning)',
+    'the turn/river raise comparison was priced in a Lightning pool because omahaTurnRiverRaiseIsPricedInLightning opened the pool to omahaTurnRiverRaiseIsPriced alone (omahaPricedInLightning off); fires alongside the omaha_priced_raise_* receipt',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_in_lightning_non_nut_no_raise',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule, omahaTurnRiverRaiseIsPricedInLightning)',
+    'a Lightning PLO4/PLO5 cash turn or river decision facing a wager with omahaTurnRiverRaiseIsPricedInLightning on: a raise proposed with a hand that is not nut class was not kept (owner ruling 2026-11-15 12:52); the price chose its call or fold (omaha_priced_raise_called / omaha_priced_raise_folded), and with no price it became the call',
     'V94'
   ),
   receipt(

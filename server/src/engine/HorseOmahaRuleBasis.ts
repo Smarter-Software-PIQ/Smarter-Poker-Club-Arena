@@ -172,6 +172,28 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     price:
       'the checked-to big-draw bet beside the check with evBet - evCheck > sampleSe + readSpread and evBet > 0',
   },
+  omahaMadeAndPairedBetsArePricedOnHisResponse: {
+    kind: 'priced',
+    range:
+      'each live opponent range on turn and river made-hand and paired-board bet spots using lifetime public HUD fold (fb.sm/fb.bg), raise-vs-bet (rBet), and stab rates shrunk n/(n+k) via hudStat',
+    equity:
+      'exact/sampled Omaha equity via omahaCardImpact against continuing, raising, and stabbing ranges with exact 3-branch multiway EV',
+    realization:
+      'lifetime public HUD fold-to-bet, raise-vs-bet, and stab rates with street realization',
+    price:
+      'the turn or river made-hand or paired-board bet beside the check with prove-it-to-check guard evBet - evCheck >= -(sampleSe + readSpread)',
+  },
+  omahaSemiBluffRaiseIsPriced: {
+    kind: 'priced',
+    range:
+      'each live opponent flop continuing and re-raising range using lifetime public HUD fold-to-raise (f.fRaise) and re-raise (f.rRaise) shrunk n/(n+k) via hudStat with pot-odds MDF continuing bound',
+    equity:
+      'memoized sampled Omaha flop equity via omahaFlopEvCounts against continuing and re-raising ranges with multiway order-statistic continuing equity',
+    realization:
+      'lifetime public HUD fold-to-raise and re-raise rates with flop realization and facing-raise bucket',
+    price:
+      'every pot-limit legal flop raise size beside the better of call and fold with evRaise - baseEv > sampleSe + readSpread',
+  },
   omahaBigBetSizeIsPriced: {
     kind: 'priced',
     range:
@@ -291,6 +313,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaBluffShareFromBetRate: FACING_BET_EV,
   omahaCardImpact: CARD_IMPACT,
   omahaCheckedToBetInLightning: exempt('scope', 'decides where a rule applies, never the action'),
+  omahaTurnRiverRaiseIsPricedInLightning: exempt(
+    'scope',
+    'opens Lightning pools to omahaTurnRiverRaiseIsPriced only (giving #2 omahaRiverNutRaiseOnly a priced Lightning owner); decides nothing by itself'
+  ),
   omahaCheckedToBetIsPriced: BET_EV,
   omahaCheckedToBetResponseIsMeasured: exempt(
     'input',
@@ -701,11 +727,39 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,
+  omaha_turn_river_raise_in_lightning: exempt(
+    'scope',
+    'receipt that omahaTurnRiverRaiseIsPricedInLightning opened a Lightning pool to omahaTurnRiverRaiseIsPriced alone'
+  ),
+  omaha_turn_river_raise_in_lightning_non_nut_no_raise: exempt(
+    'scope',
+    'receipt that a non-nut raise was not kept in a Lightning pool opened by omahaTurnRiverRaiseIsPricedInLightning (owner ruling 2026-11-15 12:52)'
+  ),
   omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_withheld: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_final_check_unpriced: exempt(
     'scope',
     'R4 unpriced pass-through receipt when a checked-to big-draw spot cannot be priced; keeps check'
+  ),
+  omaha_made_paired_bet_on_his_response_kept: CARD_IMPACT,
+  omaha_made_paired_bet_on_his_response_checked: CARD_IMPACT,
+  omaha_made_paired_bet_on_his_response_unpriced_legacy: exempt(
+    'scope',
+    'R5 unpriced pass-through receipt when a turn/river made-hand or paired-board spot cannot be priced; the legacy bet-or-check path decides'
+  ),
+  omaha_semibluff_raise_priced_raise: FACING_BET_EV,
+  omaha_semibluff_raise_priced_no_raise: FACING_BET_EV,
+  omaha_semibluff_raise_priced_fold_measured: exempt(
+    'input',
+    'R1 telemetry note recording that the flop fold-to-raise rate came from a measured lifetime HUD record'
+  ),
+  omaha_semibluff_raise_priced_owner_ruling_no_raise: exempt(
+    'scope',
+    'R1 owner-ruling receipt (2026-11-15 12:30): out of position, or in position without the combo draw, no semi-bluff raise is priced or made'
+  ),
+  omaha_semibluff_raise_priced_unpriced_no_raise: exempt(
+    'scope',
+    'R1 unpriced pass-through receipt when a flop facing-bet spot cannot be priced; no semi-bluff raise is made'
   ),
   omaha_flop_bet_on_his_response_checked: CARD_IMPACT,
   omaha_flop_bet_on_his_response_kept: CARD_IMPACT,

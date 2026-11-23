@@ -35,6 +35,7 @@ const READERS = [
   'HorseMind.ts',
   'HorseOmahaBigBetSizeIsPriced.ts',
   'HorseOmahaBigDrawBetPriced.ts',
+  'HorseOmahaMadeAndPairedBetsPriced.ts',
   'HorseOmahaPreflopHudPriced.ts',
   'HorseOmahaPricedSites.ts',
   'HorseOmahaPricedWiring.ts',

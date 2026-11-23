@@ -416,6 +416,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaCheckedToBetInLightning: priced(
     'a scope option: the game of omahaCheckedToBetIsPriced includes the Lightning pools without omahaPricedInLightning; switches the rule on nowhere by itself (default OFF; EMERG lane OPEN-ITEMS-3 2026-11-20)'
   ),
+  omahaTurnRiverRaiseIsPricedInLightning: priced(
+    'a scope option: omahaTurnRiverRaiseIsPriced includes the Lightning pools without widening omahaPricedInLightning to any other rule, giving #2 omahaRiverNutRaiseOnly a priced Lightning owner; switches the rule on nowhere by itself (default OFF; PLO-OWNER lead-4 2026-11-22)'
+  ),
   omahaFoldModelFittedOnPeople: priced(
     'every v38 flop or turn bet size, heads-up against a person facing no bet, is priced with his fold share from the fold model fitted on people (measured cells by variant, street, pot type and bet-size bucket, shrunk to OMAHA_EV_FOLD_MODEL where thin, scaled by his own read); default OFF'
   ),
@@ -428,6 +431,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaBigDrawBetIsPricedOnHisResponse: priced(
     'R4: PLO4/PLO5 cash flop/turn checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet bar (default OFF)'
+  ),
+  omahaMadeAndPairedBetsArePricedOnHisResponse: priced(
+    'R5: turn/river made-hand defense (#19) and paired-board / OOP barrel (#9/#10/#11) bets priced beside the check via omahaCardImpact with lifetime HUD fold, raise-back (rBet) and stab cells and prove-it-to-check bar (default OFF)'
   ),
   omahaStrongHandValue: priced('value bet, induce check and value raise by expected value'),
   omahaStrongHandSlowplayMix: priced('a mixed frequency over a priced raise and call'),
@@ -527,6 +533,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
+  ),
+  omahaSemiBluffRaiseIsPriced: priced(
+    'the semi-bluff raise of the two frequency sites is made only where its expected value at the legal size of highest value beats the better of the call and the fold by more than the uncertainty of the sample and of his measured fold; no roll, class, size band or position decides (default OFF)'
   ),
   omahaRiverFirstToActBetIsPriced: priced(
     'a river check by the first actor heads-up becomes a bet only where the bet, priced on the measured response curve and the card-impact range, beats the check by more than its standard error; it changes only a check (default OFF)'

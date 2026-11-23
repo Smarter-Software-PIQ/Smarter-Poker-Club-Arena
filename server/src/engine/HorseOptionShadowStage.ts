@@ -43,6 +43,12 @@ export interface OptionShadowStageEntry {
   readonly games: readonly OmahaOptionGame[];
   /** The streets it is re-decided on (gameState.stage); absent = every street. */
   readonly streets?: readonly string[];
+  /**
+   * The pool speeds it is re-decided in (gameState.publicMemoryDomain.speed, public table metadata, e.g.
+   * 'lightning'); absent = every pool. An option that acts only in Lightning pools lists 'lightning' so the
+   * shadow does not spend re-decisions on ordinary tables, where flipping it changes nothing.
+   */
+  readonly speeds?: readonly string[];
   /** Options passed true with it when it is flipped to true. */
   readonly companions?: readonly string[];
 }
@@ -55,13 +61,15 @@ const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([
  * only ever picks a registered option in shadow or on_shadow). omahaOpponentLifetimeHud is NOT listed: in shadow
  * nothing arms its lifetime record, so a flipped re-decision would read "same" falsely. The math core's street flags
  * were taken out on 2026-11-20 (VERIFIER V59: a re-decision with the core cost 50-125 ms on PLO5 postflop, and a
- * request arriving on the same worker would wait behind it). omahaMathCorePlo5Flop returns on 2026-11-21 (lead-2
- * order, lane CORE-POOLED-3) because that cost is now lower: the core's 2+3 evaluator is table driven and it does no
- * work on a street whose flag is off, so a PLO5 flop decision with the core on costs p50 14.0 / p95 28.8 / max 39.9 ms
- * in all (added p50 11.5 / p95 26.5 ms; CRITERIA-CORE-POOLED-3-LATENCY-AMEND run, load 16), under the breaker's 50 ms
- * slow line. It is staged on PLO5 flop only, with omahaMathCore as its companion (the street flag acts only with it).
- * The other core street flags stay out. Like every listed name it re-decides only once its registry entry takes
- * shadow (a release-default classification, a separate switch-list change).
+ * request arriving on the same worker would wait behind it). omahaMathCorePlo5Flop returned on 2026-11-21 (lead-2
+ * order, lane CORE-POOLED-3) once the table-driven 2+3 evaluator brought PLO5 flop cost under the 50 ms slow line
+ * (added p50 17.7-18.0 ms / p95 29.6-33.6 ms on serving b31db252, V333). The remaining five street flags
+ * (omahaMathCorePlo4Flop, omahaMathCorePlo5Turn, omahaMathCorePlo5River, omahaMathCorePlo4Turn, omahaMathCorePlo4River)
+ * join on 2026-11-22 (PLO-OWNER lead-4, lane core-repair) after passing their serving-build latency bars (PLO4 flop
+ * added p50 15.7-15.9 ms / p95 23.1-23.6 ms, 0/372 > 100 ms; PLO5/PLO4 turn+river 0/438 and 0/429 > 100 ms). Each
+ * street flag is staged strictly on its single (game, street) cell with omahaMathCore as its companion (the street
+ * flag acts only with it), and like every listed name it re-decides only once its registry entry takes shadow (a
+ * release-default classification plus switch-list SQL).
  */
 export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   // OPPONENT-HUD-9 2026-11-21: the lifetime-HUD consumer re-decides postflop (its only scope) while the store option is
@@ -84,15 +92,55 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop']),
   }),
+  omahaSemiBluffRaiseIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFourBetFoldPricedCall: PLO4_PLO5,
   omahaStabDefenceIsPriced: PLO4_PLO5,
   omahaBigDrawBetIsPricedOnHisResponse: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn']),
   }),
+  omahaMadeAndPairedBetsArePricedOnHisResponse: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  // Turn 5b 2026-11-22: it acts only in a Lightning pool, so it is re-decided only there.
+  omahaTurnRiverRaiseIsPricedInLightning: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+    speeds: Object.freeze(['lightning']),
+    companions: Object.freeze(['omahaTurnRiverRaiseIsPriced']),
+  }),
   omahaMathCorePlo5Flop: Object.freeze({
     games: Object.freeze([5] as const),
     streets: Object.freeze(['flop']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+  omahaMathCorePlo4Flop: Object.freeze({
+    games: Object.freeze([4] as const),
+    streets: Object.freeze(['flop']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+  omahaMathCorePlo5Turn: Object.freeze({
+    games: Object.freeze([5] as const),
+    streets: Object.freeze(['turn']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+  omahaMathCorePlo5River: Object.freeze({
+    games: Object.freeze([5] as const),
+    streets: Object.freeze(['river']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+  omahaMathCorePlo4Turn: Object.freeze({
+    games: Object.freeze([4] as const),
+    streets: Object.freeze(['turn']),
+    companions: Object.freeze(['omahaMathCore']),
+  }),
+  omahaMathCorePlo4River: Object.freeze({
+    games: Object.freeze([4] as const),
+    streets: Object.freeze(['river']),
     companions: Object.freeze(['omahaMathCore']),
   }),
 });
@@ -130,12 +178,17 @@ export function optionShadowStageInScope(
   if (!options.some((o) => Object.hasOwn(table, o))) return options;
   let game: OmahaOptionGame | null = null;
   let street = '';
+  let speed = '';
   try {
     game = omahaOptionGameOf(
       player as Parameters<typeof omahaOptionGameOf>[0],
       gameState as Parameters<typeof omahaOptionGameOf>[1]
     );
     street = String((gameState as { stage?: unknown } | null)?.stage ?? '').toLowerCase();
+    speed = String(
+      (gameState as { publicMemoryDomain?: { speed?: unknown } } | null)?.publicMemoryDomain
+        ?.speed ?? ''
+    ).toLowerCase();
   } catch {
     game = null;
   }
@@ -143,7 +196,8 @@ export function optionShadowStageInScope(
     if (!Object.hasOwn(table, o)) return true;
     const entry = table[o]!;
     if (game === null || !entry.games.includes(game)) return false;
-    return !entry.streets || entry.streets.includes(street);
+    if (entry.streets && !entry.streets.includes(street)) return false;
+    return !entry.speeds || entry.speeds.includes(speed);
   });
 }
 

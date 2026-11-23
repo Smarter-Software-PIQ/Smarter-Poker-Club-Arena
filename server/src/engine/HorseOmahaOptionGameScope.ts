@@ -98,6 +98,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaCbetRaiseIsPriced',
   // EMERG lane OFFENCE-BUILD 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaRiverFirstToActBetIsPriced',
+  // lane REPLACEMENTS-1 2026-11-21: PLO4/PLO5 cash, default OFF
+  'omahaSemiBluffRaiseIsPriced',
   'omahaRiverCheckedToBetIsMeasured',
   // EMERG lane BLANKET-AUDIT 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaBlanketRowsOffInPlo45Cash',
@@ -177,6 +179,7 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaSmallBetIsPriced',
   'omahaCheckedToBetIsPriced',
   'omahaCheckedToBetInLightning',
+  'omahaTurnRiverRaiseIsPricedInLightning',
   'omahaCheckedToBetResponseIsMeasured',
   'omahaMultiwayCheckedToBetIsPriced',
   'omahaStrongHandValue',
@@ -194,6 +197,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaCommitZoneThreeBetPriceRelief',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to big-draw bets priced on lifetime HUD
   'omahaBigDrawBetIsPricedOnHisResponse',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R5 turn/river made-hand & paired-board bets priced on lifetime HUD
+  'omahaMadeAndPairedBetsArePricedOnHisResponse',
 ]);
 
 const SCOPABLE: ReadonlySet<string> = new Set(OMAHA_OPTION_GAME_SCOPE_OPTIONS);

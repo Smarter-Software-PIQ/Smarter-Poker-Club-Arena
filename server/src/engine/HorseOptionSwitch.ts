@@ -379,6 +379,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
   'omahaCbetRaiseIsPriced',
+  // 2026-11-21 lane REPLACEMENTS-1/5: R1 v4 flop semi-bluff & legacy draw raises priced on lifetime HUD (ships dark)
+  'omahaSemiBluffRaiseIsPriced',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river checked-to heads-up bet on the measured response, no kind (ships dark)
   'omahaRiverCheckedToBetIsMeasured',
   // 2026-11-21 EMERG lane BLANKET-AUDIT: the declared blanket rows off in PLO4/PLO5 cash only (ships dark)
@@ -403,6 +405,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
   'omahaBigDrawBetIsPricedOnHisResponse',
+  // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R5 turn/river made-hand & paired-board bets priced on lifetime HUD (ships dark)
+  'omahaMadeAndPairedBetsArePricedOnHisResponse',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
@@ -417,6 +421,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaCheckedToBetIsPriced',
   'omahaCheckedToBetResponseIsMeasured',
   'omahaCheckedToBetInLightning',
+  'omahaTurnRiverRaiseIsPricedInLightning',
   'omahaReraisedCallVsRaisePriced',
   'omahaPreflopJamFacingReraiseIsPriced',
   'omahaFoldModelFittedOnPeople',
@@ -507,11 +512,17 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'horsePlayStyles',
   // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
   'omahaReraisedPotFlopContinueNeedsEquityShape',
-  // 2026-11-21 (lane CORE-POOLED-6): was 'code'. Every read of the math core's PLO5 flop flag is `=== true`
-  // (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover door, OmahaMathCoreSwitchState.ts,
-  // responseValidation.ts admission), so unset is off at every read site. Listed so the registry takes the
-  // `shadow` state for it (OPTION_SHADOW_STAGE entry, companion omahaMathCore); alone it changes no decision.
+  // 2026-11-21 (lane CORE-POOLED-6) & 2026-11-22 (PLO-OWNER lead-4, lane core-repair): were 'code'. Every read of
+  // each math core street flag is `=== true` (OmahaMathCoreRule.ts omahaMathCoreStreetAdmitted, HorseLogic.ts recover
+  // door, OmahaMathCoreSwitchState.ts, responseValidation.ts admission), so unset is off at every read site. Listed
+  // so the registry takes the `shadow` state for each street flag (OPTION_SHADOW_STAGE entries, companion
+  // omahaMathCore); alone each street flag changes no decision.
   'omahaMathCorePlo5Flop',
+  'omahaMathCorePlo4Flop',
+  'omahaMathCorePlo5Turn',
+  'omahaMathCorePlo5River',
+  'omahaMathCorePlo4Turn',
+  'omahaMathCorePlo4River',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([

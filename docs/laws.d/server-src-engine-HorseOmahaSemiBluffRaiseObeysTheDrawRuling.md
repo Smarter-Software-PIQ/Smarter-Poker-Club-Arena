@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaSemiBluffRaiseObeysTheDrawRuling.law.test.ts
+
+Owner ruling 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS") holds with `omahaSemiBluffRaiseIsPriced` on (default OFF): through the whole PLO4/PLO5 cash flop decision, 0 raises of an out-of-position draw against an unread opponent and against 50%, 90% and 99% folders, with `omahaNoDrawRaiseOutOfPosition` on and off; in position 0 raises of a bare flush draw or bare straight draw; the option adds a raise only with the combo draw in position (`omahaComboDrawForRaise`), and does raise it against a measured folder.

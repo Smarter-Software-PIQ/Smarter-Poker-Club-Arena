@@ -497,6 +497,23 @@ export interface OmahaBigDrawCounts {
   won: number[];
 }
 
+/** The last sampled spot (its cards, sample size and continuing-range key) and its answer. */
+let omahaBigDrawEquitiesMemo: {
+  key: string;
+  equities: OmahaBigDrawEquities | null;
+  got: number[];
+  won: number[];
+} | null = null;
+/** Forget the last sampled spot, so the next call deals its sample again (the memo law compares the two). */
+export function omahaBigDrawEquitiesMemoClear(): void {
+  omahaBigDrawEquitiesMemo = null;
+}
+let omahaBigDrawSampledRunCount = 0;
+/** How many times omahaBigDrawEquities has dealt its sample in this process (a law pins the work per decision). */
+export function omahaBigDrawSampledRuns(): number {
+  return omahaBigDrawSampledRunCount;
+}
+
 /**
  * Hero's showdown share (ties half) against one opponent hand, by one seeded
  * sample of opponent hands and run-outs, split by the range the opponent hand
@@ -514,6 +531,23 @@ export function omahaBigDrawEquities(
   const size = hole.length;
   const need = 5 - board.length;
   if (need < 1 || deck.length < size + need) return null;
+  // Straight draws in the continuing range: none in PLO4/PLO5 (the key reads 0).
+  const continueStraightOuts = omahaStrategyConstant('bigDrawContinueStraightOuts', {
+    gameVariant: `plo${size}`,
+  });
+  // The sample is seeded from the cards alone, so the same cards give the same answer: a second
+  // consult of one spot (one decision reaches the draw rules more than once) reads the first answer.
+  const key = JSON.stringify([hole, board, dead, samples, continueStraightOuts]);
+  const memo = omahaBigDrawEquitiesMemo;
+  if (memo !== null && memo.key === key) {
+    if (memo.equities === null) return null;
+    if (counts) {
+      counts.got = [...memo.got];
+      counts.won = [...memo.won];
+    }
+    return { ...memo.equities };
+  }
+  omahaBigDrawSampledRunCount++;
   const rnd = generator(seedOf([...hole, ...board]));
   const draw = (n: number, from: Card[], start: number): void => {
     for (let i = start; i < start + n; i++) {
@@ -526,10 +560,6 @@ export function omahaBigDrawEquities(
   const won = [0, 0, 0];
   const got = [0, 0, 0];
   const h = [...hole];
-  // Straight draws in the continuing range: none in PLO4/PLO5 (the key reads 0).
-  const continueStraightOuts = omahaStrategyConstant('bigDrawContinueStraightOuts', {
-    gameVariant: `plo${size}`,
-  });
   for (let k = 0; k < samples; k++) {
     const d = deck.slice();
     draw(size, d, 0);
@@ -549,10 +579,14 @@ export function omahaBigDrawEquities(
       got[lv]!++;
     }
   }
-  if (got[0]! === 0) return null;
+  if (got[0]! === 0) {
+    omahaBigDrawEquitiesMemo = { key, equities: null, got: [...got], won: [...won] };
+    return null;
+  }
   const all = won[0]! / got[0]!;
   const bet = got[1]! >= 40 ? won[1]! / got[1]! : all;
   const raise = got[2]! >= 40 ? won[2]! / got[2]! : bet;
+  omahaBigDrawEquitiesMemo = { key, equities: { all, bet, raise }, got: [...got], won: [...won] };
   if (counts) {
     counts.got = got;
     counts.won = won;
