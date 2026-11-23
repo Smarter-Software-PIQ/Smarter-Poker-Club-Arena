@@ -1,6 +1,6 @@
 /**
- * LAW: on a portrait phone or tablet, every top chair on every ring stands on
- * the rail. Never on the felt.
+ * LAW: on a phone (the 600px portrait layout every phone uses), every top
+ * chair on every ring stands on the rail. Never on the felt.
  *
  * Dan 2026-11-22, first of the six-max table: "THE TOP VILLAIN IS TO LOW ON
  * THE TABLE! THEY MUST 100% OF THE TIME BE ON THE RAIL AND NEVER ON TOP OF
@@ -28,6 +28,13 @@
  * past the felt), the allocator never nudges it, the size fitter lets its
  * portrait pass behind the tab bar instead of shrinking (CLAUDE.md 10.7c), and
  * the jackpot plaque and the tab bar paint above any crown that reaches them.
+ *
+ * A portrait tablet (641-768px) keeps its approved placement: there the canvas
+ * starts just under the tab bar, a chair on the rail leaves no room above it
+ * for a hand it tables, the hand lands on the felt in front of it, and its ALL
+ * IN marker was left standing on those cards and the pot (CSS Beat, 768x1024
+ * six-max PLO5, 2026-11-22). Raw widths (<= 480px: mini tiles, squeezed
+ * windows) and landscape keep theirs too.
  * The browser guard (readMobileTableLayout, "Top Seat") proves the same on the
  * real components and in the post-deploy live proof.
  */
@@ -63,7 +70,6 @@ const CANVASES = [
   { name: '600x900 phone layout, toolbars showing', ringTop: 120, ringHeight: 590 },
   { name: 'raw 390x844', ringTop: 214, ringHeight: 401 },
   { name: 'raw 320x568', ringTop: 160, ringHeight: 300 },
-  { name: 'tablet 768x1024', ringTop: 151, ringHeight: 717.7 },
 ] as const;
 const PLATES = [37.2, 43.4, 47, 48.35, 53.6] as const;
 
@@ -85,19 +91,17 @@ describe('every top-cap station of every ring is on the rail', () => {
 });
 
 describe('which layouts stand their top chairs on the rail', () => {
-  it('every portrait phone layout and tablet, 481 to 768px', () => {
+  it('every portrait phone layout, 481 to 640px', () => {
     for (const [w, h] of [
       [600, 900],
       [600, 1065],
       [600, 1298],
-      [641, 900],
-      [700, 1000],
-      [744, 1133],
-      [768, 1024],
+      [540, 900],
+      [640, 1000],
     ])
       expect(topChairRailViewport(w, h), `${w}x${h}`).toBe(true);
   });
-  it('not landscape, not wider than 768px, and not a page narrower than a phone layout', () => {
+  it('not landscape, not a tablet or wider, and not a page narrower than a phone layout', () => {
     for (const [w, h] of [
       [320, 568],
       [375, 667],
@@ -106,6 +110,10 @@ describe('which layouts stand their top chairs on the rail', () => {
       [480, 900],
       [844, 390],
       [667, 375],
+      [641, 900],
+      [700, 1000],
+      [744, 1133],
+      [768, 1024],
       [769, 1024],
       [1024, 1366],
       [1280, 800],
@@ -211,7 +219,7 @@ function Ring({ seats, tournament, pods }: { seats: number; tournament: boolean;
 
 const VIEWPORTS = [
   { name: '600x1298 phone reference layout', width: 600, height: 1298 },
-  { name: '768x1024 tablet', width: 768, height: 1024 },
+  { name: '600x1065 shortest phone layout', width: 600, height: 1065 },
 ] as const;
 
 describe('the real layout hook stands every top chair on the rail', () => {
@@ -323,7 +331,7 @@ describe('the mechanisms that put them on the felt stay out', () => {
   });
   it('the browser guard and the live proof check every ring in the rail viewport', () => {
     const block = sliceBetween(guard, 'const railViewport =', 'const footerControls');
-    expect(block).toContain('innerWidth <= 768 && innerHeight > innerWidth');
+    expect(block).toContain('innerWidth <= 640 && innerHeight > innerWidth');
     expect(block).not.toMatch(/dataset\.seats === '6'/);
     for (const check of [
       'Station Is Not On The Rail',

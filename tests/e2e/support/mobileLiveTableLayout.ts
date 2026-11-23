@@ -608,15 +608,15 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   }
   // EVERY TOP CHAIR STANDS ON THE RAIL (Dan 2026-11-22: "THEY MUST 100% OF THE
   // TIME BE ON THE RAIL AND NEVER ON TOP OF THE TABLE OR OVERLAPPING THE FELT
-  // ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). On a portrait
-  // phone layout or tablet (481-768px wide), every ring and every top chair, cash
+  // ... THE ACTION BAR BEING LAYER 1 AND THE AVATAR LAYER 2"). On the phone
+  // layout (481-640px wide, portrait), every ring and every top chair, cash
   // or tournament, seated or watched: the plate rests on the chair's own rail
   // station (the nine-seat phone ring keeps its plates centred on it, never
   // past the felt), neither the plate nor the portrait reaches the felt window,
   // the tab bar and the jackpot plaque paint above the portrait, and nothing
   // covers the jackpot plaque. src/components/table/topChairRail.ts.
-  // 481-768px portrait: the phone layout and tablets (topChairRailViewport).
-  const railViewport = innerWidth > 480 && innerWidth <= 768 && innerHeight > innerWidth;
+  // 481-640px portrait: the phone layout every phone uses (topChairRailViewport).
+  const railViewport = innerWidth > 480 && innerWidth <= 640 && innerHeight > innerWidth;
   if (railViewport) {
     const chassisNode = table.querySelector('.table-scaler');
     const feltNode = table.querySelector('.table-surface');
@@ -1148,7 +1148,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       : 12;
   // Outside the rail viewport (landscape, desktop, a tiled table) the top chair
   // keeps its earlier placement: crown to the bar on six-max, close under the
-  // Mini BBJ elsewhere. On a portrait phone or tablet the rail checks above
+  // Mini BBJ elsewhere. On the portrait phone layout the rail checks above
   // replace both (Dan 2026-11-22: the head may run under the bar).
   if (railViewport) {
     // The rail block above owns the top chair here.

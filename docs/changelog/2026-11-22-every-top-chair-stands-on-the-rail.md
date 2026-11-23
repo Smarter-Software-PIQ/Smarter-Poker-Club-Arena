@@ -8,9 +8,8 @@ ALL OF THESE".
 ## What a player saw
 
 #11774 fixed the six-max top seat in the 600px phone layout only. On heads-up,
-four-seat and eight-seat tables, on the two top diagonals of the 3/5/7/9/10
-seat rings, and on six-max on a portrait
-tablet (641-768px), the top chair's name plate still sat 11-22% down the
+four-seat and eight-seat tables, and on the two top diagonals of the 3/5/7/9/10
+seat rings, the top chair's name plate still sat 11-22% down the
 table canvas, below the 8.9% where the felt begins. Tournament top chairs were
 never placed by the layout hook at all and sat on the felt by CSS alone.
 
@@ -31,12 +30,19 @@ bottom edge rests on the station; the portrait rises as far as its size takes
 it, under the jackpot plaque and tab bar, which paint above it. Nothing above
 the chair is an input, so nothing above it can push it onto the felt again.
 
-- `useProtectedCardLayout.ts` applies it on every portrait layout from 481 to
-  768px (the 600px layout every phone uses, and portrait tablets), cash and
-  tournament (tournament top chairs join the top lane). A page narrower than
-  481px is a multi-table mini tile or a squeezed desktop window, not a phone's
-  table; extending the rule there collided with the minis' tabled hands and
-  crown clearances in CSS Beat, so those keep their approved placement.
+- `useProtectedCardLayout.ts` applies it on the portrait phone layout, 481 to
+  640px (the 600px layout every phone uses), cash and tournament (tournament
+  top chairs join the top lane). Two neighbours keep their approved placement,
+  each because CSS Beat showed the rule breaking something else there:
+  - a page narrower than 481px is a multi-table mini tile or a squeezed
+    desktop window, not a phone's table; there the rule collided with the
+    minis' tabled hands and crown clearances;
+  - a portrait tablet (641-768px) starts its canvas just under the tab bar, so
+    a chair on the rail leaves no room above it for a hand it tables. The hand
+    then lands on the felt in front of the chair, and at 768x1024 six-max PLO5
+    the chair's ALL IN marker had nowhere left but on those cards and the pot.
+    On the phone layout the tabled hand rises over the portrait instead, which
+    keeps that felt free.
 - `opponentAvatarLayout.ts` never nudges a top chair.
 - `mobileAvatarEnlargement.ts` lets those portraits pass behind the tab bar
   instead of shrinking them (CLAUDE.md 10.7c: no portrait got smaller).
@@ -44,7 +50,7 @@ the chair is an input, so nothing above it can push it onto the felt again.
   floor: never past the felt on the shortest canvases.
 - Two chairs on one rail line share one station, so they sit level by
   construction. The level law is kept, not dropped: it now requires level AND
-  on the rail on portrait phones and tablets, and still checks the 2026-11-05
+  on the rail on the phone layout, and still checks the 2026-11-05
   levelling everywhere else.
 
 ## Why it regressed
@@ -57,8 +63,9 @@ where a top plate ended up on any other ring or width.
 ## How it is pinned
 
 - `tests/every-top-chair-stands-on-the-rail.law.test.tsx`: stations of every
-  ring, the arithmetic at measured canvases and plate heights, and the real hook
-  at a raw phone, the phone layout and a tablet for every ring, cash and
+  ring, the arithmetic at measured canvases and plate heights, which layouts
+  the rule covers (and that tablets, raw widths and landscape do not), and the
+  real hook at the tall and short phone layout for every ring, cash and
   tournament.
 - `tests/two-top-chairs-sit-level.law.test.tsx`: level and on the rail.
 - `readMobileTableLayout` ("Top Seat" violations) in the browser guard cases

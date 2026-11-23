@@ -57,16 +57,23 @@
  */
 import { FELT_WINDOW } from './tableGeometry';
 
-/** Every viewport whose top chairs stand on their rail: portrait, 481-768px
- * wide. That is the 600px phone reference layout every phone lays out at
- * (481-640) and a portrait tablet (641-768). A page narrower than 481px is not
- * a phone's table (a phone always lays out at 600px); it is a multi-table mini
+/** Every viewport whose top chairs stand on their rail: the phone reference
+ * layout, portrait, 481-640px wide, which every phone lays its table out at
+ * (600px). That layout's top lane was built for a rail-standing chair: a hand
+ * the top chair tables rises over its portrait, so the felt in front of it
+ * stays free for its wager and the pot.
+ *
+ * A page narrower than 481px is not a phone's table; it is a multi-table mini
  * tile or a desktop window squeezed narrow, whose ring keeps its approved
  * placement: moving those top chairs collided with the minis' tabled hands and
- * crown clearances (CSS Beat, 2026-11-22). Landscape and wider layouts keep
- * their placement too. */
+ * crown clearances (CSS Beat, 2026-11-22). A portrait tablet (641-768px) keeps
+ * its approved placement too: its canvas starts just under the tab bar, so a
+ * chair on the rail leaves no room above it for a tabled hand, the hand then
+ * lands on the felt in front of the chair, and the chair's ALL IN marker had
+ * nowhere left to stand but on those cards and the pot (CSS Beat, 768x1024
+ * six-max PLO5, 2026-11-22). Landscape and wider layouts keep theirs. */
 export function topChairRailViewport(viewportWidth: number, viewportHeight: number): boolean {
-  return viewportWidth > 480 && viewportWidth <= 768 && viewportHeight > viewportWidth;
+  return phoneReferenceLayout(viewportWidth, viewportHeight);
 }
 
 /** The phone reference layout (481-640px, portrait): the

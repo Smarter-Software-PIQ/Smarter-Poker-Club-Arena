@@ -3,7 +3,7 @@ import { readMobileTableLayout } from './mobileLiveTableLayout';
 
 /**
  * EVERY TOP CHAIR STANDS ON THE RAIL (Dan 2026-11-22), on the real seat
- * components: every ring that has its own top chairs, at the 600px phone layout and a portrait tablet, cash and tournament, seated
+ * components: every ring that has its own top chairs, at the 600px phone layout every phone uses, cash and tournament, seated
  * and watched, with the jackpot plaque drawn. The six- and nine-seat phone
  * rings are proved by the fixed-artwork cases (mobileAvatarSizingCases.ts),
  * which assert the same "Top Seat" violations alongside the approved sizes.
@@ -22,11 +22,6 @@ export const TOP_CHAIR_RAIL_CASES = [
   // The shortest phone layout (320x568, 375x667).
   { width: 600, height: 1065, seats: '2', spectator: 'true', tournament: 'false' },
   { width: 600, height: 1065, seats: '8', spectator: 'false', tournament: 'true' },
-  // Portrait tablets.
-  { width: 768, height: 1024, seats: '4', spectator: 'false', tournament: 'false' },
-  { width: 768, height: 1024, seats: '6', spectator: 'true', tournament: 'false' },
-  { width: 768, height: 1024, seats: '9', spectator: 'true', tournament: 'true' },
-  { width: 700, height: 1000, seats: '8', spectator: 'true', tournament: 'false' },
 ] as const;
 
 export type TopChairRailSettings = (typeof TOP_CHAIR_RAIL_CASES)[number];

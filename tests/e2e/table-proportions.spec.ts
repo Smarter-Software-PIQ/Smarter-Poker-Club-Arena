@@ -1691,12 +1691,12 @@ for (const [width, heightOverride] of occupiedViewports)
             };
           }, AVATAR_CROWN_TOP);
           // Preserve breathing, tense and celebration poses around the
-          // two-pixel resting crop; only the crown may cross the bar. On a
-          // portrait phone layout or tablet the top chair stands on its rail
+          // two-pixel resting crop; only the crown may cross the bar. On the
+          // portrait phone layout (481-640px) the top chair stands on its rail
           // and its head may run under the bar (Dan 2026-11-22: "THE TOP OF
           // THAT VILLAINS HEAD CAN BE 'CUT OFF' AT THE TOP OR 'UNDER THE
           // ACTION BAR'"); the rail checks in readMobileTableLayout own it.
-          if (width > 768) expect(crown.gap).toBeGreaterThan(-12 * crown.scale);
+          if (width > 640) expect(crown.gap).toBeGreaterThan(-12 * crown.scale);
           // A mobile revealed hand now owns a full card-height lane above
           // its plate. Only face-down and desktop crowns retain the crop.
           if (!revealed || width > 768) expect(crown.gap).toBeLessThan(2 * crown.scale);
@@ -1794,7 +1794,9 @@ for (const [width, heightOverride] of occupiedViewports)
                 );
               expect(shownTop).toBeGreaterThanOrEqual(7.5);
             }
-            expect(anchoring.gap).toBeGreaterThan(-12 * crown.scale);
+            // On the portrait phone layout the rail checks own the top chair
+            // and its head may run under the bar (see above).
+            if (width > 640) expect(anchoring.gap).toBeGreaterThan(-12 * crown.scale);
           }
         }
         // The added desktop-width case owns the crown target. The
@@ -3290,7 +3292,11 @@ test.describe('cold observer and phone geometry', () => {
   });
 
   test('six-seat compact crown proof reserves only its bounded card lane', async ({ page }) => {
-    await page.setViewportSize({ width: 600, height: 1000 });
+    // The crown proof governs the top chair outside the rail viewport: a
+    // landscape phone layout here. In portrait at 481-640px the top chair
+    // stands on its rail and the rail checks replace this proof (Dan
+    // 2026-11-22, src/components/table/topChairRail.ts).
+    await page.setViewportSize({ width: 600, height: 560 });
     await page.setContent(`<style>body{margin:0}</style>
     <div class="table-page" data-seats="6" style="position:relative;width:600px;height:1000px">
       <div class="bbj-mini-plate" style="position:absolute;top:0;left:0;width:100px;height:20px"></div>
@@ -3319,7 +3325,7 @@ test.describe('cold observer and phone geometry', () => {
     });
     await page.setViewportSize({ width: 1024, height: 1000 });
     expect(await refused(), 'The wide desktop still requires the top-bar crop').toBe(true);
-    await page.setViewportSize({ width: 600, height: 1000 });
+    await page.setViewportSize({ width: 600, height: 560 });
     await page.locator('.table-scaler').evaluate((scaler) => {
       (scaler as HTMLElement).style.removeProperty('--sp-tabled-card-w');
     });

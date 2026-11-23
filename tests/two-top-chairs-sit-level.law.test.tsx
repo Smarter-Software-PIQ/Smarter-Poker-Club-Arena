@@ -1,7 +1,7 @@
 /**
  * LAW: two chairs on one top rail line sit level, whatever character either
  * player wears (Dan 2026-11-05, live FLH 0.50/1 on a phone: "MAMAPRIYA IS TOO
- * LOW"), AND, on a portrait phone or tablet, both stand on the rail (Dan
+ * LOW"), AND, on the portrait phone layout, both stand on the rail (Dan
  * 2026-11-22: "THEY MUST 100% OF THE TIME BE ON THE RAIL AND NEVER ON TOP OF
  * THE TABLE OR OVERLAPPING THE FELT").
  *
@@ -14,7 +14,7 @@
  * the felt: a crown kept 8px under the jackpot plate leaves the plate 11-22%
  * down the canvas, against a felt window that starts at 8.9%.
  *
- * On a portrait phone or tablet (topChairRailViewport) each plate now rests on
+ * On the portrait phone layout (topChairRailViewport, 481-640px) each plate rests on
  * its own rail station (topChairRail.ts), so two chairs on one line share one
  * resting place and are level by construction, whatever art either wears; the
  * jackpot plaque and the tab bar paint above any crown that reaches them. A
@@ -144,11 +144,10 @@ const pairs = (art: string) =>
 const stationLine = RING.top + (RING.height * STATION) / 100;
 const feltTop = RING.top + (RING.height * FELT_WINDOW.top) / 100;
 
-describe('on a portrait phone or tablet both chairs stand on the rail, level', () => {
-  // The 600px phone reference layout and a portrait tablet.
-  // The fixture is a nine-seat ring: at 600px its plates keep their approved
-  // centred placement (never past the felt); elsewhere the bottom edge rests
-  // on the station.
+describe('on the portrait phone layout both chairs stand on the rail, level', () => {
+  // The 600px phone reference layout, tall and short. The fixture is a
+  // nine-seat ring, whose plates keep their approved centred placement there
+  // (never past the felt).
   const VIEWPORTS = [
     {
       name: '600x1298 phone reference layout',
@@ -156,7 +155,12 @@ describe('on a portrait phone or tablet both chairs stand on the rail, level', (
       height: 1298,
       rest: Math.min(stationLine + PLATE_H / 2, feltTop),
     },
-    { name: '768x1024 tablet', width: 768, height: 1024, rest: stationLine },
+    {
+      name: '600x1065 shortest phone layout',
+      width: 600,
+      height: 1065,
+      rest: Math.min(stationLine + PLATE_H / 2, feltTop),
+    },
   ] as const;
   for (const viewport of VIEWPORTS)
     describe(viewport.name, () => {
