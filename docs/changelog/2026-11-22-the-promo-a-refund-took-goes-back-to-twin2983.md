@@ -42,3 +42,11 @@ so a make-good cannot land on top of one somebody already made by hand.
 Probed on production at 02:52 UTC in one self-aborting block: wallet
 1.85 to 7.10, union promo wallet 137742.13 to 137736.88, one leg, one locked
 grant, eleven original receipts untouched. Rolled back.
+
+## First install refused, nothing applied
+
+At 04:10 UTC the installer refused the file with
+`migration_applier_claim_unrecorded` and rolled back. The block forced every
+deferred check early, which fired the installer's own claim check before its
+history row existed. The file now forces them only in a probe; at install they
+run at commit as usual.
