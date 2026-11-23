@@ -127,6 +127,7 @@ describe('a migration cannot force the installer claim check', () => {
     expect(reasons, sql).toHaveLength(1);
     expect(reasons[0]).toContain('migration_applier_claim_unrecorded');
     expect(reasons[0]).toContain('SET CONSTRAINTS <name> IMMEDIATE');
+    expect(reasons[0]).toContain('IF v_probe THEN');
   });
 
   it('does not see the statement sent through EXECUTE (a stated limit of a textual rule)', () => {
@@ -138,6 +139,21 @@ describe('a migration cannot force the installer claim check', () => {
 
   it.each(Object.entries(ACCEPTED))('accepts %s', (_name, sql) => {
     expect(installerClaimRisks('20261123999999_x.sql', sql), sql).toEqual([]);
+  });
+
+  it('the shape it tells authors to write also satisfies the sibling line-based law (#11830)', () => {
+    // tests/a-migration-never-fires-the-applier-claim-early.law.test.ts accepts
+    // the statement only when the line above it is exactly "IF v_probe THEN".
+    const sibling = readFileSync(
+      join(ROOT, 'tests/a-migration-never-fires-the-applier-claim-early.law.test.ts'),
+      'utf8'
+    );
+    expect(sibling).toContain('IF\\s+v_probe\\s+THEN');
+    const lines = ACCEPTED['the probe-only shape'].split('\n');
+    const at = lines.findIndex((l) => /^\s*SET\s+CONSTRAINTS\s+ALL\s+IMMEDIATE\s*;/i.test(l));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at - 1]).toMatch(/^\s*IF\s+v_probe\s+THEN\s*$/i);
+    expect(lines[at + 1]).toMatch(/^\s*RAISE\s+EXCEPTION\b/i);
   });
 
   it('counts every occurrence', () => {
@@ -198,9 +214,11 @@ describe('a migration cannot force the installer claim check', () => {
         encoding: 'utf8',
       });
       // The good file passes every static refusal and stops only for want of a database.
-      expect(ok.stderr).not.toContain('REFUSED');
-      expect(ok.stderr).toContain('DATABASE_URL is not set');
-      expect(ok.status).toBe(3);
+      // (Inside the :50-:03 UTC break window the applier stops one step
+      // earlier, on the clock; that is also after the static refusals.)
+      expect(ok.stderr).not.toContain('is on the install path');
+      expect(ok.stderr).toMatch(/DATABASE_URL is not set|the break window is :50-:03/);
+      expect(ok.status).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

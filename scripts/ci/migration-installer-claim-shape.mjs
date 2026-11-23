@@ -46,6 +46,15 @@
  * (tests/a-migration-cannot-force-the-installers-claim-check.law.test.ts) so
  * the two cannot disagree. Files before CLAIM_CHECKED_FROM already ran, or
  * never will, and are not re-judged.
+ *
+ * A SIBLING LAW LANDED THE SAME NIGHT (#11830,
+ * tests/a-migration-never-fires-the-applier-claim-early.law.test.ts). It is
+ * line-based and accepts the statement only when the line above it is exactly
+ * "IF v_probe THEN". The two agree on the shape every author should write, the
+ * one 20261123024924 carries: the probe flag named v_probe, the IF, the
+ * statement and the RAISE each on a line of their own. This rule adds what
+ * that one does not hold: the RAISE that makes the branch unable to commit,
+ * any case or spacing, and the applier's refusal before anything is sent.
  */
 import { installExecutedText } from './migration-cost-shape.mjs';
 
@@ -80,8 +89,8 @@ export function installerClaimRisks(file, sql) {
         '(ca_migration_applier_claim_is_recorded); forcing ALL constraints fires that check before the history ' +
         'row exists, and production refuses the install with migration_applier_claim_unrecorded ' +
         '(20261123024924, 2026-11-23 04:10 UTC). Let the deferred checks run at COMMIT, name the constraints ' +
-        '(SET CONSTRAINTS <name> IMMEDIATE), or force them only in a probe branch written exactly as ' +
-        'IF <probe condition> THEN SET CONSTRAINTS ALL IMMEDIATE; RAISE EXCEPTION ...; ' +
+        '(SET CONSTRAINTS <name> IMMEDIATE), or force them only in a probe branch written exactly as three ' +
+        'lines: IF v_probe THEN / SET CONSTRAINTS ALL IMMEDIATE; / RAISE EXCEPTION ...; ' +
         '(scripts/ci/migration-installer-claim-shape.mjs).'
     );
   }

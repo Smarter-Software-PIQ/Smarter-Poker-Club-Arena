@@ -32,6 +32,14 @@ refuses with a sentence, and
 it of every file at merge. Thirty-one older files carry the statement; they
 already ran and are not re-judged.
 
+Another session landed a line-based law for the same mistake the same night
+(#11830, `tests/a-migration-never-fires-the-applier-claim-early.law.test.ts`):
+it accepts the statement only when the line above is exactly `IF v_probe
+THEN`. The two agree on the shape to write, the one `20261123024924` carries:
+`IF v_probe THEN`, the statement and the `RAISE EXCEPTION` on three lines.
+This rule adds the RAISE requirement, any case or spacing, and the
+installer's own refusal.
+
 Limits, stated in the rule: it cannot tell that the condition is false at
 install, and it does not see the statement inside `EXECUTE '...'` or inside a
 function the same file creates and then calls.
