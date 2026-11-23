@@ -198,13 +198,133 @@ async function runInspect() {
         LIMIT 5`,
       [incidentId]
     );
+    const safeSelect = async (sql, params = []) => {
+      try {
+        const res = await client.query(sql, params);
+        return res.rows;
+      } catch (err) {
+        return { queryError: String(err?.message || err).slice(0, 240) };
+      }
+    };
+    const inboxIds = obsRows
+      .map((r) => Number(r.inbox_event_id))
+      .filter((n) => Number.isSafeInteger(n) && n > 0);
+    const inboxEvents =
+      inboxIds.length > 0
+        ? await safeSelect(
+            `SELECT id, source, alertname, severity, status, summary, received_at,
+                    investigation_status, investigation_note, payload
+               FROM public.operational_alert_events
+              WHERE id = ANY($1::bigint[])
+              ORDER BY id DESC
+              LIMIT 5`,
+            [inboxIds]
+          )
+        : [];
+    const inc = incRows[0];
+    const context = {};
+    if (
+      inc.alertname === 'CutoverReadinessAtRisk' ||
+      inc.alertname === 'EngineCutoverMissed' ||
+      inc.source === 'cutover-readiness-watch'
+    ) {
+      context.cutoverReadinessRuns = await safeSelect(
+        `SELECT id, cutover_day, checked_at, verdict, reasons, unknowns, facts, alert_id
+           FROM smarter_private.ca_cutover_readiness_runs
+          ORDER BY checked_at DESC
+          LIMIT 5`
+      );
+      context.cutoverDays = await safeSelect(
+        `SELECT chicago_day, checked_at, serving_sha, owed_sha, verdict, reason, alert_id
+           FROM smarter_private.ca_engine_cutover_days
+          ORDER BY chicago_day DESC
+          LIMIT 5`
+      );
+      context.migrationWatch = await safeSelect(
+        `SELECT to_jsonb(w) AS row
+           FROM smarter_private.ca_merged_migration_watch w
+          WHERE w.installed_seen_at IS NULL
+             OR w.retired_at IS NOT NULL
+          ORDER BY w.merged_at DESC
+          LIMIT 15`
+      );
+    }
+    if (
+      inc.alertname === 'WeeklyPayoutNotReadyHalfHourBefore' ||
+      inc.alertname === 'union_accounting_scheduler' ||
+      inc.source === 'weekly-payout' ||
+      inc.source === 'financial-alerts-backfill'
+    ) {
+      context.financialAlerts = await safeSelect(
+        `SELECT to_jsonb(a) AS row
+           FROM public.financial_alerts a
+          WHERE a.resolved IS NOT TRUE
+            AND a.source IN ('union_accounting_scheduler', 'weekly_club_accounting', 'weekly-payout')
+          ORDER BY a.created_at DESC
+          LIMIT 10`
+      );
+      context.weeklyPayoutPauses = await safeSelect(
+        `SELECT run_id, period_start, period_end, phase, announced_at, money_starts_at,
+                money_deadline_at, expires_at, result
+           FROM public.weekly_accounting_payout_pauses
+          ORDER BY period_end DESC, announced_at DESC
+          LIMIT 5`
+      );
+      context.weeklyPayoutAdmittedProofs = await safeSelect(
+        `SELECT run_id, scope_kind, scope_id, period_start, period_end,
+                held_at, held_round, held_reason
+           FROM smarter_private.weekly_payout_admitted_proofs
+          ORDER BY period_end DESC, held_at DESC NULLS LAST
+          LIMIT 15`
+      );
+      context.weeklyPrepShardRuns = await safeSelect(
+        `SELECT id, shard, period_end, started_at, finished_at, units, last_unit, last_error
+           FROM smarter_private.weekly_prep_shard_runs
+          WHERE last_error IS NOT NULL
+          ORDER BY started_at DESC
+          LIMIT 10`
+      );
+      context.recomputeRequests = await safeSelect(
+        `SELECT to_jsonb(q) AS row
+           FROM public.accounting_period_recompute_requests q
+          ORDER BY q.period_end DESC, q.last_requested_at DESC
+          LIMIT 10`
+      );
+    }
+    const openDriftIncidents = await safeSelect(
+      `SELECT to_jsonb(d) AS row
+         FROM public.ca_drift_incidents d
+        WHERE d.resolved_at IS NULL
+        ORDER BY d.detected_at DESC
+        LIMIT 20`
+    );
+    const latestDigestAttention = await safeSelect(
+      `SELECT day, computed_at, attention
+         FROM public.sp_daily_metrics
+        ORDER BY day DESC
+        LIMIT 2`
+    );
+    const unpickedCriticalAlerts24h = await safeSelect(
+      `SELECT id, source, alertname, severity, status, summary, received_at, investigation_status
+         FROM public.operational_alert_events
+        WHERE received_at >= now() - interval '24 hours'
+          AND severity = 'critical'
+          AND (investigation_status IS NULL OR investigation_status NOT IN ('verified_fixed', 'informational'))
+        ORDER BY id DESC
+        LIMIT 20`
+    );
     console.log(
       JSON.stringify(
         {
           found: true,
-          incident: incRows[0],
+          incident: inc,
           recentObservations: obsRows,
           recentEvents: evtRows,
+          inboxEvents,
+          context,
+          openDriftIncidents,
+          latestDigestAttention,
+          unpickedCriticalAlerts24h,
         },
         null,
         2
