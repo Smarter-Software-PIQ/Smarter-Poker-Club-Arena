@@ -58,7 +58,10 @@ describe('LAW: the Lightning pool VPIP floor judges humans and Horses fairly', (
   it('warns before evicting and enforces initial grace', () => {
     expect(JUDGE).toMatch(/row\.totalEligibleHands < policy\.graceHands/);
     expect(JUDGE).toMatch(/row\.warnedAtEligibleHands === null/);
-    expect(JUDGE).toMatch(/handsSinceWarning < policy\.graceHands/);
+    // Grace is counted in eligible hands numbered AFTER the warning, so a delayed earlier hand that
+    // commits late cannot spend it (2026-11-22).
+    expect(JUDGE).toMatch(/row\.postWarningEligibleHands < policy\.graceHands/);
+    expect(JUDGE).toMatch(/handNumber > row\.warnedAtHandNumber/);
     expect(JUDGE).toMatch(/verdict:\s*wasWarned \? 'recovered' : 'ok'/);
   });
 

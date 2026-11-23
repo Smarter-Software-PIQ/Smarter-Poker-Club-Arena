@@ -2026,6 +2026,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * it is released exactly once through fn_f06_cancel_retained_prepared_hand.
    */
   static readonly F06_RESERVE_LEAD_MS = 1000;
+  /**
+   * THE OPENING CONTINUATION BATCH (SEQ-1) RIDES THE END OF THE REST TOO
+   * (hand delay, 2026-11-22, incident 1e532243).
+   *
+   * Even after F06_RESERVE_LEAD_MS moved fn_f06_begin_hand and seq-0 under
+   * the 1,500 ms rest, runOriginalController waited until the rest expired
+   * before calling controllerForHand.start(). HandContinuationLane then
+   * blocked HAND_START and currentHandStartedAt behind a second PostgREST
+   * round-trip (seq-1 fn_f06_retain_hand_continuation), adding ~130 ms median
+   * (and 250-3,167 ms tail) to every tournament hand compared to cash (+1 ms).
+   * Stopping SEQ1_RETAIN_LEAD_MS before the rest ends retains seq-1 under the
+   * rest while holding event dispatch, publishedHandState and flushSnapshot
+   * until awaitNextHandRest() finishes on the exact rest boundary.
+   */
+  static readonly SEQ1_RETAIN_LEAD_MS = 400;
   private restFinishesInsideDeal = false;
   private restBlindRead: Promise<unknown> | null = null;
   /** Set by dealHand when its post-rest last look refused the deal. */
@@ -2042,6 +2057,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * fn_f06_cancel_retained_prepared_hand instead of fencing the engine.
    */
   private restFinishesAfterRetention = false;
+  /** Non-zero while awaitNextHandRest stops SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest. */
+  private seq1RestStopShortMs = 0;
   /** This rest's blind read was awaited before the build; never read twice. */
   private restBlindReadConsumed = false;
   /** A hold met this attempt's saved original past the last look. */
@@ -2117,6 +2134,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
+    if (this.seq1RestStopShortMs > 0) {
+      const lead = this.seq1RestStopShortMs;
+      this.seq1RestStopShortMs = 0;
+      if (this.nextHandNotBeforeMs !== null) {
+        const remaining = this.nextHandNotBeforeMs - Date.now();
+        if (remaining > lead) {
+          this.setLoopPhase('next_hand_rest');
+          await this.sleep(remaining - lead);
+        }
+      }
+      return;
+    }
     const startBlindRead = (): void => this.startRestBlindRead();
     if (this.nextHandNotBeforeMs !== null) {
       const remaining = this.nextHandNotBeforeMs - Date.now();
@@ -4650,6 +4679,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       }
       this.restBlindReadConsumed = false;
       this.handPreparedUnderTheRest = false;
+      this.seq1RestStopShortMs = 0;
       releaseSeatBoundary();
       try {
         // The exact continuation has finished all preparation awaits and never
@@ -4977,15 +5007,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.markRetainedPreparedOriginal(preparedController, original, preparedBatch);
     }
     // THE REST ENDS HERE when the hand was prepared and saved under it (hand
-    // delay 2026-11-19): the seq-0 save above rode the rest. Nothing has been
-    // shown or started (publishedHandState stays the rest's until the start).
+    // delay 2026-11-19): the seq-0 save above rode the rest. For a fresh
+    // original we stop SEQ1_RETAIN_LEAD_MS short so seq-1 also rides the end
+    // of the rest while HandContinuationLane holds HAND_START, published state
+    // and flushSnapshot until awaitNextHandRest() completes on the rest edge.
     // The loop's last look runs again on the far side; a refusal releases the
     // saved, never-started original exactly once.
     // dealHand's finally releases it (it holds the attempt's proof of
     // non-start); nothing here waits on the release.
+    let finishRestBeforeFirstDispatch = false;
     if (this.restFinishesAfterRetention) {
       this.restFinishesAfterRetention = false;
+      const stopShort = Boolean(original) && !recovered && this.nextHandNotBeforeMs !== null;
+      this.seq1RestStopShortMs = stopShort ? ServerTableEngineDealing.SEQ1_RETAIN_LEAD_MS : 0;
       await this.awaitNextHandRest();
+      finishRestBeforeFirstDispatch = stopShort && this.nextHandNotBeforeMs !== null;
       if (
         this.handController !== preparedController ||
         !this.running ||
@@ -4999,7 +5035,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return;
       }
     }
-    this.handPreparedUnderTheRest = false;
+    if (!finishRestBeforeFirstDispatch) {
+      this.handPreparedUnderTheRest = false;
+    }
     if (original) {
       if (recovered) {
         if (JSON.parse(recovered.batch.controller).handStarted === false)
@@ -5338,7 +5376,15 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             async () => {
               await this.activateRetainedTurn();
               await this.publishRetainedInputReadiness();
-            }
+            },
+            finishRestBeforeFirstDispatch
+              ? async () => {
+                  await this.awaitNextHandRest();
+                  this.handPreparedUnderTheRest = false;
+                  this.snapshotDirty = true;
+                  void this.flushSnapshot();
+                }
+              : undefined
           );
         };
         // Start the hand!
@@ -5400,8 +5446,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // FIX 137: Bible V8 §7.17 — Snapshot initial hand state for crash recovery.
           // C15: deliberately NOT coalesced. The hand-start snapshot is the anchor
           // every later delta is read against, so it is worth one guaranteed write.
-          this.snapshotDirty = true;
-          void this.flushSnapshot();
+          if (!finishRestBeforeFirstDispatch) {
+            this.snapshotDirty = true;
+            void this.flushSnapshot();
+          }
         } catch (err) {
           if (persistenceGeneration !== undefined) {
             this.finishTerminalBoundaryPersistence(persistenceGeneration, false);

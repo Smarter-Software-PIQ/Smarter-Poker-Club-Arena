@@ -156,4 +156,24 @@ hh 10000000-0000-4000-8000-000000000007 7 short_deck NULL
 [ "$(q -c "select has_function_privilege('anon', 'public.fn_opponent_hud_profiles_upsert(jsonb)', 'execute') or has_function_privilege('authenticated', 'public.fn_opponent_hud_profiles_read(text[],text)', 'execute') or has_function_privilege('anon', 'public.fn_opponent_hud_hands_page(timestamptz,uuid,timestamptz,integer)', 'execute')")" = "f" ] || fail 'nlh migration widened privileges'
 [ "$(q -c "select relrowsecurity from pg_class where oid = 'public.opponent_hud_profiles'::regclass")" = "t" ] || fail 'row level security is off after nlh migration'
 echo "OPPONENT_HUD_NLH_POSTGRES PASS: nlh family accepted across table CHECK and all 4 RPCs (cash + tournament, no cards, plo6/plo8/short_deck excluded, service_role only, RLS on)"
+
+# 7. (2026-11-22 O(N^2) -> O(log N) fix) Lower-bound index predicate on fn_opponent_hud_hands_page:
+#    adds `h.created_at >= p_after_at` so Postgres pushes both bounds into idx_hand_history_created,
+#    preserving exact (created_at, id) tie-breaking, public-only projection (no cards), and service_role grants.
+lb_mig="${OPPONENT_HUD_LOWER_BOUND_MIGRATION:-$repo/supabase/migrations/20261122202000_opponent_hud_hands_page_index_lower_bound.sql}"
+q -c "CREATE INDEX idx_hand_history_created ON public.hand_history (created_at DESC)"
+q -f "$lb_mig"
+[ "$(page)" = "4:2:0" ] || fail "lower-bound hands page $(page), expected 4:2:0"
+# Add a second hand at the exact same created_at as hand 4 (2026-11-21T10:00:04Z) with a higher UUID
+hh 10000000-0000-4000-8000-000000000008 4 plo5 NULL
+# Exact tie-breaking at 2026-11-21T10:00:04Z:
+#   - afterId=0000... returns both equal-timestamp rows (4, 8) + later row (5) = 3
+#   - afterId=1000...0004 returns higher-UUID tie (8) + later row (5) = 2
+#   - afterId=ffff... skips both equal-timestamp rows and returns strictly later row (5) = 1
+[ "$(q -c "select count(*) from public.fn_opponent_hud_hands_page('2026-11-21T10:00:04Z', '00000000-0000-0000-0000-000000000000', '2026-11-21T10:00:05Z', 100)")" = "3" ] || fail 'lower-bound ZERO_UUID tie-break count'
+[ "$(q -c "select count(*) from public.fn_opponent_hud_hands_page('2026-11-21T10:00:04Z', '10000000-0000-4000-8000-000000000004', '2026-11-21T10:00:05Z', 100)")" = "2" ] || fail 'lower-bound mid-UUID tie-break count'
+[ "$(q -c "select count(*) from public.fn_opponent_hud_hands_page('2026-11-21T10:00:04Z', 'ffffffff-ffff-ffff-ffff-ffffffffffff', '2026-11-21T10:00:05Z', 100)")" = "1" ] || fail 'lower-bound MAX_UUID tie-break count'
+q -c "select pg_get_functiondef('public.fn_opponent_hud_hands_page'::regproc)" | grep -q "h.created_at >= p_after_at" || fail 'fn_opponent_hud_hands_page missing h.created_at >= p_after_at'
+[ "$(q -c "select has_function_privilege('anon', 'public.fn_opponent_hud_hands_page(timestamptz,uuid,timestamptz,integer)', 'execute') or has_function_privilege('authenticated', 'public.fn_opponent_hud_hands_page(timestamptz,uuid,timestamptz,integer)', 'execute')")" = "f" ] || fail 'lower-bound migration widened privileges'
+echo "OPPONENT_HUD_LOWER_BOUND_POSTGRES PASS: h.created_at >= p_after_at installed, exact (created_at, id) tie-breaking verified, no cards, service_role only"
 echo "OPPONENT_HUD_UPSERT_POSTGRES PASS: compare-and-swap on the row revision; concurrent same-revision writers: one written, one refused (existing row and first save); 8 writers x 50 hands (10 shared) -> 330 hands, 330 listed, 330 distinct, revision 330, $refusals refusals merged; rebuild moves the revision; sync point monotone"
