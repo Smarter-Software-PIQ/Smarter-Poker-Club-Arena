@@ -137,17 +137,18 @@ test('HeadsUpWaitingModal builds canonical invite URL and copies cleanly inside 
   expect(copied.text).toContain(expectedUrl);
 });
 
-test('Mobile 390px MTT lobby card keeps .lt-invite-btn visible and tappable while hiding .lt-status', async ({
+test('Mobile 390px MTT display card omits front-facing .lt-invite-btn and keeps status cleanly framed', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${FIXTURE_URL}#/mobile-mtt`, { waitUntil: 'domcontentloaded' });
 
-  // Compact mobile MTT row Invite button is visible and tappable.
-  const compactInviteBtn = page.locator(
-    ".compact-lobby tr[data-kind='mtt'] [data-testid='lobby-invite-btn']"
-  );
-  await expect(compactInviteBtn).toBeVisible();
+  // Compact mobile MTT display card renders NO front-facing Invite button
+  // (Invite lives inside TournamentDetails once clicked).
+  await expect(
+    page.locator(".compact-lobby tr[data-kind='mtt'] [data-testid='lobby-invite-btn']")
+  ).toHaveCount(0);
+  await expect(page.locator(".compact-lobby tr[data-kind='mtt'] .lt-status")).toBeVisible();
 
   // Exercise the non-compact .lobby-table mobile MTT card CSS by hiding the
   // compact sibling so .lobby-table-wrap renders directly at 390px.
@@ -155,10 +156,9 @@ test('Mobile 390px MTT lobby card keeps .lt-invite-btn visible and tappable whil
     document.querySelector('.arena-lobby-card-list')?.remove();
   });
 
-  const nonCompactInviteBtn = page.locator(
-    ".lobby-table tr[data-kind='mtt'] [data-testid='lobby-invite-btn']"
-  );
-  await expect(nonCompactInviteBtn).toBeVisible();
+  await expect(
+    page.locator(".lobby-table tr[data-kind='mtt'] [data-testid='lobby-invite-btn']")
+  ).toHaveCount(0);
 
   const layout = await page.evaluate(() => {
     const statusCell = document.querySelector(
@@ -166,44 +166,23 @@ test('Mobile 390px MTT lobby card keeps .lt-invite-btn visible and tappable whil
     ) as HTMLElement | null;
     const row = statusCell?.closest("tr[data-kind='mtt']") as HTMLElement | null;
     const table = row?.closest('table.lobby-table') as HTMLElement | null;
-    const statusPill = statusCell?.querySelector('.lt-status') as HTMLElement | null;
-    const btn = statusCell?.querySelector('.lt-invite-btn') as HTMLElement | null;
     const nameCell = row?.querySelector('td.lt-col-name') as HTMLElement | null;
-    const btnRect = btn ? btn.getBoundingClientRect().toJSON() : null;
-    const nameRect = nameCell ? nameCell.getBoundingClientRect().toJSON() : null;
 
-    // Also measure standard (non-premium-chassis) mobile MTT card padding-right.
+    // Measure standard (non-premium-chassis) mobile MTT card layout.
     const hadPremium = Boolean(table?.classList.contains('has-premium-chassis'));
     if (hadPremium && table) table.classList.remove('has-premium-chassis');
     const standardPaddingRight = nameCell ? parseFloat(getComputedStyle(nameCell).paddingRight) : 0;
-    const standardStatusPillDisplay = statusPill ? getComputedStyle(statusPill).display : null;
     const standardStatusCellDisplay = statusCell ? getComputedStyle(statusCell).display : null;
     if (hadPremium && table) table.classList.add('has-premium-chassis');
 
     return {
-      statusCellDisplay: statusCell ? getComputedStyle(statusCell).display : null,
-      statusPillDisplay: statusPill ? getComputedStyle(statusPill).display : null,
       standardStatusCellDisplay,
-      standardStatusPillDisplay,
       standardPaddingRight,
-      btnRect,
-      nameRect,
     };
   });
 
-  expect(layout.statusCellDisplay).not.toBe('none');
-  expect(layout.statusPillDisplay).toBe('none');
-  expect(layout.standardStatusCellDisplay).not.toBe('none');
-  expect(layout.standardStatusPillDisplay).toBe('none');
-  expect(layout.standardPaddingRight).toBeGreaterThanOrEqual(42);
-  expect(layout.btnRect).not.toBeNull();
-  expect((layout.btnRect as { width: number }).width).toBeGreaterThan(40);
-  expect((layout.btnRect as { height: number }).height).toBeGreaterThanOrEqual(24);
-  if (layout.nameRect && layout.btnRect) {
-    expect((layout.nameRect as { right: number }).right).toBeLessThanOrEqual(
-      (layout.btnRect as { left: number }).left + 1
-    );
-  }
+  expect(layout.standardStatusCellDisplay).toBe('none');
+  expect(layout.standardPaddingRight).toBe(0);
 });
 
 test('/i/:code?next=/table/:id preserves ?next= through InviteCodePage and InvitePage directly to the table', async ({
@@ -413,6 +392,15 @@ test('All lobby cards (Spin, SNG, Satellite, MTT, Cash) keep Invite placement an
               '[data-testid="lobby-invite-btn"]'
             ) as HTMLElement | null;
             const beforeContent = getComputedStyle(col5, '::before').content;
+
+            if (kind === 'cash' || kind === 'mtt') {
+              if (inviteBtn) {
+                violations.push({ id, kind, issue: 'cash-or-mtt-front-card-has-invite-btn' });
+              }
+              if (!statusEl) {
+                violations.push({ id, kind, issue: 'cash-or-mtt-missing-status-in-col5' });
+              }
+            }
 
             if (kind === 'sng') {
               if (inviteBtn) {

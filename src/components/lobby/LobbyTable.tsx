@@ -965,6 +965,19 @@ function spinInviteOnlyStatus(entry: LobbyEntry): boolean {
   );
 }
 
+/**
+ * Owner ruling (2026-11-23): Cash Game and MTT display cards on the
+ * front-facing game lobby list never show an Invite link button — Invite links
+ * for Cash Games and MTTs live only inside their clicked-in lobby pages
+ * (GameLobbyPanel and TournamentDetails). SNG cards keep their top-right
+ * plaque Invite (sngInviteInHeading) and open Spin cards keep their
+ * invite-only status bay (spinInviteOnlyStatus).
+ */
+function rowStatusShowsInvite(entry: LobbyEntry): boolean {
+  if (entry.kind === 'cash' || entry.kind === 'mtt') return false;
+  return !sngInviteInHeading(entry);
+}
+
 function TournamentHeadingRow({
   entry,
   colSpan,
@@ -1444,19 +1457,21 @@ function InviteRowButton({
 
   return (
     <>
-    <button
-      type="button"
-      className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
-      data-testid="lobby-invite-btn"
-      aria-label={`Invite To ${entry.name}`}
-      title="Invite To Game"
-      onClick={handleInvite}
-      onDoubleClick={(e) => e.stopPropagation()}
-    >
-      <InviteLinkIcon />
-      <span>{feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}</span>
-    </button>
-    {privateInvite.element}
+      <button
+        type="button"
+        className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
+        data-testid="lobby-invite-btn"
+        aria-label={`Invite To ${entry.name}`}
+        title="Invite To Game"
+        onClick={handleInvite}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <InviteLinkIcon />
+        <span>
+          {feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}
+        </span>
+      </button>
+      {privateInvite.element}
     </>
   );
 }
@@ -1472,7 +1487,7 @@ const COL_STATUS: ColumnDef = {
      which is precisely where the chip mattered. See PlayerStateChip. */
   render: (e, ctx) => {
     const inviteOnly = spinInviteOnlyStatus(e);
-    const inviteInHeading = sngInviteInHeading(e);
+    const showInvite = rowStatusShowsInvite(e);
     return (
       <span className={`lt-statuscell${inviteOnly ? ' lt-statuscell--invite-only' : ''}`}>
         {/* No countdown here any more, on any kind. An MTT carries a live
@@ -1481,7 +1496,7 @@ const COL_STATUS: ColumnDef = {
             Min..." beside a badge reading Filling was two different answers to
             the same question; and a cash game is running now. */}
         {!inviteOnly && <LobbyStatusBadge status={e.status} label={e.statusLabel} />}
-        {!inviteInHeading && (
+        {showInvite && (
           <InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />
         )}
       </span>

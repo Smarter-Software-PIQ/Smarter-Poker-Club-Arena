@@ -606,7 +606,7 @@ abbr.lt-variant[title] {
   color: var(--warning-gold, #ffd700);
 }
 
-/* Direct lobby row Invite To Game button (Cash, MTT, Spin, SNG, Satellite) */
+/* Direct lobby row Invite To Game button (Spin, SNG, Satellite) */
 .lt-invite-btn {
   display: inline-flex;
   align-items: center;
@@ -1522,16 +1522,17 @@ abbr.lt-variant[title] {
 
   /* Dan: "you can remove the Late Reg pill in the right corner." On a
      tournament card the badge was saying what the headline already says in
-     more detail - "Late Reg 3:40 Left" - so hide only .lt-status while keeping
-     td.lt-col-status visible so .lt-invite-btn remains tappable on mobile MTT
-     cards. Reserve right padding on the title so text never collides with the
-     Invite button. Cash cards keep their status badge: Full / Running is not
-     written anywhere else on those. */
-  .lobby-table tr[data-kind='mtt'] td.lt-col-status .lt-status {
+     more detail — "Late Reg 3:40 Left" — so it was a duplicate that also cost
+     the title 104px of its line. Owner ruling (2026-11-23) removed the Invite
+     button from front-facing Cash and MTT display cards (Invite lives inside
+     the clicked-in lobby pages only), so mobile MTT cards hide td.lt-col-status
+     again and reclaim full title width. Cash cards keep their status badge:
+     Full / Running is not written anywhere else on those. */
+  .lobby-table tr[data-kind='mtt'] td.lt-col-status {
     display: none;
   }
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 84px;
+    padding-right: 0;
   }
   /* Heads-Up kept losing its badge to that rule. An MTT card can afford to
      drop the badge because its title's second line already says "Late Reg 3:40
@@ -1915,7 +1916,7 @@ abbr.lt-variant[title] {
   }
 
   .lobby-table tr[data-kind='mtt'] td.lt-col-name {
-    padding-right: 84px;
+    padding-right: 0;
   }
 
   .lt-name__line1,

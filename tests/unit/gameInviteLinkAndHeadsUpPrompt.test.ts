@@ -190,6 +190,9 @@ describe('lobby and table invite wiring', () => {
 
     expect(lobbyTable).toContain('data-testid="lobby-invite-btn"');
     expect(lobbyTable).toContain(
+      "if (entry.kind === 'cash' || entry.kind === 'mtt') return false;"
+    );
+    expect(lobbyTable).toContain(
       '<InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />'
     );
     expect(lobbyTable).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }))');
@@ -206,6 +209,7 @@ describe('lobby and table invite wiring', () => {
     expect(details).toContain('if (isSeatFirstTournament)');
     expect(details).toContain("data.status === 'REGISTERING' || data.status === 'ANNOUNCED'");
 
+    expect(card).toContain("['sng', 'spin', 'satellite'].includes(tournament.type)");
     expect(card).toContain('data-testid="tournament-card-invite-btn"');
     expect(card).toContain("source: 'TournamentLobbyCard.inviteToGame'");
     expect(card).toContain("['finished', 'completed', 'cancelled']");
