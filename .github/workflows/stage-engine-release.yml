@@ -807,6 +807,66 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  cutover-log-keep-serving:
+    # KEEP-SERVING CYCLES ARE LOGGED TOO (2026-11-23, O20/D3).
+    # auto-deploy-hetzner.yml posts to issue #11599 when a receiver runs
+    # (SEALED, ALREADY-RELEASED or REFUSED), but when Stage selects
+    # keep-serving no receiver is dispatched and #11599 stayed silent.
+    # Reporting only: downloads the selection artifact, posts one keep-serving
+    # comment with the serving SHA, reason and deferred candidates, never
+    # dispatches, retries or advances a release, and its own failure changes
+    # nothing. Uses "Serving SHA:" (never "Sealed SHA:") so the receiver's
+    # previous-seal parser only reads real seals.
+    if: always() && needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.selection.result == 'success' && needs.selection.outputs.send != 'true' && github.run_attempt == 1
+    name: Post Keep-Serving Cycle To The Engine Cutover Log
+    needs: [detect, selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Download the daily selection artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
+          path: selection-artifact
+      - name: Comment once on the Engine cutover log issue
+        id: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LOG_ISSUE: '11599'
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$LOG_ISSUE" =~ ^[1-9][0-9]*$ ]]
+          [ -f selection-artifact/daily-selection.json ] || { echo '::warning::daily-selection.json missing; skipping #11599 keep-serving log.'; exit 0; }
+          outcome=$(jq -r '.outcome // "unknown"' selection-artifact/daily-selection.json)
+          [ "$outcome" != selected ] || exit 0
+          serving=$(jq -r '.servingSha // "unknown"' selection-artifact/daily-selection.json)
+          reason=$(jq -r '(.reason // "no reason recorded") | gsub("[\\r\\n]+"; " ")' selection-artifact/daily-selection.json)
+          deferred=$(jq -r 'if ((.deferredCandidates // []) | length) == 0 then "(none)" else [.deferredCandidates[] | "\((.sha // "unknown")[0:12]): \(.reason // "deferred")" + (if (.detail // "") != "" then " (" + ((.detail | tostring) | gsub("[\\r\\n]+"; " ")) + ")" else "" end)] | join("; ") end' selection-artifact/daily-selection.json)
+          cycle=$(RELEASE_DATE="$RELEASE_DATE" python3 -c '
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          raw = os.environ["RELEASE_DATE"]
+          tz = ZoneInfo("America/Chicago")
+          if "T" in raw:
+              day, hour = raw.split("T", 1)
+              dt = datetime.strptime(f"{day} {hour}:00", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+          else:
+              dt = datetime.strptime(f"{raw} 04:00", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+          print(dt.strftime("%Y-%m-%d %H:%M %Z"))')
+          body=$(printf 'Cycle: %s\nResult: KEEP-SERVING (the serving engine keeps running)\nServing SHA: `%s`\nReason: %s\nDeferred candidates: %s\nStage: %s\n' \
+            "$cycle" "$serving" "$reason" "$deferred" "$RUN_URL")
+          gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
+          echo "Posted keep-serving cycle $cycle to issue #$LOG_ISSUE."
+
   signal:
     name: Dispatch The Exact Main SHA
     needs: [detect, selection]
