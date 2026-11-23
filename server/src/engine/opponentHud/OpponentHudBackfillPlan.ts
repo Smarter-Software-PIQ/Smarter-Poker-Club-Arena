@@ -265,8 +265,14 @@ export class SharedBackfillPacer {
   }
 }
 
+/**
+ * `supabase_timeout` is the database client's own per-request deadline (services/supabase/client.ts,
+ * SUPABASE_TIMEOUT_MS, default 15 s): the request was given up on this side, so nothing says the statement failed.
+ * A page read is idempotent, so it is retried like a statement timeout (dry run 45094876915 died on its first one,
+ * at window 535 of 741, on launch-day volume).
+ */
 const TRANSIENT_BACKFILL_ERR_RE =
-  /statement timeout|canceling statement|502|503|504|bad gateway|service unavailable|gateway timeout|fetch failed|econnreset|etimedout|socket hang up|temporarily unavailable|connection terminated/i;
+  /supabase_timeout|statement timeout|canceling statement|502|503|504|bad gateway|service unavailable|gateway timeout|fetch failed|econnreset|etimedout|socket hang up|temporarily unavailable|connection terminated/i;
 
 export function isTransientBackfillError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
