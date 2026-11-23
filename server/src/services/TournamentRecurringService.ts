@@ -84,6 +84,10 @@ import {
 } from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
+  PrivateGameHoldReader,
+  PRIVATE_GAME_HOLD_UNKNOWN_RETRY_MS,
+} from './privateGameHolds.js';
+import {
   FREE_BUY_BOARD_NAMES,
   FREE_BUY_HOSTS,
   FREE_BUY_SLOTS,
@@ -2004,7 +2008,10 @@ export function isExpectedSeatRefusal(message: string | null | undefined): boole
     msg.includes('FOUR TABLE LIMIT') ||
     msg.includes('TABLE_CAP_REACHED') ||
     msg.includes('Player already seated') ||
-    msg.includes('duplicate key')
+    msg.includes('duplicate key') ||
+    // A seat held for an invited friend (fn_private_game_entry_guard). The
+    // fleet reads the holds before it asks; this is the race in between.
+    msg.includes('PRIVATE_GAME_SEAT_HELD')
   );
 }
 
@@ -3197,6 +3204,15 @@ export class TournamentRecurringService {
    */
   private seatFirstHeldIds = new Set<string>();
 
+  /**
+   * Every seat an inviter holds for invited friends (Invite To Game,
+   * 2026-11-22; see privateGameHolds.ts). One read for every board, reused for
+   * a few seconds; GameServer's seat-first lane reads the same instance.
+   */
+  readonly privateGameHolds = new PrivateGameHoldReader(() =>
+    supabase.rpc('fn_private_game_live_holds')
+  );
+
   /** Seats waiting humans still need, by seat-first game. See humanSeatsOwed. */
   private humanSeatDemand = new Map<string, HumanSeatDemand>();
 
@@ -4007,11 +4023,19 @@ export class TournamentRecurringService {
       .is('satellite_target_id', null)
       .is('satellite_target', null)
       .eq('status', 'REGISTERING');
-    const opened = error
-      ? null
-      : await this.seatFirstBoardsWithALiveSeat(
-          (boardRows ?? []).map((r) => String((r as { id: string }).id))
-        );
+    /* A PRIVATE HELD GAME IS NOT ONE OF THE ELEVEN (2026-11-22). Its inviter
+       is a person sitting in it waiting for a friend; it is not a board the
+       fleet opened, and counting it would take a horse-seeded board off the
+       lobby for every invite. Unreadable holds open nothing this tick. */
+    const privateIds = error ? null : await this.privateGameHolds.privateIds();
+    const opened =
+      error || privateIds === null
+        ? null
+        : await this.seatFirstBoardsWithALiveSeat(
+            (boardRows ?? [])
+              .map((r) => String((r as { id: string }).id))
+              .filter((id) => !privateIds.has(id))
+          );
     const count = opened?.size ?? null;
     if (error || typeof count !== 'number' || opened === null) {
       reportError(
@@ -4824,15 +4848,25 @@ export class TournamentRecurringService {
        * the same evening) - but the board must not be able to absorb husks
        * whatever creates them, so the test is now joinability, not existence.
        */
-      const rows = (openRows ?? []) as {
-        id: string;
-        name: string;
-        max_players: number;
-        format_contract: unknown;
-        tournament_type?: string | null;
-        satellite_target_id?: string | null;
-        satellite_target?: string | null;
-      }[];
+      /* A PRIVATE HELD GAME DOES NOT COVER ITS PRICE POINT (2026-11-22). It is
+         a copy of the board kept for one inviter and the friends they sent the
+         link to; nobody else can sit at it while the hold is live, so the
+         public board must still be open beside it, and it is never an empty
+         board to seed a horse into. Unreadable holds skip this tick, the same
+         fail-closed answer the reads above give. */
+      const privateIds = await this.privateGameHolds.privateIds();
+      if (privateIds === null) return;
+      const rows = (
+        (openRows ?? []) as {
+          id: string;
+          name: string;
+          max_players: number;
+          format_contract: unknown;
+          tournament_type?: string | null;
+          satellite_target_id?: string | null;
+          satellite_target?: string | null;
+        }[]
+      ).filter((r) => !privateIds.has(String(r.id)));
       const seatFirstIds = rows.filter((r) => isPersistedSeatFirst(r)).map((r) => r.id);
 
       let withJoinableTable = new Set<string>();
@@ -6806,6 +6840,24 @@ export class TournamentRecurringService {
     maxPlayers: number = 0
   ): Promise<number> {
     const now = Date.now();
+    /* A SEAT HELD FOR AN INVITED FRIEND IS NOT FILLED BY A HORSE (2026-11-22).
+       Read before everything below, because an in-place hold can begin long
+       after the inviter sat, when every other bound here has already passed.
+       The rule is the database's (fn_private_game_entry_refusal); a horse
+       waits for it exactly as a person without the invite does. An
+       unreadable answer holds the fill briefly and asks again. */
+    const privateUntil = await this.privateGameHolds.holdUntilMs(tournamentId);
+    if (privateUntil === null) return now + PRIVATE_GAME_HOLD_UNKNOWN_RETRY_MS;
+    if (privateUntil > now) {
+      if (this.partnerHolds.get(tournamentId) !== privateUntil) {
+        if (this.partnerHolds.size > 500) this.partnerHolds.clear();
+        this.partnerHolds.set(tournamentId, privateUntil);
+        console.log(
+          `[TournamentRecurring] invite hold: ${tournamentId.slice(0, 8)} keeps its held seat(s) for invited friends until ${new Date(privateUntil).toISOString()}`
+        );
+      }
+      return privateUntil;
+    }
     let latestJoin = -Infinity;
     for (const seat of seats) {
       const at = Date.parse(String(seat.joined_at ?? ''));

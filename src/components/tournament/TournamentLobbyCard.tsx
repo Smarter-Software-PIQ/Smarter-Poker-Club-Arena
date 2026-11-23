@@ -48,6 +48,8 @@ import {
 
 import { useState, useEffect, useRef, memo } from 'react';
 import { gameInviteText, shareLink, tournamentShareUrl } from '../../lib/share';
+import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
+import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { InviteLinkIcon } from '../table/TableMenuIcons';
 /* Dan 2026-08-28: this card is the SatellitesTab of TournamentDetails, which
@@ -91,6 +93,9 @@ interface Tournament extends TournamentEntryWindowRow {
   break_ends_at?: string | null;
   id: string;
   name: string;
+  /** The hosting club and union, so Invite carries the sender's club code. */
+  club_id?: string | null;
+  union_id?: string | null;
   type: 'sng' | 'mtt' | 'satellite' | 'spin' | 'bounty' | 'pko' | 'mystery';
   /** The TOTAL a player pays, whole chips. Never the prize half on its own. */
   buyIn: number;
@@ -262,6 +267,9 @@ function TournamentLobbyCardInner({
   user,
 }: TournamentLobbyCardProps & { user: ReturnType<typeof useAuthUser>['user'] }) {
   const navigate = useAppNavigate();
+  /* Invite To Game on a Spin or Heads Up still taking seats holds the
+     friend's seat (2026-11-22, usePrivateGameInviteLauncher). */
+  const privateInvite = usePrivateGameInviteLauncher();
   const registrationRead = useRef(0);
   const registrationAbort = useRef<AbortController | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -307,9 +315,34 @@ function TournamentLobbyCardInner({
     []
   );
 
+  /* The invite link carries the sender's club code (2026-11-22). Asked once
+     per club for the session, so a lobby of cards in one club asks once; the
+     lobby and the satellites hand the card its club. A card handed no club
+     reads nothing extra and shares the plain link. */
+  const inviteCode = useTournamentSenderInviteCode(
+    { clubId: tournament.club_id, unionId: tournament.union_id },
+    user?.id
+  );
   const handleInviteToTournament = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = tournamentShareUrl(tournament.id);
+    const row = tournament as unknown as Record<string, unknown>;
+    void privateInvite
+      .offer({
+        id: tournament.id,
+        name: tournament.name,
+        status: String(row.status ?? ''),
+        variant: typeof row.variant === 'string' ? row.variant : null,
+        max_players: Number(row.maxPlayers ?? row.max_players ?? 0),
+        started_at: typeof row.started_at === 'string' ? row.started_at : null,
+        alreadySeated: isRegistered,
+      })
+      .then((taken) => {
+        if (!taken) shareTournamentLink();
+      });
+  };
+
+  const shareTournamentLink = () => {
+    const url = tournamentShareUrl(tournament.id, { inviteCode });
     setInviteFallbackUrl('');
     void shareLink({
       source: 'TournamentLobbyCard.inviteToGame',
@@ -865,6 +898,8 @@ function TournamentLobbyCardInner({
       : undefined;
   const Section = unframed ? ClubPageSection : SpadeConsole;
   return (
+    <>
+    {privateInvite.element}
     <Section
       data-unframed={unframed || undefined}
       as="div"
@@ -1134,6 +1169,7 @@ function TournamentLobbyCardInner({
         </div>
       )}
     </Section>
+    </>
   );
 }
 export default memo(function TournamentLobbyCard(props: TournamentLobbyCardProps) {

@@ -1,0 +1,3 @@
+# tests/a-rebuy-capacity-check-never-upgrades-its-tournament-lock.law.test.ts
+
+A rebuy's capacity check never upgrades its tournament lock. fn_ensure_late_registration_capacity took the tournament row FOR UPDATE while a seatless rebuy's root already held it FOR NO KEY UPDATE and the candidate's table FOR UPDATE, so it waited for a hand commit's FOR KEY SHARE while that hand waited for the table, and the two deadlocked. Migration 20261123052751 makes the capacity check take FOR NO KEY UPDATE, the mode its callers' roots hold; capacity checks still serialise against each other, and the one-token edit is the one PR #11476 proposed.

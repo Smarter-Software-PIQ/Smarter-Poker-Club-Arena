@@ -1369,6 +1369,8 @@ export function parseCliArgs(argv) {
     changedBy: '',
     lane: '',
     logFile: '',
+    stateFile: '',
+    noStateFile: false,
     healthUrl: 'https://engine.smarter.poker/health',
     windowsFile: 'server/release/owner-maintenance-windows.json',
     inboxFile: '',
@@ -1386,6 +1388,7 @@ export function parseCliArgs(argv) {
     ['--changed-by', 'changedBy'],
     ['--lane', 'lane'],
     ['--log-file', 'logFile'],
+    ['--state-file', 'stateFile'],
     ['--health-url', 'healthUrl'],
     ['--windows-file', 'windowsFile'],
     ['--inbox-file', 'inboxFile'],
@@ -1397,6 +1400,7 @@ export function parseCliArgs(argv) {
   ]);
 
   const boolFlags = new Map([
+    ['--no-state-file', 'noStateFile'],
     ['--json', 'json'],
     ['--dry-run', 'dryRun'],
     ['--rollback', 'rollback'],
@@ -1433,4 +1437,121 @@ export function parseCliArgs(argv) {
   }
 
   return { command, positionals, flags };
+}
+
+// ── Live switch state snapshot (authority-doc drift guard, 2026-11-23, Horse SWITCH lane) ─────────────
+//
+// docs/horse-option-switch-state.json is the committed copy of public.ca_horse_style_switch as the last
+// switch write (or `snapshot`) saw it. `set` rewrites it in the operator's checkout after a verified write,
+// so the write's PR carries the new state next to the option's authority-doc State line, and the law
+// tests/an-authority-doc-states-the-live-switch.law.test.ts fails when a doc's State disagrees with it.
+// CI never reads the database: the snapshot is the record of what the operator last saw.
+
+export const SWITCH_STATE_FILE = 'docs/horse-option-switch-state.json';
+export const SWITCH_STATE_SCHEMA = 'horse-option-switch-state/v1';
+
+export function buildSwitchStateSnapshotSql() {
+  return (
+    'SELECT s.option, s.state, s.updated_at, ' +
+    '(SELECT max(a.id) FROM public.ca_horse_style_switch_audit a WHERE a.option = s.option) AS audit_id, ' +
+    '(SELECT max(id) FROM public.ca_horse_style_switch_audit) AS audit_max ' +
+    'FROM public.ca_horse_style_switch s ORDER BY s.option'
+  );
+}
+
+function toIsoUtc(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const d = new Date(
+    String(value)
+      .replace(' ', 'T')
+      .replace(/\+00(:00)?$/, 'Z')
+  );
+  return Number.isNaN(d.getTime()) ? String(value) : d.toISOString();
+}
+
+export function snapshotFromRows(rows, asOfUtc) {
+  const out = {};
+  let auditMax = null;
+  for (const r of rows ?? []) {
+    if (!r || typeof r.option !== 'string') continue;
+    assertSafeOptionName(r.option);
+    out[r.option] = {
+      state: String(r.state),
+      auditId: r.audit_id === null || r.audit_id === undefined ? null : Number(r.audit_id),
+      changedAt: toIsoUtc(r.updated_at),
+    };
+    if (r.audit_max !== null && r.audit_max !== undefined) auditMax = Number(r.audit_max);
+  }
+  return { schema: SWITCH_STATE_SCHEMA, asOfUtc: toIsoUtc(asOfUtc), auditMax, rows: out };
+}
+
+/** Pure: the snapshot after one verified write. state 'default' (row cleared) removes the option. */
+export function applySwitchStateChange(snapshot, { option, state, auditId, changedAt }) {
+  assertSafeOptionName(option);
+  const base =
+    snapshot &&
+    snapshot.schema === SWITCH_STATE_SCHEMA &&
+    snapshot.rows &&
+    typeof snapshot.rows === 'object'
+      ? snapshot
+      : { schema: SWITCH_STATE_SCHEMA, asOfUtc: null, auditMax: null, rows: {} };
+  const rows = { ...base.rows };
+  if (state === 'default') delete rows[option];
+  else rows[option] = { state, auditId: auditId ?? null, changedAt: toIsoUtc(changedAt) };
+  const auditMax =
+    auditId !== null && auditId !== undefined
+      ? Math.max(Number(base.auditMax ?? 0), Number(auditId))
+      : (base.auditMax ?? null);
+  return {
+    schema: SWITCH_STATE_SCHEMA,
+    asOfUtc: toIsoUtc(changedAt) ?? base.asOfUtc,
+    auditMax,
+    rows,
+  };
+}
+
+export function formatSwitchStateSnapshot(snapshot) {
+  const rows = {};
+  for (const key of Object.keys(snapshot.rows ?? {}).sort()) rows[key] = snapshot.rows[key];
+  return `${JSON.stringify({ schema: snapshot.schema, asOfUtc: snapshot.asOfUtc, auditMax: snapshot.auditMax, rows }, null, 2)}\n`;
+}
+
+/**
+ * The machine-read State of an authority doc: the first `**State: ...**` token. Returns null when the doc
+ * has none. 'on' = LIVE ON / ON; 'off' = OFF (dark or rolled back); 'shadow' / 'on_shadow' as written.
+ */
+export function parseAuthorityDocState(text) {
+  const m = /\*\*State:\s*([^*]+?)\s*\*\*/.exec(String(text ?? ''));
+  if (!m) return null;
+  const raw = m[1].trim();
+  const u = raw.toUpperCase();
+  let state = 'unknown';
+  if (/^(LIVE\s+)?ON[_ ]SHADOW\b/.test(u)) state = 'on_shadow';
+  else if (/^SHADOW\b/.test(u)) state = 'shadow';
+  else if (/^(LIVE\s+)?ON\b/.test(u)) state = 'on';
+  else if (/^OFF\b/.test(u)) state = 'off';
+  return { raw, state };
+}
+
+/**
+ * Every authority doc whose State disagrees with the snapshot. A doc that says ON needs an `on` row; a doc
+ * that says OFF needs no row or an `off` row; shadow / on_shadow need that row. Docs with no State token,
+ * or an unknown one, are not judged.
+ */
+export function findAuthorityDocStateDrift({ snapshot, docs }) {
+  const rows = snapshot?.rows ?? {};
+  const drift = [];
+  for (const [option, text] of Object.entries(docs ?? {})) {
+    const parsed = parseAuthorityDocState(text);
+    if (!parsed || parsed.state === 'unknown') continue;
+    const live = rows[option]?.state ?? 'default';
+    const ok =
+      (parsed.state === 'on' && live === 'on') ||
+      (parsed.state === 'off' && (live === 'off' || live === 'default')) ||
+      (parsed.state === 'shadow' && live === 'shadow') ||
+      (parsed.state === 'on_shadow' && live === 'on_shadow');
+    if (!ok)
+      drift.push({ option, docState: parsed.state, docStateText: parsed.raw, liveState: live });
+  }
+  return drift.sort((a, b) => a.option.localeCompare(b.option));
 }

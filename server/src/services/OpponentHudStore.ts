@@ -58,6 +58,11 @@ import {
   priorsForStake,
   type OpponentHudPacket,
 } from '../engine/opponentHud/OpponentHud.js';
+import {
+  HUD_BACKFILL_MIN_PAGE_LIMIT,
+  HUD_BACKFILL_PAGE_LIMIT,
+  withTransientBackfillRetry,
+} from '../engine/opponentHud/OpponentHudBackfillPlan.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
 import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/HorseOptionSwitch.js';
 
@@ -103,12 +108,27 @@ export const HUD_ACTIVATION_MAX_CATCHUP_MS = 48 * 3600_000;
  * HUD_CATCHUP_APPLY_SLICE hands, so a decision's packet is never queued behind it.
  */
 export const HUD_CATCHUP_PAGE_ROWS = 250;
+export const HUD_CATCHUP_MAX_PAGES = 160;
+/**
+ * AUDIT-24H P1-2: reconcileDay and catchUp never request > 500 rows/page (1,000-row pages
+ * cross Supabase PostgREST's 8s statement_timeout), adaptively halve on transient timeouts,
+ * and raise the reconcile page cap so daily PLO4+PLO5+NLH volume never trips page limits.
+ */
+export const HUD_RECONCILE_PAGE_ROWS = HUD_BACKFILL_PAGE_LIMIT;
+export const HUD_RECONCILE_MAX_PAGES = 1_600;
+/** Live boot prewarm & IPC snapshot families with active decision consumers (PLO4/PLO5 cash). */
+export const HUD_LIVE_SNAPSHOT_FAMILIES: readonly HudFamily[] = ['plo4', 'plo5'];
 export const HUD_CATCHUP_PAUSE_MS = 200;
 export const HUD_CATCHUP_SLOW_MS = 1_000;
 export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
 export const HUD_CATCHUP_APPLY_SLICE = 50;
 export const HUD_CATCHUP_SEAT_WAIT_MS = 4_000;
 export const HUD_SCHEMA_MISSING = 'opponent hud schema missing';
+/** what a page read says when the option went off between its attempts (never transient: nothing is retried) */
+export const HUD_SWITCHED_OFF = 'opponent hud switched off';
+
+/** where a nightly verification that could not complete stopped */
+export type HudReconcileFailureStage = 'hands_page' | 'page_limit' | 'compare';
 
 export type HudAlertName =
   | 'OpponentHudLoadFailing'
@@ -237,6 +257,18 @@ export class OpponentHudStore {
     extra: number;
     miscounted: number;
   } | null = null;
+  /** the last nightly verification that could NOT complete (null once a later one completes): its day, where it
+   *  stopped ('hands_page': a hand_history page could not be read, after the bounded retries; 'page_limit': the day
+   *  holds more pages than HUD_RECONCILE_MAX_PAGES; 'compare': loading or comparing the profiles) and one bounded
+   *  line of the error. Its zero counts mean "not verified", never "clean". */
+  lastReconcileFailure: {
+    day: string;
+    stage: HudReconcileFailureStage;
+    reason: string;
+    at: number;
+  } | null = null;
+  /** nightly verifications that could not complete since the process started (operator report) */
+  reconcileFailures = 0;
   /** the time of the newest hand the ring has dropped: a profile first asked for before it may have missed hands */
   private ringDroppedAt = -1;
   /** failed load attempts per player since his last ready profile (the retry schedule's position) */
@@ -418,41 +450,40 @@ export class OpponentHudStore {
           st.pausedMs += pause;
         }
         await yieldToSeats();
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-        (t as { unref?: () => void }).unref?.();
-        try {
-          const t0 = this.deps.now();
-          const rows = await this.deps.handsPage!(
-            afterAt,
-            afterId,
-            HUD_CATCHUP_PAGE_ROWS,
-            ac.signal,
-            untilIso
-          );
-          const took = this.deps.now() - t0;
-          st.pages += 1;
-          st.dbMs += took;
-          if (took > HUD_CATCHUP_SLOW_MS) {
-            pause = Math.min(HUD_CATCHUP_MAX_PAUSE_MS, pause * 2);
-            st.backoffs += 1;
-            noteFire('opponent_hud_catchup_backoff');
-          } else pause = Math.max(HUD_CATCHUP_PAUSE_MS, Math.floor(pause / 2));
-          st.maxPauseMs = Math.max(st.maxPauseMs, pause);
-          if (!Array.isArray(rows) || !rows.length) return;
-          st.rows += rows.length;
-          let n = 0;
-          for (const r of rows) {
-            const rec = handRecordFromRow(r);
-            if (typeof rec !== 'string') visit(rec);
-            if (++n % HUD_CATCHUP_APPLY_SLICE === 0) await sleep(0);
+        const t0 = this.deps.now();
+        // the same bounded adaptive retry as catchUp / reconcileDay (at most 4 retries of a page, each on half the
+        // rows): one statement timeout no longer ends the switch-on / gap catch-up. A retry is never started once
+        // the option is off, and a slow or retried page still doubles the pause below (its time includes the waits).
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_CATCHUP_PAGE_ROWS,
+          untilIso,
+          () => this.armedState,
+          () => {
+            st.retries += 1;
           }
-          afterAt = rows[rows.length - 1].created_at;
-          afterId = rows[rows.length - 1].id;
-          if (rows.length < HUD_CATCHUP_PAGE_ROWS) return;
-        } finally {
-          clearTimeout(t);
+        );
+        const took = this.deps.now() - t0;
+        st.pages += 1;
+        st.dbMs += took;
+        if (took > HUD_CATCHUP_SLOW_MS) {
+          pause = Math.min(HUD_CATCHUP_MAX_PAUSE_MS, pause * 2);
+          st.backoffs += 1;
+          noteFire('opponent_hud_catchup_backoff');
+        } else pause = Math.max(HUD_CATCHUP_PAUSE_MS, Math.floor(pause / 2));
+        st.maxPauseMs = Math.max(st.maxPauseMs, pause);
+        if (!rows.length) return;
+        st.rows += rows.length;
+        let n = 0;
+        for (const r of rows) {
+          const rec = handRecordFromRow(r);
+          if (typeof rec !== 'string') visit(rec);
+          if (++n % HUD_CATCHUP_APPLY_SLICE === 0) await sleep(0);
         }
+        afterAt = rows[rows.length - 1].created_at;
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < usedLimit) return;
       }
       walked = false; // the page bound ran out before the last hand
     };
@@ -500,7 +531,8 @@ export class OpponentHudStore {
   }
   /** seat / hand warm loads in flight (the catch-up yields to them) */
   private seatLoads = 0;
-  /** the switch-on catch-up's rate-limit counters (pages, rows, database ms, pauses, backoffs, yields to seats) */
+  /** the switch-on catch-up's rate-limit counters (pages, rows, database ms, pauses, backoffs, yields to seats,
+   *  page reads repeated after a transient error) */
   readonly catchupStats = {
     pages: 0,
     rows: 0,
@@ -509,6 +541,8 @@ export class OpponentHudStore {
     maxPauseMs: 0,
     backoffs: 0,
     yieldedToSeats: 0,
+    /** page reads repeated after a transient database error (statement timeout, 502/503/504, ...) */
+    retries: 0,
   };
   armed(): boolean {
     return this.armedState;
@@ -704,17 +738,29 @@ export class OpponentHudStore {
       if (this.readyLatencies.length > 5000) this.readyLatencies.splice(0, 1000);
       this.asked.delete(k);
     }
-    this.evict();
+    this.evict(family);
     return entry;
   }
 
-  private evict(): void {
-    if (this.cache.size <= HUD_CACHE_MAX) return;
-    for (const [k, e] of this.cache) {
-      if (this.cache.size <= HUD_CACHE_MAX) break;
-      if (e.state === 'ready' && e.dirty) continue; // persisted first, evicted on a later pass
-      this.cache.delete(k);
-      noteFire('opponent_hud_cache_evicted');
+  /**
+   * Per-family cache eviction (AUDIT-24H P1-2): each family enforces its own HUD_CACHE_MAX
+   * ceiling so high-volume NLH traffic can never evict prewarmed PLO4 or PLO5 profiles.
+   */
+  private evict(targetFamily?: HudFamily): void {
+    const families: readonly HudFamily[] = targetFamily ? [targetFamily] : HUD_FAMILIES;
+    for (const fam of families) {
+      const prefix = `${fam}|`;
+      let count = 0;
+      for (const k of this.cache.keys()) if (k.startsWith(prefix)) count += 1;
+      if (count <= HUD_CACHE_MAX) continue;
+      for (const [k, e] of this.cache) {
+        if (count <= HUD_CACHE_MAX) break;
+        if (!k.startsWith(prefix)) continue;
+        if (e.state === 'ready' && e.dirty) continue; // persisted first, evicted on a later pass
+        this.cache.delete(k);
+        count -= 1;
+        noteFire('opponent_hud_cache_evicted');
+      }
     }
   }
 
@@ -1070,13 +1116,13 @@ export class OpponentHudStore {
     await this.catchUp(new Date(this.deps.now() - HUD_BOOT_CATCHUP_MS).toISOString());
     return n;
   }
-  /** The 'boot' trigger (activation at engine boot or cutover): every stored profile updated in the last
+  /** The 'boot' trigger (activation at engine boot or cutover): every stored PLO4/PLO5 profile updated in the last
    *  HUD_BOOT_WINDOW_MS is made ready; each one's readiness from `startedAt` is counted as opponent_hud_ready_boot_*. */
   private async prewarmProfiles(startedAt: number): Promise<number> {
     if (!this.armedState) return 0;
     let n = 0;
     const since = new Date(this.deps.now() - HUD_BOOT_WINDOW_MS).toISOString();
-    for (const family of HUD_FAMILIES) {
+    for (const family of HUD_LIVE_SNAPSHOT_FAMILIES) {
       let after: string | null = null;
       for (let page = 0; page < 40; page++) {
         const ac = new AbortController();
@@ -1113,19 +1159,72 @@ export class OpponentHudStore {
     return n;
   }
 
-  /** Apply every PLO4/PLO5 cash hand since `sinceIso` to the warm profiles (bounded pages; never throws). */
+  /**
+   * Bounded transient-retry + adaptive page-halving wrapper for handsPage reads
+   * (AUDIT-24H P1-2: protects catchUp, the nightly reconcileDay and the switch-on / gap catch-up catchUpInto from
+   * PostgREST 8s timeouts). `keepGoing` false stops before the next attempt (the option was switched off): the
+   * error it throws is not transient, so nothing is retried and the caller's own failure path runs.
+   */
+  private async fetchHandsPageWithRetry(
+    afterAt: string,
+    afterId: string,
+    baseLimit: number,
+    untilIso?: string,
+    keepGoing?: () => boolean,
+    onRetried?: () => void
+  ): Promise<{ rows: { id: string; created_at: string }[]; usedLimit: number }> {
+    let pageLimit = Math.min(HUD_BACKFILL_PAGE_LIMIT, Math.max(1, baseLimit));
+    const sleep = (ms: number): Promise<void> =>
+      this.deps.sleep
+        ? this.deps.sleep(ms)
+        : new Promise((r) => {
+            const t = setTimeout(r, ms);
+            (t as { unref?: () => void }).unref?.();
+          });
+    const rows = await withTransientBackfillRetry(
+      async () => {
+        if (keepGoing && !keepGoing()) throw new Error(HUD_SWITCHED_OFF);
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
+        (t as { unref?: () => void }).unref?.();
+        try {
+          const out = await this.deps.handsPage!(afterAt, afterId, pageLimit, ac.signal, untilIso);
+          return Array.isArray(out) ? out : [];
+        } finally {
+          clearTimeout(t);
+        }
+      },
+      {
+        maxRetries: 4,
+        retryBaseMs: 250,
+        sleep,
+        onRetry: () => {
+          noteFire('opponent_hud_hands_page_retry');
+          onRetried?.();
+          pageLimit = Math.max(
+            Math.min(HUD_BACKFILL_MIN_PAGE_LIMIT, baseLimit),
+            Math.floor(pageLimit / 2)
+          );
+        },
+      }
+    );
+    return { rows, usedLimit: pageLimit };
+  }
+
+  /** Apply every retained hand since `sinceIso` to the warm profiles (bounded adaptive pages; never throws). */
   async catchUp(sinceIso: string): Promise<number> {
     if (!this.deps.handsPage) return 0;
     let afterAt = sinceIso;
     let afterId = '00000000-0000-0000-0000-000000000000';
     let applied = 0;
-    for (let page = 0; page < 40; page++) {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-      (t as { unref?: () => void }).unref?.();
+    for (let page = 0; page < HUD_CATCHUP_MAX_PAGES; page++) {
       try {
-        const rows = await this.deps.handsPage(afterAt, afterId, 1000, ac.signal);
-        if (!Array.isArray(rows) || !rows.length) break;
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_CATCHUP_PAGE_ROWS
+        );
+        if (!rows.length) break;
         for (const r of rows) {
           const rec = handRecordFromRow(r);
           if (typeof rec === 'string') continue;
@@ -1143,12 +1242,10 @@ export class OpponentHudStore {
         }
         afterAt = rows[rows.length - 1].created_at;
         afterId = rows[rows.length - 1].id;
-        if (rows.length < 1000) break;
+        if (rows.length < usedLimit) break;
       } catch {
         noteFire('opponent_hud_catchup_failed');
         break;
-      } finally {
-        clearTimeout(t);
       }
     }
     return applied;
@@ -1288,10 +1385,20 @@ export class OpponentHudStore {
     missed: number;
     extra: number;
     miscounted: number;
+    /** present only when the verification could not complete: the counts are then "not verified", never "clean" */
+    failed?: HudReconcileFailureStage;
   }> {
-    const out = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
+    const out: {
+      compared: number;
+      drifted: number;
+      missed: number;
+      extra: number;
+      miscounted: number;
+      failed?: HudReconcileFailureStage;
+    } = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
     if (!this.deps.handsPage || this.reconciling) return out;
     this.reconciling = true;
+    let stage: HudReconcileFailureStage = 'hands_page';
     try {
       // the day's UTC bounds (a Chicago day starts at 05:00Z or 06:00Z)
       const guess = Date.parse(`${day}T12:00:00Z`);
@@ -1305,45 +1412,41 @@ export class OpponentHudStore {
       let afterAt = new Date(start - 1).toISOString();
       let afterId = '00000000-0000-0000-0000-000000000000';
       let complete = false;
-      for (let page = 0; page < 400 && !complete; page++) {
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), HUD_DB_TIMEOUT_MS * 10);
-        (t as { unref?: () => void }).unref?.();
-        try {
-          const rows = await this.deps.handsPage(
-            afterAt,
-            afterId,
-            1000,
-            ac.signal,
-            new Date(end - 1).toISOString()
-          );
-          if (!Array.isArray(rows) || !rows.length) {
-            complete = true;
-            break;
-          }
-          for (const r of rows) {
-            const rec = handRecordFromRow(r);
-            if (typeof rec === 'string' || hudDayOf(rec.at) !== day) continue;
-            const deltas = extractHandDeltas(rec);
-            for (const d of deltas) {
-              const k = key(rec.family, d.user);
-              let e = expected.get(k);
-              if (!e) expected.set(k, (e = { ids: new Set(), sum: 0 }));
-              const prefix = hudIdPrefix(rec.id);
-              if (e.ids.has(prefix)) continue;
-              e.ids.add(prefix);
-              e.sum = (e.sum + (hudHandDigest(d.user, rec, deltas) ?? 0)) >>> 0;
-            }
-          }
-          afterAt = rows[rows.length - 1].created_at;
-          afterId = rows[rows.length - 1].id;
-          if (rows.length < 1000) complete = true;
-        } finally {
-          clearTimeout(t);
+      for (let page = 0; page < HUD_RECONCILE_MAX_PAGES && !complete; page++) {
+        const { rows, usedLimit } = await this.fetchHandsPageWithRetry(
+          afterAt,
+          afterId,
+          HUD_RECONCILE_PAGE_ROWS,
+          new Date(end - 1).toISOString()
+        );
+        if (!rows.length) {
+          complete = true;
+          break;
         }
+        for (const r of rows) {
+          const rec = handRecordFromRow(r);
+          if (typeof rec === 'string' || hudDayOf(rec.at) !== day) continue;
+          const deltas = extractHandDeltas(rec);
+          for (const d of deltas) {
+            const k = key(rec.family, d.user);
+            let e = expected.get(k);
+            if (!e) expected.set(k, (e = { ids: new Set(), sum: 0 }));
+            const prefix = hudIdPrefix(rec.id);
+            if (e.ids.has(prefix)) continue;
+            e.ids.add(prefix);
+            e.sum = (e.sum + (hudHandDigest(d.user, rec, deltas) ?? 0)) >>> 0;
+          }
+        }
+        afterAt = rows[rows.length - 1].created_at;
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < usedLimit) complete = true;
         await new Promise<void>((r) => setImmediate(r));
       }
-      if (!complete) throw new Error('verification page limit');
+      if (!complete) {
+        stage = 'page_limit';
+        throw new Error('verification page limit');
+      }
+      stage = 'compare';
       // every player of the day warm (bounded loads), then compare
       for (const family of HUD_FAMILIES) {
         // only players not already warm: a warm profile holds hands not yet saved and is never replaced
@@ -1372,6 +1475,7 @@ export class OpponentHudStore {
         if (missed || extra || miscounted) out.drifted += 1;
       }
       this.lastReconcile = { day, ...out };
+      this.lastReconcileFailure = null;
       noteFire(out.drifted ? 'opponent_hud_reconcile_drift' : 'opponent_hud_reconcile_clean');
       this.setAlert(
         'OpponentHudDrift',
@@ -1380,9 +1484,32 @@ export class OpponentHudStore {
           `(${out.missed} hands not counted, ${out.extra} counted but not in hand_history, ${out.miscounted} profiles ` +
           `with a different day sum); nothing was rewritten: find the cause, then rebuild with scripts/opponent-hud-build.ts`
       );
-    } catch {
+    } catch (err) {
+      // NOT a clean night: the caller gets `failed`, the operator report gets the stage and one bounded line of the
+      // error, and the counts found so far are dropped so a partial comparison is never read as a result. Nothing is
+      // retried here and nothing is thrown (the engine process is never at risk from a verification).
+      const reason = (err instanceof Error ? err.message : String(err ?? ''))
+        .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 200);
+      out.compared = out.drifted = out.missed = out.extra = out.miscounted = 0;
+      out.failed = stage;
+      this.reconcileFailures += 1;
+      this.lastReconcileFailure = {
+        day,
+        stage,
+        reason: reason || 'no message',
+        at: this.deps.now(),
+      };
       noteFire('opponent_hud_reconcile_failed');
-      this.setAlert('OpponentHudDrift', true, `verification of ${day} could not complete`);
+      noteFire(`opponent_hud_reconcile_failed_${stage}`);
+      this.setAlert(
+        'OpponentHudDrift',
+        true,
+        `verification of ${day} could not complete (${stage}: ${reason || 'no message'}); ` +
+          `no profile was compared, so the day is NOT verified`
+      );
     } finally {
       this.reconciling = false;
     }
@@ -1455,12 +1582,17 @@ export function opponentHudSnapshotField(
 ): { opponentHud?: OpponentHudPacket } {
   try {
     if (!shared || !shared.armed()) return {};
+    // AUDIT-24H P1-2: attach live IPC packets ONLY for PLO4/PLO5 cash (never bloat 57% NLH
+    // or tournament decisions/journals before an NLH/tournament consumer explicitly opts in).
+    const family = familyOf(gs.gameVariant);
+    const cash = gs.gameMode !== 'tournament' && !gs.tournament;
+    if (!family || !cash || !HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) return {};
     const stage = String(gs.stage ?? 'preflop');
     const street: HudStreet =
       stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'preflop';
     return shared.packetFor({
-      family: familyOf(gs.gameVariant),
-      cash: gs.gameMode !== 'tournament' && !gs.tournament,
+      family,
+      cash,
       heroId,
       opponentIds: (gs.players ?? [])
         .filter((p) => p && p.is_folded !== true && typeof p.user_id === 'string')
@@ -1553,9 +1685,38 @@ const missing = (error: { code?: string; message?: string }): boolean =>
   error.code === '42883' ||
   /could not find the function|function .* does not exist/i.test(error.message ?? '');
 
-function supabaseHudDeps(): OpponentHudStoreDeps {
+/**
+ * What a failed hands-page call says in its Error: the fixed prefix, the database's error code, the HTTP status and
+ * one bounded line of the database's own message, so the transient check (`isTransientBackfillError`: statement
+ * timeout, 502/503/504, ...) can recognise it and the adaptive retry runs. Never the details or hint (they can quote
+ * a row) and never an address.
+ */
+function hudDbFailure(
+  prefix: string,
+  error: { code?: unknown; message?: unknown },
+  status?: unknown
+): Error {
+  const code =
+    typeof error.code === 'string' && /^[A-Za-z0-9]{1,10}$/.test(error.code) ? error.code : '';
+  const http = typeof status === 'number' && status >= 100 && status <= 599 ? status : 0;
+  const tags = [code ? `code ${code}` : '', http ? `http ${http}` : ''].filter(Boolean).join(', ');
+  const text = (typeof error.message === 'string' ? error.message : '')
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[address]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return new Error(`${prefix}${tags ? ` (${tags})` : ''}: ${text || 'no message'}`);
+}
+
+type HudDbClient = Awaited<typeof import('./supabase.js')>['supabase'];
+
+/** The production dependencies. `clientForTest` stands in for the database client in a test of these wrappers. */
+export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
   // imported lazily so engine tests that never touch the store need no database client
-  const client = async () => (await import('./supabase.js')).supabase;
+  const client = async (): Promise<HudDbClient> =>
+    clientForTest !== undefined
+      ? (clientForTest as HudDbClient)
+      : (await import('./supabase.js')).supabase;
   return {
     async read(userIds, family, signal) {
       const { data, error } = await (await client())
@@ -1579,7 +1740,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
       return (data ?? []) as HudStoredRow[];
     },
     async handsPage(afterAt, afterId, limit, signal, untilIso) {
-      const { data, error } = await (
+      const { data, error, status } = await (
         await client()
       )
         .rpc('fn_opponent_hud_hands_page', {
@@ -1589,7 +1750,7 @@ function supabaseHudDeps(): OpponentHudStoreDeps {
           p_limit: limit,
         })
         .abortSignal(signal);
-      if (error) throw new Error('opponent hud hands page failed');
+      if (error) throw hudDbFailure('opponent hud hands page failed', error, status);
       return (data ?? []) as { id: string; created_at: string }[];
     },
     alert(name, firing, summary) {

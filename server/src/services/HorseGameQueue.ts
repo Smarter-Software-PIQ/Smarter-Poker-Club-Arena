@@ -67,6 +67,57 @@ export interface HorseQueueGameInfo {
   bigBlind: number | null;
 }
 
+/* ── A REPEAT JOIN KEEPS ITS PLACE (2026-11-22) ─────────────────────────────
+   cash_game_waitlist_one_open allows one OPEN row per (game, player), and open
+   means 'waiting' OR 'notified' (the tick has called the name into a chair and
+   is holding it). The fleet's queue read used to ask for 'waiting' rows only,
+   so a horse whose name had just been called looked like it was on no list,
+   the planner could put it down for that game again, and the database refused
+   the whole batch insert (23505): 67 refusals in the 24 hours to 02:21 UTC on
+   2026-11-23, all from this insert, all 60 players horses, and in each case
+   read back the row had been called and was later seated or expired. Every
+   other game's arrival in that batch was lost with it. A person's door
+   (fn_cash_game_join) already answers a repeat join with the place they hold
+   (ON CONFLICT DO NOTHING, then their position); this is the same answer for
+   the fleet. */
+
+/** One open row of a game's list as the fleet reads it. */
+export interface OpenListRow {
+  id: string;
+  game_id: string;
+  user_id: string;
+  status: string;
+}
+
+/** The statuses cash_game_waitlist_one_open treats as one open place. */
+export const OPEN_LIST_STATUSES = ['waiting', 'notified'] as const;
+
+/**
+ * PURE. The plan with every arrival removed whose horse will still hold an
+ * open place on that game's list once this cycle's cancels land. A 'notified'
+ * row is never cancelled here (the cancel only touches 'waiting' rows), so it
+ * always holds its place; a 'waiting' row holds it unless this plan cancels it.
+ * Nothing else changes: every cancel, every other arrival and every existing
+ * row (its place in line included) stay exactly as planned.
+ */
+export function keepHeldPlaces(
+  plan: HorseQueuePlan,
+  openRows: readonly OpenListRow[]
+): HorseQueuePlan {
+  if (plan.add.length === 0 || openRows.length === 0) return plan;
+  const cancelled = new Set(plan.cancel);
+  const held = new Set<string>();
+  for (const r of openRows) {
+    if (r.status !== 'notified' && (r.status !== 'waiting' || cancelled.has(r.id))) continue;
+    held.add(`${r.game_id}\u0000${r.user_id}`);
+  }
+  if (held.size === 0) return plan;
+  return {
+    cancel: plan.cancel,
+    add: plan.add.filter((a) => !held.has(`${a.game_id}\u0000${a.user_id}`)),
+  };
+}
+
 /** How long a horse stays in line before it gives up, 25 to 55 minutes. */
 export function queuePatienceMs(rowId: string): number {
   return (25 + (mix32(horseHash(`${rowId}:patience`)) % 31)) * 60_000;
@@ -128,7 +179,8 @@ export function comparableGames(
  *   the moment the game had an open chair, so the horses that were waiting
  *   vanished and the fleet filled the new table with others all at once.
  * - rows beyond desired are cancelled newest first, so the head of the line
- *   holds still; rows past their patience are cancelled too.
+ *   holds still; rows past their patience are cancelled too, except the last
+ *   name of a full game while no free horse can take its place this cycle.
  * - SEVERAL LISTS: a horse holds rows on up to horseListCap games, all of them
  *   comparable (comparableGames). A row past the cap or for an incomparable
  *   game is cancelled, oldest kept.
@@ -190,6 +242,9 @@ export function planHorseQueues(input: {
      the first choice for any OTHER game's line this cycle, the way a player
      tired of one list puts their name down somewhere else. */
   const leftGame = new Map<string, string>();
+  /* Rows that ran out of patience, per game, whose horse is seated nowhere:
+     the names a full game may keep when nobody can take their place. */
+  const patienceLeavers = new Map<string, QueuedHorseRow[]>();
   // Oldest first, so the lines a horse keeps are the ones it joined first.
   const rows = [...input.rows].sort(
     (a, b) =>
@@ -201,6 +256,11 @@ export function planHorseQueues(input: {
     if (Number.isFinite(created) && input.nowMs - created >= queuePatienceMs(r.id)) {
       cancel.push(r.id);
       leftGame.set(r.user_id, r.game_id);
+      if (!seatedAnywhere.has(r.user_id) && !input.seatedByGame.get(r.game_id)?.has(r.user_id)) {
+        const leavers = patienceLeavers.get(r.game_id) ?? [];
+        leavers.push(r);
+        patienceLeavers.set(r.game_id, leavers);
+      }
       continue;
     }
     // Off duty (shift over, rest day, cap played out): it leaves the line.
@@ -287,6 +347,34 @@ export function planHorseQueues(input: {
     if (!pick) continue;
     linesOf.set(pick, [...(linesOf.get(pick) ?? []), gameId]);
     add.push({ game_id: gameId, user_id: pick });
+  }
+
+  /* PATIENCE NEVER EMPTIES A FULL GAME'S LIST (Dan 2026-11-22: "All games
+     should not be 'full with no waiting lists'"). A horse gives up on a line
+     after 25 to 55 minutes so the names rotate, and the cycle puts a new name
+     down in its place. When no free horse can take that place this cycle (the
+     pool is spent, the walk was withheld), the last name of a full game stays
+     until one can: a full game keeps its line, and the rotation resumes the
+     cycle a replacement exists. Never a horse seated anywhere, off duty, or
+     past its two or three comparable lists, and never for a game that wants
+     no horse line (Lightning, switched off, a person waiting). */
+  const cancelled = new Set(cancel);
+  for (const [gameId, leavers] of patienceLeavers) {
+    if (allFull.get(gameId) !== true) continue;
+    if (input.excludedGameIds.has(gameId) || input.humanWaitingGameIds.has(gameId)) continue;
+    if ((byGame.get(gameId) ?? []).some((r) => !cancelled.has(r.id))) continue;
+    if (add.some((a) => a.game_id === gameId)) continue;
+    const keep = [...leavers]
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .find(
+        (r) =>
+          !add.some((a) => a.user_id === r.user_id) &&
+          fits(r.user_id, gameId) &&
+          (!input.onDuty || input.onDuty(r.user_id))
+      );
+    if (!keep) continue;
+    cancel.splice(cancel.indexOf(keep.id), 1);
+    linesOf.set(keep.user_id, [...(linesOf.get(keep.user_id) ?? []), gameId]);
   }
   return { cancel, add };
 }

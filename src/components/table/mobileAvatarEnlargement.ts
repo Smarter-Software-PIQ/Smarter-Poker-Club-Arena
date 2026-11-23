@@ -1,7 +1,7 @@
 import { privateCardLane } from './heroPrivateReservations';
 import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
-import { sixSeatPhoneRail } from './sixSeatTopRail';
+import { topChairRailViewport, topChairRest } from './topChairRail';
 import {
   dealerSeatReservations,
   hiddenFanReservations,
@@ -443,12 +443,20 @@ export function mobileFrameCardReservation(
   return baseline;
 }
 
-/** The occupied six-max phone top chair, which is placed by its rail station
- * and whose portrait may run up behind the tab bar (sixSeatTopRail.ts). */
-function sixSeatTopRailSeat(scaler: HTMLElement, page: HTMLElement): HTMLElement | null {
-  if (!sixSeatPhoneRail(page.dataset.seats, window.innerWidth, window.innerHeight)) return null;
-  return scaler.querySelector<HTMLElement>(
-    ':is(.seat-wrapper--cap,.seat-wrapper--top) .seat:not(.seat--empty):not(.seat--hero)'
+/** The occupied top chairs whose plates rest on their rail stations and whose
+ * portraits may therefore run up behind the tab bar (topChairRail.ts). The
+ * nine-seat phone ring keeps its own centred plates, which leave every crown
+ * on the screen, so it is not one of them. */
+function topRailSeats(scaler: HTMLElement, page: HTMLElement): Set<HTMLElement> {
+  if (
+    !topChairRailViewport(window.innerWidth, window.innerHeight) ||
+    topChairRest(page.dataset.seats, window.innerWidth, window.innerHeight) !== 'bottom'
+  )
+    return new Set();
+  return new Set(
+    scaler.querySelectorAll<HTMLElement>(
+      ':is(.seat-wrapper--cap,.seat-wrapper--top) .seat:not(.seat--empty):not(.seat--hero)'
+    )
   );
 }
 
@@ -463,6 +471,9 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     minimum?: PaintBox;
     /** Drawn over the owner's portrait: the owner may grow behind it. */
     overlay?: boolean;
+    /** Drawn over each of these portraits (the tab bar over the rail-placed
+     * top chairs): each may grow behind it; it stays hard for every other. */
+    overlayFor?: ReadonlySet<Element>;
   }> = [];
   const badge = page.querySelector<HTMLElement>('.seat__position-badge:not(.seat__kill-badge)');
   const badgeStyle = badge ? getComputedStyle(badge) : null;
@@ -489,18 +500,18 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       ...positionLabels.map((label) => context.measureText(label).width + label.length * letter)
     ) + 12;
   const badgeHeight = fontSize * 1.3 + 4;
-  const railTop = sixSeatTopRailSeat(scaler, page);
+  const railTop = topRailSeats(scaler, page);
   for (const element of page.querySelectorAll<HTMLElement>(
     '.seat__bounty,.seat__info,.community-area,.pot-area,.pot-display,.pot-display__pile,.table-hud button,.table-hud__corner > *,.chat-collapsed,.action-panel-wrapper,.table-tab-bar,.bbj-container,.seat:not(.seat--empty) .seat__avatar:not(.seat__avatar--bust),.seat__empty-img'
   )) {
     const box = element.getBoundingClientRect();
     if (!box.width || !box.height) continue;
-    // Dan 2026-11-22: the six-max top chair stands on the rail and its crown
-    // runs up behind the tab bar, which paints above it. The bar is therefore
-    // drawn over that one portrait, like the chair's own tag: the portrait may
+    // Dan 2026-11-22: every top chair stands on the rail and its crown runs
+    // up behind the tab bar, which paints above it. The bar is therefore drawn
+    // over each of those portraits, like the chair's own tag: the portrait may
     // sit behind it, and it stays hard for every other chair.
-    if (railTop && element.matches('.table-tab-bar'))
-      boxes.push({ box, owner: railTop, layer: false, overlay: true });
+    if (railTop.size && element.matches('.table-tab-bar'))
+      boxes.push({ box, owner: null, layer: false, overlayFor: railTop });
     else boxes.push({ box, owner: element.closest('.seat'), layer: false });
   }
   for (const seat of scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--empty)')) {
@@ -865,7 +876,11 @@ export function enlargeMobileAvatars(
     // portrait may grow behind them; they stay hard for every other seat.
     // Own cards may only keep an existing overlap; others' objects are hard.
     const obstacles = objects
-      .filter((o) => !(o.owner === e.seat && ((o.layer && o.minimum) || o.overlay)))
+      .filter(
+        (o) =>
+          !o.overlayFor?.has(e.seat) &&
+          !(o.owner === e.seat && ((o.layer && o.minimum) || o.overlay))
+      )
       .map((o) => ({
         box: o.box,
         ownLayer: o.owner === e.seat && o.layer,
@@ -880,9 +895,9 @@ export function enlargeMobileAvatars(
     });
   }
   const viewport = page.getBoundingClientRect();
-  // Dan 2026-11-22: the six-max top chair's crown may be cut off by the tab
-  // bar or the top of the screen; its sides and plate keep the page's bounds.
-  const railTopSeat = sixSeatTopRailSeat(scaler, page);
+  // Dan 2026-11-22: a top chair's crown may be cut off by the tab bar or the
+  // top of the screen; its sides and plate keep the page's bounds.
+  const railTopSeats = topRailSeats(scaler, page);
   const openTopViewport = {
     left: viewport.left,
     top: -1e6,
@@ -1014,7 +1029,7 @@ export function enlargeMobileAvatars(
       paintBottom: item.paintBottom,
       plateTop: item.plateTop,
       obstacles: peers(item),
-      openTop: item.e.seat === railTopSeat,
+      openTop: railTopSeats.has(item.e.seat),
     }));
     const byWrapper = new Map(
       prepared.map((item) => [item.e.seat.closest<HTMLElement>('.seat-wrapper')!, item])

@@ -808,6 +808,7 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
     ) {
       const executedSql: string[] = [];
       const loggedLines: Array<{ file: string; line: string }> = [];
+      const stateWrites: Array<{ file: string; text: string }> = [];
       const stdoutLines: string[] = [];
       const stderrLines: string[] = [];
 
@@ -891,12 +892,14 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
           readFile: vi.fn(() => JSON.stringify({ version: 1, windows: [] })),
           readFileBuffer: vi.fn(() => Buffer.from('authority-doc')),
           appendLogLine: vi.fn((file: string, line: string) => loggedLines.push({ file, line })),
+          writeStateFile: vi.fn((file: string, text: string) => stateWrites.push({ file, text })),
           now: () => SAFE_NOW,
           stdout: (s: string) => stdoutLines.push(s),
           stderr: (s: string) => stderrLines.push(s),
         },
         executedSql,
         loggedLines,
+        stateWrites,
         stdoutLines,
         stderrLines,
       };
@@ -959,6 +962,17 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       expect(setRes.data.prePickupBaseline).toBe(4);
       expect(m3.loggedLines).toHaveLength(1);
       expect(m3.loggedLines[0].line).toContain('styleTightPlayerExploit | on -> on_shadow');
+      // The verified write is recorded in the committed live-state snapshot (authority-doc drift guard).
+      expect(m3.stateWrites).toHaveLength(1);
+      expect(m3.stateWrites[0].file).toBe('docs/horse-option-switch-state.json');
+      expect(JSON.parse(m3.stateWrites[0].text).rows.styleTightPlayerExploit).toEqual({
+        state: 'on_shadow',
+        auditId: 175,
+        changedAt: '2026-11-21T15:20:01.000Z',
+      });
+      expect(setRes.data.stateFile).toBe('docs/horse-option-switch-state.json');
+      // A dry run writes nothing.
+      expect(m2.stateWrites).toHaveLength(0);
 
       const m4 = createMockDeps({
         telemetryRows: [

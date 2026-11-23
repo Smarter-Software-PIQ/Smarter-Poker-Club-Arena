@@ -80,6 +80,21 @@ import { TournamentLateRegCallToAction } from '../components/table/TournamentLat
 import { HeadsUpWaitingModal, type HeadsUpWaitMode } from '../components/table/HeadsUpWaitingModal';
 import { OnlineFriendInvitePicker } from '../components/table/OnlineFriendInvitePicker';
 import {
+  PrivateGameInviteModal,
+  type PrivateGameInviteStep,
+} from '../components/table/PrivateGameInviteModal';
+import {
+  acceptPrivateGameInvite,
+  cancelPrivateGameHold,
+  inviteToPrivateGame,
+  privateGameHoldsSupported,
+  privateGameInviteUrl,
+  privateGameRefusalText,
+  privateSeatsHoldable,
+  readPrivateGameHold,
+  type PrivateGameHold,
+} from '../lib/privateGameInvite';
+import {
   appendHeadsUpInviteToken,
   fromHeadsUpWaitModeDb,
   headsUpWaitModeErrorText,
@@ -6396,8 +6411,17 @@ function LiveTablePage({
   const headsUpWaitModeRef = useRef<HeadsUpWaitMode | null>(null);
   const headsUpInviteTokenRef = useRef<string | null>(null);
   const headsUpHoldExpiresAtMsRef = useRef<number | null>(null);
+  /** The seat(s) held at this game for invited friends (privateGameInvite.ts). */
+  const privateHoldRef = useRef<PrivateGameHold | null>(null);
   const partnerHoldEndsLocalMs = (startTimeMs: number | null | undefined): number => {
     const offset = dbClockOffsetMsRef.current;
+    /* A SEAT HELD FOR AN INVITED FRIEND (2026-11-22): the table waits for the
+       friend until the hold's own end, on the database's clock. */
+    const held = privateHoldRef.current;
+    if (held?.live && held.expiresAtMs !== null && Number.isFinite(held.expiresAtMs)) {
+      const localEnd = held.expiresAtMs + offset;
+      if (localEnd > Date.now()) return localEnd;
+    }
     if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
       if (headsUpWaitModeRef.current === 'anyone') return -Infinity;
       if (headsUpWaitModeRef.current === 'specific') {
@@ -6515,6 +6539,11 @@ function LiveTablePage({
   const [headsUpPromptStep, setHeadsUpPromptStep] = useState<'choice' | 'invite'>('choice');
   const [tableInviteFallbackUrl, setTableInviteFallbackUrl] = useState('');
   const [showFriendInvitePicker, setShowFriendInvitePicker] = useState(false);
+  const [privateHold, setPrivateHold] = useState<PrivateGameHold | null>(null);
+  const [privateStep, setPrivateStep] = useState<PrivateGameInviteStep | null>(null);
+  const [privateBusy, setPrivateBusy] = useState(false);
+  const [privateError, setPrivateError] = useState<string | null>(null);
+  privateHoldRef.current = privateHold;
   headsUpWaitModeRef.current = headsUpWaitMode;
   headsUpInviteTokenRef.current = headsUpInviteToken;
   headsUpHoldExpiresAtMsRef.current = headsUpHoldExpiresAtMs;
@@ -6529,6 +6558,9 @@ function LiveTablePage({
     setHeadsUpInviteToken(null);
     setHeadsUpHoldExpiresAtMs(null);
     setHeadsUpModeError(null);
+    setPrivateHold(null);
+    setPrivateStep(null);
+    setPrivateError(null);
   }, [tableId]);
 
   const handleCloseHeadsUpPrompt = useCallback(() => {
@@ -6654,6 +6686,9 @@ function LiveTablePage({
      Heads Up seat held for a named player. */
   const currentInviteTarget = useCallback(() => {
     const current = tableStateRef.current;
+    const held = privateHoldRef.current;
+    const privateToken =
+      seatFirstOpenRef.current && held?.isCreator && held.live ? held.inviteToken : null;
     const holdsSeatForInvitee =
       seatFirstOpenRef.current && headsUpWaitModeRef.current === 'specific';
     return tableInviteTarget({
@@ -6663,12 +6698,23 @@ function LiveTablePage({
       tournamentId: current.tournamentId,
       clusterId: current.clusterId,
       inviteCode: senderInviteCodeRef.current,
-      seatHoldToken: holdsSeatForInvitee ? headsUpInviteTokenRef.current : null,
+      seatHoldToken: privateToken ?? (holdsSeatForInvitee ? headsUpInviteTokenRef.current : null),
     });
   }, [tableId]);
 
   const handleInviteToGame = useCallback(async () => {
     if (!tableId) return;
+    /* INVITE TO GAME HOLDS A PRIVATE SEAT (2026-11-22). At a Spin, Heads Up
+       or satellite still taking seats, the invite holds the friend's seat
+       instead of sharing a game that fills and starts without them. Offered
+       only when the serving engine honours the hold. */
+    const preStart = tableStateRef.current;
+    if (seatFirstOpenRef.current && preStart.tournamentId && (await privateGameHoldsSupported())) {
+      const held = privateHoldRef.current;
+      setPrivateError(null);
+      setPrivateStep(held?.isCreator && held.live ? 'held' : 'start');
+      return;
+    }
     const current = tableStateRef.current;
     const lightning = lightningRoomRef.current;
     const target = currentInviteTarget();
@@ -6696,6 +6742,130 @@ function LiveTablePage({
   }, [tableId, toast, currentInviteTarget]);
   const handleInviteToGameRef = useRef(handleInviteToGame);
   handleInviteToGameRef.current = handleInviteToGame;
+
+  /* ── THE HELD SEAT, READ FROM THE DATABASE (2026-11-22) ───────────────────
+     On a pre-start Spin, Heads Up or satellite: is a seat held here, for whom,
+     and until when. The inviter sees "Seat Held For Your Friend" when they
+     arrived from Invite To Game (?held=1); the friend who opened the link with
+     its token sees "Your Seat Is Held" with Take Seat. Read on arrival and
+     when the hero's seat changes; never on a timer loop. */
+  const privateHeldParam = useMemo(() => {
+    try {
+      return new URLSearchParams(location.search).get('held') === '1';
+    } catch {
+      return false;
+    }
+  }, [location.search]);
+  const seatFirstSeatsForHold = seatFirstBuyIn?.seats ?? 0;
+  useEffect(() => {
+    const tournId = tableState.tournamentId;
+    if (!tableId || !tournId || !userId || userId === 'guest' || !seatFirstSeatsForHold || playHasBegun)
+      return;
+    let cancelled = false;
+    void privateGameHoldsSupported();
+    void (async () => {
+      const hold = await readPrivateGameHold(tournId, headsUpInviteParam);
+      if (cancelled) return;
+      setPrivateHold(hold);
+      if (!hold?.live) return;
+      if (hold.isCreator && privateHeldParam) {
+        setPrivateStep((step) => step ?? 'held');
+      } else if (!hold.isCreator && hold.tokenValid && tableState.heroSeat <= 0) {
+        setPrivateStep((step) => step ?? 'invitee');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tableId,
+    tableState.tournamentId,
+    tableState.heroSeat,
+    userId,
+    seatFirstSeatsForHold,
+    playHasBegun,
+    headsUpInviteParam,
+    privateHeldParam,
+  ]);
+
+  /* When the inviter's hold runs out unanswered, say so in plain words. One
+     read at the hold's end, not a poll: the database decides what happened. */
+  useEffect(() => {
+    const held = privateHold;
+    const tournId = tableState.tournamentId;
+    if (!held?.isCreator || !held.live || held.expiresAtMs === null || !tournId || playHasBegun)
+      return;
+    const localEnd = held.expiresAtMs + dbClockOffsetMsRef.current;
+    const timer = window.setTimeout(
+      () => {
+        void (async () => {
+          const next = await readPrivateGameHold(tournId, null);
+          setPrivateHold(next);
+          if (next && next.outcome === 'expired') {
+            setPrivateStep('expired');
+            toast?.info?.('Your Friend Did Not Join In Time, The Seat Is Open Again');
+          }
+        })();
+      },
+      Math.max(1500, localEnd - Date.now() + 1500)
+    );
+    return () => window.clearTimeout(timer);
+  }, [privateHold, tableState.tournamentId, playHasBegun, toast]);
+
+  const handlePrivateStart = useCallback(
+    async (seatsHeld: number) => {
+      const tournId = tableStateRef.current.tournamentId;
+      if (!tournId || privateBusy) return;
+      setPrivateBusy(true);
+      setPrivateError(null);
+      try {
+        const res = await inviteToPrivateGame(tournId, seatsHeld);
+        if (!res.ok || !res.hold) {
+          setPrivateError(privateGameRefusalText(res.reason));
+          return;
+        }
+        if (res.created && res.hold.tableId && res.hold.tableId !== tableId) {
+          /* The inviter chose this: a new private table of the same board,
+             already bought into. Opening it is the answer to their tap. */
+          setPrivateStep(null);
+          toast?.success?.('Private Game Opened, Your Seat Is Bought');
+          navigate(`/table/${res.hold.tableId}?held=1`);
+          return;
+        }
+        setPrivateHold(res.hold);
+        setPrivateStep('held');
+      } catch (err) {
+        reportError(err as Error, 'TablePage.private_game_invite');
+        setPrivateError(privateGameRefusalText(undefined));
+      } finally {
+        setPrivateBusy(false);
+      }
+    },
+    [navigate, privateBusy, tableId, toast]
+  );
+
+  const handlePrivateCancel = useCallback(async () => {
+    const tournId = tableStateRef.current.tournamentId;
+    if (!tournId || privateBusy) return;
+    setPrivateBusy(true);
+    try {
+      if (await cancelPrivateGameHold(tournId)) {
+        setPrivateHold((prev) => (prev ? { ...prev, live: false, outcome: 'cancelled' } : prev));
+        setHeadsUpWaitMode(null);
+        setHeadsUpInviteToken(null);
+        setHeadsUpHoldExpiresAtMs(null);
+        setPrivateStep(null);
+        toast?.info?.('Hold Cancelled, The Seat Is Open To Anyone');
+      } else {
+        setPrivateError('Could Not Cancel The Hold, Please Try Again');
+      }
+    } finally {
+      setPrivateBusy(false);
+    }
+  }, [privateBusy, toast]);
+
+  /* The friend's Take Seat: the held seat is the first open chair. The price
+     is still confirmed on the ordinary buy-in sheet before anything is paid. */
 
   const seatFirstOccupiedCount = tableState.players.filter(Boolean).length;
   useEffect(() => {
@@ -6833,6 +7003,23 @@ function LiveTablePage({
   const [seatFirstConfirm, setSeatFirstConfirm] = useState<number | null>(null);
   const seatBuyInDialogRef = useFocusTrap<HTMLDivElement>(seatFirstConfirm !== null);
   useDialogEscape(seatFirstConfirm !== null, () => setSeatFirstConfirm(null), seatFirstPending);
+  const handlePrivateTakeSeat = useCallback(() => {
+    const seats = seatFirstSeatsRef.current;
+    const players = tableStateRef.current.players;
+    let open = 0;
+    for (let seat = 1; seat <= seats; seat++) {
+      if (!players[seat - 1]) {
+        open = seat;
+        break;
+      }
+    }
+    setPrivateStep(null);
+    if (!open) {
+      toast?.info?.('The Held Seat Was Just Taken');
+      return;
+    }
+    setSeatFirstConfirm(open);
+  }, [toast]);
   /* ── THE DUPLICATE BUY-IN TIMER IS DELETED (2026-08-29, round 14) ─────────
    *
    * A second 60-second timer used to live here, and it is the "never registers
@@ -24989,9 +25176,34 @@ function LiveTablePage({
         /* audio is best-effort and must never block a buy-in */
       }
       try {
-        // Heads-Up specific-player invite hold: verify server-side before taking
-        // seat 2 so uninvited players cannot snipe a seat reserved via invite link.
-        if (seatFirstSeatsRef.current === 2 && seatFirstLabelRef.current === 'Heads Up') {
+        /* A SEAT HELD FOR AN INVITED FRIEND (2026-11-22), at every Spin, Heads
+           Up and satellite: the friend's token admits them here, and anyone
+           else hears the rule before any money moves. The entry guard in the
+           database applies the same rule to the purchase itself. A database
+           without the door yet falls back to the Heads Up check below. */
+        const holdTournamentId = tableStateRef.current.tournamentId;
+        const admission = holdTournamentId
+          ? await acceptPrivateGameInvite(holdTournamentId, headsUpInviteParam)
+          : { allowed: true, reason: null, unavailable: true };
+        if (!admission.unavailable && !admission.allowed) {
+          setSeatFirstConfirm(null);
+          if (admission.reason && !/private_game|heads_up_invite/.test(admission.reason)) {
+            reportError(
+              new Error(`private_game_admission check failed: ${admission.reason}`),
+              'TablePage.private_game_admission_failed',
+              { tableId, seatNumber }
+            );
+            toast?.error?.('Could Not Verify Seat Reservation, Please Try Again');
+            return;
+          }
+          toast?.error?.(privateGameRefusalText(admission.reason));
+          return;
+        }
+        if (
+          admission.unavailable &&
+          seatFirstSeatsRef.current === 2 &&
+          seatFirstLabelRef.current === 'Heads Up'
+        ) {
           const { data: inviteData, error: inviteError } = await supabase.rpc(
             'fn_check_heads_up_seat_invite',
             {
@@ -25057,6 +25269,12 @@ function LiveTablePage({
           const frozenMsg = platformFrozenMessage(error ?? res);
           if (frozenMsg) {
             toast?.info?.(frozenMsg);
+            return;
+          }
+          /* The database's entry guard refused a seat held for an invited
+             friend: say so, never the generic refusal. */
+          if (/PRIVATE_GAME_SEAT_HELD|private_game_seat_held/.test(reason)) {
+            toast?.error?.(privateGameRefusalText(reason));
             return;
           }
 
@@ -32014,6 +32232,62 @@ function LiveTablePage({
           onChooseSpecific={() => persistHeadsUpWaitMode('specific')}
           onChooseAnyone={() => persistHeadsUpWaitMode('anyone')}
           onClose={handleCloseHeadsUpPrompt}
+          onNotify={(kind, msg) => {
+            if (kind === 'success') toast?.success?.(msg);
+            else toast?.info?.(msg);
+          }}
+        />
+      )}
+      {seatFirstBuyIn && tableId && privateStep && (
+        <PrivateGameInviteModal
+          isOpen={isVisible}
+          step={privateStep}
+          formatLabel={seatFirstBuyIn.label === 'Heads Up' ? 'Heads Up Sit N Go' : seatFirstBuyIn.label}
+          tableName={tournamentEventName || tableState.tableName || seatFirstBuyIn.label}
+          costLabel={Number(seatFirstBuyIn.cost || 0).toLocaleString()}
+          maxHoldable={
+            tableState.heroSeat > 0
+              ? Math.max(
+                  1,
+                  Math.min(
+                    privateSeatsHoldable(seatFirstBuyIn.seats),
+                    seatFirstBuyIn.seats - seatFirstOccupiedCount
+                  )
+                )
+              : privateSeatsHoldable(seatFirstBuyIn.seats)
+          }
+          alreadySeated={tableState.heroSeat > 0}
+          hold={privateHold}
+          inviteUrl={
+            privateHold?.isCreator
+              ? privateGameInviteUrl({
+                  tableId: privateHold.tableId ?? tableId,
+                  tournamentId: privateHold.tournamentId,
+                  inviteToken: privateHold.inviteToken,
+                  inviteCode: senderInviteCode,
+                })
+              : ''
+          }
+          friendInviteTarget={
+            privateHold?.isCreator
+              ? {
+                  tableId: privateHold.tableId ?? tableId,
+                  tournamentId: privateHold.tournamentId,
+                  clubId: lobbyClubId ?? (actualClubIdRef.current || null),
+                  inviteCode: senderInviteCode,
+                  inviteToken: privateHold.inviteToken,
+                }
+              : null
+          }
+          busy={privateBusy}
+          errorMessage={privateError}
+          onStart={(seats) => void handlePrivateStart(seats)}
+          onCancelHold={() => void handlePrivateCancel()}
+          onTakeSeat={handlePrivateTakeSeat}
+          onClose={() => {
+            setPrivateStep(null);
+            setPrivateError(null);
+          }}
           onNotify={(kind, msg) => {
             if (kind === 'success') toast?.success?.(msg);
             else toast?.info?.(msg);

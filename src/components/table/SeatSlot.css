@@ -5262,7 +5262,7 @@
    its rail station and its crown may run up behind the tab bar, so the lane
    above the crown can be behind the bar too. The caption then sits just under
    the bar instead (--sp-rail-caption-drop, 0 whenever the lane is on screen;
-   useProtectedCardLayout writes it from sixSeatTopCaptionDrop). The chair
+   useProtectedCardLayout writes it from topChairCaptionDrop). The chair
    never moves down to make that room: that is what put it on the felt. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='6'] .seat-wrapper--cap .seat > .seat__action {
