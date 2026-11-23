@@ -36,8 +36,9 @@ const md5 = (text: string) => createHash('md5').update(text).digest('hex');
 
 describe('the capacity check takes the tournament row in the mode its callers hold', () => {
   it('replaces exactly the one FOR UPDATE with FOR NO KEY UPDATE', () => {
-    expect(sql).toContain(`$o$${OLD}$o$`);
-    expect(sql).toContain(`$r$${NEW}$r$`);
+    const literal = (text: string) => `E'${text.replace(/\n/g, '\\n')}';`;
+    expect(sql).toContain(`v_old text := ${literal(OLD)}`);
+    expect(sql).toContain(`v_new text := ${literal(NEW)}`);
     expect(sql).toContain(
       "RAISE EXCEPTION 'fn_ensure_late_registration_capacity tournament lock anchor was expected exactly once'"
     );
@@ -97,7 +98,7 @@ describe('the capacity check takes the tournament row in the mode its callers ho
         source.includes('pg_get_functiondef')
       ) {
         expect(stripComments(source), `${file} rewrites the capacity lock back`).not.toMatch(
-          /\$r\$[^$]*WHERE t\.id=p_tournament_id\s+FOR UPDATE;/
+          /v_new text := E'[^']*WHERE t\.id=p_tournament_id\\n {3}FOR UPDATE;/
         );
       }
     }

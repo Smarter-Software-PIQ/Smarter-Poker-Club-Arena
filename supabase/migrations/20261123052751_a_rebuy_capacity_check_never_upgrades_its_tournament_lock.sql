@@ -80,14 +80,10 @@ SET LOCAL statement_timeout = '30s';
 DO $capacity_keeps_the_root_lock$
 DECLARE
   v_def text := pg_get_functiondef('public.fn_ensure_late_registration_capacity(uuid,integer)'::regprocedure);
-  v_old text := $o$  SELECT * INTO v_t
-    FROM public.tournaments t
-   WHERE t.id=p_tournament_id
-   FOR UPDATE;$o$;
-  v_new text := $r$  SELECT * INTO v_t
-    FROM public.tournaments t
-   WHERE t.id=p_tournament_id
-   FOR NO KEY UPDATE;$r$;
+  -- Single-quoted on purpose: the old text is what this file removes, never a
+  -- lock it takes (scripts/ci/check-migration-hot-row-locks.mjs masks literals).
+  v_old text := E'  SELECT * INTO v_t\n    FROM public.tournaments t\n   WHERE t.id=p_tournament_id\n   FOR UPDATE;';
+  v_new text := E'  SELECT * INTO v_t\n    FROM public.tournaments t\n   WHERE t.id=p_tournament_id\n   FOR NO KEY UPDATE;';
 BEGIN
   IF position(v_new IN v_def)>0 THEN
     RAISE EXCEPTION 'fn_ensure_late_registration_capacity already takes the tournament row FOR NO KEY UPDATE: re-read before editing';
