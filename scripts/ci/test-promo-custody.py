@@ -308,6 +308,22 @@ def main():
   check('pending response-loss replay cannot duplicate principal',held('table_stack',entity=T),'50')
   check('pending receipt retains before/applied/refunded proof',one('SELECT principal_before||\':\'||principal_applied||\':\'||principal_refunded FROM ca_promo_pending_custody_receipts'),'20:10:10')
 
+  # Full cash-table pending add-on refund (table closes before add-on lands)
+  # and full closed-table cash-out both return 100% of promo principal to the
+  # member wallet under the open grant, never closing it or sending to a fund.
+  reset();grant(70);db.run(fund(50,before=70))
+  full_refund_pending=str(uuid.uuid4());db.run(fund(20,before=20,pending=full_refund_pending))
+  occupancy=one(f"SELECT occupancy_id FROM table_seats WHERE table_id='{T}' AND user_id='{A}'")
+  db.run(f"UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{A}';"+ledger('table_stack','player_wallet',20,'addon_refund',who=T,dest=A))
+  db.run(f"SELECT fn_cash_record_funding_application('{full_refund_pending}',0,20,'{occupancy}')")
+  check('full pending addon refund returns all promo to player wallet',held(),'20')
+  check('full pending addon refund leaves zero pending custody',held('pending_addon',entity=full_refund_pending),'0')
+  check('full pending addon refund leaves grant open and intact',one("SELECT closed_at IS NULL AND remaining=70 FROM ca_promo_play_through_grants"),'t')
+  db.run(f"UPDATE club_members SET chip_balance=70 WHERE club_id='{C}' AND user_id='{A}';"+ledger('table_stack','player_wallet',50,'table_cashout',who=T,dest=A))
+  check('closed table full cashout returns all on-felt promo to player wallet',held(),'70')
+  check('closed table full cashout leaves zero table custody',held('table_stack',entity=T),'0')
+  check('closed table full cashout keeps grant open with full remaining',one("SELECT closed_at IS NULL AND remaining=70 FROM ca_promo_play_through_grants"),'t')
+
   reset();grant();fee(25,base.TOUR_A);db.run(fund(50));db.run(hand(50,0,h=str(uuid.uuid4())))
   grant();fee(50,base.TOUR_A);refund(25,base.TOUR_A)
   check('an old-cycle refund cannot reduce a later entry fee in the same event',metric('fee_progress'),50)

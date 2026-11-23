@@ -19,6 +19,7 @@ p.add_argument('--custody-migration',type=Path,default=root/'supabase/migrations
 p.add_argument('--return-migration',type=Path,default=root/'supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql')
 p.add_argument('--refund-migration',type=Path,default=root/'supabase/migrations/20261123000232_a_refunded_entry_keeps_its_promo_with_the_player.sql')
 p.add_argument('--keep-migration',type=Path,default=root/'supabase/migrations/20261123071237_a_refunded_entry_keeps_its_promo_on_a_ticket_and_past_a_clos.sql')
+p.add_argument('--notice-migration',type=Path,default=root/'supabase/migrations/20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql')
 ORIGINAL_SPENT_FEE_MD5='9de436b1f7c01c95f2b4574a37a9f3bb'
 p.add_argument('--current-financial',type=Path,default=root/'tests/fixtures/promo-principal-returns/current-financial-owners.json')
 p.add_argument('--disburse-owner',type=Path,default=root/'tests/fixtures/promo-principal-returns/disburse.sql')
@@ -157,7 +158,11 @@ try:
  keep_text=args.keep_migration.read_text();keep_boundary='-- TICKET REFUND SECTION.'
  if keep_text.count(keep_boundary)!=1 or keep_text.count('\nCOMMIT;')!=1:raise SystemExit('keep migration wallet boundary changed')
  e.sql(db,keep_text[:keep_text.index(keep_boundary)]+'COMMIT;',label='promo-refunded-entry-keeps-promo-past-a-closed-grant')
- e.sql(db,"CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_restore_refunded_entry_cost(uuid,text,numeric,uuid,uuid)','public.fn_ca_promo_refund_successor_grant(uuid,numeric,text,text,uuid)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %',n,f;END IF;END LOOP;END$$;",label='keep-wallet-owners-plpgsql-check-clean')
+ remember(args.notice_migration)
+ notice_text=args.notice_migration.read_text();notice_boundary='-- TICKET REFUND NOTICE SECTION.'
+ if notice_text.count(notice_boundary)!=1 or notice_text.count('\nCOMMIT;')!=1:raise SystemExit('notice migration wallet boundary changed')
+ e.sql(db,notice_text[:notice_text.index(notice_boundary)]+'COMMIT;',label='promo-refunded-entry-notifies-player-wallet')
+ e.sql(db,"CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_restore_refunded_entry_cost(uuid,text,numeric,uuid,uuid)','public.fn_ca_promo_refund_successor_grant(uuid,numeric,text,text,uuid)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)','public.fn_ca_promo_return_refunded_principal(uuid)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %',n,f;END IF;END LOOP;END$$;",label='keep-wallet-owners-plpgsql-check-clean')
  # A cloned original financial closure isolates the additional real reentry
  # case from every existing return/race opening. No provider or money adapter.
  bust_db=e.database(db)
@@ -379,8 +384,10 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  IF (SELECT count(*) FROM public.tournament_refund_tranches WHERE entitlement_id='97000000-0000-0000-0000-000000000003')<>1 THEN RAISE EXCEPTION 'original refund tranche was not consumed exactly once';END IF;
  IF EXISTS(SELECT 1 FROM public.tournament_escrow WHERE tournament_id='97000000-0000-0000-0000-000000000001' AND (prize_balance<>0 OR fee_balance<>0 OR bounty_balance<>0)) THEN RAISE EXCEPTION 'original refund escrow did not balance';END IF;
  credit:=(result->>'credit_ledger_id')::uuid;
+ IF NOT EXISTS(SELECT 1 FROM public.ca_promo_refund_notices n WHERE n.ledger_id=credit AND n.entitlement_id='97000000-0000-0000-0000-000000000003' AND n.user_id='10000000-0000-0000-0000-000000000001' AND n.club_id='20000000-0000-0000-0000-000000000001' AND n.tournament_id='97000000-0000-0000-0000-000000000001' AND n.refund_kind='wallet' AND n.refund_amount=20 AND n.promo_kept_locked=10 AND n.promo_kept_unlocked=0 AND n.promo_returned_to_fund=0) THEN RAISE EXCEPTION 'wallet refund notice receipt missing or wrong';END IF;
+ IF to_regclass('public.notifications') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.notifications n JOIN public.ca_promo_refund_notices r ON r.notification_id=n.id WHERE r.ledger_id=credit AND n.type='promo_play_through' AND n.title='Tournament Entry Refunded' AND n.message='Your 20.00 Entry To Native Original Entry Refund Was Refunded. 10.00 Of It Is Promo Chips And Stays Under Play-Through.') THEN RAISE EXCEPTION 'wallet refund player notification missing or wrong';END IF;
  paid:=public.fn_ca_promo_return_refunded_principal(credit);
- IF paid<>0 OR EXISTS(SELECT 1 FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')) OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund'))<>1 OR (SELECT remaining FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')<>10 OR (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>20 THEN RAISE EXCEPTION 'refund replay moved promo or restored it twice';END IF;
+ IF paid<>0 OR EXISTS(SELECT 1 FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')) OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund'))<>1 OR (SELECT count(*) FROM public.ca_promo_refund_notices WHERE ledger_id=credit)<>1 OR (SELECT remaining FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')<>10 OR (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>20 THEN RAISE EXCEPTION 'refund replay moved promo or restored it twice';END IF;
  END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;
  """,label='actual-exact-entry-refund-keeps-promo-with-the-member')
  e.report['native'].append({'case':'actual-exact-entry-refund-keeps-promo-with-the-member','assertions':10})
@@ -494,7 +501,7 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label=label+'-actual-refund-return-and-replay')
   e.report['native'].append({'case':label,'assertions':13+(2 if cross else 0)+(3 if cross else 0)+(3 if treatment=='successor' else 0),'opening_limit':'already-funded entry and recognized fee batch facts; all refund journals and deferred guards actual'})
  e.sql(db,"""DO $$BEGIN
- IF has_function_privilege('authenticated','public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_leave_principal(uuid,uuid)','EXECUTE') THEN RAISE EXCEPTION 'browser can invoke private principal return';END IF;
+ IF has_function_privilege('authenticated','public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_leave_principal(uuid,uuid)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)','EXECUTE') OR has_table_privilege('authenticated','public.ca_promo_refund_notices','SELECT') OR has_table_privilege('anon','public.ca_promo_refund_notices','SELECT') THEN RAISE EXCEPTION 'browser can invoke private principal return or refund notice owner';END IF;
  IF NOT EXISTS(SELECT 1 FROM cron.job WHERE jobname='promo-principal-product-expiry' AND schedule='*/15 * * * *' AND command='SELECT public.fn_ca_promo_expire_principal(100)') THEN RAISE EXCEPTION 'product expiry schedule registration differs';END IF;
  END$$;""",label='private-owner-and-product-schedule')
  e.report['native'].append({'case':'private-owner-and-product-schedule','assertions':2})

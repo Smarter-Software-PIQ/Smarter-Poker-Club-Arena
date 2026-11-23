@@ -1,0 +1,3 @@
+# tests/a-refunded-entry-notifies-the-player-and-successor-grants-stay-clean.law.test.ts
+
+Every refunded tournament entry (wallet or ticket) writes one idempotent receipt in ca_promo_refund_notices and notifies the member in plain words with the exact refunded total and promo share staying under play-through; refund successor grants never emit a misleading "Promo Chips Received" notice or double-count in fn_ca_promo_daily_digest's given total; and cash-table pending add-on refunds and closed-table cash-outs are proven on real PostgreSQL 17 to return all promo to the member wallet (20261123083752).
