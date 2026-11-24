@@ -1,6 +1,6 @@
 # A Horse option registers itself: the whitelist is rows, not a re-asserted list (2026-11-19)
 
-Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124055958_a_horse_option_registers_itself.sql`.
+Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124133319_a_horse_option_registers_itself.sql`.
 
 ## The problem
 
@@ -97,6 +97,14 @@ since the shadow list (2026-11-18) and the on_shadow list (2026-11-19), and seve
   option would lose (shadow, on_shadow);
 - generator: `--register <file> [--allow-shadow] [option ...]`.
 
+## 2026-11-24: Re-Reserved As 20261124133319 (Newest On Main)
+
+The lane rule wants the switch migration to be the newest migration on main overall, and five ordinary migrations
+had merged with versions above the earlier reservation. Re-reserved with `scripts/new-migration.mjs` as
+`20261124133319` after merging `origin/main` `7f6e30be571d` (no new full-list migration, so the #11825 anchor and
+fingerprint stand). The `v_me` line, the `registry-lists-version` stamp, the probe names, the whitelist constant,
+the proof script and the schema manifest moved with it.
+
 ## 2026-11-24: Re-Anchored On #11825 (46 Frozen Full-List Migrations)
 
 Main merged PR #11825 (`b319a8eb0b5a`), whose full-list migration
@@ -106,12 +114,12 @@ OFF. Re-anchored on it:
 - the frozen anchor is now `20261123071956` (46 full-list migrations, 367 options: 7 style, 360 plain, 75 off-only,
   202 shadow, 280 on_shadow), fingerprint `42fe91b250933682bd22383fcc3b6bd3`, derived with
   `optionSwitchListsFingerprint` from the file;
-- the whitelist migration keeps version `20261124055958`, newer than every full-list migration on main, so the
+- the whitelist migration kept the version it then carried, newer than every full-list migration on main, so the
   #11825 list (stamp `20261123071956`) still installs before it and refuses to install after it;
 - the throwaway Postgres proof reads its frozen lists from the #11825 migration and its refusal and overwrite checks
   name `20261123071956`.
 
-## 2026-11-24: Rebuilt On Main bf6fb356036e, Re-Reserved As 20261124055958
+## 2026-11-24: Rebuilt On Main bf6fb356036e, Re-Reserved
 
 Rebuilt by the HORSE DECISIONS lead (Claude session 01BNteGZ) on fresh `origin/main` (`bf6fb356036e`), carrying only
 this change's own files (the earlier build sat on an unmerged combination branch):
@@ -120,8 +128,8 @@ this change's own files (the earlier build sat on an unmerged combination branch
   newest full-list migration on main (45 full-list migrations, 365 options: 7 style, 358 plain, 75 off-only, 200
   shadow, 278 on_shadow), and its fingerprint, derived again with `optionSwitchListsFingerprint`, is still
   `c8cca75e4b8a5e518e8cffb0e75c976b`;
-- the migration is re-reserved with `scripts/new-migration.mjs` as `20261124055958`, newer than every migration on main
-  (the old reservation was older than about thirty migrations merged since), so it is the newest switch migration
+- the migration is re-reserved with `scripts/new-migration.mjs` (a version newer than every migration on main
+  then; the old reservation was older than about thirty migrations merged since), so it is the newest switch migration
   on main when it merges and the older-first installer never sends it ahead of a newer file;
 - the proof script keeps main's refused line.
 

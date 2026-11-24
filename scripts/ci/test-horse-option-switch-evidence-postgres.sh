@@ -41,7 +41,7 @@
 # scripts/ci/test-*-postgres proof; everyUpgradeHasALiveSwitch.law.test.ts fails
 # when it is not wired there.
 #
-# THE WHITELIST AS ROWS (20261124055958_a_horse_option_registers_itself.sql), last
+# THE WHITELIST AS ROWS (20261124133319_a_horse_option_registers_itself.sql), last
 # section: the option lists below are the ones the switch was installed with,
 # read from the LAST full-list migration (frozen). The whitelist migration is
 # then installed (twice) over everything above and must seed exactly those
@@ -459,10 +459,10 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
     q "SELECT public.fn_ca_horse_option_switch_clear('$os', 'fixture', 'clear')" >/dev/null
   fi
 
-  # THE WHITELIST AS ROWS (migration 20261124055958_a_horse_option_registers_itself.sql): installed last, over a
+  # THE WHITELIST AS ROWS (migration 20261124133319_a_horse_option_registers_itself.sql): installed last, over a
   # database that holds every list follow-up, the evidence rule, the serving-registry guard and live switch rows.
   # OPTION_WHITELIST_MIGRATION names another file to prove the assertions fail without it.
-  whitelist_migration="${OPTION_WHITELIST_MIGRATION:-$repo/supabase/migrations/20261124055958_a_horse_option_registers_itself.sql}"
+  whitelist_migration="${OPTION_WHITELIST_MIGRATION:-$repo/supabase/migrations/20261124133319_a_horse_option_registers_itself.sql}"
   wl_name="$(basename "$whitelist_migration" .sql)"
   # no fresh serving registry from here on: the writers below are judged by the whitelist alone
   q "UPDATE public.ca_horse_option_registry_serving SET seen_at = now() - interval '6 minutes'" >/dev/null
@@ -596,7 +596,7 @@ SQL
   check "service_role still asks the states of an option, may read the whitelist and writes through the setter" "{off,on}|t|off" "$(qd $d "SET ROLE service_role; SELECT public.fn_ca_horse_option_switch_states('proofOptionA')")|$(qd $d "SELECT has_table_privilege('service_role', 'public.ca_horse_option_whitelist', 'SELECT')")|$(qd $d "SELECT state FROM public.ca_horse_style_switch WHERE option = 'v7'")"
   # a stamped historical full-list follow-up refuses to install over the whitelist migration (#11553 version stamp)
   stamped_over="$(in_db order_ba -f "$list_migration" 2>&1 | sed -n 's/^.*ERROR:  //p' | head -1 || true)"
-  case "$stamped_over" in *"is older than the installed list 20261124055958"*) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused refused;; *) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused "$stamped_over";; esac
+  case "$stamped_over" in *"is older than the installed list 20261124133319"*) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused refused;; *) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused "$stamped_over";; esac
   # and if an unstamped or newer-stamped full-list follow-up ever put the literal lists back, registering refuses
   # loudly instead of adding a row nothing reads (everyUpgradeHasALiveSwitch.law.test.ts refuses such a file first)
   sed "s/20261123071956/99999999999999/g" "$list_migration" > "$work/newer-list-overwrite.sql"
