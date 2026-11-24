@@ -37,6 +37,13 @@ import {
   type StreetReadCounters,
 } from './HorseOmahaStreetRead.js';
 import { omahaReadByStreetNow, type OmahaReadByStreetMeans } from './HorseOmahaReadByStreetMode.js';
+import {
+  addOpenerResponseEvidence,
+  copyOpenerResponse,
+  openerResponseCarriedFor,
+  openerResponseHandIncrements,
+  type OpenerResponseCounters,
+} from './HorseOpenerAnswersThreeBet.js';
 import { copyReraiseResponse, type ReraiseResponseCounters } from './HorseOmahaReraiseResponse.js';
 import { copyFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
 import {
@@ -1013,6 +1020,13 @@ export interface HorseMindSandbox {
    *  the default-off omahaSampledRaiseIsPricedAtEverySize on (HorseOmahaReadByStreetRule). Absent when the read
    *  carried none. */
   pooledStreetPrice?: Map<string, StreetPriceCounters>;
+  /** HOW AN OPENER ANSWERS A 3-BET (2026-11-24, HorseOpenerAnswersThreeBet): for each pooled EXACT row in `exploit`
+   *  of an nlh, plo4 or plo5 game that carries a well-formed record (horse_exact_profiles.opener_response), a detached
+   *  copy of it. Travels with the decision's own state and its read frame (v21). Answered by
+   *  HorseMind.openerResponseOf; read only by default-OFF options. Absent when the read carried none. A benchmark
+   *  sandbox with HorseMind.setLearnsOpenerResponseInSandbox on also adds each completed hand to it, as the
+   *  accepted-hand learner adds it to the durable row. */
+  pooledOpenerResponse?: Map<string, OpenerResponseCounters>;
 }
 
 /** What HorseMind.omahaStreetReadOf answers for one opponent: his carried counters and, per street, the label a
@@ -1634,6 +1648,10 @@ export class HorseMind {
   private static pooledFlopShown: Map<string, FlopShownCounters> | null = null;
   /** The sandbox's fold-to-raise price records (HorseMindSandbox.pooledStreetPrice) while one is installed. */
   private static pooledStreetPrice: Map<string, StreetPriceCounters> | null = null;
+  /** The sandbox's opener response records (HorseMindSandbox.pooledOpenerResponse) while one is installed. */
+  private static pooledOpenerResponse: Map<string, OpenerResponseCounters> | null = null;
+  /** Benchmark only (default off): a sandbox learns the opener response record from its own completed hands. */
+  private static learnsOpenerResponseInSandbox = false;
   private static decisionVariant: string | null = null;
   /** The betting structure of the decision in flight, as the game state
    *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
@@ -3350,6 +3368,35 @@ export class HorseMind {
   }
 
   /**
+   * HOW AN OPENER ANSWERS A 3-BET (2026-11-24, HorseOpenerAnswersThreeBet): the record the decision in flight carries
+   * for one opponent (a detached copy of horse_exact_profiles.opener_response as the pooled public row brought it into
+   * this decision's own state, HorseMindSandbox.pooledOpenerResponse), for an nlh, plo4 or plo5 decision. Null
+   * otherwise and when the decision carried no record for him: unknown stays unknown, and the caller reads the
+   * baseline. Public actions only. Pure: no fires, no writes, no random draws.
+   */
+  static openerResponseOf(userId: string): OpenerResponseCounters | null {
+    const scope = this.decisionScope;
+    if (!scope) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant || !openerResponseCarriedFor(variant)) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledOpenerResponse?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    return row ? copyOpenerResponse(row) : null;
+  }
+
+  /**
+   * BENCHMARK ONLY (default off; no production caller): while on, a sandbox installed by runInSandbox keeps an opener
+   * response map and adds each completed hand of a carried game to it (observeHandComplete), exactly as the
+   * accepted-hand learner adds it to the durable row and the pooled read would bring it back. Lets a league grade a
+   * reader of the record without a database. Never touches live state.
+   */
+  static setLearnsOpenerResponseInSandbox(on: boolean): void {
+    this.learnsOpenerResponseInSandbox = on === true;
+  }
+
+  /**
    * THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19, HorseOmahaStreetReadPrice): for one opponent, per street,
    * the mean price of the raises he faced after betting or raising (`price` = sum / opp: what he had to add over
    * the pot he was offered) and how many aged priced raises stand behind it, from the durable record of his exact
@@ -4392,6 +4439,10 @@ export class HorseMind {
             const rowStreetPrice = row ? this.pooledStreetPrice?.get(key) : undefined;
             if (rowStreetPrice)
               (view.pooledStreetPrice ??= new Map()).set(key, copyStreetPrice(rowStreetPrice));
+            // And the same opener response record (exact rows only; donors never carry one).
+            const rowOpener = row ? this.pooledOpenerResponse?.get(key) : undefined;
+            if (rowOpener)
+              (view.pooledOpenerResponse ??= new Map()).set(key, copyOpenerResponse(rowOpener));
             // And the same completeness cap (exact row).
             if (row && this.pooledProfileIncomplete?.has(key))
               (view.pooledProfileIncomplete ??= new Map()).set(key, true);
@@ -4495,6 +4546,7 @@ export class HorseMind {
       pooledReraiseResponse: this.pooledReraiseResponse,
       pooledFlopShown: this.pooledFlopShown,
       pooledStreetPrice: this.pooledStreetPrice,
+      pooledOpenerResponse: this.pooledOpenerResponse,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
@@ -4505,6 +4557,9 @@ export class HorseMind {
     this.pooledReraiseResponse = sandbox.pooledReraiseResponse ?? null;
     this.pooledFlopShown = sandbox.pooledFlopShown ?? null;
     this.pooledStreetPrice = sandbox.pooledStreetPrice ?? null;
+    if (this.learnsOpenerResponseInSandbox && !sandbox.pooledOpenerResponse)
+      sandbox.pooledOpenerResponse = new Map();
+    this.pooledOpenerResponse = sandbox.pooledOpenerResponse ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -4570,6 +4625,7 @@ export class HorseMind {
       this.pooledReraiseResponse = live.pooledReraiseResponse;
       this.pooledFlopShown = live.pooledFlopShown;
       this.pooledStreetPrice = live.pooledStreetPrice;
+      this.pooledOpenerResponse = live.pooledOpenerResponse;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
@@ -6249,6 +6305,23 @@ export class HorseMind {
    * settlement path; idempotent per handKey. Best-effort by contract — a
    * malformed history must never throw into settlement.
    */
+  private static learnOpenerResponseInSandbox(
+    actions: ReadonlyArray<{ userId?: string; action: string; origin?: string; stage: string }>,
+    scope: ReadScope,
+    variantName: string | undefined,
+    mode: MemoryMode | undefined
+  ): void {
+    const variant = memoryVariant(variantName);
+    const map = this.pooledOpenerResponse;
+    if (!variant || !openerResponseCarriedFor(variant) || !map || !mode) return;
+    const size = scope.split(':')[1] as MemorySize;
+    for (const [id, inc] of openerResponseHandIncrements(actions)) {
+      const key = opponentMemoryKey(id, variant, mode, size);
+      const next = addOpenerResponseEvidence(map.get(key), inc);
+      if (next) map.set(key, next);
+    }
+  }
+
   static observeHandComplete(
     handKey: string,
     actions:
@@ -6292,6 +6365,14 @@ export class HorseMind {
       if (this.handFlags.has(flag)) return;
       this.handFlags.add(flag);
       evictOldest(this.handFlags, MAX_HAND_FLAGS);
+      // Benchmark only (setLearnsOpenerResponseInSandbox): the sandbox's opener response record learns this hand.
+      if (
+        this.learnsOpenerResponseInSandbox &&
+        this.sandboxDepth > 0 &&
+        this.pooledOpenerResponse &&
+        scope
+      )
+        this.learnOpenerResponseInSandbox(actions, scope, riverCallContext?.variant, styleMode);
 
       const bb = bigBlind > 0 ? bigBlind : 1;
       // FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (switch above).

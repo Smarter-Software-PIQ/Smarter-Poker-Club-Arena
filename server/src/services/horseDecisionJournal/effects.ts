@@ -96,7 +96,7 @@ export function horseRetainedPlanContext(
   const hasBinding = Object.hasOwn(value, 'planBinding');
   const frame = value.readFrame as { version?: unknown; json?: unknown } | null | undefined;
   let allocatedFrame = frame?.version === 'horse-decision-reads-v2';
-  // v4-v20 add public opponent counters/beliefs: the same allocation rules.
+  // v4-v21 add public opponent counters/beliefs: the same allocation rules.
   if (
     frame?.version === 'horse-decision-reads-v3' ||
     frame?.version === 'horse-decision-reads-v4' ||
@@ -115,7 +115,8 @@ export function horseRetainedPlanContext(
     frame?.version === 'horse-decision-reads-v17' ||
     frame?.version === 'horse-decision-reads-v18' ||
     frame?.version === 'horse-decision-reads-v19' ||
-    frame?.version === 'horse-decision-reads-v20'
+    frame?.version === 'horse-decision-reads-v20' ||
+    frame?.version === 'horse-decision-reads-v21'
   ) {
     if (typeof frame.json !== 'string' || frame.json.length > HORSE_DECISION_READ_FRAME_MAX_BYTES)
       return { kind: 'invalid' };
