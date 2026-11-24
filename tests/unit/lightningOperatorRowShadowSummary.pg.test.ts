@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  SCRATCH_POSTGRES_PORT,
+  scratchPostgresListenOptions,
+  scratchPostgresSocket,
+  showServerLogWhenStartFails,
+} from '../helpers/scratchPostgres';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -196,13 +202,13 @@ beforeAll(() => {
   mkdirSync(cache, { recursive: true });
   const scratch = mkdtempSync(resolve(cache, 'lightning-operator-row-'));
   if (asRoot) chmodSync(scratch, 0o777);
-  const port = 20000 + Math.floor(Math.random() * 30000);
+  const socket = scratchPostgresSocket();
   const data = resolve(scratch, 'data');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     LC_ALL: 'C',
-    PGHOST: '127.0.0.1',
-    PGPORT: String(port),
+    PGHOST: socket,
+    PGPORT: SCRATCH_POSTGRES_PORT,
     PGDATABASE: 'postgres',
     PGUSER: asRoot ? serverUser : process.env.USER || 'runner',
     PGSSLMODE: 'disable',
@@ -230,21 +236,24 @@ beforeAll(() => {
   sql = (text) => run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-q'], text);
   one = (text) => run('psql', ['-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', text]).trim();
   run('initdb', ['-D', data, '-A', 'trust', '-E', 'UTF8']);
-  run('pg_ctl', [
-    '-D',
-    data,
-    '-l',
-    resolve(scratch, 'postgres.log'),
-    '-o',
-    `-p ${port} -h 127.0.0.1 -k ''`,
-    '-w',
-    'start',
-  ]);
+  showServerLogWhenStartFails(resolve(scratch, 'postgres.log'), () =>
+    run('pg_ctl', [
+      '-D',
+      data,
+      '-l',
+      resolve(scratch, 'postgres.log'),
+      '-o',
+      scratchPostgresListenOptions(socket),
+      '-w',
+      'start',
+    ])
+  );
   cleanup = () => {
     try {
       run('pg_ctl', ['-D', data, '-m', 'immediate', 'stop']);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
+      rmSync(socket, { recursive: true, force: true });
     }
   };
   sql(STUB);

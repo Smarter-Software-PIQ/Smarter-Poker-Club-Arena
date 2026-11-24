@@ -407,7 +407,9 @@ describe('Tournament details snapshot recovery', () => {
       expect(action.getAttribute('aria-label')).toMatch(/^Late Register, \d+ Levels? Remaining$/);
       expect(action.className).toContain('tournament-register-button');
       expect(action.className).toContain('late-reg');
-      expect(action.className).not.toBe(footer.getByRole('button', { name: 'Copy Link' }).className);
+      expect(action.className).not.toBe(
+        footer.getByRole('button', { name: 'Copy Link' }).className
+      );
       fireEvent.click(action);
       expect(fixture.register).toHaveBeenCalledTimes(1);
       expect(fixture.register).toHaveBeenCalledWith(
@@ -456,53 +458,39 @@ describe('Tournament details snapshot recovery', () => {
     expect(screen.queryAllByRole('button', { name: /Late Register/ })).toHaveLength(0);
   });
 
-  it.each([
-    ['002c2d27-9584-4e52-835a-bb2be148fc81', 'header'],
-    ['002c2d27-9584-4e52-835a-bb2be148fc81', 'footer'],
-    ['regular-club', 'header'],
-    ['regular-club', 'footer'],
-  ])('registration preserves the exact club and price for %s via %s', async (clubId, placement) => {
-    fixture.getTournament.mockResolvedValue(
-      tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2', club_id: clubId })
-    );
-    render(<Page />);
-    await flush();
-    fireEvent.click(
-      within(
-        document.querySelector(
-          placement === 'header' ? '.details-header__actions' : '.details-footer'
-        ) as HTMLElement
-      ).getByRole('button', { name: 'Register', exact: true })
-    );
-    expect(fixture.register).toHaveBeenCalledTimes(1);
-    expect(fixture.register).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'a',
-        club_id: clubId,
-        buy_in_amount: 10,
-        buy_in_fee: 1,
-        status: 'REGISTERING',
-      }),
-      expect.any(Function)
-    );
-  });
+  it.each(['002c2d27-9584-4e52-835a-bb2be148fc81', 'regular-club'])(
+    'registration preserves the exact club and price for %s through the lobby action',
+    async (clubId) => {
+      fixture.getTournament.mockResolvedValue(
+        tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2', club_id: clubId })
+      );
+      render(<Page />);
+      await flush();
+      const footer = within(document.querySelector('.details-footer') as HTMLElement);
+      fireEvent.click(footer.getByRole('button', { name: 'Register', exact: true }));
+      expect(fixture.register).toHaveBeenCalledTimes(1);
+      expect(fixture.register).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'a',
+          club_id: clubId,
+          buy_in_amount: 10,
+          buy_in_fee: 1,
+          status: 'REGISTERING',
+        }),
+        expect.any(Function)
+      );
+    }
+  );
 
   it.each([false, true])(
-    'keeps one Register at each entry point for embedded=%s',
+    'keeps a single Register in the approved action bar for embedded=%s',
     async (embedded) => {
       fixture.getTournament.mockResolvedValue(
         tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2' })
       );
       render(<Page embedded={embedded} />);
       await flush();
-      const action = within(
-        document.querySelector('.details-header__actions') as HTMLElement
-      ).getByRole('button', { name: 'Register', exact: true });
-      expect(action.closest('.details-header__actions')).not.toBeNull();
-      expect(action.closest('.details-footer')).toBeNull();
-      expect(screen.getAllByRole('button', { name: 'Register', exact: true })).toHaveLength(2);
-      /* Dan 2026-11-01: the footer's register action wears the header's
-         rendered plate, never the quiet Share outline. */
+      expect(screen.getAllByRole('button', { name: 'Register', exact: true })).toHaveLength(1);
       const footer = within(document.querySelector('.details-footer') as HTMLElement);
       const footerRegister = footer.getByRole('button', { name: 'Register', exact: true });
       expect(footerRegister.className).toContain('tournament-register-button');
@@ -512,19 +500,16 @@ describe('Tournament details snapshot recovery', () => {
     }
   );
 
-  it('disables both entry points during the same pending registration', async () => {
+  it('disables the lobby action during a pending registration', async () => {
     fixture.isRegistering = true;
     fixture.getTournament.mockResolvedValue(
       tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2' })
     );
     render(<Page />);
     await flush();
-    const buttons = screen.getAllByRole('button', { name: 'Processing...', exact: true });
-    expect(buttons).toHaveLength(2);
-    for (const button of buttons) {
-      expect(button).toBeDisabled();
-      fireEvent.click(button);
-    }
+    const button = screen.getByRole('button', { name: 'Processing...', exact: true });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
     expect(fixture.register).not.toHaveBeenCalled();
   });
 

@@ -169,9 +169,9 @@ describe('deriveMyPlayers', () => {
 });
 
 describe('MyPlayersCard', () => {
-  it('says so when none of mine registered', () => {
+  it('keeps the lobby clear when none of mine registered', () => {
     render(<MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['absent']))} />);
-    expect(screen.getByText('None Of Your Players Registered For This Event')).toBeTruthy();
+    expect(screen.queryByLabelText('Your Players In This Event')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 

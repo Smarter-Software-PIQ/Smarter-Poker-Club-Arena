@@ -1,7 +1,6 @@
 /**
  * MyPlayersCard - "how are my players doing", on Details, Ranking, Rewards and
- * Tables. The strip Ranking always had, now on every tab, and never silent: an
- * agent with nobody in the event is told so rather than shown nothing.
+ * Tables. The same inline roster appears wherever an agent has entrants in the event.
  *
  * Rendered only when `useMyPlayers` says the read settled and the viewer
  * carries a downline. Styling follows Ranking's legend (cyan rail, same type
@@ -64,6 +63,7 @@ export default function MyPlayersCard({
   // Open by default once nobody is left, because then the list IS the answer.
   const defaultOpen = summary.mode === 'finished';
   const [toggled, setToggled] = useState<boolean | null>(null);
+  if (summary.mode === 'none') return null;
   const open = hasList && (toggled ?? defaultOpen);
   const { line, sub } = headline(summary);
 

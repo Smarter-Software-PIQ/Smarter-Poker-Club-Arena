@@ -161,6 +161,18 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       source: 'LightningHorse.ts LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX',
       description: "Lightning: The Most Deliberate Horse's Personal Tempo Factor",
     },
+    {
+      key: 'horse.reraiseFoldShareCap',
+      kind: 'number',
+      min: 0,
+      max: 0.9,
+      compiledDefault: 0.45,
+      consumer: 'horse_decision',
+      source:
+        'HorseOopReraiseRangeHolds.ts RERAISE_FOLD_SHARE_CAP_DEFAULT (opts.reraiseFoldShareCap; read only by the two default-off OOP re-raise range options)',
+      description:
+        'PLO4/PLO5 And NLH Cash: The Most Of The Out-Of-Position 3-Bet Range That May Fold To A 4-Bet (Never Above The Bluff Break-Even)',
+    },
     // ---- Horse stack management (HorseCashStackCeiling.ts): not a decision option, read at the hand boundary ----
     {
       key: 'horse.cashStackCeilingBB',
