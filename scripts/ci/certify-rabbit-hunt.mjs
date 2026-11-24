@@ -42,6 +42,28 @@ export const RABBIT_HUNT_REQUIRED_COMMITS = Object.freeze([
   { pr: 9314, sha: '518d46c5412c146d3b4555fae1913d79ac4c9faa' },
 ]);
 export const ENGINE_URL = 'https://engine.smarter.poker';
+
+/**
+ * THE CERTIFICATION BUYS IN FOR THE TABLE'S OWN MINIMUM (2026-11-24).
+ * Since #10092 (2026-11-08) every cash game's minimum buy-in is 50 big blinds,
+ * enforced by atomic_table_buyin from the table row. This certificate bought in
+ * for a literal 4 chips, the old Classic 40 BB at a 0.10 big blind, so every
+ * seat was refused and every daily run failed from then on with "two reserved
+ * certification players seated" and no reason. It now reads the table's
+ * min_buy_in and buys in for exactly that, and refuses to run when the club
+ * funding cannot cover it, instead of hard-coding a number the product owns.
+ */
+export const CERT_PLAYER_FUNDING_CHIPS = 8;
+export function certificationBuyIn({ minBuyIn, funded = CERT_PLAYER_FUNDING_CHIPS }) {
+  const min = Number(minBuyIn);
+  if (!Number.isFinite(min) || min <= 0)
+    throw new Error(`the certification table's minimum buy-in is unreadable (${String(minBuyIn)})`);
+  if (min > Number(funded))
+    throw new Error(
+      `the certification table's minimum buy-in ${min} is more than the ${funded} chips each player is funded`
+    );
+  return Math.round(min * 100) / 100;
+}
 export const APP_ORIGIN = 'https://smarter.poker';
 
 /** Does the serving engine carry every required commit, and is it idle? */
@@ -705,7 +727,7 @@ async function main() {
         p_items: [
           {
             user_id: P[role].userId,
-            amount: 8,
+            amount: CERT_PLAYER_FUNDING_CHIPS,
             source: 'club_bank',
             destination: 'player_wallet',
             reason: 'Cashier Send Out',
@@ -828,21 +850,27 @@ async function main() {
     S.seated = [];
     try {
       await sleep(2500);
+      const tableRow = (await svc(`tables?id=eq.${T}&select=min_buy_in`))[0];
+      const buyIn = certificationBuyIn({ minBuyIn: tableRow?.min_buy_in });
+      const refused = {};
       for (const [i, role] of ['vip', 'plain'].entries()) {
         const b = await rpc(P[role].token, 'atomic_table_buyin', {
           p_user_id: P[role].userId,
           p_table_id: T,
           p_seat_number: i + 1,
-          p_amount: 4,
+          p_amount: buyIn,
           p_auto_rebuy: false,
           p_club_id: S.clubId,
           p_idempotency_key: randomUUID(),
         });
         if (b.status < 300) S.seated.push(role);
+        else
+          refused[role] = { status: b.status, message: b.body?.message ?? b.body?.error ?? null };
       }
       step(
         'two reserved certification players seated with certification-club chips',
-        S.seated.length === 2
+        S.seated.length === 2,
+        { buyIn, refused }
       );
       const h1 = await next();
       const h2 = await next();
