@@ -368,6 +368,16 @@
   justify-content: flex-end;
   gap: 3px;
 }
+.mtt-meta-actions .btn-invite-game {
+  position: relative;
+  container-type: inline-size;
+  width: 94px;
+  max-width: 100%;
+  min-height: 23px;
+}
+.mtt-meta-actions .btn-invite-game .tournament-register-button__face {
+  inset: 0 3px;
+}
 .mtt-meta-actions .details-close {
   margin: 0;
 }

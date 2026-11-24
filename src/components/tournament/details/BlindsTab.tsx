@@ -557,7 +557,7 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
         </div>
         <div>
           <dt>Avg Stack</dt>
-          <dd>{averageStack?.toLocaleString() ?? '—'}</dd>
+          <dd>{averageStack?.toLocaleString() ?? '-'}</dd>
         </div>
         <div>
           <dt>Level</dt>

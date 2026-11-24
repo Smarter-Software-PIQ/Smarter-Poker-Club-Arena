@@ -1022,7 +1022,7 @@ function RankingTabForTournament({
           <div className="tl-stat">
             <span className="tl-stat__label">Average Stack</span>
             <span className="tl-stat__value">
-              {isRegistering && !totalChips ? '—' : stackChips(avgStack)}
+              {isRegistering && !totalChips ? '-' : stackChips(avgStack)}
             </span>
             <span className="tl-stat__sub">
               {bigBlind > 0 ? `${chips(Math.floor(avgStack / bigBlind))} BB` : 'Chips'}
@@ -1031,7 +1031,7 @@ function RankingTabForTournament({
           <div className="tl-stat">
             <span className="tl-stat__label">Total Chips</span>
             <span className="tl-stat__value">
-              {isRegistering && !totalChips ? '—' : stackChips(totalChips)}
+              {isRegistering && !totalChips ? '-' : stackChips(totalChips)}
             </span>
             <span className="tl-stat__sub">In Play</span>
           </div>

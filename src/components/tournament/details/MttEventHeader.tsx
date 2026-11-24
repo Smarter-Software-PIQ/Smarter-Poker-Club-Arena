@@ -2,6 +2,8 @@ import type { ComponentProps, ReactNode } from 'react';
 import { titleCase } from '../../../utils/titleCase';
 import { ArenaLobbyTitle } from '../../lobby/ArenaLobbyTitle';
 
+import { TournamentRegisterButton } from '../TournamentRegisterButton';
+
 interface Props extends ComponentProps<typeof ArenaLobbyTitle> {
   status: string;
   price: ReactNode;
@@ -32,9 +34,13 @@ export function MttEventHeader({
         <b>{titleCase(status)}</b>
         <div className="mtt-price">{price}</div>
         <div className="mtt-meta-actions">
-          <button type="button" data-testid="tournament-invite-btn" onClick={onInvite}>
+          <TournamentRegisterButton
+            className="btn-invite-game"
+            data-testid="tournament-invite-btn"
+            onClick={onInvite}
+          >
             Invite To Game
-          </button>
+          </TournamentRegisterButton>
           {close}
         </div>
       </div>

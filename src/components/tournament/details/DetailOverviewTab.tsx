@@ -1114,13 +1114,13 @@ export default function DetailOverviewTab({
           <div className="mtt-instruments">
             {[
               ['Level', level.index + 1],
-              ['Blinds', level.amountsKnown ? `${level.sb} / ${level.bb}` : '—'],
+              ['Blinds', level.amountsKnown ? `${level.sb} / ${level.bb}` : '-'],
               [
                 'Next',
-                blindLevels[1] ? `${blindLevels[1].smallBlind} / ${blindLevels[1].bigBlind}` : '—',
+                blindLevels[1] ? `${blindLevels[1].smallBlind} / ${blindLevels[1].bigBlind}` : '-',
               ],
               ['Late Reg', lateRegText],
-              ['Levels', level.duration ? `${level.duration / 60} Min` : '—'],
+              ['Levels', level.duration ? `${level.duration / 60} Min` : '-'],
               ['Tables', tables?.length ?? 0],
             ].map(([label, value]) => (
               <div key={label}>

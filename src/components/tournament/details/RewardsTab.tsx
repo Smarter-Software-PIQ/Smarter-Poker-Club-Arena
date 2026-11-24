@@ -970,11 +970,11 @@ export default function RewardsTab({
           <dl className="console-ledger">
             <div>
               <dt>Contributed (Prize Pool)</dt>
-              <dd>{collectedPool === null ? '—' : chips(collectedPool)}</dd>
+              <dd>{collectedPool === null ? '-' : chips(collectedPool)}</dd>
             </div>
             <div>
               <dt>Overlay</dt>
-              <dd>{currentFunding ? chips(overlay) : '—'}</dd>
+              <dd>{currentFunding ? chips(overlay) : '-'}</dd>
             </div>
           </dl>
         </section>
@@ -1230,7 +1230,7 @@ export default function RewardsTab({
           bands.length > 0 && (
             <div className="payout-column-head">
               <span>Place</span>
-              <span>Projected Payout</span>
+              <span>Current Payout</span>
             </div>
           )}
         {isSatellite && isComplete && satelliteAwards && (
