@@ -1591,6 +1591,7 @@ export function createOpponentAvatarLayout(
     };
     const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!) * referenceGain;
     const scales: string[] = [];
+    const phoneRail = fixedPhoneRail();
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
@@ -1602,7 +1603,26 @@ export function createOpponentAvatarLayout(
       if (!own) continue;
       const ownSlot = slotHeight(avatar);
       const ceiling = heroSlot > 0 && ownSlot > 0 ? heroSlot / ownSlot : Infinity;
-      const factor = Math.min(target / subject(image, own, false).height, ceiling);
+      /* THE SUBJECT MATCH NEVER SHRINKS A PORTRAIT BELOW ITS APPROVED SIZE
+         (CLAUDE.md 10.7c, Dan 2026-11-18). Matching painted subjects used to
+         divide by each portrait's OWN subject, so an opaque photograph (whose
+         subject is its whole frame) beside a character-art reference chair
+         was scaled down to that character's painted figure - every photo
+         chair at once, the ring-wide shrink 10.7c item 2 forbids. Measured
+         in the nine-seat spectator fixture: a character reference with photo
+         opponents painted every opponent at 126.4 layout px against the 140
+         floor; production painted 129.6-133.1 on every release since 11-22.
+         The approved size is what the reference's own art would take in this
+         slot (its subject measured in this chair's box). The match may grow
+         a portrait towards the ceiling, never shrink it below that. The
+         floor is the nine-seat phone table's (the fixed rail 10.7c sizes);
+         wider layouts keep their exact subject match. */
+      const sameArt = phoneRail ? subject(image, heroAlpha, false).height : 0;
+      const approved = sameArt > 0 ? target / sameArt : 0;
+      const factor = Math.min(
+        Math.max(target / subject(image, own, false).height, approved),
+        ceiling
+      );
       const value = factor.toFixed(6);
       if (avatar.style.getPropertyValue('--sp-opponent-art-scale') !== value) {
         avatar.style.setProperty('--sp-opponent-art-scale', value);
