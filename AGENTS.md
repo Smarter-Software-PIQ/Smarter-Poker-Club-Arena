@@ -43,7 +43,7 @@ The restored provider routes have successful production evidence; this does not 
 ## Horse switch changes and cutovers: measure before and after (November 24, 2026)
 
 - Before and after any Horse switch change, run `scripts/ops/person-vs-horse-results.mjs` with the switch instant as `--split-at` ([docs](docs/ops/person-vs-horse-results.md)).
-- After any Horse switch change or engine cutover, run `node scripts/ops/horse-exploit-report.mjs --split-at <time> --since <24 h before it> --gate` at +3 h (`scripts/ops/post-cutover-audit.mjs --exploit-split-at <time>` runs it). A new EXPLOITABLE cell (exit 1) is a rollback trigger for that change; exit 2 means too few decisions yet, so run it again later ([docs](docs/ops/horse-exploit-report.md)).
+- After any Horse switch change or engine cutover, run `node scripts/ops/horse-exploit-report.mjs --split-at <time> --since <24 h before it> --gate` at +3 h (`scripts/ops/post-cutover-audit.mjs --exploit-split-at <time>` runs it). A gate finding (exit 1: a realised-cost regression, or a large jump in what a perfect bluffer could take right at the change) is a rollback trigger for that change; exit 2 means too few decisions yet, so run it again later ([docs](docs/ops/horse-exploit-report.md)).
 
 Code graph (optional, advisory): `scripts/dev/graphify-bootstrap.sh` builds a local Graphify code graph for faster code location; install, use, refresh, revision matching, limits and removal are in `CLAUDE.md` section 14. Source code stays authoritative.
 

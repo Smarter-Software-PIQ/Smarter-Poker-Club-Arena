@@ -164,7 +164,7 @@ export function evaluateExploitReport(result, { strict = false, splitAt, since, 
   const base = { name: 'horse_exploit_report', failures: [], warnings: [], details };
   if (exitCode === 0) return { ...base, status: 'pass' };
   if (exitCode === 1) {
-    const msg = `a Horse cell became or grew EXPLOITABLE after ${splitAt}: rollback trigger (${gateLine ?? 'see the report'})`;
+    const msg = `the Horse exploit gate fired after ${splitAt} (a realised-cost regression or a large jump at the change): rollback trigger (${gateLine ?? 'see the report'})`;
     return strict
       ? { ...base, status: 'fail', failures: [msg] }
       : { ...base, status: 'warn', warnings: [msg] };
