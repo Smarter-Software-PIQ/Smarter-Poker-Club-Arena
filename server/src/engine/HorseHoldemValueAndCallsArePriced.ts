@@ -328,7 +328,10 @@ export function holdemLineRange(
   hero: readonly Card[],
   board: readonly Card[],
   band: readonly [number, number] | null,
-  line: readonly HoldemLineStreet[]
+  line: readonly HoldemLineStreet[],
+  /** holdemLateStreetIsPriced / holdemFlopIsPriced only (HorseHoldemOwnPreflopRange): a weight in [0, 1] per
+   * combination from the Horse's own preflop policy, read in place of the band; absent: the band, unchanged. */
+  prior?: ((a: Card, b: Card) => number) | null
 ): HoldemPricedRange {
   const deadFlags = new Uint8Array(64);
   for (let i = 0; i < hero.length; i++) deadFlags[idOf(hero[i])] = 1;
@@ -359,7 +362,11 @@ export function holdemLineRange(
       pairs[pIdx] = [ci, cj];
       pairId0[pIdx] = idI;
       pairId1[pIdx] = liveIds[j];
-      if (!band) {
+      if (prior) {
+        const v = Math.max(0, Math.min(1, prior(ci, cj)));
+        inBand[pIdx] = v;
+        if (v > 0) anyInBand = true;
+      } else if (!band) {
         inBand[pIdx] = 1;
         anyInBand = true;
       } else {

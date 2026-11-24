@@ -4241,6 +4241,21 @@ export class HorseMind {
     }
   }
 
+  /**
+   * Run a throwaway decision whose intent writes must never land (HorseHoldemOwnPreflopRange's asks of the Horse's
+   * own preflop policy): every write goes to a private sink that is dropped; an outer capture, if any, is put back
+   * untouched.
+   */
+  static discardDecisionEffects<T>(fn: () => T): T {
+    const outer = this.decisionEffectSink;
+    this.decisionEffectSink = [];
+    try {
+      return fn();
+    } finally {
+      this.decisionEffectSink = outer;
+    }
+  }
+
   /** Apply one accepted decision's idempotent intent writes in FIFO order. */
   static applyDecisionEffects(effects: readonly HorseMindDecisionEffect[]): void {
     this.bumpStyleMemoEpoch();

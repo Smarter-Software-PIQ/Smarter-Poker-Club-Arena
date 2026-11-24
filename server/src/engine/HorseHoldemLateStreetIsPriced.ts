@@ -56,6 +56,7 @@
 import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { holdemOwnPreflopPrior } from './HorseHoldemOwnPreflopRange.js';
 import { noteDecisionRuleReceipt, noteFire, telemetryOn } from './BrainTelemetry.js';
 import {
   holdemCardId,
@@ -551,7 +552,8 @@ function heroLineRange(
       mind,
       liveCount,
       false,
-      betShareOf
+      betShareOf,
+      holdemOwnPreflopPrior(player, gs)
     );
     // the observer holds no card here: the range removes the board only, never a hidden card
     return asOpp ? asOpp.range : null;
@@ -1247,13 +1249,17 @@ function heroPlanRange(
   const blind = { ...observer, cards: [] } as SeatPlayer;
   const builder = heroLineRange(player, gs, mind, liveCount, betShareOf);
   const pre = hist.filter((a) => (a.stage ?? 'preflop') === 'preflop');
+  // the preflop start: the Horse's own preflop policy when it was primed for this hand (HorseHoldemOwnPreflopRange),
+  // else the band its opponents read
   const base = holdemOpponentLineRange(
     blind,
     { ...gs, actionHistory: pre } as HorseGameStateV2,
     player,
     mind,
     liveCount,
-    false
+    false,
+    undefined,
+    holdemOwnPreflopPrior(player, gs)
   );
   if (!base) return builder;
   const range = base.range;
@@ -1293,10 +1299,26 @@ function heroPlanRange(
         (p.is_folded !== true || foldedLater(p)) &&
         (!p.is_sitting_out || p.is_all_in)
     );
-    if (liveAt.length !== 1) continue;
-    const opp = liveAt[0]!;
     const potAt = pots[j]!;
     const streetBefore = before.filter((a) => a.stage === st);
+    // A multiway node (BUILD-II round 5): an own check or first wager there is narrowed too, by the same node plan
+    // read against the opponent still in the hand now (the value part: ahead of his continuing part) with the JOINT
+    // fold of every opponent live at that node (a bluff must fold them all). Before, such a node kept the generic
+    // check likelihood only, so a range that checked three-way was read as nearly its whole preflop range, and facing
+    // a bet after it the minimum defence was computed over hands the Horse had in fact bet (79% folds against a 50%
+    // break-even on the flop). A multiway call or raise keeps the builder's narrowing, as before.
+    let opp: SeatPlayer;
+    if (liveAt.length === 1) opp = liveAt[0]!;
+    else {
+      const firstWager =
+        !streetBefore.some((a) => isWager(a.action) && num(a.amount) > 0) &&
+        (x.action === 'check' ||
+          ((x.action === 'bet' || x.action === 'all_in') && num(x.amount) > 0));
+      const still = liveAt.filter((p) => p.is_folded !== true);
+      if (!firstWager || liveAt.length < 2 || still.length !== 1) continue;
+      opp = still[0]!;
+    }
+    const others = liveAt.filter((p) => p.seat !== opp.seat);
     const facingAt = streetBefore.some((a) => isWager(a.action) && num(a.amount) > 0);
     const gsAt = {
       ...gs,
@@ -1325,7 +1347,11 @@ function heroPlanRange(
       (x.action === 'check' || ((x.action === 'bet' || x.action === 'all_in') && num(x.amount) > 0))
     ) {
       const heroLine = holdemLateLineOf(gsAt, player, st);
-      const foldAt = (s: number) => holdemLateFoldOf(opp, st, heroLine, s, mind).f;
+      const foldAt = (s: number) =>
+        others.reduce(
+          (f, p) => f * holdemLateFoldOf(p, st, heroLine, s, mind).f,
+          holdemLateFoldOf(opp, st, heroLine, s, mind).f
+        );
       const sizes: number[] = [...HOLDEM_LATE_OPEN_FRACTIONS];
       if (late) sizes.push(HOLDEM_LATE_RIVER_OVERBET);
       const forced = x.action === 'check' ? null : num(x.amount) / Math.max(1e-9, potAt);

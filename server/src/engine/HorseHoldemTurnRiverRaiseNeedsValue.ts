@@ -173,7 +173,10 @@ export function holdemOpponentLineRange(
   fillEquities = true,
   /** holdemLateStreetIsPriced / holdemFlopIsPriced only: the share of his range he bets with his first wager of a
    * street (the fitted bet share for his line and position, his record moving it); null keeps the reads below. */
-  betShareOf?: (stage: 'flop' | 'turn' | 'river', index: number) => number | null
+  betShareOf?: (stage: 'flop' | 'turn' | 'river', index: number) => number | null,
+  /** holdemLateStreetIsPriced / holdemFlopIsPriced only, for the Horse's OWN range: its own preflop policy's weight
+   * per combination (HorseHoldemOwnPreflopRange) in place of the band; absent: the band. */
+  preflopPrior?: ((a: Card, b: Card) => number) | null
 ): HoldemOpponentRange | null {
   const board = (gs.communityCards ?? []) as Card[];
   const street = gs.stage as 'flop' | 'turn' | 'river';
@@ -285,7 +288,7 @@ export function holdemOpponentLineRange(
     if (k >= 0 && k + 3 <= board.length && isOpp(x)) {
       const sb = board.slice(0, k + 3);
       if (x.action === 'call' || (x.action === 'all_in' && total <= facingTo + 1e-9)) {
-        const sub = holdemLineRange(player.cards, board, band, line);
+        const sub = holdemLineRange(player.cards, board, band, line, preflopPrior);
         const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
         line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
         oppNarrowedPostflop = true;
@@ -319,7 +322,7 @@ export function holdemOpponentLineRange(
     runningPot += added;
   }
   pushCheckStreetIfOnlyChecks(streetOf);
-  const range = holdemLineRange(player.cards, board, band, line);
+  const range = holdemLineRange(player.cards, board, band, line, preflopPrior);
   if (range.total <= 0) return null;
   if (fillEquities)
     holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));

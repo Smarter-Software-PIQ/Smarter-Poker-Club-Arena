@@ -1054,6 +1054,7 @@ import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { holdemTurnRiverRaiseNeedsValueRule } from './HorseHoldemTurnRiverRaiseNeedsValue.js';
 import { holdemLateStreetIsPricedRule } from './HorseHoldemLateStreetIsPriced.js';
+import { holdemOwnPreflopPrime, holdemOwnPreflopWanted } from './HorseHoldemOwnPreflopRange.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
   OMAHA_STRATEGY_PLO45,
@@ -17034,6 +17035,41 @@ export class HorseLogic {
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
     if (opts.omahaNoCategoricalRules === true)
       opts = withoutOmahaCategoricalRules(opts, player, gameState);
+    // THE HORSE'S OWN PREFLOP RANGE (holdemLateStreetIsPriced / holdemFlopIsPriced only, default OFF;
+    // HorseHoldemOwnPreflopRange.ts): before anything else in this decision, the priced postflop chooser's own range
+    // is primed from the Horse's REAL preflop policy: this same decide, asked on each preflop frame the Horse acted
+    // on with every hand class, sandboxed (RNG put back, telemetry suspended, deep-dive capture detached, style
+    // records kept, mind writes discarded, never observed). Off: nothing runs.
+    if (
+      (opts.holdemLateStreetIsPriced === true || opts.holdemFlopIsPriced === true) &&
+      holdemOwnPreflopWanted(player, gameState)
+    ) {
+      const askOpts: HorseDecideOpts = { ...opts, telemetry: false, observeMind: false };
+      holdemOwnPreflopPrime(
+        player,
+        gameState,
+        // the policy also reads the hour's mood (moodOf) and every option row: both are part of the key
+        (() => {
+          try {
+            return `${style}|${JSON.stringify(mods)}|${Math.floor(Number(opts.decisionTimeMs ?? 0) / 3_600_000)}|${JSON.stringify(
+              { ...opts, decisionTimeMs: undefined }
+            )}`;
+          } catch {
+            return `${style}|${Math.floor(Number(opts.decisionTimeMs ?? 0) / 3_600_000)}|unkeyed`;
+          }
+        })(),
+        (p, g) =>
+          withStyleRecordsKept(() =>
+            withBrainTelemetrySuspended(() =>
+              withHorseDeepDiveCapture(undefined, false, () =>
+                HorseMind.discardDecisionEffects(() =>
+                  HorseLogic.decide(p, g, style, mods, askOpts)
+                )
+              )
+            )
+          )
+      );
+    }
     // LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
     // HorseLightningFoldThrough.ts): the decision is asked as before; only a
     // fold with live seats still to act before the Horse is asked once more,
