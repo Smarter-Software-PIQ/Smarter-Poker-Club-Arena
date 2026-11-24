@@ -359,3 +359,54 @@ export function clampSpinRungWaitMs(waitMs: number, oldestSeatAtMs: number, nowM
   const remaining = Math.max(0, safeCeilingMs - nowMs);
   return Math.min(waitMs, remaining);
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  A LATE RUNG IS ASKED AT LEAST ONCE A MINUTE (2026-11-19)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Production Alerts incident `spin-ladder-rung-overshoot`: six
+ * SpinFleetProducingNothing criticals in seven days, each an all-horse Spin
+ * that dealt past the ladder's 140-minute envelope. Read from table_seats and
+ * tournaments.start_time on 2026-11-19, board 2db5ea97 ("20 Chip Spin PLO6"):
+ * its rung-2 window closed at 08:13:48Z and the third horse sat at 08:46:19Z,
+ * 32.5 minutes late. In those 32 minutes three other Spins took a horse within
+ * seconds of asking (bd6eb0e8 08:14:33, 84725155 08:20:29, and the openers).
+ *
+ * The lateness was the backoff, not the pool. A horse-only board that came
+ * back short used to be re-asked after 12 s, 24 s ... capped at TEN MINUTES -
+ * a rule written on 2026-09-02 for 96 boards that had been unfillable for 2.5
+ * to 25 hours. Under the ladder the pool is not empty for hours, it is busy
+ * for minutes, and a free horse goes to whichever board asks first after it
+ * stands up. The backoff therefore made the board that had waited LONGEST ask
+ * LEAST often: 2db5ea97's asks fell at +0, 24, 72, 168, 360, 744, 1344 and
+ * 1944 s, and it was seated 1951 s after its window (08:46:19Z), one fast-lane
+ * pass after that last ask, while boards whose windows had just closed asked
+ * every 12-24 s and won every horse in between. 84725155 shows the same shape:
+ * window 08:07:58Z, seated 751 s later at 08:20:29Z, one pass after its 744 s
+ * ask.
+ *
+ * So a horse-only board still backs off - doubling from 12 s - but never past
+ * SEAT_FIRST_LADDER_BACKOFF_MAX_MS. One minute is small against the 20-30
+ * minute randomised span of every rung, so a late rung is late by the pool,
+ * never by the ask. The cost the 2026-09-02 backoff bought back is still
+ * bought back: the ladder keeps about eleven Spins and six Heads-Up boards
+ * open (CLAUDE.md, Dan 2026-11-08), so at most ~17 window-closed boards ask
+ * once a minute each, against the ~7 calls a second the 96 hammered boards
+ * cost before any backoff existed.
+ */
+export const SEAT_FIRST_LADDER_BACKOFF_BASE_MS = 12_000;
+export const SEAT_FIRST_LADDER_BACKOFF_MAX_MS = 60_000;
+
+/**
+ * How long a horse-only seat-first board waits before its next fill ask,
+ * given how many asks in a row came back short. A board with a person seated
+ * never backs off (the caller passes 0 misses for it).
+ */
+export function seatFirstLadderBackoffMs(misses: number): number {
+  const n = Number.isFinite(misses) && misses > 0 ? Math.floor(misses) : 0;
+  return Math.min(
+    SEAT_FIRST_LADDER_BACKOFF_BASE_MS * 2 ** Math.min(n, 6),
+    SEAT_FIRST_LADDER_BACKOFF_MAX_MS
+  );
+}

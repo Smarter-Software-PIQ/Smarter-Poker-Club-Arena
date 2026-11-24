@@ -1,0 +1,3 @@
+# server/src/aLateRungIsAskedOnceAMinute.law.test.ts
+
+A horse-only seat-first board whose ladder rung has closed and that keeps coming back short is re-asked after 12 s, 24 s, 48 s and then at least once a minute (`seatFirstLadderBackoffMs`, cap `SEAT_FIRST_LADDER_BACKOFF_MAX_MS` = 60 s), never on the old ten-minute cap that made the longest-waiting board ask least often (Production Alerts `spin-ladder-rung-overshoot`, board 2db5ea97 seated 1951 s past its rung on 2026-11-19). The fast lane reads boards oldest `start_time` first, and the stuck alarm still waits about twelve minutes of shortness.
