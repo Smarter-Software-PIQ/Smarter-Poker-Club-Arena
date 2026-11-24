@@ -540,6 +540,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverCurrentNutsCallFloor: priced(
     'a river fold with the exact current nuts becomes the call only where its expected value is proven non-negative (a full chop with every live opponent still returns the call); it changes only a fold (default OFF)'
   ),
+  omahaReraisedPotCallIsPriced: priced(
+    'preflop facing a 3-bet or more: the standing call or fold is replaced by the priced one (EV(call) against 0, beyond a deadband of 1% of the pot after the call), equity against the whole field with the players behind as probable continuers, self-play realization by position against that field, players and depth; it never invents a re-raise (default OFF; PLO lead-6 2026-11-24)'
+  ),
+  omahaReraisedPotReraiseIsPriced: priced(
+    'preflop facing a 3-bet or more: a standing re-raise stands only where EV(re-raise) is at or above max(EV(call), 0) less the deadband, else it becomes the priced call or the fold; its size is never changed (default OFF; PLO lead-6 2026-11-24)'
+  ),
   omahaFourBetFoldPricedCall: priced(
     "a preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the call only where the engine's priced call of a re-raise (omahaReraisedCallPriced) is positive; it changes only a fold (default OFF)"
   ),

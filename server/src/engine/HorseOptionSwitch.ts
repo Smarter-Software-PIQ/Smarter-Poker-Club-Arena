@@ -376,6 +376,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverCurrentNutsCallFloor',
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
   'omahaFourBetFoldPricedCall',
+  // 2026-11-24 PLO lead-6 (audit leaks 1-4, 6, 9): calls and re-raises facing a 3-bet or more priced against the whole
+  // field by position, depth and players (ships dark)
+  'omahaReraisedPotCallIsPriced',
+  'omahaReraisedPotReraiseIsPriced',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
