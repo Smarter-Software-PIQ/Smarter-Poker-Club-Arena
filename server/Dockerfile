@@ -64,13 +64,15 @@ COPY release-evidence/ ./release-evidence/
 # Resource CI compares every emitted runtime file to the full checked build.
 # The runtime project omits unit-test entrypoints and unused declarations.
 # Full test compilation and execution remain in the exact-source CI preflight.
-# The 1024 MiB V8 heap leaves native/compiler and BuildKit room inside the
-# canonical 2048 MiB no-swap builder. On 2026-10-09 the emit outgrew a 512 MiB
+# The 2048 MiB V8 heap leaves native/compiler and BuildKit room inside the
+# canonical 4096 MiB no-swap builder (v5, 2026-11-24: on main the emit needed
+# about 1001 MiB of the previous 1024 MiB heap and the next ~100 KB of engine
+# source took it over; builder and heap were doubled together). On 2026-10-09 the emit outgrew a 512 MiB
 # heap; it completes at 544 MiB and peaks near 830 MiB RSS. The first bounded
 # Linux build at this heap peaked at 1261 MiB of cgroup memory including page
 # cache, so the heap sits 88% and the builder 62% above the measured need.
 # Resource CI proves exact runtime output.
-RUN ulimit -c 0 && node --max-old-space-size=1024 ./node_modules/typescript/bin/tsc --project tsconfig.emit.json
+RUN ulimit -c 0 && node --max-old-space-size=2048 ./node_modules/typescript/bin/tsc --project tsconfig.emit.json
 
 # Refuse to ship an image whose policy digests cannot be computed: every path
 # any phase digest hashes must be readable at /app/<path> (see above).
