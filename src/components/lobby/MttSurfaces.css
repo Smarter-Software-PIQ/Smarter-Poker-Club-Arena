@@ -2,6 +2,12 @@
    do not paint skins, fallback images or ornamental pseudo-elements. */
 .tournament-details.console-lobby.console-lobby {
   background: #040d18;
+  /* The approved review mounted every tab in the same 600px interior. */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  line-height: normal;
   --rail-edge: #8296a9;
   --surface-ink: #eff6ff;
 }
@@ -112,6 +118,10 @@
 .console-lobby .mtt-meta {
   margin: 3px 0;
   font-size: 12px;
+}
+.console-lobby .mtt-price .tournament-buyin {
+  color: #56d8ff;
+  line-height: normal;
 }
 .console-lobby .mtt-header-info {
   line-height: 1.3;

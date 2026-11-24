@@ -19,7 +19,15 @@ import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
  * plain PanelSection: a lit heading, rows on hairline rules, no chassis.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
@@ -224,6 +232,34 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
      opened. useFocusTrap moves focus in, cycles Tab inside, and restores it
      to the row on close. */
   const panelRef = useFocusTrap(true);
+
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!isEmbedded) return;
+    const backdrop = backdropRef.current;
+    const header = document.querySelector<HTMLElement>(
+      '.multi-table-page__lobby-tab:not([data-lobby-held]) > [data-in-tab="true"]'
+    );
+    if (!backdrop || !header) return;
+    const placeBelowHeader = () => {
+      backdrop.style.setProperty(
+        '--glp-top',
+        Math.max(0, header.getBoundingClientRect().bottom) + 'px'
+      );
+    };
+    placeBelowHeader();
+    const observer = new ResizeObserver(placeBelowHeader);
+    observer.observe(header);
+    if (header.parentElement) observer.observe(header.parentElement);
+    window.addEventListener('resize', placeBelowHeader);
+    document.addEventListener('scroll', placeBelowHeader, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', placeBelowHeader);
+      document.removeEventListener('scroll', placeBelowHeader, true);
+      backdrop.style.removeProperty('--glp-top');
+    };
+  }, [isEmbedded]);
 
   /* Lock the page behind the drawer. On a phone the sheet is full-screen and
      the lobby scrolled underneath it, so closing put the player somewhere
@@ -863,7 +899,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
   return createPortal(
-    <div className="glp-backdrop" onClick={onClose} role="presentation">
+    <div ref={backdropRef} className="glp-backdrop" onClick={onClose} role="presentation">
       {privateInvite.element}
       <aside
         ref={panelRef}

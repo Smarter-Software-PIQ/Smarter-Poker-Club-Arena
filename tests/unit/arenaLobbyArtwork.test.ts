@@ -27,6 +27,17 @@ describe('tournament title artwork', () => {
     expect(lobbyArtwork({ variant: 'mystery_bounty', is_bounty: true })).toBe('mystery');
     expect(lobbyArtwork({ format_contract: 'sng-v1', blind_speed: 'turbo' })).toBe('sng');
   });
+  it('uses the recorded MTT ladder for a turbo rebuy and keeps the bounty and seat formats', () => {
+    const row = {
+      format_contract: 'mtt-v1',
+      blind_structure: [{ sb: 25, bb: 50, duration: 300 }],
+      is_rebuy: true,
+    };
+    expect(lobbyArtwork(row)).toBe('turbo');
+    expect(lobbyArtwork({ ...row, blind_speed: 'standard' })).toBe('rebuy');
+    expect(lobbyArtwork({ ...row, is_pko: true })).toBe('pko');
+    expect(lobbyArtwork({ ...row, satellite_target_id: 'parent' })).toBe('satellite');
+  });
   it('uses explicit spin and sit-and-go formats', () => {
     expect(lobbyArtwork({}, 'spin')).toBe('spin');
     expect(lobbyArtwork({}, 'sng')).toBe('sng');
@@ -42,6 +53,13 @@ describe('guarantee in the event title', () => {
     expect(
       title('Midnight Freezeout', { variant: 'freezeout', guaranteed_prize: 1500.5 })
     ).toContain('1,500.5 Guaranteed');
+  });
+
+  it('shows the rebuy artwork, tournament name and guarantee for Nightly 20K', () => {
+    const header = title('Nightly 20K', { is_rebuy: true, guaranteed_prize: 20000 });
+    expect(header).toContain('data-format="rebuy"');
+    expect(header).toContain('>Nightly 20K<');
+    expect(header).toContain('20,000 Guaranteed');
   });
 
   it('does not manufacture a guarantee from the name or a missing amount', () => {
