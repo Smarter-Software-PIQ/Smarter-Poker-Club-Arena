@@ -310,6 +310,9 @@ describe('LAW — every direct /health fetch in src/ coalesces concurrent in-fli
       expect(body, `${rel} must clear its in-flight /health promise in finally`).toMatch(
         /\.finally\(/
       );
+      expect(source, `${rel} must bound its shared /health probe with an abort timeout`).toMatch(
+        /AbortSignal\.timeout\(|AbortController/
+      );
     }
   });
 });
