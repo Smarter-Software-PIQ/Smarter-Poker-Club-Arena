@@ -13,7 +13,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 test('the bound is the one compiler RUN heap in server/Dockerfile, not the serving NODE_OPTIONS', () => {
   const dockerfile = readFileSync(join(root, 'server/Dockerfile'), 'utf8');
-  assert.equal(boundFromDockerfile(dockerfile), 1024);
+  const bound = boundFromDockerfile(dockerfile);
+  assert.ok(Number.isInteger(bound) && bound > HEADROOM_MARGIN_MIB);
+  assert.match(
+    dockerfile,
+    new RegExp(`^RUN .*--max-old-space-size=${bound} .*tsconfig\\.emit\\.json`, 'm')
+  );
   assert.throws(() =>
     boundFromDockerfile('FROM x\nENV NODE_OPTIONS="--max-old-space-size=12288"\n')
   );
