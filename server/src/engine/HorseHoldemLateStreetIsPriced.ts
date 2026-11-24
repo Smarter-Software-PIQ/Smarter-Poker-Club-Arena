@@ -1445,25 +1445,21 @@ export function holdemLateRangePlan(
   if (!plan) return none;
   if (!(plan.total > 0)) return { kind: 'check', best: check, frequency: 0, draw: null, size: 0 };
   const option = bets.find((x) => Math.abs(sizeOf(x) - plan.s) < 1e-12)!;
-  const heroQ = eqVsOf(o, heroScore, 1);
   if (eqVsOf(o, heroScore, plan.callShare) > 0.5) {
     // value at the node's size: bet it unless its own priced bet there is below its check
     return option.ev >= check.ev - HOLDEM_LATE_TIE * Math.max(1, P)
       ? { kind: 'value', best: option, frequency: 1, draw: null, size: plan.s }
       : { kind: 'check', best: check, frequency: 0, draw: null, size: plan.s };
   }
-  const hk = plan.keyOf(hero[0]!, hero[1]!, heroBucket, heroQ);
-  let above = 0;
-  let tie = 0;
-  for (const c of plan.cands) {
-    if (c.key > hk + 1e-12) above += c.w;
-    else if (Math.abs(c.key - hk) <= 1e-12) tie += c.w;
-  }
-  if (above >= plan.bw)
-    return { kind: 'check', best: check, frequency: 0, draw: null, size: plan.s };
-  if (tie <= 0 || above + tie <= plan.bw)
-    return { kind: 'bluff', best: option, frequency: 1, draw: null, size: plan.s };
-  const frequency = (plan.bw - above) / tie;
+  // The bluff set is a set of combinations of the Horse's own range: a hand the range does not hold (its exact
+  // combination has no weight there) is not in it and checks; a hand it holds bets with its entry's share.
+  const key = (x: Card) => `${x.rank}${x.suit}`;
+  const mine = new Set(hero.map(key));
+  const j = hs.findIndex((h) => mine.has(key(h.a)) && mine.has(key(h.b)));
+  const share = j < 0 ? 0 : plan.mult[j]!;
+  if (share <= 0) return { kind: 'check', best: check, frequency: 0, draw: null, size: plan.s };
+  if (share >= 1) return { kind: 'bluff', best: option, frequency: 1, draw: null, size: plan.s };
+  const frequency = share;
   const draw = holdemLateMixDraw(hero, board, P, node);
   return draw < frequency
     ? { kind: 'bluff', best: option, frequency, draw, size: plan.s }
