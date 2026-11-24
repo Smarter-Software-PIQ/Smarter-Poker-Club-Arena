@@ -33,6 +33,7 @@ import {
   noteSeatArrival,
   resetSeatBoundarySignalsForTest,
   seatArrivalGeneration,
+  seatBoundaryListenerCountForTest,
 } from '../cluster/seatBoundarySignals.js';
 
 const feeder = '11111111-1111-4111-8111-111111111111';
@@ -183,6 +184,113 @@ describe('MAIN: a player whose move committed under the rest is dealt into the n
     noteSeatArrival(main);
     noteMovesPlanned(game);
     expect(engine.seatBoundaryChangedUnderRest()).toBe(false);
+  });
+
+  it('Main 1 ignores pure feeder->Main game-wide plans while still honoring swaps and real arrivals', async () => {
+    const main1 = engineAt(main);
+    main1.tableInfo = { cluster_id: game, role: 'main', main_index: 1 };
+    const main2 = engineAt('99999999-9999-4999-8999-999999999999');
+    main2.tableInfo = { cluster_id: game, role: 'main', main_index: 2 };
+    const feederA = engineAt(feeder);
+    feederA.tableInfo = { cluster_id: game, role: 'feeder', main_index: null };
+    const feederB = engineAt('77777777-7777-4777-8777-777777777777');
+    feederB.tableInfo = { cluster_id: game, role: 'feeder', main_index: null };
+
+    for (const eng of [main1, main2, feederA, feederB]) {
+      eng.captureSeatArrivalGeneration();
+      expect(await eng.announcePendingSeatMoves()).toBe(true);
+    }
+
+    // Unspecified game-wide plan (pure feeder->Main): wakes feeders and Main 2, NOT Main 1.
+    noteMovesPlanned(game);
+    expect(main1.seatBoundaryChangedUnderRest()).toBe(false);
+    expect(main2.seatBoundaryChangedUnderRest()).toBe(true);
+    expect(feederA.seatBoundaryChangedUnderRest()).toBe(true);
+    expect(feederB.seatBoundaryChangedUnderRest()).toBe(true);
+
+    for (const eng of [main1, main2, feederA, feederB]) {
+      expect(await eng.announcePendingSeatMoves()).toBe(true);
+    }
+
+    // Targeted plan naming only feederA: disturbs only feederA.
+    noteMovesPlanned(game, [feeder]);
+    expect(feederA.seatBoundaryChangedUnderRest()).toBe(true);
+    expect(feederB.seatBoundaryChangedUnderRest()).toBe(false);
+    expect(main1.seatBoundaryChangedUnderRest()).toBe(false);
+    expect(main2.seatBoundaryChangedUnderRest()).toBe(false);
+
+    // Swap explicitly naming Main 1: Main 1 DOES honor it.
+    noteMovesPlanned(game, [main, feeder]);
+    expect(main1.seatBoundaryChangedUnderRest()).toBe(true);
+    expect(main1.setLoopPhase).toHaveBeenCalledWith('seat_move_planned_under_rest');
+    expect(await main1.announcePendingSeatMoves()).toBe(true);
+    expect(main1.seatBoundaryChangedUnderRest()).toBe(false);
+
+    // Real seat arrival on Main 1: Main 1 ALWAYS honors it.
+    noteSeatArrival(main);
+    expect(main1.seatBoundaryChangedUnderRest()).toBe(true);
+    expect(main1.setLoopPhase).toHaveBeenCalledWith('seat_arrived_under_rest');
+  });
+
+  it('cash rest wakes immediately on arrival or relevant plan WITHOUT clearing nextHandNotBeforeMs, leaving zero leaked listeners', async () => {
+    vi.useFakeTimers();
+    try {
+      const startMs = 1_795_440_000_000;
+      vi.setSystemTime(startMs);
+
+      const main1 = engineAt(main);
+      main1.tableInfo = { cluster_id: game, role: 'main', main_index: 1 };
+      main1.settlePreparedHandNumber = vi.fn(async () => {});
+      main1.accrueGapPhase = vi.fn();
+      main1.seq1RestStopShortMs = 0;
+      main1.lastCompletionAtMs = startMs;
+      main1.gapSawIdle = false;
+      main1.gapHadRebuyPause = false;
+      main1.gapPhaseMs = {};
+      main1.restBlindRead = null;
+      main1.restBlindReadConsumed = false;
+      main1.cashBreachSpan = null;
+      main1.captureSeatArrivalGeneration();
+      expect(await main1.announcePendingSeatMoves()).toBe(true);
+
+      const deadline = startMs + 1500;
+      main1.nextHandNotBeforeMs = deadline;
+
+      let settled = false;
+      const restPass1 = main1.awaitNextHandRest().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(settled).toBe(false);
+      expect(seatBoundaryListenerCountForTest()).toBeGreaterThan(0);
+
+      // Pure feeder->Main plan must NOT wake Main 1 early.
+      noteMovesPlanned(game);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(settled).toBe(false);
+
+      // Real seat arrival at t=400ms wakes Main 1 IMMEDIATELY, keeping deadline intact.
+      noteSeatArrival(main);
+      await restPass1;
+      expect(Date.now() - startMs).toBe(400);
+      expect(main1.nextHandNotBeforeMs).toBe(deadline);
+      expect(main1.lastCompletionAtMs).toBe(startMs);
+      expect(seatBoundaryListenerCountForTest()).toBe(0);
+      expect(main1.seatBoundaryChangedUnderRest()).toBe(true);
+
+      // 2nd prepare pass runs inside remaining rest (~250ms), recaptures arrival, then finishes on time at t=1500ms.
+      await vi.advanceTimersByTimeAsync(250);
+      main1.captureSeatArrivalGeneration();
+      const restPass2 = main1.awaitNextHandRest();
+      await vi.advanceTimersByTimeAsync(850);
+      await restPass2;
+      expect(Date.now() - startMs).toBe(1500);
+      expect(main1.nextHandNotBeforeMs).toBeNull();
+      expect(main1.seatBoundaryChangedUnderRest()).toBe(false);
+      expect(seatBoundaryListenerCountForTest()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -877,6 +877,34 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       if (this.watchdogTrips >= 3) this.killForRestart('current_seat_not_in_state');
       return;
     }
+    // A legitimate turn can outlive WATCHDOG_STALL_MS (45s): e.g. 15s primary +
+    // 2s grace + 30s reconnect protection (49s), VIP 45s protection (62s), or
+    // an active time bank (72s+). Stand down when any of the three server-owned
+    // timers for this seat holds a live future deadline inside a bounded 90s
+    // ceiling (so a corrupted far-future timer can never mask a genuine hang).
+    const now = Date.now();
+    const maxLiveDeadlineMs = now + 90_000;
+    const isLiveDeadline = (deadlineMs: number): boolean =>
+      Number.isFinite(deadlineMs) && deadlineMs > now && deadlineMs <= maxLiveDeadlineMs;
+    const primaryDeadline =
+      typeof this.preciseTimer.getDeadline === 'function'
+        ? this.preciseTimer.getDeadline(this.tableId, p.user_id)
+        : 0;
+    const disconnectDeadline =
+      typeof this.disconnectEngine.armedAutoActionDeadlineMs === 'function'
+        ? this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, p.user_id)
+        : 0;
+    const timeBankDeadline =
+      typeof this.preciseTimer.getDeadline === 'function'
+        ? this.preciseTimer.getDeadline(this.tableId, `timebank:${p.user_id}`)
+        : 0;
+    if (
+      isLiveDeadline(primaryDeadline) ||
+      isLiveDeadline(disconnectDeadline) ||
+      isLiveDeadline(timeBankDeadline)
+    ) {
+      return;
+    }
     // PreciseActionTimer keys on user_id (SeatPlayer.user_id in types.ts) — an
     // `id`/`userId` guess would always miss and pin the watchdog at Tier 1.
     const hasClock = this.preciseTimer.hasTimer(this.tableId, p.user_id);
@@ -3083,6 +3111,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (!deadline || deadline <= Date.now()) return false;
     // A running bank owns its accounting until its own expiry callback hands over.
     if (this.timeBankEngine.getPlayerBank(this.tableId, userId)?.isActive) return false;
+    // protectExpiredTurn() may synchronously emit PLAYER_DISCONNECTED, whose
+    // mid-turn handler already re-entered here and armed disconnect:<userId>.
+    if (this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, userId) > 0) return true;
     this.preciseTimer.cancelTimer(this.tableId, userId);
     this.disconnectEngine.onPlayerTurn(
       this.tableId,

@@ -77,6 +77,7 @@ import {
 } from './tournament/tournamentEntryCapacity.js';
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { bindToProcessRoot } from './services/supabase/dataActorContext.js';
+import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
 import {
   F06DrainedCustodyUnprovenError,
   f06CustodyRefusalKey,
@@ -6590,6 +6591,7 @@ export class GameServer {
       // not fit inside the rest. See engine/NextHandGap.ts.
       nextHandGap: nextHandGap.snapshot(),
       cashNextHandStart: cashDealGap.snapshot(),
+      eventDbBulkhead: eventDatabaseBulkhead.snapshot(),
       // Deploy drain gate reads this. A restart voids in-flight hands, so a
       // routine server/ push waits (or is explicitly forced) while real people
       // are seated. Horses are excluded — they do not care.
