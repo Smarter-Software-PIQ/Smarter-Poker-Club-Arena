@@ -580,6 +580,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         1,
         'passes the gate to receiptWagerRuleStage, which runs the stage either way and only counts with it',
       ],
+      'decision = holdemRaiseDefenceReference(decision, player, gs, opts, tele, {': [
+        1,
+        'passes the gate to the tournament raise defence reference (HorseHoldemTournamentRaiseDefenceWiring), which only counts with it (its receipts); the fold, call, jam or re-raise is the same either way',
+      ],
       'decision = holdemAllInCallReference(decision, player, gs, vi, opts, tele);': [
         1,
         'passes the gate to the tournament all-in call reference, which only counts with it; the call or fold is the same either way',
