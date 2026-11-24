@@ -1591,7 +1591,11 @@ export function createOpponentAvatarLayout(
     };
     const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!) * referenceGain;
     const scales: string[] = [];
-    const phoneRail = fixedPhoneRail();
+    // The approved phone sizes (mobileAvatarSize.ts) bind both rings on the
+    // 600px phone layout: the nine-seat rail and the six-max table.
+    const phoneRail =
+      (page.dataset.seats === '9' || page.dataset.seats === '6') &&
+      matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
@@ -1615,8 +1619,10 @@ export function createOpponentAvatarLayout(
          The approved size is what the reference's own art would take in this
          slot (its subject measured in this chair's box). The match may grow
          a portrait towards the ceiling, never shrink it below that. The
-         floor is the nine-seat phone table's (the fixed rail 10.7c sizes);
-         wider layouts keep their exact subject match. */
+         floor holds on every phone ring 10.7c sizes: the nine-seat rail and,
+         since 2026-11-24, the six-max table, whose watched photo chairs
+         painted 190.0 against the 191 spectator floor on production (171.0 in
+         the fixture). Wider layouts keep their exact subject match. */
       const sameArt = phoneRail ? subject(image, heroAlpha, false).height : 0;
       const approved = sameArt > 0 ? target / sameArt : 0;
       const factor = Math.min(
