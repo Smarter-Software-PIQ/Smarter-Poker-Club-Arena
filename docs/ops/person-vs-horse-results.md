@@ -6,6 +6,10 @@ Horses, per game, and is the difference bigger than luck?**
 `scripts/ops/person-vs-horse-results.mjs` is a read-only report. Run it before any Horse rule is
 switched on or off, and again after, with the switch instant as `--split-at`. It changes nothing.
 
+For a list of every recent switch or settings change with people's results before and after each
+one, run `scripts/ops/option-people-impact.mjs` first (`docs/ops/option-people-impact.md`); it finds
+the change worth a closer look, and this report then judges it.
+
 ## Run it
 
 ```bash
