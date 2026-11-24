@@ -75,7 +75,11 @@ describe('a Backup copy is certified by the migrations it holds', () => {
       SELECTOR.indexOf('def statuses(')
     );
     expect(fn).not.toMatch(/int\(newest\)\s*<=\s*epoch/);
-    expect(fn).toContain("module.judge(evidence['schemaEvidence'], db, production, required)");
+    // O23: versions neither the target's nor control's tree ships are not compared.
+    expect(fn).toContain("tree = module.tree_versions('.', target, control) if target else None");
+    expect(fn).toContain(
+      "module.judge(evidence['schemaEvidence'], db, production, required, tree)"
+    );
     expect(fn).toContain('diagnosis only');
     expect(SELECTOR).toContain("EVIDENCE_FILE = 'schema-evidence.json'");
     expect(SELECTOR).toContain('fresh, why, diagnostics = current_schema(');
@@ -109,6 +113,19 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     const run = step(certify, (s) => s.id === 'certify');
     expect(run.run).toContain('engine-release-installed-migrations.py certified-digest');
     expect(run.run).toContain('--evidence schema-evidence.json --certificate certificate.json');
+    // O23: the certificate's set leaves out versions neither tree ships; the
+    // cutover re-read and the mid-soak stale check read the same trees.
+    expect(run.run).toMatch(
+      /certified-digest \\\n.*--sha "\$SHA" \\\n\s+--control "\$\{CONTROL_SHA:-\}"\); then/
+    );
+    expect(run.run).toMatch(
+      /--copy-evidence-sha "\$evidence_sha" \\\n\s+--control "\$\{CONTROL_SHA:-\}" 2> o1-copy-reason\.txt/
+    );
+    // The cutover's status reads the control SHA from its own generation's
+    // control-sha manifest (the transaction is hash-pinned and unchanged).
+    expect(TRANSACTION).toContain('CONTROL_SHA="$(tr -d \'\\r\\n\' < "$CONTROL_DIR/control-sha")"');
+    expect(HELPER_SOURCE).toContain('control=args.control or generation_control())');
+    expect(HELPER_SOURCE).toContain("Path(__file__).resolve().parent / 'control-sha'");
     const publish = step(certify, (s) => /Publish the verdict/.test(s.name));
     expect(publish.env.INSTALLED).toBe('${{ steps.certify.outputs.installed }}');
     expect(publish.run).toContain('[[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]');

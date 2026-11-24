@@ -161,7 +161,10 @@ def current_schema(control, evidence, serving=None, target=None, production=None
             diagnostics['requiredMigrations'] = len(files)
             return files
     diagnostics['productionInstalled'] = module.digest(production['migrations'])
-    ok, why = module.judge(evidence['schemaEvidence'], db, production, required)
+    # A version neither the target's nor control's tree ships (World Hub shares
+    # the history table) is compared on neither side; unreadable compares all (O23).
+    tree = module.tree_versions('.', target, control) if target else None
+    ok, why = module.judge(evidence['schemaEvidence'], db, production, required, tree)
     return ok, why, diagnostics
 
 
