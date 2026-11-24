@@ -84,6 +84,8 @@ export interface GameWaitTable {
   id: string;
   clusterId: string | null;
   lifecycle: string | null;
+  /** Cluster role ('main' | 'feeder' | null); live feeders are preferred when yielding. */
+  role?: string | null;
   /** Horses seated there now. */
   horses: number;
 }
@@ -145,13 +147,39 @@ export function servedKeys(
   return out;
 }
 
-/** PURE. The game's live table holding the most horses, ties by id; null if none. */
+/**
+ * PURE. The game's live table to yield a horse from for a waiting person.
+ *
+ * Prefers a live `feeder` holding at least one horse (most horses, ties by id):
+ * when a must-move game has a feeder, open Main chairs belong strictly to the
+ * must-move list (`fn_cash_main_chair_is_the_lists`), so yielding at the feeder
+ * lets `fn_offer_open_seat` offer the open chair on the first cash-out instead
+ * of waiting for a multi-hop cascade. Falls back to the live table holding the
+ * most horses (ties by id) when no live feeder holds a horse; null if none.
+ */
 export function yieldTableForGame(gameId: string, tables: readonly GameWaitTable[]): string | null {
-  let best: GameWaitTable | null = null;
+  let bestFeeder: GameWaitTable | null = null;
+  let bestAny: GameWaitTable | null = null;
   for (const t of tables) {
     if (t.clusterId !== gameId || t.lifecycle !== 'live' || !(t.horses > 0)) continue;
-    if (!best || t.horses > best.horses || (t.horses === best.horses && t.id < best.id)) best = t;
+    if (t.role === 'feeder') {
+      if (
+        !bestFeeder ||
+        t.horses > bestFeeder.horses ||
+        (t.horses === bestFeeder.horses && t.id < bestFeeder.id)
+      ) {
+        bestFeeder = t;
+      }
+    }
+    if (
+      !bestAny ||
+      t.horses > bestAny.horses ||
+      (t.horses === bestAny.horses && t.id < bestAny.id)
+    ) {
+      bestAny = t;
+    }
   }
+  const best = bestFeeder ?? bestAny;
   return best ? best.id : null;
 }
 
