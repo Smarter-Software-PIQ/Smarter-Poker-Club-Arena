@@ -9,10 +9,17 @@ const root = resolve(__dirname, '../..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
 describe('Create Club production certification contract', () => {
-  it('exercises Send Link and retains the default and sharing screens', () => {
+  it('exercises the invite button and retains the default and sharing screens', () => {
     const spec = read('tests/e2e/production-create-club.spec.ts');
     const workflow = read('.github/workflows/club-create-certification.yml');
-    expect(spec).toContain("name: 'Send Link', exact: true }).click()");
+    // Desktop Chromium has no Web Share sheet: the button reads Copy Link there (#10982).
+    expect(spec).toContain(
+      "expect(await page.evaluate(() => typeof navigator.share)).toBe('undefined')"
+    );
+    expect(spec).toContain("name: 'Copy Link', exact: true }).click()");
+    expect(read('src/components/club/ShareInviteSheet.tsx')).toContain(
+      "hasShareSheet() ? 'Send Link' : 'Copy Link'"
+    );
     expect(spec).toContain('navigator.clipboard.readText()');
     expect(spec).toContain('expect(copiedInvite).toContain(shortUrl)');
     expect(spec).toContain("name: 'Link Copied', exact: true }");
@@ -251,7 +258,7 @@ describe('Create Club production certification contract', () => {
   it('certifies default setup without another wizard or unconfirmed allocation', () => {
     const spec = read('tests/e2e/production-create-club.spec.ts');
     expect(spec).toContain("name: 'Your Club Is Created'");
-    expect(spec).toContain("name: 'Send Link'");
+    expect(spec).toContain("name: 'Copy Link'");
     expect(spec).toContain('p_promo_budget: 0');
     expect(spec).toContain('p_leaderboard_prize_budget: 0');
     expect(spec).toContain('Number(openingReceipt.club_bank_after)).toBe(99700)');
