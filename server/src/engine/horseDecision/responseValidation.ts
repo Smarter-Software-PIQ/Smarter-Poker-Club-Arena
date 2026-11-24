@@ -60,6 +60,7 @@ import {
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
+import { holdemTurnRiverRaiseNeedsValueAdmits } from '../HorseHoldemTurnRiverRaiseNeedsValue.js';
 import {
   omahaBluffPricedAdmitsCheck,
   omahaBluffPricedAdmitsRaiseToCall,
@@ -1055,6 +1056,13 @@ export interface HorseDecisionReceiptContext {
    */
   omahaMathCore?: boolean;
   /**
+   * plo-lead6 2026-11-24 (holdemTurnRiverRaiseNeedsValue, default OFF): true when the worker may have run this
+   * decision with the option on (holdemTurnRiverRaiseNeedsValueGate). Only then is a No-Limit Hold'em turn or
+   * river raise facing a wager that became the call of exactly the chips owed, or the fold, admitted at
+   * wager_rules. Absent or false, the validator is exactly as before.
+   */
+  holdemTurnRiverRaiseNeedsValue?: boolean;
+  /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
    * option). Absent or false, the validator is exactly as before.
@@ -2030,10 +2038,28 @@ function policyGraphIsValidInScope(
       previous !== null &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaMwTourneyAdmits(context.player, context.gameState, previous, transition.after.action);
+    // plo-lead6 2026-11-24 (HorseHoldemTurnRiverRaiseNeedsValue, option holdemTurnRiverRaiseNeedsValue, default
+    // off): a No-Limit Hold'em turn or river raise facing a wager by a hand that is not a value hand becomes the call
+    // of exactly the chips owed or the fold. Admitted only under the decision's own option (context gate) and only
+    // in the rule's own spot re-derived from the request; neither puts in a chip the call does not.
+    const holdemLateRaiseWithheld =
+      context?.holdemTurnRiverRaiseNeedsValue === true &&
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      previous !== null &&
+      (transition.after.action === 'call' || transition.after.action === 'fold') &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      holdemTurnRiverRaiseNeedsValueAdmits(
+        context.player,
+        context.gameState,
+        previous,
+        transition.after
+      );
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !omahaMwTourneyPriced &&
+      !holdemLateRaiseWithheld &&
       !omahaDisciplineBetToCheck &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
@@ -2417,6 +2443,32 @@ export function omahaMathCoreGate(
     try {
       const parsed = parseOptionSwitchConfig(config);
       return parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaMathCore === true;
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
+/**
+ * holdemTurnRiverRaiseNeedsValue (plo-lead6 2026-11-24): whether the worker may have run this decision with the
+ * option on, read exactly as omahaMathCoreGate reads omahaMathCore: the request's own option, the switch row this
+ * client last delivered, or the configuration before the last change while it still counts.
+ */
+export function holdemTurnRiverRaiseNeedsValueGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  if (requestOpts?.holdemTurnRiverRaiseNeedsValue === true) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return (
+        parsed.ok &&
+        (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)
+          .holdemTurnRiverRaiseNeedsValue === true
+      );
     } catch {
       return false;
     }

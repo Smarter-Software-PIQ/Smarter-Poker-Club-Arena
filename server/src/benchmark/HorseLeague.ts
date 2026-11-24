@@ -3540,6 +3540,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
+  // 2026-11-24 plo-lead6 Hold'em late-street audit (holdemTurnRiverRaiseNeedsValue, default OFF, unevaluated): a
+  // withholds every turn/river raise facing a wager that is not a value hand (the priced call or fold instead); b is
+  // today. Declared, not run.
+  {
+    name: 'nlh_holdem_turn_river_raise_needs_value',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnRiverRaiseNeedsValue: true },
+    b: {},
+  },
+  {
+    name: 'nlh9_holdem_turn_river_raise_needs_value',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTurnRiverRaiseNeedsValue: true },
+    b: {},
+  },
   // 2026-11-20 Hold'em Strategy lane (holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced, default OFF,
   // unevaluated): the priced rebuilds of the Antigravity ace-high jam gate and board discipline. a prices, b is the
   // live line. Declared, not run; a Horse field is not the people the measured constants describe.

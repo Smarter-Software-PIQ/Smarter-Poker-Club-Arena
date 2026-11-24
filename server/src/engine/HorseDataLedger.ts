@@ -2618,6 +2618,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemTurnRiverRaiseNeedsValue',
+    "plo-lead6 Hold'em late-street audit 2026-11-24 (owner 2026-11-15 12:52 / 12:53: on the turn and river facing a bet a hand that is not a value hand folds or at best calls, never raises; owner 2026-11-24: Hold'em Horses make random late-street raises). No-Limit Hold'em cash, Lightning and tournaments, heads-up and multiway, one board, turn and river facing a wager; default off (read === true). The outermost answer of wager_rules: a raise stands only when the Horse's equity against the continuing part of every live opponent's line range (the holdemValueAndCallsArePriced range model, his fold priced at the raise) is above 0.5; any other raise becomes the priced call (EV of the call against his range >= 0) or the fold; unpriced: the call. Never creates a wager. HorseHoldemTurnRiverRaiseNeedsValue.ts",
+    'V94'
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -9496,6 +9501,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic multi-board bluffScale (multiBoardBluffTrimIsPriced)',
     'multi-board hand replaced fixed V36 blanket 0.5/0.35 bluffScale trim with deterministic zero-RNG public-info priced multiplier in [0, 1] from shrunk per-opponent fold probability, public board correlation, hero cross-board blockers, street/pot/stack/wetness, and heroBubbleFactor',
     'V36'
+  ),
+  receipt(
+    'holdem_turn_river_raise_value_kept',
+    'HorseHoldemTurnRiverRaiseNeedsValue (HorseLogic wager_rules; holdemTurnRiverRaiseNeedsValue)',
+    "a No-Limit Hold'em turn or river raise facing a wager with holdemTurnRiverRaiseNeedsValue on: the hand is a value hand (equity above 0.5 against every live opponent's continuing range) and the raise stands",
+    'V94'
+  ),
+  receipt(
+    'holdem_turn_river_raise_not_value_called',
+    'HorseHoldemTurnRiverRaiseNeedsValue (HorseLogic wager_rules; holdemTurnRiverRaiseNeedsValue)',
+    "the same option: the raise was not a value hand and became the call, priced at EV >= 0 against the bettor's line range",
+    'V94'
+  ),
+  receipt(
+    'holdem_turn_river_raise_not_value_folded',
+    'HorseHoldemTurnRiverRaiseNeedsValue (HorseLogic wager_rules; holdemTurnRiverRaiseNeedsValue)',
+    'the same option: the raise was not a value hand and the priced call is below zero: the hand folds',
+    'V94'
+  ),
+  receipt(
+    'holdem_turn_river_raise_not_value_unpriced_called',
+    'HorseHoldemTurnRiverRaiseNeedsValue (HorseLogic wager_rules; holdemTurnRiverRaiseNeedsValue)',
+    'the same option: no opponent range could be built (no envelope or an empty range); the raise was not made and became the call',
+    'V94'
+  ),
+  receipt(
+    'holdem_turn_river_raise_rule_failed',
+    'HorseHoldemTurnRiverRaiseNeedsValue (HorseLogic wager_rules; holdemTurnRiverRaiseNeedsValue)',
+    'the same option: the rule threw; the raise became the call (or, outside its spot, the decision stood)',
+    'V94'
   ),
   receipt(
     'holdem_priced_value_raise_deferred',

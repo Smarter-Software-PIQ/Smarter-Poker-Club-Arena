@@ -354,6 +354,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  // 2026-11-24 plo-lead6 Hold'em late-street audit: a turn/river raise facing a wager needs a value hand (ships dark)
+  'holdemTurnRiverRaiseNeedsValue',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1045,6 +1047,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up postflop',
     "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemTurnRiverRaiseNeedsValue: [
+    HOLDEM,
+    'NLH cash, Lightning and tournaments, heads-up and multiway, turn and river facing a wager',
+    "a turn or river raise stands only for a value hand (equity above 0.5 against every opponent's continuing line range); any other raise becomes the priced call or fold",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

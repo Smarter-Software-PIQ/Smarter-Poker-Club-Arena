@@ -1052,6 +1052,7 @@ import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
+import { holdemTurnRiverRaiseNeedsValueRule } from './HorseHoldemTurnRiverRaiseNeedsValue.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
   OMAHA_STRATEGY_PLO45,
@@ -5902,6 +5903,12 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** Hold'em late-street audit (plo-lead6 2026-11-24; owner 2026-11-15 12:52 / 12:53: on the turn and river facing
+   * a bet a hand that is not a value hand folds or at best calls, never raises). No-Limit Hold'em cash, Lightning and
+   * tournaments, heads-up and multiway, turn and river facing a wager: a raise stands only when the Horse's equity
+   * against the continuing part of every live opponent's line range is above 0.5; any other raise becomes the
+   * priced call or fold (HorseHoldemTurnRiverRaiseNeedsValue.ts). Never creates a wager. Default OFF (read `=== true`). */
+  holdemTurnRiverRaiseNeedsValue?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
@@ -19335,8 +19342,17 @@ export class HorseLogic {
         // by cent / chip-unit rounding only (omahaMathCoreExactLegalize), never by
         // this.legalize's near-pot snap, 92% / 95% stack jam or whole-dollar
         // rounding: the size the core priced is the size the table plays.
-        decision: omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
-          omahaMathCoreExactLegalize(d, player, gs)
+        // holdemTurnRiverRaiseNeedsValue (default OFF; HorseHoldemTurnRiverRaiseNeedsValue.ts): the outermost answer
+        // of this node in No-Limit Hold'em. A turn or river raise facing a wager by a hand that is not a value hand
+        // becomes the priced call or fold. Off: the math core's answer itself (it acts in PLO4/PLO5 only).
+        decision: holdemTurnRiverRaiseNeedsValueRule(
+          omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
+            omahaMathCoreExactLegalize(d, player, gs)
+          ),
+          player,
+          gs,
+          opts,
+          (d) => this.legalize(d, player, gs, vi)
         ),
       };
     }).decision;
