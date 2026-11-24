@@ -1,0 +1,161 @@
+{
+  "$comment": "Every source that records a firing row in public.operational_alert_events must declare how that row resolves. Read by tests/every-alert-producer-declares-its-resolve-path.law.test.ts. Kinds: in-function (a migration-defined function resolves it; 'resolvers' names it), twin-event (the external sender posts a resolved twin, payload.resolves = firing event_key), mirror (a copy of financial_alerts / ca_drift_incidents rows, resolved with its original), informational (never paged, recorded for history only), pending (no resolve path yet: an owner and a hard 'until' date; the build fails after that date). Enumerated from production on 2026-11-24 (30 days of operational_alert_events) and from every literal fn_record_operational_alert(s) call in supabase/migrations.",
+  "sources": {
+    "alertmanager": {
+      "kind": "twin-event",
+      "via": "Alertmanager resolved notifications (b_operational_alert_resolved_twin_closes_firing)"
+    },
+    "bug-report-routing": {
+      "kind": "in-function",
+      "resolvers": ["fn_bug_report_delivery_resolves_its_alert"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the bug report delivery reaches status delivered"
+    },
+    "ca-stall-watch": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_table_stall_watch_ingest"],
+      "since": "#11220 (finished tournaments)"
+    },
+    "cash-pot-conservation-measurement": {
+      "kind": "in-function",
+      "resolvers": ["fn_cash_pot_conservation_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "a later complete check no longer finds that condition"
+    },
+    "club-arena.deploy-monitoring": {
+      "kind": "twin-event",
+      "via": "deploy-monitoring.yml resolved verdict"
+    },
+    "club-arena.post-deploy-e2e": {
+      "kind": "twin-event",
+      "via": "scripts/ci/record-post-deploy-verdict.mjs"
+    },
+    "cutover-readiness-watch": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_cutover_readiness_watch"]
+    },
+    "daily-window": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_daily_window_lobby_close_page"]
+    },
+    "drift-incidents-backfill": {
+      "kind": "mirror",
+      "via": "fn_operational_alert_mirror_classify"
+    },
+    "drift-incidents-updates": {
+      "kind": "mirror",
+      "via": "a00_operational_source_intake on ca_drift_incidents"
+    },
+    "engine-alerts-backfill": {
+      "kind": "mirror",
+      "via": "fn_operational_alert_mirror_classify"
+    },
+    "engine-cutover-watch": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_engine_cutover_watch"]
+    },
+    "financial-alerts-backfill": {
+      "kind": "mirror",
+      "via": "fn_operational_alert_mirror_classify"
+    },
+    "financial-alerts-updates": {
+      "kind": "mirror",
+      "via": "financial_alerts resolution (fn_ca_incident_resolution_reaches_the_alerts)"
+    },
+    "host-heartbeat": {
+      "kind": "in-function",
+      "resolvers": ["record_host_heartbeat", "host_heartbeat_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the host heartbeats again (silence); the volume is back above 5% free (disk)"
+    },
+    "install-queue": {
+      "kind": "in-function",
+      "resolvers": ["fn_resolve_operational_alerts"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "operations/ops-mac/heartbeat.sh: the queue process runs (queue-down); the failed job's migration is recorded installed or its PR closed (failed)"
+    },
+    "local.series-runtime": {
+      "kind": "twin-event",
+      "via": "World Hub scripts/local_scraper_runtime.py outbox resolve"
+    },
+    "local.tournaments-runtime": {
+      "kind": "twin-event",
+      "via": "World Hub scripts/local_scraper_runtime.py outbox resolve"
+    },
+    "local.tours-runtime": {
+      "kind": "twin-event",
+      "via": "World Hub scripts/local_scraper_runtime.py outbox resolve"
+    },
+    "mac-studio-git-maintenance": {
+      "kind": "in-function",
+      "resolvers": ["fn_resolve_operational_alerts"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "operations/ops-mac/git-maintenance-guard.sh: the repo is back at or under PACK_LIMIT pack files"
+    },
+    "midway-weekly-payout-followup": {
+      "kind": "informational",
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "reason": "a single follow-up recorded once on 2026-11-02 (issue #9413); no producer records it again, and the Z2 migration resolved that row after checking the live fn_ca_engine_release_stall_check declares v_open uuid"
+    },
+    "migration-install-watch": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_merged_migration_install_watch"]
+    },
+    "openclaw": {
+      "kind": "twin-event",
+      "via": "OpenClaw job staleness resolve"
+    },
+    "owner-accounting-notifications": {
+      "kind": "informational",
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "reason": "records status 'info' only (Accounting Documents Issued, Owner Copy); nothing fires"
+    },
+    "owner-operational-notifications": {
+      "kind": "in-function",
+      "resolvers": ["fn_ca_incident_resolution_reaches_the_alerts"],
+      "since": "#11221"
+    },
+    "production-integrity-audit": {
+      "kind": "twin-event",
+      "via": "production integrity audit resolved verdict"
+    },
+    "rakeback-settler-read-horizon": {
+      "kind": "in-function",
+      "resolvers": ["fn_rakeback_settler_stranded_source_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the read horizon is present and held no longer than 20 minutes"
+    },
+    "reliability-drill": {
+      "kind": "twin-event",
+      "via": "reliability drill resolved twin"
+    },
+    "sp-critical-pager": {
+      "kind": "in-function",
+      "resolvers": ["fn_sp_critical_scan"],
+      "since": "#11197"
+    },
+    "sp-daily-digest": {
+      "kind": "in-function",
+      "resolvers": ["fn_sp_critical_scan"],
+      "since": "#11197"
+    },
+    "weekly-payout": {
+      "kind": "in-function",
+      "resolvers": ["weekly_payout_paid_resolves_its_alerts", "weekly_payout_readiness_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the period records agents_paid, clubs_paid and players_paid; not-ready resolves when the period is ready (WeeklyPayoutInvoiceMismatch never auto-resolves)"
+    },
+    "workers.deploy-error-poll": {
+      "kind": "twin-event",
+      "via": "World Hub deploy error poll resolved twin"
+    },
+    "worldhub.push-health": {
+      "kind": "twin-event",
+      "via": "World Hub push-health resolved twin"
+    },
+    "worldhub.trivia-questions": {
+      "kind": "twin-event",
+      "via": "World Hub trivia health resolved twin"
+    }
+  }
+}

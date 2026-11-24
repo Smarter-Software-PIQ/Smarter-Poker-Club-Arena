@@ -37,10 +37,11 @@ This helper only CONSUMES that evidence:
 Timestamps are printed as diagnostics only.
 
   refresh-due --copy-evidence F --copy-evidence-sha S [--control C --wait N]
-  certified-digest --evidence F --certificate C --sha S
+  certified-digest --evidence F --certificate C --sha S [--control C]
                                        the set the certificate will name
   certified --sha S                    the set the target's certificate names
-  status --env-file F --repo R --sha S --certified D
+  status --env-file F --repo R --sha S --certified D [--control C]
+                                       (default C: the generation's control-sha)
                                        exit 0 unchanged, 1 refused, 3 unknown
   candidate-ready --repo R --serving OLD --sha TARGET [--production F]
                                        all ordinary candidate migrations installed
@@ -51,6 +52,42 @@ before cutover; its doors are re-read separately (engine-release-window-
 doors.py). The certificate therefore names the copy's set less the exact
 target's own window files, the cutover leaves the same versions out of
 production's set, and everything else must be identical.
+
+A FOREIGN MIGRATION IS NOT OURS (2026-11-24, O23). Club Arena and World Hub
+(another repository) share one production database and one history table,
+supabase_migrations.schema_migrations. During the nightly freeze a World Hub
+lane installed 20261124052600, 20261124060500 and 20261124061800 (trivia).
+Candidate d749a61e4c94 was certified at 06:29:38Z on a copy taken ~05:30Z;
+the daily selector then refused it: "Backup copy lacks installed migration
+20261124060500, 20261124061800" (Stage run 45330329311), and the 01:00 Chicago
+cutover was lost. None of those versions is a file in Club Arena's
+supabase/migrations tree. The engine serving right now already runs against
+them, so refusing the candidate protected nothing: whatever they changed is
+the database the current engine has and the candidate will have.
+
+So a version that NO Club Arena tree in hand ships - neither the exact
+target's nor the control commit's (main) - is left out of the comparable set
+on BOTH sides (the copy's and production's), wherever the set is made: the
+certificate's digest (certified-digest --sha --control), the selector (judge,
+target and control), refresh-due (its --sha and --control; also the O16
+mid-soak stale check) and the cutover re-read (status: --control, else the
+control-sha manifest of the immutable control generation it runs from, which
+engine-release-transaction.sh has already proved equals the request). A Club Arena file merged to main after the target
+is in control's tree, so it is still compared and a copy lacking it is still
+refused, exactly as before; only versions Club Arena never shipped drop out.
+The rule is the version alone: a version a tree ships under a different name
+still "differs"; window and SUPERSEDED versions are handled as before; the
+'manual' row (training_api_indexes.sql) has no file and is not compared
+either. What protects shared objects is unchanged: every required function
+definition is still compared over all of the evidence, foreign or not.
+
+FAIL SAFE (CLAUDE.md 10.86). Every tree asked for must be listed: a SHA that
+is absent, not given (no --control), not 40 hex, or a tree that git cannot
+list or that lists no migration file leaves NOTHING out, so an unreadable
+tree never certifies more than before. The certificate names the set left
+after its trees; a cutover host that reads fewer trees, or a larger control
+tree whose extra versions production holds, sees a different digest and
+refuses (the current engine keeps running).
 
 Read-only: never writes the database, GitHub or the host.
 """
@@ -79,6 +116,9 @@ SUPERSEDED_ANNOTATION = r'^--[[:blank:]]*SUPERSEDED BY[[:blank:]]+[0-9]{14}'
 DIGEST = re.compile(r'[0-9a-f]{64}')
 CERTIFIED = re.compile(r'; installed migrations ([0-9a-f]{64})$')
 FILE = re.compile(r'(\d{14})_([A-Za-z0-9_.-]+)\.sql')
+# Any file the history table could name (the CLI's version is the leading
+# digits, so 001_club_arena_schema.sql is ours too): wider is stricter here.
+TREE_FILE = re.compile(r'(\d+)_[^/]*\.sql')
 RECORDINGS = 'scripts/ci/recorded-migrations.manifest.json'
 READY, REFUSED, UNKNOWN = 0, 1, 3
 
@@ -269,8 +309,44 @@ def required_by(repo, serving, target, skip=frozenset()):
     return required
 
 
-def comparable(rows, windows):
-    return {v: n for v, n in rows.items() if v not in windows}
+def tree_versions(repo, *shas):
+    """Versions of every migration file in the union of the exact trees, or
+    None unless every SHA is given and its tree lists. None leaves nothing out
+    (A FOREIGN MIGRATION IS NOT OURS): an unreadable tree never certifies more
+    than before."""
+    if not shas:
+        return None
+    versions = set()
+    for sha in shas:
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+            return None
+        try:
+            listing = git(repo, 'ls-tree', '-r', '--name-only', sha, '--', MIGRATIONS)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+            return None
+        found = set()
+        for path in listing.splitlines():
+            match = TREE_FILE.fullmatch(path.rsplit('/', 1)[-1])
+            if match:
+                found.add(match[1])
+        if not found:
+            return None
+        versions |= found
+    return versions
+
+
+def ours(rows, tree):
+    """The rows whose version the tree ships; every row when tree is None."""
+    return dict(rows) if tree is None else {v: n for v, n in rows.items() if v in tree}
+
+
+def foreign_note(rows, tree):
+    count = len(rows) - len(ours(rows, tree))
+    return f'; {count} version(s) Club Arena never shipped left out' if count else ''
+
+
+def comparable(rows, windows, tree=None):
+    return {v: n for v, n in ours(rows, tree).items() if v not in windows}
 
 
 def lacking_required(required, installed):
@@ -347,10 +423,12 @@ def bound_evidence(evidence_bytes, evidence_sha, dump_sha=None):
     return evidence
 
 
-def judge(evidence_bytes, database, production, required=None):
+def judge(evidence_bytes, database, production, required=None, tree=None):
     """(ok, reason) for the daily selector. Contents decide; nothing else.
     `required` ({version: name}, or a callable returning it) is read only once
-    the copy's set and definitions already equal production's."""
+    the copy's set and definitions already equal production's. `tree` is
+    tree_versions(target, control): versions outside it are compared on
+    neither side; None compares every version."""
     try:
         if database.get('schemaEvidenceValidated') is not True:
             raise ValueError('the restore did not validate its schema evidence')
@@ -358,7 +436,7 @@ def judge(evidence_bytes, database, production, required=None):
         copy = rows_of(evidence['migrations'])
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         return False, f'Backup schema evidence is invalid ({error})'
-    difference = compare(copy, production['migrations'])
+    difference = compare(ours(copy, tree), ours(production['migrations'], tree))
     if any(difference.values()):
         return False, 'Backup copy ' + describe(difference)
     changed = differing_functions(evidence['functions'], production['functions'])
@@ -369,7 +447,8 @@ def judge(evidence_bytes, database, production, required=None):
     lacking = lacking_required(required or {}, copy)
     if lacking:
         return False, 'Backup copy lacks the exact candidate migration(s) ' + ', '.join(lacking[:5])
-    return True, f'Backup copy holds production\'s installed migrations {digest(copy)[:12]}'
+    return True, (f'Backup copy holds production\'s installed migrations {digest(ours(copy, tree))[:12]}'
+                  + foreign_note(production['migrations'], tree))
 
 
 def recently_added(repo, control, hours=26):
@@ -407,32 +486,37 @@ def await_installed(versions, read, wait, pause=20, clock=time.time, sleep=time.
         sleep(min(pause, max(1, deadline - clock())))
 
 
-def refresh_due(evidence_bytes, evidence_sha, production):
-    """(due, reason). Absent, unbound or different evidence is always due."""
+def refresh_due(evidence_bytes, evidence_sha, production, tree=None):
+    """(due, reason). Absent, unbound or different evidence is always due.
+    Versions outside `tree` (tree_versions() of --control and --sha) are
+    compared on neither side; None compares every version."""
     now = digest(production['migrations'])
     try:
         evidence = bound_evidence(evidence_bytes, evidence_sha)
         copy = rows_of(evidence['migrations'])
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         return True, f'{error}; production holds {len(production["migrations"])} migrations ({now[:12]})'
-    difference = compare(copy, production['migrations'])
+    difference = compare(ours(copy, tree), ours(production['migrations'], tree))
     if any(difference.values()):
         return True, f'the copy ({digest(copy)[:12]}) {describe(difference)}; production holds {now[:12]}'
     changed = differing_functions(evidence['functions'], production['functions'])
     if changed:
         return True, 'the copy does not hold production\'s definition of ' + ', '.join(changed[:5])
-    return False, f'the copy holds production\'s installed set {now[:12]} and its required definitions'
+    return False, (f'the copy holds production\'s installed set {now[:12]} and its required definitions'
+                   + foreign_note(production['migrations'], tree))
 
 
-def certified_digest(evidence_bytes, certificate, repo, sha):
+def certified_digest(evidence_bytes, certificate, repo, sha, control=None):
     """The comparable set the certificate names, from evidence bound to the
-    certified copy (its file digest and its dump)."""
+    certified copy (its file digest and its dump). Versions neither the
+    target's nor control's tree ships are left out; no control, none are."""
     database = certificate['database']
     if certificate.get('sha') != sha or database.get('schemaEvidenceValidated') is not True:
         raise ValueError('the certificate is not a validated copy of this SHA')
     evidence = bound_evidence(evidence_bytes, database.get('schemaEvidenceSha256'), database.get('dumpSha256'))
     rows = rows_of(evidence['migrations'])
-    return digest(comparable(rows, window_versions(repo, sha))), len(rows)
+    tree = tree_versions(repo, sha, control) if control else None
+    return digest(comparable(rows, window_versions(repo, sha), tree)), len(rows)
 
 
 # ---- the release host: production through the engine's REST credential ----
@@ -507,23 +591,39 @@ def certified_set(sha):
     return match[1]
 
 
-def status(env_file, repo, sha, certified, attempts=2, pause=1):
+def generation_control(path=None):
+    """The control SHA of the immutable release generation this helper was
+    installed into (its control-sha manifest), or '' when there is none, as
+    in a source checkout: then status leaves nothing out."""
+    path = Path(path) if path else Path(__file__).resolve().parent / 'control-sha'
+    try:
+        value = path.read_text(encoding='utf-8').strip()
+    except (OSError, UnicodeDecodeError):
+        return ''
+    return value if re.fullmatch(r'[0-9a-f]{40}', value) else ''
+
+
+def status(env_file, repo, sha, certified, attempts=2, pause=1, control=None):
     """Has production's installed set moved since the copy was certified?
 
     `certified` is the set the target's newest certificate names, less the
     exact target's own window-declared versions (installed only inside the
     break; their doors are re-read by engine-release-window-doors.py). The
     same versions are left out of production's set here; everything else must
-    be identical. Any other migration installed after certification refuses:
-    the current engine keeps running."""
+    be identical. Versions neither the target's nor `control`'s tree ships
+    are left out, as certified-digest left them out of `certified`; no
+    control, or an unreadable tree, leaves none out.
+    Any other migration installed after certification refuses: the current
+    engine keeps running."""
     if not DIGEST.fullmatch(certified or ''):
         print('REFUSED - no certified installed migration set was supplied')
         return REFUSED
     windows = window_versions(repo, sha)
+    tree = tree_versions(repo, sha, control) if control else None
     last = None
     for attempt in range(attempts):
         try:
-            production = comparable(rows_of(read_production_rest(env_file)), windows)
+            production = comparable(rows_of(read_production_rest(env_file)), windows, tree)
             break
         except (OSError, HTTPError, URLError, ValueError, TypeError, KeyError) as exc:
             last = exc
@@ -559,6 +659,7 @@ def main(argv):
     d.add_argument('--certificate', required=True)
     d.add_argument('--repo', default='.')
     d.add_argument('--sha', required=True)
+    d.add_argument('--control', default='', help='the certifying control SHA; its tree is Club Arena\'s too')
     c = sub.add_parser('certified')
     c.add_argument('--sha', required=True)
     s = sub.add_parser('status')
@@ -566,6 +667,8 @@ def main(argv):
     s.add_argument('--repo', required=True)
     s.add_argument('--sha', required=True)
     s.add_argument('--certified', required=True)
+    s.add_argument('--control', default='',
+                   help='the release control SHA (default: this generation\'s control-sha manifest)')
     p = sub.add_parser('candidate-ready')
     p.add_argument('--repo', default='.')
     p.add_argument('--serving', required=True)
@@ -602,7 +705,8 @@ def main(argv):
             return UNKNOWN
     if args.mode == 'status':
         try:
-            return status(args.env_file, args.repo, args.sha, args.certified)
+            return status(args.env_file, args.repo, args.sha, args.certified,
+                          control=args.control or generation_control())
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             print(f'UNKNOWN - {str(exc)[:200]}')
             return UNKNOWN
@@ -612,7 +716,7 @@ def main(argv):
                 evidence = handle.read()
             with open(args.certificate, encoding='utf-8') as handle:
                 certificate = json.load(handle)
-            value, count = certified_digest(evidence, certificate, args.repo, args.sha)
+            value, count = certified_digest(evidence, certificate, args.repo, args.sha, args.control)
         except (OSError, RuntimeError, ValueError, KeyError, TypeError, AttributeError) as exc:
             print(f'installed migrations: {str(exc)[:300]}', file=sys.stderr)
             return REFUSED
@@ -638,14 +742,20 @@ def main(argv):
                 evidence = handle.read()
         except OSError:
             evidence = b''
-        due, why = refresh_due(evidence, args.copy_evidence_sha, production)
+        # Club Arena's versions are those its given trees ship (control, --sha).
+        given = [s for s in (args.control, args.sha) if s]
+        due_tree = tree_versions(args.repo, *given) if given else None
+        due, why = refresh_due(evidence, args.copy_evidence_sha, production, due_tree)
         if pending:
             why += f'; still not installed after {args.wait}s: {", ".join(pending[:5])}'
         comparable_sha = args.sha or args.control
         comparable_digest = ''
         if comparable_sha and re.fullmatch(r'[0-9a-f]{40}', comparable_sha):
             try:
-                comparable_digest = digest(comparable(production['migrations'], window_versions(args.repo, comparable_sha)))
+                # The same trees certified-digest reads (--sha and --control), else none.
+                tree = tree_versions(args.repo, args.sha, args.control) if args.sha and args.control else None
+                comparable_digest = digest(comparable(production['migrations'],
+                                                      window_versions(args.repo, comparable_sha), tree))
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
                 comparable_digest = ''
         print(f'due={"true" if due else "false"}')

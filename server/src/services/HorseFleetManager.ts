@@ -90,6 +90,7 @@ import {
   publishVarietyHolds,
   varietyFirstPlan,
   varietyHoldsThisCycle,
+  varietyOwedGamesThisCycle,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -199,6 +200,7 @@ import {
 } from './HorseQueueAdmission.js';
 import {
   gameOwesALine,
+  isMainTableReservedForMustMoveList,
   lastChairGameKey,
   lastChairVerdict,
   openChairsByGame,
@@ -302,6 +304,12 @@ interface CycleBeat {
   /** One entry per opening feeder this cycle reached: what the fleet counted,
    *  what it selected, what it seated and why it skipped the rest. */
   openingFeeders: OpeningFeederDiag[];
+  /** Games owed a start whose extra tables this cycle holds (HorseVarietyFirst).
+   *  The heartbeat carries them as `detail.variety_owed_games`; the database
+   *  reads the newest fresh beat so a waiting-list feeder of another game does
+   *  not take the slot an owed Main 1 needs (fn_cash_hourly_feeder_admissible,
+   *  20261124072701). Empty in a cycle that holds nothing. */
+  varietyOwedGames: string[];
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -1455,6 +1463,7 @@ export class HorseFleetManager {
       bookingsReadFailed: 0,
       bookedOut: 0,
       openingFeeders: [],
+      varietyOwedGames: [],
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -1529,7 +1538,7 @@ export class HorseFleetManager {
           let q = supabase
             .from('tables')
             .select(
-              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey(rules_profile:ruleset_snapshot->>rules_profile)'
+              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey(rules_profile:ruleset_snapshot->>rules_profile, must_move, cluster_mode)'
             )
             .is('tournament_id', null)
             .in('status', ['waiting', 'running'])
@@ -2915,6 +2924,7 @@ export class HorseFleetManager {
           id: String(t.id),
           clusterId: t.cluster_id ? String(t.cluster_id) : null,
           lifecycle: t.lifecycle ?? null,
+          role: t.role ?? null,
           horses: (seatsByTable.get(t.id) ?? []).filter((x) => horseIdSet.has(x.user_id)).length,
         })),
         allActiveSeats
@@ -3110,17 +3120,22 @@ export class HorseFleetManager {
          hold belongs to fn_offer_open_seat's own sweep, which expires it and
          passes the seat to the next player in line. A draining table is still
          never answered, whatever the policy says. */
-      /* Nothing is held until this cycle has shown it can make an owed start
+      /* Nothing is held until this cycle has shown it is seating
          (HorseVarietyFirst.varietyHoldsThisCycle): not while the hourly read
-         is outstanding or failed, not in a withheld cycle, not when the cap
-         admits no owed table. */
+         is outstanding or failed, not in a withheld cycle. A FULL CAP HOLDS
+         (2026-11-24): the owed start is waiting for the next freed slot, and
+         an extra table must not take it. The owed games ride the heartbeat
+         so the database's feeder opener holds on the same list. */
       this.varietyHeldStarts = new Set();
       clearVarietyHolds();
+      beat.varietyOwedGames = [];
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
       const varietyHeld = varietyHoldsThisCycle(variety, {
         withheld: !!cycleWithheld,
-        admitted: (tableId) => hourlyAdmissions.has(tableId),
+      });
+      beat.varietyOwedGames = varietyOwedGamesThisCycle(variety, {
+        withheld: !!cycleWithheld,
       });
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
@@ -3292,11 +3307,13 @@ export class HorseFleetManager {
          seats, so the seat stage knows when it is about to buy a game's LAST
          chair; and the seats each table gained this cycle, so the line is
          asked for in the same cycle the game filled. See HorseLastChair. */
+      const occupiedCountOf = (id: string) =>
+        new Set((seatsByTable.get(id) ?? []).map((seat) => seat.seat_number)).size;
+      const pendingCountOf = (id: string) => pendingMovesByTable.get(id) ?? 0;
       const openChairsLeft = openChairsByGame({
         tables: orderedTables,
-        occupiedByTable: (id) =>
-          new Set((seatsByTable.get(id) ?? []).map((seat) => seat.seat_number)).size,
-        pendingArrivalsByTable: (id) => pendingMovesByTable.get(id) ?? 0,
+        occupiedByTable: occupiedCountOf,
+        pendingArrivalsByTable: pendingCountOf,
       });
       const seatedThisCycleByTable = new Map<string, number>();
       let lastChairLeftOpen = 0;
@@ -3494,7 +3511,16 @@ export class HorseFleetManager {
             occupiedNumbers.size,
             cashPlanLightningGames
           );
-          let countOnly = queueOnly;
+          /* A Main whose open chairs belong strictly to the must-move list
+             (fn_cash_main_chair_is_the_lists) takes no direct horse buy-in and
+             does not claim seating capacity ahead of its Feeder. */
+          const mainReservedForList = isMainTableReservedForMustMoveList(
+            table,
+            orderedTables,
+            occupiedCountOf,
+            pendingCountOf
+          );
+          let countOnly = queueOnly || mainReservedForList;
 
           // ── V14 OCCUPANCY (Dan 2026-08-23) ────────────────────────────────
           // Every table used to carry ONE fixed target from DEFAULT_TABLES, so
@@ -3782,6 +3808,7 @@ export class HorseFleetManager {
           /* The fleet-wide cap, spent down as the floor fills. Last, so it
              cannot be undone by anything above it. */
           seatsNeeded = queueOnly ? 0 : Math.min(seatsNeeded, seatBudget);
+          if (mainReservedForList) seatsNeeded = 0;
           if (diag) diag.wanted = seatsNeeded;
           if (seatsNeeded <= 0) {
             if (!table.cluster_id) continue;
@@ -4301,7 +4328,14 @@ export class HorseFleetManager {
             }
             // Full Classic games grow through real waiting rows, not a forecast
             // that could count horses held by seating or host occupancy caps.
-            if (!queueOnly) clusterPools.push(clusterPool);
+            // A reserved Main with open chairs (or while a buyable Feeder chair
+            // remains) stays out of clusterPools so allocateBuyers gives horse
+            // capacity to the Feeder instead of an un-buyable Main.
+            const skipReservedMainPool =
+              mainReservedForList &&
+              (currentCount < table.max_players ||
+                (openChairsLeft.get(lastChairGameKey(table)) ?? 0) > 0);
+            if (!queueOnly && !skipReservedMainPool) clusterPools.push(clusterPool);
           } else {
             nextEligible.set(table.id, pool.length);
           }
@@ -5444,6 +5478,7 @@ export class HorseFleetManager {
             horses_seated_cash: beat.horsesSeatedCash,
             gates: beat.gates,
             opening_feeders: beat.openingFeeders,
+            variety_owed_games: beat.varietyOwedGames,
           },
         },
       });

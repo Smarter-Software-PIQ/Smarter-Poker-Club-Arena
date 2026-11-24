@@ -13,6 +13,7 @@ import {
   VARIETY_START_REST_MS,
   varietyFirstPlan,
   varietyHoldsThisCycle,
+  varietyOwedGamesThisCycle,
   VarietyStartMemory,
   type VarietyTable,
 } from './HorseVarietyFirst.js';
@@ -276,37 +277,38 @@ describe('nothing is held in a cycle that cannot make the owed start', () => {
     to_table_id: 'nlh-f-opening',
     player_id: 'h1',
   };
-  const cycle = (withheld: boolean, admittedIds: string[]) => {
-    const plan = planFor(todaysFloor());
-    const held = varietyHoldsThisCycle(plan, {
-      withheld,
-      admitted: (id) => admittedIds.includes(id),
-    });
+  const cycle = (withheld: boolean, floor: T[] = todaysFloor()) => {
+    const plan = planFor(floor);
+    const held = varietyHoldsThisCycle(plan, { withheld });
     publishVarietyHolds(held, new Set(['h1']), Date.now());
     return held;
   };
 
   it('a withheld cycle (paused, disabled, brain behind, outside the schedule) holds nothing', () => {
-    expect(cycle(true, ['madness-m1', 'nlh-f-opening']).size).toBe(0);
+    expect(cycle(true).size).toBe(0);
     expect(feederStartWaitsForVariety(bump)).toBe(false);
+    expect(varietyOwedGamesThisCycle(planFor(todaysFloor()), { withheld: true })).toEqual([]);
   });
 
-  it('a cycle whose hourly cap admits no owed table holds nothing', () => {
-    expect(cycle(false, []).size).toBe(0);
-    expect(cycle(false, ['nlh-f-opening', 'flh-f-opening']).size).toBe(0);
+  it('a cycle with no owed start holds nothing', () => {
+    const everyGameHasATable = todaysFloor().map((t) =>
+      t.role === 'main' && t.main_index === 1 && t.seated === 0 ? { ...t, seated: 3 } : t
+    );
+    expect(cycle(false, everyGameHasATable).size).toBe(0);
     expect(feederStartWaitsForVariety(bump)).toBe(false);
+    expect(varietyOwedGamesThisCycle(planFor(everyGameHasATable), { withheld: false })).toEqual([]);
   });
 
-  it('a cycle that can make an owed start holds the extra tables', () => {
-    expect([...cycle(false, ['madness-m1'])].sort()).toEqual(['flh-f-opening', 'nlh-f-opening']);
+  it('a seating cycle with an owed start holds the extra tables', () => {
+    expect([...cycle(false)].sort()).toEqual(['flh-f-opening', 'nlh-f-opening']);
     expect(feederStartWaitsForVariety(bump)).toBe(true);
     /* ...and the next cycle, withheld, lets the same move go at once. */
-    cycle(true, ['madness-m1']);
+    cycle(true);
     expect(feederStartWaitsForVariety(bump)).toBe(false);
   });
 
   it('a hold is dropped the moment a cycle begins its hourly read', () => {
-    cycle(false, ['madness-m1']);
+    cycle(false);
     clearVarietyHolds();
     expect(feederStartWaitsForVariety(bump)).toBe(false);
   });
@@ -324,9 +326,9 @@ describe('nothing is held in a cycle that cannot make the owed start', () => {
     expect(publish).toBeGreaterThan(decide);
     expect(claim).toBeGreaterThan(publish);
     expect(fleet.slice(decide, publish)).toContain('withheld: !!cycleWithheld,');
-    expect(fleet.slice(decide, publish)).toContain(
-      'admitted: (tableId) => hourlyAdmissions.has(tableId),'
-    );
+    /* A full cap is not a reason to hold nothing (2026-11-24): the hold no
+       longer asks whether the cap admits an owed table this cycle. */
+    expect(fleet.slice(decide, publish)).not.toContain('hourlyAdmissions');
     /* No publication anywhere else, and none of the raw plan. */
     expect(fleet.split('publishVarietyHolds(').length - 1).toBe(1);
     expect(fleet).not.toContain('variety.heldStarts');

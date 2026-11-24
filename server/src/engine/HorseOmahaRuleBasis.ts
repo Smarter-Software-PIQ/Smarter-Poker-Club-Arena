@@ -586,6 +586,11 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'an input of a priced comparison, not a rule site'
   ),
   omahaTurnRiverRaiseIsPriced: PRICED_RAISE,
+  omahaPricedRaiseNeverMakesNonNutRaise: exempt(
+    'owner_game_rule',
+    'owner rulings 2026-11-15 12:52 / 12:53 (a non-nut hand facing a turn or river bet folds or at best calls, never raises) and 12:30 (a draw raises only in position with a combo draw), enforced inside omahaTurnRiverRaiseIsPriced: it only withholds a raise; the call or fold returned is the priced one (PRICED_RAISE verdict.callStands), and the nut rule reads the same spot in Lightning'
+  ),
+  omahaLateFlattenedCallIsPriced: FACING_BET_EV,
   omahaTurnRiverRaiseNeedsNuts: blanket(
     ['omahaNoCategoricalRules'],
     'the register classes it categorical; removal: switch-off with omahaNoCategoricalRules in PLO4/PLO5 cash, then delete'
@@ -740,6 +745,16 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_cbet_raise_priced_branch: BET_EV,
   omaha_cbet_raise_priced_range: FACING_BET_EV,
   omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
+  omaha_priced_raise_non_nut_raise_not_made: exempt(
+    'owner_game_rule',
+    'receipt that omahaPricedRaiseNeverMakesNonNutRaise withheld a raise the priced comparison chose for a hand that is not nut class (owner rulings 2026-11-15 12:52 / 12:53 and 12:30); the priced call or fold stands'
+  ),
+  omaha_priced_raise_non_nut_unpriced_called: exempt(
+    'owner_game_rule',
+    'receipt that a non-nut raise that could not be priced became the call under omahaPricedRaiseNeverMakesNonNutRaise (owner ruling 2026-11-15 12:52 / 12:53); no chips are added and nothing is folded on a failure to price'
+  ),
+  omaha_late_flattened_call_priced_kept: FACING_BET_EV,
+  omaha_late_flattened_call_priced_folded: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,
