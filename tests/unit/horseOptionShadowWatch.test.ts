@@ -197,6 +197,11 @@ describe('the report and the VERDICT', () => {
     expect(lifted.leakCheck).toBe('lifted');
     expect(lifted.verdict).toBe('CLEAN');
     expect(lifted.over100).toBe(5);
+    // a staged re-decision is timed under both scopes: counted once
+    rows.latency.push(
+      lat('option_shadow_redecide', [0, 0, 100, 300, 200, 100, 22, 0, 5, 0], 195.8)
+    );
+    expect(evaluateWatch({ option: PLO, since: SINCE }, rows).over100).toBe(5);
     expect(lifted.over100Pct).toBeLessThan(1);
   });
   it('an option with no known acted receipt is DIRTY until --acted-prefix names one', () => {

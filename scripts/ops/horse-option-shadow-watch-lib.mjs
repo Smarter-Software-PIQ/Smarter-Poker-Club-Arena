@@ -247,11 +247,14 @@ export function evaluateWatch({ option, since, release = null, actedPrefixes = [
       l.scope === 'option_shadow_redecide' ||
       l.scope.startsWith('option_shadow_stage_redecide_game_')
   );
-  const primary = latency.filter(
-    (l) => l.scope === 'option_shadow_stage_redecide' || l.scope === 'option_shadow_redecide'
-  );
-  const primarySamples = primary.reduce((a, l) => a + l.samples, 0);
-  const over100 = primary.reduce((a, l) => a + l.over100, 0);
+  // every re-decision, inline or staged, is timed under option_shadow_redecide (a staged one under
+  // option_shadow_stage_redecide as well): count it once
+  const primary =
+    latency.find((l) => l.scope === 'option_shadow_redecide') ??
+    latency.find((l) => l.scope === 'option_shadow_stage_redecide') ??
+    null;
+  const primarySamples = primary?.samples ?? 0;
+  const over100 = primary?.over100 ?? 0;
   const over100Pct = primarySamples ? (100 * over100) / primarySamples : 0;
   const errors = (rows.errors ?? []).map((r) => ({
     errorType: String(r.error_type),
