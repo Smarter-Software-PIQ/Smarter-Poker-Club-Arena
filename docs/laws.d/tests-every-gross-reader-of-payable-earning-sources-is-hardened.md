@@ -1,0 +1,6 @@
+# tests/every-gross-reader-of-payable-earning-sources-is-hardened.law.test.ts
+
+- **Owner:** Accounting & BBJ Integrity Hardening
+- **Incidents:** `605ea9ca-2591-4e1c-ad5d-6544258a67fc` (`union_accounting_scheduler`) and `7a0c2e25-dada-4cf5-8441-d39bbfe823c8` (`processBBJPayout.exhausted`)
+- **Migration:** `supabase/migrations/20261124022200_harden_gross_original_rake_fallbacks_and_own_agent.sql`
+- **Invariant:** (1) Every remaining gross reconciliation reader of `public.accounting_payable_earning_sources` (`fn_accounting_union_earned_plan_v3`, `smarter_private.own_agent_interpreted_contract`, and `smarter_private.admit_own_agent_source`) reconciles gross original rake (`COALESCE((contract->>'rake_credit')::numeric, rake_credit)`), re-applies `fn_ca_promo_payable_contract` on own-agent re-interpretation so promo-funded fees earn zero own-agent commission, and enforces `gross - promo_excluded_credit = payable` while leaving `accounting_payable_earning_sources` payable for commission and rakeback. (2) `server/src/services/supabase/bbj.ts` (`bankThisHandsPendingDrop`) always re-reads `bbj_contributions` via `readContributionPoolId(params)` when `hand_bank_obligation_pending` is absent, structurally preventing the concurrent-banker TOCTOU race from regressing.
