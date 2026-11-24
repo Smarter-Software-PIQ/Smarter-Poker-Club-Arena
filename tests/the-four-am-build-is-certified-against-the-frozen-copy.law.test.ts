@@ -496,3 +496,211 @@ print(json.dumps({
     expect(plan).not.toContain('"$baseline_state" = served');
   });
 });
+
+// O22 (2026-11-24): the advance stopped at the first migration commit even
+// though every migration before the 05:45Z freeze start was already installed,
+// so the night's first push claimed 329332c24c32 (20 hours old, refused at
+// 02:07Z, missing the hand-gap fix 74d10c32eb6a). A migration proven installed
+// before the freeze starts no longer stops the advance; an unproven one does.
+describe('O22: the advance crosses migrations installed before the freeze', () => {
+  const plan = workflow.slice(workflow.indexOf('      - id: plan'));
+  const applier = read('.github/workflows/apply-merged-migration.yml');
+  const intent = read('scripts/ci/dispatch-intent.mjs');
+
+  function py(code: string): any {
+    const script = [
+      'import importlib.util, json, copy',
+      'from datetime import datetime',
+      `spec = importlib.util.spec_from_file_location('b', ${JSON.stringify(join(ROOT, 'scripts/ci/backup-freeze-baseline.py'))})`,
+      'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)',
+      `prequal_text = open(${JSON.stringify(join(ROOT, 'scripts/ci/read-engine-prequalification.py'))}).read()`,
+      `clock = m.clock_of(open(${JSON.stringify(join(ROOT, 'scripts/ci/merged-migration-dispatch.mjs'))}).read(), open(${JSON.stringify(join(ROOT, 'scripts/ci/select-daily-engine.py'))}).read())`,
+      code,
+    ].join('\n');
+    return JSON.parse(execFileSync('python3', ['-c', script], { encoding: 'utf8' }));
+  }
+
+  // Main's first-parent history after the pre-freeze baseline on 2026-11-24
+  // (UTC), and the Apply Merged Migration runs GitHub listed for that night.
+  const NIGHT = `
+spec_doc = m.parse_control_spec(prequal_text)
+PRE = '329332c24c3228ab7a65b4581abc9f2fb6fe0101'
+FIX = '74d10c32eb6a441abb6a4862c5bd5da3688e9177'
+SRV = '9e7e824c6f6750ef946351c73e986bfdca4d91f2'
+HISTORY = [
+  ('7ac45e4bb09fab0ffacb3d8a62bf3d720d3a2148', '2026-11-24T01:36:24Z', ['supabase/migrations/20261124004000_promo_wallet_sends_follow_promo_chip_rules.sql']),
+  ('8315292e32f4af2f50c9376c6bbaed31a68989cf', '2026-11-24T01:36:55Z', ['supabase/migrations/20261124003437_every_main_table_feeds_upward_from_higher_mains_and_feeders.sql']),
+  ('f3691fbe60973c96c3ff5a46d7a7e99fb3dbfff3', '2026-11-24T01:56:22Z', ['supabase/migrations/20261124010800_weekly_club_statement_reads_gross_original_rake.sql']),
+  ('bf145233e093a81f0cc22bd9e35a2b54c274dccd', '2026-11-24T04:10:50Z', ['supabase/migrations/20261124022200_harden_gross_original_rake_fallbacks_and_own_agent.sql']),
+  ('f660333f54845d3bbab89116d9b53c874573c126', '2026-11-24T04:46:38Z', ['src/services/GameServerAPI.ts']),
+  ('18a4e2476f400194b563d6de7a10618d06168fdb', '2026-11-24T05:00:57Z', ['supabase/migrations/20261124042000_harden_promo_wallet_invariants.sql']),
+  ('9d793d9bf8d5a1072e5624ed3a208e4777019ec6', '2026-11-24T05:15:12Z', ['scripts/ops/horse-decision-crossbuild-replay.mjs']),
+  ('fa8939f1c7d27538229fcca72ac744ba2985e480', '2026-11-24T05:16:20Z', ['.agent/handoffs/2026-11-23-antigravity-coordinator-HANDOFF-PROMPT.md']),
+  (SRV, '2026-11-24T05:20:48Z', ['server/src/engine/HorseOptionShadowStage.ts']),
+  ('d749a61e4c944cd46552272dec2739d13b8f86c9', '2026-11-24T05:24:25Z', ['supabase/migrations/20261124041800_stall_watch_v3_thaw_boundary.sql']),
+  (FIX, '2026-11-24T05:29:48Z', ['server/src/engine/ServerTableEngineDealing.ts', 'server/src/engine/noUnintendedDelayBetweenHands.law.test.ts']),
+  ('bf6fb356036e373515d27be981b3989b157d8b83', '2026-11-24T05:32:08Z', ['docs/ops/option-people-impact.md']),
+  ('edbb10cf765335a2b636849e09decaf9ea3cc3f0', '2026-11-24T05:54:39Z', ['supabase/migrations/20261124051600_harden_must_move_upward_ladder_all_doors.sql']),
+]
+commits, parent = [], PRE
+for sha, date, _ in HISTORY:
+    commits.append({'sha': sha, 'parents': [{'sha': parent}], 'commit': {'committer': {'date': date}}})
+    parent = sha
+COMPARE = {'status': 'ahead', 'total_commits': len(commits), 'commits': commits}
+FILES = {sha: [{'filename': f, 'status': 'added' if f.startswith('supabase/migrations/') else 'modified'} for f in fs] for sha, _, fs in HISTORY}
+BOT = {'login': 'github-actions[bot]'}
+def run(rid, file, created, updated, event='repository_dispatch', who=BOT, nonce='0123456789abcdef0123456789abcdef', attempt=1):
+    return {'id': rid, 'event': event, 'status': 'completed', 'conclusion': 'success', 'run_attempt': attempt,
+            'actor': who, 'triggering_actor': who, 'created_at': created, 'updated_at': updated,
+            'display_title': 'Apply Merged Migration ' + file + ((' ' + nonce) if nonce else '')}
+RUNS = [
+  run(45333181931, '20261124041800_stall_watch_v3_thaw_boundary.sql', '2026-11-24T05:25:11Z', '2026-11-24T05:26:01Z'),
+  run(45331298341, '20261124042000_harden_promo_wallet_invariants.sql', '2026-11-24T05:09:31Z', '2026-11-24T05:11:38Z', event='workflow_dispatch', who={'login': 'Smarter-Poker'}, nonce=''),
+  run(45330691625, '20261124042000_harden_promo_wallet_invariants.sql', '2026-11-24T05:04:12Z', '2026-11-24T05:05:07Z'),
+  run(45324648226, '20261124022200_harden_gross_original_rake_fallbacks_and_own_agent.sql', '2026-11-24T04:11:31Z', '2026-11-24T04:12:38Z'),
+  run(45309651494, '20261124010800_weekly_club_statement_reads_gross_original_rake.sql', '2026-11-24T02:04:16Z', '2026-11-24T02:05:10Z'),
+  run(45306423709, '20261124003437_every_main_table_feeds_upward_from_higher_mains_and_feeders.sql', '2026-11-24T01:37:37Z', '2026-11-24T01:39:07Z'),
+  run(45306359769, '20261124004000_promo_wallet_sends_follow_promo_chip_rules.sql', '2026-11-24T01:37:05Z', '2026-11-24T01:37:55Z'),
+]
+FREEZE = datetime.fromisoformat('2026-11-24T05:45:00+00:00')
+NOW = datetime.fromisoformat('2026-11-24T05:46:00+00:00')
+def proof(runs):
+    return lambda name, not_before: m.migration_install_proven(runs, name, not_before, FREEZE)
+def advance(runs=RUNS, files=FILES, installed='proof'):
+    kw = {} if installed is None else {'migration_installed': proof(runs)}
+    return m.find_zero_migration_advance(PRE, COMPARE, lambda s: files[s], spec_doc, **kw)
+`;
+
+  it('replays 2026-11-24 05:46Z: every pre-freeze migration installed, so the baseline is 74d10c32eb6a', () => {
+    const out = py(`${NIGHT}
+seen = []
+verdict = m.decide(
+  NOW, clock, lambda until: PRE, lambda sha, st: seen.append(sha) or False,
+  advance_zero_migration=lambda b: advance(),
+  control_selectable=lambda b: True,
+  served_contains=lambda b: False,
+)
+print(json.dumps({'verdict': verdict, 'seen': seen, 'old_rule': advance(installed=None), 'fix': FIX, 'pre': PRE}))
+`);
+    expect(out.old_rule).toBe(out.pre);
+    expect(out.verdict).toEqual({
+      state: 'due',
+      baseline: out.fix,
+      freezeStart: '2026-11-24T05:45:00Z',
+    });
+    expect(out.seen).toEqual([out.fix]);
+  });
+
+  it('an unproven or unreadable install stops the advance at that commit, exactly as before', () => {
+    const out = py(`${NIGHT}
+no_041800 = [r for r in RUNS if r['id'] != 45333181931]
+manual_only = [r for r in RUNS if r['id'] != 45330691625]
+modified = copy.deepcopy(FILES)
+modified['d749a61e4c944cd46552272dec2739d13b8f86c9'][0]['status'] = 'modified'
+rerun = copy.deepcopy(RUNS); rerun[0]['run_attempt'] = 2
+no_nonce = copy.deepcopy(RUNS); no_nonce[0]['display_title'] = 'Apply Merged Migration 20261124041800_stall_watch_v3_thaw_boundary.sql'
+print(json.dumps({
+  'missing_run': advance(no_041800),
+  'manual_dispatch_only': advance(manual_only),
+  'modified_file': advance(files=modified),
+  'rerun_attempt': advance(rerun),
+  'no_intent_nonce': advance(no_nonce),
+  'unreadable_runs': advance(None),
+  'no_proof_reader': advance(installed=None),
+  'srv': SRV, 'pre': PRE,
+  'unreadable_direct': m.migration_install_proven(None, 'x.sql', FREEZE, FREEZE),
+}))
+`);
+    expect(out.missing_run).toBe(out.srv);
+    // 18a4e2476f40 is proven only by the manual workflow_dispatch: not proof.
+    expect(out.manual_dispatch_only).toBe(out.pre);
+    expect(out.modified_file).toBe(out.srv);
+    expect(out.rerun_attempt).toBe(out.srv);
+    expect(out.no_intent_nonce).toBe(out.srv);
+    expect(out.unreadable_runs).toBe(out.pre);
+    expect(out.no_proof_reader).toBe(out.pre);
+    expect(out.unreadable_direct).toBeNull();
+  });
+
+  it('an install that completed at or after the freeze start, or before its commit, proves nothing', () => {
+    const out = py(`${NIGHT}
+late = copy.deepcopy(RUNS); late[0]['updated_at'] = '2026-11-24T05:45:00Z'
+early = copy.deepcopy(RUNS); early[0]['created_at'] = '2026-11-24T05:24:00Z'
+held = copy.deepcopy(RUNS) + [run(1, '20261124051600_harden_must_move_upward_ladder_all_doors.sql', '2026-11-24T10:20:00Z', '2026-11-24T10:21:00Z')]
+print(json.dumps({'late': advance(late), 'before_commit': advance(early), 'held': advance(held), 'srv': SRV, 'fix': FIX}))
+`);
+    expect(out.late).toBe(out.srv);
+    expect(out.before_commit).toBe(out.srv);
+    // edbb10cf7653 (05:54Z) is held by the freeze: it installs after 04:15 Chicago.
+    expect(out.held).toBe(out.fix);
+  });
+
+  it('a baseline its own claim run refused after the freeze began is refused, not claimed again', () => {
+    const out = py(`
+start = datetime.fromisoformat('2026-11-24T05:45:00+00:00')
+url = 'https://github.com/o/r/actions/runs/'
+claim = {'context': m.CONTEXT, 'state': 'pending', 'created_at': '2026-11-24T05:54:51Z',
+         'description': "Backup Engine claimed tonight's freeze baseline (run 45336597819)", 'target_url': url + '45336597819'}
+soak = {'context': m.CONTEXT, 'state': 'pending', 'created_at': '2026-11-24T06:10:00Z',
+        'description': 'Backup Engine is building, booting and soaking this version', 'target_url': url + '45336597819'}
+def fail(desc, rid='45336597819', at='2026-11-24T07:00:00Z'):
+    return {'context': m.CONTEXT, 'state': 'failure', 'created_at': at, 'description': desc, 'target_url': url + rid}
+old = fail('Backup Engine refused: hand_gap_unintended_delay_exceeded', '45302827099', '2026-11-24T02:07:21Z')
+noturn = {'context': m.CONTEXT, 'state': 'error', 'created_at': '2026-11-24T06:01:43Z', 'target_url': url + '45336597819',
+          'description': 'Backup Engine reached no verdict: this run never held the Backup host turn, so it tested nothing. See run.'}
+ended = lambda rid: 'completed'
+cs = lambda rows: m.certification_state(rows, start, ended)
+refused_rows = [fail('Backup Engine refused: hand_gap_unintended_delay_exceeded'), soak, claim, old]
+print(json.dumps({
+  'refused': cs(refused_rows),
+  'refused_before_freeze_only': cs([old]),
+  'no_verdict': cs([noturn, claim, old]),
+  'no_named_reason': cs([fail('Backup Engine refused: see run'), soak, claim]),
+  'other_run': cs([fail('Backup Engine refused: hand_gap_unintended_delay_exceeded', '999'), claim]),
+  'no_claim': cs([fail('Backup Engine refused: hand_gap_unintended_delay_exceeded')]),
+  'success_wins': cs([dict(soak, state='success', created_at='2026-11-24T08:00:00Z')] + refused_rows),
+  'decide': m.decide(datetime.fromisoformat('2026-11-24T08:00:00+00:00'), clock, lambda u: 'a' * 40, lambda sha, st: cs(refused_rows)),
+}))
+`);
+    expect(out.refused).toBe('refused');
+    expect(out.refused_before_freeze_only).toBe('due');
+    expect(out.no_verdict).toBe('due');
+    expect(out.no_named_reason).toBe('due');
+    expect(out.other_run).toBe('due');
+    expect(out.no_claim).toBe('due');
+    expect(out.success_wins).toBe('done');
+    expect(out.decide).toEqual({
+      state: 'refused',
+      baseline: 'a'.repeat(40),
+      freezeStart: '2026-11-24T05:45:00Z',
+    });
+  });
+
+  it('the proof it trusts is what the applier guarantees, and main() wires it read-only and bounded', () => {
+    // A github-actions[bot] repository_dispatch must prove its recorded intent,
+    // and that intent pins dry_run=false: such a run that succeeded installed.
+    expect(applier).toMatch(
+      /run-name: Apply Merged Migration \$\{\{ inputs\.migration \|\| github\.event\.client_payload\.migration \}\}\$\{\{ github\.event\.client_payload\.intent_nonce && format\(' \{0\}', github\.event\.client_payload\.intent_nonce\)/
+    );
+    expect(applier).toContain(
+      "if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'"
+    );
+    expect(applier).toContain(
+      'node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver apply-merged-migration'
+    );
+    expect(applier).toContain('0) echo "- result: **APPLIED, ALREADY-APPLIED or BOUNDED PAGES**');
+    expect(applier).toContain('test "$code" = "0"');
+    expect(intent).toMatch(/dry_run: \{ required: true, test: \(v\) => v === false \}/);
+    expect(reader).toContain("INSTALL_WORKFLOW = 'apply-merged-migration.yml'");
+    expect(reader).toContain('migration_installed=migration_installed,');
+    expect(reader).toMatch(/MAX_ADVANCE_COMMIT_READS = \d+/);
+    expect(reader).toContain(
+      '&status=success&exclude_pull_requests=true&per_page={INSTALL_RUNS_MAX}'
+    );
+    // `refused` is not `due`: the plan job plans exactly as before.
+    expect(plan).toContain(
+      'if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then'
+    );
+    expect(plan).not.toContain('"$baseline_state" = refused');
+  });
+});

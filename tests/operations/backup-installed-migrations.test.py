@@ -444,7 +444,11 @@ class Selector(unittest.TestCase):
 
     def test_extra_or_renamed_copies_are_rejected(self):
         live = self.candidate_set()
-        for copy, words in [({**live, '20261109000000': 'later'}, 'production does not have'),
+        # O23: the extra version must be one Club Arena ships (a version no tree
+        # ships is foreign and not compared; see ForeignMigration).
+        shipped = im.tree_versions(str(ROOT), self.TARGET, self.CONTROL)
+        extra = max(v for v in shipped if len(v) == 14 and v not in live)
+        for copy, words in [({**live, extra: 'later'}, 'production does not have ' + extra),
                             ({**live, FEEDER: 'other'}, 'different name for ' + FEEDER)]:
             ok, why, _ = self.judge(self.certified(copy), production(live))
             self.assertFalse(ok)
@@ -600,6 +604,235 @@ class Cutover(unittest.TestCase):
             self.assertEqual(run().returncode, 1)
         finally:
             os.unlink(handle.name)
+
+
+class ForeignMigration(unittest.TestCase):
+    """2026-11-24 (O23): World Hub, which shares production's history table,
+    installed 20261124052600, 20261124060500 and 20261124061800 during the
+    nightly freeze. Candidate d749a61e4c94 was certified at 06:29:38Z on a copy
+    taken ~05:30Z and the selector refused it: "Backup copy lacks installed
+    migration 20261124060500, 20261124061800" (Stage run 45330329311). None is
+    a Club Arena file; the serving engine already runs against them."""
+    T1, T2, T3 = '20261124052600', '20261124060500', '20261124061800'
+    TRIVIA = {T1: 'trivia_tournament_health_activation_window', T2: 'trivia_p3_v3_solo_hardening',
+              T3: 'trivia_finalize_question_lock_order'}
+    CA = {'20261123000000': 'ca_ordinary', '20261123010000': 'ca_second'}
+    WINDOW, OLD, NEW, MAIN = '20261123020000', '20261123030000', '20261123040000', '20261124010000'
+    MANUAL = {'manual': 'training_api_indexes.sql'}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='foreign-migration-')
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name, 'repo')
+        mig = self.repo / 'supabase' / 'migrations'
+        mig.mkdir(parents=True)
+        self.git('init', '-q')
+        self.git('config', 'user.email', 'fixture@example.invalid')
+        self.git('config', 'user.name', 'Migration fixture')
+        (self.repo / 'README').write_text('empty tree\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'no migrations yet')
+        self.empty = self.git('rev-parse', 'HEAD')
+        owners = self.repo / 'server' / 'standby' / 'standby-owners.sql'
+        owners.parent.mkdir(parents=True)
+        owners.write_text('-- owners fixture\n')
+        for v, n in self.CA.items():
+            (mig / f'{v}_{n}.sql').write_text('SELECT 1;\n')
+        (mig / f'{self.WINDOW}_window_only.sql').write_text('-- @install-window: daily-maintenance\nSELECT 1;\n')
+        (mig / f'{self.OLD}_superseded.sql').write_text(f'-- SUPERSEDED BY {self.NEW}\nSELECT 1;\n')
+        (mig / f'{self.NEW}_successor.sql').write_text('SELECT 2;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'target')
+        self.target = self.git('rev-parse', 'HEAD')
+        (mig / f'{self.MAIN}_ca_main_only.sql').write_text('SELECT 3;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'main after target')
+        self.control = self.git('rev-parse', 'HEAD')
+        # Production tonight: ours (successor installed, window not yet), the
+        # manual row, and all three trivia versions; the copy lacks two of them.
+        self.ours = {**self.CA, self.NEW: 'successor', self.MAIN: 'ca_main_only'}
+        self.production = {**self.ours, **self.MANUAL, **self.TRIVIA}
+        self.copy = {**self.ours, **self.MANUAL, self.T1: self.TRIVIA[self.T1]}
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True).strip()
+
+    def tree(self):
+        return im.tree_versions(str(self.repo), self.target, self.control)
+
+    def judge(self, copy, prod, tree, required=None, functions=None):
+        data = evidence(copy, functions)
+        return im.judge(data, database(data), production(prod), required, tree)
+
+    def test_tonight_replay_the_selector_accepts_the_copy_lacking_only_world_hub_versions(self):
+        tree = self.tree()
+        self.assertEqual(tree & set(self.TRIVIA), set())
+        self.assertIn(self.MAIN, tree)
+        ok, why = self.judge(self.copy, self.production, tree)
+        self.assertTrue(ok, why)
+        self.assertIn('never shipped left out', why)
+        # The same copy through the selector itself, run in the tree.
+        owners = (self.repo / 'server/standby/standby-owners.sql').read_bytes()
+        data = evidence(self.copy)
+        certified = {'database': {**database(data), 'ownersSha256': hashlib.sha256(owners).hexdigest()},
+                     'schemaEvidence': data}
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            ok, why, _ = sel.current_schema(self.control, certified, self.empty, self.target,
+                                            production(self.production))
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(ok, why)
+        # Without a readable tree the refusal is exactly tonight's.
+        ok, why = self.judge(self.copy, self.production, None)
+        self.assertFalse(ok)
+        self.assertIn('lacks installed migration 20261124060500, 20261124061800', why)
+
+    def test_a_foreign_version_in_the_copy_but_not_production_is_not_compared(self):
+        prod = {**self.ours, **self.MANUAL}
+        ok, why = self.judge(self.copy, prod, self.tree())
+        self.assertTrue(ok, why)
+        self.assertFalse(self.judge(self.copy, prod, None)[0])
+
+    def test_a_club_arena_version_missing_from_the_copy_is_still_refused(self):
+        for version in ('20261123010000', self.MAIN):  # the target's, and main's after the target
+            with self.subTest(version=version):
+                copy = {v: n for v, n in self.copy.items() if v != version}
+                for tree in (self.tree(), None):
+                    ok, why = self.judge(copy, self.production, tree)
+                    self.assertFalse(ok)
+                    self.assertEqual(why, 'Backup copy lacks installed migration ' + version
+                                     + ('' if tree else ', 20261124060500, 20261124061800'))
+
+    def test_a_club_arena_version_under_another_name_still_differs(self):
+        copy = {**self.copy, '20261123000000': 'ca_renamed'}
+        ok, why = self.judge(copy, self.production, self.tree())
+        self.assertFalse(ok)
+        self.assertIn('holds a different name for 20261123000000', why)
+
+    def test_required_definitions_are_still_compared_over_all_evidence(self):
+        changed = {**FUNCTIONS, PAYOUT: '0' * 64}
+        ok, why = self.judge(self.copy, self.production, self.tree(), functions=changed)
+        self.assertFalse(ok)
+        self.assertIn(PAYOUT, why)
+
+    def test_window_and_superseded_files_are_handled_as_before(self):
+        required = _real_required_by(str(self.repo), self.empty, self.target,
+                                     im.window_versions(str(self.repo), self.target))
+        self.assertEqual(set(required), {*self.CA, self.NEW})
+        self.assertTrue(self.judge(self.copy, self.production, self.tree(), required)[0])
+        lacking = {v: n for v, n in self.copy.items() if v != self.NEW}
+        ok, why = self.judge(lacking, {v: n for v, n in self.production.items() if v != self.NEW},
+                             self.tree(), required)
+        self.assertFalse(ok)
+        self.assertIn('lacks the exact candidate migration(s) ' + self.NEW, why)
+
+    def test_an_unreadable_tree_leaves_nothing_out(self):
+        repo = str(self.repo)
+        for tree in (im.tree_versions(repo), im.tree_versions(repo, self.target, ''),
+                     im.tree_versions(repo, self.target, 'f' * 40), im.tree_versions(repo, 'not-a-sha'),
+                     im.tree_versions(repo, self.empty), im.tree_versions(str(Path(self.tmp.name, 'none')), self.target)):
+            self.assertIsNone(tree)
+        self.assertEqual(im.ours(self.production, None), self.production)
+        self.assertFalse(self.judge(self.copy, self.production, None)[0])
+
+    def helper(self, *args, env=None):
+        return subprocess.run(['python3', '-B', HELPER, *args], capture_output=True, text=True,
+                              env={**os.environ, **(env or {})})
+
+    def files(self, copy, prod):
+        same = {s: hashlib.sha256(s.encode()).hexdigest() for s in se.SIGNATURES}
+        tmp = Path(self.tmp.name)
+        data = evidence(copy, same)
+        (tmp / 'copy.json').write_bytes(data)
+        (tmp / 'production.json').write_text(json.dumps({'migrations': sorted([v, n] for v, n in prod.items()),
+                                                         'functions': {s: s for s in se.SIGNATURES}}))
+        (tmp / 'certificate.json').write_text(json.dumps({'sha': self.target, 'database': database(data)}))
+        (tmp / 'listing.json').write_text(json.dumps(sorted([v, n] for v, n in prod.items())))
+        return tmp, hashlib.sha256(data).hexdigest()
+
+    def test_refresh_due_is_not_due_when_only_world_hub_moved(self):
+        tmp, sha = self.files(self.copy, self.production)
+        base = ['refresh-due', '--copy-evidence', str(tmp / 'copy.json'), '--copy-evidence-sha', sha,
+                '--production', str(tmp / 'production.json')]
+        # The O16 mid-soak call: --control only, in the workflow checkout.
+        res = self.helper(*base, '--repo', str(self.repo), '--control', self.control)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn('due=false\n', res.stdout)
+        # The refresh job's call: --control and --sha.
+        res = self.helper(*base, '--repo', str(self.repo), '--control', self.control, '--sha', self.target)
+        self.assertIn('due=false\n', res.stdout)
+        # No tree given, or an unreadable one: due exactly as today.
+        self.assertIn('due=true\n', self.helper(*base, '--repo', str(self.repo)).stdout)
+        self.assertIn('due=true\n', self.helper(*base, '--repo', str(tmp / 'none'), '--control', self.control).stdout)
+        # A Club Arena version (main's) the copy lacks is still due.
+        tmp, sha = self.files({v: n for v, n in self.copy.items() if v != self.MAIN}, self.production)
+        res = self.helper('refresh-due', '--copy-evidence', str(tmp / 'copy.json'), '--copy-evidence-sha', sha,
+                          '--production', str(tmp / 'production.json'), '--repo', str(self.repo),
+                          '--control', self.control)
+        self.assertIn('due=true\n', res.stdout)
+        self.assertIn('lacks installed migration ' + self.MAIN, res.stderr)
+
+    def test_status_agrees_with_the_certified_digest_when_only_world_hub_moved(self):
+        # Certified on the ~05:30Z copy (trivia T1 only); production then gained T2, T3.
+        tmp, _ = self.files(self.copy, self.production)
+        named = self.helper('certified-digest', '--evidence', str(tmp / 'copy.json'), '--certificate',
+                            str(tmp / 'certificate.json'), '--repo', str(self.repo), '--sha', self.target,
+                            '--control', self.control)
+        self.assertEqual(named.returncode, 0, named.stderr)
+        digest = named.stdout.strip()
+        self.assertEqual(digest, im.digest(self.ours))
+        due = self.helper('refresh-due', '--copy-evidence', str(tmp / 'copy.json'), '--copy-evidence-sha',
+                          hashlib.sha256((tmp / 'copy.json').read_bytes()).hexdigest(), '--production',
+                          str(tmp / 'production.json'), '--repo', str(self.repo), '--control', self.control,
+                          '--sha', self.target)
+        self.assertIn(f'comparable={digest}\n', due.stdout)
+        def status(prod, *extra):
+            listing = tmp / 'listing.json'
+            listing.write_text(json.dumps(sorted([v, n] for v, n in prod.items())))
+            return self.helper('status', '--env-file', '/nonexistent', '--repo', str(self.repo), '--sha', self.target,
+                               '--certified', digest, *extra,
+                               env={'ENGINE_INSTALLED_MIGRATIONS_PRODUCTION_FIXTURE': str(listing)})
+        ready = status(self.production, '--control', self.control)
+        self.assertEqual(ready.returncode, im.READY, ready.stdout)
+        # The window file installing in the break is left to the door check, as before.
+        self.assertEqual(status({**self.production, self.WINDOW: 'window_only'}, '--control', self.control).returncode,
+                         im.READY)
+        # A Club Arena migration merged and installed after certification (in the
+        # release host's newer control tree) still refuses; not yet installed, READY.
+        (self.repo / 'supabase/migrations/20261124020000_ca_later.sql').write_text('SELECT 4;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'merged after certification')
+        newer = self.git('rev-parse', 'HEAD')
+        self.assertEqual(status(self.production, '--control', newer).returncode, im.READY)
+        later = status({**self.production, '20261124020000': 'ca_later'}, '--control', newer)
+        self.assertEqual(later.returncode, im.REFUSED, later.stdout)
+        self.assertIn('installed or changed after certification', later.stdout)
+        renamed = status({**self.production, self.MAIN: 'other'}, '--control', self.control)
+        self.assertEqual(renamed.returncode, im.REFUSED, renamed.stdout)
+        # No control, or an unreadable one, leaves nothing out: refused, never READY.
+        self.assertEqual(status(self.production).returncode, im.REFUSED)
+        self.assertEqual(status(self.production, '--control', 'e' * 40).returncode, im.REFUSED)
+        # On the release host the transaction passes no --control: the helper
+        # reads its own immutable generation's control-sha manifest.
+        generation = tmp / 'generation'
+        generation.mkdir()
+        helper = generation / 'engine-release-installed-migrations.py'
+        helper.write_bytes(Path(HELPER).read_bytes())
+        listing = tmp / 'listing.json'
+        def host(manifest):
+            (generation / 'control-sha').write_text(manifest)
+            listing.write_text(json.dumps(sorted([v, n] for v, n in self.production.items())))
+            return subprocess.run(['python3', '-B', str(helper), 'status', '--env-file', '/nonexistent', '--repo',
+                                   str(self.repo), '--sha', self.target, '--certified', digest],
+                                  capture_output=True, text=True,
+                                  env={**os.environ, 'ENGINE_INSTALLED_MIGRATIONS_PRODUCTION_FIXTURE': str(listing)})
+        self.assertEqual(host(self.control + '\n').returncode, im.READY)
+        for manifest in ('', 'not-a-sha\n', 'e' * 40 + '\n'):
+            with self.subTest(manifest=manifest):
+                self.assertEqual(host(manifest).returncode, im.REFUSED)
+        self.assertEqual(im.generation_control(generation / 'absent'), '')
 
 
 if __name__ == '__main__':
