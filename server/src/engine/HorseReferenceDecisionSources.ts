@@ -169,6 +169,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off hold'em value and calls priced (HORSE DECISIONS lane 2026-11-19, holdemValueAndCallsArePriced): NLH cash heads-up postflop, the value raise, the made-hand bet or check, the facing-bet call and the river bet priced against the bettor's line range and measured response; off returns the decision unchanged",
     'src/engine/HorseHoldemLateStreetIsPriced.ts':
       "the default-off deterministic priced Hold'em late-street chooser (plo-lead6 2026-11-24, holdemLateStreetIsPriced and holdemLateStreetBluffRaiseIsPriced): NLH turn and river (and the flop under holdemFlopIsPriced, cash and Lightning), bet / size / check and call / fold by EV against his fold curve, bluff share, blockers and nut advantage with a computed two-street realization; off returns the decision untouched",
+    'src/engine/HorseHoldemOwnPreflopRange.ts':
+      "the default-off priced Hold'em chooser's model of the Horse's own preflop range (plo-lead6 2026-11-24, holdemLateStreetIsPriced / holdemFlopIsPriced): the Horse's own preflop policy asked, sandboxed, with every hand class on each preflop frame it acted on; off never runs",
     'src/engine/HorseHoldemLateStreetPriors.ts':
       'the generated population priors of holdemLateStreetIsPriced and holdemFlopIsPriced (fold to a flop/turn/river bet by line and size, fold to a raise), refit with scripts/horse-measure/holdem-late-street/fit.py',
     'src/engine/HorseHoldemTurnRiverRaiseNeedsValue.ts':
