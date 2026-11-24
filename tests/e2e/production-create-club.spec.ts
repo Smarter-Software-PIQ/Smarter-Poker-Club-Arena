@@ -166,7 +166,9 @@ test.describe('Production Create A Club Certificate', () => {
     const copiedInvite = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedInvite).toContain(shortUrl);
     expect(copiedInvite).toContain(`Invited You To Join ${clubName} On Smarter.Poker!`);
-    expect(copiedInvite).toMatch(/Club ID: \S+/);
+    // Since #11455 (2026-11-19) the shared text is the signed headline, the club's
+    // measured figures and the link; it no longer carries a Club ID line.
+    expect(copiedInvite).not.toContain('Club ID');
     const copiedScreenshot = 'test-results/create-club-link-copied-mobile.png';
     await page.screenshot({ path: copiedScreenshot, fullPage: true });
     await testInfo.attach('Send Link Clipboard Result', {

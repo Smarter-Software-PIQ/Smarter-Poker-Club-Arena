@@ -23,6 +23,8 @@ describe('Create Club production certification contract', () => {
     expect(spec).toContain('navigator.clipboard.readText()');
     expect(spec).toContain('expect(copiedInvite).toContain(shortUrl)');
     expect(spec).toContain("name: 'Link Copied', exact: true }");
+    expect(spec).toContain("expect(copiedInvite).not.toContain('Club ID')");
+    expect(read('src/services/ClubInviteService.ts')).not.toContain('Club ID');
     expect(spec).toContain("await testInfo.attach('Immediate Send Link'");
     for (const file of [
       'create-club-defaults-mobile.png',
