@@ -40,7 +40,14 @@ run_job() {
   [ "$st" = err ] && { say "database unreachable checking $F; retrying next pass"; return 1; }
   if [ "$st" = yes ]; then say "$F already recorded; verifying only"; else
     $O/install-driver.sh "$F" "$LOG"; rc=$?
-    [ $rc -eq 0 ] || { finish "$J" failed "install rc=$rc (see log)"; return; }
+    # A job fails only when its version is still not recorded: another route
+    # (the merge dispatcher's own run) may have installed it while the driver
+    # stopped, and that install is verified below like any other.
+    if [ $rc -ne 0 ]; then case "$(rec_state "$V")" in
+      yes) say "$F recorded by another route after driver rc=$rc; verifying only";;
+      err) say "database unreachable re-checking $F after driver rc=$rc; retrying next pass"; return 1;;
+      *) finish "$J" failed "install rc=$rc (see log)"; return;;
+    esac; fi
   fi
   gh_ api -H 'Accept: application/vnd.github.raw' "repos/$R/contents/supabase/migrations/$F?ref=main" > "$Q/running/$V.sql" 2>>$LOG || { finish "$J" failed "could not fetch merged file"; return; }
   wait_window  # the readback re-executes definitions: DDL is refused :50 to :03 UTC
