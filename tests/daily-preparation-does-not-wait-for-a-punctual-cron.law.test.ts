@@ -1641,3 +1641,222 @@ describe('the owner says what the cycle will find while there is still time (O25
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });
+
+describe('the post-seal Backup completion is an election trigger too (O25 addition, 2026-11-24)', () => {
+  // The post-seal Backup (repository_dispatch, display title "Backup after
+  // seal <run>-<attempt>") completes inside the next cycle's election window.
+  // Stage used to admit only the completion of a push Backup. Both are now the
+  // same election trigger with the same title, so every reader of the
+  // election (this workflow, read-engine-prequalification.py and
+  // engine-release-window-doors.py) still agrees on who can own a cycle.
+  const evaluate = (expression: string, context: Record<string, unknown>) => {
+    const body = expression
+      .replace(/^\$\{\{\s*/, '')
+      .replace(/\s*\}\}$/, '')
+      .replace(/\b(?:github|inputs)(?:\.[A-Za-z_]+)+/g, (path) => `get(${JSON.stringify(path)})`);
+    const get = (path: string) =>
+      path
+        .split('.')
+        .reduce<unknown>(
+          (value, key) =>
+            value !== null && typeof value === 'object'
+              ? ((value as Record<string, unknown>)[key] ?? null)
+              : null,
+          context
+        );
+    const startsWith = (value: unknown, prefix: string) =>
+      String(value ?? '')
+        .toLowerCase()
+        .startsWith(prefix.toLowerCase());
+    return new Function('get', 'startsWith', `return (${body});`)(get, startsWith);
+  };
+  const completion = (run: Record<string, unknown>) => ({
+    github: {
+      event_name: 'workflow_run',
+      repository: 'test/repo',
+      ref: 'refs/heads/main',
+      event: {
+        workflow_run: {
+          event: 'push',
+          path: '.github/workflows/backup-engine.yml',
+          head_repository: { full_name: 'test/repo' },
+          head_branch: 'main',
+          run_attempt: 1,
+          conclusion: 'success',
+          display_title: 'fix: something (#1)',
+          ...run,
+        },
+      },
+    },
+    inputs: {},
+  });
+  const reservation = 'Automatic Backup daily reservation';
+  const outside = 'Backup completion outside election';
+  const seal = { event: 'repository_dispatch', display_title: 'Backup after seal 45408673446-1' };
+
+  it('admits a successful first-attempt post-seal Backup on main exactly like a push Backup', () => {
+    for (const run of [{}, seal]) {
+      expect(evaluate(stage['run-name'], completion(run)), JSON.stringify(run)).toBe(reservation);
+      expect(evaluate(stage.jobs.detect.if, completion(run)), JSON.stringify(run)).toBe(true);
+    }
+  });
+
+  it('admits no other Backup completion: not a non-seal dispatch, a replay, a failure, another branch or repository', () => {
+    const refused: Record<string, unknown>[] = [
+      { event: 'repository_dispatch', display_title: 'Backup Engine (Clone, Stage, Certify)' },
+      { event: 'repository_dispatch', display_title: '' },
+      { event: 'repository_dispatch', display_title: null },
+      { event: 'repository_dispatch', display_title: 'Backup after seal' },
+      { event: 'repository_dispatch', display_title: 'A Backup after seal 1-1' },
+      { event: 'workflow_dispatch', display_title: 'Backup after seal 1-1' },
+      { event: 'schedule', display_title: 'Backup after seal 1-1' },
+      { ...seal, run_attempt: 2 },
+      { ...seal, conclusion: 'failure' },
+      { ...seal, conclusion: 'cancelled' },
+      { ...seal, head_branch: 'other' },
+      { ...seal, head_repository: { full_name: 'fork/repo' } },
+      { ...seal, path: '.github/workflows/other.yml' },
+      { run_attempt: 2 },
+      { conclusion: 'failure' },
+    ];
+    for (const run of refused) {
+      expect(evaluate(stage['run-name'], completion(run)), JSON.stringify(run)).toBe(outside);
+      expect(evaluate(stage.jobs.detect.if, completion(run)), JSON.stringify(run)).toBe(false);
+    }
+    // The other events are untouched by the addition.
+    const other = (event_name: string, event: Record<string, unknown> = {}) => ({
+      github: { event_name, repository: 'test/repo', ref: 'refs/heads/main', event },
+      inputs: {},
+    });
+    expect(evaluate(stage['run-name'], other('push'))).toBe('Daily engine reservation');
+    expect(evaluate(stage['run-name'], other('schedule'))).toBe('Daily engine reservation');
+    expect(evaluate(stage.jobs.detect.if, other('push'))).toBe(true);
+    expect(
+      evaluate(
+        stage['run-name'],
+        other('repository_dispatch', { action: 'prepare-daily-engine', sender: { type: 'User' } })
+      )
+    ).toBe('Original operator daily preparation');
+  });
+
+  it('inside the window it reserves, outside it does nothing, and the election counts it as it claims', () => {
+    const real = JSON.parse(
+      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+    );
+    const policy = { ...real, frequency: 'three-hourly' };
+    const health = JSON.stringify({
+      liveness: 'ok',
+      maintenance: {
+        schedule: { frequency: 'three-hourly', startHours: [1, 4, 7, 10, 13, 16, 19, 22] },
+      },
+    });
+    // The seal of the 22:00 cycle; its Backup completes at 22:55 CST (04:55Z),
+    // five minutes into the 01:00 cycle's election window (04:50Z-06:50Z).
+    const backup = {
+      id: 3000,
+      event: 'workflow_run',
+      created_at: '2026-11-23T04:55:00Z',
+      display_title: reservation,
+      run_attempt: 1,
+      status: 'in_progress',
+      conclusion: null,
+      updated_at: '2026-11-23T04:55:05Z',
+    };
+    const owns = admit({
+      event: 'workflow_run',
+      policy,
+      health,
+      runId: 3000,
+      createdAt: backup.created_at,
+      runs: [backup],
+    });
+    expect(owns.outputs.daily_preparation, owns.stdout).toBe('true');
+    expect(owns.outputs.daily_preparation_date).toBe('2026-11-23T01');
+    expect(owns.outputs.cutoff_epoch).toBe(epoch('2026-11-23T06:30:00Z'));
+    // A later push defers to it by name: the election counts what claims.
+    const push = {
+      id: 3001,
+      event: 'push',
+      created_at: '2026-11-23T05:10:00Z',
+      display_title: 'Daily engine reservation',
+    };
+    const later = admit({
+      event: 'push',
+      policy,
+      health,
+      runId: 3001,
+      createdAt: push.created_at,
+      runs: [backup, push],
+    });
+    expect(later.outputs.daily_preparation).toBe('false');
+    expect(later.stdout).toContain('belongs to earlier run 3000');
+    // A refused completion carries the other title and never competes.
+    const notCounted = admit({
+      event: 'push',
+      policy,
+      health,
+      runId: 3001,
+      createdAt: push.created_at,
+      runs: [{ ...backup, display_title: outside }, push],
+    });
+    expect(notCounted.outputs.daily_preparation).toBe('true');
+    // Completed before the window opens (04:49Z) or after it ends: nothing.
+    for (const createdAt of ['2026-11-23T04:49:59Z', '2026-11-23T06:50:00Z']) {
+      const ignored = admit({ event: 'workflow_run', policy, health, runId: 3000, createdAt });
+      expect(ignored.outputs.daily_preparation, createdAt).toBe('false');
+      expect(ignored.outputs.allowed, createdAt).toBe('false');
+      expect(ignored.listed, createdAt).toEqual([]);
+    }
+    // And when it cannot claim, it stands down like any other run (O25).
+    const stoodDown = admit({
+      event: 'push',
+      policy,
+      health,
+      runId: 3001,
+      createdAt: push.created_at,
+      runs: [
+        {
+          ...backup,
+          status: 'completed',
+          conclusion: 'success',
+          updated_at: '2026-11-23T04:55:25Z',
+        },
+        push,
+      ],
+    });
+    expect(stoodDown.outputs.daily_preparation, stoodDown.stdout).toBe('true');
+  });
+
+  it('adds no title: every reader of the election still names the same runs', () => {
+    const titles = [
+      ...stage['run-name'].matchAll(/'([A-Z][A-Za-z -]+ (?:reservation|election|preparation))'/g),
+    ]
+      .map((m) => m[1])
+      .sort();
+    expect(titles).toEqual([
+      'Automatic Backup daily reservation',
+      'Backup completion outside election',
+      'Daily engine reservation',
+      'Operator request outside election',
+      'Original operator daily preparation',
+    ]);
+    expect(admission).toContain(
+      'automatic_backup = run.get("event") == "workflow_run" and (title == "Automatic Backup daily reservation"'
+    );
+    expect(
+      readFileSync(join(root, 'scripts/ci/read-engine-prequalification.py'), 'utf8')
+    ).toContain('("Daily engine reservation", "Automatic Backup daily reservation")');
+    expect(
+      readFileSync(join(root, 'server/scripts/engine-release-window-doors.py'), 'utf8')
+    ).toContain("title == 'Automatic Backup daily reservation'");
+    // The trigger itself is unchanged: the same workflow_run subscription.
+    expect(stage.on.workflow_run).toEqual({
+      workflows: ['Backup Engine (Clone, Stage, Certify)'],
+      branches: ['main'],
+      types: ['completed'],
+    });
+    expect(
+      readFileSync(join(root, '.github/workflows/backup-engine.yml'), 'utf8').split('\n')[1]
+    ).toContain("format('Backup after seal {0}', github.event.client_payload.release_run_key)");
+  });
+});
