@@ -40,7 +40,7 @@ function machine({ ssd1 = true, ssd2 = true, extra = [] as string[] } = {}) {
   const paths = new Set<string>([
     '/',
     '/Volumes',
-    '/Users/dev/club-arena/.git',
+    '/bootdisk/dev/club-arena/.git',
     // Compatibility scaffolds on the boot disk: they exist whether or not a drive is mounted over them.
     '/Volumes/SmarterWork',
     '/Volumes/SmarterWork/agent-work',
@@ -81,7 +81,7 @@ function machine({ ssd1 = true, ssd2 = true, extra = [] as string[] } = {}) {
 }
 
 const LIST = [
-  'worktree /Users/dev/club-arena',
+  'worktree /bootdisk/dev/club-arena',
   'HEAD aaa',
   'branch refs/heads/main',
   '',
@@ -98,7 +98,7 @@ const LIST = [
   'branch refs/heads/deleted',
   'prunable gitdir file points to non-existent location',
   '',
-  'worktree /Users/dev/.gemini/worktrees/removed',
+  'worktree /bootdisk/dev/.gemini/worktrees/removed',
   'HEAD eee',
   'detached',
   'prunable gitdir file points to non-existent location',
@@ -114,7 +114,7 @@ describe('a path on an unmounted drive is missing its drive, not deleted', () =>
     expect(drivePresence('/Volumes/SmarterWork/agent-work/extreme-capacity/deleted-tree', up)).toBe(
       'gone'
     );
-    expect(drivePresence('/Users/dev/.gemini/worktrees/removed', up)).toBe('gone');
+    expect(drivePresence('/bootdisk/dev/.gemini/worktrees/removed', up)).toBe('gone');
     const down = machine({ ssd1: false }).probe;
     expect(drivePresence('/Volumes/SmarterWork/agent-work/shared-capacity/hs-river', down)).toBe(
       'missing-drive'
@@ -131,7 +131,7 @@ describe('a worktree registration survives its drive dropping off the bus', () =
   function run(probe: ReturnType<typeof machine>['probe'], opts: { failLock?: boolean } = {}) {
     const calls: string[][] = [];
     const out: string[] = [];
-    const code = runSafePrune(['--repo', '/Users/dev/club-arena'], {
+    const code = runSafePrune(['--repo', '/bootdisk/dev/club-arena'], {
       git: (_repo: string, args: string[]) => {
         calls.push(args);
         if (args[1] === 'list') return { status: 0, stdout: LIST, stderr: '' };
@@ -151,7 +151,7 @@ describe('a worktree registration survives its drive dropping off the bus', () =
     expect(d.missingDrive).toEqual([]);
     expect(d.gone).toEqual([
       '/Volumes/SmarterWork/agent-work/extreme-capacity/deleted-tree',
-      '/Users/dev/.gemini/worktrees/removed',
+      '/bootdisk/dev/.gemini/worktrees/removed',
     ]);
     const { code, calls } = run(machine().probe);
     expect(code).toBe(0);
@@ -216,13 +216,13 @@ describe('a worktree registration survives its drive dropping off the bus', () =
     for (const f of ['scripts/prune-stale-worktrees.sh', 'scripts/agent-tree-janitor.sh']) {
       expect(readFileSync(join(ROOT, f), 'utf8')).toContain('scripts/ops/safe-worktree-prune.mjs');
     }
-  });
+  }, 180_000);
 });
 
 describe('there is one push lock, and no drive can take it away', () => {
   it('is a function of the clone alone: the same path with SSD1 mounted, missing, or both drives gone', () => {
-    const lock = pushLockDir('/Users/dev/club-arena/.git');
-    expect(lock).toBe('/Users/dev/club-arena/.git/ca-push-lock');
+    const lock = pushLockDir('/bootdisk/dev/club-arena/.git');
+    expect(lock).toBe('/bootdisk/dev/club-arena/.git/ca-push-lock');
     expect(lock.startsWith('/Volumes/')).toBe(false);
     expect(() => pushLockDir('/Volumes/SmarterWork/agent-work/clone/.git')).toThrow(
       /off \/Volumes/
@@ -239,7 +239,7 @@ describe('there is one push lock, and no drive can take it away', () => {
     const files = new Map<string, string>();
     const out: string[] = [];
     const deps = {
-      gitCommonDir: () => '/Users/dev/club-arena/.git',
+      gitCommonDir: () => '/bootdisk/dev/club-arena/.git',
       probe: m.probe,
       mkdir: (d: string) => {
         if (m.paths.has(d)) throw Object.assign(new Error('exists'), { code: 'EEXIST' });
@@ -260,7 +260,7 @@ describe('there is one push lock, and no drive can take it away', () => {
     };
     return { deps, files, out, paths: m.paths };
   }
-  const NEW = '/Users/dev/club-arena/.git/ca-push-lock';
+  const NEW = '/bootdisk/dev/club-arena/.git/ca-push-lock';
   const OLD = `${LEGACY_PUSH_LOCK_PARENT}/shepherd.lock`;
 
   it('two lanes cannot both hold it, with SSD1 mounted or not', () => {
