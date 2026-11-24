@@ -40,6 +40,7 @@ import {
   extractAlarmBaseline,
   formatSwitchChangeLogLine,
   formatSwitchStateSnapshot,
+  parseAuthorityDocEvidence,
   parseCliArgs,
   parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
@@ -200,6 +201,17 @@ function loadDbMaintenance(queryDb) {
   return { platformFrozen, breakRows, windowRows };
 }
 
+function resolveAuthorityEvidence(flags, readFileBuffer) {
+  if (!flags.authority) return 'unreadable';
+  try {
+    const resolved = resolve(REPO_ROOT, flags.authority);
+    if (readFileBuffer === defaultReadFileBuffer && !existsSync(resolved)) return 'unreadable';
+    return parseAuthorityDocEvidence(readFileBuffer(flags.authority).toString('utf8'));
+  } catch {
+    return 'unreadable';
+  }
+}
+
 function resolveEvidenceSha(flags, readFileBuffer) {
   if (flags.evidenceSha) return flags.evidenceSha.trim().toLowerCase();
   if (!flags.authority) return '';
@@ -333,6 +345,9 @@ async function runPreflightCore(option, targetState, flags, deps) {
     evidenceRecorded = evRows.length > 0;
   }
   const releaseDefaultOn = resolveReleaseDefaultOn(safeOpt, deps.readFile);
+  const authorityEvidence = EVIDENCE_REQUIRED_STATES.includes(safeState)
+    ? resolveAuthorityEvidence(flags, deps.readFileBuffer)
+    : null;
 
   const result = evaluatePreflight({
     option: safeOpt,
@@ -357,6 +372,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
     inboxText,
     requireInbox: flags.requireInbox,
     recentConfigAlarms,
+    authorityEvidence,
   });
 
   return {
