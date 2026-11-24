@@ -462,11 +462,23 @@ describe('the workflow adds chances, not authority', () => {
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'cutover-log-keep-serving',
+      'cutover-outcome-record',
       'detect',
       'selection',
       'signal',
       'window-migrations',
     ]);
+    // cutover-outcome-record (CR1, 2026-11-24) is detection only: it reads
+    // artifacts and opens one issue on a repeated refusal, has no environment
+    // or secrets, and must be able to fail the run (no continue-on-error).
+    expect(stage.jobs['cutover-outcome-record'].permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+      issues: 'write',
+    });
+    expect(stage.jobs['cutover-outcome-record']['continue-on-error']).toBeUndefined();
+    expect(stage.jobs['cutover-outcome-record'].environment).toBeUndefined();
+    expect(stage.jobs.signal.needs).not.toContain('cutover-outcome-record');
     // cutover-log-keep-serving (O20) is reporting-only on issue #11599:
     // no contents:write, no environment/secrets, continue-on-error: true.
     expect(stage.jobs['cutover-log-keep-serving'].permissions).toEqual({
