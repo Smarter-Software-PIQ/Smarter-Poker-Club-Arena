@@ -76,6 +76,7 @@ import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import type { Tournament } from '../../types/database.types';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import './TournamentDetails.css';
+import { MttEventHeader } from '../../components/tournament/details/MttEventHeader';
 import { TournamentRegisterButton } from '../../components/tournament/TournamentRegisterButton';
 import { useToast } from '../../components/common/Toast';
 import PageErrorBoundary from '../../components/common/PageErrorBoundary';
@@ -103,7 +104,7 @@ import { normaliseTabId, tabsFor } from '../../components/tournament/details/typ
 import { blindLevelMinutes } from '../../components/lobby/tournamentFigures';
 import { reportError } from '../../utils/errorReporter';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
-import { formatBuyIn } from '../../utils/buyIn';
+import { formatBuyIn, lobbyBuyInLabel } from '../../utils/buyIn';
 import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
@@ -1828,7 +1829,8 @@ export default function TournamentDetails({
   const handleRegisterRef = useRef(handleRegister);
   handleRegisterRef.current = handleRegister;
   const sitAndGoInviteToken = useMemo(
-    () => (tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken),
+    () =>
+      tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken,
     [tournamentIdOverride, tournamentId, search]
   );
   const sitAndGoHeldParam = useMemo(() => {
@@ -2375,7 +2377,7 @@ export default function TournamentDetails({
   return (
     <PageErrorBoundary pageName="TournamentDetails">
       <div
-        className="tournament-details"
+        className="tournament-details console-lobby"
         ref={shellRef}
         data-active-tab={activeTab}
         data-embedded={isEmbedded}
@@ -2427,41 +2429,38 @@ export default function TournamentDetails({
             strip and, in the popup, a third header above both. The rule
             badges (Freezeout, Rebuy, Bounty ...) stay in DetailOverviewTab,
             which is the only place they have ever been drawn. */}
-        <header className="details-header">
-          <div className="details-header__top">
-            <span className={`details-status details-status--${lobbyStatus.tone}`}>
-              {lobbyStatus.label}
-            </span>
-            <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
-            <div className="details-header__actions">
-              <TournamentRegisterButton
-                className="btn-invite-game"
-                data-testid="tournament-invite-btn"
-                onClick={() => void inviteToGame()}
-              >
-                Invite To Game
-              </TournamentRegisterButton>
-              {tournamentAction('header')}
-            </div>
-            {closeButton}
-          </div>
-          <h1 className="tournament-name">{formatTournamentTitle(tournament.name)}</h1>
-          <div className="tournament-desc">
-            {/* Whole chips only (Dan 2026-08-20) - formatBuyIn leads with the
-                total the player actually pays and never prints a decimal. */}
+        <MttEventHeader
+          name={formatTournamentTitle(tournament.name)}
+          format={tournament}
+          status={lobbyStatus.label}
+          price={
             <p className="tournament-buyin">
-              {formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament)}{' '}
-              {tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
-                ? 'Diamonds'
-                : 'Chips'}{' '}
-              Buy-In
+              {lobbyBuyInLabel(
+                formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament),
+                tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
+                  ? 'Diamonds'
+                  : 'Chips'
+              )}
             </p>
-            {/* Owner-written short description (2026-08-22). No tab renders it:
-                it is the event's own identity copy, not a figure, so it belongs
-                beside the name on every tab rather than inside one. */}
-            {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
-          </div>
-        </header>
+          }
+          terms={[
+            tournament.starting_chips &&
+              `${Number(tournament.starting_chips).toLocaleString()} Starting Stack`,
+            tabProps.blindLevels?.[0]?.duration && `${tabProps.blindLevels[0].duration} Min Levels`,
+            tournament.late_reg_levels && `Late Reg Through Lv ${tournament.late_reg_levels}`,
+          ]
+            .filter(Boolean)
+            .join('　·　')}
+          info={
+            <>
+              {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
+              <small>ID: {tournament.id.slice(0, 8)}</small>
+            </>
+          }
+          onInvite={() => void inviteToGame()}
+          close={closeButton}
+          actions={tournamentAction('header')}
+        />
 
         {/* Tabs */}
         {/* A tablist is a ROVING focus widget, not seven tab stops. Declaring

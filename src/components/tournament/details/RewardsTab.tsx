@@ -1,3 +1,4 @@
+import rewardChips from '../../lobby/console-art/reward-chips.webp';
 import { payoutSharePercent, pendingHouseShare } from '../../../utils/tournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -883,6 +884,8 @@ export default function RewardsTab({
   const heroBounties = hero ? num(hero.bounty_winnings) : 0;
   const heroAwardKind = hero ? awardEvidence.kindFor(hero.user_id, hero.prize) : 'unknown';
 
+  const FundingSection =
+    hasGuarantee && !isSatellite && !isFinalised && !isComplete ? 'details' : 'section';
   return (
     <div className="rw">
       {/* ── YOUR RESULT: pinned first, like Ranking (Dan 2026-11-08) ──────── */}
@@ -949,7 +952,35 @@ export default function RewardsTab({
       )}
 
       {/* ── HEADLINE: the pool, the guarantee, the bubble ─────────────────── */}
-      <section className="tl-panel rw-head">
+      {hasGuarantee && !isSatellite && (
+        <section
+          className="mtt-rewards-summary"
+          data-provisional={!isFinalised && !isComplete && !isCancelled}
+        >
+          <h3>
+            Rewards <small>{isFinalised || isComplete ? 'Final' : 'Provisional'}</small>
+          </h3>
+          <div className="console-prize">
+            <img src={rewardChips} alt="" />
+            <div>
+              <strong>{chips(guarantee)}</strong>
+              <span>Guaranteed</span>
+            </div>
+          </div>
+          <dl className="console-ledger">
+            <div>
+              <dt>Contributed (Prize Pool)</dt>
+              <dd>{collectedPool === null ? '—' : chips(collectedPool)}</dd>
+            </div>
+            <div>
+              <dt>Overlay</dt>
+              <dd>{currentFunding ? chips(overlay) : '—'}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+      <FundingSection className="tl-panel rw-head">
+        {FundingSection === 'details' && <summary>Prize Funding Details</summary>}
         <div className="tl-section-head">
           <h3>Prizes</h3>
           {isSatellite ? (
@@ -1152,12 +1183,21 @@ export default function RewardsTab({
         )}
 
         {provisionalReason && <p className="rw-provisional">{provisionalReason}</p>}
-      </section>
+      </FundingSection>
 
       {/* Place prizes and every recorded bounty award. */}
-      <section className="tl-panel rw-payouts">
+      <section
+        className="tl-panel rw-payouts"
+        data-projected={!isFinalised && !isComplete && !isCancelled && !isSatellite && !isRunning}
+      >
         <div className="tl-section-head">
-          <h3>{isSatellite ? 'Satellite Awards' : 'Payouts'}</h3>
+          <h3>
+            {isSatellite
+              ? 'Satellite Awards'
+              : !isFinalised && !isComplete && !isCancelled
+                ? 'Provisional Payouts'
+                : 'Payouts'}
+          </h3>
           {/* ONLY ONCE THE FIELD IS AT LEAST AS BIG AS THE LADDER (2026-10-04
               review pass). The share is paid places over entries, and while an
               event is still filling the ladder is longer than the field: nine
@@ -1182,6 +1222,17 @@ export default function RewardsTab({
             )}
         </div>
 
+        {!isSatellite &&
+          !isFinalised &&
+          !isComplete &&
+          !isCancelled &&
+          !isRunning &&
+          bands.length > 0 && (
+            <div className="payout-column-head">
+              <span>Place</span>
+              <span>Projected Payout</span>
+            </div>
+          )}
         {isSatellite && isComplete && satelliteAwards && (
           <p className="tl-empty__hint" role="status">
             {!awardTypesReady

@@ -1,3 +1,4 @@
+import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
 import { tournamentEntryTerms } from './entryTerms';
 import { displayTotalPool } from '../../../utils/tournamentPrizeFunding';
 import {
@@ -79,7 +80,7 @@ import { tournamentService } from '../../../services/TournamentService';
 import { useMaintenanceBreak } from '../../../hooks/useMaintenanceBreak';
 import { serverNow } from '../../../utils/serverClock';
 import { reportError } from '../../../utils/errorReporter';
-import { formatBuyIn, money } from '../../../utils/buyIn';
+import { formatBuyIn, money, totalBuyIn } from '../../../utils/buyIn';
 import { formatPrizeAtUnit, moneySuffixAtUnit, moneyWordAtUnit } from '../../../utils/format';
 import {
   CHIP_UNIT_CENTS,
@@ -1076,6 +1077,59 @@ export default function DetailOverviewTab({
             </>
           )}
         </div>
+      ) : status === 'REGISTERING' && !startsWhenFull ? (
+        <section className="console-countdown" aria-label="Tournament Starts In">
+          <h3>
+            Tournament <span className="dov-hero__eyebrow">{heroEyebrow}</span>
+          </h3>
+          <strong className="console-time dov-hero__time">{heroTime}</strong>
+          <small className="dov-hero__note">{heroNote}</small>
+          <dl className="console-facts">
+            <div>
+              <dt>Buy-In</dt>
+              <dd>
+                {money(
+                  totalBuyIn(Number(tournament.buy_in_amount), tournament.buy_in_fee, tournament)
+                )}{' '}
+                {tournamentRowUnitCents(tournament) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+              </dd>
+            </div>
+            {prize.guarantee > 0 && (
+              <div>
+                <dt>Guaranteed</dt>
+                <dd>{chips(prize.guarantee)}</dd>
+              </div>
+            )}
+          </dl>
+          <dl className="console-pair">
+            <div>
+              <dt>Entries</dt>
+              <dd>{field.entries}</dd>
+            </div>
+            <div>
+              <dt>Starting Stack</dt>
+              <dd>{chips(tournament.starting_chips)}</dd>
+            </div>
+          </dl>
+          <div className="mtt-instruments">
+            {[
+              ['Level', level.index + 1],
+              ['Blinds', level.amountsKnown ? `${level.sb} / ${level.bb}` : '—'],
+              [
+                'Next',
+                blindLevels[1] ? `${blindLevels[1].smallBlind} / ${blindLevels[1].bigBlind}` : '—',
+              ],
+              ['Late Reg', lateRegText],
+              ['Levels', level.duration ? `${level.duration / 60} Min` : '—'],
+              ['Tables', tables?.length ?? 0],
+            ].map(([label, value]) => (
+              <div key={label}>
+                {label}
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
       ) : (
         <div className="tl-panel dov-hero" aria-live="off">
           <div className="dov-hero__main">
@@ -1129,6 +1183,31 @@ export default function DetailOverviewTab({
                     : '-'}
                 </span>
               </div>
+            </div>
+          </div>
+          <dl className="arena-event-facts">
+            <div>
+              <dt>Buy-In</dt>
+              <dd>
+                {money(
+                  totalBuyIn(Number(tournament.buy_in_amount), tournament.buy_in_fee, tournament)
+                )}{' '}
+                {tournamentRowUnitCents(tournament) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+              </dd>
+            </div>
+            {prize.guarantee > 0 && (
+              <div>
+                <dt>Guaranteed</dt>
+                <dd>{chips(prize.guarantee)}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="mtt-pair">
+            <div>
+              Entries<strong>{field.entries}</strong>
+            </div>
+            <div>
+              Starting Stack<strong>{chips(Number(tournament.starting_chips) || 0)}</strong>
             </div>
           </div>
           {/* Decoration: the hero clock above it IS the value. */}

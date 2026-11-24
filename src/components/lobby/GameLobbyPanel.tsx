@@ -58,6 +58,9 @@ import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
 import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import './GameLobbyPanel.css';
+import PlayerAvatar from '../avatars/PlayerAvatar';
+import { avatarService } from '../../services/AvatarService';
+import { ArenaEventCard } from './ArenaEventCard';
 import './PremiumGameLobbyPanel.css';
 import { formatPrizeAtUnit, formatTableChips } from '../../utils/format';
 
@@ -248,7 +251,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   const [waitlistError, setWaitlistError] = useState(false);
   const waitlistSnapshotRef = useRef<{ tableId: string; waitlisted: boolean } | null>(null);
   const [avgPot, setAvgPot] = useState<number | null>(null);
-  const [seatMap, setSeatMap] = useState<{ seat_number: number; user_id: string }[] | null>(null);
+  const [seatMap, setSeatMap] = useState<
+    { seat_number: number; user_id: string; avatarUrl?: string }[] | null
+  >(null);
   const [tick, setTick] = useState<{
     last_tick_at: string | null;
     last_tick_actions: unknown;
@@ -372,7 +377,12 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
           setSeatMap(null);
           return;
         }
-        setSeatMap(data ?? []);
+        const seats = data ?? [];
+        setSeatMap(seats);
+        const avatars = await avatarService.getUserAvatars(seats.map((seat) => seat.user_id));
+        if (!cancelled && avatars.size > 0) {
+          setSeatMap(seats.map((seat) => ({ ...seat, avatarUrl: avatars.get(seat.user_id) })));
+        }
       } catch (err) {
         /* transport failure - the panel simply shows no seat map */
         reportError(err, 'GameLobbyPanel.loadSeatMap');
@@ -883,12 +893,20 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {satelliteDestination || 'Loading Satellite Destination...'}
             </div>
           )}
-          <ArenaGameCard
-            data={gameCardData}
-            actions={gameCardActions}
-            presentation="auto"
-            className="glp__arena-card"
-          />
+          {isCash ? (
+            <ArenaGameCard
+              data={gameCardData}
+              actions={gameCardActions}
+              presentation="auto"
+              className="glp__arena-card"
+            />
+          ) : (
+            <ArenaEventCard
+              data={gameCardData}
+              actions={gameCardActions}
+              destination={satelliteDestination}
+            />
+          )}
           {entry.status !== 'completed' && entry.status !== 'closed' && (
             <div className="glp__invite-bar">
               <button
@@ -1031,7 +1049,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {seatMap && entry.capacity > 0 && (
                 <section className="glp__section">
                   <h3 className="glp__h">Seat Map</h3>
-                  <div className="glp__seatmap">
+                  <div className="glp__seatmap" data-orbit={entry.capacity <= 10 || undefined}>
                     {Array.from({ length: entry.capacity }).map((_, i) => {
                       const n = i + 1;
                       const taken = seatMap.find((x) => x.seat_number === n);
@@ -1041,8 +1059,24 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       return (
                         <span
                           key={n}
+                          style={
+                            entry.capacity <= 10
+                              ? {
+                                  left:
+                                    50 + 39 * Math.sin((i * 2 * Math.PI) / entry.capacity) + '%',
+                                  top: 50 - 36 * Math.cos((i * 2 * Math.PI) / entry.capacity) + '%',
+                                }
+                              : undefined
+                          }
                           className={`glp__seat${taken ? ' is-taken' : ''}${mine ? ' is-you' : ''}`}
                         >
+                          {taken && (
+                            <PlayerAvatar
+                              src={taken.avatarUrl}
+                              name={mine ? 'You' : 'Seat ' + n}
+                              size="xs"
+                            />
+                          )}
                           <i>{n}</i>
                           <em>{mine ? 'You' : taken ? 'Taken' : 'Open'}</em>
                         </span>

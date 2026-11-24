@@ -60,6 +60,28 @@ import { dismissClubEntryMessage } from './global-setup';
 
 const css = (p: string) => readFileSync(p, 'utf8');
 
+test('Tournament Price Stays Centered Between Unequal Header Controls', async ({ page }) => {
+  for (const width of [320, 393, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const popup of [false, true]) {
+      await page.setContent(`<style>${css('src/components/lobby/MttConsole.css')}</style>
+        <div class="tournament-details console-lobby"><header class="details-header">
+          <div class="mtt-meta"><b>Late Registration</b>
+            <div class="mtt-price"><p class="tournament-buyin">35 Chips · 31.50 + 3.50</p></div>
+            <div class="mtt-meta-actions"><button>Invite To Game</button>${popup ? '<button>Close</button>' : ''}</div>
+          </div></header></div>`);
+      const distance = await page.locator('.tournament-buyin').evaluate((price) => {
+        const range = document.createRange();
+        range.selectNodeContents(price);
+        const text = range.getBoundingClientRect();
+        const header = price.closest('header')!.getBoundingClientRect();
+        return Math.abs(text.left + text.width / 2 - header.left - header.width / 2);
+      });
+      expect(distance).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
 // Real tournament styles, including the later shared .tl-scroll rule that
 // previously trapped gestures over lists even when their content fit.
 test.describe('tournament scroll gestures', () => {

@@ -1,3 +1,4 @@
+import { isPlayerLive } from './types';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  BLINDS TAB — live clocks and the complete published blind structure.
@@ -155,7 +156,7 @@ export default function BlindsTab(props: TournamentTabProps) {
 
 // Broadcast-derived clocks belong to one event, including when the next
 // event happens to have the same persisted level and break columns.
-function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
+function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps) {
   const row = tournament as Tournament & ClockColumns;
 
   /* The ONLY ticking state. Everything visible is derived from it by
@@ -535,10 +536,34 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
   // This is a schedule, so keep configured boundaries visible after entry closes.
   const entryWindow = tournamentEntryWindow({ ...row, prize_pool_finalized: false });
   const entryCap = entryWindow.mode === 'levels' ? entryWindow.cap : null;
+  const living = (entries || []).filter(isPlayerLive);
+  const showAnte =
+    blindLevels.some((level) => Number(level.ante) > 0) || Number(currentBlinds?.ante) > 0;
+  const averageStack = hasStarted
+    ? living.length
+      ? Math.trunc(
+          living.reduce((sum, player) => sum + (Number(player.chips) || 0), 0) / living.length
+        )
+      : null
+    : Number(tournament.starting_chips) || null;
   const rebuyCap = Number(row.rebuy_levels ?? row.late_reg_levels ?? 0);
 
   return (
     <div className="blinds-tab">
+      <dl className="console-strip">
+        <div>
+          <dt>Entries</dt>
+          <dd>{entries?.length ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Avg Stack</dt>
+          <dd>{averageStack?.toLocaleString() ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>Level</dt>
+          <dd>{levelIndex + 1}</dd>
+        </div>
+      </dl>
       {/* 1 / 4 — CURRENT LEVEL, or the break that has taken it over. */}
       {onBreak ? (
         <section className="tl-panel blinds-tab__card blinds-tab__card--break">
@@ -711,49 +736,68 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
             </div>
           ) : null}
         </dl>
-        <table className="blinds-tab__schedule">
-          <thead>
-            <tr>
-              <th scope="col">Level</th>
-              <th scope="col">Small / Big Blind</th>
-              <th scope="col">Ante</th>
-              <th scope="col">Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {blindLevels.map((level, scheduledIndex) => {
-              const isCurrent =
-                hasStarted && !isFinished && !isBagged && scheduledIndex === levelIndex;
-              const isNext = !isFinished && !isBagged && scheduledIndex === levelIndex + 1;
-              // Keep the schedule aligned with the current committed amounts shown above.
-              const amounts = isCurrent ? currentBlinds : level;
-              return (
-                <tr
-                  key={scheduledIndex}
-                  aria-current={isCurrent ? 'step' : undefined}
-                  data-level-state={isCurrent ? 'current' : isNext ? 'next' : undefined}
-                >
-                  <th scope="row">
-                    {level.isBreak ? 'Break' : level.level}
-                    {isCurrent ? <span className="blinds-tab__schedule-state">Current</span> : null}
-                    {isNext ? <span className="blinds-tab__schedule-state">Next</span> : null}
-                    {entryCap === scheduledIndex + 1 ? (
-                      <span className="blinds-tab__schedule-note">Last Entry Level</span>
-                    ) : null}
-                    {(row.is_rebuy || row.is_reentry) && rebuyCap === scheduledIndex + 1 ? (
-                      <span className="blinds-tab__schedule-note">
-                        {row.is_rebuy ? 'Rebuys End' : 'Re-Entries End'}
-                      </span>
-                    ) : null}
-                  </th>
-                  <td>{level.isBreak ? 'Break' : amounts ? blindsText(amounts) : 'Unavailable'}</td>
-                  <td>{level.isBreak ? '--' : amounts ? chips(amounts.ante) : '--'}</td>
-                  <td>{minutesText(level.duration)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div
+          className="approved-schedule-scroll"
+          role="region"
+          aria-label="Blind Level Schedule"
+          tabIndex={0}
+        >
+          <table className="blinds-tab__schedule">
+            <thead>
+              <tr>
+                <th scope="col">Level</th>
+                <th scope="col">Blinds (SB/BB)</th>
+                {showAnte && <th scope="col">Ante</th>}
+                <th scope="col">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {blindLevels.map((level, scheduledIndex) => {
+                const isCurrent =
+                  hasStarted && !isFinished && !isBagged && scheduledIndex === levelIndex;
+                const isOpening = !hasStarted && !isFinished && !isBagged && scheduledIndex === 0;
+                const isNext = !isFinished && !isBagged && scheduledIndex === levelIndex + 1;
+                // Keep the schedule aligned with the current committed amounts shown above.
+                const amounts = isCurrent ? currentBlinds : level;
+                return (
+                  <tr
+                    key={scheduledIndex}
+                    aria-current={isCurrent ? 'step' : undefined}
+                    data-break={level.isBreak || undefined}
+                    data-level-state={
+                      isCurrent || isOpening ? 'current' : isNext ? 'next' : undefined
+                    }
+                  >
+                    <th scope="row">
+                      {level.isBreak ? 'Break' : level.level}
+                      {isCurrent || isOpening ? (
+                        <span className="blinds-tab__schedule-state">
+                          {isCurrent ? 'Current' : 'Opening'}
+                        </span>
+                      ) : null}
+                      {isNext ? <span className="blinds-tab__schedule-state">Next</span> : null}
+                      {entryCap === scheduledIndex + 1 ? (
+                        <span className="blinds-tab__schedule-note">Last Entry Level</span>
+                      ) : null}
+                      {(row.is_rebuy || row.is_reentry) && rebuyCap === scheduledIndex + 1 ? (
+                        <span className="blinds-tab__schedule-note">
+                          {row.is_rebuy ? 'Rebuys End' : 'Re-Entries End'}
+                        </span>
+                      ) : null}
+                    </th>
+                    <td>
+                      {level.isBreak ? 'Break' : amounts ? blindsText(amounts) : 'Unavailable'}
+                    </td>
+                    {showAnte && (
+                      <td>{level.isBreak ? '--' : amounts ? chips(amounts.ante) : '--'}</td>
+                    )}
+                    <td>{minutesText(level.duration)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

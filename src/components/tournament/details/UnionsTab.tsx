@@ -791,7 +791,7 @@ function EventUnionsTab({ tournament, entries, currentUserId }: TournamentTabPro
   }
 
   return (
-    <div className="tl-panel un-panel">
+    <div className="tl-panel un-panel" data-union-event={isUnionEvent}>
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="un-head">
         <div className="un-head__title">

@@ -954,6 +954,7 @@ function RankingTabForTournament({
     );
   }
 
+  const isRegistering = String(tournament.status || '').toUpperCase() === 'REGISTERING';
   const isFinished = String(tournament.status || '').toUpperCase() === 'COMPLETED';
   const finished = finishedFieldSummary(tournament, entries);
   const finishedPool = displayTotalPool(
@@ -976,7 +977,7 @@ function RankingTabForTournament({
   const heroLeaderGap = Math.max(0, leaderChips - heroStack);
 
   return (
-    <div className="tl-panel rk-panel">
+    <div className="tl-panel rk-panel" data-registering={isRegistering}>
       {/* ── Field summary ──────────────────────────────────────────────── */}
       {isFinished ? (
         /* A FINISHED EVENT (2026-10-04). Nobody remains and nothing is in
@@ -1020,14 +1021,18 @@ function RankingTabForTournament({
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Average Stack</span>
-            <span className="tl-stat__value">{stackChips(avgStack)}</span>
+            <span className="tl-stat__value">
+              {isRegistering && !totalChips ? '—' : stackChips(avgStack)}
+            </span>
             <span className="tl-stat__sub">
               {bigBlind > 0 ? `${chips(Math.floor(avgStack / bigBlind))} BB` : 'Chips'}
             </span>
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Total Chips</span>
-            <span className="tl-stat__value">{stackChips(totalChips)}</span>
+            <span className="tl-stat__value">
+              {isRegistering && !totalChips ? '—' : stackChips(totalChips)}
+            </span>
             <span className="tl-stat__sub">In Play</span>
           </div>
         </div>
@@ -1035,7 +1040,7 @@ function RankingTabForTournament({
 
       {/* ── Distance to the money. Absent when no structure is published, so
              this can never claim a bubble that does not exist. ────────────── */}
-      {money && (
+      {!isRegistering && money && (
         <div
           className={`rk-money rk-money--${money.state}`}
           /* Announced ONLY for the two states worth interrupting for: the

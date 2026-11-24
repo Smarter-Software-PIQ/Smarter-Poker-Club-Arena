@@ -538,3 +538,7 @@
     transition: none;
   }
 }
+.afx-sheet .afx-head {
+  background: linear-gradient(135deg, #233d5c, #081322);
+  border-bottom: 2px solid #4b80ae;
+}
