@@ -1,0 +1,1432 @@
+{
+  "version": "v1-2026-11-24",
+  "note": "Measured by scripts/ops/omaha-facing-bet-range-fit.mjs from PLO4/PLO5 cash hand_history (shown cards only). Strength = share of holdings of his size that beat his hand on that street (0 = the nuts).",
+  "source": {
+    "from": "2026-11-17 06:00:03.610303+00",
+    "to": "2026-11-24 07:10:19.816203+00",
+    "handsRead": 232468,
+    "handsUsed": 113115
+  },
+  "binEdges": [0, 0.01, 0.03, 0.07, 0.13, 0.2, 0.35, 0.55, 1],
+  "weakEdge": 0.2,
+  "shrinkK": 30,
+  "bettor": {
+    "plo4|flop|agg|under40|hu": {
+      "hist": [0.01012, 0.02347, 0.02149, 0.01785, 0.13562, 0.33459, 0.2384, 0.21847],
+      "shown": 1753,
+      "bets": 12868,
+      "laterFold": 3741,
+      "valueShown": 532
+    },
+    "plo4|flop|non|under40|hu": {
+      "hist": [0.00561, 0.02092, 0.03749, 0.03719, 0.16555, 0.39475, 0.20104, 0.13746],
+      "shown": 311,
+      "bets": 2045,
+      "laterFold": 401,
+      "valueShown": 107
+    },
+    "plo4|flop|agg|mid|hu": {
+      "hist": [0.07465, 0.05964, 0.06081, 0.03894, 0.18516, 0.28668, 0.13806, 0.15607],
+      "shown": 1609,
+      "bets": 11228,
+      "laterFold": 2098,
+      "valueShown": 813
+    },
+    "plo4|flop|non|mid|hu": {
+      "hist": [0.03673, 0.06088, 0.10322, 0.04631, 0.10616, 0.23332, 0.18439, 0.22898],
+      "shown": 412,
+      "bets": 3553,
+      "laterFold": 578,
+      "valueShown": 172
+    },
+    "plo4|flop|agg|big|hu": {
+      "hist": [0.18545, 0.05098, 0.08766, 0.04263, 0.02699, 0.08569, 0.1147, 0.4059],
+      "shown": 680,
+      "bets": 12595,
+      "laterFold": 2145,
+      "valueShown": 325
+    },
+    "plo4|flop|non|big|hu": {
+      "hist": [0.07918, 0.02535, 0.07284, 0.03632, 0.02721, 0.1348, 0.19229, 0.432],
+      "shown": 189,
+      "bets": 4081,
+      "laterFold": 649,
+      "valueShown": 51
+    },
+    "plo4|flop|agg|over|hu": {
+      "hist": [0.05785, 0.04193, 0.05262, 0.0324, 0.13515, 0.2716, 0.18064, 0.22781],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|flop|non|over|hu": {
+      "hist": [0.05785, 0.04193, 0.05262, 0.0324, 0.13515, 0.2716, 0.18064, 0.22781],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|flop|raise|any|hu": {
+      "hist": [0.285, 0.21063, 0.16555, 0.09149, 0.0845, 0.10953, 0.02347, 0.02984],
+      "shown": 834,
+      "bets": 4879,
+      "laterFold": 223,
+      "valueShown": 732
+    },
+    "plo4|flop|agg|under40|mw": {
+      "hist": [0.02918, 0.08262, 0.05583, 0.05068, 0.19341, 0.39245, 0.13652, 0.05931],
+      "shown": 201,
+      "bets": 985,
+      "laterFold": 285,
+      "valueShown": 107
+    },
+    "plo4|flop|non|under40|mw": {
+      "hist": [0.03159, 0.09916, 0.08804, 0.06483, 0.08654, 0.34298, 0.10444, 0.18241],
+      "shown": 223,
+      "bets": 1173,
+      "laterFold": 269,
+      "valueShown": 110
+    },
+    "plo4|flop|agg|mid|mw": {
+      "hist": [0.09424, 0.09396, 0.0933, 0.05623, 0.16078, 0.25685, 0.08199, 0.16265],
+      "shown": 406,
+      "bets": 1839,
+      "laterFold": 376,
+      "valueShown": 247
+    },
+    "plo4|flop|non|mid|mw": {
+      "hist": [0.09779, 0.09038, 0.12954, 0.09828, 0.10344, 0.23131, 0.06333, 0.18593],
+      "shown": 325,
+      "bets": 1898,
+      "laterFold": 309,
+      "valueShown": 204
+    },
+    "plo4|flop|agg|big|mw": {
+      "hist": [0.32475, 0.09385, 0.20179, 0.08576, 0.03389, 0.05817, 0.03484, 0.16696],
+      "shown": 159,
+      "bets": 973,
+      "laterFold": 124,
+      "valueShown": 135
+    },
+    "plo4|flop|non|big|mw": {
+      "hist": [0.30974, 0.10234, 0.20508, 0.0581, 0.02558, 0.05646, 0.04862, 0.19409],
+      "shown": 85,
+      "bets": 749,
+      "laterFold": 85,
+      "valueShown": 67
+    },
+    "plo4|flop|agg|over|mw": {
+      "hist": [0.11146, 0.09328, 0.11265, 0.06953, 0.12165, 0.2508, 0.08275, 0.15789],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|flop|non|over|mw": {
+      "hist": [0.11146, 0.09328, 0.11265, 0.06953, 0.12165, 0.2508, 0.08275, 0.15789],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|flop|raise|any|mw": {
+      "hist": [0.61869, 0.1719, 0.05885, 0.05881, 0.03282, 0.01342, 0.00288, 0.04264],
+      "shown": 132,
+      "bets": 320,
+      "laterFold": 8,
+      "valueShown": 129
+    },
+    "plo4|turn|agg|under40|hu": {
+      "hist": [0.02439, 0.00267, 0.02805, 0.04647, 0.06149, 0.3836, 0.30461, 0.14872],
+      "shown": 892,
+      "bets": 2583,
+      "laterFold": 538,
+      "valueShown": 174
+    },
+    "plo4|turn|non|under40|hu": {
+      "hist": [0.0016, 0.00285, 0.01105, 0.01919, 0.07257, 0.35597, 0.34329, 0.19349],
+      "shown": 1543,
+      "bets": 4322,
+      "laterFold": 1156,
+      "valueShown": 228
+    },
+    "plo4|turn|agg|mid|hu": {
+      "hist": [0.05389, 0.02321, 0.05077, 0.09023, 0.10606, 0.31848, 0.20434, 0.15302],
+      "shown": 667,
+      "bets": 2254,
+      "laterFold": 388,
+      "valueShown": 244
+    },
+    "plo4|turn|non|mid|hu": {
+      "hist": [0.01591, 0.00496, 0.04429, 0.1338, 0.13568, 0.34233, 0.17874, 0.14429],
+      "shown": 542,
+      "bets": 2282,
+      "laterFold": 465,
+      "valueShown": 220
+    },
+    "plo4|turn|agg|big|hu": {
+      "hist": [0.40389, 0.06451, 0.18603, 0.11598, 0.04162, 0.06715, 0.03733, 0.08349],
+      "shown": 692,
+      "bets": 6660,
+      "laterFold": 275,
+      "valueShown": 587
+    },
+    "plo4|turn|non|big|hu": {
+      "hist": [0.31799, 0.03763, 0.20874, 0.16405, 0.04274, 0.12595, 0.02754, 0.07535],
+      "shown": 651,
+      "bets": 5044,
+      "laterFold": 367,
+      "valueShown": 542
+    },
+    "plo4|turn|agg|over|hu": {
+      "hist": [0.10393, 0.01803, 0.07045, 0.0789, 0.07954, 0.28539, 0.22034, 0.14342],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|turn|non|over|hu": {
+      "hist": [0.10393, 0.01803, 0.07045, 0.0789, 0.07954, 0.28539, 0.22034, 0.14342],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|turn|raise|any|hu": {
+      "hist": [0.45771, 0.10638, 0.16146, 0.07211, 0.06139, 0.07781, 0.0389, 0.02425],
+      "shown": 461,
+      "bets": 1906,
+      "laterFold": 38,
+      "valueShown": 400
+    },
+    "plo4|turn|agg|under40|mw": {
+      "hist": [0.03493, 0.01295, 0.09767, 0.15417, 0.13807, 0.44032, 0.07373, 0.04814],
+      "shown": 52,
+      "bets": 133,
+      "laterFold": 34,
+      "valueShown": 29
+    },
+    "plo4|turn|non|under40|mw": {
+      "hist": [0.00715, 0.00878, 0.08924, 0.17984, 0.12897, 0.49415, 0.05957, 0.0323],
+      "shown": 293,
+      "bets": 916,
+      "laterFold": 147,
+      "valueShown": 147
+    },
+    "plo4|turn|agg|mid|mw": {
+      "hist": [0.1794, 0.01863, 0.11594, 0.13544, 0.06935, 0.26591, 0.13498, 0.08036],
+      "shown": 92,
+      "bets": 272,
+      "laterFold": 63,
+      "valueShown": 63
+    },
+    "plo4|turn|non|mid|mw": {
+      "hist": [0.05002, 0.0269, 0.14826, 0.14107, 0.11541, 0.28626, 0.08828, 0.1438],
+      "shown": 302,
+      "bets": 1528,
+      "laterFold": 276,
+      "valueShown": 167
+    },
+    "plo4|turn|agg|big|mw": {
+      "hist": [0.39782, 0.03812, 0.11136, 0.13771, 0.04336, 0.04475, 0.1349, 0.09198],
+      "shown": 64,
+      "bets": 204,
+      "laterFold": 25,
+      "valueShown": 56
+    },
+    "plo4|turn|non|big|mw": {
+      "hist": [0.29711, 0.03017, 0.11544, 0.13717, 0.04345, 0.06514, 0.11479, 0.19672],
+      "shown": 211,
+      "bets": 2200,
+      "laterFold": 214,
+      "valueShown": 144
+    },
+    "plo4|turn|agg|over|mw": {
+      "hist": [0.12522, 0.02204, 0.11797, 0.15254, 0.09902, 0.28783, 0.09092, 0.10447],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|turn|non|over|mw": {
+      "hist": [0.12522, 0.02204, 0.11797, 0.15254, 0.09902, 0.28783, 0.09092, 0.10447],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|turn|raise|any|mw": {
+      "hist": [0.60502, 0.10361, 0.14149, 0.05504, 0.03897, 0.03485, 0.01743, 0.00359],
+      "shown": 115,
+      "bets": 291,
+      "laterFold": 5,
+      "valueShown": 111
+    },
+    "plo4|river|agg|under40|hu": {
+      "hist": [0.04158, 0.01259, 0.0179, 0.03789, 0.09556, 0.31154, 0.31298, 0.16997],
+      "shown": 1506,
+      "bets": 2686,
+      "laterFold": 171,
+      "valueShown": 299
+    },
+    "plo4|river|non|under40|hu": {
+      "hist": [0.00679, 0.00824, 0.01335, 0.04174, 0.08781, 0.32791, 0.34594, 0.16822],
+      "shown": 981,
+      "bets": 2083,
+      "laterFold": 100,
+      "valueShown": 151
+    },
+    "plo4|river|agg|mid|hu": {
+      "hist": [0.10169, 0.03217, 0.04321, 0.14996, 0.21246, 0.28412, 0.07912, 0.09727],
+      "shown": 367,
+      "bets": 1225,
+      "laterFold": 62,
+      "valueShown": 194
+    },
+    "plo4|river|non|mid|hu": {
+      "hist": [0.04744, 0.01781, 0.03133, 0.0819, 0.14305, 0.30801, 0.14633, 0.22413],
+      "shown": 294,
+      "bets": 1844,
+      "laterFold": 41,
+      "valueShown": 82
+    },
+    "plo4|river|agg|big|hu": {
+      "hist": [0.42141, 0.06977, 0.15408, 0.15154, 0.08729, 0.05416, 0.01443, 0.04731],
+      "shown": 654,
+      "bets": 3179,
+      "laterFold": 52,
+      "valueShown": 576
+    },
+    "plo4|river|non|big|hu": {
+      "hist": [0.30856, 0.0374, 0.14004, 0.168, 0.09457, 0.07914, 0.04051, 0.13177],
+      "shown": 337,
+      "bets": 4301,
+      "laterFold": 42,
+      "valueShown": 244
+    },
+    "plo4|river|agg|over|hu": {
+      "hist": [0.12078, 0.02465, 0.05147, 0.08047, 0.10607, 0.25314, 0.21877, 0.14465],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|river|non|over|hu": {
+      "hist": [0.12078, 0.02465, 0.05147, 0.08047, 0.10607, 0.25314, 0.21877, 0.14465],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|river|raise|any|hu": {
+      "hist": [0.92576, 0.02227, 0.03712, 0.00742, 0.00742, 0, 0, 0],
+      "shown": 132,
+      "bets": 601,
+      "laterFold": 0,
+      "valueShown": 132
+    },
+    "plo4|river|agg|under40|mw": {
+      "hist": [0.15999, 0.00804, 0.04874, 0.09636, 0.28734, 0.33941, 0.04115, 0.01896],
+      "shown": 11,
+      "bets": 13,
+      "laterFold": 0,
+      "valueShown": 10
+    },
+    "plo4|river|non|under40|mw": {
+      "hist": [0.07454, 0.00375, 0.01134, 0.07899, 0.21342, 0.53314, 0.06463, 0.0202],
+      "shown": 58,
+      "bets": 139,
+      "laterFold": 3,
+      "valueShown": 22
+    },
+    "plo4|river|agg|mid|mw": {
+      "hist": [0.06181, 0.04166, 0.03426, 0.18461, 0.27641, 0.31933, 0.06145, 0.02047],
+      "shown": 10,
+      "bets": 20,
+      "laterFold": 1,
+      "valueShown": 6
+    },
+    "plo4|river|non|mid|mw": {
+      "hist": [0.05324, 0.00793, 0.04012, 0.12362, 0.35782, 0.35444, 0.04116, 0.02165],
+      "shown": 54,
+      "bets": 244,
+      "laterFold": 1,
+      "valueShown": 30
+    },
+    "plo4|river|agg|big|mw": {
+      "hist": [0.37741, 0.06009, 0.16071, 0.21561, 0.08578, 0.04687, 0.01133, 0.0422],
+      "shown": 20,
+      "bets": 48,
+      "laterFold": 1,
+      "valueShown": 20
+    },
+    "plo4|river|non|big|mw": {
+      "hist": [0.34371, 0.07763, 0.13824, 0.24811, 0.0456, 0.04606, 0.0135, 0.08716],
+      "shown": 86,
+      "bets": 442,
+      "laterFold": 5,
+      "valueShown": 75
+    },
+    "plo4|river|agg|over|mw": {
+      "hist": [0.19158, 0.03627, 0.07647, 0.15791, 0.17924, 0.25409, 0.05226, 0.05218],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|river|non|over|mw": {
+      "hist": [0.19158, 0.03627, 0.07647, 0.15791, 0.17924, 0.25409, 0.05226, 0.05218],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo4|river|raise|any|mw": {
+      "hist": [0.95593, 0.01322, 0.02203, 0.00441, 0.00441, 0, 0, 0],
+      "shown": 16,
+      "bets": 26,
+      "laterFold": 0,
+      "valueShown": 16
+    },
+    "plo5|flop|agg|under40|hu": {
+      "hist": [0.03578, 0.00253, 0.09065, 0.0334, 0.0262, 0.44434, 0.23901, 0.12809],
+      "shown": 1703,
+      "bets": 9815,
+      "laterFold": 2773,
+      "valueShown": 467
+    },
+    "plo5|flop|non|under40|hu": {
+      "hist": [0.02031, 0.0024, 0.11489, 0.07541, 0.05277, 0.36027, 0.20666, 0.16729],
+      "shown": 328,
+      "bets": 2082,
+      "laterFold": 455,
+      "valueShown": 118
+    },
+    "plo5|flop|agg|mid|hu": {
+      "hist": [0.15726, 0.01781, 0.11147, 0.06463, 0.06124, 0.31397, 0.13708, 0.13655],
+      "shown": 974,
+      "bets": 5480,
+      "laterFold": 937,
+      "valueShown": 483
+    },
+    "plo5|flop|non|mid|hu": {
+      "hist": [0.12729, 0.00655, 0.10877, 0.05548, 0.05504, 0.19115, 0.1634, 0.29233],
+      "shown": 172,
+      "bets": 1281,
+      "laterFold": 195,
+      "valueShown": 70
+    },
+    "plo5|flop|agg|big|hu": {
+      "hist": [0.08679, 0.02217, 0.05724, 0.02758, 0.02771, 0.20525, 0.22454, 0.34871],
+      "shown": 743,
+      "bets": 9865,
+      "laterFold": 2081,
+      "valueShown": 213
+    },
+    "plo5|flop|non|big|hu": {
+      "hist": [0.05023, 0.00714, 0.03795, 0.02101, 0.03839, 0.16391, 0.24802, 0.43335],
+      "shown": 165,
+      "bets": 2703,
+      "laterFold": 479,
+      "valueShown": 26
+    },
+    "plo5|flop|agg|over|hu": {
+      "hist": [0.07543, 0.00978, 0.09135, 0.04372, 0.03851, 0.33846, 0.20729, 0.19546],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|flop|non|over|hu": {
+      "hist": [0.07543, 0.00978, 0.09135, 0.04372, 0.03851, 0.33846, 0.20729, 0.19546],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|flop|raise|any|hu": {
+      "hist": [0.31086, 0.03582, 0.29042, 0.08427, 0.05344, 0.16967, 0.02015, 0.03537],
+      "shown": 811,
+      "bets": 3884,
+      "laterFold": 293,
+      "valueShown": 685
+    },
+    "plo5|flop|agg|under40|mw": {
+      "hist": [0.07897, 0.00469, 0.18972, 0.07937, 0.04269, 0.40369, 0.15322, 0.04764],
+      "shown": 209,
+      "bets": 935,
+      "laterFold": 253,
+      "valueShown": 113
+    },
+    "plo5|flop|non|under40|mw": {
+      "hist": [0.05332, 0.01961, 0.2611, 0.11687, 0.05386, 0.20503, 0.11121, 0.179],
+      "shown": 231,
+      "bets": 1132,
+      "laterFold": 240,
+      "valueShown": 154
+    },
+    "plo5|flop|agg|mid|mw": {
+      "hist": [0.20876, 0.0259, 0.15107, 0.05023, 0.05904, 0.23416, 0.14265, 0.12819],
+      "shown": 242,
+      "bets": 1152,
+      "laterFold": 241,
+      "valueShown": 153
+    },
+    "plo5|flop|non|mid|mw": {
+      "hist": [0.16065, 0.02217, 0.16102, 0.11476, 0.06334, 0.15652, 0.11195, 0.20959],
+      "shown": 326,
+      "bets": 2006,
+      "laterFold": 407,
+      "valueShown": 215
+    },
+    "plo5|flop|agg|big|mw": {
+      "hist": [0.12247, 0.05226, 0.08734, 0.03079, 0.00706, 0.21281, 0.20117, 0.2861],
+      "shown": 128,
+      "bets": 1156,
+      "laterFold": 312,
+      "valueShown": 52
+    },
+    "plo5|flop|non|big|mw": {
+      "hist": [0.14661, 0.0662, 0.08876, 0.04303, 0.01254, 0.13277, 0.11337, 0.39673],
+      "shown": 126,
+      "bets": 1189,
+      "laterFold": 255,
+      "valueShown": 59
+    },
+    "plo5|flop|agg|over|mw": {
+      "hist": [0.13054, 0.02679, 0.16601, 0.0798, 0.0459, 0.22556, 0.13519, 0.19023],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|flop|non|over|mw": {
+      "hist": [0.13054, 0.02679, 0.16601, 0.0798, 0.0459, 0.22556, 0.13519, 0.19023],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|flop|raise|any|mw": {
+      "hist": [0.61781, 0.08847, 0.13649, 0.03844, 0.01309, 0.05023, 0.00201, 0.05344],
+      "shown": 155,
+      "bets": 381,
+      "laterFold": 26,
+      "valueShown": 150
+    },
+    "plo5|turn|agg|under40|hu": {
+      "hist": [0.03264, 0.01236, 0.01464, 0.03645, 0.07961, 0.29635, 0.34732, 0.18062],
+      "shown": 647,
+      "bets": 1803,
+      "laterFold": 460,
+      "valueShown": 140
+    },
+    "plo5|turn|non|under40|hu": {
+      "hist": [0.00512, 0.00191, 0.00254, 0.02244, 0.04669, 0.26833, 0.34946, 0.3035],
+      "shown": 1137,
+      "bets": 3516,
+      "laterFold": 1108,
+      "valueShown": 122
+    },
+    "plo5|turn|agg|mid|hu": {
+      "hist": [0.1006, 0.0272, 0.06136, 0.10421, 0.12494, 0.25086, 0.17796, 0.15286],
+      "shown": 473,
+      "bets": 1479,
+      "laterFold": 263,
+      "valueShown": 233
+    },
+    "plo5|turn|non|mid|hu": {
+      "hist": [0.01677, 0.00168, 0.0116, 0.17596, 0.19285, 0.27141, 0.17786, 0.15187],
+      "shown": 282,
+      "bets": 1132,
+      "laterFold": 244,
+      "valueShown": 141
+    },
+    "plo5|turn|agg|big|hu": {
+      "hist": [0.37349, 0.0828, 0.12864, 0.11302, 0.07439, 0.04406, 0.07854, 0.10508],
+      "shown": 733,
+      "bets": 5647,
+      "laterFold": 340,
+      "valueShown": 597
+    },
+    "plo5|turn|non|big|hu": {
+      "hist": [0.33531, 0.05568, 0.15499, 0.12488, 0.07484, 0.06098, 0.07111, 0.1222],
+      "shown": 596,
+      "bets": 4002,
+      "laterFold": 359,
+      "valueShown": 479
+    },
+    "plo5|turn|agg|over|hu": {
+      "hist": [0.13342, 0.02855, 0.0563, 0.0791, 0.08623, 0.20024, 0.22705, 0.18911],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|turn|non|over|hu": {
+      "hist": [0.13342, 0.02855, 0.0563, 0.0791, 0.08623, 0.20024, 0.22705, 0.18911],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|turn|raise|any|hu": {
+      "hist": [0.50176, 0.05675, 0.13498, 0.10724, 0.04082, 0.07434, 0.04937, 0.03475],
+      "shown": 493,
+      "bets": 1876,
+      "laterFold": 68,
+      "valueShown": 427
+    },
+    "plo5|turn|agg|under40|mw": {
+      "hist": [0.07932, 0.02698, 0.0636, 0.15356, 0.11058, 0.3784, 0.15592, 0.03164],
+      "shown": 60,
+      "bets": 173,
+      "laterFold": 61,
+      "valueShown": 35
+    },
+    "plo5|turn|non|under40|mw": {
+      "hist": [0.03586, 0.00683, 0.08943, 0.16502, 0.19048, 0.33924, 0.14504, 0.02809],
+      "shown": 157,
+      "bets": 598,
+      "laterFold": 125,
+      "valueShown": 90
+    },
+    "plo5|turn|agg|mid|mw": {
+      "hist": [0.2221, 0.03617, 0.12278, 0.11845, 0.08859, 0.18114, 0.10722, 0.12355],
+      "shown": 126,
+      "bets": 362,
+      "laterFold": 87,
+      "valueShown": 92
+    },
+    "plo5|turn|non|mid|mw": {
+      "hist": [0.21549, 0.0359, 0.13746, 0.14275, 0.15255, 0.11078, 0.08687, 0.1182],
+      "shown": 318,
+      "bets": 1225,
+      "laterFold": 150,
+      "valueShown": 237
+    },
+    "plo5|turn|agg|big|mw": {
+      "hist": [0.34143, 0.04478, 0.04541, 0.06461, 0.10348, 0.09414, 0.13579, 0.17038],
+      "shown": 70,
+      "bets": 318,
+      "laterFold": 57,
+      "valueShown": 55
+    },
+    "plo5|turn|non|big|mw": {
+      "hist": [0.19362, 0.03851, 0.07564, 0.03632, 0.05006, 0.07626, 0.18712, 0.34247],
+      "shown": 197,
+      "bets": 1808,
+      "laterFold": 292,
+      "valueShown": 89
+    },
+    "plo5|turn|agg|over|mw": {
+      "hist": [0.18373, 0.03211, 0.10076, 0.11681, 0.12112, 0.16123, 0.1305, 0.15375],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|turn|non|over|mw": {
+      "hist": [0.18373, 0.03211, 0.10076, 0.11681, 0.12112, 0.16123, 0.1305, 0.15375],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|turn|raise|any|mw": {
+      "hist": [0.65257, 0.05302, 0.12201, 0.0735, 0.01898, 0.04542, 0.00602, 0.02848],
+      "shown": 130,
+      "bets": 336,
+      "laterFold": 12,
+      "valueShown": 126
+    },
+    "plo5|river|agg|under40|hu": {
+      "hist": [0.03512, 0.0185, 0.02126, 0.02898, 0.07903, 0.27732, 0.28084, 0.25895],
+      "shown": 1076,
+      "bets": 2035,
+      "laterFold": 185,
+      "valueShown": 179
+    },
+    "plo5|river|non|under40|hu": {
+      "hist": [0.01517, 0.01, 0.01006, 0.04143, 0.08205, 0.31054, 0.29859, 0.23215],
+      "shown": 816,
+      "bets": 1788,
+      "laterFold": 124,
+      "valueShown": 124
+    },
+    "plo5|river|agg|mid|hu": {
+      "hist": [0.07856, 0.03928, 0.13876, 0.23126, 0.14137, 0.20822, 0.04909, 0.11345],
+      "shown": 324,
+      "bets": 1122,
+      "laterFold": 82,
+      "valueShown": 206
+    },
+    "plo5|river|non|mid|hu": {
+      "hist": [0.02713, 0.01556, 0.06025, 0.15883, 0.13165, 0.24585, 0.10908, 0.25164],
+      "shown": 221,
+      "bets": 1360,
+      "laterFold": 49,
+      "valueShown": 81
+    },
+    "plo5|river|agg|big|hu": {
+      "hist": [0.45552, 0.15044, 0.12529, 0.10911, 0.04365, 0.03384, 0.0087, 0.07346],
+      "shown": 514,
+      "bets": 2559,
+      "laterFold": 34,
+      "valueShown": 452
+    },
+    "plo5|river|non|big|hu": {
+      "hist": [0.3035, 0.09384, 0.17188, 0.12012, 0.08302, 0.05388, 0.03754, 0.13622],
+      "shown": 256,
+      "bets": 3177,
+      "laterFold": 45,
+      "valueShown": 189
+    },
+    "plo5|river|agg|over|hu": {
+      "hist": [0.12266, 0.04527, 0.06178, 0.08172, 0.08448, 0.21971, 0.18689, 0.19749],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|river|non|over|hu": {
+      "hist": [0.12266, 0.04527, 0.06178, 0.08172, 0.08448, 0.21971, 0.18689, 0.19749],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|river|raise|any|hu": {
+      "hist": [0.82139, 0.15017, 0, 0.01138, 0, 0.01138, 0, 0.00569],
+      "shown": 173,
+      "bets": 697,
+      "laterFold": 2,
+      "valueShown": 170
+    },
+    "plo5|river|agg|under40|mw": {
+      "hist": [0.1377, 0.04687, 0.08811, 0.17873, 0.10692, 0.40276, 0.0271, 0.0118],
+      "shown": 11,
+      "bets": 15,
+      "laterFold": 0,
+      "valueShown": 6
+    },
+    "plo5|river|non|under40|mw": {
+      "hist": [0.05441, 0.01376, 0.05392, 0.184, 0.18483, 0.45542, 0.04643, 0.00722],
+      "shown": 37,
+      "bets": 92,
+      "laterFold": 3,
+      "valueShown": 16
+    },
+    "plo5|river|agg|mid|mw": {
+      "hist": [0.10943, 0.01531, 0.23614, 0.17752, 0.17787, 0.22206, 0.00851, 0.05315],
+      "shown": 22,
+      "bets": 50,
+      "laterFold": 5,
+      "valueShown": 14
+    },
+    "plo5|river|non|mid|mw": {
+      "hist": [0.03481, 0.02638, 0.21018, 0.29463, 0.19103, 0.22214, 0.01361, 0.0072],
+      "shown": 76,
+      "bets": 289,
+      "laterFold": 9,
+      "valueShown": 57
+    },
+    "plo5|river|agg|big|mw": {
+      "hist": [0.49958, 0.08029, 0.20281, 0.08895, 0.02616, 0.06564, 0.00529, 0.03128],
+      "shown": 11,
+      "bets": 37,
+      "laterFold": 4,
+      "valueShown": 10
+    },
+    "plo5|river|non|big|mw": {
+      "hist": [0.5936, 0.08296, 0.17246, 0.06828, 0.01851, 0.0151, 0.00194, 0.04717],
+      "shown": 82,
+      "bets": 412,
+      "laterFold": 4,
+      "valueShown": 77
+    },
+    "plo5|river|agg|over|mw": {
+      "hist": [0.2493, 0.04656, 0.15974, 0.16176, 0.11325, 0.19782, 0.02963, 0.04194],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|river|non|over|mw": {
+      "hist": [0.2493, 0.04656, 0.15974, 0.16176, 0.11325, 0.19782, 0.02963, 0.04194],
+      "shown": 0,
+      "bets": 0,
+      "laterFold": 0,
+      "valueShown": 0
+    },
+    "plo5|river|raise|any|mw": {
+      "hist": [0.83808, 0.14676, 0, 0.00606, 0, 0.00606, 0, 0.00303],
+      "shown": 21,
+      "bets": 41,
+      "laterFold": 0,
+      "valueShown": 20
+    }
+  },
+  "caller": {
+    "plo4|flop|under40|hu": {
+      "hist": [0.00303, 0.01777, 0.02599, 0.02716, 0.19165, 0.34015, 0.1721, 0.22215],
+      "shown": 2375
+    },
+    "plo4|flop|mid|hu": {
+      "hist": [0.01397, 0.02287, 0.0423, 0.04909, 0.18983, 0.29405, 0.17082, 0.21707],
+      "shown": 1708
+    },
+    "plo4|flop|big|hu": {
+      "hist": [0.01716, 0.04443, 0.12265, 0.07479, 0.22535, 0.22349, 0.128, 0.16412],
+      "shown": 977
+    },
+    "plo4|flop|over|hu": {
+      "hist": [0.00949, 0.0247, 0.0504, 0.04387, 0.19763, 0.30178, 0.16304, 0.20909],
+      "shown": 0
+    },
+    "plo4|flop|under40|mw": {
+      "hist": [0.00709, 0.06647, 0.11183, 0.08072, 0.13219, 0.24785, 0.1509, 0.20295],
+      "shown": 499
+    },
+    "plo4|flop|mid|mw": {
+      "hist": [0.02705, 0.06931, 0.11494, 0.08827, 0.13811, 0.20093, 0.12363, 0.23776],
+      "shown": 737
+    },
+    "plo4|flop|big|mw": {
+      "hist": [0.05801, 0.09351, 0.27493, 0.11689, 0.10519, 0.1144, 0.08787, 0.14921],
+      "shown": 207
+    },
+    "plo4|flop|over|mw": {
+      "hist": [0.02495, 0.07207, 0.1386, 0.09009, 0.13098, 0.20374, 0.12751, 0.21206],
+      "shown": 0
+    },
+    "plo4|turn|under40|hu": {
+      "hist": [0.00712, 0.00195, 0.04111, 0.07686, 0.08532, 0.32351, 0.29791, 0.16622],
+      "shown": 2129
+    },
+    "plo4|turn|mid|hu": {
+      "hist": [0.00873, 0.00206, 0.06595, 0.10526, 0.10644, 0.33313, 0.26299, 0.11544],
+      "shown": 1043
+    },
+    "plo4|turn|big|hu": {
+      "hist": [0.02692, 0.02297, 0.22273, 0.26939, 0.152, 0.14369, 0.096, 0.06629],
+      "shown": 1024
+    },
+    "plo4|turn|over|hu": {
+      "hist": [0.01239, 0.00715, 0.09199, 0.13132, 0.10701, 0.2817, 0.23951, 0.12893],
+      "shown": 0
+    },
+    "plo4|turn|under40|mw": {
+      "hist": [0.01136, 0.01901, 0.10896, 0.13376, 0.10202, 0.31095, 0.21753, 0.09641],
+      "shown": 315
+    },
+    "plo4|turn|mid|mw": {
+      "hist": [0.03428, 0.01123, 0.13938, 0.15554, 0.13349, 0.26916, 0.18485, 0.07207],
+      "shown": 376
+    },
+    "plo4|turn|big|mw": {
+      "hist": [0.05086, 0.02975, 0.23461, 0.24861, 0.20156, 0.1074, 0.075, 0.05221],
+      "shown": 224
+    },
+    "plo4|turn|over|mw": {
+      "hist": [0.0306, 0.01858, 0.15301, 0.17158, 0.13989, 0.24262, 0.16831, 0.07541],
+      "shown": 0
+    },
+    "plo4|river|under40|hu": {
+      "hist": [0.00454, 0.00946, 0.05198, 0.13562, 0.16268, 0.34874, 0.24939, 0.0376],
+      "shown": 2464
+    },
+    "plo4|river|mid|hu": {
+      "hist": [0.0225, 0.03024, 0.09639, 0.27496, 0.30942, 0.22578, 0.03666, 0.00406],
+      "shown": 651
+    },
+    "plo4|river|big|hu": {
+      "hist": [0.01871, 0.03951, 0.17888, 0.50243, 0.17788, 0.03969, 0.03452, 0.00838],
+      "shown": 896
+    },
+    "plo4|river|over|hu": {
+      "hist": [0.01072, 0.0197, 0.08801, 0.24159, 0.19048, 0.25854, 0.16554, 0.02543],
+      "shown": 0
+    },
+    "plo4|river|under40|mw": {
+      "hist": [0.00402, 0.01804, 0.05277, 0.2558, 0.21036, 0.23223, 0.21545, 0.01134],
+      "shown": 70
+    },
+    "plo4|river|mid|mw": {
+      "hist": [0.01507, 0.01939, 0.06749, 0.30732, 0.29071, 0.27122, 0.02736, 0.00144],
+      "shown": 63
+    },
+    "plo4|river|big|mw": {
+      "hist": [0.01985, 0.0397, 0.10146, 0.46761, 0.29782, 0.05143, 0.02103, 0.00111],
+      "shown": 91
+    },
+    "plo4|river|over|mw": {
+      "hist": [0.01339, 0.02679, 0.07589, 0.35268, 0.26786, 0.17411, 0.08482, 0.00446],
+      "shown": 0
+    },
+    "plo5|flop|under40|hu": {
+      "hist": [0.00443, 0.00217, 0.05603, 0.04527, 0.04404, 0.33976, 0.24399, 0.26431],
+      "shown": 1848
+    },
+    "plo5|flop|mid|hu": {
+      "hist": [0.01151, 0.00343, 0.06274, 0.08484, 0.05883, 0.32598, 0.21452, 0.23814],
+      "shown": 866
+    },
+    "plo5|flop|big|hu": {
+      "hist": [0.02032, 0.00198, 0.11556, 0.09153, 0.07885, 0.33754, 0.13462, 0.21962],
+      "shown": 1019
+    },
+    "plo5|flop|over|hu": {
+      "hist": [0.01045, 0.00241, 0.07394, 0.06724, 0.05706, 0.33592, 0.20707, 0.24591],
+      "shown": 0
+    },
+    "plo5|flop|under40|mw": {
+      "hist": [0.0177, 0.01541, 0.17127, 0.10057, 0.05039, 0.21119, 0.14061, 0.29286],
+      "shown": 505
+    },
+    "plo5|flop|mid|mw": {
+      "hist": [0.07839, 0.00559, 0.17178, 0.13242, 0.07579, 0.14653, 0.1366, 0.25289],
+      "shown": 550
+    },
+    "plo5|flop|big|mw": {
+      "hist": [0.04789, 0.00076, 0.24344, 0.16039, 0.07108, 0.12689, 0.14931, 0.20024],
+      "shown": 293
+    },
+    "plo5|flop|over|mw": {
+      "hist": [0.04896, 0.00816, 0.18769, 0.12685, 0.06528, 0.16617, 0.14095, 0.25593],
+      "shown": 0
+    },
+    "plo5|turn|under40|hu": {
+      "hist": [0.00758, 0.00501, 0.02793, 0.08698, 0.12211, 0.23317, 0.29283, 0.22439],
+      "shown": 1617
+    },
+    "plo5|turn|mid|hu": {
+      "hist": [0.01854, 0.00632, 0.05794, 0.13412, 0.11607, 0.23927, 0.26195, 0.16578],
+      "shown": 643
+    },
+    "plo5|turn|big|hu": {
+      "hist": [0.02868, 0.01592, 0.13883, 0.24245, 0.17757, 0.11903, 0.14436, 0.13316],
+      "shown": 928
+    },
+    "plo5|turn|over|hu": {
+      "hist": [0.016, 0.00847, 0.0665, 0.1421, 0.13708, 0.20107, 0.2431, 0.1857],
+      "shown": 0
+    },
+    "plo5|turn|under40|mw": {
+      "hist": [0.02988, 0.00065, 0.08977, 0.15003, 0.15306, 0.22731, 0.16758, 0.18172],
+      "shown": 196
+    },
+    "plo5|turn|mid|mw": {
+      "hist": [0.06312, 0.00526, 0.09139, 0.24242, 0.19017, 0.19944, 0.12959, 0.0786],
+      "shown": 378
+    },
+    "plo5|turn|big|mw": {
+      "hist": [0.07492, 0.00775, 0.15267, 0.27764, 0.20791, 0.10964, 0.09702, 0.07245],
+      "shown": 247
+    },
+    "plo5|turn|over|mw": {
+      "hist": [0.05847, 0.00487, 0.10962, 0.23021, 0.18636, 0.17905, 0.12911, 0.10231],
+      "shown": 0
+    },
+    "plo5|river|under40|hu": {
+      "hist": [0.0054, 0.01555, 0.0727, 0.11026, 0.12456, 0.3382, 0.28165, 0.05168],
+      "shown": 1868
+    },
+    "plo5|river|mid|hu": {
+      "hist": [0.00761, 0.01527, 0.14871, 0.29439, 0.23192, 0.24534, 0.04403, 0.01272],
+      "shown": 528
+    },
+    "plo5|river|big|hu": {
+      "hist": [0.01674, 0.02459, 0.28866, 0.41707, 0.1405, 0.06682, 0.0321, 0.01354],
+      "shown": 642
+    },
+    "plo5|river|over|hu": {
+      "hist": [0.00823, 0.01745, 0.13265, 0.20902, 0.14714, 0.26333, 0.18565, 0.03654],
+      "shown": 0
+    },
+    "plo5|river|under40|mw": {
+      "hist": [0, 0.00165, 0.08438, 0.24225, 0.15887, 0.30191, 0.20929, 0.00165],
+      "shown": 52
+    },
+    "plo5|river|mid|mw": {
+      "hist": [0, 0.00104, 0.12245, 0.29896, 0.29252, 0.25967, 0.01663, 0.00873],
+      "shown": 100
+    },
+    "plo5|river|big|mw": {
+      "hist": [0, 0.01135, 0.17919, 0.43865, 0.22027, 0.11757, 0.03162, 0.00135],
+      "shown": 70
+    },
+    "plo5|river|over|mw": {
+      "hist": [0, 0.0045, 0.13063, 0.32883, 0.23423, 0.22523, 0.07207, 0.0045],
+      "shown": 0
+    }
+  },
+  "continueRate": {
+    "plo4|flop|mid|hu": {
+      "n": 14781,
+      "rate": 0.5757
+    },
+    "plo4|river|mid|hu": {
+      "n": 3069,
+      "rate": 0.2489
+    },
+    "plo4|flop|under40|hu": {
+      "n": 14913,
+      "rate": 0.7357
+    },
+    "plo4|turn|big|hu": {
+      "n": 11704,
+      "rate": 0.2534
+    },
+    "plo5|flop|mid|hu": {
+      "n": 6761,
+      "rate": 0.6106
+    },
+    "plo5|turn|big|hu": {
+      "n": 9649,
+      "rate": 0.3157
+    },
+    "plo4|turn|under40|hu": {
+      "n": 6905,
+      "rate": 0.8708
+    },
+    "plo5|flop|mid|mw": {
+      "n": 8229,
+      "rate": 0.3462
+    },
+    "plo5|turn|under40|mw": {
+      "n": 1892,
+      "rate": 0.4392
+    },
+    "plo5|river|big|mw": {
+      "n": 1249,
+      "rate": 0.0801
+    },
+    "plo4|river|big|hu": {
+      "n": 7480,
+      "rate": 0.1451
+    },
+    "plo4|river|under40|hu": {
+      "n": 4769,
+      "rate": 0.5783
+    },
+    "plo4|flop|big|hu": {
+      "n": 16676,
+      "rate": 0.3266
+    },
+    "plo5|flop|big|hu": {
+      "n": 12568,
+      "rate": 0.39
+    },
+    "plo5|flop|under40|hu": {
+      "n": 11897,
+      "rate": 0.7889
+    },
+    "plo5|turn|big|mw": {
+      "n": 4996,
+      "rate": 0.1691
+    },
+    "plo4|turn|big|mw": {
+      "n": 5143,
+      "rate": 0.1351
+    },
+    "plo5|turn|mid|hu": {
+      "n": 2611,
+      "rate": 0.7108
+    },
+    "plo4|flop|big|mw": {
+      "n": 3791,
+      "rate": 0.2039
+    },
+    "plo5|river|big|hu": {
+      "n": 5736,
+      "rate": 0.1484
+    },
+    "plo4|turn|under40|mw": {
+      "n": 2195,
+      "rate": 0.4756
+    },
+    "plo5|turn|mid|mw": {
+      "n": 3978,
+      "rate": 0.317
+    },
+    "plo5|flop|big|mw": {
+      "n": 5325,
+      "rate": 0.2603
+    },
+    "plo5|river|mid|hu": {
+      "n": 2482,
+      "rate": 0.2724
+    },
+    "plo4|flop|mid|mw": {
+      "n": 8709,
+      "rate": 0.3589
+    },
+    "plo4|turn|mid|hu": {
+      "n": 4536,
+      "rate": 0.6797
+    },
+    "plo4|turn|mid|mw": {
+      "n": 3904,
+      "rate": 0.3299
+    },
+    "plo5|river|under40|hu": {
+      "n": 3823,
+      "rate": 0.5757
+    },
+    "plo4|flop|under40|mw": {
+      "n": 4723,
+      "rate": 0.4768
+    },
+    "plo4|river|mid|mw": {
+      "n": 618,
+      "rate": 0.1084
+    },
+    "plo5|flop|under40|mw": {
+      "n": 5637,
+      "rate": 0.4366
+    },
+    "plo5|turn|under40|hu": {
+      "n": 5319,
+      "rate": 0.8934
+    },
+    "plo5|river|mid|mw": {
+      "n": 925,
+      "rate": 0.1276
+    },
+    "plo4|river|big|mw": {
+      "n": 1106,
+      "rate": 0.1031
+    },
+    "plo5|river|under40|mw": {
+      "n": 283,
+      "rate": 0.1943
+    },
+    "plo4|river|under40|mw": {
+      "n": 321,
+      "rate": 0.2336
+    }
+  },
+  "fieldAllFold": {
+    "plo5|flop|mid|3+": {
+      "n": 1471,
+      "rate": 0.2373
+    },
+    "plo5|turn|under40|2": {
+      "n": 490,
+      "rate": 0.0796
+    },
+    "plo5|river|big|2": {
+      "n": 226,
+      "rate": 0.7788
+    },
+    "plo5|turn|big|2": {
+      "n": 1475,
+      "rate": 0.6319
+    },
+    "plo4|turn|big|2": {
+      "n": 2045,
+      "rate": 0.7218
+    },
+    "plo4|flop|big|2": {
+      "n": 1383,
+      "rate": 0.5813
+    },
+    "plo4|turn|under40|3+": {
+      "n": 111,
+      "rate": 0.0991
+    },
+    "plo5|flop|mid|2": {
+      "n": 1687,
+      "rate": 0.3266
+    },
+    "plo5|turn|mid|2": {
+      "n": 997,
+      "rate": 0.2628
+    },
+    "plo5|flop|big|2": {
+      "n": 1788,
+      "rate": 0.476
+    },
+    "plo5|turn|mid|3+": {
+      "n": 590,
+      "rate": 0.3017
+    },
+    "plo5|flop|big|3+": {
+      "n": 557,
+      "rate": 0.5189
+    },
+    "plo4|flop|mid|2": {
+      "n": 2656,
+      "rate": 0.3306
+    },
+    "plo4|turn|mid|2": {
+      "n": 1475,
+      "rate": 0.3553
+    },
+    "plo5|turn|under40|3+": {
+      "n": 281,
+      "rate": 0.1068
+    },
+    "plo4|flop|under40|2": {
+      "n": 1796,
+      "rate": 0.1815
+    },
+    "plo4|river|mid|2": {
+      "n": 193,
+      "rate": 0.7617
+    },
+    "plo5|flop|under40|3+": {
+      "n": 1010,
+      "rate": 0.1525
+    },
+    "plo5|turn|big|3+": {
+      "n": 651,
+      "rate": 0.6114
+    },
+    "plo5|flop|under40|2": {
+      "n": 1057,
+      "rate": 0.1306
+    },
+    "plo5|river|big|3+": {
+      "n": 223,
+      "rate": 0.7982
+    },
+    "plo5|river|mid|3+": {
+      "n": 156,
+      "rate": 0.7051
+    },
+    "plo4|turn|under40|2": {
+      "n": 938,
+      "rate": 0.1237
+    },
+    "plo4|river|big|2": {
+      "n": 386,
+      "rate": 0.772
+    },
+    "plo4|flop|under40|3+": {
+      "n": 362,
+      "rate": 0.105
+    },
+    "plo5|river|under40|3+": {
+      "n": 45,
+      "rate": 0.6444
+    },
+    "plo5|river|mid|2": {
+      "n": 183,
+      "rate": 0.6503
+    },
+    "plo4|flop|big|3+": {
+      "n": 339,
+      "rate": 0.6136
+    },
+    "plo4|flop|mid|3+": {
+      "n": 1081,
+      "rate": 0.2646
+    },
+    "plo4|river|under40|2": {
+      "n": 137,
+      "rate": 0.5401
+    },
+    "plo4|turn|big|3+": {
+      "n": 359,
+      "rate": 0.7159
+    },
+    "plo4|river|big|3+": {
+      "n": 104,
+      "rate": 0.7981
+    },
+    "plo4|turn|mid|3+": {
+      "n": 325,
+      "rate": 0.3354
+    },
+    "plo4|river|mid|3+": {
+      "n": 71,
+      "rate": 0.7465
+    },
+    "plo5|river|under40|2": {
+      "n": 62,
+      "rate": 0.4839
+    },
+    "plo4|river|under40|3+": {
+      "n": 15,
+      "rate": 0.6
+    }
+  },
+  "fire": {
+    "plo4|turn": {
+      "n": 20217,
+      "rate": 0.4267
+    },
+    "plo5|turn": {
+      "n": 14692,
+      "rate": 0.4055
+    },
+    "plo4|river": {
+      "n": 9997,
+      "rate": 0.5486
+    },
+    "plo5|river": {
+      "n": 7584,
+      "rate": 0.5592
+    }
+  },
+  "fireSize": {
+    "plo4|turn": {
+      "n": 8627,
+      "mean": 0.6966
+    },
+    "plo5|turn": {
+      "n": 5957,
+      "mean": 0.7295
+    },
+    "plo4|river": {
+      "n": 5484,
+      "mean": 0.5625
+    },
+    "plo5|river": {
+      "n": 4241,
+      "mean": 0.559
+    }
+  },
+  "flushDrawByBin": {
+    "plo4|turn|5": {
+      "n": 1294,
+      "rate": 0.2983
+    },
+    "plo4|flop|7": {
+      "n": 962,
+      "rate": 0.6985
+    },
+    "plo4|flop|5": {
+      "n": 1020,
+      "rate": 0.3549
+    },
+    "plo5|turn|5": {
+      "n": 750,
+      "rate": 0.4453
+    },
+    "plo5|turn|7": {
+      "n": 730,
+      "rate": 0.6507
+    },
+    "plo4|turn|4": {
+      "n": 435,
+      "rate": 0.3218
+    },
+    "plo5|flop|5": {
+      "n": 774,
+      "rate": 0.3811
+    },
+    "plo5|flop|2": {
+      "n": 301,
+      "rate": 0.1761
+    },
+    "plo5|turn|6": {
+      "n": 851,
+      "rate": 0.5511
+    },
+    "plo4|flop|6": {
+      "n": 623,
+      "rate": 0.5457
+    },
+    "plo5|flop|7": {
+      "n": 856,
+      "rate": 0.7009
+    },
+    "plo5|flop|6": {
+      "n": 599,
+      "rate": 0.6177
+    },
+    "plo5|flop|3": {
+      "n": 219,
+      "rate": 0.2831
+    },
+    "plo5|turn|4": {
+      "n": 497,
+      "rate": 0.3642
+    },
+    "plo4|turn|3": {
+      "n": 471,
+      "rate": 0.2803
+    },
+    "plo4|flop|4": {
+      "n": 673,
+      "rate": 0.1857
+    },
+    "plo4|turn|6": {
+      "n": 1096,
+      "rate": 0.4106
+    },
+    "plo5|turn|3": {
+      "n": 518,
+      "rate": 0.3707
+    },
+    "plo4|turn|7": {
+      "n": 657,
+      "rate": 0.618
+    },
+    "plo4|flop|2": {
+      "n": 233,
+      "rate": 0.1416
+    },
+    "plo4|turn|2": {
+      "n": 419,
+      "rate": 0.2625
+    },
+    "plo5|flop|4": {
+      "n": 159,
+      "rate": 0.3208
+    },
+    "plo5|turn|2": {
+      "n": 165,
+      "rate": 0.303
+    },
+    "plo4|flop|1": {
+      "n": 157,
+      "rate": 0.0955
+    },
+    "plo5|turn|0": {
+      "n": 93,
+      "rate": 0.1613
+    },
+    "plo4|turn|1": {
+      "n": 48,
+      "rate": 0.1667
+    },
+    "plo4|flop|3": {
+      "n": 162,
+      "rate": 0.1852
+    },
+    "plo5|turn|1": {
+      "n": 27,
+      "rate": 0.2222
+    },
+    "plo4|flop|0": {
+      "n": 49,
+      "rate": 0.0408
+    },
+    "plo4|turn|0": {
+      "n": 78,
+      "rate": 0.1538
+    },
+    "plo5|flop|0": {
+      "n": 66,
+      "rate": 0.0758
+    },
+    "plo5|flop|1": {
+      "n": 10,
+      "rate": 0
+    }
+  },
+  "minDefence": {
+    "plo4|river|mid": 0.3234,
+    "plo4|river|under40": 0.3094,
+    "plo4|turn|mid": 0.2004,
+    "plo5|river|mid": 0.2637,
+    "plo5|river|under40": 0.2531,
+    "plo5|turn|mid": 0.1793
+  },
+  "minDefenceNote": "F6 calibration (scripts/ops/omaha-facing-bet-range-fit.mjs calibrate) over the PLO4/PLO5 cash league state set of plo-overfold/abl/states (heads-up first wagers under 0.7 pot; omahaFacingBetIndifferenceCalls on; rake 0; no record): the minimum share of air (weakest bin) at which the whole range folds at most mean s/(1+s) + 0.05; bets of 0.7 pot or more get no bound"
+}

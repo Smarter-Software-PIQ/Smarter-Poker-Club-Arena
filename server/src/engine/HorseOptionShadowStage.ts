@@ -92,6 +92,36 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
+  // PLO-OWNER lead-6 2026-11-24: each acts only on the postflop streets listed (the facing-bet verdicts and the
+  // multiway value bet), so none is re-decided preflop or on another street.
+  omahaFacingBetRangeIsMeasuredByLine: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaFacingBetIndifferenceCalls: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaFlopRealizationIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
+  omahaFacingBetMinimumDefencePrior: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaFacingBetFieldIsJoint: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaMultiwayCallNeedsNutShare: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaMultiwayValueBetIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
   omahaRiverBetFoldIsHisRecord: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),

@@ -151,6 +151,10 @@ const RECEIPT_ONLY_FILES = [
   // the core, tracker failure in the range tracker (the core-error counter is in OmahaMathCoreRule.ts above).
   'engine/omahaMathCore/OmahaMathCore.ts',
   'engine/omahaMathCore/OmahaMathCoreRangeTrack.ts',
+  // PLO-OWNER lead-6 2026-11-24 (default off): the flop call tree and the multiway value bet fire their verdict and
+  // change receipts where they answer (HorseLogic only hands them the decision).
+  'engine/HorseOmahaFlopCallTree.ts',
+  'engine/HorseOmahaMultiwayValueBet.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

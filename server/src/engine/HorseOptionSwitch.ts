@@ -400,6 +400,15 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-21 EMERG lane STAB-DEFENCE-5: the two river bet rules price the opponent's own lifetime public river
   // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetFoldIsHisRecord',
+  // 2026-11-24 PLO-OWNER lead-6 (plo-overfold F1-F3, F6; multiway M1-M3): the corrected PLO4/PLO5 cash facing-bet
+  // price on measured ranges and the priced multiway value bet (ship dark)
+  'omahaFacingBetRangeIsMeasuredByLine',
+  'omahaFacingBetIndifferenceCalls',
+  'omahaFlopRealizationIsPriced',
+  'omahaFacingBetMinimumDefencePrior',
+  'omahaFacingBetFieldIsJoint',
+  'omahaMultiwayCallNeedsNutShare',
+  'omahaMultiwayValueBetIsPriced',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)

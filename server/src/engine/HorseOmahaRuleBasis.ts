@@ -210,6 +210,46 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       "the river answer curve with fold share moved by the opponent's lifetime public river fold record shrunk n/(n+k)",
     price: 'the river bet against the check by more than its standard error',
   },
+  omahaFacingBetRangeIsMeasuredByLine: {
+    kind: 'priced',
+    range:
+      "the bettor's measured strength histogram by street, line, size and pot type, his own shown record shrunk toward it",
+    equity:
+      'the exact 2+3 count of the hand against each strength bin (river top shares; turn every river card)',
+    realization: "today's facing-bet verdict's turn realization; the river is final",
+    price: 'the call against the pot after the projected rake and jackpot deduction',
+  },
+  omahaFacingBetIndifferenceCalls: FACING_BET_EV,
+  omahaFlopRealizationIsPriced: {
+    kind: 'priced',
+    range:
+      "the bettor's measured flop strength histogram by line, size and pot type; the field's measured calling range",
+    equity:
+      'the joint showdown share on two-card runouts against the bettor and the field on the same cards',
+    realization:
+      'the two-street tree: his measured turn and river bet rates and sizes, every later fold priced',
+    price: 'the flop call against the pot after the projected rake and jackpot deduction',
+  },
+  omahaFacingBetMinimumDefencePrior: FACING_BET_EV,
+  omahaFacingBetFieldIsJoint: {
+    kind: 'priced',
+    range:
+      "the bettor's measured range for a bet into several players; each caller's and continuing player's measured calling range",
+    equity:
+      'the joint showdown share with every player dealt on the same cards, over every river card on the turn',
+    realization:
+      "today's facing-bet verdict's turn realization; players behind at their measured continue rate",
+    price:
+      'the call against the pot including the calls of the players behind who continue, after the projected rake',
+  },
+  omahaMultiwayCallNeedsNutShare: FACING_BET_EV,
+  omahaMultiwayValueBetIsPriced: {
+    kind: 'priced',
+    range: "the field's measured calling range for a multiway first wager of each size",
+    equity: 'the joint showdown share against the callers on the same cards',
+    realization: 'the measured share of multiway first wagers of each size every player folded to',
+    price: 'each of three bet sizes against the check',
+  },
   omahaStabDefenceIsPriced: {
     kind: 'priced',
     range:
@@ -728,6 +768,22 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_flop_facing_stab_hud_range_scaled: FACING_BET_EV,
   omaha_river_bet_fold_his_record_read: CARD_IMPACT,
   omaha_stab_defence_priced: FACING_BET_EV,
+  omaha_priced_facing_bet_range_call: FACING_BET_EV,
+  omaha_priced_facing_bet_range_fold: FACING_BET_EV,
+  omaha_priced_facing_bet_joint_call: FACING_BET_EV,
+  omaha_priced_facing_bet_joint_fold: FACING_BET_EV,
+  omaha_priced_facing_bet_margin_call: FACING_BET_EV,
+  omaha_priced_facing_bet_margin_fold: FACING_BET_EV,
+  omaha_priced_facing_bet_record_read: FACING_BET_EV,
+  omaha_priced_facing_bet_min_defence_bounded: FACING_BET_EV,
+  omaha_priced_facing_bet_changed: FACING_BET_EV,
+  omaha_flop_call_tree_call: FACING_BET_EV,
+  omaha_flop_call_tree_fold: FACING_BET_EV,
+  omaha_flop_call_tree_changed: FACING_BET_EV,
+  omaha_flop_call_tree_record_read: FACING_BET_EV,
+  omaha_flop_call_tree_min_defence_bounded: FACING_BET_EV,
+  omaha_multiway_value_bet_priced_bet: FACING_BET_EV,
+  omaha_multiway_value_bet_check_kept: FACING_BET_EV,
   omaha_strong_hand_check_priced: CARD_IMPACT,
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
   omaha_river_checked_to_bet_measured: {

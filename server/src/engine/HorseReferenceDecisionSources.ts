@@ -121,6 +121,18 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha strong-hand value decisions (owner 2026-11-15 12:16, omahaStrongHandValue; the earlier playbook's PLO4/PLO5 cash entries): on the river with a full house or better or a nut-class hand, a check priced against every value bet against each opponent left, and a call facing one bettor priced against every value raise on the exact count of the holdings that continue; the last rule of the wager_rules node",
     'src/engine/HorseOmahaFacingBetEv.ts':
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
+    'src/engine/HorseOmahaMeasuredBettorRange.ts':
+      "the measured bettor range tables of the default-off corrected facing-bet price (PLO-OWNER lead-6 2026-11-24, omahaFacingBetRangeIsMeasuredByLine and omahaFacingBetMinimumDefencePrior): strength histograms by street, line, size and pot type fitted from shown hands, a bettor's own shown record shrunk toward them, the minimum-defence bound on a no-record prior",
+    'src/engine/HorseOmahaFacingBetRangeTables.json':
+      'the measured PLO4/PLO5 cash bettor and caller strength tables, continue rates, field fold-through, later bet rates and the F6 minimum-defence air floors (scripts/ops/omaha-facing-bet-range-fit.mjs; PLO-OWNER lead-6 2026-11-24)',
+    'src/engine/HorseOmahaFacingBetPriced.ts':
+      "the default-off corrected turn and river facing-bet price (PLO-OWNER lead-6 2026-11-24, omahaFacingBetRangeIsMeasuredByLine, omahaFacingBetIndifferenceCalls, omahaFacingBetFieldIsJoint, omahaMultiwayCallNeedsNutShare): inside omahaFacingBetEv in PLO4/PLO5 cash, the call against the bettor's measured range priced exactly, the field dealt jointly, indifference calls",
+    'src/engine/HorseOmahaPricedJointSample.ts':
+      'the joint showdown sample of the default-off corrected facing-bet price and multiway value bet (PLO-OWNER lead-6 2026-11-24): the bettor and the field dealt on the same cards from measured ranges, card-seeded',
+    'src/engine/HorseOmahaFlopCallTree.ts':
+      "the default-off flop call tree (PLO-OWNER lead-6 2026-11-24, omahaFlopRealizationIsPriced): in PLO4/PLO5 cash a flop fold or call facing a bet is the two-street tree on the bettor's measured range and the joint field, his later bet rates measured; it never raises",
+    'src/engine/HorseOmahaMultiwayValueBet.ts':
+      "the default-off priced multiway value bet (PLO-OWNER lead-6 2026-11-24, omahaMultiwayValueBetIsPriced): in PLO4/PLO5 cash a final multiway check becomes the best of three bet sizes where it beats the check against the field's measured fold and calling ranges",
     'src/engine/HorseOmahaStabDefence.ts':
       "the default-off stab defence (EMERG lane STAB-DEFENCE 2026-11-20, omahaStabDefenceIsPriced): in PLO4/PLO5 cash on the turn and the river, facing the first wager of the street, the bettor's non-value share is priced from his own lifetime public first-wager frequency against the population's, shrunk by its evidence; no record is the population prior exactly",
     'src/engine/HorseOmahaStrongHandCheck.ts':
