@@ -52,6 +52,7 @@ import {
 } from './HorseHoldemTournamentRaiseDefence.js';
 import { holdemRaiseDefenceOfLastDecision } from './HorseHoldemTournamentRaiseDefenceWiring.js';
 import {
+  HOLDEM_RAISE_DEFENCE_SOLVED_INDEX,
   HOLDEM_RAISE_DEFENCE_SOLVED_WORST_GAIN_BB,
   SOLVED_NODE_ACTIONS,
   solvedAction,
@@ -60,7 +61,6 @@ import {
   solvedNode,
   type SolvedQuery,
 } from './HorseHoldemTournamentRaiseDefenceSolved.js';
-import { HOLDEM_RAISE_DEFENCE_SOLVED_INDEX } from './HorseHoldemTournamentRaiseDefenceSolved.data.js';
 import {
   priceAnchoredDefence,
   type AnchoredNode,

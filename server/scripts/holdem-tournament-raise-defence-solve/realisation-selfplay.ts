@@ -51,6 +51,7 @@ for (const f of FORMATS) {
   const card = LEAGUE_MATCHUPS.find((m: { name: string }) => m.name === f.card);
   if (!card) throw new Error(`no card ${f.card}`);
   const ctx = card.context;
+  if (!ctx) throw new Error(`card ${f.card} has no tournament context`);
   const anteChips = ctx.bigBlindAnte === true ? (ctx.ante ?? 0) : 0;
   const sandbox = HorseMind.createSandbox();
   const counters = { illegal: 0, truncated: 0 };

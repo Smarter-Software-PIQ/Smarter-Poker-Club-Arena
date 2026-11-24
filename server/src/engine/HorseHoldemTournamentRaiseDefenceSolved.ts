@@ -12,7 +12,7 @@ import { inflateSync } from 'node:zlib';
 import {
   HOLDEM_RAISE_DEFENCE_REALISATION,
   HOLDEM_RAISE_DEFENCE_SOLVED_GRID,
-  HOLDEM_RAISE_DEFENCE_SOLVED_INDEX,
+  HOLDEM_RAISE_DEFENCE_SOLVED_INDEX_JSON,
   HOLDEM_RAISE_DEFENCE_SOLVED_ORDER,
   HOLDEM_RAISE_DEFENCE_SOLVED_VERSION,
   HOLDEM_RAISE_DEFENCE_SOLVED_WORST_GAIN_BB,
@@ -43,6 +43,26 @@ let BYTES: Buffer | null = null;
 const bytes = (): Buffer =>
   (BYTES ??= inflateSync(Buffer.from(HOLDEM_RAISE_DEFENCE_SOLVED_Z64, 'base64')));
 
+/**
+ * The spot index, parsed once at module load from the JSON text of the data module (a string, not an object literal:
+ * the engine image build parses every source under a 1 GB heap) and checked against the grid it claims.
+ */
+export const HOLDEM_RAISE_DEFENCE_SOLVED_INDEX: readonly SolvedSpotIndex[] = (() => {
+  const index = JSON.parse(HOLDEM_RAISE_DEFENCE_SOLVED_INDEX_JSON) as SolvedSpotIndex[];
+  const G = HOLDEM_RAISE_DEFENCE_SOLVED_GRID;
+  const want = (1 + G.ring.length) * G.depths.length * G.opens.length * G.antes.length;
+  if (!Array.isArray(index) || index.length !== want)
+    throw new Error(`raise defence solved index: ${index?.length} spots, the grid has ${want}`);
+  for (const s of index)
+    if (
+      typeof s.kind !== 'string' ||
+      !Number.isFinite(s.S) ||
+      !s.nodes ||
+      !Number.isFinite(s.offset)
+    )
+      throw new Error('raise defence solved index: a malformed spot');
+  return Object.freeze(index);
+})();
 const BY_KEY = new Map<string, SolvedSpotIndex>();
 for (const s of HOLDEM_RAISE_DEFENCE_SOLVED_INDEX) BY_KEY.set(`${s.kind}|${s.S}|${s.o}|${s.A}`, s);
 
