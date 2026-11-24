@@ -26,6 +26,7 @@ import {
   removeClubWorkspaceCache,
   writeClubWorkspaceCache,
 } from '../lib/clubWorkspaceCache';
+import { withClubWorkspaceReadTimeout } from './clubWorkspaceReadTimeout';
 
 export type ClubWorkspaceStatus = 'idle' | 'loading' | 'ready' | 'denied' | 'error';
 
@@ -71,30 +72,6 @@ const ClubWorkspaceContext = createContext<ClubWorkspaceValue>(EMPTY_WORKSPACE);
 // cannot retry a promise that never settles. Bound each authorization read so
 // a club route reaches either its real member surface or its recoverable error
 // state instead of showing PageSkeleton forever.
-const CLUB_WORKSPACE_READ_TIMEOUT_MS = 10_000;
-
-async function withClubWorkspaceReadTimeout<T>(
-  read: (signal: AbortSignal) => PromiseLike<T>,
-  label: string
-): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CLUB_WORKSPACE_READ_TIMEOUT_MS);
-
-  try {
-    return await read(controller.signal);
-  } catch (readError) {
-    if (controller.signal.aborted) {
-      const timeoutError = new Error(
-        `${label} timed out after ${CLUB_WORKSPACE_READ_TIMEOUT_MS}ms.`
-      );
-      timeoutError.name = 'TimeoutError';
-      throw timeoutError;
-    }
-    throw readError;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function getRouteClubId(pathname: string, search: string): string | null {
   const match = pathname.match(/^\/clubs\/([^/]+)/);
@@ -162,6 +139,24 @@ export function ClubWorkspaceProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('offline', onOffline);
     };
   }, [reload]);
+
+  // A failed verification retries when the player comes back to the page,
+  // not only when the network returns (2026-11-24). On a phone the usual way
+  // out of a stalled read is switching apps or tabs and back, which fires no
+  // 'online' event, so the fault card stayed up until Try Again was tapped.
+  // Only while the card is showing: a verified page never re-reads on focus.
+  useEffect(() => {
+    if (status !== 'error') return;
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') reload();
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  }, [status, reload]);
 
   useEffect(() => {
     let cancelled = false;

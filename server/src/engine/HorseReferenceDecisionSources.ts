@@ -149,6 +149,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off re-raised-pot price rule (PLO lead-6 2026-11-24, omahaReraisedPotCallIsPriced and omahaReraisedPotReraiseIsPriced): in PLO4/PLO5 cash preflop facing a 3-bet or more, reads the field and the anchored opponent reads and replaces the standing call, fold or re-raise by the priced one; inert with both options off',
     'src/engine/HorseOmahaReraisedPotPriced.ts':
       "the same rule's pure price: joint seeded equity against the whole field, self-play realization by role, position, players and depth, EV(call) and EV(re-raise); no I/O, no random stream",
+    'src/engine/HorseOopReraiseRangeHoldsWiring.ts':
+      "the default-off out-of-position 3-bet range rule wiring (PLO-LEAD-6 2026-11-24, omahaOopReraiseRangeHoldsVsReraise and holdemOopReraiseRangeHoldsVsReraise): routes an out-of-position decision facing one open, asks the Horse's own answer to the 4-bet on the public frame, applies the priced call or fold in wager_rules; inert with both options off",
+    'src/engine/HorseOopReraiseRangeHolds.ts':
+      "the same rule's pure price: the opener's answers to a 3-bet (fitted population prior), the 4-bet frame, EV(3-bet) against the admitted call, the seeded planned-fold keep frequency; no I/O, no random stream",
     'src/engine/HorseOmahaFourBetFoldPricedCall.ts':
       "the default-off priced call of a fold facing a 4-bet (EMERG lane PREFLOP-UNCONTESTED 2026-11-20, omahaFourBetFoldPricedCall): in PLO4/PLO5 cash preflop, after hero's own raise, facing a 4-bet or more heads-up, a final fold becomes the legal call where omahaReraisedCallPriced gives EV(call) > 0; the outermost answer of the wager_rules node; pure",
     'src/engine/HorseOmahaFacingBetValueShareMeasured.ts':

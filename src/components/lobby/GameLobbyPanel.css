@@ -14,14 +14,15 @@
 
 .glp-backdrop {
   position: fixed;
-  inset: 0;
+  inset: var(--glp-top, calc(var(--ca-global-header-height, 0px) + var(--mtt-ticker-h, 0px))) 0
+    var(--ca-bottom-chrome-h, 0px);
   /* The fixed announcement rail is 9400. Keep this body-portaled dialog
      above that chrome so it cannot intercept Close, below toasts (10000). */
   z-index: 9600;
   background: rgb(2 4 7 / 70%);
   backdrop-filter: blur(2px);
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   animation: glp-fade 0.16s ease;
 }
 @keyframes glp-fade {
@@ -32,6 +33,9 @@
 
 .glp {
   width: min(560px, 100%);
+  max-width: 600px;
+  min-height: 0;
+  line-height: normal;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -471,7 +475,7 @@
     system-ui,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 

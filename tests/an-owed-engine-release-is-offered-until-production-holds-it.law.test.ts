@@ -494,7 +494,7 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.on.workflow_run.workflows).toEqual(['Backup Engine (Clone, Stage, Certify)']);
     // Explicit dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe(
-      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
     );
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
@@ -509,7 +509,22 @@ describe('the offer is the existing release, not a second publisher', () => {
     ).toContain('PHASE1_RESTORING');
     expect(stage.jobs.signal.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(stage.on.push.branches).toEqual(['main']);
-    expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
+    // MOVED 2026-11-24 (O25): issues: write and statuses: read serve only the
+    // owner's readiness comments on the cutover log issue, posted from inside
+    // its existing cutoff wait. The one write of the job is pinned in
+    // tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts.
+    expect(stage.jobs.detect.permissions).toEqual({
+      contents: 'read',
+      actions: 'read',
+      issues: 'write',
+      statuses: 'read',
+    });
+    expect(
+      stage.jobs.detect.steps
+        .map((step: { run?: string }) => step.run ?? '')
+        .join('\n')
+        .match(/--method|-X [A-Z]+|dispatches/g)
+    ).toEqual(['--method']);
   });
 
   it('exercises the daily evidence and intent decisions', () => {

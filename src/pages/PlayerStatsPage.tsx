@@ -1956,6 +1956,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                     isOwnProfile
                     onPresentationModeChange={setPrivacyPresentationMode}
                     onDashboardLayoutChange={setDashboardLayout}
+                    onOpenLeakFinder={openLeakFinder}
                     ruleReport={{
                       title: `${clubLabel} ${rangeLabel === 'All' ? 'All Time' : rangeLabel} Review`,
                       sourceVersion: 'stats-intelligence-brief-v1',

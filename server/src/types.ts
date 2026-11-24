@@ -1103,6 +1103,11 @@ export interface HorseDecision {
   /** omahaPreflopJamFacingReraiseIsPriced (default OFF): fold, call and raise priced facing a 3-bet or more, on the
    *  decision it priced, whichever way the verdict went. Absent with the option off. */
   omahaPreflopThreeWay?: import('./engine/HorseOmahaReraisedRaisePriced.js').OmahaThreeWayReceipt;
+  /** omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise (default OFF): every number of the priced
+   *  out-of-position 3-bet (the opener's answers, equities, realizations, EVs, the Horse's own answer to the 4-bet, the
+   *  planned-fold keep frequency and its seeded unit), on the decision it priced, whichever way the verdict went.
+   *  Absent with both options off. */
+  oopReraiseRangeHolds?: import('./engine/HorseOopReraiseRangeHolds.js').OopReraiseReceipt;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;

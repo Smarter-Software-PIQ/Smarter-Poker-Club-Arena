@@ -44,7 +44,10 @@ describe('a Backup copy is certified by the migrations it holds', () => {
       {
         cwd: root,
         encoding: 'utf8',
-        timeout: 120000,
+        // 48 cases take about 121 s on the shared Mac under ordinary load
+        // (2026-11-24); 120 s killed a passing suite and blocked every push
+        // whose hook selects this file. The bound stays finite.
+        timeout: 300000,
       }
     );
     expect(run.status, run.stderr).toBe(0);
@@ -55,7 +58,7 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     expect(proof.jobs['installed-migration-listing'].steps.at(-1).run).toContain(
       'python3 -B scripts/ci/test-installed-migration-listing-postgres.py'
     );
-  }, 120000);
+  }, 310000);
 
   it('qualifies recorded-name authority and checks every ordinary migration before dispatch', () => {
     const manifest = 'scripts/ci/recorded-migrations.manifest.json';
