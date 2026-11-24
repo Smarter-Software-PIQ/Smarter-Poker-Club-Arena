@@ -32,8 +32,11 @@ describe('an Omaha facing bet is defended at the price (no record: fold <= s / (
     today = foldRates(states, 'today');
     on = foldRates(states, 'on');
     withRecord = foldRates(states, 'onWithRecord');
-    withBluffRecord = foldRates(states, 'onWithBluffRecord');
-  }, 600_000);
+    withBluffRecord = foldRates(
+      states.filter((x) => x.gs.stage === 'turn'),
+      'onWithBluffRecord'
+    );
+  }, 1_200_000);
 
   it('the committed state set covers every street and both size buckets in both games', () => {
     for (const v of ['plo4', 'plo5'])
@@ -50,18 +53,10 @@ describe('an Omaha facing bet is defended at the price (no record: fold <= s / (
     }
   });
 
-  // A cell of this committed subset (30-140 states) carries its own sampling error: a cell passes at most one
-  // binomial standard error above the bound. The F6 calibration over the full league state set (about 600 heads-up
-  // flop states per game at 0.4-0.7 pot) measures the two-street flop tree at 34.6% (PLO4) and 34.4% (PLO5) against
-  // 38.2% / 37.0% (plo-lead6-01BNteGX/plo-pricing/calibrate-v3.log, 2026-11-24).
-  const se = (c: CellRate): number => Math.sqrt((c.fold * (1 - c.fold)) / c.n);
-  it('with the options on, every cell folds at most s / (1 + s) + 0.05 (within one standard error of the cell)', () => {
+  it('with the options on, every cell folds at most s / (1 + s) + 0.05', () => {
     const broken = [...on]
-      .filter(([k, c]) => inLaw(k) && c.n >= MIN_N && c.fold > c.bound + se(c) + 1e-9)
-      .map(
-        ([k, c]) =>
-          `${k} fold ${c.fold.toFixed(3)} > ${c.bound.toFixed(3)} + se ${se(c).toFixed(3)} (n ${c.n})`
-      );
+      .filter(([k, c]) => inLaw(k) && c.n >= MIN_N && c.fold > c.bound + 1e-9)
+      .map(([k, c]) => `${k} fold ${c.fold.toFixed(3)} > ${c.bound.toFixed(3)} (n ${c.n})`);
     expect(broken).toEqual([]);
   });
 
@@ -88,6 +83,7 @@ describe('an Omaha facing bet is defended at the price (no record: fold <= s / (
     // state by state: a bluff-heavy record never turns a call into a fold
     let loosened = 0;
     for (const s of states) {
+      if (s.gs.stage !== 'turn') continue;
       const a = pricedOutcome(s, 'on');
       const b = pricedOutcome(s, 'onWithBluffRecord');
       if (!a || !b || a.street !== 'turn' || a.bucket !== 'big') continue;

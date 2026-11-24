@@ -1,5 +1,7 @@
 # omahaMultiwayValueBetIsPriced: Authority For The Live Switch
 
+**NOT READY: real-card replay 0/81.** On the audited HVH48 B PLO4/PLO5 cash decisions the priced multiway value bet changed 111 decisions, 0 fixed and 81 newly wrong (receipt `omaha_multiway_value_bet_priced_bet`; scorer 5302af2ab3e, 2026-11-24). It stays registered and default OFF, must not be shadowed or switched on, and is not tuned in this build. No other option reads it or depends on it: its only sites are its own hook in `HorseLogic` (`omahaOwnerRuledFinal`), its registration (option switch, game scope, shadow stage, rule basis and sites, data ledger) and the league cards that measure it.
+
 Built 2026-11-24 by PLO-OWNER lead-6 (session 01BNteGX) from the PLO4/PLO5 over-fold root cause (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4) and the multiway audit (multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). Evidence NOT MET: the option is registered, default off (read `=== true`), and has offline replay and law-test evidence only. This file does not authorize switching the option on.
 
 ## What It Does
