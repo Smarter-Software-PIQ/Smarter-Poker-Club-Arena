@@ -373,7 +373,9 @@ export function describeChipTransaction(
     }
     case 'club_bank_reversal': {
       const source = walletName(meta.destination ?? meta.source, 'Agent Wallet');
-      return `${nameOf(to)} Reversed ${amount} From ${possessive(from)} ${source} To The Club Bank`;
+      const returnedTo =
+        meta.return_destination === 'club_promo_wallet' ? 'The Club Promo Wallet' : 'The Club Bank';
+      return `${nameOf(to)} Reversed ${amount} From ${possessive(from)} ${source} To ${returnedTo}`;
     }
     case 'agent_wallet_claim_back': {
       const source = walletName(meta.source ?? meta.destination, 'Player Wallet');
@@ -497,7 +499,7 @@ export function walletRoute(row: ChipTransactionLike): string | null {
     case 'club_bank_claim':
       return `${walletName(meta.source, 'Agent Wallet')} To ${walletName(meta.destination, 'Club Bank')}`;
     case 'club_bank_reversal':
-      return `${walletName(meta.destination ?? meta.source, 'Agent Wallet')} To Club Bank`;
+      return `${walletName(meta.destination ?? meta.source, 'Agent Wallet')} To ${meta.return_destination === 'club_promo_wallet' ? 'Club Promo Wallet' : 'Club Bank'}`;
     case 'agent_wallet_claim_back':
       return `${walletName(meta.source ?? meta.destination, 'Player Wallet')} To ${walletName(meta.source ? meta.destination : null, 'Agent Wallet')}`;
     case 'admin_removal':

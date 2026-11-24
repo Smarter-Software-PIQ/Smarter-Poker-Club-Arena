@@ -22,6 +22,7 @@ DECLARE
   v_columns text[];
   v_promo_tickets_installed boolean;
   v_promo_returns_installed boolean;
+  v_promo_all_sources_installed boolean;
 BEGIN
   SELECT string_agg(required.version, ', ' ORDER BY required.version)
   INTO v_missing
@@ -229,6 +230,20 @@ BEGIN
     RAISE EXCEPTION 'cashier promo returns successor migration history drift';
   END IF;
 
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124004000'
+  ) INTO v_promo_all_sources_installed;
+  IF v_promo_all_sources_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124004000'
+       AND name = 'promo_wallet_sends_follow_promo_chip_rules'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '7136cfa91bb173dc0556b2a2352508a5'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo all-sources successor migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
@@ -255,6 +270,8 @@ BEGIN
       -- 20261115062830 adds the qualified club-wide funding filter; 160320's proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
       'hash', '926853d2cd2082737ab82c8a562b8534',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '35bbd530c2b26b74443b56ecbc8d064b',
       'owner', 'postgres'
     ),
     jsonb_build_object(
@@ -621,7 +638,8 @@ BEGIN
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_contract)
   LOOP
     IF (v_item ->> 'promo_successor_version' = '20261116154719' AND v_promo_tickets_installed)
-       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed) THEN
+       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed)
+       OR (v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed) THEN
       v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
     END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
@@ -701,6 +719,9 @@ BEGIN
   );
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_private_contract)
   LOOP
+    IF v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'private cashier function missing: %', v_item ->> 'signature';
@@ -731,7 +752,9 @@ BEGIN
       -- destination's balance. Native proof and live source agree exactly.
       'hash', 'fcfeeb86ff63e1a4e4c01315d851a1e8'),
     jsonb_build_object('signature', 'public.fn_club_bank_reverse_core_20261004(uuid,text,uuid)',
-      'hash', '2a67b4b80c857356ef0eaca621b358c3'),
+      'hash', '2a67b4b80c857356ef0eaca621b358c3',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '32861dd6d55361fc1aed61336972c76e'),
     jsonb_build_object('signature', 'public.fn_admin_remove_chips_core_20261004(uuid,uuid,numeric,text,uuid)',
       'hash', 'ac293c1623da0db62d74f5e888c1011a'),
     jsonb_build_object('signature', 'public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
@@ -740,7 +763,9 @@ BEGIN
       -- ceiling, inserted at the downline-limit anchor. Body derived from that
       -- source in tests/cashier-authority-exact-intent.test.ts; earlier pin
       -- 7087a67e16f6d7990c28fbb549464bef.
-      'hash', 'be708b91a9ce7080e2826d2f53513cc5'),
+      'hash', 'be708b91a9ce7080e2826d2f53513cc5',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '488d14c1a1db37cef0ff40a676ed9f5f'),
     jsonb_build_object('signature', 'public.fn_club_promo_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
       -- Derived from the protected source fixture and exact migration patch;
       -- the previous body omitted the payer's ledger source column.
@@ -757,6 +782,9 @@ BEGIN
   );
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_private_contract)
   LOOP
+    IF v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'private cashier core missing: %', v_item ->> 'signature';

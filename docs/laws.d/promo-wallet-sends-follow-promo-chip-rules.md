@@ -1,0 +1,3 @@
+# tests/promo-wallet-sends-follow-promo-chip-rules.law.test.ts
+
+Owner November 23, 2026: every chip sent to an agent's promo wallet follows all Promo Chip Rules regardless of which source wallet funded the send. Reversing a Club Bank send whose destination was promo_wallet returns chips to clubs.promo_balance (never clubs.chip_treasury); agent_wallet and player_wallet sends to a downline's promo_wallet enforce and share the 50-chip / 7-day downline cap and 250-chip / 24-hour per-agent daily cap; locked promo chips in player_wallet or agent_wallet cannot bypass their 4x play-through lock by transferring, agent-sending, or agent-claiming into a promo_wallet.
