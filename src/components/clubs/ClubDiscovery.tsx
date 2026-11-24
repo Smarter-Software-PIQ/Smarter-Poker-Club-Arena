@@ -1,3 +1,5 @@
+import { SHARK_CLUB_ID } from '../../lib/constants';
+import { readKingsClubDisplayTotals } from '../../services/KingsClubDisplayService';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 /**
  * ♠ CLUB ARENA — Club Discovery
@@ -60,7 +62,7 @@ interface Club {
   name: string;
   logo?: string;
   description: string;
-  memberCount: number;
+  memberCount: number | null;
   activeTableCount: number;
   tags: string[];
   isPrivate: boolean;
@@ -131,7 +133,7 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
         let query = supabase
           .from('clubs')
           .select(
-            'id, slug, name, description, logo_url, avatar_url, member_count, table_count, requires_approval, is_public, tags, game_type, average_rating, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next, created_at'
+            'id, club_id, slug, name, description, logo_url, avatar_url, member_count, table_count, requires_approval, is_public, tags, game_type, average_rating, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next, created_at'
           )
           .eq('is_public', true)
           .limit(30);
@@ -152,6 +154,9 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
         fetchedClubs = data || [];
       }
 
+      const kingsTotals = fetchedClubs.some((club) => Number(club.club_id) === SHARK_CLUB_ID)
+        ? await readKingsClubDisplayTotals()
+        : null;
       // Map backend data to local Club interface
       const mappedClubs: Club[] = fetchedClubs.map((c) => ({
         id: c.id,
@@ -161,7 +166,10 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
         // A blank description stays blank. The list used to print a welcome
         // line the owner never wrote, as if it were the club's own copy.
         description: typeof c.description === 'string' ? c.description.trim() : '',
-        memberCount: c.member_count || 0,
+        memberCount:
+          Number(c.club_id) === SHARK_CLUB_ID
+            ? (kingsTotals?.member_total ?? null)
+            : c.member_count || 0,
         activeTableCount: c.table_count || 0,
         // No minStakes/maxStakes: clubs has no such columns, so every card
         // showed the fallback "1/2 - 5/10" as if it were real. Fabricated
@@ -295,7 +303,7 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
                 <div className="club-discovery__fact">
                   <dt className="club-discovery__fact-label sc-label sc-ink--blue">Members</dt>
                   <dd className="club-discovery__fact-value sc-ink--silver">
-                    {compactChips(club.memberCount)}
+                    {club.memberCount == null ? '…' : compactChips(club.memberCount)}
                   </dd>
                 </div>
                 <div className="club-discovery__fact">

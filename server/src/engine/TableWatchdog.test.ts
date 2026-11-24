@@ -48,6 +48,12 @@ function harness(opts: {
   seats?: Array<{ seat: number; stack: number; allIn?: boolean; folded?: boolean }>;
   currentSeat?: number;
   hasClock?: boolean;
+  /** Live server-owned deadlines for the current seat (absolute ms timestamps). */
+  deadlines?: {
+    primary?: number;
+    disconnect?: number;
+    timebank?: number;
+  };
   /** performAction outcome. 'reject' = the stale-pointer case that broke Tier 3. */
   action?: 'accept' | 'reject';
   noHand?: boolean;
@@ -95,10 +101,17 @@ function harness(opts: {
     is_horse: true,
   }));
   e.waitingForBB = new Set<string>();
-  e.disconnectEngine = { isSittingOut: () => false };
+  e.disconnectEngine = {
+    isSittingOut: () => false,
+    armedAutoActionDeadlineMs: () => opts.deadlines?.disconnect ?? 0,
+  };
   e.timeBankEngine = { playerActed: () => {} };
   e.preciseTimer = {
     hasTimer: () => opts.hasClock ?? false,
+    getDeadline: (_tableId: string, key: string) =>
+      key.startsWith('timebank:')
+        ? (opts.deadlines?.timebank ?? 0)
+        : (opts.deadlines?.primary ?? 0),
     clearTable: () => {},
     startTimer: () => {},
     cancelTimer: () => {},
@@ -566,5 +579,76 @@ describe('table watchdog - a hand in flight at the break is still a hand', () =>
     expect((h.engine as any).isParkedByDesign()).toBe(false);
     const idle = harness({ noHand: true });
     expect((idle.engine as any).isParkedByDesign()).toBe(false);
+  });
+});
+
+describe('table watchdog - respects live server-owned turn deadlines past 45s', () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('does NOT force-fold a connected human whose primary clock expires 840ms from now', () => {
+    const h = harness({
+      hasClock: true,
+      deadlines: { primary: Date.now() + 840 },
+    });
+    h.setStale(STALL_MS + 2_000);
+    run(h);
+    expect(trips(h)).toBe(0);
+    expect(h.calls.performAction).toHaveLength(0);
+    expect(h.calls.startTimer).toHaveLength(0);
+    expect(h.calls.killed).toHaveLength(0);
+  });
+
+  it('does NOT trip or re-arm when disconnect:<uid> protection is still live past 45s', () => {
+    const h = harness({
+      hasClock: false,
+      deadlines: { disconnect: Date.now() + 1_200 },
+    });
+    h.setStale(STALL_MS + 2_500);
+    run(h);
+    expect(trips(h)).toBe(0);
+    expect(h.calls.performAction).toHaveLength(0);
+    expect(h.calls.startTimer).toHaveLength(0);
+  });
+
+  it('does NOT trip during VIP 45s disconnect protection or an active timebank past 45s', () => {
+    const vip = harness({
+      hasClock: false,
+      deadlines: { disconnect: Date.now() + 44_000 },
+    });
+    vip.setStale(STALL_MS + 15_000);
+    run(vip);
+    expect(trips(vip)).toBe(0);
+    expect(vip.calls.performAction).toHaveLength(0);
+
+    const bank = harness({
+      hasClock: false,
+      deadlines: { timebank: Date.now() + 25_000 },
+    });
+    bank.setStale(STALL_MS + 20_000);
+    run(bank);
+    expect(trips(bank)).toBe(0);
+    expect(bank.calls.performAction).toHaveLength(0);
+  });
+
+  it('STILL trips and rescues when a deadline is expired or corrupted far in the future (> 90s)', () => {
+    const expired = harness({
+      hasClock: true,
+      action: 'accept',
+      deadlines: { primary: Date.now() - 500 },
+    });
+    expired.setStale(STALL_MS + 1_000);
+    run(expired);
+    expect(expired.calls.performAction).toEqual([[1, 'fold']]);
+
+    for (const badDeadline of [Date.now() + 120_000, Number.POSITIVE_INFINITY, Number.NaN]) {
+      const corrupted = harness({
+        hasClock: true,
+        action: 'accept',
+        deadlines: { primary: badDeadline },
+      });
+      corrupted.setStale(STALL_MS + 1_000);
+      run(corrupted);
+      expect(corrupted.calls.performAction).toEqual([[1, 'fold']]);
+    }
   });
 });

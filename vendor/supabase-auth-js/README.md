@@ -1,10 +1,32 @@
 # Auth initialization acquisition recovery
 
 This is the unchanged MIT-licensed `@supabase/auth-js` 2.90.1 package except
-for the three implementations and two private field declarations shown in `initialization-recovery.patch`:
+for the changes to three implementations and the private field declarations shown in `initialization-recovery.patch`:
 TypeScript source, CommonJS runtime and ES-module runtime. Its package version,
 public API declarations, native exclusive lock, lock budget and refresh behavior stay intact.
 The original license remains inside the archive.
+
+## Lock-free session read (2026-11-24)
+
+`getSession()` returns a still-valid stored session without taking the
+cross-tab lock, once this client has initialized. Every smarter.poker tab (Hub
+and Club Arena share the `smarter-poker-auth` storage key) contends for
+`lock:smarter-poker-auth`. Upstream took that lock for every read, so any other
+tab that held it past the 10 s acquire budget failed every request in this tab
+with `AbortError: signal is aborted without reason` before the request was
+sent: the club access check, the table socket and action submits (player
+GRANDmasterFLUSH, "Club Access Could Not Be Verified"). The lock exists to
+serialise refresh-token rotation, and a valid access token needs none.
+
+The read is lock-free only when all of these hold: initialization completed
+without error, no separate `userStorage`, browser storage, and the stored
+session is valid with more than `EXPIRY_MARGIN_MS` left. Everything else,
+including every refresh, takes the lock exactly as upstream. The session is
+read from storage on every call, so a sign-out or refresh in another tab is
+seen immediately. `tests/unit/authSessionReadWithoutLock.test.ts` pins this
+against both runtime builds and fails on the previous archive.
+
+## Initialization recovery
 
 Production admission showed an initial native lock request abort before its
 callback entered. The SDK permanently cached that rejected initializer, so

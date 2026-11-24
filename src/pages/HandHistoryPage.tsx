@@ -64,6 +64,7 @@ import { handNotesService, type HandNote } from '../services/HandNotesService';
 import { handFlagService, type HandFlag } from '../services/HandFlagService';
 import { toPokerStarsFile } from '../utils/pokerStarsExport';
 import { openInBrowser } from '../lib/openExternal';
+import { WEB_ORIGIN } from '../lib/appBase';
 import { downloadBlob } from '../utils/downloadCsv';
 import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { useSharedHandShortLink } from '../hooks/useSharedHandShortLink';
@@ -172,6 +173,8 @@ export default function HandHistoryPage() {
   const arenaAssetScope = arenaScoped ? ('diamonds' as const) : null;
   const hasStatsDrilldown = Object.keys(statsDrilldown).some((key) => key !== 'gameMode');
   const cameFromStats = searchParams.get('source') === 'stats';
+  const cameFromPersonalAssistant = searchParams.get('source') === 'personal-assistant';
+  const returnLeakId = searchParams.get('leak');
   /* DEEP LINK (Phase 1, 2026-09-05): `/hand-history?hand=<id>` opens ON that
      hand - expanded and scrolled to - fetching it by id when it is not on the
      first page. The id is the hand_history row id the modal's Copy Link and a
@@ -255,7 +258,8 @@ export default function HandHistoryPage() {
     row: ServiceHandRecord | null;
   } | null>(null);
   const linkedRow = linkedRead?.scope === archiveScope ? linkedRead.row : null;
-  const [linkedState, setLinkedState] = useState<'idle' | 'loading' | 'missing'>('idle');
+  const [linkedState, setLinkedState] = useState<'idle' | 'loading' | 'missing' | 'error'>('idle');
+  const [linkedRetry, setLinkedRetry] = useState(0);
   const linkedScrolledRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -529,11 +533,11 @@ export default function HandHistoryPage() {
       try {
         const row = await handHistoryService.getHand(linkedHandId);
         if (!alive || requestKeyRef.current !== archiveScope) return;
-        if (row && !searchParams.has('gameMode') && row.tournament_id) {
+        if (row && Boolean(row.tournament_id) !== (gameMode === 'tournament')) {
           setSearchParams(
             (current) => {
               const next = new URLSearchParams(current);
-              next.set('gameMode', 'tournament');
+              next.set('gameMode', row.tournament_id ? 'tournament' : 'cash');
               return next;
             },
             { replace: true }
@@ -545,13 +549,13 @@ export default function HandHistoryPage() {
       } catch (e) {
         if (!alive) return;
         reportError(e, 'HandHistoryPage.linked_hand');
-        setLinkedState('missing');
+        setLinkedState('error');
       }
     })();
     return () => {
       alive = false;
     };
-  }, [linkedHandId, userId, rows, loading, linkedRow, archiveScope]);
+  }, [linkedHandId, userId, rows, loading, linkedRow, archiveScope, linkedRetry]);
 
   /* The view model: the same record the table's panel renders, through the
      same adapter. Filters and the stats drill-down apply on top. A linked hand
@@ -836,35 +840,52 @@ export default function HandHistoryPage() {
   };
 
   /**
-   * Jarvis analysis. The hand travels by ID: the analysis page reads the
-   * record itself, under the viewer's own session. The old link serialised the
-   * viewer's HOLE CARDS into the query string - into browser history and every
-   * referer header on the way.
+   * Personal Assistant Leak Finder analysis. The hand travels strictly by ID:
+   * the analysis page reads the record itself under the viewer's own session
+   * and owner-scoped RLS. Never serialise hole cards into a query string.
    */
-  const analyzeWithJarvis = (hand: HandRecord) => {
+  const openPersonalAssistantPath = (path: string, toastMessage: string) => {
+    // Dan 2026-09-05: with a live table open, Leak Finder opens in a hub tab
+    // beside the game (the strip can see it, swipe reaches it); otherwise
+    // the browser tab it has always been.
+    const liveTables = Number(document.body?.dataset.caLiveTables ?? '0');
+    if (liveTables > 0) {
+      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: userId ?? undefined });
+      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
+    } else {
+      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
+      toast.info(toastMessage);
+    }
+  };
+
+  const analyzeInPersonalAssistant = (hand: HandRecord) => {
     try {
-      const summary = {
-        id: hand.id,
-        table: hand.tableName || '',
-        stakes: hand.blinds,
-        pot: hand.replay.potTotal,
-        result: hand.replay.players.find((p) => p.userId === userId)?.net ?? 0,
-        players: hand.players.length,
-        playedAt: new Date(hand.timestamp).toISOString(),
-      };
-      const path = `/hub/jarvis?hand=${encodeURIComponent(JSON.stringify(summary))}`;
-      // Dan 2026-09-05: with a live table open, Jarvis opens in a hub tab
-      // beside the game (the strip can see it, swipe reaches it); otherwise
-      // the browser tab it has always been.
-      if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
-        masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: userId ?? undefined });
-      } else {
-        openInBrowser(`https://smarter.poker${path}`, 'noopener');
-      }
-      toast.info('Opening Jarvis Analysis');
+      const path = `/hub/personal-assistant/leaks?source=club-arena&hand=${encodeURIComponent(hand.id)}`;
+      const variantText = String(hand.replay?.gameVariant || hand.gameType || '').toLowerCase();
+      const isNonNlh =
+        Boolean(variantText) && !/(nlh|holdem|hold'em|texas|no.?limit)/i.test(variantText);
+      openPersonalAssistantPath(
+        path,
+        isNonNlh
+          ? 'Opening Leak Finder (Solver Audit Covers Holdem Hands)'
+          : 'Opening Leak Finder Analysis'
+      );
     } catch (err) {
-      reportError(err, 'HandHistoryPage.Failed_to_send_hand_to_Jarvis');
-      toast.error('Could Not Open Jarvis Analysis');
+      reportError(err, 'HandHistoryPage.open_personal_assistant_failed');
+      toast.error('Could Not Open Leak Finder Analysis');
+    }
+  };
+
+  const returnToPersonalAssistant = () => {
+    try {
+      const leakSuffix = returnLeakId ? `?leak=${encodeURIComponent(returnLeakId)}` : '';
+      openPersonalAssistantPath(
+        `/hub/personal-assistant/leaks${leakSuffix}`,
+        'Returning To Personal Assistant'
+      );
+    } catch (err) {
+      reportError(err, 'HandHistoryPage.return_to_personal_assistant_failed');
+      toast.error('Could Not Return To Personal Assistant');
     }
   };
 
@@ -878,6 +899,7 @@ export default function HandHistoryPage() {
    * this fixes. Show My Hands drops the link and brings everything back.
    */
   const showingForeignLink = !!linkedHandId && linkedState === 'missing';
+  const showingLinkedError = !!linkedHandId && linkedState === 'error';
   /*
    * ASK FOR A SHARE LINK (2026-11-06). An old archive link cannot say who sent
    * it: the hand is unreadable to this viewer, and naming its players would
@@ -908,7 +930,7 @@ export default function HandHistoryPage() {
     <div className="hand-history-page" data-arena-surface="play">
       <CasinoSurfaceHeader
         title="Hand Archive"
-        description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Send It To Jarvis."
+        description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Open It In Personal Assistant."
         status="HAND RECORD // LIVE"
         metrics={
           showingForeignLink
@@ -1072,6 +1094,34 @@ export default function HandHistoryPage() {
           </button>
           <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
             Show My Hands
+          </button>
+        </div>
+      )}
+
+      {showingLinkedError && (
+        <div className="hh-stats-drilldown" role="alert">
+          <span>
+            Could Not Load The Linked Hand Right Now. This Looks Like A Network Or Service Issue,
+            Not A Missing Hand.
+          </span>
+          <button type="button" onClick={() => setLinkedRetry((n) => n + 1)}>
+            Retry Linked Hand
+          </button>
+          <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
+            Show My Hands
+          </button>
+        </div>
+      )}
+
+      {cameFromPersonalAssistant && (
+        <div
+          className="hh-stats-drilldown"
+          role="navigation"
+          aria-label="Personal Assistant Return"
+        >
+          <span>Opened From Personal Assistant Leak Finder</span>
+          <button type="button" onClick={returnToPersonalAssistant}>
+            Return To Personal Assistant
           </button>
         </div>
       )}
@@ -1313,7 +1363,9 @@ export default function HandHistoryPage() {
                         <button
                           type="button"
                           className="analyze-btn"
-                          onClick={() => analyzeWithJarvis(hand)}
+                          title="Analyze In Personal Assistant Leak Finder"
+                          aria-label="Analyze Hand In Personal Assistant Leak Finder"
+                          onClick={() => analyzeInPersonalAssistant(hand)}
                         >
                           Analyze
                         </button>

@@ -183,9 +183,11 @@ import { isMaintenanceFrozen, onMaintenanceThaw } from '../maintenance/freezeSta
 import { feederStartWaitsForVariety } from '../services/HorseVarietyFirst.js';
 import { wakeCluster } from '../cluster/ClusterController.js';
 import {
+  gameWideMovesPlannedGeneration,
   movesPlannedGeneration,
   noteSeatArrival,
   seatArrivalGeneration,
+  tableMovesPlannedGeneration,
 } from '../cluster/seatBoundarySignals.js';
 import { noteCashSeatCommitted } from '../cluster/cashSeatCommittedSignal.js';
 import { ChipContinuityTracker } from './ChipContinuity.js';
@@ -5847,6 +5849,8 @@ export abstract class ServerTableEngineBase {
    * before dealHand. See server/src/cluster/seatBoundarySignals.ts.
    */
   protected seatMovePlanGenerationAtRead = 0;
+  protected seatMoveGamePlanGenerationAtRead: number | undefined = undefined;
+  protected seatMoveTablePlanGenerationAtRead = 0;
   protected seatArrivalGenerationAtRoster = 0;
 
   /**
@@ -5934,6 +5938,10 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return false;
     // Captured BEFORE the read: a plan committed after this instant reaches
     // the synchronous check before dealHand even if this read missed it.
+    this.seatMoveTablePlanGenerationAtRead = tableMovesPlannedGeneration(this.tableId);
+    this.seatMoveGamePlanGenerationAtRead = gameWideMovesPlannedGeneration(
+      this.tableInfo?.cluster_id
+    );
     this.seatMovePlanGenerationAtRead = movesPlannedGeneration(this.tableInfo?.cluster_id);
     const pending = await this.readPendingSeatMoves();
     // A fresh engine has no local swap holds. Unknown durable readiness must
@@ -6013,6 +6021,26 @@ export abstract class ServerTableEngineBase {
     this.seatArrivalGenerationAtRoster = seatArrivalGeneration(this.tableId);
   }
 
+  /** True for Main 1 of a cash must-move cluster (has no outgoing must-move plans). */
+  protected isPrimaryMainTable(): boolean {
+    return this.tableInfo?.role === 'main' && Number(this.tableInfo?.main_index) === 1;
+  }
+
+  /**
+   * Read-only synchronous predicate used by awaitNextHandRest() to wake early
+   * inside the rest window without mutating loopPhase or duplicating the sole
+   * seatBoundaryChangedUnderRest() call site in the loop.
+   */
+  protected hasPendingSeatBoundaryChange(): boolean {
+    if (this.isTournamentTable()) return false;
+    if (seatArrivalGeneration(this.tableId) !== this.seatArrivalGenerationAtRoster) return true;
+    if (tableMovesPlannedGeneration(this.tableId) !== (this.seatMoveTablePlanGenerationAtRead ?? 0))
+      return true;
+    if (this.isPrimaryMainTable()) return false;
+    const baseline = this.seatMoveGamePlanGenerationAtRead ?? this.seatMovePlanGenerationAtRead;
+    return gameWideMovesPlannedGeneration(this.tableInfo?.cluster_id) !== baseline;
+  }
+
   /**
    * THE LAST LOOK BEFORE THE DEAL (2026-10-24). Synchronous by design: it
    * sits between the two-second rest and dealHand, where nothing may wait
@@ -6021,11 +6049,20 @@ export abstract class ServerTableEngineBase {
    * committed after this iteration read them; the loop then goes round once
    * more so the plan is executed before another feeder hand and the arrival
    * is dealt into Main's next hand. Every ordinary deal returns false here.
+   *
+   * Main 1 (`role === 'main' && main_index === 1`) has zero outgoing must-move
+   * plans, so it ignores game-wide feeder->Main plan signals while always
+   * honoring table-targeted plans (e.g. swaps) and `seatArrivalGeneration`.
    */
   protected seatBoundaryChangedUnderRest(): boolean {
     if (this.isTournamentTable()) return false;
-    const planned =
-      movesPlannedGeneration(this.tableInfo?.cluster_id) !== this.seatMovePlanGenerationAtRead;
+    const tablePlanned =
+      tableMovesPlannedGeneration(this.tableId) !== (this.seatMoveTablePlanGenerationAtRead ?? 0);
+    const gamePlanned =
+      !this.isPrimaryMainTable() &&
+      gameWideMovesPlannedGeneration(this.tableInfo?.cluster_id) !==
+        (this.seatMoveGamePlanGenerationAtRead ?? this.seatMovePlanGenerationAtRead);
+    const planned = tablePlanned || gamePlanned;
     const arrived = seatArrivalGeneration(this.tableId) !== this.seatArrivalGenerationAtRoster;
     if (!planned && !arrived) return false;
     this.setLoopPhase(planned ? 'seat_move_planned_under_rest' : 'seat_arrived_under_rest');

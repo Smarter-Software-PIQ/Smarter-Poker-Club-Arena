@@ -66,6 +66,28 @@ describe('Data console PostgreSQL contracts stay in the required CI verdict', ()
     expect(native).toContain('bomb-after.sql');
   });
 
+  it('executes the bomb-pot hand result proof in the required PostgreSQL job', () => {
+    expect(wrapper.split('scripts/ci/test-hand-player-facts-bomb-pot.sh')).toHaveLength(2);
+    const native = read('scripts/ci/test-hand-player-facts-bomb-pot.sh');
+    for (const input of [
+      '20261124144034_a_player_s_hand_result_counts_the_bomb_pot_ante_and_charges_.sql',
+      '20261124145120_stored_bomb_pot_stat_rows_take_the_corrected_hand_result.sql',
+      'live-predecessor.sql',
+      'hands.sql',
+      'stored-rows.sql',
+      'assertions.sql',
+      'ordinary.sql',
+      'privileges.sql',
+      'recompute-assertions.sql',
+    ])
+      expect(native).toContain(input);
+    // The proof shows the defect on the live bodies before it installs the patch.
+    expect(native.indexOf('The live bodies unexpectedly passed')).toBeLessThan(
+      native.indexOf('-f "$patch"')
+    );
+    expect(native).toContain('Bomb-pot patch already installed');
+  });
+
   it('executes the roster join-order regression in the required PostgreSQL job', () => {
     expect(wrapper).toContain('bash "$repo/scripts/dev/test-roster-join-sort-postgres.sh"');
     const native = read('scripts/dev/test-roster-join-sort-postgres.sh');
@@ -129,6 +151,8 @@ describe('Data console PostgreSQL contracts stay in the required CI verdict', ()
     'scripts/dev/test-statement-availability-postgres.sh',
     'tests/fixtures/stats-operational-quality/bootstrap.sql',
     'tests/data-console-postgres-contracts-wired.test.ts',
+    'scripts/ci/test-hand-player-facts-bomb-pot.sh',
+    'tests/fixtures/hand-player-facts-bomb-pot/hands.sql',
   ])('routes executable contract input %s to the native server job', (path) => {
     expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });

@@ -1,3 +1,5 @@
+import seatingRail from '../../lobby/console-art/seating-rail.webp';
+import { useCountdown } from '../../../hooks';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TABLES — a straight list, one table per line
@@ -57,7 +59,14 @@
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { warmTable, observeLobbyTableWarmups } from '../../../services/tableWarmup';
 import { useToast } from '../../common/Toast';
-import { chips, stackChips, isPlayerLive, shortTableName, type TournamentTabProps } from './types';
+import {
+  chips,
+  clockText,
+  stackChips,
+  isPlayerLive,
+  shortTableName,
+  type TournamentTabProps,
+} from './types';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
@@ -336,6 +345,13 @@ const TableRow = React.memo(function TableRow({
 //  THE TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
+function EventStartClock({ start }: { start: string }) {
+  const deadline = useMemo(() => new Date(start), [start]);
+  const remaining = useCountdown(deadline);
+  if (!Number.isFinite(remaining) || remaining <= 0) return null;
+  return <b className="mtt-start-clock">Event Starts In {clockText(remaining / 1000)}</b>;
+}
+
 export default function TablesTab({
   tournament,
   entries,
@@ -520,9 +536,25 @@ export default function TablesTab({
             onWatchPlayer={onWatchPlayer}
           />
         )}
-        <div className="tl-empty">
-          <span>{empty.title}</span>
-          <span className="tl-empty__hint">{empty.hint}</span>
+        <h3 className="console-section-heading">Tables</h3>
+        <div className="console-table" aria-label="Tables">
+          <img className="seating-rail" src={seatingRail} alt="" />
+          <div className="seating-copy">
+            <span className="seating-brand">
+              <svg aria-hidden="true" width="26" height="27" viewBox="0 0 28 28">
+                <path
+                  fill="currentColor"
+                  d="M14 1C11 6 2 11 2 17a6 6 0 0 0 11 3c0 3-2 5-4 7h10c-2-2-4-4-4-7a6 6 0 0 0 11-3c0-6-9-11-12-16Z"
+                />
+              </svg>
+              <small>Smarter.Poker</small>
+            </span>
+            <strong className="table-message">{empty.title}</strong>
+            <span className="table-hint">{empty.hint}</span>
+            {tournament.start_time && empty.title === 'No Tables Yet' && (
+              <EventStartClock start={tournament.start_time} />
+            )}
+          </div>
         </div>
       </div>
     );

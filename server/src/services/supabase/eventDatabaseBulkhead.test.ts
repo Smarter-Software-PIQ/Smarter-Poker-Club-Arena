@@ -149,9 +149,52 @@ describe('a stuck event', () => {
     // Idle at the full bound again, so the event is forgotten.
     expect(bulkhead.snapshot().events).toHaveLength(0);
   });
+
+  it('does not halve the bound on a single isolated congested refusal at low concurrency, but halves on streak >= 2 or active load', async () => {
+    const bulkhead = quiet();
+    // Isolated 40001 at inFlight=0: cools one slot, keeps full bound 24.
+    const lone = ask(bulkhead, 'quiet-event');
+    bulkhead.release(lone.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    expect(bulkhead.snapshot().events[0].cooling).toBe(1);
+    await vi.advanceTimersByTimeAsync(EVENT_DB_BACKOFF_MAX_MS);
+    expect(bulkhead.snapshot().events).toHaveLength(0);
+
+    // Two consecutive congested refusals at low concurrency DO halve 24 -> 12.
+    const c1 = ask(bulkhead, 'streak-event');
+    bulkhead.release(c1.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    const c2 = ask(bulkhead, 'streak-event');
+    bulkhead.release(c2.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+
+    // Active concurrency (>= minPerEvent still in flight) halves on the first congested answer.
+    const active = Array.from({ length: EVENT_DB_MIN_IN_FLIGHT + 1 }, () =>
+      ask(bulkhead, 'busy-event')
+    );
+    bulkhead.release(active[0].permit!, 'congested');
+    const busy = bulkhead.snapshot().events.find((e) => e.key === 'busy-event')!;
+    expect(busy.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+  });
 });
 
 describe('parked calls', () => {
+  it('logs the true parked queue depth (parked=1, never parked=0) when parking the first call', () => {
+    const lines: string[] = [];
+    const bulkhead = new EventDatabaseBulkhead({
+      log: (line) => lines.push(line),
+      now,
+      maxPerEvent: 1,
+      minPerEvent: 1,
+    });
+    const first = ask(bulkhead, STUCK);
+    void bulkhead.acquire(STUCK);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('is parking calls');
+    expect(lines[0]).toContain('parked=1');
+    expect(lines[0]).not.toContain('parked=0');
+    bulkhead.release(first.permit!, 'ok');
+  });
   it('leave in the order they arrived', async () => {
     const bulkhead = new EventDatabaseBulkhead({ log: () => {}, maxPerEvent: 1, minPerEvent: 1 });
     const order: number[] = [];

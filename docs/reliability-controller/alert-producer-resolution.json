@@ -136,7 +136,7 @@
     },
     "sp-daily-digest": {
       "kind": "in-function",
-      "resolvers": ["fn_sp_critical_scan"],
+      "resolvers": ["fn_sp_critical_scan", "fn_sp_digest_sent_resolves_its_missing_alert"],
       "since": "#11197"
     },
     "weekly-payout": {

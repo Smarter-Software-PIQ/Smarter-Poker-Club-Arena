@@ -340,6 +340,8 @@ export interface FlushSpec {
   onConflict?: (result: FieldResult, wanted: unknown) => void;
   /** Whether a conflicting server value already equals what the player wanted. */
   equals?: (result: FieldResult, wanted: unknown) => boolean;
+  /** Whether a field should produce a success confirmation. Failures still show. */
+  confirmSave?: (field: string) => boolean;
 }
 
 const inFlight = new Map<string, Promise<void>>();
@@ -355,13 +357,17 @@ export function flushScope(spec: FlushSpec): Promise<void> {
   registerRetry(scopeKey, () => void flushScope(spec));
   const previous = inFlight.get(scopeKey) ?? Promise.resolve();
   const run = previous.then(async () => {
+    let confirmSave = false;
     for (let pass = 0; pass < 4; pass += 1) {
       const pending = readPending(spec.owner, spec.scope);
       const fields = Object.keys(pending);
       if (fields.length === 0) {
-        if (readSaveStatus(scopeKey).state === 'saving') setSaveStatus(scopeKey, 'saved');
+        if (readSaveStatus(scopeKey).state === 'saving') {
+          setSaveStatus(scopeKey, confirmSave ? 'saved' : 'idle');
+        }
         return;
       }
+      confirmSave ||= fields.some((field) => spec.confirmSave?.(field) ?? true);
       const ack = readAck(spec.owner, spec.scope);
       const changes = fields.map((field) => ({
         field,
@@ -438,7 +444,7 @@ export function flushScope(spec: FlushSpec): Promise<void> {
         if (Object.keys(now).length === 0) return;
       }
       if (Object.keys(now).length === 0) {
-        if (conflicts.length === 0) setSaveStatus(scopeKey, 'saved');
+        if (conflicts.length === 0) setSaveStatus(scopeKey, confirmSave ? 'saved' : 'idle');
         return;
       }
     }

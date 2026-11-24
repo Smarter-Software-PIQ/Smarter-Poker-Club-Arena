@@ -1,3 +1,5 @@
+import { SHARK_CLUB_ID } from '../lib/constants';
+import { useKingsClubDisplayTotals } from '../hooks/useKingsClubDisplayTotals';
 import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import {
@@ -79,6 +81,11 @@ export interface ClubHit {
   requires_approval: boolean;
   viewer_status: string | null;
   match_score: number;
+}
+
+function KingsClubSearchMemberCount() {
+  const totals = useKingsClubDisplayTotals(true);
+  return totals?.member_total?.toLocaleString() ?? '…';
 }
 
 export interface TableHit {
@@ -1000,7 +1007,14 @@ export default function SearchPage() {
                               </span>
                               <span className={styles.metaRow}>
                                 <span>
-                                  <strong>{formatCount(club.member_count)}</strong> Members
+                                  <strong>
+                                    {Number(club.club_number) === SHARK_CLUB_ID ? (
+                                      <KingsClubSearchMemberCount />
+                                    ) : (
+                                      formatCount(club.member_count)
+                                    )}
+                                  </strong>{' '}
+                                  Members
                                 </span>
                                 <span>
                                   <strong>{formatCount(club.table_count)}</strong> Tables

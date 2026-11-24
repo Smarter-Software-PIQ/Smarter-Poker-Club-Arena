@@ -60,6 +60,100 @@ import { dismissClubEntryMessage } from './global-setup';
 
 const css = (p: string) => readFileSync(p, 'utf8');
 
+test('Tournament Price Stays Centered Between Unequal Header Controls', async ({ page }) => {
+  for (const width of [320, 393, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const popup of [false, true]) {
+      await page.setContent(`<style>${css('src/components/lobby/MttConsole.css')}</style>
+        <div class="tournament-details console-lobby"><header class="details-header">
+          <div class="mtt-meta"><b>Late Registration</b>
+            <div class="mtt-price"><p class="tournament-buyin">35 Chips · 31.50 + 3.50</p></div>
+            <div class="mtt-meta-actions"><button>Invite To Game</button>${popup ? '<button>Close</button>' : ''}</div>
+          </div></header></div>`);
+      const distance = await page.locator('.tournament-buyin').evaluate((price) => {
+        const range = document.createRange();
+        range.selectNodeContents(price);
+        const text = range.getBoundingClientRect();
+        const header = price.closest('header')!.getBoundingClientRect();
+        return Math.abs(text.left + text.width / 2 - header.left - header.width / 2);
+      });
+      expect(distance).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test('The Shared Lobby Matches The Approved Canvas Inside The Club Chrome', async ({ page }) => {
+  const styles = [
+    'src/components/layouts/AppLayout.module.css',
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+    'src/components/lobby/GameLobbyPanel.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const width of [393, 616, 971]) {
+    await page.setViewportSize({ width, height: 1014 });
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+      <style>*{box-sizing:border-box}body{margin:0;line-height:1.6;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
+      ${styles}</style>
+      <main class="main casinoStage"><section class="tournament-details console-lobby"><header class="details-header">
+      <div class="mtt-meta"><div class="mtt-price"><p class="tournament-buyin">35 Chips</p></div></div></header></section></main>
+      <div class="glp-backdrop"><aside class="glp"></aside></div>`);
+    const interior = await page.locator('.console-lobby').boundingBox();
+    expect(interior!.y).toBe(0);
+    expect(interior!.width).toBe(Math.min(width, 600));
+    expect(interior!.x + interior!.width / 2).toBeCloseTo(width / 2);
+    await expect(page.locator('.tournament-buyin')).toHaveCSS('color', 'rgb(86, 216, 255)');
+    await expect(page.locator('.console-lobby')).toHaveCSS('line-height', 'normal');
+    const sheet = await page.locator('.glp-backdrop').boundingBox();
+    expect(sheet!.y).toBe(63);
+    expect(sheet!.y + sheet!.height).toBe(1014 - 72);
+  }
+});
+
+test('The Tournament Title And Guarantee Fit Above The Buy-In', async ({ page }) => {
+  const styles = [
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const viewport of [
+    { width: 393, height: 852 },
+    { width: 667, height: 375 },
+  ]) {
+    await page.setViewportSize(viewport);
+    for (const title of [
+      '<span class="nightly-plaque"><small>Tournament</small><strong>Nightly 20K</strong>',
+      '<span class="arena-format-plaque"><img alt="Satellite" width="360" height="76"><strong>Satellite Into Nightly 20K</strong>',
+    ]) {
+      await page.setContent(`<style>${styles}</style>
+        <div class="tournament-details console-lobby"><header class="details-header">
+          <h1 class="tournament-name">${title}<span class="event-title-guarantee">20,000 Guaranteed</span></span></h1>
+          <div class="mtt-meta"><b>Registering</b><div class="mtt-price">35 Chips</div></div>
+        </header></div>`);
+      await expect(page.locator('h1')).toHaveCSS('-webkit-line-clamp', 'none', { timeout: 1000 });
+      const visible = await page.locator('h1').evaluate((heading) => {
+        const frame = heading.getBoundingClientRect();
+        const buyIn = heading.nextElementSibling!.getBoundingClientRect();
+        return [...heading.querySelectorAll('strong, .event-title-guarantee')].every((label) => {
+          const box = label.getBoundingClientRect();
+          return (
+            box.height > 0 &&
+            box.top >= frame.top - 1 &&
+            box.bottom <= Math.min(frame.bottom, buyIn.top) + 1
+          );
+        });
+      });
+      expect(visible).toBe(true);
+    }
+  }
+});
+
 // Real tournament styles, including the later shared .tl-scroll rule that
 // previously trapped gestures over lists even when their content fit.
 test.describe('tournament scroll gestures', () => {

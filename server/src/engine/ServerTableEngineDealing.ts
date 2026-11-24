@@ -128,6 +128,7 @@ import {
   bindToProcessRoot,
   currentTournamentDataAuthority,
 } from '../services/supabase/dataActorContext.js';
+import { subscribeSeatBoundaryChange } from '../cluster/seatBoundarySignals.js';
 
 /**
  * The number of award groups the CLIENT will animate for this hand.
@@ -620,17 +621,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               if (!this.isTournamentTable() && entryHold === 'moved') {
                 // Preserve the move marker until the destination admits this seat.
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
-                this.registerWaitForBB(p.user_id);
-                if (entryHold === 'waiting' && entryAgreed) {
-                  // An arrival already carrying a standing agreement to post.
-                  // Since 2026-11-15 no seat move writes one (every move lands
-                  // 'moved', docs/LAWS.md "A moved player never posts to
-                  // enter"); a row written before then is honoured once - the
-                  // live big blind on the next deal, held until clear if it
-                  // landed between the button and the blind.
-                  this.postBBWhenClear.add(p.user_id);
-                  this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
-                }
+                // A funded fresh arrival is ready to play. The existing
+                // position check admits a legal entry post after releasing
+                // whoever is naturally due the big blind.
+                this.registerWaitForBB(
+                  p.user_id,
+                  (entryHold === 'waiting' && entryAgreed) ||
+                    (p.stack > 0 &&
+                      !p.is_sitting_out &&
+                      !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+                );
               } else if (this.isTournamentTable()) {
                 // Tournament arrival: discard legacy entry debt; the natural
                 // blind rotation alone determines the blinds owed.
@@ -2139,6 +2139,70 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     );
   }
 
+  /**
+   * Sleep until `deadlineMs` on a cash table, waking immediately if a relevant
+   * seat-boundary signal (arrival at this table, targeted move/swap, or — on
+   * non-Main-1 tables — a game-wide move plan) commits during the rest.
+   * Returns `true` when woken early for a boundary change so `awaitNextHandRest`
+   * can return WITHOUT clearing `nextHandNotBeforeMs` and let the 2nd
+   * `prepareNextHand()` pass run inside the remaining rest window.
+   */
+  private async sleepUntilWithSeatBoundaryWake(deadlineMs: number): Promise<boolean> {
+    if (this.hasPendingSeatBoundaryChange()) return true;
+    let wokeByBoundary = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let resolveCurrentSleep: (() => void) | null = null;
+    const onBoundary = (): void => {
+      if (wokeByBoundary) return;
+      wokeByBoundary = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      const resolve = resolveCurrentSleep;
+      resolveCurrentSleep = null;
+      resolve?.();
+    };
+    const unsubscribe = subscribeSeatBoundaryChange(
+      {
+        tableId: this.tableId,
+        gameId: this.isPrimaryMainTable() ? null : (this.tableInfo?.cluster_id ?? null),
+      },
+      onBoundary
+    );
+    const sleepInterruptible = (ms: number): Promise<void> => {
+      if (wokeByBoundary || !(ms > 0)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        resolveCurrentSleep = resolve;
+        timer = setTimeout(() => {
+          timer = null;
+          resolveCurrentSleep = null;
+          resolve();
+        }, ms);
+      });
+    };
+    try {
+      if (this.hasPendingSeatBoundaryChange()) return true;
+      const left = deadlineMs - Date.now();
+      if (left > 0) {
+        await sleepInterruptible(left);
+        if (wokeByBoundary || this.hasPendingSeatBoundaryChange()) return true;
+        const residue = deadlineMs - Date.now();
+        if (residue > 0 && residue <= ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS) {
+          await sleepInterruptible(residue + ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS);
+        }
+      }
+      return wokeByBoundary || this.hasPendingSeatBoundaryChange();
+    } finally {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolveCurrentSleep = null;
+      unsubscribe();
+    }
+  }
+
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
     if (this.seq1RestStopShortMs > 0) {
@@ -2158,15 +2222,25 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const remaining = this.nextHandNotBeforeMs - Date.now();
       if (remaining > 0) {
         this.setLoopPhase('next_hand_rest');
-        const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
-        if (remaining > lead) await this.sleep(remaining - lead);
-        startBlindRead();
-        // withStepBudget names its own phase; the felt is still resting.
-        this.setLoopPhase('next_hand_rest');
-        // Not before the deadline: one timer can wake 1-2 ms short of it,
-        // which started the next hand at rest - 1 ms (2026-11-23,
-        // ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS).
-        if (this.nextHandNotBeforeMs !== null) await this.sleepUntil(this.nextHandNotBeforeMs);
+        if (!this.isTournamentTable()) {
+          const wokeForBoundary = await this.sleepUntilWithSeatBoundaryWake(
+            this.nextHandNotBeforeMs
+          );
+          // Leave nextHandNotBeforeMs and the open gap/breach span intact so
+          // the loop runs its 2nd prepareNextHand() inside the remaining rest
+          // and deals on time at the original deadline.
+          if (wokeForBoundary && this.hasPendingSeatBoundaryChange()) return;
+        } else {
+          const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
+          if (remaining > lead) await this.sleep(remaining - lead);
+          startBlindRead();
+          // withStepBudget names its own phase; the felt is still resting.
+          this.setLoopPhase('next_hand_rest');
+          // Not before the deadline: one timer can wake 1-2 ms short of it,
+          // which started the next hand at rest - 1 ms (2026-11-23,
+          // ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS).
+          if (this.nextHandNotBeforeMs !== null) await this.sleepUntil(this.nextHandNotBeforeMs);
+        }
       }
       this.nextHandNotBeforeMs = null;
     }
@@ -2297,6 +2371,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         gapMs,
         at: Date.now(),
         stages,
+        prepareSpansMs: span.subSpansMs(),
         settlement: this.cashBreachSettlement(span.handNumber),
       });
     } catch {
@@ -2419,6 +2494,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * The roster read failing still throws exactly as before; the other two
    * settle on their own and are consumed where they always were.
    */
+  /** Record one parallel prepare branch's elapsed duration onto the active cash breach span. */
+  private timeCashPrepareBranch<T>(name: string, work: Promise<T>): Promise<T> {
+    const span = this.cashBreachSpan;
+    if (!span) return work;
+    const startedAt = performance.now();
+    const record = (): void => {
+      span.recordSubSpan(name, Math.max(0, performance.now() - startedAt));
+    };
+    return work.then(
+      (value) => {
+        record();
+        return value;
+      },
+      (err) => {
+        record();
+        throw err;
+      }
+    );
+  }
+
   protected async prepareNextHand(): Promise<SeatedPlayer[]> {
     const releaseSeatBoundary = await this.acquireSeatBoundary();
     try {
@@ -2515,6 +2610,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           undefined,
           (userId, occupancyId) => this.noteLightningDeferredLeave(userId, occupancyId)
         );
+        rawSweep = this.timeCashPrepareBranch('leave_pending', rawSweep);
         budgetedSweep = this.withStepBudget(
           'leave_pending',
           ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
@@ -2981,12 +3077,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.withStepBudget(
         'load_seats',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        loadSeatedPlayers(this.tableId)
+        this.timeCashPrepareBranch('load_seats', loadSeatedPlayers(this.tableId))
       ),
       this.withStepBudget(
         'refresh_rake',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.refreshRakeConfig()
+        this.timeCashPrepareBranch('refresh_rake', this.refreshRakeConfig())
       ),
       /* THE HALT, READ ONCE PER HAND ON A CLUSTER TABLE (2026-09-25). In
          parallel with the roster, so it costs the deal no latency, and on
@@ -2998,7 +3094,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.withStepBudget(
         'refresh_dealing_halt',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.refreshDealingHalt()
+        this.timeCashPrepareBranch('refresh_dealing_halt', this.refreshDealingHalt())
       ),
     ] as const;
     this.setLoopPhase('load_next_hand_inputs');
@@ -3024,7 +3120,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       return await this.withStepBudget(
         'load_seats_after_halt_lift',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        loadSeatedPlayers(this.tableId)
+        this.timeCashPrepareBranch('load_seats_after_halt_lift', loadSeatedPlayers(this.tableId))
       );
     }
     return seats.value;
@@ -4614,6 +4710,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           gapMs: breachEnd.gapMs,
           at: startAtMs,
           stages: breachEnd.stages,
+          prepareSpansMs: breachSpan.subSpansMs(),
           settlement: this.cashBreachSettlement(breachSpan.handNumber),
         });
       }
