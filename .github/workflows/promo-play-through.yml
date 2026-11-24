@@ -127,6 +127,13 @@ jobs:
             scripts/ci/test-hot-path-no-history-scans.py
             tests/hot-path-never-scans-promo-history.law.test.ts
             tests/promo-play-through-is-a-required-proof.law.test.ts
+            tests/every-promo-flow-keeps-a-required-proof.law.test.ts
+            scripts/ci/fixtures/promo-hand-commit-payload/**
+            server/src/engine/thePromoHandCommitPayloadKeepsItsContract.test.ts
+            server/src/engine/ServerTableEngineSettlement.ts
+            server/src/engine/ServerTableEngineHandEvents.ts
+            server/src/engine/handSeatGeneration.ts
+            server/src/services/supabase/handHistory.ts
         shell: bash
         run: |
           set -uo pipefail

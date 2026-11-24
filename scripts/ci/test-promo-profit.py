@@ -110,6 +110,13 @@ def main():
   w=next((ROOT/'supabase/migrations').glob('20261116190221_*.sql'));track(w)
   guarded_w=subprocess.run(['node','--input-type=module','-e',wrapper,w.name],input=w.read_text(),text=True,capture_output=True,check=True,cwd=ROOT).stdout
   db.run(guarded_w)
+  # The engine's contribution is already net of an uncalled return (contract:
+  # scripts/ci/fixtures/promo-hand-commit-payload/contract.json). Every later
+  # check here runs on the readers that no longer subtract it a second time.
+  runfile(ROOT/'supabase/migrations/20261124180000_promo_fee_exposure_counts_the_engines_net_contribution.sql')
+  readers="pronamespace='public'::regnamespace AND proname IN('fn_ca_promo_accept_cash_hand','fn_ca_promo_profit_capture_cash','fn_ca_promo_integrity_accept_hand')"
+  check('all three cash promo readers of the accepted facts are installed',f"SELECT count(*) FROM pg_proc WHERE {readers}",'3')
+  check('no cash promo reader subtracts the uncalled return from the net contribution',f"SELECT count(*) FROM pg_proc WHERE {readers} AND position($a$-COALESCE((p_facts->'returned_uncalled'->>$a$ IN pg_get_functiondef(oid))>0",'0')
   fee_clocks=ROOT/'tests/fixtures/promo-profit-fee-clocks/native.sql'
   track(fee_clocks)
   original_cases=f"\\set club '{C}'\n\\set member '{A}'\n\\set table '{T}'\n"+fee_clocks.read_text()

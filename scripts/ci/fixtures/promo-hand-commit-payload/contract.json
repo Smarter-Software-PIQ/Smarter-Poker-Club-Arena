@@ -1,0 +1,109 @@
+{
+  "about": "The accepted-hand payload Promo Play Through consumes, exactly as the engine sends it. The engine builds it in ServerTableEngineSettlement.postHandTasks (atomicCommit.stacks and atomicCommit.acceptedPostCommitFacts), and services/supabase/handHistory.ts forwards it unchanged as p_stacks and p_hand_row._accepted_post_commit_facts to fn_ca_commit_hand_settlement, which hands both to the promo readers. Pinned on the engine side by server/src/engine/thePromoHandCommitPayloadKeepsItsContract.test.ts (Server Engine, required). The same golden payload is fed through the promo capture by scripts/ci/test-promo-custody.py (Promo play-through lock ledger and fee meter, required). Changing a field, its name or its meaning turns the engine test red until this file changes, and this file is a promo input, so the change runs every promo proof in the same pull request.",
+  "verified_against_production": "2026-11-24, read only: the promo readers of this payload are fn_ca_promo_accept_cash_hand, fn_ca_promo_profit_capture_cash and fn_ca_promo_integrity_accept_hand (cash) and fn_ca_promo_profit_capture_tournament_hand (tournament). In the latest 500 non-tournament rake rows with a returned uncalled bet, sum(contributions) = pot in 500 of 500.",
+  "meaning": {
+    "user_id": "the seat's player, human or Horse alike",
+    "stack": "the engine's ending stack for the hand, rounded to cents. For a tournament this excludes any between-hand add-on; the database records that as stack_result.rebased, and written = stack + rebased.",
+    "stack_before": "the stack the seat was dealt with: the retained funding_stack_before when the roster has one, otherwise the dealt stack",
+    "contributions": "net chips the seat left at risk in the hand: totalInvested after any uncalled bet was returned. They add up to the pot. Never subtract returned_uncalled from them.",
+    "returned_uncalled": "the uncalled amount handed back to its owner. It is audit only and was never at risk.",
+    "insurance": "the hand's insurance settlements; promo reads only whether the list is empty"
+  },
+  "promo_reads": {
+    "fn_ca_promo_accept_cash_hand": {
+      "p_stacks": ["stack", "stack_before", "user_id"],
+      "facts": ["contributions"]
+    },
+    "fn_ca_promo_profit_capture_cash": {
+      "p_stacks": ["stack", "stack_before", "user_id"],
+      "facts": ["contributions"]
+    },
+    "fn_ca_promo_integrity_accept_hand": {
+      "p_stacks": ["stack", "stack_before", "user_id"],
+      "facts": ["contributions", "insurance", "returned_uncalled"]
+    },
+    "fn_ca_promo_profit_capture_tournament_hand": { "p_stacks": ["stack", "user_id"], "facts": [] }
+  },
+  "fixture": {
+    "story": "Three-handed NLH. Alice (human) is dealt 50 and bets 40; Bob (a Horse, dealt 30) calls all in for 30; Dee (human, dealt 50) posted 1 and folded. Alice gets her uncalled 10 back. Bob wins the 61 pot. Alice ends on 20, Bob on 61, Dee on 49.",
+    "table_id": "60000000-0000-0000-0000-000000000001",
+    "seated_joined_at": "2026-11-24T01:00:00.000Z",
+    "players": [
+      {
+        "user_id": "a0000000-0000-0000-0000-000000000001",
+        "seat_id": "5ea70000-0000-0000-0000-000000000001",
+        "seat_number": 1,
+        "is_horse": false,
+        "dealt": 50,
+        "ending": 20,
+        "contributed": 30,
+        "returned_uncalled": 10,
+        "won": 0
+      },
+      {
+        "user_id": "b0000000-0000-0000-0000-000000000002",
+        "seat_id": "5ea70000-0000-0000-0000-000000000002",
+        "seat_number": 2,
+        "is_horse": true,
+        "dealt": 30,
+        "ending": 61,
+        "contributed": 30,
+        "returned_uncalled": 0,
+        "won": 61
+      },
+      {
+        "user_id": "d0000000-0000-0000-0000-000000000003",
+        "seat_id": "5ea70000-0000-0000-0000-000000000003",
+        "seat_number": 3,
+        "is_horse": false,
+        "dealt": 50,
+        "ending": 49,
+        "contributed": 1,
+        "returned_uncalled": 0,
+        "won": 0
+      }
+    ],
+    "pot": 61
+  },
+  "golden": {
+    "p_stacks": [
+      {
+        "seat_id": "5ea70000-0000-0000-0000-000000000001",
+        "seat_joined_at": "2026-11-24T01:00:00.000Z",
+        "user_id": "a0000000-0000-0000-0000-000000000001",
+        "stack": 20,
+        "stack_before": 50
+      },
+      {
+        "seat_id": "5ea70000-0000-0000-0000-000000000002",
+        "seat_joined_at": "2026-11-24T01:00:00.000Z",
+        "user_id": "b0000000-0000-0000-0000-000000000002",
+        "stack": 61,
+        "stack_before": 30
+      },
+      {
+        "seat_id": "5ea70000-0000-0000-0000-000000000003",
+        "seat_joined_at": "2026-11-24T01:00:00.000Z",
+        "user_id": "d0000000-0000-0000-0000-000000000003",
+        "stack": 49,
+        "stack_before": 50
+      }
+    ],
+    "accepted_post_commit_facts": {
+      "contributions": {
+        "a0000000-0000-0000-0000-000000000001": 30,
+        "b0000000-0000-0000-0000-000000000002": 30,
+        "d0000000-0000-0000-0000-000000000003": 1
+      },
+      "returned_uncalled": { "a0000000-0000-0000-0000-000000000001": 10 },
+      "insurance": []
+    }
+  },
+  "promo_expectation": {
+    "story": "All 50 of Alice's dealt stack is promo principal at the table. She ends on 20, so 30 promo chips were lost (a loss consumes a position's promo after its free chips, and she had none). The promo-funded fee exposure is the 30 chips she left at risk, not 20.",
+    "alice_promo_at_table_before": 50,
+    "alice_promo_left_at_table": "20",
+    "alice_contribution": "30",
+    "alice_promo_contribution": "30"
+  }
+}

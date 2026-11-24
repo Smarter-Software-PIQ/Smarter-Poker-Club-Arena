@@ -16,6 +16,9 @@ T='60000000-0000-0000-0000-000000000001'
 H='60000000-0000-0000-0000-000000000002'
 T2='60000000-0000-0000-0000-000000000022'
 MIGRATION=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql'
+# The engine's contribution is net of an uncalled return; the readers stop subtracting it twice.
+NET=ROOT/'supabase/migrations/20261124180000_promo_fee_exposure_counts_the_engines_net_contribution.sql'
+CONTRACT=ROOT/'scripts/ci/fixtures/promo-hand-commit-payload/contract.json'
 
 def main():
  p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);args=p.parse_args()
@@ -125,6 +128,7 @@ def main():
   check('real applier refuses the former stale funding pin',refused.returncode!=0 and 'migration_left_a_stale_pin' in refused.stderr,True)
   check('refused stale funding pin rolls back custody DDL',one("SELECT to_regclass('public.ca_promo_principal_custody') IS NULL"),'t')
   db.run(guarded(migration))
+  db.run(NET.read_text())
   next_hash=one("SELECT md5(pg_get_functiondef('public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'::regprocedure))")
   expected=inventory['definition'].replace('d01404c53405fd1826de26e58b04f4b1',next_hash)
   check('inventory guard changes only the original funding fingerprint',one("SELECT md5(pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure))"),hashlib.md5(expected.encode()).hexdigest())
@@ -189,7 +193,9 @@ def main():
   reset();grant();db.run(fund(50))
   alternate='60000000-0000-0000-0000-000000000003'
   stacks=json.dumps([dict(user_id=A,stack_before=50,stack=30)])
-  facts=json.dumps(dict(contributions={A:40},returned_uncalled={A:10}))
+  # Engine-shaped facts: Alice bet 40, 10 came back uncalled, so the engine's
+  # contribution is the 30 she left at risk and returned_uncalled is audit only.
+  facts=json.dumps(dict(contributions={A:30},returned_uncalled={A:10}))
   places=json.dumps({A:T})
   db.run(accepted(H,alternate)+f"SELECT fn_ca_promo_accept_cash_hand('{H}','{alternate}','{stacks}','{facts}','{places}')")
   check('Lightning retires principal at its original physical seat',held('table_stack',entity=T),'30')
@@ -454,12 +460,25 @@ def main():
   timing=db.json("SELECT jsonb_build_object('calls',calls,'total_ms',total_time,'self_ms',self_time,'fee_source_rows',30000,'index','(player_id, created_at DESC)') FROM pg_stat_user_functions WHERE funcid='public.fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure")
   (args.output/'PERFORMANCE.json').write_text(json.dumps(timing,indent=2)+'\n')
   check('thirty-thousand-row fee window is still evaluated once per hand',timing['calls'],1)
+  # THE ENGINE'S OWN PAYLOAD DRIVES THE PROMO CAPTURE (2026-11-24). The golden
+  # payload is what ServerTableEngine sends for the contract's fixture hand
+  # (pinned by server/src/engine/thePromoHandCommitPayloadKeepsItsContract.test.ts),
+  # fed here unchanged: no hand-written stand-in for the engine.
+  contract=json.loads(CONTRACT.read_text());golden=contract['golden'];expect=contract['promo_expectation']
+  alice=next(p for p in contract['fixture']['players'] if p['user_id']==A)
+  check('the contract fixture seats the promo holder this proof funds',alice['dealt'],expect['alice_promo_at_table_before'])
+  reset();grant(expect['alice_promo_at_table_before']);db.run(fund(expect['alice_promo_at_table_before'],before=expect['alice_promo_at_table_before']))
+  db.run(accepted(H)+f"SELECT public.fn_ca_promo_accept_cash_hand('{H}','{T}','{json.dumps(golden['p_stacks'])}'::jsonb,'{json.dumps(golden['accepted_post_commit_facts'])}'::jsonb)")
+  check("the engine's golden payload retires exactly the promo it lost",held('table_stack',entity=T),expect['alice_promo_left_at_table'])
+  check("the engine's golden payload records the net contribution as fee exposure",
+   one(f"SELECT contribution||':'||promo_contribution FROM ca_promo_cash_hand_funding WHERE hand_id='{H}' AND user_id='{A}'"),
+   expect['alice_contribution']+':'+expect['alice_promo_contribution'])
   reset()
   for bad_amount in ['NaN','Infinity']:
    refused=db.run(ledger('promo_wallet','player_wallet',f"'{bad_amount}'::numeric",'promo_send'),check=False)
    check(bad_amount+' cannot become promo principal',refused.returncode!=0 and 'ca_promo_principal_is_finite' in refused.stderr,True)
  finally:
-  sources=[Path(__file__),MIGRATION,ROOT/'tests/fixtures/promo-custody-inventory-pin.json',ROOT/'scripts/ci/migration-stale-pins.mjs']
+  sources=[Path(__file__),MIGRATION,NET,CONTRACT,ROOT/'tests/fixtures/promo-custody-inventory-pin.json',ROOT/'scripts/ci/migration-stale-pins.mjs']
   (args.output/'INPUTS.json').write_text(json.dumps({str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in sources},indent=2)+'\n')
   (args.output/'RESULTS.json').write_text(json.dumps(checks,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
