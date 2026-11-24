@@ -1,6 +1,6 @@
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
-import { readHourlyCashAdmissions } from './supabase/cashHourlyTables.js';
+import { readHourlyCashAdmissions, readHourlyCashRoom } from './supabase/cashHourlyTables.js';
 import {
   HORSE_STARTED_CASH_GAMES,
   LIGHTNING_HORSE_SEEDED,
@@ -91,6 +91,9 @@ import {
   varietyFirstPlan,
   varietyHoldsThisCycle,
   varietyOwedGamesThisCycle,
+  owedStartsFit,
+  publishVarietyDrain,
+  varietyDrainTable,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -310,6 +313,8 @@ interface CycleBeat {
    *  not take the slot an owed Main 1 needs (fn_cash_hourly_feeder_admissible,
    *  20261124072701). Empty in a cycle that holds nothing. */
   varietyOwedGames: string[];
+  /** The one extra table this cycle releases for an owed Main 1 (HorseVarietyFirst.varietyDrainTable). */
+  varietyDrainTable: string | null;
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -777,6 +782,8 @@ export class HorseFleetManager {
   private readonly varietyStarts = new VarietyStartMemory();
   /** This cycle's held starts, for the seat-call door (claimOfferedSeats). */
   private varietyHeldStarts: ReadonlySet<string> = new Set();
+  /** The extra table released for an owed Main 1 last cycle, kept while it is a candidate. */
+  private varietyDrainTableId: string | null = null;
   /* Last time a failed fleet-state publish was reported. The engine can ship
      before the World Hub migration that creates fn_ca_fleet_state_upsert, and
      an unthrottled report would file one error reporting event and one console line
@@ -1464,6 +1471,7 @@ export class HorseFleetManager {
       bookedOut: 0,
       openingFeeders: [],
       varietyOwedGames: [],
+      varietyDrainTable: null,
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -3128,6 +3136,7 @@ export class HorseFleetManager {
          so the database's feeder opener holds on the same list. */
       this.varietyHeldStarts = new Set();
       clearVarietyHolds();
+      publishVarietyDrain(null, Date.now());
       beat.varietyOwedGames = [];
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
@@ -3139,6 +3148,59 @@ export class HorseFleetManager {
       });
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
+      /* AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24, HorseVarietyFirst.
+         varietyDrainTable). While a start is owed and the owed starts do not
+         fit under the cap, ONE Horse-only extra table (the top of its game's
+         ladder) is released: it joins surplusTableIds, so the walk seats
+         nobody there and no seat call there is answered, and
+         HorseSessionRotator stands its Horses up through the ordinary door.
+         A failed read of the cap, the census or the Lightning games releases
+         nothing. */
+      let varietyDrain: string | null = null;
+      if (beat.varietyOwedGames.length > 0 && cashPlanLightningGames) {
+        const room = await readHourlyCashRoom();
+        if (!readIsCurrent()) return;
+        const personWaitingGames = new Set<string>();
+        for (const t of tables) {
+          if (t.cluster_id && (humansWaitingByTable.get(t.id) ?? 0) > 0)
+            personWaitingGames.add(String(t.cluster_id));
+        }
+        varietyDrain = varietyDrainTable({
+          tables,
+          seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
+          personSeatedAt: (tableId) =>
+            (seatsByTable.get(tableId) ?? []).some((x) => !horseIdSet.has(x.user_id)),
+          personWaitingGames,
+          neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...cashPlanLightningGames]),
+          owedGames: beat.varietyOwedGames,
+          owedStartsFit: owedStartsFit({
+            cap: room?.cap ?? null,
+            counted: room?.counted ?? null,
+            openingFeeders: tables.filter(
+              (t) =>
+                t.cluster_id &&
+                t.role === 'feeder' &&
+                t.lifecycle === 'opening' &&
+                (seatsByTable.get(t.id) ?? []).length === 0
+            ).length,
+            owedStarts: beat.varietyOwedGames.length,
+            anOwedStartAdmitted: [...variety.owedStarts.keys()].some((tableId) =>
+              hourlyAdmissions.has(tableId)
+            ),
+          }),
+          current: this.varietyDrainTableId,
+        });
+      }
+      this.varietyDrainTableId = varietyDrain;
+      beat.varietyDrainTable = varietyDrain;
+      if (varietyDrain) {
+        surplusTableIds.add(varietyDrain);
+        console.log(
+          `[HorseFleet] extra table ${varietyDrain.slice(0, 8)} released for ` +
+            `${beat.varietyOwedGames.length} owed start(s) - not seating it`
+        );
+      }
+      publishVarietyDrain(varietyDrain, Date.now());
       let hourlyAutonomousStarted = false;
       /* A CALLED NAME KEEPS ITS PLACE (Dan 2026-11-22; migration 20261123013241).
          A seat call is answered at every table, not only the ones the hourly
@@ -5479,6 +5541,7 @@ export class HorseFleetManager {
             gates: beat.gates,
             opening_feeders: beat.openingFeeders,
             variety_owed_games: beat.varietyOwedGames,
+            variety_drain_table: beat.varietyDrainTable,
           },
         },
       });
