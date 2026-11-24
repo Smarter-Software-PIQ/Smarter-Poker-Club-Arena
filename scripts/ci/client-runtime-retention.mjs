@@ -199,6 +199,21 @@ async function requireCurrentReceipt(receipt) {
   assertReceiptOrigins(receipt, info, manifests);
 }
 
+/* AN ORIGIN THAT MOVED NAMES WHAT MOVED (2026-11-24).
+   Run 45334000482 refused with "The actual origin no longer matches the
+   retained runtime." and nothing else: not which origin, not which field, not
+   what it serves now. It had admitted d749a61e before the production lock and
+   found 74d10c32 after another publisher committed it. The error now carries
+   every differing field per origin and the runtime and run the origin serves,
+   and is typed so the caller can tell a moved origin from a broken receipt. */
+export class RetainedOriginMovedError extends Error {
+  constructor(message, observed) {
+    super(message);
+    this.name = 'RetainedOriginMovedError';
+    this.observed = observed;
+  }
+}
+
 export function assertReceiptOrigins(receipt, info, manifests) {
   if (
     !Array.isArray(info) ||
@@ -207,16 +222,69 @@ export function assertReceiptOrigins(receipt, info, manifests) {
     manifests.length !== 2
   )
     throw new Error('Both actual origins are required.');
+  const moved = [];
+  const observed = [];
   for (let i = 0; i < 2; i++) {
-    const value = json(info[i]);
-    if (
-      value.ca_sha !== receipt.runtimeSha ||
-      String(value.run_id) !== receipt.originalPublisherRunId ||
-      value.built_by !== 'publish-club-arena.yml' ||
-      hash(info[i]) !== receipt.buildInfoSHA256 ||
-      hash(manifests[i]) !== receipt.manifestSHA256
-    )
-      throw new Error('The actual origin no longer matches the retained runtime.');
+    let value;
+    try {
+      value = json(info[i]);
+    } catch {
+      value = {};
+    }
+    observed.push({ origin: ORIGINS[i], caSha: value.ca_sha ?? null, runId: value.run_id ?? null });
+    const differences = [];
+    if (value.ca_sha !== receipt.runtimeSha)
+      differences.push(`ca_sha ${receipt.runtimeSha} -> ${value.ca_sha ?? 'absent'}`);
+    if (String(value.run_id) !== receipt.originalPublisherRunId)
+      differences.push(`run_id ${receipt.originalPublisherRunId} -> ${value.run_id ?? 'absent'}`);
+    if (value.built_by !== 'publish-club-arena.yml')
+      differences.push(`built_by publish-club-arena.yml -> ${value.built_by ?? 'absent'}`);
+    if (hash(info[i]) !== receipt.buildInfoSHA256) differences.push('build-info.json bytes');
+    if (hash(manifests[i]) !== receipt.manifestSHA256) differences.push('release manifest bytes');
+    if (differences.length) moved.push(`${ORIGINS[i]}: ${differences.join(', ')}`);
+  }
+  if (moved.length)
+    throw new RetainedOriginMovedError(
+      `The actual origin no longer serves retained runtime ${receipt.runtimeSha} ` +
+        `(publisher run ${receipt.originalPublisherRunId}). ${moved.join('; ')}.`,
+      observed
+    );
+}
+
+/* A MOVED ORIGIN IS RE-ADMITTED, NOT REFUSED (2026-11-24).
+   Admission reads the origin BEFORE this run takes the production lock;
+   finalize reads it again INSIDE the lock. Any publish that commits in
+   between (publishers run every 20-30 minutes) moved the origin, and the
+   retention refused although its target qualifies against the runtime the
+   origin now serves: 45334000482 retained d749a61e for bf6fb356, the origin
+   moved to 74d10c32 (an ancestor of bf6fb356 differing by two docs files), and
+   the run failed instead of retaining 74d10c32. Finalize now re-runs the SAME
+   admission against the current origin, inside the lock, and records that
+   receipt. Every admission rule still applies; anything that fails
+   re-admission still fails, with both reasons. */
+export async function finalizeRetention(receipt, { requireCurrent, readmit, log = () => {} }) {
+  try {
+    await requireCurrent(receipt);
+    return receipt;
+  } catch (error) {
+    if (!(error instanceof RetainedOriginMovedError)) throw error;
+    let fresh;
+    try {
+      fresh = await readmit(receipt.verificationSha);
+    } catch (refusal) {
+      throw new Error(
+        `${error.message} Re-admission of ${receipt.verificationSha} against the runtime the ` +
+          `origin now serves was refused: ${refusal.message}`
+      );
+    }
+    if (!fresh || fresh.verificationSha !== receipt.verificationSha)
+      throw new Error(`${error.message} Re-admission returned no receipt for this source.`);
+    log(
+      `Origin moved from ${receipt.runtimeSha} (run ${receipt.originalPublisherRunId}) to ` +
+        `${fresh.runtimeSha} (run ${fresh.originalPublisherRunId}) while this run waited for the ` +
+        `production lock; re-admitted ${fresh.verificationSha} against the runtime it now serves.`
+    );
+    return fresh;
   }
 }
 
@@ -440,8 +508,12 @@ async function main() {
     );
     if (git('rev-parse', 'HEAD').toString().trim() !== receipt.verificationSha)
       throw new Error('Wrong qualification source checkout.');
-    await requireCurrentReceipt(receipt);
-    writeFileSync(args[0], `${JSON.stringify(receipt, null, 2)}\n`);
+    const finalReceipt = await finalizeRetention(receipt, {
+      requireCurrent: requireCurrentReceipt,
+      readmit: admit,
+      log: (line) => console.log(line),
+    });
+    writeFileSync(args[0], `${JSON.stringify(finalReceipt, null, 2)}\n`);
   } else if (command === 'receive') {
     const receipt = readRetentionReceipt(readFileSync(args[0], 'utf8'), args[1], args[2], args[3]);
     await requireCurrentReceipt(receipt);
