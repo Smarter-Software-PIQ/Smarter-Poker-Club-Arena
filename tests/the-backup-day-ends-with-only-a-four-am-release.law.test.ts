@@ -1024,10 +1024,10 @@ gh() {
   // and the identity script) equals the candidate's; everything else builds.
   describe('a certificate follows identical engine source', () => {
     const planStep = backup.jobs.plan.steps.find((s: any) => s.id === 'plan');
-    const checkout = backup.jobs.plan.steps.find((s: any) =>
-      s.uses?.startsWith('actions/checkout')
-    );
     const inherit = backup.jobs.plan.steps.find((s: any) => s.id === 'inherit');
+    // The candidate's checkout is the step right before the inherit step (the
+    // plan job also checks out its own commit for a post-seal run, O24).
+    const checkout = backup.jobs.plan.steps[backup.jobs.plan.steps.indexOf(inherit) - 1];
     const identityScript = read('scripts/ci/engine-source-identity.sh');
     const repoDockerignore = read('server/.dockerignore');
     const candidate = 'a'.repeat(40);
