@@ -10,6 +10,7 @@ import { toTitleCase } from '../../utils/titleCase';
 import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import {
+  isAgentPromoSendTransaction,
   ledgerDirection,
   ledgerRowTitle,
   walletRoute,
@@ -287,12 +288,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
       ) : (
         rows.slice(0, limit).map((row) => {
           const route = walletRoute(row);
-          const used =
-            (row.transaction_type === 'promo_wallet_send' ||
-              ((row.transaction_type === 'agent_wallet_send' ||
-                row.transaction_type === 'peer_transfer') &&
-                row.metadata?.destination === 'promo_wallet')) &&
-            row.metadata?.promo_used_after_send;
+          const used = isAgentPromoSendTransaction(row) && row.metadata?.promo_used_after_send;
           const direction = ledgerDirection(row, memberId);
           return (
             <div className="mm-stat" key={`${row.entry_source ?? 'receipt'}:${row.id}`}>

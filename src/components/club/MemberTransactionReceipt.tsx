@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { copyToClipboard } from '../../lib/copyToClipboard';
 import { formatWalletChips } from '../../utils/format';
 import {
+  isAgentPromoSendTransaction,
   thirdPartySender,
   walletRoute,
   type ChipTransactionLike,
@@ -47,11 +48,7 @@ function ReceiptDetails({ row }: { row: ReceiptRow }) {
       : row.from_user_id && row.from_name
         ? row.from_name
         : thirdPartySender(row, row.from_name);
-  const used =
-    (row.transaction_type === 'promo_wallet_send' ||
-      ((row.transaction_type === 'agent_wallet_send' || row.transaction_type === 'peer_transfer') &&
-        row.metadata?.destination === 'promo_wallet')) &&
-    row.metadata?.promo_used_after_send;
+  const used = isAgentPromoSendTransaction(row) && row.metadata?.promo_used_after_send;
   const amount = formatWalletChips(row.amount_text ?? row.amount);
 
   async function copyId() {

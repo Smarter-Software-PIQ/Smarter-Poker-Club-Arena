@@ -8,10 +8,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261124004000_promo_wallet_sends_follow_promo_chip_rules.sql'
+HARDENING_MIGRATION = ROOT / 'supabase/migrations/20261124042000_harden_promo_wallet_invariants.sql'
 CONTRACT = ROOT / 'scripts/verification-harness/cashier-release-contract.sql'
 pg = Path(
     os.environ.get(
@@ -428,11 +430,26 @@ try:
         q((ROOT / mig).read_text())
     q("REVOKE ALL ON FUNCTION public.fn_cashier_history_feed(uuid,text,text,timestamptz,timestamptz,uuid,text,timestamptz,uuid,integer) FROM PUBLIC, anon; GRANT EXECUTE ON FUNCTION public.fn_cashier_history_feed(uuid,text,text,timestamptz,timestamptz,uuid,text,timestamptz,uuid,integer) TO authenticated, service_role;")
 
-    # 7. fn_ca_promo_play_through_on_exit + exit triggers
+    # 7. fn_ca_promo_play_through_on_exit + exit triggers + fn_ca_funded_chip_return_journal
     txt_exit = (ROOT / 'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql').read_text()
     m_exit = re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_promo_play_through_on_exit\(\).*?END \$\$;', txt_exit, re.S)
     assert m_exit
     q(m_exit.group(0))
+    q("""
+    CREATE TABLE IF NOT EXISTS public.ca_emergency_refund_provenance(
+      journal_id uuid, state text, asset text, refund_key text, user_id uuid, amount numeric
+    );
+    CREATE OR REPLACE FUNCTION public.fn_ca_noncirculating_chip_stores()
+    RETURNS text[] LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY['escrow']::text[] $$;
+    """)
+    txt_stop = (ROOT / 'supabase/migrations/20261010035655_stable_admin_emergency_stops.sql').read_text()
+    m_stop = re.search(
+        r'CREATE FUNCTION public\.fn_ca_funded_chip_return_journal\(\).*?REVOKE ALL ON FUNCTION public\.fn_ca_funded_chip_return_journal\(\)[^;]*;',
+        txt_stop,
+        re.S,
+    )
+    assert m_stop
+    q(re.sub(r'INSERT INTO public\.ca_declared_money_triggers[^;]*;', '', m_stop.group(0)))
     q("""
     CREATE CONSTRAINT TRIGGER zz_ca_player_promo_exit AFTER INSERT ON public.chip_ledger
       DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
@@ -448,26 +465,42 @@ try:
       EXECUTE FUNCTION public.fn_ca_promo_play_through_on_exit();
     """)
 
-    # Apply the new migration verbatim (including all @probe-for blocks).
+    # Apply the primary and hardening migrations verbatim (including all @probe-for blocks).
     mig_sql = MIGRATION.read_text()
     q(mig_sql)
-    check('migration installs cleanly on exact live preimages with all probes', True)
+    harden_sql = HARDENING_MIGRATION.read_text()
+    q(harden_sql)
+    check('primary and hardening migrations install cleanly on exact live preimages with all probes', True)
 
-    # Verify @live-proof passes.
+    # Verify @live-proof passes for both migrations.
     for expr in re.findall(r'^-- @live-proof: (.+)$', mig_sql, re.M):
-        check('live-proof passes', q(f'SELECT {expr};') == 't')
+        check('primary live-proof passes', q(f'SELECT {expr};') == 't')
+    for expr in re.findall(r'^-- @live-proof: (.+)$', harden_sql, re.M):
+        check('hardening live-proof passes', q(f'SELECT {expr};') == 't')
 
-    # Verify release contract pins match exact post-image hashes and file md5.
+    # Verify release contract pins match exact post-image hashes and file md5s.
     contract_sql = CONTRACT.read_text()
     h_rev = q("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_club_bank_reverse_core_20261004(uuid,text,uuid)'::regprocedure;")
     h_promo = q("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure;")
     h_feed = q("SELECT md5(pg_get_functiondef('public.fn_cashier_history_feed(uuid,text,text,timestamptz,timestamptz,uuid,text,timestamptz,uuid,integer)'::regprocedure));")
+    h_pw = q("SELECT md5(pg_get_functiondef('public.fn_cashier_player_wallet_send(uuid,uuid,numeric,text,text,uuid)'::regprocedure));")
+    h_allow = q("SELECT md5(pg_get_functiondef('public.fn_cashier_promo_allowance(uuid,uuid[])'::regprocedure));")
+    h_ag = q("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_agent_wallet_send_core_20260830(uuid,uuid,numeric,text,text,uuid)'::regprocedure;")
+    h_7d = q("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_agent_promo_downline_sent_7d(uuid,uuid,timestamptz)'::regprocedure;")
+    h_24h = q("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_agent_promo_daily_allowance(uuid,uuid,timestamptz)'::regprocedure;")
     file_md5 = hashlib.md5(MIGRATION.read_bytes()).hexdigest()
-    check('contract pins migration md5 and all 3 successor hashes',
+    harden_md5 = hashlib.md5(HARDENING_MIGRATION.read_bytes()).hexdigest()
+    check('contract pins primary + hardening migration md5s and all 8 promo function hashes',
           f"md5(statements[1]) = '{file_md5}'" in contract_sql
+          and f"md5(statements[1]) = '{harden_md5}'" in contract_sql
           and f"'promo_successor_hash', '{h_rev}'" in contract_sql
           and f"'promo_successor_hash', '{h_promo}'" in contract_sql
-          and f"'promo_successor_hash', '{h_feed}'" in contract_sql)
+          and f"'promo_successor_hash', '{h_feed}'" in contract_sql
+          and f"'promo_successor_hash', '{h_pw}'" in contract_sql
+          and f"'promo_successor_hash', '{h_allow}'" in contract_sql
+          and f"'hash', '{h_ag}'" in contract_sql
+          and f"'hash', '{h_7d}'" in contract_sql
+          and f"'hash', '{h_24h}'" in contract_sql)
 
     # ── TEST 1: Club Bank -> Promo Wallet reversal returns to clubs.promo_balance ──
     tx_promo = str(uuid.uuid4())
@@ -650,6 +683,101 @@ try:
     """)
     check('reversal to original promo_wallet closes grant as returned',
           q(f"SELECT close_reason||':'||remaining FROM public.ca_promo_play_through_grants WHERE id='{g_agent}';") == 'returned:0')
+
+    # ── TEST 5 (HARDENING): DB-level chip_ledger guard refuses ANY promo_wallet -> non-promo bank conversion ──
+    for bad_to, bad_label in [
+        ('club_treasury', 'clubs.chip_treasury'),
+        ('union_bank', 'union_wallets.chip_balance'),
+        ('credit_facility', None),
+        ('union_wallet', 'union_wallets.chip_balance'),
+    ]:
+        lbl_sql = 'NULL' if bad_label is None else f"'{bad_label}'"
+        res_bad = q_raw(f"""
+        INSERT INTO public.chip_ledger(club_id, from_type, from_entity_id, to_type, to_entity_id, to_label, amount, category)
+        VALUES ('{club}', 'promo_wallet', '{agent}', '{bad_to}', '{club}', {lbl_sql}, 25, 'reversal');
+        """)
+        check(f'ledger guard unconditionally blocks promo_wallet -> {bad_to} ({bad_label})',
+              res_bad.returncode != 0 and 'Promo Chips Must Return To A Promo Wallet' in res_bad.stderr)
+
+    # Legal promo_wallet movements remain allowed (promo_wallet, player_wallet, agent_wallet, union promo clawback).
+    for ok_to, ok_label in [
+        ('promo_wallet', 'clubs.promo_balance'),
+        ('player_wallet', 'club_members.chip_balance'),
+        ('agent_wallet', 'agents.agent_wallet_balance'),
+        ('union_wallet', 'union_wallets.promo_wallet'),
+        ('union_wallet', None),
+    ]:
+        lbl_sql = 'NULL' if ok_label is None else f"'{ok_label}'"
+        q(f"""
+        INSERT INTO public.chip_ledger(club_id, from_type, from_entity_id, to_type, to_entity_id, to_label, amount, category)
+        VALUES ('{club}', 'promo_wallet', '{agent}', '{ok_to}', '{club}', {lbl_sql}, 10, 'promo');
+        """)
+    check('ledger guard preserves all legal promo_wallet destinations including union promo clawback', True)
+
+    # ── TEST 6 (HARDENING): Alias 'cashier_promo_wallet' counts in unified 7d & 24h helpers ──
+    alias_target = uid(90)
+    q(f"""
+    INSERT INTO public.chip_transactions(club_id, from_user_id, to_user_id, amount, transaction_type, metadata, created_at)
+    VALUES ('{club}', '{sub_agent}', '{alias_target}', 15, 'agent_wallet_send',
+            jsonb_build_object('op_id', gen_random_uuid(), 'destination', 'cashier_promo_wallet', 'actor_role', 'sub_agent'),
+            clock_timestamp());
+    """)
+    check('alias cashier_promo_wallet counts in fn_ca_agent_promo_downline_sent_7d',
+          float(q(f"SELECT public.fn_ca_agent_promo_downline_sent_7d('{club}','{alias_target}',clock_timestamp());")) == 15.0)
+    check('alias cashier_promo_wallet counts in fn_ca_agent_promo_daily_allowance',
+          json.loads(q(f"SELECT public.fn_ca_agent_promo_daily_allowance('{club}','{sub_agent}',clock_timestamp());"))['sent_last_24_hours'] == 65)
+
+    # ── TEST 7 (HARDENING): Cross-wallet multi-session concurrency race cannot exceed 50/7d ──
+    race_target = uid(91)
+    q(f"""
+    BEGIN;
+    SET LOCAL app.ledger_autoskip_club_members = 'on';
+    SET LOCAL app.ledger_autoskip_agents = 'on';
+    INSERT INTO public.club_members(club_id, user_id, role, status, chip_balance, agent_id)
+    VALUES ('{club}', '{race_target}', 'sub_agent', 'active', 100, '{sub_agent}')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO public.agents(club_id, user_id, agent_wallet_balance, promo_wallet_balance)
+    VALUES ('{club}', '{race_target}', 100, 0)
+    ON CONFLICT DO NOTHING;
+    COMMIT;
+    CREATE OR REPLACE FUNCTION public.fn_club_cashier_can_transact(uuid, uuid, uuid)
+    RETURNS boolean LANGUAGE sql STABLE AS $$
+      SELECT $1 = '{club}'::uuid AND $2 = '{sub_agent}'::uuid AND $3 = '{race_target}'::uuid
+    $$;
+    """)
+    holder = subprocess.Popen(psql, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    holder.stdin.write(f"BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('agent-agreement:{club}',0)); SELECT 'held';\n")
+    holder.stdin.flush()
+    while holder.stdout.readline().strip() != 'held':
+        if holder.poll() is not None:
+            raise RuntimeError('mutex holder exited early')
+    workers = []
+    for call_sql in [
+        f"public.fn_agent_wallet_send_core_20260830('{club}','{race_target}',35,'promo_wallet','Race A','{uuid.uuid4()}')",
+        f"public.fn_cashier_player_wallet_send('{club}','{race_target}',35,'promo_wallet','Race B','{uuid.uuid4()}')",
+    ]:
+        w = subprocess.Popen(psql, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        w.stdin.write(f"SET application_name='promo-cross-wallet-race'; SET request.jwt.claim.sub='{sub_agent}'; SELECT {call_sql};\n")
+        w.stdin.flush()
+        workers.append(w)
+    deadline = time.monotonic() + 5
+    try:
+        while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='promo-cross-wallet-race' AND wait_event='advisory';") != '2':
+            if time.monotonic() > deadline:
+                raise RuntimeError('cross-wallet race workers did not queue on club mutex')
+            time.sleep(0.02)
+    finally:
+        holder.communicate('ROLLBACK;\n', timeout=5)
+    race_results = []
+    for w in workers:
+        out, err = w.communicate(timeout=5)
+        assert w.returncode == 0, err
+        race_results.append(json.loads(next(line for line in out.splitlines() if line.startswith('{'))))
+    check('concurrent agent_wallet and player_wallet sends to same promo_wallet cannot exceed 50',
+          sum(r['success'] for r in race_results) == 1)
+    check('concurrent loser sees committed 35 and remaining 15',
+          next(r for r in race_results if not r['success'])['error_code'] == 'promo_downline_seven_day_limit'
+          and next(r for r in race_results if not r['success'])['remaining_chips'] == 15)
 
     print(json.dumps({'passed': True, 'cases': passed}, indent=2))
 finally:

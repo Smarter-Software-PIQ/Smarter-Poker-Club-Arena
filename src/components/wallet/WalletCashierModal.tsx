@@ -1872,11 +1872,12 @@ export default function WalletCashierModal({
                 </div>
               )}
 
-            {walletType === 'promo_wallet' &&
+            {(walletType === 'promo_wallet' ||
+              (tab === 'send' && destination === 'promo_wallet')) &&
               ['super_agent', 'agent', 'sub_agent'].includes(viewerRole ?? '') && (
                 <div className="cbc-note">
                   Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All
-                  Destination Wallets Share This Limit.
+                  Funding And Destination Wallets Share This Limit.
                 </div>
               )}
 
