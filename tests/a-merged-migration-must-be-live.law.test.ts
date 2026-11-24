@@ -125,8 +125,14 @@ describe('a merged migration must be live', () => {
   it('invalidates cached file bytes after a same-length rewrite', () => {
     const dir = fs.mkdtempSync(
       path.join(
+        // The task's own checkout, never a shared drive scaffold: on the Mac
+        // /Volumes/SmarterWork/agent-work can be a read-only compatibility
+        // scaffold, and mkdtemp there failed with EACCES (2026-11-17).
         process.env.TMPDIR ||
-          (process.platform === 'darwin' ? '/Volumes/SmarterWork/agent-work' : tmpdir()),
+          (process.platform === 'darwin'
+            ? (fs.mkdirSync(path.join(ROOT, 'node_modules/.cache'), { recursive: true }),
+              path.join(ROOT, 'node_modules/.cache'))
+            : tmpdir()),
         'cashier-proof-cache-'
       )
     );

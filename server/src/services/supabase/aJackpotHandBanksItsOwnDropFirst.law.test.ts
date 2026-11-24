@@ -65,7 +65,10 @@ beforeEach(() => {
     const filters: Array<[string, unknown]> = [];
     const query = {
       insert: async () => ({ data: null, error: null }),
-      is: () => query,
+      is: (key: string, value: unknown) => {
+        filters.push([key, value]);
+        return query;
+      },
       order: () => query,
       limit: () => query,
       select: () => query,
@@ -265,5 +268,50 @@ describe('a jackpot hand banks its own drop before it asks where the drop went',
     );
     expect(rpc).not.toHaveBeenCalled();
     expect(settle).not.toHaveBeenCalled();
+  });
+
+  it('defers cleanly without CRITICAL when hand_atomic_commits has post_commit_completed_at IS NULL', async () => {
+    rows.hand_bank_obligation_pending = [];
+    rows.bbj_contributions = [];
+    rows.hand_atomic_commits = [
+      {
+        hand_id: 'hand-uuid',
+        table_id: 'table-1',
+        hand_number: 60218398,
+        post_commit_completed_at: null,
+      },
+    ];
+
+    const outcome = await processBBJPayout(params);
+    expect(outcome.status).toBe('queued');
+    expect(outcome.status === 'queued' && outcome.lastError).toContain(
+      `${BBJ_DROP_BANKING_PENDING}: hand post-commit envelope not yet applied`
+    );
+    expect(rpc).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+    expect(raiseFinancialAlert).not.toHaveBeenCalled();
+  });
+
+  it('still refuses when hand_atomic_commits already finished post-commit with no drop or receipt', async () => {
+    rows.hand_bank_obligation_pending = [];
+    rows.bbj_contributions = [];
+    rows.hand_atomic_commits = [
+      {
+        hand_id: 'hand-uuid',
+        table_id: 'table-1',
+        hand_number: 60218398,
+        post_commit_completed_at: '2026-11-24T00:00:00.000Z',
+      },
+    ];
+
+    const outcome = await processBBJPayout(params);
+    expect(outcome.status).toBe('queued');
+    expect(outcome.status === 'queued' && outcome.lastError).toContain(
+      'BBJ hand has no confirmed payout destination'
+    );
+    expect(rpc).not.toHaveBeenCalled();
+    expect(raiseFinancialAlert).toHaveBeenCalledTimes(1);
+    expect(raiseFinancialAlert.mock.calls[0][3]).toMatchObject({ attempts: 1 });
   });
 });

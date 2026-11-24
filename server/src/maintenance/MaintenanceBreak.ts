@@ -229,6 +229,13 @@ export interface MaintenanceBreakStore {
   clear(expected: PersistedMaintenanceBreak): Promise<void>;
   /** Null only after the database's completed-v3 release boundary expires. */
   loadReleaseBoundary(): Promise<number | null>;
+  /**
+   * Optional: read the authoritative freeze_started_at for an active completed
+   * v3 release boundary so a restart/rollback during the final ~70s v3 thaw
+   * handoff preserves the real break start when end() records
+   * engine_maintenance_break_log.
+   */
+  loadReleaseBoundaryFreezeStartedAt?(releaseAt: number): Promise<number | null>;
 }
 
 /**
@@ -876,7 +883,16 @@ export class MaintenanceBreak {
         const releaseAt = await this.deps.store.loadReleaseBoundary();
         if (!this.lifecycleIsCurrent(generation)) return;
         if (releaseAt !== null) {
-          this.holdForReleaseBoundary(releaseAt);
+          let freezeStartedAt: number | null = null;
+          try {
+            freezeStartedAt =
+              (await this.deps.store.loadReleaseBoundaryFreezeStartedAt?.(releaseAt)) ?? null;
+          } catch {
+            // Best-effort witness read; holdForReleaseBoundary falls back to
+            // releaseAt - BREAK_DURATION_MS so recovery never stalls on it.
+          }
+          if (!this.lifecycleIsCurrent(generation)) return;
+          this.holdForReleaseBoundary(releaseAt, freezeStartedAt);
           return;
         }
       } catch (error) {
@@ -1504,14 +1520,21 @@ export class MaintenanceBreak {
     this.armRecoveryRetry();
   }
 
-  private holdForReleaseBoundary(releaseAt: number): void {
+  private holdForReleaseBoundary(releaseAt: number, freezeStartedAt?: number | null): void {
     if (!Number.isFinite(releaseAt) || releaseAt <= 0) {
       throw new MaintenanceThawError('maintenance_release_boundary_invalid', false);
     }
+    const resolvedFreezeStartedAt =
+      typeof freezeStartedAt === 'number' &&
+      Number.isFinite(freezeStartedAt) &&
+      freezeStartedAt > 0 &&
+      freezeStartedAt < releaseAt
+        ? freezeStartedAt
+        : Math.max(1, releaseAt - MaintenanceBreak.BREAK_DURATION_MS);
     this.phase = 'counting_down';
     this.releaseBoundaryOnly = true;
     this.announcedAt = 0;
-    this.breakStartedAt = 0;
+    this.breakStartedAt = resolvedFreezeStartedAt;
     this.breakEndsAt = releaseAt;
     this.certifiedResumeAt = releaseAt;
     this.durableConfirmed = false;

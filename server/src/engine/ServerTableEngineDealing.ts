@@ -124,7 +124,10 @@ import {
 } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
-import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
+import {
+  bindToProcessRoot,
+  currentTournamentDataAuthority,
+} from '../services/supabase/dataActorContext.js';
 
 /**
  * The number of award groups the CLIENT will animate for this hand.
@@ -5508,31 +5511,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   protected async persistDiscardedCard(userId: string, seat: number, card: unknown): Promise<void> {
     const handNumberAtDiscard = this.handCount;
-    try {
-      const { error } = await supabase.from('hand_discards').upsert(
-        {
-          table_id: this.tableId,
-          hand_number: handNumberAtDiscard,
-          user_id: userId,
-          seat_number: seat,
-          discarded_card: card,
-        },
-        { onConflict: 'table_id,hand_number,user_id' }
-      );
-      if (error) {
-        reportError(
-          new Error(`hand_discards upsert failed: ${error.message}`),
-          `ServerTableEngine.${this.tableId}.hand_discards_failed`,
-          { userId, seat, handNumber: handNumberAtDiscard }
+    const tableId = this.tableId;
+    await bindToProcessRoot(async () => {
+      try {
+        const { error } = await supabase.from('hand_discards').upsert(
+          {
+            table_id: tableId,
+            hand_number: handNumberAtDiscard,
+            user_id: userId,
+            seat_number: seat,
+            discarded_card: card,
+          },
+          { onConflict: 'table_id,hand_number,user_id' }
         );
+        if (error) {
+          reportError(
+            new Error(`hand_discards upsert failed: ${error.message}`),
+            `ServerTableEngine.${tableId}.hand_discards_failed`,
+            { userId, seat, handNumber: handNumberAtDiscard }
+          );
+        }
+      } catch (err) {
+        reportError(err, `ServerTableEngine.${tableId}.hand_discards_threw`, {
+          userId,
+          seat,
+          handNumber: handNumberAtDiscard,
+        });
       }
-    } catch (err) {
-      reportError(err, `ServerTableEngine.${this.tableId}.hand_discards_threw`, {
-        userId,
-        seat,
-        handNumber: handNumberAtDiscard,
-      });
-    }
+    })();
   }
 
   private holeCardWriteBatches?: Map<
