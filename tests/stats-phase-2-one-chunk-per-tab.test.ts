@@ -140,7 +140,7 @@ describe('the coach is wired in', () => {
     const analysis = strip(read('src/pages/stats/AnalysisTab.tsx'));
     expect(analysis).toMatch(/import LeakPanel from '\.\.\/\.\.\/components\/stats\/LeakPanel'/);
     expect(analysis).toMatch(
-      /<LeakPanel\s+overall=\{overall\}\s+positions=\{full\?\.positions\}\s+still=\{printing\}\s+metricAvailability=\{advancedInitialData\.metric_availability\}\s+onOpenLeakFinder=\{openLeakFinder\}\s*\/>/
+      /<LeakPanel\s+overall=\{overall\}\s+positions=\{full\?\.positions\}\s+still=\{printing\}\s+metricAvailability=\{advancedInitialData\.metric_availability\}\s+onOpenLeakFinder=\{onOpenLeakFinder\}\s*\/>/
     );
     // It is the first section on the tab: what to do before what the numbers are.
     expect(analysis.indexOf('<LeakPanel')).toBeLessThan(analysis.indexOf('<AdvancedStatsSummary'));

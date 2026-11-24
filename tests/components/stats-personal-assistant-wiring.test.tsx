@@ -28,13 +28,15 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring', () => {
     expect(tutorials).toContain('Open It In Personal Assistant');
   });
 
-  it('AnalysisTab opens Personal Assistant Leak Finder via hub tab during live play or browser otherwise', () => {
-    const source = read('src/pages/stats/AnalysisTab.tsx');
-    expect(source).toContain('/hub/personal-assistant/leaks?source=club-arena-stats');
-    expect(source).toContain(
-      "masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: authUser?.id ?? targetUserId });"
+  it('PlayerStatsPage and AnalysisTab wire Personal Assistant Leak Finder via hub tab during live play or browser otherwise (own profile only)', () => {
+    const pageSource = read('src/pages/PlayerStatsPage.tsx');
+    const tabSource = read('src/pages/stats/AnalysisTab.tsx');
+    expect(pageSource).toContain('/hub/personal-assistant/leaks?source=club-arena-stats');
+    expect(pageSource).toContain(
+      "masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });"
     );
-    expect(source).toContain('onOpenLeakFinder={openLeakFinder}');
+    expect(pageSource).toContain('onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}');
+    expect(tabSource).toContain('onOpenLeakFinder={onOpenLeakFinder}');
   });
 
   it('MultiTablePage OPEN_HUB_TAB guards native Capacitor builds and updates existing tab URLs for new hands', () => {

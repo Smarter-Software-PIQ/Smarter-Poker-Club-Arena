@@ -41,6 +41,8 @@ import {
   type StatsCacheIdentity,
 } from '../lib/statsCache';
 import { masterBus } from '../core/MasterBus';
+import { WEB_ORIGIN } from '../lib/appBase';
+import { openInBrowser } from '../lib/openExternal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { retryFetch } from '../utils/retryFetch';
@@ -826,6 +828,14 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [navigate, windowDays, selectedClubId, gameMode, statsScope]
   );
+  const openLeakFinder = useCallback(() => {
+    const path = '/hub/personal-assistant/leaks?source=club-arena-stats';
+    if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
+      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
+    } else {
+      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
+    }
+  }, [user?.id, targetUserId]);
   // The index refresh is a WRITE. Un-throttled it fired on every bus refresh and
   // every tab-visibility change, i.e. repeatedly during active play.
   // ── Single RPC pulls everything from hand_history server-side ──
@@ -1936,6 +1946,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                     handsError={handsError}
                     setHandsReload={setHandsReload}
                     openHandEvidence={openHandEvidence}
+                    onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}
                     clubId={selectedClubId}
                     exactSessionPanel={exactSessionPanel}
                   />
