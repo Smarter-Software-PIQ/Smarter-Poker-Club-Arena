@@ -162,6 +162,45 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
   },
 });
 
+/**
+ * A REQUEST'S BEARER TOKEN DOES NOT WAIT ON THE CROSS-TAB SIGN-IN LOCK
+ * (2026-11-24, GRANDmasterFLUSH "This Surface Could Not Load").
+ *
+ * supabase-js asks `auth.getSession()` for the token of EVERY REST, RPC,
+ * storage, function and Realtime call, and getSession() takes the exclusive
+ * Web Lock `lock:smarter-poker-auth`. Every smarter.poker tab shares that
+ * lock (the Hub and Club Arena use one storage key). When another tab holds
+ * it past the SDK's 10 s acquire budget, the lock request aborts with
+ * "AbortError: signal is aborted without reason" and the read fails BEFORE it
+ * is sent. A player with a valid 7-day token then lost every read in the tab
+ * at once, and the club route turned the failed membership read into "Club
+ * Access Could Not Be Verified" while the network was fine.
+ *
+ * Reading a token that is still valid needs no lock: the lock serialises the
+ * ROTATING REFRESH TOKEN, and the access token in storage is a signed JWT the
+ * server checks on its own. So a stored token with real validity left goes
+ * straight on the request. Only a missing or nearly expired token goes
+ * through getSession(), which refreshes under the lock exactly as before.
+ * autoRefreshToken stays the one refresher (see above); nothing here writes
+ * the session or calls /auth/v1/token.
+ *
+ * supabase-js consults `accessToken` before getSession() (SupabaseClient
+ * #_getAccessToken). Assigned after construction, it leaves `supabase.auth`
+ * fully intact. tests/unit/supabaseRequestToken.test.ts holds this contract.
+ */
+export const REQUEST_TOKEN_MARGIN_MS = 90_000;
+
+export async function requestAccessToken(): Promise<string> {
+  const stored = readLocalSessionShared();
+  if (stored?.expiresAt && stored.expiresAt - Date.now() > REQUEST_TOKEN_MARGIN_MS) {
+    return stored.accessToken;
+  }
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? supabaseAnonKey ?? '';
+}
+
+(supabase as unknown as { accessToken?: () => Promise<string> }).accessToken = requestAccessToken;
+
 // The page coming back (shown, online, restored, focused) probes the socket at
 // once instead of waiting up to two heartbeats to notice it died while frozen.
 // Loaded lazily: nothing here is needed before first paint.
