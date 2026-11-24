@@ -1477,6 +1477,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPricedRaiseNeverMakesNonNutRaise',
+    'PLO-OWNER lead-5 2026-11-22 (real hands b910fc9e and 89b5b740; owner 2026-11-15 12:52 / 12:53: on the turn and river facing a bet a non-nut hand folds or at best calls, never a raise; owner 2026-11-15 12:30: raising draws never happens out of position, only in position with combo draws). PLO4/PLO5 cash, high only, one board, no bomb pot, turn and river facing a wager; default off (read === true). With omahaTurnRiverRaiseIsPriced on, HorseOmahaPricedWiring.omahaPricedTurnRiverRaiseRule returns a raise only for a hand that is nut class now (omahaNutClassNow) or for the in-position turn combo draw that is already raising (HorseOmahaTurnRiverRaiseNeedsNuts.omahaRaiseNeedsNutsKeeps, the one existing classifier; no new threshold): every other raise it is given becomes the priced call or fold it already computed (verdict.callStands; the call when nothing could be priced or the rule throws), and a call or fold it is given is never turned into a raise (b910fc9e: a call the draw bar had just made was turned back into an all-in). With omahaTurnRiverRaiseNeedsNuts on, that rule reads its own spot in the Lightning pools too (89b5b740: no raise rule looked at a Lightning turn raise), and the receipt validator admits its raise -> call there only for a decision that may have run with this option (responseValidation omahaNonNutRaiseInLightningGate). It switches neither rule on. Never PLO6, a tournament, hi-lo, a bomb pot or more than one board. Evidence NOT MET: replay counts only (docs/horse-option-authority.d/omahaPricedRaiseNeverMakesNonNutRaise.md)',
+    'V94'
+  ),
+  flag(
+    'omahaLateFlattenedCallIsPriced',
+    'PLO-OWNER lead-5 2026-11-22 (real hand b1e6ae31). PLO4/PLO5 cash (table and Lightning), river; default off (read === true). The facing-bet EV stage of wager_rules (omaha_facing_bet_ev) judges only a call or a fold, so a raise passes it unjudged; when the later stage call_large_river_boat_wager flattens that raise to a call, no verdict has priced the call (b1e6ae31: fours full of twos called a pot bet the verdict priced at a fold). With the option on, exactly that call (a raise entered the EV stage, a raise entered the boat stage, the boat stage returned the call) is given the same facing-bet verdict (omahaFacingBetEv, HorseLogic.omahaLateFlattenedCallIsPricedRule): it stands where the verdict calls and folds where it does not. Where that verdict does not price the spot, omahaTurnRiverRaiseIsPriced applies its own priced call to the same marked call (HorseOmahaPricedWiring.omahaLateFlattenedCallPriced). No other call, fold or raise is read or changed. Receipts omaha_late_flattened_call_priced_kept / _folded count how often it happens. Never PLO6 or a tournament. Evidence NOT MET: replay counts only (docs/horse-option-authority.d/omahaLateFlattenedCallIsPriced.md)',
+    'V94'
+  ),
+  flag(
     'omahaDrawRaiseIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). A flop or turn raise facing a wager with a draw the 12:30 bar names is priced beside the call on the seeded sample shares of HorseOmahaBigDrawAggression and each opponent measured fold rate (HorseOmahaPricedRules.omahaPricedSampledRaise), realized less out of position; it stands when worth more than the call by the margin, else it is the call. The big-draw wager is priced out of position and without the combo-draw class too. With it on, omahaNoDrawRaiseOutOfPosition does not decide in this scope.',
     'V94'
@@ -6571,6 +6581,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_raise_made_bluff',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
     'the same, a raise that earns by the folds it is priced to get (the continuing holdings mostly beat the hand): made',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_non_nut_raise_not_made',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule; omahaPricedRaiseNeverMakesNonNutRaise)',
+    'PLO4/PLO5 cash turn or river facing a wager with omahaPricedRaiseNeverMakesNonNutRaise on: the priced comparison chose a raise for a hand that is not nut class (and is not the in-position turn combo draw raising), and the raise was not made; the call or fold given stays, or the raise given becomes the priced call or fold (omaha_priced_raise_called / omaha_priced_raise_folded)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_non_nut_unpriced_called',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule; omahaPricedRaiseNeverMakesNonNutRaise)',
+    'the same option: a raise given with a hand that is not nut class could not be priced, and it became the call (never kept as a raise, never folded on a failure to price)',
+    'V94'
+  ),
+  receipt(
+    'omaha_late_flattened_call_priced_kept',
+    'HorseLogic wager_rules (omahaLateFlattenedCallIsPricedRule) and HorseOmahaPricedWiring (omahaLateFlattenedCallPriced); omahaLateFlattenedCallIsPriced',
+    'a PLO4/PLO5 cash river raise that call_large_river_boat_wager flattened to a call after the facing-bet EV stage had stood aside for the raise was priced, and the call stands (counts how often a late-flattened call occurs and is priced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_late_flattened_call_priced_folded',
+    'HorseLogic wager_rules (omahaLateFlattenedCallIsPricedRule) and HorseOmahaPricedWiring (omahaLateFlattenedCallPriced); omahaLateFlattenedCallIsPriced',
+    'the same late-flattened river call was priced and the call does not stand: the hand folds',
     'V94'
   ),
   receipt(

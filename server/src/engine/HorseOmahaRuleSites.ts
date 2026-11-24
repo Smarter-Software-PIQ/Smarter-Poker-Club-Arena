@@ -355,6 +355,12 @@ const PREFLOP =
 export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> = Object.freeze({
   // the priced rules of 2026-11-17
   omahaTurnRiverRaiseIsPriced: priced('fold, call and each raise size on the exact count'),
+  omahaPricedRaiseNeverMakesNonNutRaise: priced(
+    'a limit on omahaTurnRiverRaiseIsPriced by the owner rulings of 2026-11-15 (12:52 / 12:53: a non-nut hand facing a turn or river bet folds or at best calls; 12:30: a draw raises only in position with a combo draw): the rule returns a raise only for a nut-class hand or the in-position turn combo draw raising, every other raise becomes the priced call or fold it already computed, and a call is never turned into a raise; the nut rule reads the Lightning pools too; switches neither rule on (default OFF; PLO-OWNER lead-5 2026-11-22)'
+  ),
+  omahaLateFlattenedCallIsPriced: priced(
+    'a river raise that call_large_river_boat_wager flattened to a call after the facing-bet EV stage stood aside for the raise is priced by that same exact-hand verdict and folded where the call does not stand; no other call is read (default OFF; PLO-OWNER lead-5 2026-11-22)'
+  ),
   omahaDrawRaiseIsPriced: priced('raise beside the call on sampled shares'),
   omahaOopTurnBarrelIsPriced: priced('bet beside the check on the card-impact model'),
   omahaPairedBoardBetIsPriced: priced('bet beside the check on the card-impact model'),
