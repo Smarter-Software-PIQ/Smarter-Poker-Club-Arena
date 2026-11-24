@@ -10616,7 +10616,10 @@ function omahaReraisedPotRulesThenCallVsRaise(
       call: opts.omahaReraisedPotCallIsPriced === true,
       reraise: opts.omahaReraisedPotReraiseIsPriced === true,
     },
-    { mind: opts.mind !== false, telemetry: telemetryOn(opts) }
+    {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+    }
   );
 }
 
