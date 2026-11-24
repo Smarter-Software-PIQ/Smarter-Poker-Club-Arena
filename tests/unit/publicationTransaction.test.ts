@@ -231,6 +231,25 @@ describe('one publication transaction follows parallel preparation', () => {
         );
       }
 
+      if (key === 'retain-runtime') {
+        // Added 2026-11-24 (publisher run 45334000482, incident 838c2142): when another
+        // publisher moves the origin while this run waits for the production lock,
+        // finalize re-admits against what the origin now serves. Re-admission reads
+        // the publisher run and its sealed artifact exactly as admission does, so the
+        // job may read actions and the verification step carries the job token.
+        // Independently exercised by tests/operations/client-runtime-retention.test.mjs.
+        expect(body.permissions).toEqual({ contents: 'read', actions: 'read' });
+        body.permissions = { contents: 'read' };
+        const verified = body.steps.filter((step: any) => step.id === 'retained_verified');
+        expect(verified).toHaveLength(1);
+        expect(verified[0].env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+        body.steps = body.steps.map((step: any) => {
+          if (step !== verified[0]) return step;
+          const { env: _env, ...rest } = step;
+          return rest;
+        });
+      }
+
       if (key === 'publish-to-origin') {
         // Independently exercised by mttPayoutPublication.test.ts; the original
         // transaction snapshot must remain identical after this narrow addition.

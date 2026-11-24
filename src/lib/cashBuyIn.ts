@@ -242,8 +242,12 @@ export function cashBuyInRefusalText(
 
   if (/VIP_ONLY/.test(m)) return 'This Table Is Open To VIP Members Only';
   if (/IS_TEMPLATE/.test(m)) return 'This Is A Saved Table Template, Not A Live Game';
-  if (/^SEAT_RESERVED:/.test(m))
+  if (/^SEAT_RESERVED:/.test(m)) {
+    if (/must-move list/i.test(m)) {
+      return 'This Seat Goes To The Next Player On The Must Move List. Tap Join Game To Sit At The Feeder Table.';
+    }
     return 'This Seat Is Reserved For The Next Player On The Waiting List. Please Join The Waitlist.';
+  }
   if (/TABLE_SIZE: table is full/.test(m)) return 'This Table Is Full';
   if (/TABLE_SIZE: seat/.test(m)) return 'That Seat Does Not Exist At This Table';
   if (/Player already seated at this table/i.test(m)) {

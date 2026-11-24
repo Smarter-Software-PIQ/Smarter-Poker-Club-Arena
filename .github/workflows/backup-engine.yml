@@ -1257,7 +1257,8 @@ jobs:
               return 0
             fi
             verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
-              --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" 2> o1-copy-reason.txt) || verdict=''
+              --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" \
+              --control "${CONTROL_SHA:-}" 2> o1-copy-reason.txt) || verdict=''
             due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
             production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
             if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1393,7 +1394,8 @@ jobs:
             # release host compares production with it at cutover. No bound
             # set, no success (the verdict step below requires it).
             if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
-                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
+                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA" \
+                --control "${CONTROL_SHA:-}"); then
               echo "installed=$installed" >> "$GITHUB_OUTPUT"
             fi
           fi

@@ -377,6 +377,8 @@ export function createRouter(
   deps: RouterDeps
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const { gameServer, tableStateHub, engineWs, channelHub } = deps;
+  const PUBLIC_HEALTH_CACHE_TTL_MS = 1_000;
+  let publicHealthCache: { statusCode: number; body: string; expiresAt: number } | null = null;
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     /* ROLLING HANDOFF RELAY (2026-11-19, handoff/handoffRelay.ts). Null with
@@ -573,12 +575,59 @@ export function createRouter(
     // ─────────────────────────────────────────────────────────────────────────
     // Telemetry routes — handlers/health.ts (Phase U3.1).
     // ─────────────────────────────────────────────────────────────────────────
-    if (url === '/health' || url === '/')
-      return handleHealth(
-        res,
-        { gameServer },
-        new URLSearchParams((req.url || '').split('?')[1] || '')
-      );
+    if (url === '/health' || url === '/') {
+      const target = req.url || '/';
+      const queryIndex = target.indexOf('?');
+      const rawQuery = queryIndex >= 0 ? target.slice(queryIndex + 1) : '';
+      // 2026-11-24 (incident b87d2b52 / 7bf7a01f): coalesce bursts of unparameterized
+      // public proxy GET /health requests for 1,000 ms so a client storm cannot
+      // saturate the single authoritative event loop. Internal/loopback probes and
+      // any parameterized request (?cb=, ?nocache, ?liveness_table_ids=) always read fresh.
+      if (method === 'GET' && rawQuery.length === 0 && arrivedThroughThePublicProxy(req)) {
+        const now = Date.now();
+        if (publicHealthCache && now < publicHealthCache.expiresAt) {
+          res.writeHead(publicHealthCache.statusCode, {
+            'Content-Type': 'application/json',
+            ...CORS_HEADERS,
+          });
+          res.end(publicHealthCache.body);
+          return;
+        }
+        let capturedCode = 200;
+        let capturedHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...CORS_HEADERS,
+        };
+        let capturedBody = '';
+        const captureRes = {
+          writeHead(code: number, headers?: Record<string, string>) {
+            capturedCode = code;
+            if (headers) capturedHeaders = headers;
+            return captureRes;
+          },
+          setHeader() {
+            return captureRes;
+          },
+          end(chunk?: string | Buffer) {
+            if (chunk !== undefined) {
+              capturedBody += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+            }
+          },
+        } as unknown as ServerResponse;
+        handleHealth(captureRes, { gameServer }, new URLSearchParams());
+        if (capturedCode === 200 || capturedCode === 503) {
+          publicHealthCache = {
+            statusCode: capturedCode,
+            body: capturedBody,
+            expiresAt: now + PUBLIC_HEALTH_CACHE_TTL_MS,
+          };
+        }
+        res.writeHead(capturedCode, capturedHeaders);
+        res.end(capturedBody);
+        return;
+      }
+      return handleHealth(res, { gameServer }, new URLSearchParams(rawQuery));
+    }
     // Operation Stable Hand Section 15. Read-only: it plans and reports, and
     // deliberately never executes what it plans.
     /* It names the fleet's size, its plan and house wallet ids, and runs

@@ -67,8 +67,9 @@ export function omahaRaiseNeedsNutsInPosition(player: SeatPlayer, gs: HorseGameS
 
 /**
  * The rule's public scope, or null outside it. Looks at no hole card beyond the count. `lightning`: true only
- * from the priced owners (HorseOmahaPricedWiring) when the decision's omahaPricedInLightning is on, so the same
- * spot is read in a Lightning pool; this rule's own callers never pass it and stay out of Lightning.
+ * from the priced owners (HorseOmahaPricedWiring) when the decision's omahaPricedInLightning is on, and from this
+ * rule's own caller and admission when the decision's omahaPricedRaiseNeverMakesNonNutRaise is on, so the same
+ * spot is read in a Lightning pool; otherwise this rule's own callers never pass it and stay out of Lightning.
  */
 export function omahaRaiseNeedsNutsScope(
   player: SeatPlayer,
@@ -204,10 +205,13 @@ export function omahaRaiseNeedsNutsCall(
 export function omahaRaiseNeedsNutsAdmitsCall(
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  amount: number | null | undefined
+  amount: number | null | undefined,
+  lightning = false
 ): boolean {
   try {
-    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    // `lightning`: true only for a decision that may have run with omahaPricedRaiseNeverMakesNonNutRaise on
+    // (the rule then reads its spot in a Lightning pool); absent or false, not Lightning, as before.
+    const scope = omahaRaiseNeedsNutsScope(player, gs, lightning === true);
     if (!scope || scope.allIn) return false;
     if (omahaRaiseNeedsNutsKeeps(player, gs, scope) !== null) return false;
     return typeof amount === 'number' && Math.abs(amount - scope.paid) < 1e-9;

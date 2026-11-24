@@ -373,8 +373,27 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
 ]);
 
+let cachedUpgradeActivationManifest: {
+  key: string;
+  digestPayload: Omit<HorseUpgradeActivationManifest, 'manifestDigest' | 'generatedAt'>;
+  manifestDigest: string;
+} | null = null;
+
+/** Test seam: clear the cached process-level upgrade activation manifest. */
+export function _resetHorseUpgradeActivationManifestCacheForTests(): void {
+  cachedUpgradeActivationManifest = null;
+}
+
 export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationManifest {
   const identity = resolveReleaseIdentity();
+  const cacheKey = `${identity.releaseSha ?? ''}\0${identity.version}`;
+  if (cachedUpgradeActivationManifest && cachedUpgradeActivationManifest.key === cacheKey) {
+    return {
+      ...cachedUpgradeActivationManifest.digestPayload,
+      manifestDigest: cachedUpgradeActivationManifest.manifestDigest,
+      generatedAt: new Date().toISOString(),
+    };
+  }
   const tourneyFlags = admitHorseTournamentFlagReleaseAuthority();
   const authorities: HorseUpgradeActivationManifest['authorities'] = {
     features: summarizeAdmission(admitHorseFeatureReleaseAuthority()),
@@ -428,10 +447,12 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
     authorities,
     upgrades: UPGRADE_ENTRIES,
   };
+  const manifestDigest = horseUpgradeManifestDigest(digestPayload);
+  cachedUpgradeActivationManifest = { key: cacheKey, digestPayload, manifestDigest };
 
   return {
     ...digestPayload,
-    manifestDigest: horseUpgradeManifestDigest(digestPayload),
+    manifestDigest,
     generatedAt: new Date().toISOString(),
   };
 }

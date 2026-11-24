@@ -541,7 +541,28 @@ async function bankThisHandsPendingDrop(params: BBJPayoutParams): Promise<string
        disk (hand #60701395, Midway Union, $1,978.16). Because pending -> banked
        is one-way and bbj_contributions is immutable, one re-read closes the
        window completely without ever substituting the club's current pool. */
-    return readContributionPoolId(params);
+    const banked = await readContributionPoolId(params);
+    if (banked) return banked;
+
+    /* POST-COMMIT ORDERING RACE: if the hand committed atomically in
+       hand_atomic_commits but its post-commit envelope has not yet run
+       (post_commit_completed_at IS NULL), neither hand_bank_obligation_pending
+       nor bbj_contributions exists yet. Defer cleanly to the reconciler under
+       BBJ_DROP_BANKING_PENDING instead of false-paging CRITICAL. */
+    const { data: unappliedCommit, error: commitErr } = await supabase
+      .from('hand_atomic_commits')
+      .select('hand_id')
+      .eq('table_id', params.tableId)
+      .eq('hand_number', params.handNumber)
+      .is('post_commit_completed_at', null)
+      .maybeSingle();
+    if (commitErr) {
+      throw new Error(`hand_atomic_commits post-commit check failed: ${commitErr.message}`);
+    }
+    if (unappliedCommit) {
+      throw new Error(`${BBJ_DROP_BANKING_PENDING}: hand post-commit envelope not yet applied`);
+    }
+    return null;
   }
 
   const { error: bankErr } = await supabase.rpc('fn_ca_bank_pending_hand_obligations', {
@@ -660,6 +681,7 @@ async function attemptBBJPayoutOnce(
     if (params.kind === 'mini') {
       const finalReasons = [
         'reserve_at_floor',
+        'mini_disabled_for_club',
         'mini_disabled_for_tier',
         'no_mini_amount_for_tier',
         'pool_not_found',

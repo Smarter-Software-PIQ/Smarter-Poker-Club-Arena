@@ -3993,6 +3993,14 @@ jobs:
         working-directory: .
         run: python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py
 
+      # The extra-table opener under a full cap: an owed Main 1 of a game with
+      # no table takes the freed slot before another game's waiting-list
+      # feeder (20261124072701). Red on the installed body, green after.
+      - name: An owed Main starts before an extra table
+        if: matrix.shard == 1
+        working-directory: .
+        run: python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py
+
       # BLOCKING. Named explicitly so it is obvious in the job log which
       # regressions are being defended, and so deleting them is a visible diff.
       # PHASE 2 (2026-09-02): the restart gate's pins ride the named regression
