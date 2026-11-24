@@ -52,6 +52,8 @@ CLUSTER = 'e0000000-0000-0000-0000-00000000000e'
 SLOT = '5a000000-0000-0000-0000-000000000005'
 H1 = 'd1000000-0000-0000-0000-000000000001'
 H2 = 'd2000000-0000-0000-0000-000000000002'
+H3 = 'd3000000-0000-0000-0000-000000000003'
+PHASE = 'f0000000-0000-0000-0000-000000000001'
 
 
 def run(args, sql=None):
@@ -101,8 +103,11 @@ CREATE TABLE public.ca_promo_profit_integrity_overlap(grant_id uuid, case_id uui
 CREATE TABLE public.ca_promo_profit_fee_phases(id uuid, grant_id uuid, activated_at timestamptz);
 CREATE TABLE public.ca_promo_profit_cash_investment(hand_id uuid, grant_id uuid, club_id uuid, user_id uuid, table_id uuid,
   phase_id uuid, principal numeric, profit numeric, eligible_contribution numeric, investment numeric);
-CREATE TABLE public.ca_promo_profit_cash_positions(hand_id uuid, club_id uuid, user_id uuid, table_id uuid, stack_before numeric,
-  stack numeric, investment numeric, principal numeric, profit numeric, review numeric, overlap numeric, cases jsonb, grants jsonb, overlap_list jsonb);
+CREATE TABLE public.ca_promo_profit_cash_positions(hand_id uuid, club_id uuid, user_id uuid, table_id uuid, stack_before numeric NOT NULL,
+  stack_after numeric NOT NULL, contribution numeric NOT NULL, principal_before numeric NOT NULL, profit_before numeric NOT NULL,
+  review_before numeric NOT NULL, overlap_before numeric NOT NULL, cases jsonb, grants jsonb, overlap_list jsonb,
+  CHECK(stack_before>=0 AND stack_after>=0 AND contribution>=0 AND principal_before>=0 AND profit_before>=0 AND review_before>=overlap_before AND overlap_before>=0 AND overlap_before<=profit_before),
+  CHECK(principal_before+profit_before+review_before-overlap_before<=stack_before));
 CREATE TABLE public.ca_promo_cash_hand_funding(hand_id uuid, club_id uuid, user_id uuid, table_id uuid, principal_before numeric,
   contribution numeric, promo_contribution numeric, principal_lost numeric);
 CREATE TABLE public.lightning_settlement_marker(txid xid8, seat_id uuid, anchor_table_id uuid, player_id uuid, hand_id uuid,
@@ -132,11 +137,15 @@ CREATE FUNCTION public.fn_ca_promo_move_selected_custody(p_club uuid,p_user uuid
 
 SEED = f'''
 TRUNCATE public.tables, public.ca_promo_play_through_settings, public.ca_promo_cash_hand_clocks, public.ca_promo_play_through_grants,
-  public.ca_promo_principal_custody, public.ca_promo_cash_hand_funding, public.lightning_hand, public.lightning_hand_player;
+  public.ca_promo_principal_custody, public.ca_promo_profit_gates, public.ca_promo_profit_fee_phases,
+  public.ca_promo_profit_cash_investment, public.ca_promo_profit_cash_positions,
+  public.ca_promo_cash_hand_funding, public.lightning_hand, public.lightning_hand_player;
 INSERT INTO public.ca_promo_play_through_settings VALUES(true, now()-interval '1 day');
 INSERT INTO public.tables VALUES('{ANCHOR}',NULL),('{HOST}',NULL);
 INSERT INTO public.ca_promo_play_through_grants(id,amount,club_id,user_id,remaining,granted_at,cycle_started_at,expires_at,fee_target)
  VALUES('{GRANT}',50,'{CLUB}','{USER}',50,now()-interval '1 hour',now()-interval '1 hour',now()+interval '30 days',200);
+INSERT INTO public.ca_promo_profit_gates(grant_id,unlocked_at) VALUES('{GRANT}',NULL);
+INSERT INTO public.ca_promo_profit_fee_phases(id,grant_id,activated_at) VALUES('{PHASE}','{GRANT}',now()-interval '1 hour');
 INSERT INTO public.ca_promo_principal_custody VALUES('table_stack',50,'{GRANT}','{ANCHOR}');
 INSERT INTO public.lightning_hand(hand_id,cluster_id,formed_at) VALUES('{H1}','{CLUSTER}',now()-interval '60 s'),('{H2}','{CLUSTER}',now()-interval '30 s');
 INSERT INTO public.lightning_hand_player VALUES('{H1}','{USER}','{SLOT}',50,now()-interval '35 s',2),('{H2}','{USER}','{SLOT}',48,now()-interval '5 s',2);
@@ -159,6 +168,8 @@ def scenarios(fixed):
     out = settle_h2()
     if fixed:
         check(out is None, f'{phase}: H2 settles while the earlier hand H1 is still running')
+        check(q(f"SELECT stack_before||','||principal_before FROM public.ca_promo_profit_cash_positions WHERE hand_id='{H2}'") == '50,50',
+              f'{phase}: H2 records ca_promo_profit_cash_positions with position stack_before=50 (satisfies production CHECK)')
         check(q('SELECT amount FROM public.ca_promo_principal_custody') == '46',
               f'{phase}: H2 charges the promo with the position loss (50 -> 46)')
         # H1 settles afterwards from its own 48: no further loss, custody still matches the 46 left.
@@ -192,6 +203,17 @@ SELECT public.fn_ca_promo_position_stack_before('{USER}','{ANCHOR}',48)||','||
         check(got == '50,48,48', f'{phase}: only the marked player at the marked anchor counts the earlier hand ({got})')
         check(q(f"SELECT public.fn_ca_promo_position_stack_before('{USER}','{ANCHOR}',48)") == '48',
               f'{phase}: without a settlement marker the stack is the hand\'s own')
+        # A hand formed AFTER H1 was voided already received H1's refunded chips in its
+        # pool stack (50), so H1's committed_at_fold must NOT be added again (no phantom clean chips).
+        q(SEED)
+        q(f"""UPDATE public.lightning_hand SET voided_at=now()-interval '10 s' WHERE hand_id='{H1}';
+UPDATE public.lightning_hand SET settled_at=now()-interval '4 s' WHERE hand_id='{H2}';
+INSERT INTO public.lightning_hand(hand_id,cluster_id,formed_at) VALUES('{H3}','{CLUSTER}',now()-interval '2 s');
+INSERT INTO public.lightning_hand_player VALUES('{H3}','{USER}','{SLOT}',50,NULL,0);""")
+        got_h3 = q(f"""BEGIN; INSERT INTO public.lightning_settlement_marker(txid,anchor_table_id,player_id,hand_id)
+VALUES(pg_current_xact_id(),'{ANCHOR}','{USER}','{H3}');
+SELECT public.fn_ca_promo_position_stack_before('{USER}','{ANCHOR}',50); ROLLBACK;""").splitlines()[-1]
+        check(got_h3 == '50', f'{phase}: H3 formed after H1 was voided does not double-count H1 ({got_h3})')
 
 
 try:

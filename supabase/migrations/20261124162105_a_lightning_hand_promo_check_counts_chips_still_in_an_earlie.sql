@@ -30,10 +30,13 @@
 -- WHAT THIS CHANGES. fn_ca_promo_position_stack_before() gives the position's
 -- stack before any unsettled hand: the hand's stack_before plus the chips the
 -- same player still has committed in earlier hands of the same sitting that
--- have not settled (still running, or voided and handed back). It finds them
+-- have not settled and had not already been voided before this hand formed
+-- (still running, or voided after this hand was dealt). It finds them
 -- through this transaction's own Lightning settlement markers, so a physical
 -- hand is unchanged. The source check, the clean-chip and principal-risk
--- arithmetic in fn_ca_promo_profit_capture_cash and the promo-investment split
+-- arithmetic, and the recorded ca_promo_profit_cash_positions.stack_before
+-- (which enforces CHECK(principal_before+profit_before+review_before-overlap_before<=stack_before))
+-- in fn_ca_promo_profit_capture_cash and the promo-investment split
 -- in fn_ca_promo_accept_cash_hand use it. Loss accounting (custody minus the
 -- absolute stack after) was already order-safe and is unchanged. Both
 -- functions are edited in place from their exact live preimages; nothing else
@@ -52,10 +55,12 @@ AS $function$
  -- the hand's own stack_before. For a Lightning hand being settled in this
  -- transaction (its lightning_settlement_marker rows name it), the pool stack
  -- the hand was dealt with excludes chips the same player still has committed
- -- in EARLIER hands of the same sitting that have not settled (still running,
- -- or voided, which hands them back); those chips are on the anchor seat, and
- -- so is their promo custody. A settled earlier hand already charged its loss
- -- to the custody, so it is not counted twice.
+ -- in EARLIER hands of the same sitting that have not settled and had not
+ -- already been voided when this hand was formed (still running, or voided
+ -- afterwards); those chips are on the anchor seat, and so is their promo
+ -- custody. A settled earlier hand already charged its loss to the custody,
+ -- and a hand voided before cur.formed_at already refunded its chips into
+ -- cur's pool stack, so neither is counted twice.
  SELECT p_stack_before + COALESCE((
    SELECT sum(hp.committed_at_fold)
      FROM public.lightning_settlement_marker m
@@ -69,6 +74,7 @@ AS $function$
       AND m.player_id = p_user
       AND m.anchor_table_id = p_place
       AND lh.settled_at IS NULL
+      AND (lh.voided_at IS NULL OR lh.voided_at > cur.formed_at)
       AND lh.formed_at < cur.formed_at
       AND hp.folded_at IS NOT NULL
       AND hp.committed_at_fold > 0), 0);
@@ -97,6 +103,9 @@ BEGIN
  IF (length(d)-length(replace(d,o,'')))/length(o)<>1 THEN RAISE EXCEPTION 'lightning_promo_capture_anchor_refused';END IF;
  d:=replace(d,o,n);
  o:='GREATEST(investment-((s->>''stack_before'')::numeric-principal),0)';n:='GREATEST(investment-(base-principal),0)';
+ IF (length(d)-length(replace(d,o,'')))/length(o)<>1 THEN RAISE EXCEPTION 'lightning_promo_capture_anchor_refused';END IF;
+ d:=replace(d,o,n);
+ o:='SELECT p_hand,club,(s->>''user_id'')::uuid,place,(s->>''stack_before'')::numeric,(s->>''stack'')::numeric,investment,principal,profit,review,overlap,';n:='SELECT p_hand,club,(s->>''user_id'')::uuid,place,base,(s->>''stack'')::numeric,investment,principal,profit,review,overlap,';
  IF (length(d)-length(replace(d,o,'')))/length(o)<>1 THEN RAISE EXCEPTION 'lightning_promo_capture_anchor_refused';END IF;
  d:=replace(d,o,n);
  EXECUTE d;
