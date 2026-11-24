@@ -435,7 +435,12 @@ export function holdemTurnRiverRaiseNeedsValueRule(
           : 'holdem_turn_river_raise_not_value_unpriced_called';
     }
     if (tele) {
-      noteFire(receipt);
+      // each receipt by its literal key (the ledger contract finds a receipt by its noteFire call)
+      if (receipt === 'holdem_turn_river_raise_not_value_folded')
+        noteFire('holdem_turn_river_raise_not_value_folded');
+      else if (receipt === 'holdem_turn_river_raise_not_value_called')
+        noteFire('holdem_turn_river_raise_not_value_called');
+      else noteFire('holdem_turn_river_raise_not_value_unpriced_called');
       noteDecisionRuleReceipt(receipt, decision, out);
     }
     return out;

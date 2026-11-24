@@ -722,8 +722,9 @@ export function holdemLateVerdict(
   spot: HoldemLateSpot,
   mind: boolean,
   legalTo: (to: number) => number,
-  opts: { bluffRaise: boolean; decisionRaiseTo: number | null }
+  choice: { bluffRaise: boolean; decisionRaiseTo: number | null }
 ): HoldemLateVerdict | null {
+  const allowBluffRaise = choice.bluffRaise;
   const board = gs.communityCards ?? [];
   const reads: OppRead[] = [];
   // the Horse's own line: the cell of HIS fold prior when the Horse wagers (the bettor's line, as fitted)
@@ -972,8 +973,8 @@ export function holdemLateVerdict(
         (draw
           ? spot.inPosition &&
             holdemIsComboDraw(player.cards, board) &&
-            (spot.street === 'flop' || opts.bluffRaise)
-          : spot.street !== 'flop' && opts.bluffRaise);
+            (spot.street === 'flop' || allowBluffRaise)
+          : spot.street !== 'flop' && allowBluffRaise);
       const heroAll = spot.heroIn + spot.stack;
       const bTotal = Math.max(...reads.map((o) => num(o.opp.bet) + num(o.opp.stack)));
       const base = P + spot.toCall;
@@ -1608,6 +1609,99 @@ const argmaxBy = (options: HoldemLateOption[], key: 'evNoBlock' | 'evNoNut'): Ho
 };
 
 /**
+ * The chooser's per-street receipts, each fired by its literal key (the ledger contract finds a receipt by its
+ * noteFire call): `pre` is 'holdem_flop_priced_' or 'holdem_late_priced_'. An unknown key fires nothing.
+ */
+function firePricedReceipt(key: string): void {
+  switch (key) {
+    case 'holdem_flop_priced_unpriced':
+      noteFire('holdem_flop_priced_unpriced');
+      return;
+    case 'holdem_flop_priced_check':
+      noteFire('holdem_flop_priced_check');
+      return;
+    case 'holdem_flop_priced_fold':
+      noteFire('holdem_flop_priced_fold');
+      return;
+    case 'holdem_flop_priced_call':
+      noteFire('holdem_flop_priced_call');
+      return;
+    case 'holdem_flop_priced_raise_value':
+      noteFire('holdem_flop_priced_raise_value');
+      return;
+    case 'holdem_flop_priced_draw_raise':
+      noteFire('holdem_flop_priced_draw_raise');
+      return;
+    case 'holdem_flop_priced_bet_bluff':
+      noteFire('holdem_flop_priced_bet_bluff');
+      return;
+    case 'holdem_flop_priced_bet_value':
+      noteFire('holdem_flop_priced_bet_value');
+      return;
+    case 'holdem_flop_priced_range_value':
+      noteFire('holdem_flop_priced_range_value');
+      return;
+    case 'holdem_flop_priced_range_bluff':
+      noteFire('holdem_flop_priced_range_bluff');
+      return;
+    case 'holdem_flop_priced_range_check':
+      noteFire('holdem_flop_priced_range_check');
+      return;
+    case 'holdem_flop_priced_range_defend':
+      noteFire('holdem_flop_priced_range_defend');
+      return;
+    case 'holdem_flop_priced_mix_bet':
+      noteFire('holdem_flop_priced_mix_bet');
+      return;
+    case 'holdem_flop_priced_mix_defend':
+      noteFire('holdem_flop_priced_mix_defend');
+      return;
+    case 'holdem_late_priced_unpriced':
+      noteFire('holdem_late_priced_unpriced');
+      return;
+    case 'holdem_late_priced_check':
+      noteFire('holdem_late_priced_check');
+      return;
+    case 'holdem_late_priced_fold':
+      noteFire('holdem_late_priced_fold');
+      return;
+    case 'holdem_late_priced_call':
+      noteFire('holdem_late_priced_call');
+      return;
+    case 'holdem_late_priced_raise_value':
+      noteFire('holdem_late_priced_raise_value');
+      return;
+    case 'holdem_late_priced_bluff_raise':
+      noteFire('holdem_late_priced_bluff_raise');
+      return;
+    case 'holdem_late_priced_bet_bluff':
+      noteFire('holdem_late_priced_bet_bluff');
+      return;
+    case 'holdem_late_priced_bet_value':
+      noteFire('holdem_late_priced_bet_value');
+      return;
+    case 'holdem_late_priced_range_value':
+      noteFire('holdem_late_priced_range_value');
+      return;
+    case 'holdem_late_priced_range_bluff':
+      noteFire('holdem_late_priced_range_bluff');
+      return;
+    case 'holdem_late_priced_range_check':
+      noteFire('holdem_late_priced_range_check');
+      return;
+    case 'holdem_late_priced_range_defend':
+      noteFire('holdem_late_priced_range_defend');
+      return;
+    case 'holdem_late_priced_mix_bet':
+      noteFire('holdem_late_priced_mix_bet');
+      return;
+    case 'holdem_late_priced_mix_defend':
+      noteFire('holdem_late_priced_mix_defend');
+      return;
+  }
+}
+
+/**
  * The rule. Off: the decision itself, untouched, nothing read. On: in its spot, the priced chooser's answer replaces
  * the decision (a carried raise that passes the value test of holdemTurnRiverRaiseNeedsValue stands).
  */
@@ -1651,7 +1745,7 @@ export function holdemLateStreetIsPricedRule(
       decisionRaiseTo: null,
     });
     if (!v) {
-      if (tele) noteFire(pre + 'unpriced');
+      if (tele) firePricedReceipt(pre + 'unpriced');
       return decision;
     }
     const thinkTime = decision.thinkTime ?? 0;
@@ -1698,17 +1792,17 @@ export function holdemLateStreetIsPricedRule(
                 : 'bet_bluff');
     }
     if (tele) {
-      noteFire(receipt);
+      firePricedReceipt(receipt);
       if (argmaxBy(v.options, 'evNoBlock') !== best) noteFire('holdem_late_priced_blocker_decided');
       if (argmaxBy(v.options, 'evNoNut') !== best)
         noteFire('holdem_late_priced_nut_advantage_decided');
       if (v.recordMoved) noteFire('holdem_late_priced_record_decided');
       if (v.range && v.range.kind !== 'none' && v.range.best && v.range.best !== v.perHand)
-        noteFire(pre + 'range_' + v.range.kind);
+        firePricedReceipt(pre + 'range_' + v.range.kind);
       if (v.range && v.range.draw !== null) {
         // the one model-requested draw: the boundary class's residual frequency, recorded with the decision
         const mix = pre + (spot.facing ? 'mix_defend' : 'mix_bet');
-        noteFire(mix);
+        firePricedReceipt(mix);
         noteDecisionRuleReceipt(mix, decision, out);
       }
       if (out.action !== decision.action || (out.amount ?? null) !== (decision.amount ?? null))
