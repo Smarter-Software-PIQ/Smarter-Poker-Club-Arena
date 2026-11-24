@@ -80,6 +80,9 @@ BEGIN
   IF replace(v_ingest_patched, v_new_thaw_cap, v_old_thaw_cap) IS DISTINCT FROM v_ingest_def THEN
     RAISE EXCEPTION 'HARDEN_STALL_BBJ_ROUNDTRIP_DRIFT fn_ca_table_stall_watch_ingest' USING ERRCODE = '55000';
   END IF;
+  IF position('tournament finished; it will not deal again' in v_ingest_patched) = 0 THEN
+    RAISE EXCEPTION 'HARDEN_STALL_BBJ_FINISHED_RESOLUTION_LOST fn_ca_table_stall_watch_ingest' USING ERRCODE = '55000';
+  END IF;
 
   EXECUTE v_tick_patched;
   EXECUTE v_ingest_patched;
