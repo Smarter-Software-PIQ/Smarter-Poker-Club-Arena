@@ -391,7 +391,7 @@ function mixSeed(seed: number): number {
 function run(h: Record<string, unknown>, ord: number, seed: number) {
   const { opener } = POSITIONS[POS]!;
   const node = (h.actions as unknown[])[ord];
-  const st = stateAt(h as never, node as never) as {
+  const st = stateAt(h as never, node as never) as unknown as {
     gs: Record<string, unknown>;
     hero: unknown;
     pn: unknown;
@@ -423,7 +423,7 @@ function run(h: Record<string, unknown>, ord: number, seed: number) {
     hy.style,
     { ...hy.mods },
     { ...OPTS, decisionTimeMs: FIXED_NOW } as never
-  ) as Record<string, unknown>;
+  ) as unknown as Record<string, unknown>;
   const k = actionKind(d.action as never, d.amount as never, st.pn as never);
   const fires = drainFires()
     .map((f) => f.feature)
