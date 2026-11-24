@@ -19498,6 +19498,21 @@ export class HorseLogic {
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());
+      // holdemTurnRiverRaiseNeedsValue (default OFF; HorseHoldemTurnRiverRaiseNeedsValue.ts): in No-Limit Hold'em a
+      // turn or river raise facing a wager by a hand that is not a value hand becomes the priced call or fold.
+      // holdemLateStreetIsPriced / holdemFlopIsPriced (default OFF; HorseHoldemLateStreetIsPriced.ts): the priced
+      // chooser is the answer in its spot; no earlier rule can veto it. Both act only in No-Limit Hold'em and the
+      // math core below only in PLO4/PLO5, so their order changes nothing; off, each returns the decision itself
+      // (the same object).
+      ruled.decision = holdemLateStreetIsPricedRule(
+        holdemTurnRiverRaiseNeedsValueRule(ruled.decision, player, gs, opts, (d) =>
+          this.legalize(d, player, gs, vi)
+        ),
+        player,
+        gs,
+        opts,
+        (d) => this.legalize(d, player, gs, vi)
+      );
       return {
         // omahaMathCore (default OFF, lane MATHCORE 2026-11-19): the math-first
         // PLO4/PLO5 cash core is the outermost owner of this node. Every owner
@@ -19510,25 +19525,8 @@ export class HorseLogic {
         // by cent / chip-unit rounding only (omahaMathCoreExactLegalize), never by
         // this.legalize's near-pot snap, 92% / 95% stack jam or whole-dollar
         // rounding: the size the core priced is the size the table plays.
-        // holdemTurnRiverRaiseNeedsValue (default OFF; HorseHoldemTurnRiverRaiseNeedsValue.ts): the outermost answer
-        // of this node in No-Limit Hold'em. A turn or river raise facing a wager by a hand that is not a value hand
-        // becomes the priced call or fold. Off: the math core's answer itself (it acts in PLO4/PLO5 only).
-        // holdemLateStreetIsPriced (default OFF; HorseHoldemLateStreetIsPriced.ts): the priced late-street chooser is
-        // the answer in its spot; no earlier rule can veto it. Off: option (i)'s answer itself.
-        decision: holdemLateStreetIsPricedRule(
-          holdemTurnRiverRaiseNeedsValueRule(
-            omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
-              omahaMathCoreExactLegalize(d, player, gs)
-            ),
-            player,
-            gs,
-            opts,
-            (d) => this.legalize(d, player, gs, vi)
-          ),
-          player,
-          gs,
-          opts,
-          (d) => this.legalize(d, player, gs, vi)
+        decision: omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
+          omahaMathCoreExactLegalize(d, player, gs)
         ),
       };
     }).decision;
