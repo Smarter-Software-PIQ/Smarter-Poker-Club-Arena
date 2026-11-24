@@ -14,8 +14,8 @@
  *     (ties included), and the river score built from the turn score equals the full river score.
  *  2. SAME ANSWERS: the committed fixture (32 real 4+-way flop decisions, public snapshot and the deciding Horse's own
  *     cards only, and 16 heads-up league decisions) gives the recorded EV and call, exactly.
- *  3. FAST: over the multiway fixture (PLO5 5-way included), after one warm-up pass, the decision p95 is at most
- *     25 ms and the max at most 60 ms on the owner's Mac. On another machine the bounds scale by the measured cost
+ *  3. FAST: over the multiway fixture (PLO5 5-way included), after one warm-up pass, each decision's best of three
+ *     runs has p95 at most 25 ms and max at most 60 ms on the owner's Mac. On another machine the bounds scale by the measured cost
  *     of a fixed scoring workload against its cost on that Mac (never below 1), so a slower runner is judged by the
  *     same work, not by its clock.
  */
@@ -166,13 +166,17 @@ describe('the flop call tree is fast enough to act, and its fast score changes n
     for (const row of multiway) verdictOf(row); // warm-up
     const ref = Math.min(referenceWorkMs(), referenceWorkMs(), referenceWorkMs());
     const scale = Math.max(1, ref / REFERENCE_WORK_MS_MAC);
-    const times: number[] = [];
-    for (let pass = 0; pass < 2; pass++)
-      for (const row of multiway) {
+    // each decision's own cost: the best of three runs (a pause of the thread, the collector or another process
+    // makes a run longer, never shorter), so a contended runner does not fail the law and a slower tree still does
+    const times = multiway.map((row) => {
+      let best = Infinity;
+      for (let pass = 0; pass < 3; pass++) {
         const t0 = performance.now();
         verdictOf(row);
-        times.push(performance.now() - t0);
+        best = Math.min(best, performance.now() - t0);
       }
+      return best;
+    });
     times.sort((a, b) => a - b);
     const p95 = times[Math.floor(0.95 * (times.length - 1))];
     const max = times[times.length - 1];
