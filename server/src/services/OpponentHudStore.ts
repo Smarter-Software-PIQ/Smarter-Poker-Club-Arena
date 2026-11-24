@@ -1355,7 +1355,26 @@ export class OpponentHudStore {
     }
   }
 
-  /** Once a day, from HUD_RECONCILE_HOUR:HUD_RECONCILE_MINUTE Chicago, reconcile the previous Chicago day. */
+  /**
+   * True while a catch-up that will still count hands hand_history already holds has not finished: the switch-on /
+   * boot catch-up is running, or it failed or finished incomplete and is re-run on the next alert tick, or a load-gap
+   * catch-up is reading. A verification run now compares profiles that have not yet absorbed those hands and reports
+   * them as drift (2026-11-24, alert 448614: 620,057 hands "not counted" that the catch-up counted 8 minutes later),
+   * so the nightly verification waits for it. A 'capped' hold whose catch-up has completed is NOT in progress: its
+   * uncounted gap is real (OpponentHudSyncHeld is raised for it) and a verification of a day inside it is real drift.
+   */
+  private catchUpInProgress(): boolean {
+    return (
+      this.activating !== null ||
+      this.activationPending ||
+      this.syncHold === 'activating' ||
+      this.syncHold === 'catchup' ||
+      this.gapCatchUp !== null
+    );
+  }
+
+  /** Once a day, from HUD_RECONCILE_HOUR:HUD_RECONCILE_MINUTE Chicago, reconcile the previous Chicago day. A day that
+   *  falls due while a catch-up is in progress is not consumed: the next alert tick after the catch-up verifies it. */
   async maybeReconcile(): Promise<void> {
     if (!this.armedState) return;
     const now = this.deps.now();
@@ -1370,8 +1389,14 @@ export class OpponentHudStore {
     if (hour * 60 + minute < HUD_RECONCILE_HOUR * 60 + HUD_RECONCILE_MINUTE) return;
     const yesterday = hudDayOf(now - 24 * 3600_000);
     if (this.reconciledDay === yesterday || this.reconciling) return;
+    if (this.catchUpInProgress()) {
+      noteFire('opponent_hud_reconcile_deferred');
+      return;
+    }
     this.reconciledDay = yesterday;
-    await this.reconcileDay(yesterday);
+    const r = await this.reconcileDay(yesterday);
+    // a catch-up began during the verification: not verified, so the day stays due
+    if (r.deferred && this.reconciledDay === yesterday) this.reconciledDay = null;
   }
 
   /**
@@ -1394,6 +1419,9 @@ export class OpponentHudStore {
     miscounted: number;
     /** present only when the verification could not complete: the counts are then "not verified", never "clean" */
     failed?: HudReconcileFailureStage;
+    /** present only when a catch-up was in progress (before the start or before the compare): nothing was compared,
+     *  the alert is left as it was, and the day is "not verified" (the scheduler verifies it after the catch-up) */
+    deferred?: 'catchup_in_progress';
   }> {
     const out: {
       compared: number;
@@ -1402,8 +1430,13 @@ export class OpponentHudStore {
       extra: number;
       miscounted: number;
       failed?: HudReconcileFailureStage;
+      deferred?: 'catchup_in_progress';
     } = { compared: 0, drifted: 0, missed: 0, extra: 0, miscounted: 0 };
     if (!this.deps.handsPage || this.reconciling) return out;
+    if (this.catchUpInProgress()) {
+      noteFire('opponent_hud_reconcile_deferred');
+      return { ...out, deferred: 'catchup_in_progress' };
+    }
     this.reconciling = true;
     let stage: HudReconcileFailureStage = 'hands_page';
     try {
@@ -1454,6 +1487,11 @@ export class OpponentHudStore {
         throw new Error('verification page limit');
       }
       stage = 'compare';
+      // a catch-up that began while the day was read (a re-run activation, a load gap) makes the comparison unfair
+      if (this.catchUpInProgress()) {
+        noteFire('opponent_hud_reconcile_deferred');
+        return { ...out, deferred: 'catchup_in_progress' };
+      }
       // every player of the day warm (bounded loads), then compare
       for (const family of HUD_FAMILIES) {
         // only players not already warm: a warm profile holds hands not yet saved and is never replaced
@@ -1461,6 +1499,10 @@ export class OpponentHudStore {
           .filter((k) => k.startsWith(`${family}|`) && this.cache.get(k)?.state !== 'ready')
           .map((k) => k.slice(family.length + 1));
         for (let i = 0; i < users.length; i += 50) await this.load(users.slice(i, i + 50), family);
+      }
+      if (this.catchUpInProgress()) {
+        noteFire('opponent_hud_reconcile_deferred');
+        return { ...out, deferred: 'catchup_in_progress' };
       }
       for (const [k, want] of expected) {
         const e = this.cache.get(k);

@@ -1,6 +1,6 @@
 # omahaUnderpairNoMultiwayFlopContinue: authority for the live switch
 
-Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read is owed after the release.
+**State: OFF** in production since `2026-11-22T23:07:17Z` (`audit #184`; see "Live switch" at the end). Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read is owed after the release.
 
 ## What it does
 
@@ -40,3 +40,7 @@ Multiway (bet and a call) only; heads-up flops untouched.
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
 - Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+
+## Live switch, 2026-11-22: off (audit #184)
+
+2026-11-24 (recording a write of 2026-11-22): switched off at `2026-11-22T23:07:17Z` (audit #184) by the owner-ordered reset to the pre-lead-4 switch state (owner 3:55 PM and 4:43 PM CST Nov 22); it reverses audit #176 (lead-4 on); restores lead-2 audit #169. Why, as the audit note records: blanket rule removal: the replay changed 0 decisions; the rule is a blanket fold, which the owner's order of 2026-11-17 (no blanket rule decides) retires. Evidence: the audit note of ca_horse_style_switch_audit #184 and the lead-5 pre-notice in `/Volumes/SmarterArchives/agent-evidence/COORDINATION-INBOX.md`. The "a live read is owed after the release" line above no longer applies while it is off.
