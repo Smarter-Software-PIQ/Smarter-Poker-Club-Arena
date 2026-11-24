@@ -4255,6 +4255,15 @@ export interface HorseDecideOpts {
    *  (HorseOmahaFacingBetEvShownField.ts). Default OFF until its declared
    *  evaluation passes. */
   omahaFacingBetEvShownField?: boolean;
+  /** PLO lead-6 2026-11-24 (default OFF, read `=== true`; PLO4/PLO5 cash, never PLO6, a tournament or hold'em).
+   *  The two joint multiway facing-bet samplers (the flop verdict omahaFlopFacingBetEv's field count,
+   *  HorseOmahaFlopFacingBetEv.omahaFlopEvCounts, and omahaFacingBetEvShownField's turn/river count,
+   *  HorseOmahaFacingBetEvShownField.omahaShownJoint) draw every other player's holding on a walk with the same step
+   *  as the bettor's, so the field's sampled strength is a fixed function of the bettor's within a decision. With
+   *  it on, each player of the field (caller, earlier all-in, player still to act) draws from his own stream seeded
+   *  from the decision's sample seed and his role/slot tag (HorseOmahaFieldDrawStreams). The bettor's walks and
+   *  every heads-up count are unchanged. It switches neither verdict on. */
+  omahaMultiwayFieldDrawsAreIndependent?: boolean;
   /** WooWoo audit RIVER-FACING (2026-11-18): opt-in (`=== true`), inside
    *  omahaFacingBetEv only, PLO4/PLO5 cash (no tournament), a heads-up FIRST
    *  river bet (not a raise). The call is priced as a bluff-catch on the
@@ -13776,6 +13785,9 @@ function omahaFacingBetEvRule(
         ? { hudRaiserStabResponse: true }
         : {}),
       ...(opts.omahaCbetRaiseIsPriced === true ? { cbetRaisePriced: true } : {}),
+      ...(omahaMultiwayFieldDrawsIndependentOn(player, gs, opts)
+        ? { independentFieldDraws: true }
+        : {}),
     });
   if (!omahaFacingBetEvOn(opts)) return decision;
   try {
@@ -13855,6 +13867,17 @@ let omahaFacingBetEvMemo: {
 /** The exact-hand count of the decision in progress: omahaFacingBetEvOf and
  *  omahaTurnRiverRaiseNeedsNutsRule ask the same count (the costliest step of
  *  a turn decision); it is made once. Cleared at the start of every decision. */
+/** omahaMultiwayFieldDrawsAreIndependent (default off): on, in PLO4/PLO5 cash only (four or five cards, no tournament). */
+function omahaMultiwayFieldDrawsIndependentOn(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (opts.omahaMultiwayFieldDrawsAreIndependent !== true || isTournamentMode(gs)) return false;
+  const n = (player.cards ?? []).length;
+  return n === 4 || n === 5;
+}
+
 let omahaFacingBetEvCountMemo: {
   player: SeatPlayer;
   gs: HorseGameStateV2;
@@ -13864,6 +13887,8 @@ let omahaFacingBetEvCountMemo: {
   plo6RiverUnpaired: boolean;
   runoutRealization: boolean;
   shownField: boolean;
+  /** omahaMultiwayFieldDrawsAreIndependent (PLO4/PLO5 cash) */
+  fieldDrawsIndependent: boolean;
   riverBluffCatch: boolean;
   valueRangeRelative: boolean;
   pairedRiverPriced: boolean;
@@ -14066,6 +14091,7 @@ function omahaFacingBetEvCount(
   const plo6RiverUnpaired = opts.v59Plo6RiverUnpaired !== false;
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
   const shownField = opts.omahaFacingBetEvShownField === true && !isTournamentMode(gs);
+  const fieldDrawsIndependent = omahaMultiwayFieldDrawsIndependentOn(player, gs, opts);
   const riverBluffCatch = opts.omahaRiverBluffCatchIsPriced === true && !isTournamentMode(gs);
   const valueRangeRelative = opts.omahaFacingBetValueIsRangeRelative === true;
   const pairedRiverPriced = opts.omahaPairedBoardRiverIsPriced === true;
@@ -14094,6 +14120,7 @@ function omahaFacingBetEvCount(
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
     memo.runoutRealization === runoutRealization &&
     memo.shownField === shownField &&
+    memo.fieldDrawsIndependent === fieldDrawsIndependent &&
     memo.riverBluffCatch === riverBluffCatch &&
     memo.valueRangeRelative === valueRangeRelative &&
     memo.pairedRiverPriced === pairedRiverPriced &&
@@ -14269,6 +14296,7 @@ function omahaFacingBetEvCount(
                   inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
                   continueRate: omahaFlopEvBehindContinue(s.potFrac),
                   mixUnit: omahaShownFieldMixUnit(omahaPricedPublicSpotKey(player, gs)),
+                  ...(fieldDrawsIndependent ? { independentDraws: true } : {}),
                 },
               }
             : {}),
@@ -14282,6 +14310,9 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
+    // omahaMultiwayFieldDrawsAreIndependent: the joint field verdict drew the field on independent streams
+    if (fieldDrawsIndependent && verdict?.shownField && telemetryOn(opts))
+      noteFire('omaha_multiway_field_draws_independent');
     if (verdict && spot !== baseSpot && baseSpot && telemetryOn(opts)) {
       noteFire('omaha_turn_stab_defence_priced_seen');
       if (verdictOf(baseSpot, read)?.call !== verdict.call)
@@ -14397,6 +14428,7 @@ function omahaFacingBetEvCount(
     plo6RiverUnpaired,
     runoutRealization,
     shownField,
+    fieldDrawsIndependent,
     riverBluffCatch,
     valueRangeRelative,
     pairedRiverPriced,

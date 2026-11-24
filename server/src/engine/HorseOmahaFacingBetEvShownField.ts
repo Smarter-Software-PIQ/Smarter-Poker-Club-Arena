@@ -35,6 +35,7 @@
  */
 import type { Card } from '../types.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaFieldDrawStreams, omahaFieldDrawTraceOf } from './HorseOmahaFieldDrawStreams.js';
 
 export type OmahaShownTurnClass = 'two_pair_plus' | 'one_pair' | 'nut_combo_draw';
 
@@ -141,6 +142,8 @@ function seedOf(hole: Card[], board: Card[], dead: Card[]): number {
  * already in; `behind` players still to act with range share `behindShare`),
  * all on disjoint cards, over every river card on the turn. Index j of the
  * result: the first j players behind continue. Deterministic (seed = cards).
+ * `independentField` (omahaMultiwayFieldDrawsAreIndependent, default false): each other player draws his holding
+ * from his own seeded stream (HorseOmahaFieldDrawStreams), not on a walk locked to the bettor's.
  */
 export function omahaShownJoint(
   hole: Card[],
@@ -149,7 +152,8 @@ export function omahaShownJoint(
   valueShare: number,
   always: readonly number[],
   behind: number,
-  behindShare: number
+  behindShare: number,
+  independentField = false
 ): OmahaShownJoint | null {
   if (!Array.isArray(hole) || (hole.length !== 4 && hole.length !== 5)) return null;
   if (!Array.isArray(board) || (board.length !== 4 && board.length !== 5)) return null;
@@ -167,7 +171,8 @@ export function omahaShownJoint(
   const m = unseen.length;
   const n = hole.length;
   if (m < n * (2 + A + B) + 1 || m > 48) return null;
-  const rnd = stream(seedOf(hole, board, dead ?? []));
+  const seed = seedOf(hole, board, dead ?? []);
+  const rnd = stream(seed);
   // pool ranked by strength on the current board
   const P = OMAHA_SHOWN_POOL;
   const cards = new Int8Array(P * n);
@@ -198,10 +203,18 @@ export function omahaShownJoint(
     regionCount(f < A ? always[f] : behindShare)
   );
   const walks = Array.from({ length: others + 2 }, () => rnd());
+  // omahaMultiwayFieldDrawsAreIndependent: one stream per other player (absent: the walks above).
+  const fieldStreams =
+    independentField === true && others > 0 ? omahaFieldDrawStreams(seed, others, A) : null;
+  const trace = omahaFieldDrawTraceOf();
+  const traceField = trace ? new Array<number>(others) : null;
+  const rankOf = trace ? new Int32Array(P) : null;
+  if (rankOf) for (let k = 0; k < P; k++) rankOf[order[k]] = k;
   const used = new Uint8Array(m);
   const draw = (w: number, from: number, count: number): number => {
+    if (fieldStreams && w >= 2) walks[w] = fieldStreams[w - 2]();
     const i = Math.floor(walks[w] * count);
-    walks[w] = (walks[w] + WALK) % 1;
+    if (!(fieldStreams && w >= 2)) walks[w] = (walks[w] + WALK) % 1;
     for (let t = 0; t < Math.min(count, 256); t++) {
       const p = order[from + ((i + t) % count)];
       let ok = true;
@@ -250,10 +263,12 @@ export function omahaShownJoint(
         mark(g, 1);
         picked[k + 1] = g;
         fieldScore[k] = scoreOf(g, full);
+        if (traceField && rankOf) traceField[k] = (rankOf[g] + 0.5) / fieldCount[k];
       }
       for (let u = 1; u <= k; u++) mark(picked[u], 0);
       mark(p, 0);
       if (!whole) continue;
+      if (trace && traceField && rankOf) trace('shown', (rankOf[p] + 0.5) / P, isValue, traceField);
       const bettor = scoreOf(p, full);
       let best = bettor;
       let tied = hero === bettor ? 1 : 0;
@@ -322,6 +337,8 @@ export interface OmahaShownFieldInput {
   margin: number;
   /** a number in [0, 1) drawn from PUBLIC state only */
   mixUnit: number;
+  /** omahaMultiwayFieldDrawsAreIndependent: each other player's holding from his own seeded stream */
+  independentField?: boolean;
 }
 
 export interface OmahaShownFieldVerdict {
@@ -343,7 +360,16 @@ export function omahaShownFieldVerdict(
   valueShare: number,
   x: OmahaShownFieldInput
 ): OmahaShownFieldVerdict | null {
-  const joint = omahaShownJoint(hole, board, dead, valueShare, x.always, x.behind, x.behindShare);
+  const joint = omahaShownJoint(
+    hole,
+    board,
+    dead,
+    valueShare,
+    x.always,
+    x.behind,
+    x.behindShare,
+    x.independentField === true
+  );
   if (!joint) return null;
   const q = Math.max(0, Math.min(1, x.bluff));
   const c = Math.max(0, Math.min(1, x.continueRate));

@@ -104,6 +104,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
   }),
+  // PLO lead-6 2026-11-24: the flop verdict's and the turn/river joint field's sampling, facing a wager multiway.
+  omahaMultiwayFieldDrawsAreIndependent: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
   // PLO-OWNER lead-5 2026-11-22: the first acts only on the turn and river facing a wager, the second only on
   // the river (the boat stage it follows is a river stage), so neither is re-decided on another street.
   omahaPricedRaiseNeverMakesNonNutRaise: Object.freeze({

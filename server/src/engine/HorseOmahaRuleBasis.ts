@@ -318,6 +318,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaEvFoldModelSkipsPlo45: exempt('scope', 'decides where a rule applies, never the action'),
   omahaFacingBetEv: FACING_BET_EV,
   omahaFacingBetEvShownField: FACING_BET_EV,
+  omahaMultiwayFieldDrawsAreIndependent: FACING_BET_EV,
   omahaFacingBetIsPricedByEquity: FACING_BET_EV,
   omahaFacingBetPaysTheWholeDeduction: exempt(
     'input',
@@ -724,6 +725,7 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'receipt that a non-nut raise that could not be priced became the call under omahaPricedRaiseNeverMakesNonNutRaise (owner ruling 2026-11-15 12:52 / 12:53); no chips are added and nothing is folded on a failure to price'
   ),
   omaha_late_flattened_call_priced_kept: FACING_BET_EV,
+  omaha_multiway_field_draws_independent: FACING_BET_EV,
   omaha_late_flattened_call_priced_folded: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,

@@ -1503,7 +1503,13 @@ export interface OmahaFacingBetEvContext {
    * `continueRate` is the rate a player still to act continues; `mixUnit` a
    * number in [0, 1) drawn from public state only.
    */
-  shownField?: { inPosition: boolean; continueRate: number; mixUnit: number };
+  shownField?: {
+    inPosition: boolean;
+    continueRate: number;
+    mixUnit: number;
+    /** omahaMultiwayFieldDrawsAreIndependent: the field's holdings are drawn independently of the bettor's */
+    independentDraws?: boolean;
+  };
   /**
    * omahaRiverBluffCatchIsPriced (WooWoo RIVER-FACING): present only with the
    * option on. A heads-up first river bet (not a raise) is then priced on the
@@ -1747,6 +1753,7 @@ export function omahaFacingBetEvVerdict(
         inPosition: ctx.shownField.inPosition === true,
         margin,
         mixUnit: ctx.shownField.mixUnit,
+        ...(ctx.shownField.independentDraws === true ? { independentField: true } : {}),
       });
     } catch {
       shown = null;

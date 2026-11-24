@@ -419,6 +419,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFlopBetPricesTheRaise',
   'omahaFlopBetUsesMeasuredFoldShare',
   'omahaFacingBetEvShownField',
+  // 2026-11-24 PLO lead-6: the multiway field of the facing-bet samplers drawn independently of the bettor (ships dark)
+  'omahaMultiwayFieldDrawsAreIndependent',
   'omahaRiverBluffCatchIsPriced',
   'omahaCheckedToBetIsPriced',
   'omahaCheckedToBetResponseIsMeasured',

@@ -4191,6 +4191,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true, omahaFacingBetEvShownField: true },
     b: { omahaFacingBetEv: true },
   })),
+  // 2026-11-24 PLO lead-6 (default OFF, PLO4/PLO5 cash): omahaMultiwayFieldDrawsAreIndependent. Both arms run the
+  // two verdicts whose joint field count it changes (the flop verdict and the turn/river joint field); a adds the
+  // option (each field player drawn on his own stream), b is the walk of today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_field_draws_are_independent`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFlopFacingBetEv: true,
+      omahaFacingBetEvShownField: true,
+      omahaMultiwayFieldDrawsAreIndependent: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFlopFacingBetEv: true, omahaFacingBetEvShownField: true },
+  })),
   // 2026-11-18 WooWoo RIVER-FACING (HorseOmahaRiverBluffCatch, default OFF):
   // inside the facing-bet EV rule, a heads-up first river bet is priced as a
   // bluff-catch on the bettor's measured range with the Horse's blockers.

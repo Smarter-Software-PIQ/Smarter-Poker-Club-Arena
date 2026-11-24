@@ -92,6 +92,7 @@ import {
   type OmahaFacingBetEvRead,
 } from './HorseOmahaFacingBetEv.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { omahaFieldDrawStreams, omahaFieldDrawTraceOf } from './HorseOmahaFieldDrawStreams.js';
 import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import {
   omahaFlopDefenceTreeEv,
@@ -371,6 +372,11 @@ export interface OmahaFlopEvField {
   /** players still to act, and the range share of one who continues */
   behind: number;
   behindShare: number;
+  /**
+   * omahaMultiwayFieldDrawsAreIndependent (default absent = off): each player of the field draws his holding from
+   * his own seeded stream (HorseOmahaFieldDrawStreams), not on a walk locked to the bettor's.
+   */
+  independentDraws?: boolean;
 }
 
 /** Against the bettor and every player already in, with j of the players still to act continuing. */
@@ -508,6 +514,7 @@ export function omahaFlopEvCounts(
   const behindShare = regionOf(field?.behindShare ?? 1);
   const A = always.length;
   if (A + B > OMAHA_FLOP_EV_FIELD_MAX) return null;
+  const independent = field?.independentDraws === true && A + B > 0;
   const id = `${hole.map(key).sort().join(',')}|${board.map(key).sort().join(',')}|${deadCards
     .map(key)
     .sort()
@@ -516,7 +523,7 @@ export function omahaFlopEvCounts(
     .map((s) => Math.round(s * 10000))
     .join(',')}|${B}|${Math.round(behindShare * 10000)}|${salt >>> 0}${
     riversPerTurn === undefined ? '' : `|r${riversPerTurn}`
-  }`;
+  }${independent ? '|ind' : ''}`;
   let entry = FLOP_SAMPLES.find((s) => s.id === id);
   if (entry) {
     const hit = entry.counts.get(countsKey);
@@ -642,6 +649,10 @@ export function omahaFlopEvCounts(
     fieldCount[f] = Math.max(1, Math.min(P, Math.round((f < A ? always[f] : behindShare) * P)));
   }
   const fieldScore = new Float64Array(others);
+  // omahaMultiwayFieldDrawsAreIndependent: one stream per player of the field (absent: the walks above).
+  const fieldStreams = independent ? omahaFieldDrawStreams(seed, others, A) : null;
+  const trace = omahaFieldDrawTraceOf();
+  const traceField = trace ? new Array<number>(others) : null;
   /** A holding of a region (`count` positions of the order from `from`) clear of the cards in use, or -1. */
   const draw = (
     at: number,
@@ -691,7 +702,7 @@ export function omahaFlopEvCounts(
         let usedHi = boardHi | hi[p];
         let whole = true;
         for (let f = 0; f < others; f++) {
-          walkField[f] = (walkField[f] + WALK) % 1;
+          walkField[f] = fieldStreams ? fieldStreams[f]() : (walkField[f] + WALK) % 1;
           const g = draw(walkField[f], 0, fieldCount[f], usedLo, usedHi);
           if (g < 0) {
             whole = false;
@@ -700,8 +711,10 @@ export function omahaFlopEvCounts(
           usedLo |= lo[g];
           usedHi |= hi[g];
           fieldScore[f] = scoreOf(g);
+          if (traceField) traceField[f] = (pct[g] * P - 0.5) / fieldCount[f];
         }
         if (!whole) continue;
+        if (trace && traceField) trace('flop', pct[p], isValue, traceField);
         const bettor = scoreOf(p);
         const res = hero > bettor ? 1 : hero === bettor ? 0.5 : 0;
         if (isValue) {
@@ -1247,6 +1260,11 @@ export interface OmahaFlopFacingBetEvContext {
   bettor?: OmahaFlopBettorAdjustment;
   /** omahaCbetRaiseIsPriced only: the spot's value share IS his measured raising range; no bluff share is added */
   measuredRaiseRange?: boolean;
+  /**
+   * omahaMultiwayFieldDrawsAreIndependent only (PLO4/PLO5 cash; never with sixCards): each player of the field
+   * draws his holding from his own seeded stream. Absent: the walks of today.
+   */
+  independentFieldDraws?: boolean;
 }
 
 function binomial(n: number, k: number): number {
@@ -1309,7 +1327,14 @@ export function omahaFlopFacingBetEvVerdict(
       board,
       dead,
       valueShare,
-      { always, behind: spot.behind, behindShare: callerShare },
+      {
+        always,
+        behind: spot.behind,
+        behindShare: callerShare,
+        ...(ctx.independentFieldDraws === true && ctx.sixCards !== true
+          ? { independentDraws: true }
+          : {}),
+      },
       ctx.salt ?? 0,
       undefined,
       ctx.sixCards === true

@@ -113,6 +113,8 @@ export interface OmahaFlopFacingBetEvRuleContext {
   hudRaiserStabResponse?: boolean;
   /** omahaCbetRaiseIsPriced is on: the raise of the Horse's own c-bet is ranged on his measured raise share */
   cbetRaisePriced?: boolean;
+  /** omahaMultiwayFieldDrawsAreIndependent is on (PLO4/PLO5 cash): the field's holdings are drawn independently */
+  independentFieldDraws?: boolean;
 }
 
 export interface OmahaFlopFacingBetEvAnswer {
@@ -246,6 +248,7 @@ export function omahaFlopFacingBetEvAnswer(
       inPosition: ctx.inPosition,
       ...(cbetRange ? { measuredRaiseRange: true } : {}),
       ...(tree ? { tree } : {}),
+      ...(ctx.independentFieldDraws === true ? { independentFieldDraws: true } : {}),
       ...(hasBettorAdj
         ? {
             bettor: {
@@ -258,6 +261,9 @@ export function omahaFlopFacingBetEvAnswer(
   );
   if (!verdict) return null;
   if (ctx.telemetry) {
+    // omahaMultiwayFieldDrawsAreIndependent: the verdict's field was drawn on independent streams
+    if (ctx.independentFieldDraws === true && spot.callers + spot.allIns + spot.behind > 0)
+      noteFire('omaha_multiway_field_draws_independent');
     if (hudRangeReceipt === 'omaha_flop_facing_raise_hud_range_scaled')
       noteFire('omaha_flop_facing_raise_hud_range_scaled');
     else if (hudRangeReceipt === 'omaha_flop_facing_stab_hud_range_scaled')
