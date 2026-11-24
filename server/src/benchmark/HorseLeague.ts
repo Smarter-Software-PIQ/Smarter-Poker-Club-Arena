@@ -3324,9 +3324,60 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
  * nightly card may not seat, or when it is a development candidate card graded by
  * name only.
  */
+/**
+ * 2026-11-24 PLO-OWNER lead-6 grade cards (development: dealt by name only, never nightly). The corrected PLO4/PLO5
+ * facing-bet price as a set and in its three parts, at heads-up, 6-max and 9-max: b is today's live facing-bet
+ * verdicts (omahaFacingBetEv, omahaFlopFacingBetEv), a adds the options. Same seeds both sides (duplicate pairs).
+ */
+const PLO_FACING_BET_PRICED_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  [
+    'all',
+    {
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFacingBetIndifferenceCalls: true,
+      omahaFlopRealizationIsPriced: true,
+      omahaFacingBetMinimumDefencePrior: true,
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+      omahaMultiwayValueBetIsPriced: true,
+    },
+  ],
+  ['f3', { omahaFlopRealizationIsPriced: true }],
+  [
+    'f1f2f6',
+    {
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFacingBetIndifferenceCalls: true,
+      omahaFacingBetMinimumDefencePrior: true,
+    },
+  ],
+  [
+    'm1m2m3',
+    {
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+      omahaMultiwayValueBetIsPriced: true,
+    },
+  ],
+];
+const PLO_FACING_BET_PRICED_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_FACING_BET_PRICED_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6, 9] as const).map((seats) => ({
+        name: `${variant}_omaha_facing_bet_priced_grade_${part}_${seats === 2 ? 'hu' : seats + 'max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { omahaFacingBetEv: true, omahaFlopFacingBetEv: true, ...on },
+        b: { omahaFacingBetEv: true, omahaFlopFacingBetEv: true },
+      }))
+    )
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  ...PLO_FACING_BET_PRICED_GRADE_CARDS,
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

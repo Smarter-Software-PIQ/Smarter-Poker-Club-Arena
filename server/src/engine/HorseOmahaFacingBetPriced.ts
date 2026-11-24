@@ -29,7 +29,7 @@
  */
 import type { Card } from '../types.js';
 import {
-  omahaEvHandCounts,
+  omahaEvHandCountsByBeatShare,
   type OmahaFacingBetEvSpot,
   type OmahaFacingBetEvVerdict,
 } from './HorseOmahaFacingBetEv.js';
@@ -99,18 +99,24 @@ export interface OmahaPricedFacingVerdict {
   nutShareLoss: number | null;
 }
 
-/** The Horse's win and tie shares against each strength bin of holdings, exact (river: top shares; turn: per river card). */
+/**
+ * The Horse's win and tie shares against each strength bin of holdings, exact (river: top shares; turn: per river
+ * card), and each bin's share of all holdings on this board. Bins are cut on the tables' own scale (the share of
+ * holdings that beat a holding, omahaEvHandCountsByBeatShare): a block of tied holdings sits wholly in the bin of its
+ * beat share. A bin no holding falls in on this board has mass 0 (its win and tie are then those of the next region,
+ * unused: the price renormalises the bettor's histogram over the bins that hold holdings, as the joint sample does).
+ */
 export function omahaPricedBinShares(
   hole: Card[],
   board: Card[],
   dead: Card[]
-): { win: number[]; tie: number[] } | null {
+): { win: number[]; tie: number[]; mass: number[] } | null {
   const edges = OMAHA_MEASURED_BIN_EDGES;
   const S = new Array<number>(edges.length).fill(0);
   const W = new Array<number>(edges.length).fill(0);
   const T = new Array<number>(edges.length).fill(0);
   if (board.length === 5) {
-    const hc = omahaEvHandCounts(hole, board, dead, 0.5);
+    const hc = omahaEvHandCountsByBeatShare(hole, board, dead, 0.5);
     if (!hc) return null;
     for (let e = 1; e < edges.length; e++) {
       if (edges[e] >= 1) {
@@ -129,7 +135,7 @@ export function omahaPricedBinShares(
     for (let e = 1; e < edges.length; e++) {
       if (edges[e] >= 1) {
         if (!all) {
-          const hc = omahaEvHandCounts(hole, board, dead, 0.5);
+          const hc = omahaEvHandCountsByBeatShare(hole, board, dead, 0.5);
           if (!hc) return null;
           all = hc.all;
         }
@@ -137,7 +143,7 @@ export function omahaPricedBinShares(
         W[e] = all.win;
         T[e] = all.tie;
       } else {
-        const hc = omahaEvHandCounts(hole, board, dead, edges[e]);
+        const hc = omahaEvHandCountsByBeatShare(hole, board, dead, edges[e]);
         if (!hc) return null;
         S[e] = hc.valueShare;
         W[e] = hc.value.win;
@@ -148,8 +154,10 @@ export function omahaPricedBinShares(
   } else return null;
   const win: number[] = [];
   const tie: number[] = [];
+  const mass: number[] = [];
   for (let b = 0; b < OMAHA_MEASURED_BINS; b++) {
     const d = S[b + 1] - S[b];
+    mass.push(Math.max(0, d));
     if (d > 1e-9) {
       win.push(Math.max(0, Math.min(1, (S[b + 1] * W[b + 1] - S[b] * W[b]) / d)));
       tie.push(Math.max(0, Math.min(1, (S[b + 1] * T[b + 1] - S[b] * T[b]) / d)));
@@ -158,7 +166,7 @@ export function omahaPricedBinShares(
       tie.push(Math.max(0, Math.min(1, T[b + 1])));
     }
   }
-  return { win, tie };
+  return { win, tie, mass };
 }
 
 /**
@@ -234,9 +242,16 @@ export function omahaPricedFacingVerdict(
     if (range && bins) {
       let pWin = 0;
       let pTie = 0;
+      let held = 0;
       for (let b = 0; b < OMAHA_MEASURED_BINS; b++) {
+        if (!(bins.mass[b] > 1e-12)) continue;
+        held += range.hist[b];
         pWin += range.hist[b] * bins.win[b];
         pTie += range.hist[b] * bins.tie[b];
+      }
+      if (held > 0) {
+        pWin /= held;
+        pTie /= held;
       }
       const field = multi && Number.isFinite(base.field) ? base.field : 1;
       pWin *= field * realization;

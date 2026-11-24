@@ -49,7 +49,7 @@ function inPosition(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   return rot.indexOf(player.seat) === rot.length - 1;
 }
 
-export type PricedConfig = 'today' | 'on' | 'onWithRecord' | 'onKnownBettor';
+export type PricedConfig = 'today' | 'on' | 'onWithRecord' | 'onWithBluffRecord' | 'onKnownBettor';
 
 export interface PricedOutcome {
   variant: string;
@@ -64,6 +64,9 @@ export interface PricedOutcome {
 /** A record of a bettor who was value on 59 of 60 shown bets (weak share about 1.6%). */
 export const STRONG_RECORD: OmahaMeasuredRecord = { shown: 60, value: 59 };
 
+/** A record of a bettor who was value on 8 of 40 shown bets (weak share about 80%): a bluff-heavy opponent. */
+export const BLUFF_RECORD: OmahaMeasuredRecord = { shown: 40, value: 8 };
+
 /** `raises`: price a raise too (the law counts first wagers only). */
 export function pricedOutcome(
   s: PricedState,
@@ -77,7 +80,12 @@ export function pricedOutcome(
     s.legacy === 'raise' ||
     (s.legacy === 'all_in' &&
       player.stack > Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0)) + 0.005);
-  const record = config === 'onWithRecord' ? STRONG_RECORD : null;
+  const record =
+    config === 'onWithRecord'
+      ? STRONG_RECORD
+      : config === 'onWithBluffRecord'
+        ? BLUFF_RECORD
+        : null;
   // onKnownBettor: priced on the measured population itself (no F6 bound), as against a bettor whose record is the
   // population's: the measure the root-cause report's independent check used
   const minDefence = config !== 'onKnownBettor';

@@ -61,6 +61,10 @@ interface Tables {
   fireSize: Record<string, { n: number; mean: number }>;
   flushDrawByBin: Record<string, RateCell>;
   minDefence?: Record<string, number>;
+  later?: Record<
+    string,
+    { n: number; rate: number; sizes?: Record<string, { n: number; mean: number }> }
+  >;
 }
 const T = tables as unknown as Tables;
 
@@ -385,4 +389,41 @@ export function omahaMeasuredLineWeak(
     n += bets;
   }
   return n > 0 ? w / n : null;
+}
+
+/** One size bucket of a later-street wager: its measured mean size, its share of his wagers, his range for it. */
+export interface OmahaMeasuredLaterBucket {
+  size: number;
+  share: number;
+  hist: number[];
+}
+
+/**
+ * The flop call tree's later streets (omahaFlopRealizationIsPriced): after his called heads-up wager of the street
+ * before ('bet') or after a turn checked through ('check'), how often he wagers first on `street`, and, by size
+ * bucket, how often, how big and with what measured range (the bettor table of the line: 'agg' after a wager,
+ * 'non' after a check). Null outside the tables or under 30 measured spots.
+ */
+export function omahaMeasuredLater(
+  variant: string,
+  street: 'turn' | 'river',
+  after: 'bet' | 'check',
+  into: OmahaMeasuredInto
+): { rate: number; buckets: OmahaMeasuredLaterBucket[] } | null {
+  const v = String(variant).toLowerCase();
+  const c = T.later?.[`${v}|${street}|${after}`];
+  if (!c || !(c.n >= 30) || !Number.isFinite(c.rate)) return null;
+  const line = after === 'bet' ? 'agg' : 'non';
+  const buckets: OmahaMeasuredLaterBucket[] = [];
+  let total = 0;
+  for (const bucket of ['under40', 'mid', 'big', 'over']) {
+    const s = c.sizes?.[bucket];
+    const h = normalised(T.bettor[`${v}|${street}|${line}|${bucket}|${into}`]?.hist);
+    if (!s || !(s.n > 0) || !Number.isFinite(s.mean) || !(s.mean > 0) || !h) continue;
+    buckets.push({ size: s.mean, share: s.n, hist: h });
+    total += s.n;
+  }
+  if (!(total > 0)) return null;
+  for (const b of buckets) b.share /= total;
+  return { rate: Math.max(0, Math.min(1, c.rate)), buckets };
 }

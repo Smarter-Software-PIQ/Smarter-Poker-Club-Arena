@@ -113,13 +113,6 @@ export interface OmahaFlopDefenceTreeInputs {
   riverSize: number;
   /** his fold to a flop raise (measurement only: the reported raiseEv) */
   foldToRaise: number;
-  /**
-   * omahaFlopRealizationIsPriced (HorseOmahaFlopCallTree) only: the odds ratios of his turn barrel's non-value
-   * share over the flop's and of his river bet's over the turn barrel's, from the measured bettor tables. Absent:
-   * OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS / OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS exactly, as before.
-   */
-  turnBluffOdds?: number;
-  riverStepOdds?: number;
 }
 
 export interface OmahaFlopDefenceTreeSpot {
@@ -272,20 +265,12 @@ export function omahaFlopDefenceTreeEv(
     }
   }
 
-  const turnOdds =
-    fin(inputs.turnBluffOdds) && inputs.turnBluffOdds > 0
-      ? inputs.turnBluffOdds
-      : OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS;
-  const riverOdds =
-    fin(inputs.riverStepOdds) && inputs.riverStepOdds > 0
-      ? inputs.riverStepOdds
-      : OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS;
-  const qTb = omahaFlopDefenceShiftedShare(q, turnOdds);
+  const qTb = omahaFlopDefenceShiftedShare(q, OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS);
   const qTc = omahaFlopDefenceCheckingShare(q, bT, qTb);
   const share = (k: number, qq: number): number => (1 - qq) * wv[k] + qq * wo[k];
   // The river from a pot X with `stack` behind, his whole range at non-value share qn.
   const river = (k: number, X: number, qn: number, stack: number): number => {
-    const qb = omahaFlopDefenceShiftedShare(qn, riverOdds);
+    const qb = omahaFlopDefenceShiftedShare(qn, OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS);
     const qc = omahaFlopDefenceCheckingShare(qn, bR, qb);
     const cR = Math.min(inputs.riverSize * X, Math.max(0, stack));
     if (!(cR > 0)) return share(k, qn) * X * keep;

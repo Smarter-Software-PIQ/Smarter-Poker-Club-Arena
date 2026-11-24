@@ -30,7 +30,17 @@ import {
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'] as const;
 const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'] as const;
 const key = (c: Card): string => `${c.rank}:${c.suit}`;
-const WALK = 0.6180339887498949;
+/**
+ * The sample's quasi-random dimensions: one additive walk per dimension, each with its own step (the fractional part
+ * of the square root of a distinct prime, so the walks are jointly equidistributed). One shared step made every
+ * dimension a fixed shift of the first: the field's bin, the player-behind's continue draw and the holding picked
+ * inside a bin were functions of the bettor's bin draw (found 2026-11-24: a player behind was in exactly when the
+ * bettor was drawn weak, and a bin's holdings were picked from one slice of the bin).
+ */
+const WALK_PRIMES = [
+  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79,
+];
+const WALK_STEPS: readonly number[] = WALK_PRIMES.map((p) => Math.sqrt(p) % 1);
 
 export const OMAHA_PRICED_JOINT_POOL = 1024;
 /** Runouts per turn card on the flop (heads-up / with a field), bettor holdings per river card on the turn, on the river. */
@@ -212,9 +222,9 @@ export function omahaPricedJointRows(
   const fdShare = field.flushDrawByBin && fdSuit ? field.flushDrawByBin : null;
 
   const used = new Uint8Array(m);
-  const walks = Array.from({ length: 2 * (others + 2) + 2 }, () => rnd());
+  const walks = Array.from({ length: 2 + 4 * others }, () => rnd());
   const step = (w: number): number => {
-    walks[w] = (walks[w] + WALK) % 1;
+    walks[w] = (walks[w] + WALK_STEPS[w]) % 1;
     return walks[w];
   };
   const free = (p: number): boolean => {
@@ -316,13 +326,13 @@ export function omahaPricedJointRows(
       let whole = true;
       let k = 0;
       for (; k < others; k++) {
-        const fb = binAt(fieldCum[k], step(2 + 2 * k));
-        const u = step(3 + 2 * k);
+        const fb = binAt(fieldCum[k], step(2 + 4 * k));
+        const u = step(3 + 4 * k);
         let g = -1;
         if (fdShare) {
           const t = fdShare[fb];
           if (t !== null && t !== undefined && Number.isFinite(t)) {
-            const wantFd = (u * 7.123) % 1 < t;
+            const wantFd = step(4 + 4 * k) < t;
             g = drawFrom(wantFd ? membersFd[fb] : membersNo[fb], u);
           }
         }
@@ -334,7 +344,7 @@ export function omahaPricedJointRows(
         mark(g, 1);
         picked[k + 1] = g;
         fieldScore[k] = scoreOf(g, full);
-        fieldIn[k] = k < A ? 1 : step(2 * (others + 2) + (k % 2)) < cont ? 1 : 0;
+        fieldIn[k] = k < A ? 1 : step(5 + 4 * k) < cont ? 1 : 0;
       }
       for (let u = 1; u <= k; u++) mark(picked[u], 0);
       mark(p, 0);

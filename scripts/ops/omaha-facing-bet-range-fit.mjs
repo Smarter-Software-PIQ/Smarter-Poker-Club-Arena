@@ -245,6 +245,13 @@ async function fit() {
     c.s += x;
     sums.set(key, c);
   };
+  const laterSums = new Map();
+  const laterSum = (key, x) => {
+    const c = laterSums.get(key) ?? { n: 0, s: 0 };
+    c.n += 1;
+    c.s += x;
+    laterSums.set(key, c);
+  };
   let hands = 0;
   let used = 0;
   let from = null;
@@ -334,6 +341,15 @@ async function fit() {
             const ch = shown.get(d.u);
             const cc = cell(`caller|${v}|${st}|${bucket}|${into}`);
             cc.bets++;
+            // a caller who folds later, or mucks at a showdown, is never shown: the same showdown bias as the
+            // bettor's, corrected the same way (corrected() below)
+            if (
+              decisions.some(
+                (x, jj) => x.u === d.u && x.act === 'fold' && jj > decisions.indexOf(d)
+              )
+            )
+              cc.laterFold++;
+            else if (shown.size > 0 && !shown.has(d.u)) cc.laterFold++;
             if (ch && board.length === 5) {
               const p = strength(ch, sb);
               cc.hist[binOf(p)]++;
@@ -382,6 +398,24 @@ async function fit() {
             const fired = !!first && first.u === bet.u;
             count(`fire|${v}|${nxt}`, fired);
             if (fired) sum(`firesize|${v}|${nxt}`, first.amt / Math.max(first.pot, 1e-9));
+            // the flop call tree's later streets: his first wager's size bucket and mean size by bucket
+            if (fired) {
+              const sz = first.amt / Math.max(first.pot, 1e-9);
+              laterSum(`${v}|${nxt}|bet|${sizeBucket(sz)}`, sz);
+            }
+            // after a called heads-up flop wager and a turn checked through (nobody folds), does he wager the river first
+            if (st === 'flop' && !first && board.length >= 5 && !nd.some((d) => d.act === 'fold')) {
+              const rd = decisions.filter((d) => d.street === 'river');
+              const rf = rd.find((d) => d.raise && d.streetLevel === 0);
+              if (rd.length) {
+                const rFired = !!rf && rf.u === bet.u;
+                count(`laterfire|${v}|river|check`, rFired);
+                if (rFired) {
+                  const sz = rf.amt / Math.max(rf.pot, 1e-9);
+                  laterSum(`${v}|river|check|${sizeBucket(sz)}`, sz);
+                }
+              }
+            }
           }
         }
       }
@@ -496,13 +530,17 @@ async function fit() {
           ([kind, vv, s, , i]) => kind === 'caller' && vv === v && s === st && i === into
         );
         const cp =
-          norm(cs.h) ?? norm(sumOf(([kind, vv, s]) => kind === 'caller' && vv === v && s === st).h);
+          corrected(st, cs) ??
+          corrected(
+            st,
+            sumOf(([kind, vv, s]) => kind === 'caller' && vv === v && s === st)
+          );
         for (const bucket of ['under40', 'mid', 'big', 'over']) {
           const c4 = sumOf(
             ([kind, vv, s, b, i]) =>
               kind === 'caller' && vv === v && s === st && b === bucket && i === into
           );
-          const p = mix(norm(c4.h), c4.n, cp);
+          const p = mix(corrected(st, c4), c4.n, cp);
           if (p)
             out.caller[`${v}|${st}|${bucket}|${into}`] = {
               hist: p.map((x) => +x.toFixed(5)),
@@ -537,6 +575,27 @@ async function fit() {
       ])
     ),
     flushDrawByBin: rate('fd'),
+    later: (() => {
+      // the flop call tree's later streets: after his called heads-up wager ('bet') or after a turn checked through
+      // ('check'), how often he wagers first and, by size bucket, how often and how big
+      const o = {};
+      const fire = rate('fire');
+      const after = rate('laterfire');
+      const put = (k, r) => {
+        if (!r) return;
+        const sizes = {};
+        for (const [kk, c] of laterSums)
+          if (kk.startsWith(k + '|'))
+            sizes[kk.slice(k.length + 1)] = { n: c.n, mean: +(c.s / c.n).toFixed(4) };
+        o[k] = { n: r.n, rate: r.rate, sizes };
+      };
+      for (const v of ['plo4', 'plo5']) {
+        put(`${v}|turn|bet`, fire[`${v}|turn`]);
+        put(`${v}|river|bet`, fire[`${v}|river`]);
+        put(`${v}|river|check`, after[`${v}|river|check`]);
+      }
+      return o;
+    })(),
   };
   writeFileSync(resolve(arg('out')), JSON.stringify(tables, null, 1) + '\n');
   console.log(`hands ${hands} used ${used} cells ${cells.size} from ${from} to ${to}`);
