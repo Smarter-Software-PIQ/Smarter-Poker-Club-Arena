@@ -1,0 +1,13 @@
+{
+  "_owner": "agent/hd-listonce-abe2654e/a-horse-option-registers-itself (rebased from agent/hd-tooling-01UxDLnM/listonce-rebase)",
+  "_comment": "Migration 20261122195216 (not installed at submission): the Horse option switch whitelist is rows; a pull request registers its own options with fn_ca_horse_option_register (shadow level: fn_ca_horse_option_allow_shadow widens by name).",
+  "tables": ["ca_horse_option_whitelist"],
+  "functions": [
+    "fn_ca_horse_option_allow_shadow",
+    "fn_ca_horse_option_register",
+    "fn_ca_horse_option_switch_row_fits",
+    "fn_ca_horse_option_unlock",
+    "fn_ca_horse_option_unregister",
+    "fn_ca_horse_option_whitelist_guard"
+  ]
+}

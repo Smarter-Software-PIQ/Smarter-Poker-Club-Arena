@@ -1,24 +1,28 @@
 /**
- * LAW (2026-11-20): A SWITCH LIST IS NEVER STALE.
+ * LAW (2026-11-20, reconciled with whitelist-as-rows 2026-11-22): A SWITCH LIST IS NEVER STALE.
  *
- * Every Horse option switch list migration (server/scripts/gen-horse-option-switch-sql.ts --follow-up) REPLACES the
- * database's allowed-state lists wholesale. PR #11545 was branched before PR #11538 merged; its regenerated list
- * migration still listed huBbDefendsUnreadToPrice as off-only, and merged after 20261120210905 it would have
- * silently re-held an option the owner's delegate had just lifted. Its CI was green because the branch was
- * internally consistent: pull request CI checks out the PR HEAD (ci.yml, `ref: head.sha`), the ruleset's required
- * checks are not strict, and no merge queue is required, so nothing ever ran the branch against the newer main.
+ * Historically (2026-11-15..2026-11-22), every Horse option switch list migration REPLACED the database's
+ * allowed-state lists wholesale. PR #11545 was branched before PR #11538 merged; its regenerated list migration
+ * still listed huBbDefendsUnreadToPrice as off-only, and merged after 20261120210905 it would have silently
+ * re-held an option the owner's delegate had just lifted.
  *
- * Three guards (HorseOptionSwitchMigrationLists.ts):
- *   1. THE CHAIN: every list migration after the anchor names the list migration it was generated after, and that
- *      must be the one immediately before it by version. Any tree holding both a lane's file and a list it never
- *      saw (the merge-group tree, main after a merge, every later branch) fails here, whichever version is larger.
- *   2. MAIN: on a pull request, a list migration the branch adds must be newer than every list migration on
- *      origin/main, and the branch must hold main's newest one. CI reads origin/main from the full-history checkout
- *      of the server shards; locally it reads whatever origin/main the clone last fetched.
- *   3. THE DATABASE: each follow-up stamps its version into fn_ca_horse_option_switch_states and refuses to install
- *      over a newer stamp, so the applier (one run per file, no ordering between runs) can never put an older list
- *      back over a newer one.
- * Every failure names the remedy: bring main in, delete your list migration, regenerate it with --follow-up.
+ * With the row-based whitelist (`OPTION_SWITCH_WHITELIST_MIGRATION`), full-list migrations are frozen at
+ * `OPTION_SWITCH_LAST_LIST_MIGRATION` (44 files) and new lanes ship commuting `--register` migrations
+ * (`SELECT public.fn_ca_horse_option_register(...)`) that add no full-list migration.
+ *
+ * The three guards (HorseOptionSwitchMigrationLists.ts) stay active together:
+ *   1. THE FROZEN HISTORICAL CHAIN: the 44 full-list migrations from the base through OPTION_SWITCH_CHAIN_ANCHOR
+ *      through OPTION_SWITCH_LAST_LIST_MIGRATION form one unbroken chain (pre-chain versions pinned; every
+ *      post-anchor list names its immediate predecessor on `-- registry:follows:` and stamps its version into
+ *      fn_ca_horse_option_switch_states). Commuting `--register` migrations carry no list marker and pass cleanly.
+ *   2. MAIN: on a pull request, a branch adding commuting `--register` migrations adds no full-list migration and
+ *      passes; once `origin/main` holds `OPTION_SWITCH_WHITELIST_MIGRATION`, ANY added full-list migration is
+ *      refused (before that, an added full-list migration older than or lacking `origin/main`'s newest is refused).
+ *   3. THE DATABASE: every post-anchor full-list migration AND the whitelist migration's own
+ *      `fn_ca_horse_option_switch_states` stamp their version into the states function, so an older stamped
+ *      full-list migration refuses at install time to overwrite a newer list or the row-based whitelist.
+ * Every failure names the remedy: bring main in, delete your list migration, and register only your own options
+ * with `--register`.
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -27,15 +31,16 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   OPTION_SWITCH_CHAIN_ANCHOR,
+  OPTION_SWITCH_LAST_LIST_MIGRATION,
   OPTION_SWITCH_LIST_MARKER,
   OPTION_SWITCH_MIGRATIONS_DIR,
   OPTION_SWITCH_VERSION_STAMP,
+  OPTION_SWITCH_WHITELIST_MIGRATION,
   optionSwitchChainProblem,
   optionSwitchFollowsLines,
-  optionSwitchFollowUpSql,
+  optionSwitchRegisterSql,
   optionSwitchStaleAgainstMain,
   optionSwitchVersionStamp,
-  withFollowsLine,
 } from '../HorseOptionSwitchMigrationLists.js';
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -47,17 +52,41 @@ const onDisk = () =>
 const listNames = (files: readonly { name: string; text: string }[]) =>
   files.filter((f) => f.text.includes(OPTION_SWITCH_LIST_MARKER)).map((f) => f.name);
 const ANCHOR = `${OPTION_SWITCH_CHAIN_ANCHOR}.sql`;
-/** The newest list migration in this tree: a new lane's follow-up is generated after it, never after the anchor once
- * a later list has merged (a fixture following the anchor would itself be stale on every tree after the first one). */
 const newestList = () => listNames(onDisk()).sort().at(-1)!;
 const REMEDY = [
   /bring main into your branch/,
   /delete your list migration/,
-  /gen-horse-option-switch-sql\.ts --follow-up/,
+  /gen-horse-option-switch-sql\.ts --register/,
 ];
 
+/** Synthetic post-anchor full-list migration text for testing chain-break detection without a --follow-up generator. */
+function syntheticFullListSql(name: string, follows: string): string {
+  const version = /^(\d{14})_/.exec(name)![1]!;
+  const prev = follows.replace(/^.*\//, '').replace(/\.sql$/, '');
+  return (
+    `-- HORSE OPTION SWITCH: SYNTHETIC FIXTURE (${name})\n` +
+    `-- registry:follows: ${prev}\n` +
+    `BEGIN;\n` +
+    `DO $existing_rows_fit$ BEGIN\n` +
+    `  IF substring((SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.fn_ca_horse_option_switch_states(text)'::regprocedure)\n` +
+    `       FROM '${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})') > '${version}' THEN\n` +
+    `    RAISE EXCEPTION 'switch list migration ${version} is older than the installed list %', '';\n` +
+    `  END IF;\n` +
+    `END $existing_rows_fit$;\n` +
+    `-- registry:plain-options:begin\n` +
+    `'v7'\n` +
+    `-- registry:plain-options:end\n` +
+    `CREATE OR REPLACE FUNCTION public.fn_ca_horse_option_switch_states(p_option text)\n` +
+    `RETURNS text[] LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $function$\n` +
+    `  -- ${OPTION_SWITCH_VERSION_STAMP}${version}\n` +
+    `  SELECT ARRAY['off', 'on'];\n` +
+    `$function$;\n` +
+    `COMMIT;\n`
+  );
+}
+
 /** The list migrations origin/main holds, or null when this checkout cannot tell (no origin/main ref). */
-function mainListMigrations(): string[] | null {
+function mainListMigrations(): { lists: string[]; hasWhitelist: boolean } | null {
   try {
     execFileSync('git', ['-C', REPO, 'rev-parse', '--verify', '--quiet', 'origin/main^{commit}'], {
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -82,10 +111,24 @@ function mainListMigrations(): string[] | null {
       ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 }
     );
-    return out
+    const lists = out
       .split('\n')
       .filter((l) => l.endsWith('.sql'))
       .map((l) => l.replace(/^.*\//, ''));
+    const wl = execFileSync(
+      'git',
+      [
+        '-C',
+        REPO,
+        'ls-tree',
+        '--name-only',
+        'origin/main',
+        '--',
+        `${OPTION_SWITCH_MIGRATIONS_DIR}/${OPTION_SWITCH_WHITELIST_MIGRATION}`,
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    return { lists, hasWhitelist: wl.trim() !== '' };
   } catch (error) {
     // git grep exits 1 when nothing matches: main always holds the base list migration, so that is not an answer
     throw new Error(`could not read origin/main's switch list migrations: ${String(error)}`);
@@ -93,45 +136,70 @@ function mainListMigrations(): string[] | null {
 }
 
 describe('a switch list is never stale', () => {
-  it('the list migrations of this tree form one unbroken chain after the anchor', () => {
+  it('the frozen historical full-list migrations of this tree form one unbroken chain after the anchor', () => {
+    expect(newestList()).toBe(OPTION_SWITCH_LAST_LIST_MIGRATION);
     expect(optionSwitchChainProblem(onDisk())).toBeNull();
   });
 
-  it('two lanes generated from the same list migration break the chain in any tree holding both, whichever is newer', () => {
+  it('commuting row-based --register migrations pass the chain check in any combination without re-asserting a full list', () => {
+    const files = onDisk();
+    const laneA = '20991231000001_horse_option_register_lane_a';
+    const laneB = '20991231000002_horse_option_register_lane_b';
+    const regA = {
+      name: `${laneA}.sql`,
+      text: optionSwitchRegisterSql(laneA, [
+        {
+          fn: 'register',
+          option: 'laneAOption',
+          kind: 'plain',
+          offOnly: false,
+          shadow: 'none',
+          migration: laneA,
+        },
+      ]),
+    };
+    const regB = {
+      name: `${laneB}.sql`,
+      text: optionSwitchRegisterSql(laneB, [
+        {
+          fn: 'register',
+          option: 'laneBOption',
+          kind: 'plain',
+          offOnly: true,
+          shadow: 'none',
+          migration: laneB,
+        },
+      ]),
+    };
+    expect(optionSwitchChainProblem([...files, regA])).toBeNull();
+    expect(optionSwitchChainProblem([...files, regA, regB])).toBeNull();
+    expect(optionSwitchChainProblem([...files, regB, regA])).toBeNull();
+    // neither register migration carries the full-list marker
+    expect(listNames([...files, regA, regB])).toEqual(listNames(files));
+  });
+
+  it('two full-list lanes generated from the same list migration break the chain in any tree holding both, whichever is newer', () => {
     const files = onDisk();
     const NEWEST = newestList();
     const lifted = { name: '29991231000001_horse_option_switch_lane_a.sql' };
     const stale = { name: '29991231000002_horse_option_switch_lane_b.sql' };
-    const a = { ...lifted, text: optionSwitchFollowUpSql(lifted.name.slice(0, -4), NEWEST) };
-    const b = { ...stale, text: optionSwitchFollowUpSql(stale.name.slice(0, -4), NEWEST) };
-    // each lane alone is whole
+    const a = { ...lifted, text: syntheticFullListSql(lifted.name.slice(0, -4), NEWEST) };
+    const b = { ...stale, text: syntheticFullListSql(stale.name.slice(0, -4), NEWEST) };
     expect(optionSwitchChainProblem([...files, a])).toBeNull();
     expect(optionSwitchChainProblem([...files, b])).toBeNull();
-    // the stale lane sorts after the merged one: it follows the anchor, not lane a
+    // the stale lane sorts after the merged one: it follows NEWEST, not lane a
     const after = optionSwitchChainProblem([...files, a, b])!;
     expect(after).toContain(`${OPTION_SWITCH_MIGRATIONS_DIR}/${stale.name}`);
     expect(after).toContain(`was generated after ${NEWEST}`);
     expect(after).toContain(lifted.name);
     for (const step of REMEDY) expect(after).toMatch(step);
-    // the stale lane sorts BEFORE the merged one (the #11545 shape with an older version): lane a no longer follows
-    // the file before it, so the tree is refused too
+    // the stale lane sorts BEFORE the merged one (the #11545 shape with an older version)
     const older = { name: '29991230000000_horse_option_switch_lane_b.sql' };
-    const o = { ...older, text: optionSwitchFollowUpSql(older.name.slice(0, -4), NEWEST) };
+    const o = { ...older, text: syntheticFullListSql(older.name.slice(0, -4), NEWEST) };
     const before = optionSwitchChainProblem([...files, a, o])!;
     expect(before).toContain(`${OPTION_SWITCH_MIGRATIONS_DIR}/${lifted.name}`);
     expect(before).toContain(older.name);
     for (const step of REMEDY) expect(before).toMatch(step);
-    // regenerated after bringing main in, lane b follows lane a and the tree is whole again
-    const fixed = { ...stale, text: optionSwitchFollowUpSql(stale.name.slice(0, -4), lifted.name) };
-    expect(optionSwitchChainProblem([...files, a, fixed])).toBeNull();
-    // the in-place rewrite of an unmerged follow-up sets its follows line the same way
-    expect(
-      optionSwitchChainProblem([
-        ...files,
-        a,
-        { ...stale, text: withFollowsLine(b.text, lifted.name) },
-      ])
-    ).toBeNull();
   });
 
   it('a list migration added below the anchor with a hand-picked old version breaks the chain', () => {
@@ -150,7 +218,7 @@ describe('a switch list is never stale', () => {
   it('a list migration after the anchor without a follows line, or without its version stamp, is refused', () => {
     const files = onDisk();
     const name = '29991231000001_horse_option_switch_lane_a';
-    const sql = optionSwitchFollowUpSql(name, newestList());
+    const sql = syntheticFullListSql(name, newestList());
     const unchained = optionSwitchChainProblem([
       ...files,
       { name: `${name}.sql`, text: sql.replace(/^-- registry:follows: .*\n/m, '') },
@@ -163,50 +231,64 @@ describe('a switch list is never stale', () => {
     expect(unstamped).toMatch(/does not stamp its own version/);
   });
 
-  it('a generated follow-up names its predecessor once, stamps its own version and refuses to install over a newer list', () => {
-    const name = '20261121000000_horse_option_switch_test';
-    const sql = optionSwitchFollowUpSql(name, `${OPTION_SWITCH_MIGRATIONS_DIR}/${ANCHOR}`);
-    expect(optionSwitchFollowsLines(sql)).toEqual([OPTION_SWITCH_CHAIN_ANCHOR]);
-    expect(optionSwitchVersionStamp(sql)).toBe('20261121000000');
-    const refusal = sql.slice(sql.indexOf('$existing_rows_fit$'), sql.indexOf('ALTER TABLE'));
+  it('the frozen post-anchor list migration and the whitelist migration both carry their version stamp in fn_ca_horse_option_switch_states', () => {
+    const lastSql = readFileSync(join(DIR, OPTION_SWITCH_LAST_LIST_MIGRATION), 'utf8');
+    const lastVersion = /^(\d{14})_/.exec(OPTION_SWITCH_LAST_LIST_MIGRATION)![1]!;
+    expect(optionSwitchFollowsLines(lastSql)).toHaveLength(1);
+    expect(optionSwitchVersionStamp(lastSql)).toBe(lastVersion);
+    const refusal = lastSql.slice(
+      lastSql.indexOf('$existing_rows_fit$'),
+      lastSql.indexOf('ALTER TABLE')
+    );
     expect(refusal).toContain(
-      `FROM '${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})') > '20261121000000' THEN`
+      `FROM '${OPTION_SWITCH_VERSION_STAMP}([0-9]{14})') > '${lastVersion}' THEN`
     );
-    expect(refusal).toMatch(
-      /RAISE EXCEPTION 'switch list migration 20261121000000 is older than the installed list %/
+    expect(lastSql.indexOf('is older than the installed list')).toBeLessThan(
+      lastSql.indexOf('ALTER TABLE')
     );
-    // the refusal comes before every ALTER: an older list changes nothing
-    expect(sql.indexOf('is older than the installed list')).toBeLessThan(
-      sql.indexOf('ALTER TABLE')
-    );
+    // the whitelist migration stamps its own newer version into fn_ca_horse_option_switch_states so any stamped
+    // historical full-list migration refuses at install time to overwrite the row-based whitelist
+    const wlSql = readFileSync(join(DIR, OPTION_SWITCH_WHITELIST_MIGRATION), 'utf8');
+    const wlVersion = /^(\d{14})_/.exec(OPTION_SWITCH_WHITELIST_MIGRATION)![1]!;
+    expect(wlVersion > lastVersion).toBe(true);
+    expect(optionSwitchVersionStamp(wlSql)).toBe(wlVersion);
   });
 
-  it('a branch that adds a list migration older than main newest, or without main newest, is refused against main', () => {
+  it('a branch adding a stale or post-whitelist full-list migration is refused against main, while commuting --register branches pass', () => {
     const main = ['20261120181452_x.sql', ANCHOR];
-    // a branch that adds nothing is never refused, however far behind main it is
-    expect(optionSwitchStaleAgainstMain(['20261120181452_x.sql'], main)).toBeNull();
-    // the branch holds main's newest list and adds a newer one: fine
-    expect(optionSwitchStaleAgainstMain([...main, '20261121000000_mine.sql'], main)).toBeNull();
-    // the branch lacks main's newest list (branched before it merged) and adds its own
+    // a branch that adds no full-list migration (including commuting --register branches) is never refused
+    expect(optionSwitchStaleAgainstMain(['20261120181452_x.sql'], main, false)).toBeNull();
+    expect(optionSwitchStaleAgainstMain(main, main, true)).toBeNull();
+    // before the whitelist migration lands on main, a newer list holding main newest passes
+    expect(
+      optionSwitchStaleAgainstMain([...main, '20261121000000_mine.sql'], main, false)
+    ).toBeNull();
+    // once the whitelist migration is on main, ANY added full-list migration is refused
+    const postWhitelist = optionSwitchStaleAgainstMain(
+      [...main, '20991231000000_mine.sql'],
+      main,
+      true
+    )!;
+    expect(postWhitelist).toContain(OPTION_SWITCH_WHITELIST_MIGRATION);
+    for (const step of REMEDY) expect(postWhitelist).toMatch(step);
+    // pre-whitelist: the branch lacks main's newest list and adds its own
     const behind = optionSwitchStaleAgainstMain(
       ['20261120181452_x.sql', '20261121000000_mine.sql'],
-      main
+      main,
+      false
     )!;
     expect(behind).toContain(`main holds the switch list migration ${ANCHOR}`);
     for (const step of REMEDY) expect(behind).toMatch(step);
-    // the branch holds main's newest list but its own is older (a hand-picked or reused version)
-    const older = optionSwitchStaleAgainstMain([...main, '20261120190000_mine.sql'], main)!;
+    // pre-whitelist: the branch holds main's newest list but its own is older
+    const older = optionSwitchStaleAgainstMain([...main, '20261120190000_mine.sql'], main, false)!;
     expect(older).toContain('is not newer than main');
     for (const step of REMEDY) expect(older).toMatch(step);
   });
 
-  it('this branch adds no switch list migration older than, or without, origin/main newest', () => {
+  it('this branch adds no stale or post-whitelist full-list migration against origin/main', () => {
     const main = mainListMigrations();
     const event = process.env.GITHUB_EVENT_NAME ?? '';
     if (main === null) {
-      // a pull request must be checked against main: the server shards check out full history, so origin/main is
-      // there. Anywhere else (a shallow release checkout, a clone with no remote) this is "could not tell", said out
-      // loud, and the chain test above still guards every tree that holds both files.
       if (event === 'pull_request' || event === 'merge_group')
         throw new Error(
           'UNKNOWN: origin/main is not in this checkout, so a stale switch list migration cannot be ruled out'
@@ -216,7 +298,9 @@ describe('a switch list is never stale', () => {
       );
       return;
     }
-    expect(main.length).toBeGreaterThan(0);
-    expect(optionSwitchStaleAgainstMain(listNames(onDisk()), main)).toBeNull();
+    expect(main.lists.length).toBeGreaterThan(0);
+    expect(
+      optionSwitchStaleAgainstMain(listNames(onDisk()), main.lists, main.hasWhitelist)
+    ).toBeNull();
   });
 });
