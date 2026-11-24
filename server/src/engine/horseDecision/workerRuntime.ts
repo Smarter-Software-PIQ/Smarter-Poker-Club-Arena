@@ -311,7 +311,11 @@ import {
   OPTION_SHADOW_STAGE,
   OPTION_SHADOW_STAGE_ACTED_BUDGET_MS,
   optionShadowStageCompanions,
+  optionShadowStageDirectionKeys,
   optionShadowStaged,
+  optionShadowStageGameCode,
+  optionShadowStageGameOf,
+  optionShadowStageIsHoldem,
   OptionShadowStageGuard,
   optionShadowStageInScope,
   optionShadowStageWallOnlySlow,
@@ -382,7 +386,7 @@ export interface HorseDecisionWorkerDependencies {
    */
   optionShadowPerMinute?: number;
   /**
-   * 2026-11-20 SHADOW STAGE (HorseOptionShadowStage): the staged PLO4/PLO5 cash options. Absent: OPTION_SHADOW_STAGE.
+   * 2026-11-20 SHADOW STAGE (HorseOptionShadowStage): the staged options (PLO4/PLO5 cash; hold'em since 2026-11-24). Absent: OPTION_SHADOW_STAGE.
    * A test passes its own table to stage an option the registry already holds.
    */
   optionShadowStage?: OptionShadowStageTable;
@@ -3501,7 +3505,7 @@ export class HorseDecisionWorkerRuntime {
     // the action receipt plus a per-minute budget. No option in shadow: nothing runs and nothing is counted.
     // ON_SHADOW (2026-11-19): an option in on_shadow passed true above (exactly as on) and takes its turn here with
     // the shadow options; its re-decision passes false.
-    // SHADOW STAGE (2026-11-20, HorseOptionShadowStage): a staged PLO4/PLO5 cash option is left out of a decision
+    // SHADOW STAGE (2026-11-20, HorseOptionShadowStage): a staged option (PLO4/PLO5 cash, hold'em) is left out of a decision
     // outside its games and streets. When the pick is a staged option NOTHING of its re-decision runs here: it is
     // handed over after the answer is sent (below) and runs on a later turn of an idle worker, so the time from
     // request to response is that of no row. An option that is not staged takes exactly the path it had.
@@ -4114,6 +4118,13 @@ export class HorseDecisionWorkerRuntime {
       this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
       if (personDealt) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
     };
+    // HOLD'EM SHADOW (2026-11-24): the decision's stage game, after the answer (it reads what the scope read)
+    let game: ReturnType<typeof optionShadowStageGameOf> = null;
+    try {
+      game = optionShadowStageGameOf(task.player, task.gameState);
+    } catch {
+      game = null;
+    }
     if (!(task.actedMs <= OPTION_SHADOW_STAGE_ACTED_BUDGET_MS)) {
       skipped('budget');
       return;
@@ -4150,6 +4161,9 @@ export class HorseDecisionWorkerRuntime {
           task.governorScale,
           task.table,
           (receipt) => {
+            // HOLD'EM SHADOW (2026-11-24): in a hold'em game a changed receipt also counts what it would change
+            if (optionShadowStageIsHoldem(game))
+              for (const key of optionShadowStageDirectionKeys(receipt)) this.deps.noteFeature(key);
             this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
             if (!(this.deps.journalEnabled?.() ?? true)) return;
             if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
@@ -4167,6 +4181,12 @@ export class HorseDecisionWorkerRuntime {
       );
       if (timed !== null) {
         this.deps.noteDecision('option_shadow_stage_redecide', timed.wallMs);
+        // HOLD'EM SHADOW (2026-11-24): the same wall time per stage game
+        if (game !== null)
+          this.deps.noteDecision(
+            `option_shadow_stage_redecide_game_${optionShadowStageGameCode(game)}`,
+            timed.wallMs
+          );
         // SHADOW STAGE BREAKER (2026-11-23): the thread CPU it used, and a re-decision whose wall time alone would
         // have been slow but whose charged time is not (a pause it did not cause), are counted apart
         if (Number.isFinite(timed.threadCpuMs) && timed.threadCpuMs >= 0)

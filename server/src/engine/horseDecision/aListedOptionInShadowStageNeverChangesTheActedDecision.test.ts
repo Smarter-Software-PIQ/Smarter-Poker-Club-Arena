@@ -250,6 +250,8 @@ import {
   optionShadowStageChargedMs,
   optionShadowStageCompanions,
   OptionShadowStageGuard,
+  optionShadowStageDirection,
+  optionShadowStageGameOf,
   optionShadowStageInScope,
   optionShadowStageWallOnlySlow,
   type OptionShadowStageTable,
@@ -278,6 +280,10 @@ const TABLE_WITH_CORE: OptionShadowStageTable = {
   [STAGED]: { games: [4, 5], companions: ['omahaMathCore'] },
 };
 const stage = (table: OptionShadowStageTable = TABLE) => ({ optionShadowStage: table });
+/** HOLD'EM SHADOW (2026-11-24): the hold'em options staged by the production table. */
+const HV = 'holdemValueAndCallsArePriced';
+const HT = 'holdemTournamentAllInCallIsPriced';
+const TRIM = 'cashDefenceTrimColdCalls';
 
 const plo4Snapshot = () =>
   phase6cFixtureBody<{ snapshot: FastHorseDecisionRequest }>(
@@ -300,20 +306,43 @@ const presence = (s: FastHorseDecisionRequest) =>
   optionShadowPersonPresence(s.gameState as never, s.player.user_id);
 
 describe('the stage table', () => {
-  it('lists PLO4/PLO5 only, never the opponent lifetime HUD, and its names take shadow where registered', () => {
+  it('lists PLO4/PLO5 and hold-em options, never the opponent lifetime HUD, and its names take shadow where registered', () => {
     const names = Object.keys(OPTION_SHADOW_STAGE);
     expect(names.length).toBeGreaterThan(0);
     expect(names).not.toContain('omahaOpponentLifetimeHud');
     const registered = new Map(OPTION_SWITCH_REGISTRY.map((e) => [e.name, e]));
     for (const name of names) {
       const entry = OPTION_SHADOW_STAGE[name]!;
-      expect(name.startsWith('omaha'), name).toBe(true);
-      expect(/plo6|plo8|tournament/i.test(name), name).toBe(false);
-      for (const g of entry.games) expect([4, 5], name).toContain(g);
-      for (const c of entry.companions ?? []) expect(c.startsWith('omaha'), c).toBe(true);
+      expect(/plo6|plo8/i.test(name), name).toBe(false);
+      expect(entry.games.length, name).toBeGreaterThan(0);
+      if (name.startsWith('omaha')) {
+        // an Omaha option is staged in PLO4/PLO5 cash only, exactly as before 2026-11-24
+        for (const g of entry.games) expect([4, 5], name).toContain(g);
+        for (const c of entry.companions ?? []) expect(c.startsWith('omaha'), c).toBe(true);
+      } else {
+        // HOLD'EM SHADOW (2026-11-24): any other option is staged in hold'em games only, with no companion
+        for (const g of entry.games)
+          expect(['nlh_cash', 'nlh_lightning', 'nlh_tournament'], name).toContain(g);
+        expect(entry.companions, name).toBeUndefined();
+      }
       // a listed name is inert until the registry holds it; once it does, it must take on_shadow or shadow
       const reg = registered.get(name);
       if (reg) expect(reg.states.includes('on_shadow'), name).toBe(true);
+    }
+  });
+  it('the hold-em options meant to be trialled are staged in the games and streets they act in', () => {
+    expect(OPTION_SHADOW_STAGE[HV]).toEqual({
+      games: ['nlh_cash', 'nlh_lightning'],
+      streets: ['flop', 'turn', 'river'],
+    });
+    expect(OPTION_SHADOW_STAGE[HT]).toEqual({ games: ['nlh_tournament'] });
+    expect(OPTION_SHADOW_STAGE[TRIM]).toEqual({
+      games: ['nlh_cash', 'nlh_lightning'],
+      streets: ['preflop'],
+    });
+    for (const name of [HV, HT, TRIM]) {
+      expect(OPTION_SWITCH_SHADOW_NAMES, name).toContain(name);
+      expect(OPTION_SWITCH_REGISTRY.find((e) => e.name === name)!.states, name).toContain('shadow');
     }
   });
   it('the fixture option the tests stage is registered and takes shadow', () => {
@@ -637,6 +666,169 @@ describe('timing: a staged re-decision runs only after the answer has been sent'
       expect(pct(shadow, 0.5)).toBeLessThan(pct(plain, 0.5) * 1.5 + 5);
     }
   });
+});
+
+describe("hold'em options in the stage (2026-11-24): NLH cash, Lightning and tournament", () => {
+  const cash = () => riverSnapshot();
+  const lightning = () => {
+    const s = JSON.parse(JSON.stringify(riverSnapshot())) as FastHorseDecisionRequest;
+    (
+      s.gameState as unknown as { publicMemoryDomain?: Record<string, unknown> }
+    ).publicMemoryDomain = {
+      ...((s.gameState as unknown as { publicMemoryDomain?: Record<string, unknown> })
+        .publicMemoryDomain ?? {}),
+      speed: 'lightning',
+    };
+    return s;
+  };
+  const mtt = () => tournamentSnapshot();
+  const preflop = () =>
+    phase6cFixtureBody<{ snapshot: FastHorseDecisionRequest }>(
+      phase6cFixtureRecord(IDS.cashNlhPreflop)
+    ).snapshot;
+
+  it('the stage game of a decision: PLO4 as before, NLH cash, Lightning and tournament; PLO6 none', () => {
+    const g = (s: FastHorseDecisionRequest) => optionShadowStageGameOf(s.player, s.gameState);
+    expect(g(plo4With('person'))).toBe(4);
+    expect(g(plo4With('person', 'plo6'))).toBeNull();
+    expect(g(cash())).toBe('nlh_cash');
+    expect(g(lightning())).toBe('nlh_lightning');
+    expect(g(mtt())).toBe('nlh_tournament');
+    const bomb = JSON.parse(JSON.stringify(cash())) as FastHorseDecisionRequest;
+    (bomb.gameState as unknown as { bombPot: boolean }).bombPot = true;
+    expect(g(bomb)).toBeNull();
+    expect(optionShadowStageGameOf(null, null)).toBeNull();
+  });
+  it('each hold-em option is in scope only in its games and streets; an Omaha option never in hold-em', () => {
+    const inScope = (s: FastHorseDecisionRequest) =>
+      optionShadowStageInScope(
+        [HV, HT, TRIM, 'omahaFourBetFoldPricedCall', NOT_STAGED],
+        s.player,
+        s.gameState
+      );
+    expect(inScope(cash())).toEqual([HV, NOT_STAGED]);
+    expect(inScope(lightning())).toEqual([HV, NOT_STAGED]);
+    expect(inScope(mtt())).toEqual([HT, NOT_STAGED]);
+    expect(inScope(preflop())).toEqual([TRIM, NOT_STAGED]);
+    expect(inScope(plo4With('person'))).toEqual(['omahaFourBetFoldPricedCall', NOT_STAGED]);
+  });
+  it('the direction of a changed receipt', () => {
+    const d = (a: string, w: string | null, changed = true) =>
+      optionShadowStageDirection({
+        changed,
+        actual: { action: a },
+        would: w === null ? null : { action: w },
+      });
+    expect(d('fold', 'call')).toBe('fold_to_call');
+    expect(d('call', 'fold')).toBe('call_to_fold');
+    expect(d('raise', 'call')).toBe('raise_to_call');
+    expect(d('check', 'bet')).toBe('check_to_bet');
+    expect(d('bet', 'check')).toBe('bet_to_check');
+    expect(d('raise', 'raise')).toBe('size');
+    expect(d('call', 'all_in')).toBe('call_to_allin');
+    expect(d('call', 'discard')).toBe('call_to_other');
+    expect(d('call', 'raise', false)).toBeNull();
+    expect(d('call', null)).toBeNull();
+  });
+
+  for (const [label, option, snapshot, game] of [
+    ['NLH cash', HV, cash, 'nlh_cash'],
+    ['Lightning', HV, lightning, 'nlh_lightning'],
+    ['tournament', HT, mtt, 'nlh_tournament'],
+  ] as const)
+    it(`${label}: the acted decision is that of no row; re-decided after the answer; direction and per-game time`, async () => {
+      const request = fastRequest(snapshot());
+      const brain = scripted(option, true, CALL, RAISE);
+      const plain = await run([request], brain, null);
+      const shadow = await run([request], brain, { [option]: 'shadow' });
+      expect(comparable(shadow.fasts[0]!)).toBe(comparable(plain.fasts[0]!));
+      expect(shadow.calls).toHaveLength(2);
+      expect(shadow.calls[0]![option]).toBeUndefined();
+      expect(shadow.calls[1]![option]).toBe(true);
+      // the re-decision comes after the answer (the staged path), never before it
+      expect(shadow.events.indexOf('send:FAST_RESULT')).toBeLessThan(
+        shadow.events.lastIndexOf('decide')
+      );
+      expect(shadow.fasts[0]!.decision.optionShadowReceipt).toBeUndefined();
+      expect(shadow.staged).toHaveLength(1);
+      expect(shadow.staged[0]!.receipt.changed).toBe(true);
+      const person = presence(request).personDealt;
+      const dirKeys = shadowKeys(shadow.features).filter((k) => k.includes('_dir_'));
+      expect(dirKeys).toEqual(
+        person
+          ? [
+              `option_shadow_${option}_dir_call_to_raise_seen`,
+              `option_shadow_${option}_dir_call_to_raise_person_seen`,
+            ]
+          : [`option_shadow_${option}_dir_call_to_raise_seen`]
+      );
+      expect(shadow.features).toContain(`option_shadow_${option}_changed_seen`);
+      expect(shadow.latency.filter(([s]) => s === 'option_shadow_stage_redecide')).toHaveLength(1);
+      expect(
+        shadow.latency.filter(([s]) => s === `option_shadow_stage_redecide_game_${game}`)
+      ).toHaveLength(1);
+      // no row: nothing of the stage runs or counts
+      expect(plain.calls).toHaveLength(1);
+      expect(shadowKeys(plain.features)).toEqual([]);
+      expect(plain.latency.filter(([s]) => s.startsWith('option_shadow'))).toEqual([]);
+    });
+
+  it('a size change reads size; a same answer counts no direction', async () => {
+    const request = fastRequest(cash());
+    const sized = await run([request], scripted(HV, true, RAISE, { ...RAISE, amount: 200 }), {
+      [HV]: 'shadow',
+    });
+    expect(shadowKeys(sized.features).filter((k) => k.includes('_dir_'))[0]).toBe(
+      `option_shadow_${HV}_dir_size_seen`
+    );
+    const same = await run([request], scripted(HV, true, CALL, CALL), { [HV]: 'shadow' });
+    expect(same.features).toContain(`option_shadow_${HV}_same_seen`);
+    expect(shadowKeys(same.features).filter((k) => k.includes('_dir_'))).toEqual([]);
+  });
+
+  it('a PLO staged re-decision counts no direction (its counters are those it counted before)', async () => {
+    const shadow = await run(
+      [fastRequest(plo4With('person'))],
+      scripted(STAGED, true, CALL, RAISE),
+      { [STAGED]: 'shadow' },
+      stage()
+    );
+    expect(shadowKeys(shadow.features).filter((k) => k.includes('_dir_'))).toEqual([]);
+    expect(
+      shadow.latency.filter(([s]) => s === 'option_shadow_stage_redecide_game_plo4')
+    ).toHaveLength(1);
+  });
+
+  it('out of its games the option is not re-decided at all (the tournament option at a cash table, and back)', async () => {
+    for (const [option, snapshot] of [
+      [HT, cash],
+      [HV, mtt],
+      [TRIM, cash],
+    ] as const) {
+      const r = await run([fastRequest(snapshot())], scripted(option, true, CALL, RAISE), {
+        [option]: 'shadow',
+      });
+      expect(r.calls, option).toHaveLength(1);
+      expect(shadowKeys(r.features), option).toEqual([]);
+    }
+  });
+
+  const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
+  const fixtures = recordedFast();
+  for (const option of [HV, HT, TRIM])
+    it(`production brain, every recorded FAST decision, ${option} in shadow: every acted decision, RNG position and effect is that of no row`, async () => {
+      const requests = () => fixtures.map((f, i) => fastRequest(f.snapshot, i + 1));
+      const plain = await run(requests(), decide, null);
+      const shadow = await run(requests(), decide, { [option]: 'shadow' });
+      expect(shadow.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+      for (const { requestId, receipt: r } of shadow.staged) {
+        expect(r.option).toBe(option);
+        expect(r.variant.toLowerCase(), fixtures[requestId - 1]!.id).toBe('nlh');
+        expect(r.format).toBe(option === HT ? 'tournament' : 'cash');
+      }
+      expect(shadow.fasts.every((f) => f.decision.optionShadowReceipt === undefined)).toBe(true);
+      expect(shadowKeys(plain.features)).toEqual([]);
+    });
 });
 
 describe('the journal: a staged receipt rides in the next decision record, never in a record kind of its own', () => {
