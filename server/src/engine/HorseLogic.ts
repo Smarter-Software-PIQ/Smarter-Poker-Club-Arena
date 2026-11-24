@@ -1053,6 +1053,7 @@ import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePrefl
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { holdemTurnRiverRaiseNeedsValueRule } from './HorseHoldemTurnRiverRaiseNeedsValue.js';
+import { holdemLateStreetIsPricedRule } from './HorseHoldemLateStreetIsPriced.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
   OMAHA_STRATEGY_PLO45,
@@ -5909,6 +5910,14 @@ export interface HorseDecideOpts {
    * against the continuing part of every live opponent's line range is above 0.5; any other raise becomes the
    * priced call or fold (HorseHoldemTurnRiverRaiseNeedsValue.ts). Never creates a wager. Default OFF (read `=== true`). */
   holdemTurnRiverRaiseNeedsValue?: boolean;
+  /** Hold'em late-street audit (plo-lead6 2026-11-24; owner 2026-11-24 12:30 AM CST: no random plays, the best play by
+   * math). NLH cash, Lightning and tournaments, turn and river, heads-up and multiway: one deterministic priced chooser
+   * (bet / size / check; call / fold) is the outermost answer of wager_rules (HorseHoldemLateStreetIsPriced.ts).
+   * Default OFF (read `=== true`). */
+  holdemLateStreetIsPriced?: boolean;
+  /** With holdemLateStreetIsPriced on: a turn/river raise by a non-value hand is made when its EV (his fold to a raise,
+   * blockers by card removal, nut advantage) beats call and fold. Pending the owner's ruling. Default OFF. */
+  holdemLateStreetBluffRaiseIsPriced?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
@@ -19345,9 +19354,17 @@ export class HorseLogic {
         // holdemTurnRiverRaiseNeedsValue (default OFF; HorseHoldemTurnRiverRaiseNeedsValue.ts): the outermost answer
         // of this node in No-Limit Hold'em. A turn or river raise facing a wager by a hand that is not a value hand
         // becomes the priced call or fold. Off: the math core's answer itself (it acts in PLO4/PLO5 only).
-        decision: holdemTurnRiverRaiseNeedsValueRule(
-          omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
-            omahaMathCoreExactLegalize(d, player, gs)
+        // holdemLateStreetIsPriced (default OFF; HorseHoldemLateStreetIsPriced.ts): the priced late-street chooser is
+        // the answer in its spot; no earlier rule can veto it. Off: option (i)'s answer itself.
+        decision: holdemLateStreetIsPricedRule(
+          holdemTurnRiverRaiseNeedsValueRule(
+            omahaMathCoreRule(ruled.decision, player, gs, opts, (d) =>
+              omahaMathCoreExactLegalize(d, player, gs)
+            ),
+            player,
+            gs,
+            opts,
+            (d) => this.legalize(d, player, gs, vi)
           ),
           player,
           gs,

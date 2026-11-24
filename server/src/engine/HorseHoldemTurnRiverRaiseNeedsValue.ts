@@ -167,7 +167,8 @@ export function holdemOpponentLineRange(
   gs: HorseGameStateV2,
   opp: SeatPlayer,
   mind: boolean,
-  liveCount: number
+  liveCount: number,
+  fillEquities = true
 ): HoldemOpponentRange | null {
   const board = (gs.communityCards ?? []) as Card[];
   const street = gs.stage as 'flop' | 'turn' | 'river';
@@ -308,7 +309,8 @@ export function holdemOpponentLineRange(
   pushCheckStreetIfOnlyChecks(streetOf);
   const range = holdemLineRange(player.cards, board, band, line);
   if (range.total <= 0) return null;
-  holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+  if (fillEquities)
+    holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
   return { opp, range, foldAtReference };
 }
 

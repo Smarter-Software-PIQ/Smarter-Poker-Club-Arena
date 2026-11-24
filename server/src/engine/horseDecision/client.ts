@@ -134,6 +134,7 @@ import {
   horseDecisionReceiptRefusalForGates,
   omahaMathCoreGate,
   holdemTurnRiverRaiseNeedsValueGate,
+  holdemLateStreetIsPricedGate,
   omahaPricedRaiseGateCandidates,
   omahaPricedInLightningGateCandidates,
   omahaSlowplayMixInLightningGateCandidates,
@@ -2236,6 +2237,11 @@ export class LiveHorseDecisionWorkerClient {
             previous
           ),
           holdemTurnRiverRaiseNeedsValue: holdemTurnRiverRaiseNeedsValueGate(
+            active.request.opts as Readonly<Record<string, unknown>> | undefined,
+            this.deliveredSwitchConfigs.current,
+            previous
+          ),
+          holdemLateStreetIsPriced: holdemLateStreetIsPricedGate(
             active.request.opts as Readonly<Record<string, unknown>> | undefined,
             this.deliveredSwitchConfigs.current,
             previous

@@ -61,6 +61,7 @@ import {
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
 import { holdemTurnRiverRaiseNeedsValueAdmits } from '../HorseHoldemTurnRiverRaiseNeedsValue.js';
+import { holdemLateStreetIsPricedAdmits } from '../HorseHoldemLateStreetIsPriced.js';
 import {
   omahaBluffPricedAdmitsCheck,
   omahaBluffPricedAdmitsRaiseToCall,
@@ -1062,6 +1063,9 @@ export interface HorseDecisionReceiptContext {
    * wager_rules. Absent or false, the validator is exactly as before.
    */
   holdemTurnRiverRaiseNeedsValue?: boolean;
+  /** plo-lead6 2026-11-24 (holdemLateStreetIsPriced, default OFF): the chooser's check, call of the chips owed or fold
+   * at wager_rules is admitted only under this gate and only in its spot re-derived from the request. */
+  holdemLateStreetIsPriced?: boolean;
   /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
@@ -2042,6 +2046,14 @@ function policyGraphIsValidInScope(
     // off): a No-Limit Hold'em turn or river raise facing a wager by a hand that is not a value hand becomes the call
     // of exactly the chips owed or the fold. Admitted only under the decision's own option (context gate) and only
     // in the rule's own spot re-derived from the request; neither puts in a chip the call does not.
+    const holdemLatePricedPassive =
+      context?.holdemLateStreetIsPriced === true &&
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      previous !== null &&
+      ['check', 'call', 'fold'].includes(transition.after.action) &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      holdemLateStreetIsPricedAdmits(context.player, context.gameState, transition.after);
     const holdemLateRaiseWithheld =
       context?.holdemTurnRiverRaiseNeedsValue === true &&
       transition.node === 'wager_rules' &&
@@ -2060,6 +2072,7 @@ function policyGraphIsValidInScope(
       changed &&
       !omahaMwTourneyPriced &&
       !holdemLateRaiseWithheld &&
+      !holdemLatePricedPassive &&
       !omahaDisciplineBetToCheck &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
@@ -2455,6 +2468,27 @@ export function omahaMathCoreGate(
  * option on, read exactly as omahaMathCoreGate reads omahaMathCore: the request's own option, the switch row this
  * client last delivered, or the configuration before the last change while it still counts.
  */
+export function holdemLateStreetIsPricedGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  if (requestOpts?.holdemLateStreetIsPriced === true) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return (
+        parsed.ok &&
+        (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)
+          .holdemLateStreetIsPriced === true
+      );
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
 export function holdemTurnRiverRaiseNeedsValueGate(
   requestOpts: Readonly<Record<string, unknown>> | null | undefined,
   switchConfig: unknown,

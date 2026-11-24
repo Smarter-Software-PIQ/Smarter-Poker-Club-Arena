@@ -356,6 +356,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemDangerBoardEquityIsPriced',
   // 2026-11-24 plo-lead6 Hold'em late-street audit: a turn/river raise facing a wager needs a value hand (ships dark)
   'holdemTurnRiverRaiseNeedsValue',
+  // 2026-11-24 plo-lead6: the deterministic priced late-street chooser and its bluff-raise (ship dark)
+  'holdemLateStreetIsPriced',
+  'holdemLateStreetBluffRaiseIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1047,6 +1050,16 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up postflop',
     "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemLateStreetIsPriced: [
+    HOLDEM,
+    'NLH cash, Lightning and tournaments, heads-up and multiway, turn and river',
+    'one deterministic priced chooser: bet / size / check against his fold curve, blockers and nut advantage; call / fold against his bluff share',
+  ],
+  holdemLateStreetBluffRaiseIsPriced: [
+    HOLDEM,
+    'NLH turn and river facing a bet, heads-up, with holdemLateStreetIsPriced on',
+    'a non-value raise made only when its EV beats call and fold (pending the owner ruling)',
   ],
   holdemTurnRiverRaiseNeedsValue: [
     HOLDEM,
