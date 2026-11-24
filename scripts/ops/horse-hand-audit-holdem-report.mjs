@@ -236,7 +236,7 @@ export function buildSummary(res, meta = {}) {
   // theoretical exploitability vs actual
   const theory = [];
   for (const v of nodes.values()) {
-    if (!(v.theory > 0) || v.parent) continue;
+    if (!(v.theory > 0) || !v.parent) continue; // postflop parents (street x node x size x HU/MW x stack x bettor kind)
     const nf = v.fold + v.call + v.raise;
     theory.push({
       fc: v.n0.fc,

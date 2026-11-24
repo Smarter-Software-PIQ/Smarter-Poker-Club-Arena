@@ -101,7 +101,7 @@ heads-up/multiway x stack bucket x the kind of the last bettor (person or Horse)
   share beta for that line and size, a bluff-catcher's call is worth EVbc = beta x (pot + toCall) - toCall.
   Folds beyond be cost (f - be) x EVbc only when EVbc > 0 (an over-fold against bettors who really bluff). When
   EVbc < 0 the calls are below the price and cost kappa x (-EVbc) per call, kappa = the share of shown calls on that
-  street the exact tier graded called-too-light or paid-off. Preflop: the value the folded part of the range
+  street the exact tier graded called-too-light or paid-off. Preflop: the value the folded part of the range (weakest f of the line range) would have won by calling against the raiser's line range, with players who already matched the bet in the multiway equity; players still to act behind are a lower bound (only the share of cases in which all of them fold counts). Theoretical (pure-bluff) exploitability is reported for postflop nodes only.
   (weakest f of the line range) would have won by calling against the raiser's line range.
 - Horse wagers: success w (everyone folded) against s/(1+s); "over-bluff" when the interval lies below, charged on the
   measured Horse bluff share; "bets print" (a strength) when above.

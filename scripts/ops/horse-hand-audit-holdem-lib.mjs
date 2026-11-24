@@ -1460,18 +1460,59 @@ export function preflopFoldBandValue(model, H, d, f) {
     for (let j = 0; j < 169; j++) s += aggCls[j] * model.M[i * 169 + j];
     eqCls[i] = s / tot;
   }
+  // players who already matched the bet (callers, all-in players other than the raiser) share the pot: their line
+  // ranges enter the multiway equity
+  const others = d.opp.filter((o) => o.seat !== d.aggr && (o.allIn || o.streetBet >= d.CB - 1e-9));
+  const otherCls = others.map((o) => {
+    const r = preflopLineRange(model, H, o.seat, d.i);
+    const c = new Float64Array(169);
+    let t = 0;
+    for (let k = 0; k < NC; k++) {
+      c[COMBO_CLASS[k]] += r[k];
+      t += r[k];
+    }
+    const e = new Float64Array(169);
+    for (let i = 0; i < 169; i++) {
+      let x = 0;
+      for (let j = 0; j < 169; j++) x += c[j] * model.M[i * 169 + j];
+      e[i] = t > 0 ? x / t : 0.5;
+    }
+    return e;
+  });
   const folded = keepBands(def, model.preS, [[Math.max(0, 1 - f), 1]]);
   const wDef = rangeWeight(def);
   if (wDef <= 0) return null;
   const callInc = Math.min(d.C, d.stack);
   const R2 = callInc >= d.stack - 1e-9 ? 1 : R;
+  // players still to act behind who have not matched the bet: only the share of cases where every one of them folds is
+  // counted (a lower bound: when anyone behind enters, the call is valued at 0)
+  let behindFold = 1;
+  for (const o of d.opp) {
+    if (o.allIn || !o.toAct || o.streetBet >= d.CB - 1e-9 || o.seat === d.aggr) continue;
+    const base = d.node.replace('-cold', '');
+    const fake = {
+      ...d,
+      seat: o.seat,
+      node: base === 'vs3bet' || base === 'vs4bet+' ? base + (o.vol ? '' : '-cold') : base,
+      C: 1,
+      stack: o.stack,
+      streetBet: o.streetBet,
+      opp: [],
+    };
+    const v = lookup(model.F.pre, freqKeyPre(H, fake));
+    behindFold *= v ? v.fold / v.n : 0.8;
+  }
   let val = 0;
   for (let k = 0; k < NC; k++) {
     if (folded[k] <= 0) continue;
-    const ev = R2 * eqCls[COMBO_CLASS[k]] * (d.P + callInc) - callInc;
+    const ci = COMBO_CLASS[k];
+    const eq = otherCls.length
+      ? multiwayEquity([eqCls[ci], ...otherCls.map((e) => e[ci])])
+      : eqCls[ci];
+    const ev = R2 * eq * (d.P + callInc) - callInc;
     if (ev > 0) val += (folded[k] / wDef) * ev;
   }
-  return val / H.bb;
+  return (behindFold * val) / H.bb;
 }
 
 /**
@@ -1506,7 +1547,8 @@ export function gradeNode(v, model = null, kappa = null) {
     v.f = f;
     v.beAvg = be;
     v.ci = [lo, hi];
-    if (lo > be + 0.02) {
+    // theoretical (pure-bluff) exploitability is a postflop measure: a preflop fold is priced by its folded hands
+    if (lo > be + 0.02 && n0.street !== 'preflop') {
       v.theory = pot * (f - be);
       v.perDecisionTheory = v.theory / Math.max(1e-9, f);
     }
