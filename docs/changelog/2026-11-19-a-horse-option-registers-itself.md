@@ -1,6 +1,6 @@
 # A Horse option registers itself: the whitelist is rows, not a re-asserted list (2026-11-19)
 
-Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124133319_a_horse_option_registers_itself.sql`.
+Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124223416_a_horse_option_registers_itself.sql`.
 
 ## The problem
 
@@ -97,11 +97,27 @@ since the shadow list (2026-11-18) and the on_shadow list (2026-11-19), and seve
   option would lose (shadow, on_shadow);
 - generator: `--register <file> [--allow-shadow] [option ...]`.
 
-## 2026-11-24: Re-Reserved As 20261124133319 (Newest On Main)
+## 2026-11-24: Re-Anchored On #11917 (47 Frozen Full-List Migrations), Re-Reserved As 20261124223416
+
+Main merged PR #11917, whose full-list migration `20261124141237_horse_option_switch_oop_reraise_range_holds.sql`
+follows #11825, plus four ordinary migrations newer than the earlier reservation. After merging `origin/main`
+`278eab1daaea`:
+
+- the frozen anchor is now `20261124141237` (47 full-list migrations, 369 options: 7 style, 362 plain, 75 off-only,
+  204 shadow, 282 on_shadow), fingerprint `87f19956481790299450a5cbbb0e9381`, derived with
+  `optionSwitchListsFingerprint` from the file; production's `fn_ca_horse_option_switch_states` carries the stamp
+  `20261124141237` (read-only check), so the whitelist migration's seed check matches the installed lists;
+- the migration is re-reserved with `scripts/new-migration.mjs` as `20261124223416`, newer than every migration on
+  main; `v_me`, the `registry-lists-version` stamp, the probe names, the whitelist constant, the proof script, the
+  schema manifest, `scripts/ci/accounting-harness-reads.json` and the docs moved with it;
+- the throwaway Postgres proof reads its frozen lists from the #11917 migration and its refusal and overwrite checks
+  name `20261124141237`.
+
+## 2026-11-24: Re-Reserved (Newest On Main)
 
 The lane rule wants the switch migration to be the newest migration on main overall, and five ordinary migrations
-had merged with versions above the earlier reservation. Re-reserved with `scripts/new-migration.mjs` as
-`20261124133319` after merging `origin/main` `7f6e30be571d` (no new full-list migration, so the #11825 anchor and
+had merged with versions above the earlier reservation. Re-reserved with `scripts/new-migration.mjs`
+after merging `origin/main` `7f6e30be571d` (no new full-list migration, so the #11825 anchor and
 fingerprint stand). The `v_me` line, the `registry-lists-version` stamp, the probe names, the whitelist constant,
 the proof script and the schema manifest moved with it.
 

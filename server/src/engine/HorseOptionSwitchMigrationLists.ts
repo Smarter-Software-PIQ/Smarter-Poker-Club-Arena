@@ -25,7 +25,7 @@
  * order. An un-lock, a removal or a wider shadow level is explicit, names what it does, and fails the law unless it
  * is listed in OPTION_SWITCH_APPROVED_UNLOCKS.
  *
- * FROZEN HISTORICAL CHAIN (#11553, #11668): the 46 historical full-list migrations from the base through
+ * FROZEN HISTORICAL CHAIN (#11553, #11668): the 47 historical full-list migrations from the base through
  * OPTION_SWITCH_CHAIN_ANCHOR through OPTION_SWITCH_LAST_LIST_MIGRATION remain verified as one unbroken chain
  * (optionSwitchChainProblem) and merge-time freshness (optionSwitchStaleAgainstMain) accepts commuting --register
  * migrations while refusing any stale branch that still carries a full-list follow-up.
@@ -59,12 +59,12 @@ export const OPTION_SWITCH_LIST_MARKER = '-- registry:plain-options:begin';
  * installed) whitelist migration move to it; the law names each.
  */
 export const OPTION_SWITCH_LAST_LIST_MIGRATION =
-  '20261123071956_horse_option_switch_non_nut_raise_and_late_call.sql';
+  '20261124141237_horse_option_switch_oop_reraise_range_holds.sql';
 /** How many full-list migrations there are: the base and its follow-ups. One more is a full-list follow-up. */
-export const OPTION_SWITCH_LIST_MIGRATION_COUNT = 46;
+export const OPTION_SWITCH_LIST_MIGRATION_COUNT = 47;
 /** The migration that turned the lists into rows. */
 export const OPTION_SWITCH_WHITELIST_MIGRATION =
-  '20261124133319_a_horse_option_registers_itself.sql';
+  '20261124223416_a_horse_option_registers_itself.sql';
 /**
  * The migration that makes the switch functions tell the style options by canary, so a non-style option in shadow
  * keeps every rule of `on` (2026-11-18). aShadowOptionKeepsEveryRuleOfOn.law.test.ts reads it.
@@ -97,7 +97,7 @@ export const OPTION_SWITCH_APPROVED_UNLOCKS: readonly string[] = [];
 /**
  * FROZEN HISTORICAL CHAIN CONSTANTS (2026-11-20, #11553; reconciled with whitelist-as-rows 2026-11-22).
  *
- * The 46 historical full-list migrations up through OPTION_SWITCH_LAST_LIST_MIGRATION remain audited as one unbroken
+ * The 47 historical full-list migrations up through OPTION_SWITCH_LAST_LIST_MIGRATION remain audited as one unbroken
  * chain: pre-chain versions up through OPTION_SWITCH_CHAIN_ANCHOR are pinned, and every full-list migration after
  * the anchor names its predecessor on one `-- registry:follows: <file>` line and stamps its version into
  * fn_ca_horse_option_switch_states.

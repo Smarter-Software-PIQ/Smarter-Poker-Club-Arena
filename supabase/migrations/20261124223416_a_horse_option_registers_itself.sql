@@ -1,4 +1,4 @@
--- 20261124133319_a_horse_option_registers_itself.sql
+-- 20261124223416_a_horse_option_registers_itself.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
@@ -10,7 +10,7 @@
 -- THE COLLISION. The database whitelist of the Horse option switch was three CHECK constraints on
 -- public.ca_horse_style_switch and the literal lists inside public.fn_ca_horse_option_switch_states. A CHECK cannot
 -- be added to, only replaced, so every pull request that registered one option (or moved one to off-only) carried a
--- migration re-asserting ALL the registered names (285 on 2026-11-19, 346 on 2026-11-20, 365 on 2026-11-23, 367 on 2026-11-24). Migrations install in merge order: of two such pull requests the second
+-- migration re-asserting ALL the registered names (285 on 2026-11-19, 346 on 2026-11-20, 365 on 2026-11-23, 367 and then 369 on 2026-11-24). Migrations install in merge order: of two such pull requests the second
 -- overwrote the first, and one generated before the first merged silently un-locked every option the first had
 -- locked. Three lanes lost an afternoon to it on 2026-11-19 and one stale list was a blocking review finding.
 --
@@ -45,7 +45,7 @@
 -- THE SEED CARRIES NO LIST. The rows are read from what is INSTALLED: the names of the CHECK constraint this file
 -- replaces, each classified by the states function this file replaces, and refused unless the constraint and the
 -- function name exactly the same options. It then refuses to install unless what it read is exactly the lists of
--- the last full-list migration (20261123071956, by fingerprint): the database and the law start from the same
+-- the last full-list migration (20261124141237, by fingerprint): the database and the law start from the same
 -- whitelist, or nothing changes. A full-list follow-up that is merged but not installed yet, or one merged after
 -- this file was written, stops it loudly instead of being overwritten or overwriting.
 --
@@ -55,7 +55,7 @@
 -- fn_ca_horse_option_switch_states keeps its signature and its grant (service_role only). Installing this file
 -- twice leaves the same state. Registering an option ENABLES NOTHING: no row is the release default.
 --
--- COST: one table of one short row per registered option (367), one primary-key read per switch write, three ALTERs on a table of one row
+-- COST: one table of one short row per registered option (369), one primary-key read per switch write, three ALTERs on a table of one row
 -- per switched option that is read once per 30 seconds. No live table is touched or locked.
 BEGIN;
 
@@ -83,10 +83,10 @@ ALTER TABLE public.ca_horse_option_whitelist ENABLE ROW LEVEL SECURITY;
 -- The seed: the installed whitelist, read from the installed constraint and the installed states function.
 DO $seed$
 DECLARE
-  v_me       constant text := '20261124133319_a_horse_option_registers_itself';
-  -- the lists of the last full-list migration, 20261123071956: md5 of 'option:kind:off-only(0|1):shadow level' joined by ','
+  v_me       constant text := '20261124223416_a_horse_option_registers_itself';
+  -- the lists of the last full-list migration, 20261124141237: md5 of 'option:kind:off-only(0|1):shadow level' joined by ','
   -- in byte order of the option. everyUpgradeHasALiveSwitch.law.test.ts computes it from that file.
-  v_lists    constant text := '42fe91b250933682bd22383fcc3b6bd3';
+  v_lists    constant text := '87f19956481790299450a5cbbb0e9381';
   v_found    text;
   v_type     "char";
   v_def      text;
@@ -162,7 +162,7 @@ BEGIN
                         ORDER BY w.option COLLATE "C"))
     INTO v_found FROM public.ca_horse_option_whitelist w;
   IF v_found IS DISTINCT FROM v_lists THEN
-    RAISE EXCEPTION 'the installed whitelist (% options, lists %) is not the one of 20261123071956_horse_option_switch_non_nut_raise_and_late_call (lists %): a full-list follow-up is not installed yet, or a newer one is. Nothing is changed',
+    RAISE EXCEPTION 'the installed whitelist (% options, lists %) is not the one of 20261124141237_horse_option_switch_oop_reraise_range_holds (lists %): a full-list follow-up is not installed yet, or a newer one is. Nothing is changed',
       cardinality(v_names), v_found, v_lists;
   END IF;
   -- every row already written fits the seeded whitelist (the CHECKs being replaced said so; read, not trusted)
@@ -191,7 +191,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
-  -- registry-lists-version: 20261124133319
+  -- registry-lists-version: 20261124223416
   SELECT CASE
     WHEN w.kind = 'style' THEN ARRAY['off', 'shadow', 'canary', 'on']
     WHEN w.off_only THEN ARRAY['off']
@@ -574,8 +574,8 @@ $readback$;
 -- @probe-for: public.fn_ca_horse_option_whitelist_guard
 DO $probe$
 DECLARE
-  v_a      constant text := '20261124133319_probe_a';
-  v_b      constant text := '20261124133320_probe_b';
+  v_a      constant text := '20261124223416_probe_a';
+  v_b      constant text := '20261124223417_probe_b';
   v_note   constant text := 'authority: probeFixtureOption probe.md sha256 ' || repeat('0', 64);
   v_step   text;
   v_name   text;
