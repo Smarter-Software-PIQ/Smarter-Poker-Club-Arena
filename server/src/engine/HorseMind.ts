@@ -6611,6 +6611,12 @@ export class HorseMind {
     return s.tankBetSDStrong / s.tankBetSD;
   }
 
+  /** The number of his shown big river bets bigBetValueTendency is read from (0 without a row). */
+  static bigBetShowdownCount(id: string): number {
+    const s = this.readStats(id);
+    return s && Number.isFinite(s.bigBetSD) ? s.bigBetSD : 0;
+  }
+
   static bigBetValueTendency(id: string): number | null {
     const s = this.readStats(id);
     if (!s || s.bigBetSD < 5) return null;

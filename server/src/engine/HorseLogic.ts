@@ -17048,14 +17048,25 @@ export class HorseLogic {
       holdemOwnPreflopPrime(
         player,
         gameState,
-        // the policy also reads the hour's mood (moodOf) and every option row: both are part of the key
+        // the policy reads every option row except the per-decision fields and these options themselves (none of
+        // which reaches a preflop decision): the rows are part of the key; the hour's mood is not (the first hand on
+        // a line fixes it for the cache's life)
         (() => {
+          const {
+            decisionTimeMs: _t,
+            telemetry: _te,
+            observeMind: _o,
+            holdemLateStreetIsPriced: _l,
+            holdemFlopIsPriced: _f,
+            holdemLateStreetBluffRaiseIsPriced: _b,
+            holdemLateStreetIsPricedInTournaments: _n,
+            holdemTurnRiverRaiseNeedsValue: _r,
+            ...rows
+          } = opts;
           try {
-            return `${style}|${JSON.stringify(mods)}|${Math.floor(Number(opts.decisionTimeMs ?? 0) / 3_600_000)}|${JSON.stringify(
-              { ...opts, decisionTimeMs: undefined }
-            )}`;
+            return `${style}|${JSON.stringify(mods)}|${JSON.stringify(rows)}`;
           } catch {
-            return `${style}|${Math.floor(Number(opts.decisionTimeMs ?? 0) / 3_600_000)}|unkeyed`;
+            return `${style}|unkeyed`;
           }
         })(),
         (p, g) =>

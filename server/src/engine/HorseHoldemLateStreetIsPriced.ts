@@ -104,6 +104,8 @@ export const HOLDEM_LATE_RHO_MAX = 2;
 export const HOLDEM_LATE_FLOP_LOOKAHEAD_RIVERS = 2;
 /** Weight of his own record against the prior: n / (n + K). */
 export const HOLDEM_LATE_RECORD_K = 30;
+/** Weight of his shown big bets against the balanced bluff share: n / (n + K) showdowns. */
+export const HOLDEM_LATE_SHOWDOWN_K = 10;
 /** Fold multiplier per unit of nut advantage (Horse's nutted share minus his). */
 export const HOLDEM_LATE_NUT_ADV_WEIGHT = 0.5;
 /** Weight of the fitted population fold prior against the indifference fold s / (1 + s). */
@@ -209,7 +211,13 @@ export function holdemLateFoldOf(
     const c = scope ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
     if (c && num(c.foldToBetOpp) > 0) {
       n = num(c.foldToBetOpp);
-      const atRef = num(c.foldToBet) / n;
+      // On the turn and the river his own river fold record (HorseMind.riverFoldRate, at least 8 river bets faced)
+      // is the street's measurement of the same tendency and replaces the all-streets fold rate (BUILD-II round 5,
+      // exploit probe e: a player who folds his misses on the flop but calls every pair down read as folding 40%
+      // on the river, and the Horse bluffed him).
+      const late =
+        street === 'turn' || street === 'river' ? HorseMind.riverFoldRate(opp.user_id) : null;
+      const atRef = late !== null ? late : num(c.foldToBet) / n;
       const price = s / (1 + s);
       rate = clamp01((atRef * price) / HOLDEM_PRICED_REFERENCE_PRICE);
     }
@@ -841,15 +849,83 @@ export function holdemLateVerdict(
     let beta = s / (1 + 2 * s);
     if (mind) {
       try {
+        // His shown big bets (HorseMind.bigBetValueTendency: the share of his big river bets shown down that were
+        // two pair or better, at least 5) are his record of how often he bets without value: on every street and
+        // size (BUILD-II round 5, exploit probes d and e: the minimum defence paid off players who never bluff),
+        // weighted by their count n / (n + HOLDEM_LATE_SHOWDOWN_K), so his own record takes over within a few dozen
+        // showdowns.
         const tend = HorseMind.bigBetValueTendency(b.opp.user_id);
-        if (tend !== null && spot.street === 'river' && s >= 0.7) {
-          const w = 0.5;
+        if (tend !== null) {
+          const n = HorseMind.bigBetShowdownCount(b.opp.user_id);
+          const w = n / (n + HOLDEM_LATE_SHOWDOWN_K);
           beta = w * (1 - tend) + (1 - w) * beta;
           recordMoved = true;
           facingBeta = beta;
         }
       } catch {
         /* the balanced prior stands */
+      }
+      // His betting-range record on every street (BUILD-II round 5, exploit probes): the style read's
+      // betting-range axis (HorseMind.styleRead: shown strength and how often he bets and raises per
+      // opportunity) moves his bluff share once it is a supported individual read. Value-weighted with
+      // confidence c: beta x (1 - c) (a player who never bluffs is not paid off to the minimum defence);
+      // bluff-weighted: beta x (1 + c), at most 0.5 (a player who raises every bet is defended wider).
+      try {
+        const st = HorseMind.styleRead(b.opp.user_id);
+        if (
+          st.consumersMayAct &&
+          st.evidence.state === 'supported_individual_read' &&
+          !st.release.standDown &&
+          st.bettingRange.credible
+        ) {
+          const c = clamp01(st.bettingRange.confidence);
+          beta =
+            st.bettingRange.side === 'value-weighted'
+              ? beta * (1 - c)
+              : Math.min(0.5, beta * (1 + c));
+          recordMoved = true;
+          facingBeta = beta;
+        }
+      } catch {
+        /* no style record: the line's share stands */
+      }
+      // His bet frequency against the population's (BUILD-II round 5, exploit probes d and e). With the value part of
+      // a betting range fixed by the cards, the bets a player makes beyond it are his bluffs: at the population's bet
+      // share bp the bluff share is beta, so his value share of the range is bp (1 - beta); at his own share bs (the
+      // fitted prior moved by his bet-when-checked-to record, holdemLateBetShareOf) his bluff share is
+      // 1 - bp (1 - beta) / bs, in [0, 0.5]. Without a record bs = bp and nothing moves; a player who bets half as
+      // often as the field is read as bluffing about never, and the minimum defence no longer pays him off.
+      try {
+        const hist = gs.actionHistory ?? [];
+        const wagers = hist
+          .map((a, i) => ({ a, i }))
+          .filter(({ a }) => a.stage === spot.street && isWager(a.action) && num(a.amount) > 0);
+        const first = wagers.length === 1 ? wagers[0]! : null;
+        if (
+          first &&
+          (first.a.userId !== undefined
+            ? first.a.userId === b.opp.user_id
+            : first.a.seat === b.opp.seat)
+        ) {
+          const before = hist.slice(0, first.i);
+          const line = holdemLateLineOf(
+            { ...gs, actionHistory: before } as HorseGameStateV2,
+            b.opp,
+            spot.street
+          );
+          const pos = before.some((a) => a.stage === spot.street && a.action === 'check')
+            ? 'checkedTo'
+            : 'first';
+          const bp = HOLDEM_LATE_BET_SHARE_PRIOR[spot.street]?.[line]?.[pos];
+          const bs = betShareOf(spot.street, first.i);
+          if (typeof bp === 'number' && bs !== null && bs > 0 && Math.abs(bs - bp) > 1e-9) {
+            beta = Math.max(0, Math.min(0.5, 1 - (bp * (1 - beta)) / bs));
+            recordMoved = true;
+            facingBeta = beta;
+          }
+        }
+      } catch {
+        /* no bet-share record: the line's share stands */
       }
     }
     beta = clamp01(beta);

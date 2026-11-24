@@ -21,7 +21,7 @@
  *   chooser keeps the band, as before.
  * Primed at the top of HorseLogic.decide (holdemOwnPreflopPrime) and read by the chooser's range builder
  * (holdemOwnPreflopPrior). The policy is keyed as the owner defined it, by position, preflop action line and stack
- * depth (with style, persona mods, hour and option rows): one computation serves every later hand on that line
+ * depth (with style, persona mods and option rows): one computation serves every later hand on that line
  * (CACHE_MAX keys, least recently used dropped). It does not re-read the opponents' memory per hand: the reads in
  * force when the line was first computed stand for it (a documented approximation).
  */
@@ -32,7 +32,7 @@ import { restoreFastRandom, saveFastRandom, seedFastRandom } from './HorseEval.j
 /** The policy draws per class and frame (fixed seeds mixed with the class: the weights are a deterministic function
  * of the frame; each class reads its own streams). */
 export const HOLDEM_OWN_PREFLOP_SEEDS: readonly number[] = [
-  0x5eed0001, 0x5eed0b07, 0x5eed1d2f, 0x5eed3a51, 0x5eed4c63, 0x5eed5e75,
+  0x5eed0001, 0x5eed0b07, 0x5eed1d2f, 0x5eed3a51,
 ];
 
 const RANKS: readonly CardRank[] = [
@@ -256,7 +256,7 @@ const posOf = (seat: number, dealer: number, seats: readonly number[]): number =
 /**
  * The policy's key, as the user's order defines the policy: the Horse's position, the preflop action line (each
  * actor's position, action and size in big blinds to the half), the effective stack depth (to 10 big blinds), the
- * table size, the blinds and antes, and the salt (style, persona mods, hour, option rows). Exact chips, seats'
+ * table size, the blinds and antes, and the salt (style, persona mods, option rows). Exact chips, seats'
  * identities and the Horse's own cards are not in it, so one computation serves every hand on that line.
  */
 function policyKeyOf(player: SeatPlayer, gs: HorseGameStateV2, salt: string): string {
@@ -318,7 +318,7 @@ export function holdemOwnPreflopWanted(player: SeatPlayer, gs: HorseGameStateV2)
 
 /**
  * Compute (once per policy key) the Horse's own preflop range by asking its own policy, and keep it for this decision.
- * `salt` carries whatever else the policy reads that the frame does not (style, persona mods, hour, option rows).
+ * `salt` carries whatever else the policy reads that the frame does not (style, persona mods, option rows).
  */
 export function holdemOwnPreflopPrime(
   player: SeatPlayer,

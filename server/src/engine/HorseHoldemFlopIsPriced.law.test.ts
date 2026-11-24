@@ -185,12 +185,13 @@ describe('LAW: the flop chooser is the math; its only draw is model-requested an
     enableBrainTelemetry();
     let draws = 0;
     for (const i of [...FACING, ...OPEN]) {
-      const got = verdictOf(at(i));
-      if (!got) continue;
-      const plan = got.v.range;
+      // the decision first: it primes the Horse's own preflop range (HorseHoldemOwnPreflopRange) that the plan reads
       drainFires();
       run(at(i), { [FLOP]: true }, 1, true);
       const fired = drainFires().map((f) => f.feature);
+      const got = verdictOf(at(i));
+      if (!got) continue;
+      const plan = got.v.range;
       if (plan && plan.draw !== null) {
         draws++;
         expect(plan.frequency).toBeGreaterThan(0);

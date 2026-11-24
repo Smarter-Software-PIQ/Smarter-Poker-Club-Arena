@@ -106,9 +106,13 @@ describe("the Horse's own preflop range is its own preflop policy", () => {
       primed++;
       const w = Array.from(r.weight);
       expect(w.every((x) => x >= 0 && x <= 1)).toBe(true);
-      // a policy that plays every hand or none is not a preflop policy
-      expect(w.some((x) => x === 0)).toBe(true);
-      expect(w.some((x) => x === 1)).toBe(true);
+      // a policy that plays every hand or none is not a preflop policy (a mixed one, such as the small blind's
+      // completing frequency, may keep no class at 1)
+      expect(
+        w.some((x) => x === 0),
+        s.k
+      ).toBe(true);
+      expect(Math.max(...w), s.k).toBeGreaterThanOrEqual(0.5);
       // the Horse holds its own class, so its range holds it
       expect(w[holdemPreflopClassOf(s.player.cards[0]!, s.player.cards[1]!)]!).toBeGreaterThan(0);
     }
@@ -155,29 +159,36 @@ describe("the Horse's own preflop range is its own preflop policy", () => {
     }
   });
 
-  it('deterministic and identity-free: renaming every seat and flipping every is_horse gives the same weights', () => {
+  it("deterministic and identity-free: renaming every other seat and flipping who is a Horse gives the same weights (the deciding Horse's own id seeds its own persona, as its preflop play always has)", () => {
     for (const i of HU.slice(0, 20)) {
       const s = at(i);
       holdemOwnPreflopReset();
       run(s, ON);
       const a = holdemOwnPreflopCurrent(s.player, s.gs);
-      const ren = (id: string | undefined) => (id === undefined ? id : `renamed-${id}`);
+      const me = s.player.user_id;
+      const ren = (id: string | undefined) =>
+        id === undefined || id === me ? id : `renamed-${id}`;
       const players = s.gs.players.map((p) => ({
         ...p,
         user_id: ren(p.user_id)!,
-        is_horse: !(p as { is_horse?: boolean }).is_horse,
+        is_horse: p.user_id === me ? p.is_horse : !(p as { is_horse?: boolean }).is_horse,
       }));
       const gs = {
         ...s.gs,
         players,
+        humanUserIds: [],
         actionHistory: (s.gs.actionHistory ?? []).map((x) => ({ ...x, userId: ren(x.userId) })),
       } as HorseGameStateV2;
-      const player = players.find((p) => p.seat === s.player.seat)!;
       holdemOwnPreflopReset();
-      run({ ...s, player, gs }, ON);
-      const b = holdemOwnPreflopCurrent(player, gs);
-      expect(b === null).toBe(a === null);
-      if (a && b) expect(Array.from(b.weight)).toEqual(Array.from(a.weight));
+      run({ ...s, gs }, ON);
+      const b = holdemOwnPreflopCurrent(s.player, gs);
+      expect(b === null, s.k).toBe(a === null);
+      if (a && b) expect(Array.from(b.weight), s.k).toEqual(Array.from(a.weight));
+      // and the same frame twice gives the same weights
+      holdemOwnPreflopReset();
+      run(s, ON);
+      const c = holdemOwnPreflopCurrent(s.player, s.gs);
+      if (a && c) expect(Array.from(c.weight), s.k).toEqual(Array.from(a.weight));
     }
   });
 
@@ -215,9 +226,10 @@ describe("the opponent's own record reaches the chooser (synthetic records, one 
     for (const st of ['flop', 'turn', 'river']) a.push(...line(st));
     return a;
   };
+  let handNo = 0;
   const learn = (n: number, line: (street: string) => A[]) => {
     for (let h = 0; h < n; h++)
-      HorseMind.observeHandComplete(`rec-${h}`, hand(line) as never, 2, null, SCOPE);
+      HorseMind.observeHandComplete(`rec-${handNo++}`, hand(line) as never, 2, null, SCOPE);
   };
   const villain = { seat: 2, user_id: VIL, stack: 100, bet: 0, cards: [] } as unknown as SeatPlayer;
   const foldAt = () => {
