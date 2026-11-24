@@ -333,14 +333,14 @@ describe('a barren leader is dead, however busy its loop looks (2026-08-30)', ()
 });
 
 describe('the rule in the source matches the rule tested here', () => {
-  it('both public surfaces call the one authoritative pure verdict', async () => {
+  it('all liveness surfaces call the one authoritative pure verdict', async () => {
     const { readFileSync } = await import('node:fs');
     const gameServer = readFileSync(new URL('./GameServer.ts', import.meta.url), 'utf8');
     const calls = gameServer.match(/evaluateEngineLiveness\(\{/g) ?? [];
     expect(
       calls,
-      'getStatus and getPrometheusMetrics must each use the shared verdict'
-    ).toHaveLength(2);
+      'getLiveness, getStatus, and getPrometheusMetrics must each use the shared verdict'
+    ).toHaveLength(3);
     expect(gameServer).toContain('liveness: livenessVerdict.status');
     expect(gameServer).toContain('`poker_engine_liveness ${livenessVerdict.prometheusValue}`');
 

@@ -4,6 +4,7 @@ import {
   riverNodeBindings,
 } from '../engine/horseDecision/riverNodeSidecar.js';
 import { supabase } from './supabase/client.js';
+import { bindToProcessRoot } from './supabase/dataActorContext.js';
 import {
   horseObserverReadContextIsValid,
   horseObserverReadContextKey,
@@ -43,164 +44,176 @@ export async function readHorseOwnPublicHistory(
   context: HorseObserverReadContext,
   report?: HorseHistoryLoadReporter
 ): Promise<unknown> {
-  if (!horseObserverReadContextIsValid(context)) return null;
-  // A diagnostic callback cannot change the read result or introduce an error.
-  const failed: HorseHistoryLoadReporter = (reason) => {
-    try {
-      report?.(reason);
-    } catch {
-      /* diagnostic only */
-    }
-  };
-  let deadline: AbortSignal | undefined;
-  try {
-    deadline = AbortSignal.timeout(HORSE_OWN_PUBLIC_HISTORY_TIMEOUT_MS);
-    const before = new Date().toISOString();
-    const { data, error } = await supabase
-      .rpc('fn_horse_own_public_history_read_v3', {
-        p_observer: context.observerId,
-        p_variant: context.variant,
-        p_format: context.format,
-        p_dealt_count: context.dealtCount,
-        p_before: before,
-      })
-      .abortSignal(deadline);
-    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
-      noteFire('horse_observer_history_unavailable');
-      noteFire(error ? 'horse_observer_history_error' : 'horse_observer_history_empty_response');
-      failed(
-        deadline.aborted
-          ? 'provider_deadline'
-          : error
-            ? 'provider_error'
-            : 'provider_empty_response'
-      );
-      return null;
-    }
-    // The installed reader answers the unpartitioned (version 1) context. A
-    // version-2 request is the same observer, variant, format and dealt count
-    // under one speed/ante domain; the partition is proved per hand below.
-    const readContext = horseObserverReadContextKey({
-      version: 1,
-      observerId: context.observerId,
-      variant: context.variant,
-      format: context.format,
-      dealtCount: context.dealtCount,
-    });
-    if (
-      Object.keys(data).length !== 2 ||
-      data.definitionMd5 !== HORSE_OWN_PUBLIC_HISTORY_DEFINITION_MD5 ||
-      !data.window ||
-      horseObserverReadContextKey(data.window.context) !== readContext
-    ) {
-      noteFire('horse_observer_history_source_mismatch');
-      failed('provider_source_mismatch');
-      return null;
-    }
-    // Validate original dealt participation and the bounded closed schema
-    // BEFORE selecting public categories by those exact hand IDs. The SQL
-    // reader stays unchanged; older engines never receive additional fields.
-    const packet = makeOwnPublicHistoryPacket(data.window, Date.now());
-    if (!packet) {
-      failed('provider_invalid_window');
-      return null;
-    }
-    if (context.version === 2 && !packet.hands.length)
-      return { ...data.window, context: structuredClone(context) };
-    if (!packet.hands.length) return data.window;
-    const window = structuredClone(data.window);
-    try {
-      const { data: rows, error: categoryError } = await supabase
-        .from('hand_history')
-        .select(
-          'id,game_variant,showdown,community_cards2,community_cards3,rit_boards,public_memory_domain'
-        )
-        .in(
-          'id',
-          packet.hands.map((h) => h.handId)
-        )
-        .limit(64)
-        .abortSignal(deadline);
-      if (categoryError || !Array.isArray(rows)) throw Error('public categories unavailable');
-      const byId = new Map(rows.map((row) => [row.id, row]));
-      for (const hand of window.hands) {
-        // Each hand's own original speed/ante rules travel with it. A hand
-        // whose row is missing or whose domain is absent stays untagged and a
-        // partitioned (version 2) window excludes it below.
-        const domain = byId.get(hand.handId)?.public_memory_domain;
-        if (publicMemoryDomainIsValid(domain)) hand.publicMemoryDomain = domain;
-      }
-      for (const hand of window.hands) {
-        const row = byId.get(hand.handId);
-        if (
-          !row ||
-          row.game_variant !== hand.variant ||
-          (row.community_cards2 !== null && !Array.isArray(row.community_cards2)) ||
-          (row.community_cards3 !== null && !Array.isArray(row.community_cards3)) ||
-          (row.rit_boards !== null && !Array.isArray(row.rit_boards))
-        )
-          continue;
-        hand.riverCalls = shownRiverCallSamples(hand.actions, row.showdown, {
-          variant: hand.variant,
-          boardCount: Math.max(
-            row.rit_boards?.length ?? 0,
-            row.community_cards3?.length ? 3 : row.community_cards2?.length ? 2 : 1
-          ),
-        });
-      }
-    } catch {
-      // Preserve known public actions/results; absent categories remain
-      // explicitly unknown. No retry, guessed category or pooled fallback.
-      reportThrottled(
-        'HorseOwnPublicHistory.river_calls',
-        'Public river-call evidence unavailable'
-      );
-    }
-    if (context.version === 2) {
-      // Partition the window to this context's domain (#9693). Hands that do
-      // not prove this speed/ante are dropped, never guessed; a dropped hand
-      // marks the window capped because the observer's history is wider.
-      const key = publicMemoryDomainKey(context.publicMemoryDomain);
-      const hands = window.hands.filter(
-        (hand: { publicMemoryDomain?: unknown }) =>
-          publicMemoryDomainKey(hand.publicMemoryDomain) === key
-      );
-      noteFire(
-        hands.length === window.hands.length
-          ? 'horse_observer_history_domain_complete'
-          : 'horse_observer_history_domain_partitioned'
-      );
-      window.capped = window.capped || hands.length !== window.hands.length;
-      window.hands = hands;
-      window.context = structuredClone(context);
-    }
-    if (
-      context.format === 'cash' &&
-      context.dealtCount >= 3 &&
-      ['nlh', 'plo4', 'plo5', 'plo6'].includes(context.variant)
-    ) {
-      try {
-        const { data: sidecar, error: nodeError } = await supabase
-          .rpc('fn_horse_multiway_river_nodes_v1', {
-            p_observer: context.observerId,
-            p_variant: context.variant,
-            p_dealt_count: context.dealtCount,
-            p_before: before,
-            p_hands: riverNodeBindings(window),
-          })
-          .abortSignal(deadline);
-        const enriched = nodeError ? null : attachRiverNodeSidecar(window, sidecar, Date.now());
-        if (enriched?.status === 'captured') return enriched.window;
-        noteFire('horse_river_nodes_unavailable');
-      } catch {
-        noteFire('horse_river_nodes_unavailable');
-      }
-    }
-    return window;
-  } catch {
-    noteFire('horse_observer_history_unavailable');
-    noteFire('horse_observer_history_thrown');
-    failed(deadline?.aborted ? 'provider_deadline' : 'provider_thrown');
-    return null;
-  }
+  return readHorseOwnPublicHistoryAtRoot(context, report);
 }
+
+// 2026-11-24 (incident 1e532243): run this read-only public history load at
+// process root (service actor) so tournament horse decision cache misses never
+// take FOR KEY SHARE on engine_tournament_leases or consume EventDbBulkhead.
+const readHorseOwnPublicHistoryAtRoot = bindToProcessRoot(
+  async (
+    context: HorseObserverReadContext,
+    report?: HorseHistoryLoadReporter
+  ): Promise<unknown> => {
+    if (!horseObserverReadContextIsValid(context)) return null;
+    // A diagnostic callback cannot change the read result or introduce an error.
+    const failed: HorseHistoryLoadReporter = (reason) => {
+      try {
+        report?.(reason);
+      } catch {
+        /* diagnostic only */
+      }
+    };
+    let deadline: AbortSignal | undefined;
+    try {
+      deadline = AbortSignal.timeout(HORSE_OWN_PUBLIC_HISTORY_TIMEOUT_MS);
+      const before = new Date().toISOString();
+      const { data, error } = await supabase
+        .rpc('fn_horse_own_public_history_read_v3', {
+          p_observer: context.observerId,
+          p_variant: context.variant,
+          p_format: context.format,
+          p_dealt_count: context.dealtCount,
+          p_before: before,
+        })
+        .abortSignal(deadline);
+      if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+        noteFire('horse_observer_history_unavailable');
+        noteFire(error ? 'horse_observer_history_error' : 'horse_observer_history_empty_response');
+        failed(
+          deadline.aborted
+            ? 'provider_deadline'
+            : error
+              ? 'provider_error'
+              : 'provider_empty_response'
+        );
+        return null;
+      }
+      // The installed reader answers the unpartitioned (version 1) context. A
+      // version-2 request is the same observer, variant, format and dealt count
+      // under one speed/ante domain; the partition is proved per hand below.
+      const readContext = horseObserverReadContextKey({
+        version: 1,
+        observerId: context.observerId,
+        variant: context.variant,
+        format: context.format,
+        dealtCount: context.dealtCount,
+      });
+      if (
+        Object.keys(data).length !== 2 ||
+        data.definitionMd5 !== HORSE_OWN_PUBLIC_HISTORY_DEFINITION_MD5 ||
+        !data.window ||
+        horseObserverReadContextKey(data.window.context) !== readContext
+      ) {
+        noteFire('horse_observer_history_source_mismatch');
+        failed('provider_source_mismatch');
+        return null;
+      }
+      // Validate original dealt participation and the bounded closed schema
+      // BEFORE selecting public categories by those exact hand IDs. The SQL
+      // reader stays unchanged; older engines never receive additional fields.
+      const packet = makeOwnPublicHistoryPacket(data.window, Date.now());
+      if (!packet) {
+        failed('provider_invalid_window');
+        return null;
+      }
+      if (context.version === 2 && !packet.hands.length)
+        return { ...data.window, context: structuredClone(context) };
+      if (!packet.hands.length) return data.window;
+      const window = structuredClone(data.window);
+      try {
+        const { data: rows, error: categoryError } = await supabase
+          .from('hand_history')
+          .select(
+            'id,game_variant,showdown,community_cards2,community_cards3,rit_boards,public_memory_domain'
+          )
+          .in(
+            'id',
+            packet.hands.map((h) => h.handId)
+          )
+          .limit(64)
+          .abortSignal(deadline);
+        if (categoryError || !Array.isArray(rows)) throw Error('public categories unavailable');
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        for (const hand of window.hands) {
+          // Each hand's own original speed/ante rules travel with it. A hand
+          // whose row is missing or whose domain is absent stays untagged and a
+          // partitioned (version 2) window excludes it below.
+          const domain = byId.get(hand.handId)?.public_memory_domain;
+          if (publicMemoryDomainIsValid(domain)) hand.publicMemoryDomain = domain;
+        }
+        for (const hand of window.hands) {
+          const row = byId.get(hand.handId);
+          if (
+            !row ||
+            row.game_variant !== hand.variant ||
+            (row.community_cards2 !== null && !Array.isArray(row.community_cards2)) ||
+            (row.community_cards3 !== null && !Array.isArray(row.community_cards3)) ||
+            (row.rit_boards !== null && !Array.isArray(row.rit_boards))
+          )
+            continue;
+          hand.riverCalls = shownRiverCallSamples(hand.actions, row.showdown, {
+            variant: hand.variant,
+            boardCount: Math.max(
+              row.rit_boards?.length ?? 0,
+              row.community_cards3?.length ? 3 : row.community_cards2?.length ? 2 : 1
+            ),
+          });
+        }
+      } catch {
+        // Preserve known public actions/results; absent categories remain
+        // explicitly unknown. No retry, guessed category or pooled fallback.
+        reportThrottled(
+          'HorseOwnPublicHistory.river_calls',
+          'Public river-call evidence unavailable'
+        );
+      }
+      if (context.version === 2) {
+        // Partition the window to this context's domain (#9693). Hands that do
+        // not prove this speed/ante are dropped, never guessed; a dropped hand
+        // marks the window capped because the observer's history is wider.
+        const key = publicMemoryDomainKey(context.publicMemoryDomain);
+        const hands = window.hands.filter(
+          (hand: { publicMemoryDomain?: unknown }) =>
+            publicMemoryDomainKey(hand.publicMemoryDomain) === key
+        );
+        noteFire(
+          hands.length === window.hands.length
+            ? 'horse_observer_history_domain_complete'
+            : 'horse_observer_history_domain_partitioned'
+        );
+        window.capped = window.capped || hands.length !== window.hands.length;
+        window.hands = hands;
+        window.context = structuredClone(context);
+      }
+      if (
+        context.format === 'cash' &&
+        context.dealtCount >= 3 &&
+        ['nlh', 'plo4', 'plo5', 'plo6'].includes(context.variant)
+      ) {
+        try {
+          const { data: sidecar, error: nodeError } = await supabase
+            .rpc('fn_horse_multiway_river_nodes_v1', {
+              p_observer: context.observerId,
+              p_variant: context.variant,
+              p_dealt_count: context.dealtCount,
+              p_before: before,
+              p_hands: riverNodeBindings(window),
+            })
+            .abortSignal(deadline);
+          const enriched = nodeError ? null : attachRiverNodeSidecar(window, sidecar, Date.now());
+          if (enriched?.status === 'captured') return enriched.window;
+          noteFire('horse_river_nodes_unavailable');
+        } catch {
+          noteFire('horse_river_nodes_unavailable');
+        }
+      }
+      return window;
+    } catch {
+      noteFire('horse_observer_history_unavailable');
+      noteFire('horse_observer_history_thrown');
+      failed(deadline?.aborted ? 'provider_deadline' : 'provider_thrown');
+      return null;
+    }
+  }
+);

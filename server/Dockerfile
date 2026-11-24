@@ -153,6 +153,6 @@ LABEL org.opencontainers.image.revision=$GIT_COMMIT_SHA
 # grace. Once grace clears, three failures still identify a sustained wedge in
 # roughly one minute. Linux exposes /proc stat start time in USER_HZ (100 Hz).
 HEALTHCHECK --interval=20s --timeout=15s --start-period=300s --retries=3 \
-  CMD node -e "const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://0.0.0.0:8080/health').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))"
+  CMD node -e "const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://127.0.0.1:8081/livez').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

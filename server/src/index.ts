@@ -33,6 +33,12 @@ import { subscribePlayerSessionRevocations } from './services/PlayerSessionAcces
 import { AsyncResource } from 'node:async_hooks';
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { createEngineHttpServer } from './http/createEngineHttpServer.js';
+import {
+  createInternalLivenessServer,
+  HTTP_LISTEN_BACKLOG,
+  INTERNAL_LIVENESS_HOST,
+  resolveInternalLivenessPort,
+} from './http/createInternalLivenessServer.js';
 import { describeError, reportError } from './services/errorReporter.js';
 import {
   flushEngineLifecycleLogs,
@@ -104,6 +110,7 @@ import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+const INTERNAL_LIVENESS_PORT = resolveInternalLivenessPort();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MEMBER FEE ROLLUP - RETIRED (2026-09-04)
@@ -195,6 +202,8 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 const httpServer = createEngineHttpServer(
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
+const internalLivenessServer =
+  INTERNAL_LIVENESS_PORT > 0 ? createInternalLivenessServer(() => gameServer.getLiveness()) : null;
 // ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): with
 // ENGINE_ROLLING_HANDOFF=on and ENGINE_HANDOFF_PEER_PORT set, the relay takes
 // the server's upgrades first and re-emits every upgrade that stays here, so a
@@ -480,7 +489,23 @@ gameServer.onHandoffLeaderTakeover(() => {
   );
 });
 
-httpServer.listen(PORT, () => {
+if (internalLivenessServer) {
+  internalLivenessServer.on('error', (error) => {
+    reportError(error, 'InternalLivenessServer.listen_failed');
+  });
+  internalLivenessServer.listen(
+    INTERNAL_LIVENESS_PORT,
+    INTERNAL_LIVENESS_HOST,
+    HTTP_LISTEN_BACKLOG,
+    () => {
+      console.log(
+        `[HTTP] Internal loopback liveness server listening on ${INTERNAL_LIVENESS_HOST}:${INTERNAL_LIVENESS_PORT} (/livez)`
+      );
+    }
+  );
+}
+
+httpServer.listen(PORT, undefined, HTTP_LISTEN_BACKLOG, () => {
   // Module load and construction end here; /health bootPhases measures from process start.
   gameServer.markBootPhase('http_listening');
   console.log(`[HTTP] Health check server listening on port ${PORT}`);
@@ -566,6 +591,22 @@ function closeHttpServer(): Promise<void> {
   });
 }
 
+function closeInternalLivenessServer(): Promise<void> {
+  if (!internalLivenessServer || !internalLivenessServer.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    try {
+      internalLivenessServer.close((error) => (error ? reject(error) : resolve()));
+      internalLivenessServer.closeIdleConnections();
+      setTimeout(
+        () => internalLivenessServer.closeAllConnections(),
+        LOCAL_TRANSPORT_GRACE_MS
+      ).unref();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 async function performShutdown(): Promise<void> {
   console.log('\n[GameServer] Received shutdown signal...');
   // A stopping engine's final writes are never parked behind an event's bound.
@@ -602,6 +643,7 @@ async function performShutdown(): Promise<void> {
   const localStops = [
     beginShutdownStep('Player Session Revocations', () => unsubscribePlayerRevocations()),
     beginShutdownStep('HTTP server', closeHttpServer),
+    beginShutdownStep('internal liveness server', closeInternalLivenessServer),
     beginShutdownStep('table WebSocket server', () => engineWs.close()),
     beginShutdownStep('channel WebSocket server', () => channelWs.close()),
   ];
