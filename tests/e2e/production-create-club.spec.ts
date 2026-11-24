@@ -188,7 +188,8 @@ test.describe('Production Create A Club Certificate', () => {
     // wallet announcement that happens to contain the same number.
     // The club starts at 100K, then the atomic welcome transaction moves the
     // reviewed 100 BBJ seed and 200 Spins seed into their club-owned reserves.
-    await expect(page.getByLabel(/^99\.7K Club Bank Chips$/)).toBeVisible({
+    // Figures print exactly since #10797 (2026-11-14): compactChips is exactChips.
+    await expect(page.getByLabel(/^99,700 Club Bank Chips$/)).toBeVisible({
       timeout: 60_000,
     });
     const welcome = page.getByRole('region', { name: 'Opening Welcome Package', exact: true });
