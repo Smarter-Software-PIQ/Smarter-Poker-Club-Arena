@@ -509,7 +509,22 @@ describe('the offer is the existing release, not a second publisher', () => {
     ).toContain('PHASE1_RESTORING');
     expect(stage.jobs.signal.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(stage.on.push.branches).toEqual(['main']);
-    expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
+    // MOVED 2026-11-24 (O25): issues: write and statuses: read serve only the
+    // owner's readiness comments on the cutover log issue, posted from inside
+    // its existing cutoff wait. The one write of the job is pinned in
+    // tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts.
+    expect(stage.jobs.detect.permissions).toEqual({
+      contents: 'read',
+      actions: 'read',
+      issues: 'write',
+      statuses: 'read',
+    });
+    expect(
+      stage.jobs.detect.steps
+        .map((step: { run?: string }) => step.run ?? '')
+        .join('\n')
+        .match(/--method|-X [A-Z]+|dispatches/g)
+    ).toEqual(['--method']);
   });
 
   it('exercises the daily evidence and intent decisions', () => {
