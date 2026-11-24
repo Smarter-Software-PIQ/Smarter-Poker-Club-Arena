@@ -43,8 +43,88 @@ Local native re-runs of #11186, #11192 and #11197: `pg_ctl` could not start a pr
 5. **Production runtimes outside scratch**: World Hub #2875 installer refusal, in a required check (verified).
 6. **Cross-task SSD deletion**: `scripts/agent-tree-janitor.sh` already removes only locked-out, clean and pushed trees and uses `scripts/ops/safe-worktree-prune.mjs` (2026-11-22). The 2026-11-16 deleter stays unidentified; no further code change made.
 
+## Retention prune page cost (pg_cron job 117, 2026-11-24)
+
+**Symptom.** `public.sp_prune_hand_history` ran 15.9–19.6 s per run on average (max 40.4 s), back to back every 10 seconds, from 06:00 to 13:00 UTC while the pass caught up from 2026-11-15 to the 8-day frontier. It was one of the sources of the DatabaseRepliesLost saturation firings.
+
+**Dominant step, measured on production.** Read-only timing in a rolled-back `DO` block over frontier hands that are 8 days old:
+
+- `public.fn_pnl_cash_hand_evidence` costs about 26 ms per hand.
+- Each doomed horse hand reaches it up to three times:
+  - `smarter_private.horse_cash_retention_accounting_ready`, the candidate guard
+  - `smarter_private.compact_horse_settlement_keys`
+  - `smarter_private.compact_horse_cash_play_contents`
+- 200 hands × 3 calls × 26 ms comes to about 15.6 s of the roughly 17 s page.
+
+Inside the evidence function, `smarter_private.original_treasury_participant_gift` was the largest piece: about 10 ms per hand, or 2 ms per participant.
+
+The other pieces measured per 30 hands:
+
+| Piece                      | Time per 30 hands |
+| -------------------------- | ----------------- |
+| Funding lineage            | 0.12 s            |
+| Settlement original result | 0.04 s            |
+| Atomic match               | 0.03 s            |
+| Initial-receipt checks     | 0.03 s            |
+| Receipt and request reads  | 0.03 s            |
+
+The scan, the citations and the anti-joins were already under 60 ms. Foreign-key cascades were ruled out: only two foreign keys reference `hand_history`, and both of their tables are empty.
+
+**Why it broke.** The gift lookup ran the full byte-exact proof, `original_treasury_gift_evidence`, for every gift witness. Only afterwards did it compare each proof's occupancy with the participant's. That cost:
+
+- grows with every witness ever admitted
+- is paid for every participant of every hand
+- is paid up to three times per pruned hand
+
+The proof derives its `occupancy_id` from the witness's own `source#>>'{seat_event,after_row,occupancy_id}'`. The table already allows only one gift per occupancy (`original_treasury_gift_occupancy_once`). So almost all of that work could never change the answer.
+
+**Source fix: migration `20261124191500_a_treasury_gift_is_looked_up_by_its_own_occupancy`.** It is a guarded single-anchor amendment of the live definition.
+
+- **What it skips.** A witness whose source occupancy is canonical uuid text and differs from the participant's. Such a witness can never match.
+- **What still runs in full.** A witness whose occupancy is non-canonical text is still proven.
+- **Unchanged:**
+  - retention policy
+  - deletion totals
+  - every money-evidence guard, filter and exactly-one rule
+  - the exception handler
+
+**Equivalence proved three ways:**
+
+1. **Production, read-only:**
+   - 539 participants of 120 frontier hands showed 0 differences.
+   - Each of the 4 witnesses' own chairs returned the same proof.
+   - Time for those 539 calls fell from 0.916 s to 0.070 s.
+2. **Native PostgreSQL 17 copy:** the live definition verbatim, plus a stand-in proof of the same shape, run on 454 cases.
+   - Cases covered:
+     - every own chair, including upper-case, braced and unhyphenated occupancies
+     - foreign chairs
+     - wrong table
+     - late capture
+     - missing occupancy
+     - malformed join time
+   - Results before and after:
+
+     | Measure         | Before | After |
+     | --------------- | ------ | ----- |
+     | Proofs returned | 123    | 123   |
+     | Error outcomes  | 20     | 20    |
+     | Differences     | —      | 0     |
+     | Proof calls     | 54,027 | 1,544 |
+
+   - Re-applying the migration is a no-op.
+
+3. **The migration's own probe:**
+   - Every admitted witness still proves its own chair.
+   - A random foreign occupancy finds nothing.
+
+**Class hardening.** `tests/a-treasury-gift-is-looked-up-by-its-own-occupancy.law.test.ts` and its `docs/laws.d` entry:
+
+- fail on the old shape, because the migration and its prefilter are required
+- fail if any later migration redefines the lookup without the prefilter
+
 ## Open, not done here
 
 - `chip_ledger` per-row LIKE: every current site is bounded by an indexed entity filter (#11199 audit), but no law enforces it; the index uses en_US collation, so the wallet-credit range does not apply.
 - Production backlog for the Production Alerts lane: 38,391 stale firing `financial-alerts-backfill`, 19,416 `drift-incidents-updates` and 1,066 `drift-incidents-backfill` rows older than 24 h.
 - Pre-push gates time out on SSD2 under load; SSD1 passed in about 90 s.
+- Retention pass rescans its retained prefix: each pass restarts at the oldest row and re-examines about 3.7 million rows older than eight days that its guards keep (on 2026-11-24 most of them failed `horse_cash_retention_accounting_ready`, for example hands from 2026-10-24 to 2026-11-16 with no certified accounting outcome). At 250 rows a page that is about 41 hours, and hands that age past the frontier wait for the next pass. Those rows can become deletable later, so the rescan is by design today; whether accounting should certify them (or a retained-prefix watermark should advance) belongs to the accounting and retention owners.
