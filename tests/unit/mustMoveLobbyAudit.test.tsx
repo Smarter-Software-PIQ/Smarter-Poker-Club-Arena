@@ -437,10 +437,13 @@ describe('lobby replies belong to the current game and opening', () => {
     mocks.rpc.mockImplementation((name: string) =>
       name === 'fn_cash_seat_change_request'
         ? reply.promise
-        : Promise.resolve({ data: lobby(), error: null })
+        : Promise.resolve({
+            data: lobby({ table_id: MAIN2, role: 'main', main_index: 2, must_move_position: 1 }),
+            error: null,
+          })
     );
     const { unmount } = render(
-      <MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />
+      <MustMoveLobbyModal isOpen gameId={GAME} currentTableId={MAIN2} onClose={vi.fn()} />
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Request Any Table' }));
     unmount();
@@ -543,6 +546,7 @@ describe('a failed lobby read is house copy, never the database code', () => {
     const raised = [
       'PLATFORM_FROZEN',
       'SEAT_CHANGE_MANUAL_GAME',
+      'SEAT_CHANGE_CLUSTER_CONVERTING',
       'NOT_IN_GAME',
       'SEAT_CHANGE_NOT_FROM_MAIN',
       'SEAT_CHANGE_TABLE_CLOSING',

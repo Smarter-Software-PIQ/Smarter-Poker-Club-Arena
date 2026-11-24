@@ -368,6 +368,7 @@ export const SEAT_CHANGE_REFUSALS: Record<string, string> = {
   SEAT_CHANGE_SAME_TABLE: 'You Are Already At That Table.',
   SEAT_CHANGE_NO_OTHER_TABLE: 'There Is No Other Table To Change To Yet.',
   SEAT_CHANGE_MANUAL_GAME: 'A Manual Table Has No Seat Change.',
+  SEAT_CHANGE_CLUSTER_CONVERTING: 'This Game Is Converting To Lightning. Seat Changes Are Paused.',
   MOVE_PENDING: 'You Are Already Being Moved.',
   NOT_IN_GAME: 'You Are Not Seated In This Game.',
   // Maintenance break refusal is definitive (2026-10-16).

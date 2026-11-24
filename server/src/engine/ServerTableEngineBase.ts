@@ -6052,9 +6052,9 @@ export abstract class ServerTableEngineBase {
     const gameId = this.tableInfo?.cluster_id;
     if (!gameId || this.isTournamentTable()) return;
     try {
-      // A seat that opened is planned now, not after the 500 ms burst hold:
-      // see ClusterWakeOptions (a vacancy does not wait for the debounce).
-      wakeCluster(String(gameId), { now: reason === 'seat_left' });
+      // A seat that opened (departure or upward seat move vacating a Main) is
+      // planned now, not after the 500 ms burst hold: see ClusterWakeOptions.
+      wakeCluster(String(gameId), { now: reason === 'seat_left' || reason === 'seat_move' });
     } catch {
       /* wakeCluster reports its own errors; nothing reaches the loop */
     }
@@ -12958,6 +12958,7 @@ export abstract class ServerTableEngineBase {
       const evictHand = this.handController?.getState();
 
       const departed = new Set<string>();
+      let evicted = 0;
       for (const userId of evictable) {
         if (this.terminal || isMaintenanceFrozen()) break;
         const seated = originalOccupancies.get(userId);
@@ -13049,6 +13050,7 @@ export abstract class ServerTableEngineBase {
           )
             continue;
           departed.add(seated.occupancy_id!);
+          evicted++;
           this.hub?.emitEvent(this.tableId, {
             type: 'seat_left',
             table_id: this.tableId,
@@ -13079,6 +13081,7 @@ export abstract class ServerTableEngineBase {
       this.seatedPlayers = this.seatedPlayers.filter(
         (p) => !p.occupancy_id || !departed.has(p.occupancy_id)
       );
+      if (evicted > 0) this.wakeClusterGame('seat_left');
     } finally {
       releaseSeatBoundary();
     }

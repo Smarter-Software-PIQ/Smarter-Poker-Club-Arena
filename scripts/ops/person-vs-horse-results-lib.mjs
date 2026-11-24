@@ -6,10 +6,18 @@
  * hands its JSON to buildReport. Method, verified meaning of `profit`, the fixed verdict rules and
  * the limits are written down in docs/ops/person-vs-horse-results.md; keep the two in step.
  *
- * What is counted: one row of ca_hand_player_stat per person per hand ("person-hand"), for people
- * (profiles.is_horse is not true) whose profile is not marked deleted, in hands where at least one
- * Horse was dealt in (fewer people in the hand than players dealt). The result is `profit`, the
- * person's net chips for the hand after rake, divided by the hand's big blind.
+ * What is counted: one row per person per hand ("person-hand"), for people (profiles.is_horse is
+ * not true) whose profile is not marked deleted, in hands where at least one Horse was dealt in
+ * (fewer people in the hand than players dealt). The hands and who sat in them come from
+ * hand_history (has_human hands only); each person's result is ca_hand_facts.net, the net chips
+ * for the hand after rake, divided by the hand's big blind.
+ *
+ * Never ca_hand_player_stat: it keeps only each player's newest ~1,000 hands, so a past window
+ * shrinks as people keep playing. Never ca_hand_player_facts either: it leaves out bomb-pot antes
+ * and books a blind nobody posted in a bomb pot. ca_hand_facts is written once per hand by the
+ * hand_history trigger, is never pruned, and its `invested` sums to the stored pot on every hand
+ * checked. assertSourceComplete stops the report (exit 70) if it ever holds fewer person-hands
+ * than hand_history says were played.
  *
  * Luck: hands of one person in one sitting are not independent, so the standard error of bb/100 is
  * computed by clustering on person-session (one person, one game, cash or tournament, hands no
@@ -144,9 +152,16 @@ function dimensionSql(by) {
 }
 
 /**
- * One WITH ... SELECT, bounded by [since, until) on ca_hand_player_stat.created_at. The table is
- * indexed by (user_id, created_at), so it is read once per person; everything is summed in SQL to
- * one row per person-session and breakdown value.
+ * One WITH ... SELECT, bounded by [since, until) on hand_history.created_at and only over has_human
+ * hands (a partial index), filtered to the asked mode and games before anything else is read. Who
+ * sat in each hand comes from hand_history.players; each person's result is looked up in
+ * ca_hand_facts by its primary key (hand_id, user_id). Everything is summed in SQL to one row per
+ * person-session and breakdown value, plus the person-hand count hand_history expects and the
+ * count ca_hand_facts holds, for assertSourceComplete.
+ *
+ * The ca_hand_facts lookup is a LATERAL primary-key probe on purpose: ca_hand_facts has over 100
+ * million rows, and as a plain join the planner (which overestimates the seated rows a hundredfold)
+ * hashes the whole table and runs past the statement timeout.
  */
 export function buildResultsSql(plan) {
   const { sinceMs, untilMs, splits, mode, games, by } = plan;
@@ -157,13 +172,15 @@ export function buildResultsSql(plan) {
     throw new Error(`the time range may not be longer than ${MAX_RANGE_DAYS} days`);
   }
   const filters = [];
-  if (mode === 'cash') filters.push('AND s.is_cash = true');
-  else if (mode === 'tournament') filters.push('AND s.is_cash = false');
+  if (mode === 'cash') filters.push('AND h.tournament_id IS NULL');
+  else if (mode === 'tournament') filters.push('AND h.tournament_id IS NOT NULL');
   else if (mode !== 'all') throw new Error(`unknown mode: ${mode}`);
   if (games !== null) {
     if (!Array.isArray(games) || games.length === 0) throw new Error('games must not be empty');
     for (const g of games) if (!GAME_RE.test(g)) throw new Error(`invalid game name: ${g}`);
-    filters.push(`AND s.game_variant IN (${games.map((g) => `'${g}'`).join(', ')})`);
+    filters.push(
+      `AND lower(coalesce(h.game_variant, 'nlh')) IN (${games.map((g) => `'${g}'`).join(', ')})`
+    );
   }
   const windowSql =
     splits.length === 0
@@ -176,21 +193,33 @@ export function buildResultsSql(plan) {
   SELECT id, (status IS DISTINCT FROM 'deleted') AS counted
   FROM public.profiles
   WHERE is_horse IS NOT TRUE
+), dealt AS MATERIALIZED (
+  SELECT h.id AS hand_id, h.created_at, (h.tournament_id IS NULL) AS is_cash,
+         lower(coalesce(h.game_variant, 'nlh')) AS game_variant,
+         coalesce(h.big_blind, 0)::numeric AS big_blind,
+         jsonb_array_length(coalesce(h.players, '[]'::jsonb)) AS n_players, h.players
+  FROM public.hand_history h
+  WHERE h.has_human
+    AND h.created_at >= ${sqlInstant(sinceMs)} AND h.created_at < ${sqlInstant(untilMs)}
+    ${filters.join('\n    ')}
+), seated AS MATERIALIZED (
+  SELECT DISTINCT d.hand_id, d.created_at, d.is_cash, d.game_variant, d.big_blind, d.n_players,
+         p.id AS user_id, p.counted
+  FROM dealt d
+  CROSS JOIN LATERAL jsonb_array_elements(d.players) e
+  JOIN people p ON p.id::text = e->>'userId'
 ), picked AS MATERIALIZED (
-  SELECT p.id AS user_id, p.counted, x.hand_id, x.created_at, x.is_cash, x.game_variant,
-         x.big_blind, x.profit, x.showdown, x.n_players
-  FROM people p CROSS JOIN LATERAL (
-    SELECT s.hand_id, s.created_at, s.is_cash, s.game_variant, s.big_blind, s.profit, s.showdown,
-           s.n_players
-    FROM public.ca_hand_player_stat s
-    WHERE s.user_id = p.id
-      AND s.created_at >= ${sqlInstant(sinceMs)} AND s.created_at < ${sqlInstant(untilMs)}
-      ${filters.join('\n      ')}
-  ) x
+  SELECT s.*, f.net AS profit, f.went_to_showdown AS showdown, (f.hand_id IS NOT NULL) AS in_source
+  FROM seated s
+  LEFT JOIN LATERAL (
+    SELECT x.hand_id, x.net, x.went_to_showdown
+    FROM public.ca_hand_facts x
+    WHERE x.hand_id = s.hand_id AND x.user_id = s.user_id
+    LIMIT 1
+  ) f ON true
 ), marked AS MATERIALIZED (
   SELECT r.*, count(*) OVER (PARTITION BY r.hand_id) AS people_in_hand,
-         (r.profit IS NOT NULL AND r.big_blind > 0 AND r.n_players IS NOT NULL
-          AND r.game_variant IS NOT NULL AND r.is_cash IS NOT NULL) AS usable
+         (r.in_source AND r.profit IS NOT NULL AND r.big_blind > 0 AND r.n_players > 0) AS usable
   FROM picked r
 ), kept AS (
   SELECT m.user_id, m.hand_id, m.created_at, m.is_cash, m.game_variant, m.n_players, m.big_blind,
@@ -230,8 +259,36 @@ SELECT jsonb_build_object(
       'deleted_accounts', count(*) FILTER (WHERE NOT counted),
       'unusable', count(*) FILTER (WHERE counted AND NOT usable),
       'no_horse', count(*) FILTER (WHERE counted AND usable AND people_in_hand >= n_players))
+    FROM marked),
+  'source', (SELECT jsonb_build_object(
+      'table', 'ca_hand_facts',
+      'expected', count(*),
+      'found', count(*) FILTER (WHERE in_source))
     FROM marked)
 ) AS report`;
+}
+
+/**
+ * The guard against a truncated source. The query counts the person-hands hand_history says were
+ * played in the range (`expected`) and how many of them ca_hand_facts holds (`found`). Any shortfall,
+ * or output without the counts (such as a file saved by an older version of this report), throws,
+ * so the CLI exits EXIT_FAILED instead of giving a verdict on part of the hands.
+ */
+export function assertSourceComplete(row) {
+  const src = row?.source;
+  const expected = Number(src?.expected);
+  const found = Number(src?.found);
+  if (!src || !Number.isInteger(expected) || !Number.isInteger(found) || expected < 0) {
+    throw new Error(
+      'the query output has no source count, so it cannot be shown to hold every hand; refusing to report'
+    );
+  }
+  if (found < expected) {
+    throw new Error(
+      `the result source holds ${fmtInt(found)} of the ${fmtInt(expected)} person-hands hand_history has for this range (${fmtInt(expected - found)} missing); refusing to report on part of the hands`
+    );
+  }
+  return { table: String(src.table ?? ''), expected, found };
 }
 
 /** Unwrap the CLI's JSON (an array with one row, or the object itself). */
@@ -390,6 +447,7 @@ function dimensionSort(by) {
 /** Query output + plan -> the report object (also the --json output). */
 export function buildReport(raw, plan) {
   const row = unwrapReportRow(raw);
+  assertSourceComplete(row);
   const bounds = [plan.sinceMs, ...plan.splits, plan.untilMs];
   const windows = [];
   for (let i = 0; i < bounds.length - 1; i++) {

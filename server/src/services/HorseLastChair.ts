@@ -64,7 +64,108 @@ export interface LastChairTable {
   id?: unknown;
   cluster_id?: unknown;
   lifecycle?: unknown;
+  role?: unknown;
+  main_index?: unknown;
   max_players?: unknown;
+  current_players?: unknown;
+  status?: unknown;
+  is_deleted?: unknown;
+  must_move?: unknown;
+  cluster_mode?: unknown;
+  cluster?: unknown;
+}
+
+const ACTIVE_TABLE_STATUSES = new Set(['waiting', 'running', 'active']);
+
+function isActiveTableStatus(status: unknown): boolean {
+  if (status === undefined || status === null) return true;
+  return ACTIVE_TABLE_STATUSES.has(String(status));
+}
+
+function clusterMetaOf(table: LastChairTable): {
+  mustMove: boolean | null;
+  clusterMode: string | null;
+} {
+  const embedded = Array.isArray(table.cluster) ? table.cluster[0] : table.cluster;
+  const row =
+    embedded && typeof embedded === 'object' ? (embedded as Record<string, unknown>) : null;
+  const rawMustMove = table.must_move !== undefined ? table.must_move : row?.must_move;
+  const rawMode = table.cluster_mode !== undefined ? table.cluster_mode : row?.cluster_mode;
+  return {
+    mustMove: typeof rawMustMove === 'boolean' ? rawMustMove : null,
+    clusterMode: typeof rawMode === 'string' ? rawMode : null,
+  };
+}
+
+/**
+ * PURE. Mirror of SQL `public.fn_cash_main_chair_is_the_lists(uuid)`.
+ *
+ * A must-move cash table with `role === 'main'` has its open chairs reserved
+ * exclusively for the must-move list whenever its `cluster_id` has:
+ *   - a higher live Main (`role === 'main'`, `lifecycle === 'live'`,
+ *     `main_index > table.main_index`), OR
+ *   - a live feeder (`role === 'feeder'`, `lifecycle === 'live'`), OR
+ *   - an opening feeder (`role === 'feeder'`, `lifecycle === 'opening'`) that
+ *     already has seated players (or pending inbound moves).
+ *
+ * Never reserves a Main when the game is not in `must_move` mode (e.g. active
+ * Lightning or manual tables), when no feeder or higher live Main exists, or
+ * when only an empty 0-player opening feeder exists.
+ */
+export function isMainTableReservedForMustMoveList(
+  table: LastChairTable,
+  allTables: ReadonlyArray<LastChairTable>,
+  occupiedByTable?: (tableId: string) => number,
+  pendingArrivalsByTable?: (tableId: string) => number
+): boolean {
+  const clusterId = table.cluster_id ? String(table.cluster_id) : '';
+  if (!clusterId || table.role !== 'main') return false;
+  if (table.lifecycle === 'breaking' || table.lifecycle === 'closed') return false;
+  if (table.is_deleted === true || !isActiveTableStatus(table.status)) return false;
+
+  const meta = clusterMetaOf(table);
+  if (meta.mustMove === false) return false;
+  if (meta.clusterMode !== null && meta.clusterMode !== 'must_move') return false;
+
+  const tableId = String(table.id ?? '');
+  const myMainIndex =
+    table.main_index === null || table.main_index === undefined ? NaN : Number(table.main_index);
+
+  for (const sibling of allTables) {
+    const siblingId = String(sibling.id ?? '');
+    if (!siblingId || siblingId === tableId) continue;
+    if (String(sibling.cluster_id ?? '') !== clusterId) continue;
+    if (sibling.is_deleted === true || !isActiveTableStatus(sibling.status)) continue;
+
+    if (sibling.role === 'main' && sibling.lifecycle === 'live') {
+      const siblingIndex =
+        sibling.main_index === null || sibling.main_index === undefined
+          ? NaN
+          : Number(sibling.main_index);
+      if (
+        Number.isFinite(myMainIndex) &&
+        Number.isFinite(siblingIndex) &&
+        siblingIndex > myMainIndex
+      ) {
+        return true;
+      }
+      continue;
+    }
+
+    if (sibling.role === 'feeder') {
+      if (sibling.lifecycle === 'live') return true;
+      if (sibling.lifecycle === 'opening') {
+        const seated = occupiedByTable
+          ? Math.max(0, Math.floor(Number(occupiedByTable(siblingId)) || 0))
+          : Math.max(0, Math.floor(Number(sibling.current_players) || 0));
+        const pending = pendingArrivalsByTable
+          ? Math.max(0, Math.floor(Number(pendingArrivalsByTable(siblingId)) || 0))
+          : 0;
+        if (seated > 0 || pending > 0) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -80,9 +181,10 @@ export function lastChairGameKey(table: LastChairTable): string {
  * PURE. Open chairs per game at the top of a cycle.
  *
  * Counts every table of the game that can still take a player: a breaking or
- * closed table gives nobody a chair, so its empties are not "a seat open".
- * A planned arrival (a must-move or break move already written) holds its
- * chair, exactly as the seat stage counts it.
+ * closed table gives nobody a chair, and a Main whose open chairs are reserved
+ * for the must-move list (`isMainTableReservedForMustMoveList`) gives no direct
+ * buy-in chair either. A planned arrival (a must-move or break move already
+ * written) holds its chair, exactly as the seat stage counts it.
  */
 export function openChairsByGame(input: {
   tables: ReadonlyArray<LastChairTable>;
@@ -92,6 +194,16 @@ export function openChairsByGame(input: {
   const open = new Map<string, number>();
   for (const t of input.tables) {
     if (t.lifecycle === 'breaking' || t.lifecycle === 'closed') continue;
+    if (
+      isMainTableReservedForMustMoveList(
+        t,
+        input.tables,
+        input.occupiedByTable,
+        input.pendingArrivalsByTable
+      )
+    ) {
+      continue;
+    }
     const id = String(t.id ?? '');
     const max = Math.floor(Number(t.max_players) || 0);
     if (!id || max <= 0) continue;

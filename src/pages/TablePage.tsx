@@ -34140,17 +34140,14 @@ function LiveTablePage({
               const message =
                 cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
                 'The Server Refused This Buy-In.';
-              if (
-                /^SEAT_RESERVED:/.test(
-                  String(
-                    typeof outcome.error === 'object' &&
-                      outcome.error !== null &&
-                      'message' in outcome.error
-                      ? outcome.error.message
-                      : outcome.error
-                  )
-                )
-              ) {
+              const rawRefusalMessage = String(
+                typeof outcome.error === 'object' &&
+                  outcome.error !== null &&
+                  'message' in outcome.error
+                  ? outcome.error.message
+                  : outcome.error
+              );
+              if (/^SEAT_RESERVED:/.test(rawRefusalMessage)) {
                 // The rejected receipt proves no purchase committed. Replace
                 // the dead-end sheet with the actionable game/table queue.
                 setPendingSeat(null);
@@ -34163,7 +34160,11 @@ function LiveTablePage({
                   openLightningAnchorEntry();
                   return false;
                 }
-                toast.info('This Seat Is Reserved. Join The List To Get Your Next Available Seat.');
+                toast.info(
+                  /must-move list/i.test(rawRefusalMessage)
+                    ? message
+                    : 'This Seat Is Reserved. Join The List To Get Your Next Available Seat.'
+                );
                 handleOpenWaitlist();
                 return false;
               }
