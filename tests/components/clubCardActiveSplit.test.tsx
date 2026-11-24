@@ -56,6 +56,34 @@ describe('the club card prints active players by game', () => {
     expect(document.body.textContent).not.toMatch(/unavailable/i);
   });
 
+  it('shows only adjusted Kings Club totals as they arrive', () => {
+    const props = {
+      clubName: 'KINGS CLUB',
+      totalMembers: 182,
+      clubLevel: 21,
+      activePlayers: 0,
+      clubId: 25450,
+    };
+    const { rerender, container } = render(<ClubCardPanel {...props} />);
+    const values = () =>
+      Array.from(container.querySelectorAll('.club-card-stat-value'), (el) => el.textContent);
+    expect(values()).toEqual(['…', '21', '…']);
+
+    rerender(
+      <ClubCardPanel
+        {...props}
+        kingsDisplayTotals={{
+          member_total: 1682,
+          active_total: 145,
+          member_addition: 1500,
+          active_addition: 145,
+        }}
+      />
+    );
+    expect(values()).toEqual([(1682).toLocaleString(), '21', '145']);
+    expect(container.querySelector('.club-card-stat--active .sc-ink--green')).not.toBeNull();
+  });
+
   it('remembers the last split it saw for the same club', () => {
     const { unmount } = render(
       <ClubCardPanel

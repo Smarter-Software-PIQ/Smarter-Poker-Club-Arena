@@ -172,3 +172,9 @@
   flex: 0 0 190px;
   margin-left: auto;
 }
+.mp-card__player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}

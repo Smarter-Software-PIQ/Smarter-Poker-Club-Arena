@@ -30,6 +30,7 @@ import {
   useLayoutEffect,
   useCallback,
 } from 'react';
+import { titleArtStyle } from './ArenaLobbyTitle';
 import type { LobbyEntry, LobbyStatusKey, LobbyTournamentRow, LobbyTableRow } from './lobbyEntries';
 import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
@@ -1092,7 +1093,16 @@ function TournamentHeadingRow({
           ) : (
             <TournamentFormatIcon entry={entry} />
           )}
-          <span className="lt-tournament-heading__name" title={heading}>
+          <span
+            className="lt-tournament-heading__name"
+            title={heading}
+            data-arena-format={entry.kind !== 'cash' || undefined}
+            style={
+              entry.kind === 'cash'
+                ? undefined
+                : titleArtStyle(entry.raw as LobbyTournamentRow, entry.kind)
+            }
+          >
             <span ref={titleRef} className="premium-lobby-title-fit">
               {heading}
             </span>
@@ -2198,6 +2208,7 @@ export function columnsFor(category: LobbyCategory): ColumnDef[] {
 
 // ─── The table ─────────────────────────────────────────────────────────────
 interface LobbyTableProps {
+  renderPinnedRows?: (colSpan: number) => React.ReactNode;
   entries: LobbyEntry[];
   /** Raw data snapshot identity; a reconnect may leave visible counters unchanged. */
   tournamentSnapshot?: readonly unknown[];
@@ -2246,6 +2257,7 @@ interface LobbyTableProps {
 
 export default function LobbyTable({
   entries: suppliedEntries,
+  renderPinnedRows,
   tournamentSnapshot,
   category,
   selectedId,
@@ -2699,7 +2711,7 @@ export default function LobbyTable({
     COL_STATUS,
   ];
 
-  const hasTournamentHeadings = sorted.length > 0;
+  const hasTournamentHeadings = sorted.length > 0 || Boolean(renderPinnedRows);
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
     const rows = mobileCardsRef.current;
@@ -2772,6 +2784,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody role="rowgroup">
+            {renderPinnedRows?.(4)}
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
@@ -2988,6 +3001,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody ref={bodyRef} role="rowgroup">
+            {renderPinnedRows?.(browseColumns.length)}
             {loading &&
               entries.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (

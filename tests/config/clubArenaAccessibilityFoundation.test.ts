@@ -117,7 +117,14 @@ describe('Club Arena accessibility foundation', () => {
     expect(workspaceSource).toContain("await import('../utils/retryFetch')");
     expect(workspaceSource).toMatch(/retryFetch\([\s\S]*?from\('club_members'\)/);
     expect(workspaceSource).toMatch(/retryFetch\([\s\S]*?from\('profiles'\)/);
-    expect(workspaceSource).toContain('CLUB_WORKSPACE_READ_TIMEOUT_MS');
+    // The deadline lives in its own module (2026-11-24) so it can name a
+    // timeout supabase-js returns instead of throwing; the workspace must
+    // still route its reads through it.
+    expect(workspaceSource).toContain("from './clubWorkspaceReadTimeout'");
+    expect(workspaceSource).toMatch(/withClubWorkspaceReadTimeout\([\s\S]*?from\('club_members'\)/);
+    expect(read('src/contexts/clubWorkspaceReadTimeout.ts')).toContain(
+      'CLUB_WORKSPACE_READ_TIMEOUT_MS'
+    );
     expect(workspaceSource).toContain('.abortSignal(signal)');
     expect(source).toContain("label: 'Diamond Spins'");
     expect(source).toContain("label: 'Stats'");

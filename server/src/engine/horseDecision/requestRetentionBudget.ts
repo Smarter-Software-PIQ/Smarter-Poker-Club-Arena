@@ -2,7 +2,11 @@ import type { HorseDecisionJobRequest } from './protocol.js';
 
 // Includes posted requests until their actual terminal response, not merely
 // caller timeout. Limits are allocation allowances, not measurements of V8 RSS.
-export const HORSE_REQUEST_MAX_BYTES = 2 * 1024 * 1024;
+// 4 MiB / 65,536 nodes leaves headroom for a full 9-max DECIDE_FAST carrying
+// both a near-256 KiB ownPublicHistory packet (~1.85 MiB allowance, ~13.4k nodes)
+// and a full OpponentHudPacket (~1.15 MiB allowance, ~13.5k nodes on 9-max).
+export const HORSE_REQUEST_MAX_BYTES = 4 * 1024 * 1024;
+export const HORSE_REQUEST_MAX_NODES = 65536;
 export const HORSE_REQUEST_MAX_PENDING = 2048;
 export const HORSE_REQUEST_RETAINED_BYTES = 96 * 1024 * 1024;
 export const HORSE_REQUEST_MAX_PLANS = 128;
@@ -26,7 +30,7 @@ export function horseRequestAllowance(value: unknown, maximum = HORSE_REQUEST_MA
   let bytes = 256;
   let nodes = 0;
   while (pending.length) {
-    if (++nodes > 32768 || bytes > maximum) throw new HorseRequestCapacityError();
+    if (++nodes > HORSE_REQUEST_MAX_NODES || bytes > maximum) throw new HorseRequestCapacityError();
     const { value: item, depth } = pending.pop()!;
     if (depth > 64) throw new HorseRequestCapacityError();
     if (typeof item === 'string') bytes += 6 * item.length + 16;
@@ -39,11 +43,13 @@ export function horseRequestAllowance(value: unknown, maximum = HORSE_REQUEST_MA
       if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null)
         throw new HorseRequestCapacityError();
       bytes += 64;
-      if (Array.isArray(item) && item.length > 32768) throw new HorseRequestCapacityError();
+      if (Array.isArray(item) && item.length > HORSE_REQUEST_MAX_NODES)
+        throw new HorseRequestCapacityError();
       for (const key in item) {
         if (!Object.hasOwn(item, key)) continue;
         bytes += 6 * key.length + 32;
-        if (bytes > maximum || pending.length >= 32768) throw new HorseRequestCapacityError();
+        if (bytes > maximum || pending.length >= HORSE_REQUEST_MAX_NODES)
+          throw new HorseRequestCapacityError();
         const descriptor = Object.getOwnPropertyDescriptor(item, key);
         if (!descriptor || !('value' in descriptor)) throw new HorseRequestCapacityError();
         pending.push({ value: descriptor.value, depth: depth + 1 });

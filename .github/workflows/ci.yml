@@ -5213,6 +5213,8 @@ jobs:
       - name: Run the beats against this commit's CSS
         id: css-beats
         env:
+          # Image-heavy observer canvases share this one shard. Keep their 60s test budgets.
+          PLAYWRIGHT_WORKERS: ${{ matrix.partition == 'general' && matrix.shard == 7 && '2' || '' }}
           CSS_BEAT_GREP: ${{ matrix.partition == 'portrait' && 'occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at' || '^(?!.*occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at)' }}
           CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
           CI_HEAD_SHA: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}

@@ -1,3 +1,4 @@
+import { compactChips } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  JOIN A CLUB - on the spade console (#ClubArenaConsole)
@@ -46,7 +47,6 @@ import { reportError } from '../../utils/errorReporter';
 import { ClubEntryTrustService } from '../../services/ClubEntryTrustService';
 import { titleCase } from '../../utils/titleCase';
 import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
-import { compactChips } from '../../utils/format';
 import styles from './JoinClubModal.module.css';
 
 interface JoinClubModalProps {
@@ -413,9 +413,19 @@ export default function JoinClubModal({
                   <div className={styles.fact}>
                     <dt className={`sc-label sc-ink--blue ${styles.factLabel}`}>Members</dt>
                     <dd className={`${styles.factValue} sc-ink--silver`}>
-                      {compactChips(preview.member_count)}
+                      {preview.member_display_total === undefined
+                        ? compactChips(preview.member_count)
+                        : (preview.member_display_total?.toLocaleString() ?? '…')}
                     </dd>
                   </div>
+                  {preview.active_display_total != null && (
+                    <div className={styles.fact}>
+                      <dt className={`sc-label sc-ink--blue ${styles.factLabel}`}>Active</dt>
+                      <dd className={`${styles.factValue} sc-ink--silver`}>
+                        {preview.active_display_total.toLocaleString()}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 {preview.description && (
                   <p className={`sc-copy ${styles.copy}`}>{titleCase(preview.description)}</p>

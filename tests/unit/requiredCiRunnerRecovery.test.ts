@@ -1137,6 +1137,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Require the added Report regression exactly once, preserving every
     // historical command and gate fingerprint after this single addition.
     const reportBeat = browserJob.steps.find((step: { id?: string }) => step.id === 'css-beats');
+    expect(reportBeat.env.PLAYWRIGHT_WORKERS).toBe(
+      "${{ matrix.partition == 'general' && matrix.shard == 7 && '2' || '' }}"
+    );
+    delete reportBeat.env.PLAYWRIGHT_WORKERS;
     const reportSpec = 'tests/e2e/css/club-data-report.spec.ts ';
     expect(reportBeat.run.split(reportSpec)).toHaveLength(2);
     reportBeat.run = reportBeat.run.replace(reportSpec, '');
