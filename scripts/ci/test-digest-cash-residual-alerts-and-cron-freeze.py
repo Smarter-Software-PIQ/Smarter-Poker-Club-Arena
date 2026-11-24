@@ -537,9 +537,10 @@ def main():
             assert t_nb < 0.25 and t_blk >= 0.40, f'Expected pre-fix PQgetResult block >= 0.4s, got first_not_busy={t_nb:.3f}s block={t_blk:.3f}s'
             print(f'REPRO OK: pre-fix cash_residual=-4.40, house_figures off by -4.40, OpenClaw counted=4, proof 448530/447865=false, libpq PQgetResult blocked {t_blk:.3f}s')
 
-            # Snapshot operational_alert_events & sp_daily_metrics before migration (must not mutate!)
+            # Snapshot operational_alert_events, sp_daily_metrics & cron.job before migration (must not mutate!)
             alerts_before = sql("SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM public.operational_alert_events e;").stdout
             metrics_before = sql("SELECT jsonb_agg(to_jsonb(m) ORDER BY day) FROM public.sp_daily_metrics m;").stdout
+            cron_before = sql("SELECT jsonb_agg(to_jsonb(j) ORDER BY jobid) FROM cron.job j;").stdout
 
             # ── 4. Apply migration + verify idempotency, ACLs, live-proofs ───
             sql(MIGRATION.read_text())
@@ -644,56 +645,15 @@ def main():
             assert json.loads(sql("SELECT public.fn_sp_original_alert_proof(447865);").stdout)['kind'] == 'weekly_payout_paid_receipt'
             print('PASS Fix 3: 447865 verified (paid + ready branches + negatives), weekly-payout removed from without_resolve, 6377941a transitioned via reliability_transition')
 
-            # ── 8. Verify Fix 4 AFTER migration (real libpq + PG17!) ─────────
-            sql("TRUNCATE smarter_private.test_cron_calls;")
-            jobs = {
-                int(r[0]): (r[1], r[2], r[3])
-                for r in json.loads(
-                    sql("SELECT jsonb_agg(jsonb_build_array(jobid, jobname, schedule, command) ORDER BY jobid) FROM cron.job;").stdout
-                )
-            }
-            assert jobs[286][1] == '23 6 * * *', jobs[286]
-            assert jobs[117][1] == '30 seconds', jobs[117]
-            assert jobs[117][2] == 'CALL smarter_private.sp_prune_hand_history_cron_tick();', jobs[117]
-
-            # Execute altered #286 via real libpq under a tight DB default statement_timeout (200ms):
-            # proves (1) ZERO PQgetResult blocking, (2) REPEATABLE READ armed, and (3) 600s
-            # statement_timeout actually overrides postgres's default timeout (0.5s sleep succeeds!).
-            sql("ALTER DATABASE postgres SET statement_timeout = '200ms';")
-            t_nb, t_blk, nres, errs = run_libpq_nonblocking(libpq, port, jobs[286][2])
-            assert not errs, errs
-            assert t_nb >= 0.45 and t_blk < 0.05, f'Altered #286 blocked PQgetResult: first_not_busy={t_nb:.3f}s block={t_blk:.3f}s'
-            iso_286, to_286 = sql("SELECT iso, st_timeout FROM smarter_private.test_cron_calls WHERE fn = 'fn_ca_ledger_replay' LIMIT 1;").stdout.strip().split('|')
-            assert iso_286 == 'repeatable read' and to_286 == '9min', (iso_286, to_286)
-            assert int(sql("SELECT count(*) FROM public.ca_ledger_replay_readings;").stdout.strip()) >= 1
-
-            # Execute altered #155 via real libpq under the same 200ms DB default:
-            # proves ZERO PQgetResult blocking AND 300s timeout overrides DB default (0.3s sleep succeeds!).
-            t_nb, t_blk, nres, errs = run_libpq_nonblocking(libpq, port, jobs[155][2])
-            assert not errs, errs
-            assert t_nb >= 0.25 and t_blk < 0.05, f'Altered #155 blocked PQgetResult: first_not_busy={t_nb:.3f}s block={t_blk:.3f}s'
-            to_155 = sql("SELECT st_timeout FROM smarter_private.test_cron_calls WHERE fn = 'fn_rake_bbj_audit' LIMIT 1;").stdout.strip()
-            assert to_155 == '5min', to_155
-            sql("ALTER DATABASE postgres RESET statement_timeout;")
-
-            # Execute altered #117 via real libpq: single-statement CALL, 3 separate committed transactions!
-            t_nb, t_blk, nres, errs = run_libpq_nonblocking(libpq, port, jobs[117][2])
-            assert not errs, errs
-            assert nres == 1 and t_blk < 0.05, (nres, t_blk)
-            txs = sql("SELECT count(DISTINCT txid) FROM smarter_private.test_cron_calls WHERE fn IN ('progress_superseded','discover_superseded');").stdout.strip()
-            assert txs == '2', f'Expected 2 separate committed transactions for superseded retention helpers, got {txs}'
-
-            # Execute altered #119 via real libpq: armed 20s statement_timeout, ZERO blocking!
-            t_nb, t_blk, nres, errs = run_libpq_nonblocking(libpq, port, jobs[119][2])
-            assert not errs, errs
-            assert t_blk < 0.05, t_blk
-
-            # Check bounded page caps & function configs
+            # ── 8. Verify Fix 4 AFTER migration (pruner bounds, replay quietness, cron.job untouched) ──
+            assert cron_before == sql("SELECT jsonb_agg(to_jsonb(j) ORDER BY jobid) FROM cron.job j;").stdout, 'cron.job must remain untouched for the estate-wide single-statement pg_cron migration!'
+            replay_def = sql("SELECT pg_get_functiondef('public.fn_ca_ledger_replay(integer)'::regprocedure);").stdout
+            assert "SET client_min_messages TO 'warning'" in replay_def, replay_def
             hh_def = sql("SELECT pg_get_functiondef('public.sp_prune_hand_history(integer)'::regprocedure);").stdout
             assert hh_def.count('LIMIT LEAST(GREATEST(p_batch,1),75)') == 2 and "SET statement_timeout TO '20s'" in hh_def
             ss_def = sql("SELECT pg_get_functiondef('public.sp_prune_hand_state_snapshots(integer)'::regprocedure);").stdout
             assert 'v_page := LEAST(125, v_limit - v_seen);' in ss_def and "interval '8 seconds'" in ss_def and "SET statement_timeout TO '20s'" in ss_def
-            print('PASS Fix 4: libpq PQgetResult_block=0.000s on #286/#155/#117/#119, REPEATABLE READ + 600s/300s/20s timeouts armed, #117 single CALL with separate COMMITs, pruners bounded (75 / 125 & 8s)')
+            print('PASS Fix 4: fn_ca_ledger_replay quieted (client_min_messages=warning), pruners bounded (75 / 125 & 8s, 20s timeout), cron.job untouched')
             print('ALL 4 SQL ROOT-CAUSE FIXES PROVEN ON NATIVE POSTGRESQL 17')
         finally:
             run('pg_ctl', '-D', str(scratch / 'data'), '-m', 'immediate', 'stop')

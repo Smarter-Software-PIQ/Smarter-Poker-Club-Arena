@@ -116,7 +116,7 @@ describe('digest reconciliation, alert proofs, and pg_cron launcher safety', () 
       /\b(?:UPDATE|DELETE|INSERT\s+INTO)\s+(?:public\.)?(?:operational_alert_events|sp_daily_metrics|chip_ledger)\b/i
     );
     expect(CODE).not.toMatch(/\bUPDATE\s+smarter_private\.reliability_incidents\b/i);
-    expect(CODE).not.toMatch(/\bcron\.(?:schedule|unschedule)\s*\(/i);
+    expect(CODE).not.toMatch(/\bcron\.(?:schedule|unschedule|alter_job)\s*\(/i);
   });
 
   it('Fix 1: attributes cash rake and BBJ drops by completed hand day and aligns house figures', () => {
@@ -156,17 +156,11 @@ describe('digest reconciliation, alert proofs, and pg_cron launcher safety', () 
     expect(CODE).toContain('smarter_private.reliability_transition(');
   });
 
-  it('Fix 4: eliminates pg_cron PQgetResult launcher freeze and bounds both hand pruners', () => {
+  it('Fix 4: quiets fn_ca_ledger_replay and bounds both hand pruners without mutating cron.job', () => {
     expect(CODE).toContain(
       "ALTER FUNCTION public.fn_ca_ledger_replay(integer) SET client_min_messages = 'warning';"
     );
-    expect(CODE).toContain('smarter_private.fn_ca_ledger_replay_cron_tick()');
-    expect(CODE).toContain('smarter_private.fn_rake_bbj_audit_cron_tick()');
-    expect(CODE).toContain('smarter_private.fn_prune_hand_state_snapshots_cron_tick()');
-    expect(CODE).toContain('smarter_private.sp_prune_hand_history_cron_tick()');
-    expect(CODE).toContain("schedule := '23 6 * * *'");
-    expect(CODE).toContain("schedule := '30 seconds'");
-    expect(CODE).toContain('CALL smarter_private.sp_prune_hand_history_cron_tick();');
+    expect(CODE).not.toContain('cron.alter_job');
     expect(CODE).toContain('LIMIT LEAST(GREATEST(p_batch,1),75)');
     expect(CODE).toContain('v_page := LEAST(125, v_limit - v_seen);');
     expect(CODE).toContain("interval '8 seconds'");
@@ -174,9 +168,8 @@ describe('digest reconciliation, alert proofs, and pg_cron launcher safety', () 
     expect(CODE).toContain('horse_retention_days');
   });
 
-  it('ships with the native PostgreSQL 17 proof covering all 4 fixes and real libpq non-blocking verification', () => {
+  it('ships with the native PostgreSQL 17 proof covering all 4 fixes and verifying cron.job stays untouched', () => {
     expect(PROOF).toContain('digest-cash-residual-alerts-cron-preimages.json');
-    expect(PROOF).toContain('run_libpq_nonblocking');
     expect(PROOF).toContain('weekly_payout_paid_receipt');
     expect(PROOF).toContain('weekly_payout_ready_receipt');
     expect(PROOF).toContain('openclaw_recovery_twin');
