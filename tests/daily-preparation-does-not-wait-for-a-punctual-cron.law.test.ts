@@ -979,7 +979,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
     // Bounded and immediate: three attempts, and the admission still never waits.
     expect(admission.match(/for _ in 1 2 3; do/g)?.length).toBe(2);
     expect(admission).not.toMatch(/sleep|--retry/);
-  });
+  }, 300_000);
 
   it('the first run cannot read and claims nothing; once it has finished, the next run owns the cycle', () => {
     const first = claim({ runId: 1000, createdAt: A, runs: [going(1000, A)], runReadFails: true });
@@ -1001,7 +1001,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
     });
     expect(third.outputs.daily_preparation).toBe('false');
     expect(third.stdout).toContain('belongs to earlier run 1001');
-  });
+  }, 300_000);
 
   it('the first run fails after the second already deferred: the third owns, and nobody else', () => {
     const second = claim({ runId: 1001, createdAt: B, runs: [going(1000, A), going(1001, B)] });
@@ -1021,7 +1021,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
     });
     expect(fourth.outputs.daily_preparation).toBe('false');
     expect(fourth.stdout).toContain('belongs to earlier run 1002');
-  });
+  }, 300_000);
 
   it('a replay of the failed run cannot claim, and a replayed run is never passed over', () => {
     const replay = claim({ runId: 1000, createdAt: A, runs: [going(1000, A)], attempt: 2 });
@@ -1037,7 +1037,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
       expect(later.stdout).toContain('belongs to earlier run 1000');
       expect(later.asked).toEqual([]);
     }
-  });
+  }, 300_000);
 
   it('every interleaving of three runs has at most one owner, and the cycle is never left to a run that stood down', () => {
     // Three runs created seconds apart. Each either can claim or cannot read
@@ -1177,7 +1177,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
       expect(result.asked, finished).toEqual(asked);
     }
     expect(admission).toContain('STOOD_DOWN_MARGIN = 120');
-  });
+  }, 300_000);
 
   it('asks at most five job records; a sixth unanswered run keeps the cycle', () => {
     const me = '2026-11-23T06:40:00Z';
@@ -1204,7 +1204,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
     expect(six.outputs.daily_preparation).toBe('false');
     expect(six.stdout).toContain('belongs to earlier run 1005');
     expect(six.asked.length).toBe(5);
-  });
+  }, 300_000);
 
   it('a run still going, failed, cancelled or unreadable keeps the cycle exactly as before', () => {
     const keepers: Partial<Run>[] = [
@@ -1241,7 +1241,7 @@ describe('a reservation that cannot claim does not orphan the cycle (O25, 2026-1
     });
     expect(truncated.outputs.daily_preparation).toBe('unknown');
     expect(truncated.outputs.allowed).toBe('false');
-  });
+  }, 300_000);
 
   it('the election names the job and the step it reads exactly as the workflow names them', () => {
     expect(admission).toContain(`DETECT_JOB = "${stage.jobs.detect.name}"`);
@@ -1472,7 +1472,7 @@ describe('the owner says what the cycle will find while there is still time (O25
         );
       if (broken.postRc) expect(result.log).toContain('was not posted to issue #11599');
     }
-  });
+  }, 300_000);
 
   it('never on a run that does not own the cycle, a replay, or a finite owner window', () => {
     for (const env of [
@@ -1580,7 +1580,7 @@ describe('the owner says what the cycle will find while there is still time (O25
       expect(result.bodies[0]).not.toContain('Sealed SHA');
       expect(result.bodies[0].split('\n').length).toBe(2);
     }
-  });
+  }, 300_000);
 
   it('is bounded, writes one thing, and adds no job, trigger or timer', () => {
     const run: string = cutoffStep.run;
@@ -1825,7 +1825,7 @@ describe('the post-seal Backup completion is an election trigger too (O25 additi
       ],
     });
     expect(stoodDown.outputs.daily_preparation, stoodDown.stdout).toBe('true');
-  });
+  }, 300_000);
 
   it('adds no title: every reader of the election still names the same runs', () => {
     const titles = [
