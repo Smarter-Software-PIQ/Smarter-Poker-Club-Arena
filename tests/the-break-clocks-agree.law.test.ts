@@ -547,7 +547,8 @@ describe('the break scorecard grades only what the break controls', () => {
     const selection = nativeMigrationSelection(
       'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
       MIGRATIONS_DIR,
-      { fixed: true, timeout: 25_000 }
+      // 25 s killed this corpus scan inside the pre-push hook on 2026-11-24.
+      { fixed: true, timeout: 90_000 }
     );
     expect(selection.error).toBeUndefined();
     expect(selection.status).toBe(0);
@@ -559,7 +560,7 @@ describe('the break scorecard grades only what the break controls', () => {
       "the push renders a missing measurement as '?', which reads as a bug rather than as " +
         'an absent number.'
     ).toBe(false);
-  });
+  }, 120_000);
 });
 
 // Four actual shell children each retain their own 5s deadline inside the

@@ -197,10 +197,14 @@ export function runAudit(raw, plan, { matrix } = {}) {
   const parsedAll = [...parsedCur, ...cmpRaw.map(parseHand).filter(Boolean)];
   const M =
     matrix ?? preflopMatrix({ samples: 1500, cacheDir: join(tmpdir(), 'horse-hand-audit-holdem') });
+  const nash = JSON.parse(
+    readFileSync(join(__dirname, 'horse-hand-audit-holdem-nash.json'), 'utf8')
+  );
   const model = makeModel({
     matrix: M,
     freqs: measureFrequencies(parsedAll),
     bluffs: measureBluffShares(parsedAll),
+    nash,
   });
   const cur = audit(curRaw, { model });
   const cmp = cmpRaw.length ? audit(cmpRaw, { model }) : null;

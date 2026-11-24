@@ -19,7 +19,15 @@ import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
  * plain PanelSection: a lit heading, rows on hairline rules, no chassis.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
@@ -58,6 +66,9 @@ import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
 import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import './GameLobbyPanel.css';
+import PlayerAvatar from '../avatars/PlayerAvatar';
+import { avatarService } from '../../services/AvatarService';
+import { ArenaEventCard } from './ArenaEventCard';
 import './PremiumGameLobbyPanel.css';
 import { formatPrizeAtUnit, formatTableChips } from '../../utils/format';
 
@@ -125,6 +136,7 @@ interface CtaSpec {
 const titleCaseRule = (r: RuleMedallion): RuleMedallion => ({
   ...r,
   label: titleCase(r.label),
+  detail: r.detail && titleCase(r.detail),
   tip: titleCase(r.tip),
 });
 
@@ -221,6 +233,34 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
      to the row on close. */
   const panelRef = useFocusTrap(true);
 
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!isEmbedded) return;
+    const backdrop = backdropRef.current;
+    const header = document.querySelector<HTMLElement>(
+      '.multi-table-page__lobby-tab:not([data-lobby-held]) > [data-in-tab="true"]'
+    );
+    if (!backdrop || !header) return;
+    const placeBelowHeader = () => {
+      backdrop.style.setProperty(
+        '--glp-top',
+        Math.max(0, header.getBoundingClientRect().bottom) + 'px'
+      );
+    };
+    placeBelowHeader();
+    const observer = new ResizeObserver(placeBelowHeader);
+    observer.observe(header);
+    if (header.parentElement) observer.observe(header.parentElement);
+    window.addEventListener('resize', placeBelowHeader);
+    document.addEventListener('scroll', placeBelowHeader, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', placeBelowHeader);
+      document.removeEventListener('scroll', placeBelowHeader, true);
+      backdrop.style.removeProperty('--glp-top');
+    };
+  }, [isEmbedded]);
+
   /* Lock the page behind the drawer. On a phone the sheet is full-screen and
      the lobby scrolled underneath it, so closing put the player somewhere
      they had never scrolled to. */
@@ -248,7 +288,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   const [waitlistError, setWaitlistError] = useState(false);
   const waitlistSnapshotRef = useRef<{ tableId: string; waitlisted: boolean } | null>(null);
   const [avgPot, setAvgPot] = useState<number | null>(null);
-  const [seatMap, setSeatMap] = useState<{ seat_number: number; user_id: string }[] | null>(null);
+  const [seatMap, setSeatMap] = useState<
+    { seat_number: number; user_id: string; avatarUrl?: string }[] | null
+  >(null);
   const [tick, setTick] = useState<{
     last_tick_at: string | null;
     last_tick_actions: unknown;
@@ -372,7 +414,12 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
           setSeatMap(null);
           return;
         }
-        setSeatMap(data ?? []);
+        const seats = data ?? [];
+        setSeatMap(seats);
+        const avatars = await avatarService.getUserAvatars(seats.map((seat) => seat.user_id));
+        if (!cancelled && avatars.size > 0) {
+          setSeatMap(seats.map((seat) => ({ ...seat, avatarUrl: avatars.get(seat.user_id) })));
+        }
       } catch (err) {
         /* transport failure - the panel simply shows no seat map */
         reportError(err, 'GameLobbyPanel.loadSeatMap');
@@ -852,7 +899,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
   return createPortal(
-    <div className="glp-backdrop" onClick={onClose} role="presentation">
+    <div ref={backdropRef} className="glp-backdrop" onClick={onClose} role="presentation">
       {privateInvite.element}
       <aside
         ref={panelRef}
@@ -883,12 +930,20 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {satelliteDestination || 'Loading Satellite Destination...'}
             </div>
           )}
-          <ArenaGameCard
-            data={gameCardData}
-            actions={gameCardActions}
-            presentation="auto"
-            className="glp__arena-card"
-          />
+          {isCash ? (
+            <ArenaGameCard
+              data={gameCardData}
+              actions={gameCardActions}
+              presentation="auto"
+              className="glp__arena-card"
+            />
+          ) : (
+            <ArenaEventCard
+              data={gameCardData}
+              actions={gameCardActions}
+              destination={satelliteDestination}
+            />
+          )}
           {entry.status !== 'completed' && entry.status !== 'closed' && (
             <div className="glp__invite-bar">
               <button
@@ -1031,7 +1086,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {seatMap && entry.capacity > 0 && (
                 <section className="glp__section">
                   <h3 className="glp__h">Seat Map</h3>
-                  <div className="glp__seatmap">
+                  <div className="glp__seatmap" data-orbit={entry.capacity <= 10 || undefined}>
                     {Array.from({ length: entry.capacity }).map((_, i) => {
                       const n = i + 1;
                       const taken = seatMap.find((x) => x.seat_number === n);
@@ -1041,8 +1096,24 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       return (
                         <span
                           key={n}
+                          style={
+                            entry.capacity <= 10
+                              ? {
+                                  left:
+                                    50 + 39 * Math.sin((i * 2 * Math.PI) / entry.capacity) + '%',
+                                  top: 50 - 36 * Math.cos((i * 2 * Math.PI) / entry.capacity) + '%',
+                                }
+                              : undefined
+                          }
                           className={`glp__seat${taken ? ' is-taken' : ''}${mine ? ' is-you' : ''}`}
                         >
+                          {taken && (
+                            <PlayerAvatar
+                              src={taken.avatarUrl}
+                              name={mine ? 'You' : 'Seat ' + n}
+                              size="xs"
+                            />
+                          )}
                           <i>{n}</i>
                           <em>{mine ? 'You' : taken ? 'Taken' : 'Open'}</em>
                         </span>

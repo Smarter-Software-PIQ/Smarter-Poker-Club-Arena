@@ -22,8 +22,12 @@ import {
   makeModel,
   measureBluffShares,
   measureFrequencies,
+  narrow,
   parseHand,
+  playersBehind,
   resolvePlan,
+  tournamentJamRange,
+  tournamentOvercall,
   seatNets,
 } from '../../scripts/ops/horse-hand-audit-holdem-lib.mjs';
 import {
@@ -36,6 +40,13 @@ import {
   parseArgs,
   runCli,
 } from '../../scripts/ops/horse-hand-audit-holdem.mjs';
+import { buildNashJson } from '../../scripts/ops/horse-hand-audit-holdem-nash-gen';
+import NASH from '../../scripts/ops/horse-hand-audit-holdem-nash.json';
+import SHOWN_JAMS from './fixtures/horse-hand-audit-holdem/shown-open-jams.json';
+import {
+  holdemOpenJamRange,
+  holdemRangeWidth,
+} from '../../server/src/engine/HorseHoldemTournamentAllInCall';
 
 const P = (s: string) => s.split(' ').map(parseCard);
 const MATRIX = preflopMatrix({ samples: 40 });
@@ -293,6 +304,200 @@ describe('node grading keeps theoretical and actual cost apart', () => {
     const before = new Map([['k', { ...node(50), verdict: 'fine' }]]);
     expect(compareWindows(now as never, before as never).length).toBe(1);
     expect(compareWindows(before as never, now as never).length).toBe(0);
+  });
+});
+
+/** A three-handed tournament hand: the button jams `jamBb` first in, the small blind folds, the big blind calls. */
+function mkTournamentJam(jamBb: number, bbCalls = false) {
+  const ids = [
+    'cccccccc-0000-0000-0000-000000000001',
+    'dddddddd-0000-0000-0000-000000000002',
+    'eeeeeeee-0000-0000-0000-000000000003',
+  ];
+  const bb = 100;
+  const seats = (
+    b1: number,
+    s1: number,
+    b2: number,
+    s2: number,
+    b3: number,
+    s3: number,
+    st3 = 0
+  ) => [
+    [1, s1, b1, b1, 0, 0, 0],
+    [2, s2, b2, b2, 0, 0, 0],
+    [3, s3, b3, b3, 0, 0, st3],
+  ];
+  return {
+    hand: {
+      id: 'tj1',
+      ts: '2026-11-23T12:00:00Z',
+      tid: 'ffffffff-0000-0000-0000-000000000009',
+      tt: 'MTT',
+      tmax: 9,
+      tbuy: 10,
+      taof: false,
+      tname: 'Test',
+      bb,
+      sb: 50,
+      btn: 3,
+      board: ['Kh', '7d', '2c', '9s', '3h'],
+      build: 'testbuild000',
+      rake: 0,
+      pl: [
+        [1, ids[0], 'SmallBlind', 2000, true],
+        [2, ids[1], 'BigBlind', 2000, true],
+        [3, ids[2], 'Button', jamBb * bb, false],
+      ],
+      sd: bbCalls
+        ? [
+            [2, ids[1], 'false'],
+            [3, ids[2], 'false'],
+          ]
+        : [],
+      shown: bbCalls
+        ? {
+            [ids[1]]: [
+              { rank: 'A', suit: 'clubs' },
+              { rank: '9', suit: 'diamonds' },
+            ],
+            [ids[2]]: [
+              { rank: '7', suit: 'hearts' },
+              { rank: '5', suit: 'hearts' },
+            ],
+          }
+        : null,
+      win: bbCalls ? [[ids[1], 2 * jamBb * bb + 50]] : [[ids[2], 250]],
+      pots: bbCalls ? [[2 * jamBb * bb + 50, ids]] : [[250, ids]],
+      stage: null,
+      acts: [
+        ['1', 'preflop', 'sb', 50, 'forced', null, null, null, null, null],
+        ['2', 'preflop', 'bb', 100, 'forced', null, null, null, null, null],
+        [
+          '3',
+          'preflop',
+          'all_in',
+          jamBb * bb,
+          'player',
+          150,
+          100,
+          100,
+          seats(50, 1950, 100, 1900, 0, jamBb * bb),
+          'false',
+        ],
+        [
+          '1',
+          'preflop',
+          'fold',
+          0,
+          'horse_policy',
+          150 + jamBb * bb,
+          jamBb * bb - 50,
+          jamBb * bb,
+          seats(50, 1950, 100, 1900, jamBb * bb, 0, 2),
+          'false',
+        ],
+        bbCalls
+          ? [
+              '2',
+              'preflop',
+              'call',
+              jamBb * bb - 100,
+              'horse_policy',
+              150 + jamBb * bb,
+              jamBb * bb - 100,
+              jamBb * bb,
+              seats(50, 1950, 100, 1900, jamBb * bb, 0, 2),
+              'false',
+            ]
+          : [
+              '2',
+              'preflop',
+              'fold',
+              0,
+              'horse_policy',
+              150 + jamBb * bb,
+              jamBb * bb - 100,
+              jamBb * bb,
+              seats(50, 1950, 100, 1900, jamBb * bb, 0, 2),
+              'false',
+            ],
+      ],
+    },
+  };
+}
+
+describe("tournament jams are read at equilibrium push/fold (the switch holdemTournamentAllInCallIsPriced's anchor)", () => {
+  const model = makeModel({ matrix: MATRIX, freqs: measureFrequencies([]), nash: NASH });
+  it('the saved Nash tables equal the engine (regenerate: npx tsx scripts/ops/horse-hand-audit-holdem-nash-gen.ts)', () => {
+    expect(JSON.parse(JSON.stringify(buildNashJson()))).toEqual(NASH);
+  });
+  it('an open-jam range has the engine width at every depth and seat', () => {
+    for (const behind of [1, 3, 8])
+      for (const depth of [3, 6.4, 10, 15, 22]) {
+        const mine = model.N!.jamRange(behind, depth, 1);
+        let w = 0;
+        for (const x of mine) w += x;
+        expect(w / 1326).toBeCloseTo(holdemRangeWidth(holdemOpenJamRange(behind, depth, 1)), 2);
+      }
+  });
+  it('the jammer of a replayed hand gets the Nash range for his seat and depth, not a measured raise share', () => {
+    for (const jamBb of [4, 8, 14]) {
+      const H = parseHand(mkTournamentJam(jamBb))!;
+      const jam = H.decisions[0];
+      expect(jam).toMatchObject({ kind: 'raise', allInAfter: true, raisesBefore: 0 });
+      expect(playersBehind(H, jam.seat)).toBe(2);
+      const full = new Float64Array(1326).fill(1);
+      const r = narrow(model, H, jam, full, model.preS);
+      let w = 0;
+      for (const x of r) w += x;
+      expect(w / 1326).toBeCloseTo(holdemRangeWidth(holdemOpenJamRange(2, jamBb, 0)), 2);
+      expect(tournamentJamRange(model, H, jam)).not.toBeNull();
+    }
+  });
+  it('a call of a jam is priced with no realisation discount (nobody bets again): EV = eq x (pot + call) - call', () => {
+    const H = parseHand(mkTournamentJam(8, true))!;
+    const res = audit([mkTournamentJam(8, true)], { model });
+    const row = res.exact.find((r) => r.d.kind === 'call')!;
+    expect(row).toBeDefined();
+    const d = row.d;
+    expect(row.evTaken).toBeCloseTo((row.eq * (d.P + d.C) - d.C) / H.bb, 6);
+  });
+  it('a player still to act behind a jam overcalls with the top half of his Nash calling range (25% cap), as the switch does', () => {
+    const H = parseHand(mkTournamentJam(8))!;
+    const sbFacing = H.decisions[1];
+    const bbSeat = sbFacing.opp.find((o) => o.seat === 2)!;
+    const oc = tournamentOvercall(model, H, sbFacing, bbSeat)!;
+    const full = model.N!.callRange(2, 'bb', 8, 0);
+    let w = 0;
+    for (const x of full) w += x;
+    expect(oc.width).toBeCloseTo((w / 1326) * 0.5, 6);
+    expect(oc.width).toBeLessThanOrEqual(0.125 + 1e-9);
+  });
+  it('shown open-jams sit at the Nash width: mean rank / width 0.5 in every depth band (Horses 0.51 / 0.52 / 0.49)', () => {
+    // A class's rank = combos of stronger classes in the engine's strength order plus half its own, over 1,326.
+    const combos = (c: string) => (c.length === 2 ? 6 : c.endsWith('s') ? 4 : 12);
+    const rank = new Map<string, number>();
+    let acc = 0;
+    for (const i of NASH.strengthOrder) {
+      const c = NASH.classes[i];
+      rank.set(c, (acc + combos(c) / 2) / 1326);
+      acc += combos(c);
+    }
+    for (const [band, rows] of Object.entries(
+      SHOWN_JAMS.bands as Record<string, [string, number, number, number][]>
+    )) {
+      let sum = 0;
+      for (const [cls, behind, depth, ante] of rows) {
+        const r = model.N!.jamRange(behind, depth, ante);
+        let w = 0;
+        for (const x of r) w += x;
+        sum += rank.get(cls)! / Math.max(0.01, w / 1326);
+      }
+      const mean = sum / rows.length;
+      expect(mean, band).toBeGreaterThan(0.44);
+      expect(mean, band).toBeLessThan(0.58);
+    }
   });
 });
 
