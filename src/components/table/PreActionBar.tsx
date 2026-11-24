@@ -72,7 +72,7 @@ export default function PreActionBar({
          (a rightward drag with nothing selected landed on the right edge),
          and the player saw a fold become an all in. Call Any now arms only
          from a tap on its own button; a swipe steps among the others. */
-      const swipeable = visibleOrder.filter((a) => a !== 'callAny');
+      const swipeable: PreActionType[] = visibleOrder.filter((a) => a !== 'callAny');
       if (swipeable.length === 0) return;
       const currentIdx = preAction ? swipeable.indexOf(preAction) : -1;
       // Swipe left (negative dx) → step right in the row; swipe right → step left.
