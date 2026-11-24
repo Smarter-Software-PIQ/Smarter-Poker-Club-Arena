@@ -113,6 +113,54 @@ CREATE FUNCTION public.fn_lightning_config(p_cluster_id uuid) RETURNS jsonb LANG
  try: sql(M); raise SystemExit('a replay must refuse')
  except AssertionError as e: assert 'financial_alerts_proven_over_preimage_changed' in str(e)
  print('PASS install: the migration installs over the pinned production resolver, grants no browser role, and refuses a replay')
+
+ # Branch (e): 20261124074800 BBJ receipt-proven closure + refusing twins
+ H=next((R/'supabase/migrations').glob('*_harden_stall_12m_and_bbj_alert_closure.sql')).read_text()
+ bbj_fn=re.search(r'(CREATE OR REPLACE FUNCTION smarter_private\.financial_alerts_proven_over.*?\n\$function\$;)',H,re.S).group(1)
+ sql('''
+ CREATE TABLE public.bbj_payouts(id uuid primary key, table_id uuid not null, hand_number bigint not null, kind text not null default 'main', total_amount numeric not null, created_at timestamptz not null default now());
+ CREATE TABLE public.bbj_payout_recipients(id uuid primary key, payout_id uuid not null, amount numeric not null);
+ CREATE TABLE public.bbj_unclaimed_shares(id uuid primary key, payout_id uuid not null, amount numeric not null, paid_at timestamptz);
+ CREATE TABLE public.pending_fee_distributions(id uuid primary key, table_id uuid not null, hand_number bigint not null, kind text not null, resolved_at timestamptz);
+ ''' + bbj_fn + " REVOKE ALL ON FUNCTION smarter_private.financial_alerts_proven_over(boolean,integer) FROM PUBLIC, anon, authenticated, service_role;")
+ assert sql("SELECT bool_or(has_function_privilege(r,'smarter_private.financial_alerts_proven_over(boolean,integer)','EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r")=='f'
+ t1,t2,t3,t4,t5=U(201),U(202),U(203),U(204),U(205)
+ p1,p2,p3,p4=U(301),U(302),U(303),U(304)
+ bbj_data=(
+  # (e1) processBBJPayout.exhausted paid & conserved + resolved queue + echo -> CLOSES BOTH
+  alert(60,'processBBJPayout.exhausted','[BBJ] Jackpot payout FAILED',{'tableId':t1,'handNumber':60701395,'payoutTotalPercent':25})
+  +alert(61,'drift_incident:financial_alerts:processBBJPayout.exhausted','bbj_error drift 0 chips',{'alert_id':U(60)})
+  +f"INSERT INTO public.bbj_payouts VALUES('{p1}','{t1}',60701395,'main',1978.16,now());"
+  +f"INSERT INTO public.bbj_payout_recipients VALUES('{U(401)}','{p1}',989.06),('{U(402)}','{p1}',494.54),('{U(403)}','{p1}',494.56);"
+  +f"INSERT INTO public.pending_fee_distributions VALUES('{U(501)}','{t1}',60701395,'bbj_payout',now());"
+  # (e2) FeeReconciler.exhausted (kind=bbj_payout) paid via recipients + unpaid unclaimed share -> CLOSES
+  +alert(62,'FeeReconciler.exhausted','[BBJ] queue exhausted',{'kind':'bbj_payout','table_id':t2,'hand_number':70001})
+  +f"INSERT INTO public.bbj_payouts VALUES('{p2}','{t2}',70001,'main',500.00,now());"
+  +f"INSERT INTO public.bbj_payout_recipients VALUES('{U(404)}','{p2}',350.00);"
+  +f"INSERT INTO public.bbj_unclaimed_shares VALUES('{U(405)}','{p2}',150.00,NULL);"
+  # (e3) Refusing twin: unconserved recipients -> STAYS OPEN
+  +alert(63,'processBBJPayout.exhausted','[BBJ] unconserved',{'tableId':t3,'handNumber':70002})
+  +f"INSERT INTO public.bbj_payouts VALUES('{p3}','{t3}',70002,'main',500.00,now());"
+  +f"INSERT INTO public.bbj_payout_recipients VALUES('{U(406)}','{p3}',400.00);"
+  # (e4) Refusing twin: still-open pending_fee_distributions row -> STAYS OPEN
+  +alert(64,'processBBJPayout.exhausted','[BBJ] still queued',{'tableId':t4,'handNumber':70003})
+  +f"INSERT INTO public.bbj_payouts VALUES('{p4}','{t4}',70003,'main',500.00,now());"
+  +f"INSERT INTO public.bbj_payout_recipients VALUES('{U(407)}','{p4}',500.00);"
+  +f"INSERT INTO public.pending_fee_distributions VALUES('{U(502)}','{t4}',70003,'bbj_payout',NULL);"
+  # (e5) Refusing twin: no bbj_payouts row -> STAYS OPEN
+  +alert(65,'processBBJPayout.exhausted','[BBJ] unpaid',{'tableId':t5,'handNumber':70004})
+  # (e6) Refusing twin: FeeReconciler.exhausted for non-bbj kind -> STAYS OPEN
+  +alert(66,'FeeReconciler.exhausted','rake failed',{'kind':'rake','table_id':t1,'hand_number':60701395})
+ )
+ sql(bbj_data)
+ bbj_dry=json.loads(sql("SELECT smarter_private.financial_alerts_proven_over(false,5000)"))
+ assert sorted(bbj_dry['proven_ids'])==sorted([U(60),U(62)]),bbj_dry
+ assert sorted(bbj_dry['echo_ids'])==[U(61)],bbj_dry
+ bbj_got=json.loads(sql("SELECT smarter_private.financial_alerts_proven_over(true,5000)"))
+ assert bbj_got['proven_over']==2 and bbj_got['echoes_closed']==1,bbj_got
+ assert sql(f"SELECT count(*) FROM public.financial_alerts WHERE id IN('{U(63)}','{U(64)}','{U(65)}','{U(66)}') AND resolved")=='0'
+ assert sql(f"SELECT resolution LIKE 'verified: BBJ payout {p1} paid 1978.16 chips for table {t1} hand #60701395%' FROM public.financial_alerts WHERE id='{U(60)}'")=='t'
+ print('PASS branch (e) BBJ: closes conserved paid processBBJPayout/FeeReconciler alerts + echo, refuses unconserved/queued/unpaid/non-bbj twins')
 finally:
  if started:subprocess.run([str(PG/'pg_ctl'),'-D',str(w/'data'),'-m','immediate','stop'],capture_output=True,env=env)
  shutil.rmtree(w)
