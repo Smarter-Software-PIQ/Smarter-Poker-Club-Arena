@@ -195,7 +195,10 @@ export async function requestAccessToken(): Promise<string> {
   if (stored?.expiresAt && stored.expiresAt - Date.now() > REQUEST_TOKEN_MARGIN_MS) {
     return stored.accessToken;
   }
-  const { data } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+  // Same fallback as supabase-js's own token getter: no session means the
+  // anon key. A failed read is reported so it is never mistaken for signed out.
+  if (error) reportError(error, 'supabase.requestAccessToken_session_read_failed');
   return data.session?.access_token ?? supabaseAnonKey ?? '';
 }
 
