@@ -29,9 +29,9 @@ was measured against people at live tables.
   +3.3 (-45.1 +- 9.7). ON loses to none; it trails today's play against the check-raiser and the any-pair caller.
 - League mirror ON vs OFF (same seeds): ON loses to today's play at every table: ON - OFF per seat, bb/100, every seat a Horse (hybrid cash
   profile), each deal played twice with the seats' configs swapped, one memory sandbox per pass (src/mirror.mjs; the
-  repo's runMatchup never returned in this environment): 6-max -56.5 +- 14.2 (2,500 deals), heads-up -93.7 +- 14.2
-  (8,000), full ring -34.1 +- 15.5 (1,500), 6-max big-blind ante (Lightning structure; the league has no Lightning
-  domain) -43.1 +- 12.2 (2,500).
+  repo's runMatchup never returned in this environment), two seeds pooled by inverse variance: 6-max -61.4 +- 6.4
+  (12,500 deals), heads-up -88.7 +- 6.7 (38,000), full ring -51.3 +- 7.7 (6,500), 6-max big-blind ante (Lightning
+  structure; the league has no Lightning domain) -52.0 +- 5.6 (12,500).
 - Real-card replay (REPLAY-6 inputs, auditor D NLH cash, committed scorer; arm i + ii + flop vs the live rows): fixed 27,
   newly wrong 128 (people only 0 / 24). By exact equity against the opponents' actual hands, 53 of the 128 are wrong
   changes (27 value checked or called while ahead, 25 calls below the price, 1 fold above it) and 22 are right; 43
