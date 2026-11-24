@@ -17042,6 +17042,7 @@ export class HorseLogic {
     // records kept, mind writes discarded, never observed). Off: nothing runs.
     if (
       (opts.holdemLateStreetIsPriced === true || opts.holdemFlopIsPriced === true) &&
+      (!isTournamentMode(gameState) || opts.holdemLateStreetIsPricedInTournaments === true) &&
       holdemOwnPreflopWanted(player, gameState)
     ) {
       const askOpts: HorseDecideOpts = { ...opts, telemetry: false, observeMind: false };
