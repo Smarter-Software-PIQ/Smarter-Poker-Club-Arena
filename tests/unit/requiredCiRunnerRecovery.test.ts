@@ -54,6 +54,12 @@ const owedMainStep = {
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py',
 };
+const promoLightningStep = {
+  name: "A promo player's Lightning hand settles",
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  run: 'python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py',
+};
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
   expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
@@ -67,9 +73,13 @@ const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>
   // exactly, then removed with the other two so every original field stays fingerprinted.
   expect(job.steps[index + 2]).toStrictEqual(owedMainStep);
   expect(job.steps.filter((step) => step.name === owedMainStep.name)).toHaveLength(1);
-  expect(job.steps[index + 3]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // The promo Lightning settlement proof rides directly behind the owed-Main proof
+  // (20261124162105): pinned exactly, then removed with the other three.
+  expect(job.steps[index + 3]).toStrictEqual(promoLightningStep);
+  expect(job.steps.filter((step) => step.name === promoLightningStep.name)).toHaveLength(1);
+  expect(job.steps[index + 4]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
   // Pin these exact added proofs; every original engine job field stays fingerprinted.
-  job.steps.splice(index, 3);
+  job.steps.splice(index, 4);
 };
 
 const backupSequenceStep = {
