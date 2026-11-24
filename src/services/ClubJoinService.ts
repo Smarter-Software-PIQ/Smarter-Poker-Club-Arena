@@ -1,11 +1,11 @@
 import type { ArenaAccessContext } from '../../server/src/domain/ArenaContext';
 import { supabase } from '../lib/supabase';
 import { SHARK_CLUB_ID } from '../lib/constants';
-import { readKingsClubDisplayTotals } from './KingsClubDisplayService';
 import { masterBus } from '../core/MasterBus';
 import { ClubEntryTrustService } from './ClubEntryTrustService';
 import { isJoinableClubCode } from '../utils/clubCode';
 import { isEntityId } from '../utils/entityId';
+import { reportError } from '../utils/errorReporter';
 
 const PENDING_JOIN_KEY = 'club-arena:pending-join:v1';
 const CLUB_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/i;
@@ -92,7 +92,12 @@ export async function previewClubJoin(identifier: string): Promise<ClubJoinPrevi
   const preview = (data || { found: false }) as ClubJoinPreview;
   if (Number(preview.club_id) !== SHARK_CLUB_ID) return preview;
 
-  const totals = await readKingsClubDisplayTotals();
+  const totals = await import('./KingsClubDisplayService')
+    .then(({ readKingsClubDisplayTotals }) => readKingsClubDisplayTotals())
+    .catch((error) => {
+      reportError(error, 'ClubJoinService.kingsDisplayTotals');
+      return null;
+    });
   return {
     ...preview,
     member_display_total: totals?.member_total ?? null,
