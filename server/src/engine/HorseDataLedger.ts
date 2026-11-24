@@ -2623,6 +2623,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemLateStreetIsPricedInTournaments',
+    'plo-lead6 2026-11-24 (lead ruling 5): holdemLateStreetIsPriced is scoped to NLH cash and Lightning; this option extends it to NLH tournaments. Default off (read === true). The chooser prices chip EV and does not yet feed the Phase 7 tournament utility, so it stays off until that is built and tested.',
+    'V94'
+  ),
+  flag(
     'holdemLateStreetBluffRaiseIsPriced',
     'plo-lead6 2026-11-24, pending the owner ruling on river bluff-raises: with holdemLateStreetIsPriced on, a turn or river raise by a non-value hand facing one bettor is made when its EV (his fold to a raise, blockers, nut advantage) beats call and fold. Default off (read === true).',
     'V94'

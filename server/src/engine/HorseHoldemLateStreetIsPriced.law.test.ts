@@ -30,6 +30,7 @@ import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.
 
 const OPT = 'holdemLateStreetIsPriced';
 const RAISE = 'holdemLateStreetBluffRaiseIsPriced';
+const TOURN = 'holdemLateStreetIsPricedInTournaments';
 const NOW = 1795400000000;
 interface State {
   k: string;
@@ -60,7 +61,7 @@ const CHECKED_TO = CONTROL.filter((i) => {
   const s = at(i);
   return (
     (s.gs.stage === 'turn' || s.gs.stage === 'river') &&
-    holdemLateSpot(s.player, s.gs)?.facing === false
+    holdemLateSpot(s.player, s.gs, true)?.facing === false
   );
 });
 const run = (s: State, extra: HorseDecideOpts, seed = 1, telemetry = false): HorseDecision => {
@@ -91,7 +92,7 @@ const legalTo = (_s: State) => (to: number) => to;
 
 describe('both options are registered dark', () => {
   it('default OFF, switchable, on the ledger', () => {
-    for (const o of [OPT, RAISE]) {
+    for (const o of [OPT, RAISE, TOURN]) {
       expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF).toContain(o);
       expect(OPTION_SWITCH_OFF_ONLY_NAMES).not.toContain(o);
       expect(HORSE_DATA_LEDGER.some((e) => e.kind === 'flag' && e.key === o)).toBe(true);
@@ -119,8 +120,8 @@ describe('LAW: the chooser is the math, never a roll', () => {
   it('in its spot the final action and size are the same whatever the random streams were seeded with', () => {
     let compared = 0;
     for (const i of [...LATE.filter((_, j) => j % 6 === 0), ...CHECKED_TO]) {
-      const a = run(at(i), { [OPT]: true }, 1);
-      const b = run(at(i), { [OPT]: true }, 987654321);
+      const a = run(at(i), { [OPT]: true, [TOURN]: true }, 1);
+      const b = run(at(i), { [OPT]: true, [TOURN]: true }, 987654321);
       expect(act(b), at(i).k).toBe(act(a));
       compared++;
     }
@@ -132,7 +133,7 @@ describe('LAW: the chooser is the math, never a roll', () => {
     let folds = 0;
     for (const i of [...LATE, ...CHECKED_TO]) {
       const s = at(i);
-      const spot = holdemLateSpot(s.player, s.gs);
+      const spot = holdemLateSpot(s.player, s.gs, true);
       if (!spot) continue;
       HorseMind.reset();
       const v = holdemLateVerdict(s.player, s.gs, spot, true, legalTo(s), {
@@ -188,7 +189,7 @@ describe('LAW: blockers and range advantage are terms of the price', () => {
     const fires = new Map<string, number>();
     for (const i of [...LATE.filter((_, j) => j % 3 === 0), ...CHECKED_TO]) {
       drainFires();
-      run(at(i), { [OPT]: true }, 1, true);
+      run(at(i), { [OPT]: true, [TOURN]: true }, 1, true);
       for (const f of drainFires()) fires.set(f.feature, (fires.get(f.feature) ?? 0) + f.fires);
     }
     expect(fires.get('holdem_late_priced_blocker_decided') ?? 0).toBeGreaterThan(0);
@@ -199,7 +200,7 @@ describe('LAW: blockers and range advantage are terms of the price', () => {
 
 describe('inertness and the validator', () => {
   it('outside its spot nothing changes (preflop, flop), and off equals unset', () => {
-    for (const i of CONTROL.filter((i) => holdemLateSpot(at(i).player, at(i).gs) === null)) {
+    for (const i of CONTROL.filter((i) => holdemLateSpot(at(i).player, at(i).gs, true) === null)) {
       expect(whole(run(at(i), { [OPT]: true, [RAISE]: true })), at(i).k).toBe(
         whole(run(at(i), {}))
       );
@@ -207,6 +208,17 @@ describe('inertness and the validator', () => {
     for (const i of LATE.filter((_, j) => j % 5 === 0)) {
       expect(whole(run(at(i), { [OPT]: false, [RAISE]: false }))).toBe(whole(run(at(i), {})));
     }
+  }, 600_000);
+
+  it('tournaments keep their decision unless the tournament option is on (lead ruling 5)', () => {
+    let n = 0;
+    for (const i of LATE.filter((i) => at(i).gs.gameMode === 'tournament').filter(
+      (_, j) => j % 3 === 0
+    )) {
+      expect(whole(run(at(i), { [OPT]: true })), at(i).k).toBe(whole(run(at(i), {})));
+      n++;
+    }
+    expect(n).toBeGreaterThan(50);
   }, 600_000);
 
   it('the bluff-raise option does nothing without the chooser', () => {
@@ -219,7 +231,7 @@ describe('inertness and the validator', () => {
     let checked = 0;
     for (const i of [...LATE, ...CHECKED_TO]) {
       const s = at(i);
-      const on = run(s, { [OPT]: true, holdemTurnRiverRaiseNeedsValue: true });
+      const on = run(s, { [OPT]: true, [TOURN]: true, holdemTurnRiverRaiseNeedsValue: true });
       if (on.policyGraph === undefined || !['check', 'call', 'fold'].includes(on.action)) continue;
       const ctx = {
         player: s.player,

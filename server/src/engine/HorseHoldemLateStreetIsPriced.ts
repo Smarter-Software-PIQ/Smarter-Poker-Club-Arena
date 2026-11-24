@@ -60,7 +60,9 @@ import {
 } from './HorseHoldemTurnRiverRaiseNeedsValue.js';
 import {
   HOLDEM_LATE_FOLD_PRIOR,
+  HOLDEM_LATE_FOLD_PRIOR_N,
   HOLDEM_LATE_FOLD_TO_RAISE_PRIOR,
+  HOLDEM_LATE_FOLD_TO_RAISE_PRIOR_N,
   HOLDEM_LATE_PRIORS_VERSION,
 } from './HorseHoldemLateStreetPriors.js';
 
@@ -73,6 +75,8 @@ export const HOLDEM_LATE_RECORD_K = 30;
 export const HOLDEM_LATE_NUT_ADV_WEIGHT = 0.5;
 /** Weight of the fitted population fold prior against the indifference fold s / (1 + s). */
 export const HOLDEM_LATE_PRIOR_TRUST = 0.5;
+/** Sample size at which a population cell is trusted half (before the over-fold halving). */
+export const HOLDEM_LATE_PRIOR_N0 = 200;
 export const HOLDEM_LATE_OPEN_FRACTIONS = [1 / 3, 0.5, 0.75, 1] as const;
 export const HOLDEM_LATE_RIVER_OVERBET = 1.5;
 export const HOLDEM_LATE_MAX_OPPONENTS = 5;
@@ -114,6 +118,26 @@ export function holdemLateFoldPrior(
   return clamp01(row[holdemLateSizeBucket(s)]!);
 }
 
+/**
+ * Trust in the population fold prior of one cell: n / (n + HOLDEM_LATE_PRIOR_N0) for the cell's sample, halved when the
+ * population itself over-folds there (its fold above the indifference fold s / (1 + s) by more than 0.10: a field that
+ * changes once these options go live). The rest of the prior is the indifference fold. His own record then dominates
+ * by n / (n + HOLDEM_LATE_RECORD_K).
+ */
+export function holdemLatePriorTrust(
+  street: 'turn' | 'river',
+  line: HoldemLateLine,
+  s: number,
+  pop: number,
+  raise: boolean
+): number {
+  const n = raise
+    ? num(HOLDEM_LATE_FOLD_TO_RAISE_PRIOR_N[street])
+    : num(HOLDEM_LATE_FOLD_PRIOR_N[street]?.[line]?.[holdemLateSizeBucket(s)]);
+  const sample = n / (n + HOLDEM_LATE_PRIOR_N0);
+  return pop > s / (1 + s) + 0.1 ? sample * HOLDEM_LATE_PRIOR_TRUST : sample;
+}
+
 /** His fold to a wager laying `s` x pot: his record (price-scaled) weighted n/(n+K), the rest the prior. */
 export function holdemLateFoldOf(
   opp: SeatPlayer,
@@ -129,7 +153,8 @@ export function holdemLateFoldOf(
   const pop = raise
     ? clamp01(HOLDEM_LATE_FOLD_TO_RAISE_PRIOR[street])
     : holdemLateFoldPrior(street, line, s);
-  const prior = HOLDEM_LATE_PRIOR_TRUST * pop + (1 - HOLDEM_LATE_PRIOR_TRUST) * (s / (1 + s));
+  const trust = holdemLatePriorTrust(street, line, s, pop, raise);
+  const prior = trust * pop + (1 - trust) * (s / (1 + s));
   if (!mind) return { f: prior, recordWeight: 0 };
   let n = 0;
   let rate = prior;
@@ -239,8 +264,16 @@ export interface HoldemLateSpot {
   r: number;
 }
 
-export function holdemLateSpot(player: SeatPlayer, gs: HorseGameStateV2): HoldemLateSpot | null {
+export function holdemLateSpot(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  tournaments = false
+): HoldemLateSpot | null {
   if (String(gs.gameVariant ?? '').toLowerCase() !== 'nlh') return null;
+  // Tournaments only under holdemLateStreetIsPricedInTournaments: the chooser prices chips; until its EVs go through
+  // the Phase 7 tournament utility it must not override that utility.
+  const tourn = gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null;
+  if (tourn && !tournaments) return null;
   if (gs.bettingStructure !== undefined && gs.bettingStructure !== 'no_limit') return null;
   const street = gs.stage;
   if (street !== 'turn' && street !== 'river') return null;
@@ -434,6 +467,10 @@ export function holdemLateVerdict(
         E *= f + (1 - f) * eq;
       }
     }
+    // A hand whose equity against his whole value part (the top 1 - beta) already pays the price never folds: the
+    // bluff part can only add to it (guards a bluff part the line range filled with value combinations).
+    const eqValue = holdemEquityOfShare(b.range, 1 - beta, 'top').equity;
+    if (eqValue > E) E = eqValue;
     options.push({ kind: 'fold', to: 0, ev: 0 });
     options.push({
       kind: 'call',
@@ -508,6 +545,7 @@ export function holdemLateStreetIsPricedRule(
   opts: {
     holdemLateStreetIsPriced?: boolean;
     holdemLateStreetBluffRaiseIsPriced?: boolean;
+    holdemLateStreetIsPricedInTournaments?: boolean;
     telemetry?: boolean;
     mind?: boolean;
   },
@@ -516,7 +554,7 @@ export function holdemLateStreetIsPricedRule(
   if (opts.holdemLateStreetIsPriced !== true) return decision;
   const tele = telemetryOn(opts);
   try {
-    const spot = holdemLateSpot(player, gs);
+    const spot = holdemLateSpot(player, gs, opts.holdemLateStreetIsPricedInTournaments === true);
     if (!spot) return decision;
     const mind = opts.mind !== false;
     const legalTo = (to: number): number => {
@@ -592,7 +630,7 @@ export function holdemLateStreetIsPricedAdmits(
   after: { action: string; amount: number | null }
 ): boolean {
   try {
-    const spot = holdemLateSpot(player, gs);
+    const spot = holdemLateSpot(player, gs, true);
     if (!spot) return false;
     if (after.action === 'check') return !spot.facing;
     if (after.action === 'fold') return spot.facing;

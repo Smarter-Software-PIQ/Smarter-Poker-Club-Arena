@@ -5918,6 +5918,9 @@ export interface HorseDecideOpts {
   /** With holdemLateStreetIsPriced on: a turn/river raise by a non-value hand is made when its EV (his fold to a raise,
    * blockers by card removal, nut advantage) beats call and fold. Pending the owner's ruling. Default OFF. */
   holdemLateStreetBluffRaiseIsPriced?: boolean;
+  /** holdemLateStreetIsPriced in NLH tournaments too (default OFF): only once its chip EVs go through the Phase 7
+   * tournament utility; until then tournaments keep the existing decision. */
+  holdemLateStreetIsPricedInTournaments?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
