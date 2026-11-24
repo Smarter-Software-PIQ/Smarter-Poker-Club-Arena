@@ -378,6 +378,238 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
         finally:
             holder.stdin.write('ROLLBACK;\n\\q\n'); holder.stdin.flush()
             holder.communicate(timeout=10)
+
+        # ── 2026-11-24 v3 thaw boundary proof (incident 6684eba0) ─────────
+        # Reassemble exact production preimages for decide, ingest, and tick
+        # by applying the full maintained migration chain, then prove all 4
+        # scenarios (a)-(d) + fail-closed drift/replay guards on PG17.
+        v3_patch = list(MIGRATIONS.glob('*_stall_watch_v3_thaw_boundary.sql'))
+        assert len(v3_patch) == 1, v3_patch
+        sql('''CREATE TABLE public.engine_maintenance_break_log(break_ended_at timestamptz);
+        CREATE TABLE public.engine_maintenance_thaws(
+          freeze_started_at timestamptz,
+          contract_version integer,
+          shifted jsonb,
+          release_target_at timestamptz
+        );
+        CREATE TABLE public.tournaments(id uuid PRIMARY KEY, status text);
+        DROP INDEX IF EXISTS public.ca_stall_resolved_table_episode_idx;''')
+        sql('DROP FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean);')
+        sql('DROP FUNCTION public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint);')
+        sql(decision.group(0))
+        ingest_base = re.search(
+            r'CREATE OR REPLACE FUNCTION public\.fn_ca_table_stall_watch_ingest\(.*?\$function\$;',
+            source,
+            re.S,
+        )
+        assert ingest_base
+        sql(ingest_base.group(0))
+        for fn_patch in [
+            '20261031190637_stall_watch_restart_is_not_stale.sql',
+            '20261031202225_stall_watch_maintenance_is_bounded.sql',
+            patches[0].name,
+            sustained[0].name,
+            complete[0].name,
+            '20261107032642_stall_watch_measures_a_table_from_the_maintenance_thaw.sql',
+            '20261107034100_an_unexplained_paused_table_is_reported_at_sixty_seconds.sql',
+            '20261107231750_retain_the_first_resumed_hand_and_repeat_stall.sql',
+            '20261117225349_finished_tournament_table_resolves_its_stall.sql',
+        ]:
+            sql((MIGRATIONS / fn_patch).read_text())
+        ingest_signature = "'public.fn_ca_table_stall_watch_ingest(text,timestamp with time zone,bigint)'::regprocedure"
+        decide_signature = "'public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean)'::regprocedure"
+        assert sql('SELECT md5(pg_get_functiondef(' + tick_signature + '));') == '87164ec27781d0534559e80a6fd16bf4'
+        assert sql('SELECT md5(pg_get_functiondef(' + ingest_signature + '));') == '91feca7e2e98b63f1f28777cda57b67a'
+        assert sql('SELECT md5(pg_get_functiondef(' + decide_signature + '));') == '077f272a204d8392dc292a49d1eec168'
+        ingest_metadata = sql(
+            "SELECT jsonb_build_object('owner',proowner,'acl',proacl,'definer',prosecdef,'volatile',provolatile,'config',proconfig) FROM pg_proc WHERE oid="
+            + ingest_signature
+        )
+        # Wire fn_active_maintenance_release_boundary to read real engine_maintenance_thaws
+        # and fn_ca_table_stall_facts to return the exact post-break MTT shape (on_break=false).
+        sql('''CREATE OR REPLACE FUNCTION public.fn_active_maintenance_release_boundary()
+          RETURNS timestamptz LANGUAGE sql AS $$
+          SELECT max(t.release_target_at)
+            FROM public.engine_maintenance_thaws t
+           WHERE t.contract_version = 3
+             AND COALESCE((t.shifted->>'complete')::boolean, false)
+             AND t.release_target_at > clock_timestamp()
+        $$;
+        CREATE OR REPLACE FUNCTION public.fn_ca_table_stall_facts(uuid,uuid[],timestamptz)
+          RETURNS jsonb LANGUAGE sql AS $$
+          SELECT jsonb_build_object(
+            'known_table', true,
+            'tournament_id', '64b7c660-575a-45d7-8e76-55f9ae758cc1',
+            'name', 'Prime Time Free Buy (NLH)',
+            'people_waiting', true,
+            'closed_arena', false,
+            'operator_halt', false,
+            'floor_park', false,
+            'cash_break_started_at', NULL,
+            'tournament_status', 'RUNNING',
+            'started_at', '2026-11-24T02:30:00Z',
+            'on_break', false,
+            'break_started_at', '2026-11-24T03:55:00.001Z',
+            'break_ends_at', NULL,
+            'addon_period_ends_at', NULL,
+            'stop_requested_at', NULL,
+            'final_table_deal_open', false,
+            'sibling_tables', 13,
+            'sibling_tables_silent', 8
+          )
+        $$;''')
+        stall_body = (
+            '\npoker_fleet_tables_stalled 1\n'
+            'poker_uptime_seconds 2000\n'
+            'poker_engine_info{instance_id="fixture-v3"} 1\n'
+            'poker_active_tables 14\n'
+            'poker_maintenance_break_active 0\n'
+            f'poker_table_ms_since_progress{{table_id="{table}",paused="0"}} 600837\n'
+        )
+        # Counterfactual BEFORE 20261124041800:
+        # (a-before) final 70s after v3 thaw deleted engine_maintenance_break does NOT skip.
+        sql('''TRUNCATE engine_maintenance_break, engine_maintenance_thaws, engine_maintenance_break_log, tick_calls;
+        INSERT INTO engine_maintenance_thaws VALUES(
+          clock_timestamp() - interval '4 minutes', 3, '{"complete":true}'::jsonb,
+          clock_timestamp() + interval '1 minute'
+        );''')
+        before_a = json.loads(sql("SET fixture.http_mode='fail'; SELECT fn_ca_table_stall_watch_tick(60000);"))
+        assert before_a.get('error') == 'HTTP_SENTINEL_REACHED', before_a
+        results.append('v3 before: final-70s v3 thaw without break row fails to skip and reaches HTTP')
+
+        # (b-before) scrape right after release_target_at before break_log commits falsely alerts.
+        thaw_at = '2026-11-24T04:05:00.001Z'
+        sql(f'''TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_thaws, engine_maintenance_break_log;
+        UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+        INSERT INTO engine_maintenance_break_log VALUES('2026-11-24T01:05:00.132Z');
+        INSERT INTO engine_maintenance_thaws VALUES('2026-11-24T04:00:00.001Z', 3, '{{"complete":true}}'::jsonb, '{thaw_at}');''')
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($m$" + stall_body + "$m$, '2026-11-24T04:05:00.200Z', 60000);")
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '1'
+        results.append('v3 before: scrape after release_target_at before break_log commit fires false TableStoppedDealing')
+
+        # Drift guard: wrong preimage refuses atomically without modifying either function.
+        pre_tick_def = sql('SELECT pg_get_functiondef(' + tick_signature + ')')
+        sql("CREATE OR REPLACE FUNCTION fn_ca_table_stall_watch_tick(p_threshold_ms bigint DEFAULT 60000) RETURNS jsonb LANGUAGE sql AS $$SELECT '{}'::jsonb$$;")
+        try:
+            sql(v3_patch[0].read_text())
+            raise AssertionError('v3 patch accepted drifted tick preimage')
+        except subprocess.CalledProcessError as error:
+            assert 'STALL_WATCH_V3_THAW_PREIMAGE_DRIFT' in error.stderr, error.stderr
+        assert sql('SELECT md5(pg_get_functiondef(' + ingest_signature + '))') == '91feca7e2e98b63f1f28777cda57b67a'
+        sql(pre_tick_def)
+
+        # Apply 20261124041800 and verify metadata + fail-closed replay.
+        sql(v3_patch[0].read_text())
+        assert tick_metadata == sql(
+            "SELECT jsonb_build_object('owner',proowner,'acl',proacl,'definer',prosecdef,'volatile',provolatile,'config',proconfig) FROM pg_proc WHERE oid="
+            + tick_signature
+        )
+        assert ingest_metadata == sql(
+            "SELECT jsonb_build_object('owner',proowner,'acl',proacl,'definer',prosecdef,'volatile',provolatile,'config',proconfig) FROM pg_proc WHERE oid="
+            + ingest_signature
+        )
+        post_tick_md5 = sql('SELECT md5(pg_get_functiondef(' + tick_signature + '))')
+        post_ingest_md5 = sql('SELECT md5(pg_get_functiondef(' + ingest_signature + '))')
+        try:
+            sql(v3_patch[0].read_text())
+            raise AssertionError('v3 patch replay unexpectedly accepted')
+        except subprocess.CalledProcessError as error:
+            assert 'STALL_WATCH_V3_THAW_PREIMAGE_DRIFT' in error.stderr, error.stderr
+        assert sql('SELECT md5(pg_get_functiondef(' + tick_signature + '))') == post_tick_md5
+        assert sql('SELECT md5(pg_get_functiondef(' + ingest_signature + '))') == post_ingest_md5
+        results.append('v3 migration: exact preimage guard, metadata preservation, and fail-closed replay verified')
+
+        # (a) Bounded complete v3 thaw skips in final 70s even with engine_maintenance_break deleted & profiles locked!
+        sql('''TRUNCATE engine_maintenance_break, engine_maintenance_thaws, tick_calls;
+        INSERT INTO engine_maintenance_thaws VALUES(
+          clock_timestamp() - interval '4 minutes', 3, '{"complete":true}'::jsonb,
+          clock_timestamp() + interval '1 minute'
+        );''')
+        holder_v3 = subprocess.Popen(
+            [str(pg_bin / 'psql'), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', str(port), '-U', 'fixture_owner', '-d', 'postgres'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            holder_v3.stdin.write("BEGIN; LOCK TABLE profiles IN ACCESS EXCLUSIVE MODE; SELECT 'locked';\n"); holder_v3.stdin.flush()
+            assert holder_v3.stdout.readline().strip() == 'locked'
+            assert json.loads(sql("SET lock_timeout='250ms'; SET fixture.http_mode='fail'; SELECT fn_ca_table_stall_watch_tick(60000);")) == {
+                'skipped': 'bounded_maintenance_freeze'
+            }
+            assert sql('SELECT count(*) FROM tick_calls') == '0'
+            results.append('v3 (a): bounded complete v3 thaw skips in final 70s under profiles DDL lock with zero HTTP calls')
+        finally:
+            holder_v3.stdin.write('ROLLBACK;\n\\q\n'); holder_v3.stdin.flush()
+            holder_v3.communicate(timeout=10)
+
+        # (b1) Scrape right after release_target_at before break_log commits -> resuming_after_maintenance, 0 alerts!
+        sql(f'''TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_thaws, engine_maintenance_break_log;
+        UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+        INSERT INTO engine_maintenance_break_log VALUES('2026-11-24T01:05:00.132Z');
+        INSERT INTO engine_maintenance_thaws VALUES('2026-11-24T04:00:00.001Z', 3, '{{"complete":true}}'::jsonb, '{thaw_at}');''')
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($m$" + stall_body + "$m$, '2026-11-24T04:05:00.200Z', 60000);")
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '0'
+        assert sql('SELECT intended_reason FROM smarter_private.ca_table_stall_watch;') == 'resuming_after_maintenance'
+        results.append('v3 (b1): scrape after release_target_at before break_log commit returns resuming_after_maintenance with 0 alerts')
+
+        # (b2) Full tick straddling release_target_at during HTTP: post-HTTP v_now sees thaw committed mid-HTTP!
+        sql(f'''CREATE OR REPLACE FUNCTION extensions.http_get(text) RETURNS TABLE(status integer,content text) LANGUAGE plpgsql AS $$
+        DECLARE v_rel timestamptz;
+        BEGIN
+          IF current_setting('fixture.http_mode',true)='fail' THEN RAISE EXCEPTION 'HTTP_SENTINEL_REACHED'; END IF;
+          INSERT INTO tick_calls VALUES('http');
+          IF current_setting('fixture.http_mode',true)='straddle_thaw' THEN
+            PERFORM pg_sleep(0.04);
+            v_rel := clock_timestamp();
+            INSERT INTO public.engine_maintenance_thaws VALUES(v_rel - interval '5 minutes', 3, '{{"complete":true}}'::jsonb, v_rel);
+            PERFORM pg_sleep(0.02);
+            RETURN QUERY SELECT 200, $m${stall_body}$m$::text;
+            RETURN;
+          END IF;
+          RETURN QUERY SELECT 200, $m${stall_body}$m$::text;
+        END $$;
+        TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_break, engine_maintenance_thaws, engine_maintenance_break_log, tick_calls;
+        UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+        INSERT INTO engine_maintenance_break_log VALUES(clock_timestamp() - interval '3 hours');''')
+        sql("SET fixture.http_mode='straddle_thaw'; SELECT fn_ca_table_stall_watch_tick(60000);")
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '0'
+        assert sql('SELECT intended_reason FROM smarter_private.ca_table_stall_watch;') == 'resuming_after_maintenance'
+        results.append('v3 (b2): tick straddling thaw boundary refreshes post-HTTP v_now and returns resuming_after_maintenance with 0 alerts')
+
+        # (c) Silent table at release_target_at + 61s STILL fires TableStoppedDealing!
+        stall_body_61s = stall_body.replace('600837', '661837').replace('uptime_seconds 2000', 'uptime_seconds 2061')
+        sql(f'''TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_thaws, engine_maintenance_break_log;
+        UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+        INSERT INTO engine_maintenance_break_log VALUES('2026-11-24T01:05:00.132Z');
+        INSERT INTO engine_maintenance_thaws VALUES('2026-11-24T04:00:00.001Z', 3, '{{"complete":true}}'::jsonb, '{thaw_at}');''')
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($m$" + stall_body_61s + "$m$, '2026-11-24T04:06:01.001Z', 60000);")
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing' AND severity='critical'") == '1'
+        assert '61 seconds since the maintenance break ended' in sql("SELECT payload->'alert'->'annotations'->>'summary' FROM operational_alert_events WHERE alertname='TableStoppedDealing';")
+        results.append('v3 (c): silent table at release_target_at + 61s still fires critical TableStoppedDealing')
+
+        # (d) Unbounded (> 5m) or incomplete (complete=false) v3 thaw NEVER skips and NEVER excuses!
+        for label, freeze_expr, shifted_json, rel_expr in [
+            ('unbounded 6m v3 thaw', "clock_timestamp() - interval '5 minutes'", '{"complete":true}', "clock_timestamp() + interval '1 minute'"),
+            ('incomplete v3 thaw', "clock_timestamp() - interval '4 minutes'", '{"complete":false}', "clock_timestamp() + interval '1 minute'"),
+        ]:
+            sql(f'''TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_break, engine_maintenance_thaws, engine_maintenance_break_log, tick_calls;
+            UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+            INSERT INTO engine_maintenance_thaws VALUES({freeze_expr}, 3, '{shifted_json}'::jsonb, {rel_expr});''')
+            sql("SET fixture.http_mode='normal'; SELECT fn_ca_table_stall_watch_tick(60000);")
+            assert sql("SELECT count(*) FROM tick_calls WHERE kind='http'") == '1', label
+            assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '1', label
+            results.append('v3 (d-tick): ' + label + ' never skips')
+
+        for label, freeze_ts, shifted_json in [
+            ('unbounded 6m v3 thaw', '2026-11-24T03:59:00.000Z', '{"complete":true}'),
+            ('incomplete v3 thaw', '2026-11-24T04:00:00.001Z', '{"complete":false}'),
+        ]:
+            sql(f'''TRUNCATE operational_alert_events, smarter_private.ca_table_stall_watch, engine_maintenance_thaws, engine_maintenance_break_log;
+            UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL,last_instance=NULL,stop_alert_id=NULL,blind_alert_id=NULL,maint_since=NULL;
+            INSERT INTO engine_maintenance_break_log VALUES('2026-11-24T01:05:00.132Z');
+            INSERT INTO engine_maintenance_thaws VALUES('{freeze_ts}', 3, '{shifted_json}'::jsonb, '{thaw_at}');''')
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($m$" + stall_body + "$m$, '2026-11-24T04:05:00.200Z', 60000);")
+            assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '1', label
+            results.append('v3 (d-ingest): ' + label + ' never excuses')
         print(json.dumps({'status':'passed','checks':results,'check_count':len(results),
                           'ingest_source_md5':qualified_ingest_md5,
                           'tick_dependency_limits':'HTTP and ingest sentinels isolate the actual cron owner; real ingest overrun behavior is qualified before sentinel replacement',
