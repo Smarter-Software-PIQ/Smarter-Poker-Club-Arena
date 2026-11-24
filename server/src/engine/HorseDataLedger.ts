@@ -3679,6 +3679,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fleet'
   ),
   table(
+    'horse_error_log',
+    'per_action',
+    'scripts/ops/shadow-read-report-lib.mjs (a row in the window is a rollback reason) and every switch watch list',
+    'one row per Horse decision fallback, legalizer correction, Lightning fallback or decision worker failure, coalesced per minute (services/HorseErrorLog.ts); public context only, never a card. Held zero rows until 2026-11-24 because nothing wrote it',
+    'errors'
+  ),
+  table(
     'ca_horse_fleet_heartbeat',
     'minute',
     'SQL only: fn_ca_fleet_overview (the panel reads the leader heartbeat)',
@@ -3691,7 +3698,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // legacy) and so the panel can show them as what they are.
   ...[
     'horse_analytics',
-    'horse_error_log',
     'horse_hand_history',
     'horse_memory',
     'horse_opponent_journals',
@@ -3723,6 +3729,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // so a healthy day never trips them and a dead layer always does.
   // ─────────────────────────────────────────────────────────────────────────
   receipt('decide', 'HorseLogic.decide', 'every live decision', 'V15'),
+  receipt(
+    'horse_error_log_write_exception_seen',
+    'scripts/ops/shadow-read-report-lib.mjs (a safety exception)',
+    'a horse_error_log row the engine could not write (services/HorseErrorLog.ts); nonzero means a quiet error log is not a clean one',
+    'errors'
+  ),
   receipt(
     'horse_feature_authority_withdrawn_before_acceptance',
     'ServerTableEngineTurns qualified feature acceptance gate',

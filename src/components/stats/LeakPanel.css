@@ -143,3 +143,23 @@
   line-height: 1.55;
   color: rgba(200, 224, 245, 0.6);
 }
+
+.leak-assistant-btn {
+  display: inline-block;
+  margin-top: 0.8rem;
+  padding: 0.48rem 0.85rem;
+  border: 1px solid rgba(99, 231, 255, 0.35);
+  border-radius: 3px;
+  background: rgba(99, 231, 255, 0.08);
+  color: #8eeeff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+@media print {
+  .leak-assistant-btn {
+    display: none;
+  }
+}

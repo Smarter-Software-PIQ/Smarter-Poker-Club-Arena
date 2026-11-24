@@ -277,4 +277,52 @@ describe('the breach line is monotonic, complete, partitioned, never silent, and
     expect(after[1]).toBe('x');
     expect(budget.admit(line, t + 60_001)).toEqual(['x']);
   });
+
+  it('preserves per-branch prepareNextHand timings in prepareSpansMs without disturbing stages sum', () => {
+    const lines: string[] = [];
+    const span = new CashNextHandSpan('tbl-2', 88, 'post_hand_hold', 0);
+    span.enter('load_next_hand_inputs', null, 50);
+    span.recordSubSpan('load_seats', 180.4);
+    span.recordSubSpan('refresh_rake', 1620.6);
+    span.recordSubSpan('refresh_dealing_halt', 42.2);
+    span.recordSubSpan('leave_pending', 95.1);
+    span.enter('next_hand_rest', null, 1700);
+    span.restEnded = true;
+    span.enter('deal', null, 2100);
+    const { gapMs, stages } = span.close(2250);
+    expect(sum(stages)).toBe(gapMs);
+    expect(span.subSpansMs()).toEqual({
+      load_seats: 180,
+      refresh_rake: 1621,
+      refresh_dealing_halt: 42,
+      leave_pending: 95,
+    });
+    reportCashNextHandBreach(
+      {
+        tableId: 'tbl-2',
+        handNumber: 88,
+        nextHandNumber: 89,
+        gapMs,
+        at: 1_700_000_000_000,
+        stages,
+        prepareSpansMs: {
+          ...span.subSpansMs()!,
+          'holeCards:As Kd': 5,
+        },
+      },
+      (l) => lines.push(l),
+      new CashBreachLineBudget()
+    );
+    expect(lines).toHaveLength(1);
+    const rec = parse(lines[0]);
+    expect(sum(rec.stages)).toBe(rec.gapMs);
+    expect(rec.prepareSpansMs).toEqual({
+      load_seats: 180,
+      refresh_rake: 1621,
+      refresh_dealing_halt: 42,
+      leave_pending: 95,
+    });
+    expect(rec.stages).not.toHaveProperty('refresh_rake');
+    expect(lines[0]).not.toContain('holeCards');
+  });
 });
