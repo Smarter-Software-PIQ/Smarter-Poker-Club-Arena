@@ -41,7 +41,7 @@ Source: `docs/changelog/2026-11-15-a-lightning-style-read-can-keep-its-own-evide
 
 ## Tests
 
-- `server/src/lightning/aLightningStyleReadKeepsItsOwnEvidence.law.test.ts` (law test `L-016`, registered in `docs/laws.d/server-src-lightning-aLightningStyleReadKeepsItsOwnEvidence.md`: learner files Lightning hands into both maps and Classic into pooled only; pooled maps are byte-identical with or without speed; option off is byte-identical whatever the Lightning maps hold; option on reads only Lightning evidence and folds 24/24 on the turn check-raise spot; empty receipt fires when Lightning map has no row where pooled has one; Classic and domain-less decisions unchanged).
+- `server/src/lightning/aLightningStyleReadKeepsItsOwnEvidence.law.test.ts` (law test `L-016`, registered in `docs/laws.d/a-lightning-style-read-keeps-its-own-evidence.md`: learner files Lightning hands into both maps and Classic into pooled only; pooled maps are byte-identical with or without speed; option off is byte-identical whatever the Lightning maps hold; option on reads only Lightning evidence and folds 24/24 on the turn check-raise spot; empty receipt fires when Lightning map has no row where pooled has one; Classic and domain-less decisions unchanged).
 - `server/src/engine/HorseMindStyleLightningMaps.test.ts` and `server/src/services/HorseExploitHydratorStyle.test.ts`.
 - Refused league matchup `nlh_style_lightning_separate` (`server/src/benchmark/HorseLeague.ts` `UNMEASURABLE_MATCHUPS`: the league deals no Lightning domain; 0 of 2,000 pairs diverged six-handed and heads-up on seed 20261115).
 

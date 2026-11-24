@@ -18,6 +18,7 @@ import {
   SWITCH_STATE_SCHEMA,
   applySwitchStateChange,
   findAuthorityDocStateDrift,
+  findUnjudgedLiveAuthorityDocs,
   formatSwitchStateSnapshot,
   parseAuthorityDocState,
   snapshotFromRows,
@@ -37,6 +38,58 @@ function registeredAuthorityDocs(): Record<string, string> {
   }
   return docs;
 }
+
+/**
+ * Live options whose authority doc was written before the machine-read `**State: ...**` token existed
+ * (2026-11-15 to 2026-11-21 formats, most of them PLO-OWNER docs), read 2026-11-24 against the live rows
+ * (audit max 196). The drift check cannot judge them, so this list may only shrink: a doc that gains a readable
+ * State leaves it, and any other live option without one fails the law. The case that made this law:
+ * cashDefenceTrimColdCalls went live at audit #193 while its doc read "default OFF in source", which
+ * parsed as unknown and was never judged.
+ */
+const DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN: readonly string[] = [
+  'horseActionTimeIsPublicOnly',
+  'lightningVpipFloorLimpOnly',
+  'omahaBareOverpairOopFlopCheck',
+  'omahaBigBetIsPotShare',
+  'omahaBigDrawAggression',
+  'omahaBlanketRowsOffInPlo45Cash',
+  'omahaBluffShareFromBetRate',
+  'omahaCardImpact',
+  'omahaEliteContinuesVsMeasuredWideThreeBettor',
+  'omahaEvFoldModelHeadsUp',
+  'omahaFacingBetEv',
+  'omahaMadeHandDefenseVsValueLeader',
+  'omahaManiacReRaiseWidthMeasured',
+  'omahaNoCallColdFourBetWithoutPremium',
+  'omahaNoDrawRaiseOutOfPosition',
+  'omahaOopReraisedPotStrongRange',
+  'omahaOopTurnCheckAfterFlopCall',
+  'omahaOverpairNoOopBarrelVsValueLeader',
+  'omahaPairedBoardFoldRespectsPrice',
+  'omahaPairedRiverNoThinLeadVsValueLeader',
+  'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
+  'omahaPreflopReraiseDefencePricedInPosition',
+  'omahaPressureNeedsPostflopAggression',
+  'omahaReraiseRangeEarlyPosition',
+  'omahaReraiseRangeOutOfPosition',
+  'omahaReraisedPotFlopContinueNeedsEquityShape',
+  'omahaRiverCurrentNutsCallFloor',
+  'omahaRiverMediumBetStrongHandCalls',
+  'omahaRiverNutBlockerBluffReachable',
+  'omahaSmallBetIsPriced',
+  'omahaStabDefenceIsPriced',
+  'omahaStrategyInTournaments',
+  'omahaStreetPlan',
+  'omahaStrongHandSlowplayMix',
+  'omahaStrongHandValue',
+  'omahaTurnBetNeedsRiverPlan',
+  'omahaTurnRiverRaiseIsPriced',
+  'omahaTurnRiverRaiseNeedsNuts',
+  'omahaValueSizeIsUnreadable',
+  'omahaVpipFloorByLimp',
+  'vpipFloorLimpOnly',
+];
 
 describe('an authority doc states the live switch', () => {
   const snapshot = JSON.parse(readFileSync(join(ROOT, SWITCH_STATE_FILE), 'utf8'));
@@ -64,6 +117,73 @@ describe('an authority doc states the live switch', () => {
     ).toEqual([]);
   });
 
+  it('every option with a live row has a doc State the drift check can read', () => {
+    const unjudged = findUnjudgedLiveAuthorityDocs({ snapshot, docs: registeredAuthorityDocs() });
+    const fresh = unjudged.filter((u) => !DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN.includes(u.option));
+    expect(
+      fresh,
+      `authority docs of live options whose State cannot be judged (add a **State: ...** token): ${JSON.stringify(fresh)}`
+    ).toEqual([]);
+  });
+
+  it('the docs written before the State token only leave that list', () => {
+    const docs = registeredAuthorityDocs();
+    const nowReadable = DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN.filter((o) => {
+      const parsed = parseAuthorityDocState(docs[o]);
+      return parsed !== null && parsed.state !== 'unknown';
+    });
+    expect(
+      nowReadable,
+      `these docs now carry a readable State: remove them from DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN`
+    ).toEqual([]);
+    expect([...DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN].sort()).toEqual(
+      DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN
+    );
+  });
+
+  it('fails a live option whose doc State cannot be read, and leaves no-row options alone', () => {
+    const snap = snapshotFromRows(
+      [
+        {
+          option: 'liveUnknown',
+          state: 'on',
+          updated_at: '2026-11-24 08:18:04+00',
+          audit_id: 193,
+          audit_max: 193,
+        },
+        {
+          option: 'liveNoToken',
+          state: 'off',
+          updated_at: '2026-11-24 08:18:04+00',
+          audit_id: 190,
+          audit_max: 193,
+        },
+        {
+          option: 'liveRead',
+          state: 'on',
+          updated_at: '2026-11-24 08:18:04+00',
+          audit_id: 191,
+          audit_max: 193,
+        },
+      ],
+      '2026-11-24T09:00:00Z'
+    );
+    expect(
+      findUnjudgedLiveAuthorityDocs({
+        snapshot: snap,
+        docs: {
+          liveUnknown: '**State: pending review**',
+          liveNoToken: 'no machine-readable state',
+          liveRead: '**State: LIVE ON** since audit #191',
+          noRow: '**State: pending review**',
+        },
+      })
+    ).toEqual([
+      { option: 'liveNoToken', docStateText: null, liveState: 'off' },
+      { option: 'liveUnknown', docStateText: 'pending review', liveState: 'on' },
+    ]);
+  });
+
   it('reads the State token the docs use', () => {
     expect(parseAuthorityDocState('x **State: LIVE ON** in production since ...')).toEqual({
       raw: 'LIVE ON',
@@ -74,6 +194,9 @@ describe('an authority doc states the live switch', () => {
     expect(parseAuthorityDocState('**State: ON_SHADOW** since ...')?.state).toBe('on_shadow');
     expect(parseAuthorityDocState('no state here')).toBeNull();
     expect(parseAuthorityDocState('**State: pending review**')?.state).toBe('unknown');
+    expect(
+      parseAuthorityDocState('**State: default OFF in source (x); Evidence MET.**')?.state
+    ).toBe('off');
   });
 
   it('judges each pairing of doc State and live row', () => {

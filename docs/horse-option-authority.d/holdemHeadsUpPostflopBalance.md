@@ -67,3 +67,7 @@ Machine-read (README.md, "The Replay row"); a run row is written by the scorer a
 ## Rollback
 
 No production switch row exists (source default OFF). If ever enabled, immediately roll back to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('holdemHeadsUpPostflopBalance', 'off', '<actor>', '<reason>')`), restoring the base brain within ~30s with zero data migration needed.
+
+## Evidence check, 2026-11-24
+
+Checked 2026-11-24: `HYDRATED-TIER1-RESULTS-20261122.md` is present at `/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/HYDRATED-TIER1-RESULTS-20261122.md` (sha256 `9afabb5a6a86bd160d087fddf8c3a4d2059545e3a46297152286a7b52d46533a`).
