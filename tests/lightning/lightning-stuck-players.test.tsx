@@ -37,7 +37,6 @@ import {
   lightningBustCandidate,
   lightningBustVerdict,
   useLightningBustRebuy,
-  LIGHTNING_BUST_AUTO_TOP_UP_GRACE_MS,
   LIGHTNING_BUST_MAX_READS,
 } from '../../src/lightning/lightningBustRebuy';
 import BuyInModal from '../../src/components/table/BuyInModal';
@@ -218,18 +217,15 @@ describe('a busted Lightning player is offered the rebuy sheet', () => {
     expect(onPrompt).toHaveBeenCalledWith(150);
   });
 
-  it('the opt-in auto top-up gets its moment first, and another money sheet blocks it', async () => {
+  it('auto top-up and an open money sheet both suppress the manual prompt', async () => {
     vi.useFakeTimers();
     const readTopUp = vi.fn(async () => ({ stack: 0, maximum: 200 }));
     const auto = mount(readTopUp, { autoTopUpEnabled: true });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LIGHTNING_BUST_AUTO_TOP_UP_GRACE_MS - 100);
+      await vi.advanceTimersByTimeAsync(10_000);
     });
+    expect(readTopUp).not.toHaveBeenCalled();
     expect(auto.onPrompt).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(200);
-    });
-    expect(auto.onPrompt).toHaveBeenCalledTimes(1);
     cleanup();
     const blocked = mount(readTopUp, { blocked: true });
     await act(async () => {

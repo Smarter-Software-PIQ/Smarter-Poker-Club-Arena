@@ -369,3 +369,32 @@ describe('the hand itself never bills one seat two entry charges', () => {
     expect(hero.totalInvested).toBe(1);
   });
 });
+
+describe('a funded arrival enters without using the sit-out control', () => {
+  it('queues the live blind from a clear seat and posts it only once', () => {
+    const { engine, rows } = table();
+    engine.registerWaitForBB(NEW, true);
+    expect(engine.postBBWhenClear.has(NEW)).toBe(true);
+    expect(engine.postBBToEnter(NEW)).toEqual({ success: true });
+    expect(engine.postBBWhenClear.has(NEW)).toBe(false);
+    expect(engine.waitingForBB.has(NEW)).toBe(false);
+    expect(engine.entryChargeSeats(rows)).toMatchObject({
+      deadBlinds: [],
+      bbOnlyPosts: [{ seat: HERO_SEAT }],
+    });
+    expect(engine.disconnectEngine.sitBack).not.toHaveBeenCalled();
+  });
+
+  it('holds an arriving button seat until the position clears', () => {
+    const { engine } = table();
+    engine.getButtonSeatIndex = () => HERO_SEAT;
+    engine.registerWaitForBB(NEW, true);
+    expect(engine.postBBToEnter(NEW)).toMatchObject({ success: true, deferred: true });
+    expect(engine.waitingForBB.has(NEW)).toBe(true);
+    expect(engine.postingBBToEnter.has(NEW)).toBe(false);
+    engine.getButtonSeatIndex = () => 5;
+    expect(engine.postBBToEnter(NEW)).toEqual({ success: true });
+    expect(engine.waitingForBB.has(NEW)).toBe(false);
+    expect(engine.postingBBToEnter.has(NEW)).toBe(true);
+  });
+});
