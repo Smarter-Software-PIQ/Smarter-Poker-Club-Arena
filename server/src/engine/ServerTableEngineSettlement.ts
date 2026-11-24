@@ -4470,7 +4470,9 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             this.noteHeldDeparture(horse.user_id, horse.occupancy_id);
             continue;
           }
-          if ((await this.bankTheWinExit(horse)) === 'stop') return;
+          const outcome = await this.bankTheWinExit(horse);
+          if (outcome === 'stop') return;
+          if (outcome === 'left') this.wakeClusterGame('seat_left');
         }
       }
     });
@@ -4527,6 +4529,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         if (!afterDepartures) return;
         diagnostic?.phase('local_teardown');
         this.tearDownDepartedSeats(cashedOutIds);
+        if (cashedOutIds.length > 0) this.wakeClusterGame('seat_left');
         // MUST-MOVE (Slice 2): planned moves land here, at the hand boundary,
         // after the leavers. A move is not a leave: no cash-out, no clock.
         // A Main vacancy takes this completed hand boundary, including a
