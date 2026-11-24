@@ -82,6 +82,47 @@ test('Tournament Price Stays Centered Between Unequal Header Controls', async ({
   }
 });
 
+test('The Tournament Title And Guarantee Fit Above The Buy-In', async ({ page }) => {
+  const styles = [
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const viewport of [
+    { width: 393, height: 852 },
+    { width: 667, height: 375 },
+  ]) {
+    await page.setViewportSize(viewport);
+    for (const title of [
+      '<span class="nightly-plaque"><small>Tournament</small><strong>Nightly 20K</strong>',
+      '<span class="arena-format-plaque"><img alt="Satellite" width="360" height="76"><strong>Satellite Into Nightly 20K</strong>',
+    ]) {
+      await page.setContent(`<style>${styles}</style>
+        <div class="tournament-details console-lobby"><header class="details-header">
+          <h1 class="tournament-name">${title}<span class="event-title-guarantee">20,000 Guaranteed</span></span></h1>
+          <div class="mtt-meta"><b>Registering</b><div class="mtt-price">35 Chips</div></div>
+        </header></div>`);
+      await expect(page.locator('h1')).toHaveCSS('-webkit-line-clamp', 'none', { timeout: 1000 });
+      const visible = await page.locator('h1').evaluate((heading) => {
+        const frame = heading.getBoundingClientRect();
+        const buyIn = heading.nextElementSibling!.getBoundingClientRect();
+        return [...heading.querySelectorAll('strong, .event-title-guarantee')].every((label) => {
+          const box = label.getBoundingClientRect();
+          return (
+            box.height > 0 &&
+            box.top >= frame.top - 1 &&
+            box.bottom <= Math.min(frame.bottom, buyIn.top) + 1
+          );
+        });
+      });
+      expect(visible).toBe(true);
+    }
+  }
+});
+
 // Real tournament styles, including the later shared .tl-scroll rule that
 // previously trapped gestures over lists even when their content fit.
 test.describe('tournament scroll gestures', () => {
