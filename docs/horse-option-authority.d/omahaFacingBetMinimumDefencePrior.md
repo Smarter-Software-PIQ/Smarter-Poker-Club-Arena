@@ -16,4 +16,5 @@ Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfol
 
 ## Replay
 
-- Replay: NOT RUN (built 2026-11-24; the audited-set scorer was not run; offline league-state replay only)
+- Replay: fixed 20; newlyWrong 8; changed 31; unchanged 3732; unjudged 3; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm f1f2f6 vs off; replayed 3763 of 3884
+- Note (2026-11-24): arm f1f2f6 is omahaFacingBetRangeIsMeasuredByLine + omahaFacingBetIndifferenceCalls + omahaFacingBetMinimumDefencePrior together (they act inside one verdict); harness scripts/audited-node-option-replay.ts, seeds 1,7,42, opponent memory off. Bar fixed >= 2 x newly wrong: met (20 vs 8). Real-card EV grade not run (see omahaFlopRealizationIsPriced.md).

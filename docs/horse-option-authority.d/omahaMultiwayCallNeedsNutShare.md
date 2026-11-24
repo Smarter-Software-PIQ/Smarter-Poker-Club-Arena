@@ -16,4 +16,5 @@ Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfol
 
 ## Replay
 
-- Replay: NOT RUN (built 2026-11-24; the audited-set scorer was not run; offline league-state replay only)
+- Replay: fixed 26; newlyWrong 83; changed 148; unchanged 3615; unjudged 39; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm m123 vs off; replayed 3763 of 3884
+- Note (2026-11-24): arm m123 is omahaFacingBetFieldIsJoint + omahaMultiwayCallNeedsNutShare + omahaMultiwayValueBetIsPriced together. Per receipt: the facing-bet part (omaha_priced_facing_bet_joint_call) 34 changed / 26 fixed / 0 newly wrong; the multiway value bet (omaha_multiway_value_bet_priced_bet) 111 changed / 0 fixed / 81 newly wrong. Bar NOT met because of the value bet.

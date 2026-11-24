@@ -18,4 +18,5 @@ Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfol
 
 ## Replay
 
-- Replay: NOT RUN (built 2026-11-24; the audited-set scorer was not run; offline league-state replay only)
+- Replay: fixed 22; newlyWrong 14; changed 60; unchanged 3703; unjudged 24; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm f3 vs off; replayed 3763 of 3884
+- Note (2026-11-24): arm f3 is this option alone; replay harness scripts/audited-node-option-replay.ts, seeds 1,7,42, opponent memory off, switch rows of replay/live-rows.json. Bar fixed >= 2 x newly wrong: NOT met (22 vs 14). The real-card EV grade was not run (no fold prior for this set, and the set's cards file holds cards no showdown showed).
