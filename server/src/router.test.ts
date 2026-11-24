@@ -135,3 +135,96 @@ describe('a handler that throws is a 500, never a rejected listener', () => {
     ).not.toHaveBeenCalled();
   });
 });
+
+describe('public /health burst coalescing (b87d2b52)', () => {
+  it('serves 200 concurrent public proxy GET /health requests with one getStatus() call per 1s window while keeping loopback and parameterized probes fresh', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-11-24T04:00:00.000Z'));
+      let seq = 0;
+      const getStatus = vi.fn(() => ({
+        liveness: 'ok',
+        status: 'ok',
+        dealerPrerequisitesReady: true,
+        liveHorseDecision: { phase: 'ready' },
+        seq: ++seq,
+      }));
+      const router = createRouter({
+        gameServer: { getStatus, getPrometheusMetrics: () => '' },
+      } as never);
+
+      // 200 public proxy GET /health calls in a burst -> strictly 1 getStatus() call
+      const burst = await Promise.all(
+        Array.from({ length: 200 }, async () => {
+          const { res, captured } = fakeRes();
+          await router(
+            {
+              method: 'GET',
+              url: '/health',
+              headers: { 'x-forwarded-for': '203.0.113.9' },
+            } as unknown as IncomingMessage,
+            res
+          );
+          return captured;
+        })
+      );
+      expect(getStatus).toHaveBeenCalledTimes(1);
+      for (const reply of burst) {
+        expect(reply.statusCode).toBe(200);
+        expect(JSON.parse(reply.body)).toMatchObject({ seq: 1 });
+      }
+
+      // Loopback / internal probe (no X-Forwarded-For) always bypasses the cache
+      const internal = fakeRes();
+      await router(
+        { method: 'GET', url: '/health', headers: {} } as unknown as IncomingMessage,
+        internal.res
+      );
+      expect(getStatus).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(internal.captured.body)).toMatchObject({ seq: 2 });
+
+      // Parameterized public probe (?nocache=1) always bypasses the cache
+      const parameterized = fakeRes();
+      await router(
+        {
+          method: 'GET',
+          url: '/health?nocache=1',
+          headers: { 'x-forwarded-for': '203.0.113.9' },
+        } as unknown as IncomingMessage,
+        parameterized.res
+      );
+      expect(getStatus).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(parameterized.captured.body)).toMatchObject({ seq: 3 });
+
+      // Still inside 1,000 ms TTL: unparameterized public probe reuses seq=1
+      vi.advanceTimersByTime(999);
+      const stillCached = fakeRes();
+      await router(
+        {
+          method: 'GET',
+          url: '/health',
+          headers: { 'x-forwarded-for': '203.0.113.9' },
+        } as unknown as IncomingMessage,
+        stillCached.res
+      );
+      expect(getStatus).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(stillCached.captured.body)).toMatchObject({ seq: 1 });
+
+      // After 1,000 ms TTL expires: next public probe refreshes cleanly
+      vi.advanceTimersByTime(1);
+      const refreshed = fakeRes();
+      await router(
+        {
+          method: 'GET',
+          url: '/health',
+          headers: { 'x-forwarded-for': '203.0.113.9' },
+        } as unknown as IncomingMessage,
+        refreshed.res
+      );
+      expect(getStatus).toHaveBeenCalledTimes(4);
+      expect(JSON.parse(refreshed.captured.body)).toMatchObject({ seq: 4 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

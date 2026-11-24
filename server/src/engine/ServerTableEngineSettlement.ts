@@ -24,6 +24,7 @@ import { assertDiamondAcceptedHand } from '../domain/DiamondCashBoundary.js';
 import { diamondCashJackpotVerdict } from './diamondCashJackpot.js';
 import { diamondCashRakeFactsFor } from './diamondCashRakeFacts.js';
 import { pendingSeatMoves, type PendingSeatMove } from '../services/supabase/seatMoves.js';
+import { bindToProcessRoot } from '../services/supabase/dataActorContext.js';
 import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
 /**
  * ServerTableEngine, layer 6/8 — the HAND_COMPLETE settlement pipeline and post-hand tasks.
@@ -360,7 +361,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // must not hold back cards the player has bought. Start it immediately,
     // capture this hand's fields before yielding, and report both returned
     // errors and rejected requests. It never joins the next-hand barrier.
-    void (async () => {
+    void bindToProcessRoot(async () => {
       try {
         const { error: revealLogError } = await supabase.from('rabbit_hunt_reveals').insert({
           user_id: userId,
@@ -842,7 +843,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // board leaves nothing unseen (revealRabbitHunt refuses it anyway), so
         // writing it would be a row per showdown platform-wide for nothing.
         if (persisted && persisted.cards.length > 0 && persisted.boardLength < 5) {
-          void (async () => {
+          void bindToProcessRoot(async () => {
             try {
               const { error: offerPersistError } = await supabase.from('rabbit_hunt_offers').upsert(
                 {
