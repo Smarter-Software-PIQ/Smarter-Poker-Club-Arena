@@ -28,6 +28,22 @@ This is the task-specific owner instruction CLAUDE.md 10.85 requires for schedul
 - A missing or failed Backup certificate leaves the current engine running for that cycle. The next cycle tries again with whatever is certified then. Nothing is dispatched twice.
 - Until a release carrying this schedule seals, the serving engine still breaks only at 04:00, so Stage and the receiver prepare ONLY the 04:00 anchor (they read `/health` and refuse every other cycle). The first sealed release that carries the three-hourly schedule turns on the other seven cycles by itself.
 
+### The Post-Seal Backup Certifies The Next Candidate
+
+Since 2026-11-24 (O24) the `Backup after seal <run>-<attempt>` run that the
+receiver starts after every seal no longer re-certifies the build that just
+sealed. After the same custody proof it certifies the next candidate: the
+newest first-parent commit of its own commit touching `server/` or a
+`CONTROL_INPUTS` path, when that commit is ahead of the sealed SHA, on a fresh
+copy, with the rollback rehearsed against the sealed SHA. Before the copy it
+waits at most 25 minutes, inside the existing `due` read, for migrations merged
+in the last day to install; if one is still uninstalled it hands the host back
+and writes no status. When nothing is ahead of the sealed SHA the run ends in
+seconds without taking the host. This gives each cycle a first certification
+that starts minutes after the previous seal and leaves time for a second
+attempt. The export step also repeats itself once, after a fixed 45 second
+pause, when production's schema evidence moved during the export.
+
 ## What Stays Daily (04:00 Only)
 
 - Window migrations (`-- @install-window: daily-maintenance`, `scripts/ci/maintenance-window-migrations.mjs` 03:55-04:05) install only in the 04:00 break. Stage runs the window installer only for the 04:00 preparation.
