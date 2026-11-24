@@ -341,6 +341,8 @@ import {
   collectedSeatBet,
   isLightningObserverSnapshot,
   mapEngineSnapshot,
+  resolveSeatSitOut,
+  type EnginePublicPlayer,
 } from '../utils/mapEngineSnapshot';
 import { selectBoundaryHoldBanner } from '../utils/boundaryHoldBanner';
 import {
@@ -20687,7 +20689,10 @@ function LiveTablePage({
                 // hide a live all-in).
                 status: sp.is_all_in
                   ? 'all_in'
-                  : sittingOutIdsRef.current.has(sp.user_id)
+                  : resolveSeatSitOut(
+                        { position: sp.position },
+                        sittingOutIdsRef.current.has(sp.user_id)
+                      )
                     ? 'sitting_out'
                     : sp.is_folded
                       ? 'folded'
@@ -26282,12 +26287,20 @@ function LiveTablePage({
            tournament tables too, where the stamp is always null.
 
            The stamps are their own state and reach SeatSlot as their own prop. */
-        const players = prev.players.map((p) => {
+        const snapshot = engineSnapshotRef.current;
+        const engineSeats =
+          snapshot?.table_id === tableId && Array.isArray(snapshot.players)
+            ? (snapshot.players as EnginePublicPlayer[])
+            : undefined;
+        const players = prev.players.map((p, index) => {
           if (!p || !p.id) return p;
-          // The DB flag describes a voluntary sit-out, not an engine entry
-          // hold. Only an authoritative waiting-list update admits that seat.
+          // The row refresh can finish after a reconnect snapshot. Reconcile
+          // the same occupant against the current wire state before painting.
+          const engineSeat = engineSeats?.find(
+            (seat) => seat.seat === index + 1 && seat.user_id === p.id
+          );
           const shouldBeOut =
-            sittingOut.has(p.id) ||
+            resolveSeatSitOut(engineSeat, sittingOut.has(p.id)) ||
             p.waitingForButton === true ||
             (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.

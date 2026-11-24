@@ -373,6 +373,16 @@ export interface MappedTableStatePatch {
 
 // ─── Mapping ──────────────────────────────────────────────────────────────────
 
+/** A hand position or an explicit sit-out comes from the engine. The seat
+ * row can fill the gap for an unpositioned seat before the next hand. */
+export function resolveSeatSitOut(
+  player: Pick<EnginePublicPlayer, 'is_sitting_out' | 'position'> | undefined,
+  rowSitOut: boolean
+): boolean {
+  if (player?.is_sitting_out) return true;
+  return !player?.position && rowSitOut;
+}
+
 const STATUS_FROM_PLAYER = (
   p: EnginePublicPlayer
 ): MappedTableStatePatch['players'][number] extends infer _ | null
