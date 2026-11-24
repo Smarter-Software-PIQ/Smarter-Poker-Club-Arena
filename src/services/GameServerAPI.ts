@@ -942,7 +942,10 @@ export async function getServerStatus(): Promise<ServerStatus | null> {
   if (serverStatusInFlight) return serverStatusInFlight;
   const pending = (async (): Promise<ServerStatus | null> => {
     try {
-      const response = await engineFetch(`${GAME_SERVER_URL}/health`, { cache: 'no-store' });
+      const response = await engineFetch(`${GAME_SERVER_URL}/health`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
       if (!response.ok) return null;
       return (await response.json()) as ServerStatus;
     } catch (err) {
