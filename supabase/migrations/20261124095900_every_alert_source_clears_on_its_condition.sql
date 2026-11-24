@@ -157,6 +157,49 @@ $add$, 'before')
 END
 $migration$;
 
+-- Each rewritten body runs once before COMMIT, in a subtransaction that is
+-- always undone (scripts/ci/templates/function-probe.sql). The twin rule is a
+-- trigger function (plpgsql_check covers it); the hourly rakeback check takes
+-- up to 16 s on production, past the install budget, and was proven in the
+-- rolled-back production probe of this file instead.
+-- @probe-exempt: public.fn_rakeback_settler_stranded_source_check hourly check takes up to 16 s; proven in the rolled-back production probe
+
+-- @probe-for: smarter_private.record_host_heartbeat
+DO $probe$
+BEGIN
+  PERFORM smarter_private.record_host_heartbeat('z2-probe-host', '{}'::jsonb);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: smarter_private.host_heartbeat_check
+DO $probe$
+BEGIN
+  PERFORM smarter_private.host_heartbeat_check();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: smarter_private.weekly_payout_readiness_check
+DO $probe$
+BEGIN
+  PERFORM smarter_private.weekly_payout_readiness_check();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_cash_pot_conservation_check
+DO $probe$
+BEGIN
+  PERFORM public.fn_cash_pot_conservation_check(1);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 -- Mac senders resolve through one narrow door: only these two sources, only
 -- firing rows, only by an event-key prefix the sender itself recorded.
 CREATE OR REPLACE FUNCTION public.fn_resolve_operational_alerts(p_source text, p_event_key_prefix text, p_resolution text)
@@ -184,6 +227,26 @@ BEGIN
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.fn_resolve_operational_alerts(text, text, text) FROM PUBLIC, anon, authenticated;
+
+-- @probe-for: public.fn_resolve_operational_alerts
+DO $probe$
+DECLARE v_id bigint; v_n integer;
+BEGIN
+  v_id := public.fn_record_operational_alert('install-queue', 'z2-probe:' || gen_random_uuid()::text,
+            'InstallQueueJobFailed', 'firing', 'warning', '{}'::jsonb);
+  v_n := public.fn_resolve_operational_alerts('install-queue', (SELECT event_key FROM public.operational_alert_events WHERE id = v_id), 'probe');
+  IF v_n <> 1 OR (SELECT status FROM public.operational_alert_events WHERE id = v_id) <> 'resolved' THEN
+    RAISE EXCEPTION 'fn_resolve_operational_alerts did not resolve its own firing row (%)', v_n;
+  END IF;
+  BEGIN
+    PERFORM public.fn_resolve_operational_alerts('financial-alerts-backfill', 'z2-probe:', 'probe');
+    RAISE EXCEPTION 'fn_resolve_operational_alerts resolved a source outside its door';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 -- A bug report delivered: its undelivered alert resolves.
 CREATE OR REPLACE FUNCTION public.fn_bug_report_delivery_resolves_its_alert()
@@ -259,6 +322,6 @@ UPDATE public.operational_alert_events e
          'resolution', 'fixed in the live body: fn_ca_engine_release_stall_check declares v_open uuid (issue #9413)')
  WHERE e.source = 'midway-weekly-payout-followup' AND e.status = 'firing'
    AND e.event_key = 'engine_release_stall_check_uuid_into_bigint:20261102'
-   AND pg_get_functiondef('public.fn_ca_engine_release_stall_check(integer,integer)'::regprocedure) ~ 'v_open\s+uuid;';
+   AND strpos(regexp_replace(pg_get_functiondef('public.fn_ca_engine_release_stall_check(integer,integer)'::regprocedure), '\s+', ' ', 'g'), 'v_open uuid;') > 0;
 
 COMMIT;
