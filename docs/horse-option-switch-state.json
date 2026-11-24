@@ -1,8 +1,13 @@
 {
   "schema": "horse-option-switch-state/v1",
-  "asOfUtc": "2026-11-23T05:05:00.000Z",
-  "auditMax": 189,
+  "asOfUtc": "2026-11-24T14:49:54.589Z",
+  "auditMax": 196,
   "rows": {
+    "cashDefenceTrimColdCalls": {
+      "state": "on",
+      "auditId": 193,
+      "changedAt": "2026-11-24T08:17:54.583Z"
+    },
     "holdemCallDownExcludesCurrentHand": {
       "state": "on",
       "auditId": 14,
@@ -57,11 +62,6 @@
       "state": "on",
       "auditId": 186,
       "changedAt": "2026-11-23T01:25:29.995Z"
-    },
-    "holdemValueAndCallsArePriced": {
-      "state": "on",
-      "auditId": 185,
-      "changedAt": "2026-11-22T23:25:25.642Z"
     },
     "horseActionTimeIsPublicOnly": {
       "state": "on",
@@ -134,9 +134,9 @@
       "changedAt": "2026-11-20T05:10:04.344Z"
     },
     "omahaFlopFacingBetEv": {
-      "state": "on",
-      "auditId": 129,
-      "changedAt": "2026-11-20T05:10:46.874Z"
+      "state": "off",
+      "auditId": 192,
+      "changedAt": "2026-11-24T07:08:52.774Z"
     },
     "omahaMadeHandDefenseVsValueLeader": {
       "state": "on",
@@ -149,9 +149,9 @@
       "changedAt": "2026-11-20T05:19:30.897Z"
     },
     "omahaMathCorePlo5Flop": {
-      "state": "shadow",
-      "auditId": 189,
-      "changedAt": "2026-11-23T04:33:19.477Z"
+      "state": "on",
+      "auditId": 196,
+      "changedAt": "2026-11-24T14:31:17.258Z"
     },
     "omahaNoCallColdFourBetWithoutPremium": {
       "state": "on",
@@ -172,6 +172,11 @@
       "state": "off",
       "auditId": 76,
       "changedAt": "2026-11-19T05:06:13.221Z"
+    },
+    "omahaOpponentLifetimeHud": {
+      "state": "on",
+      "auditId": 194,
+      "changedAt": "2026-11-24T11:08:01.305Z"
     },
     "omahaOverpairNoOopBarrelVsValueLeader": {
       "state": "on",

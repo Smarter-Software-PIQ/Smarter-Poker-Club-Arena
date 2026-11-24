@@ -1390,6 +1390,7 @@ export function parseCliArgs(argv) {
     logFile: '',
     stateFile: '',
     noStateFile: false,
+    noRecordsPr: false,
     healthUrl: 'https://engine.smarter.poker/health',
     windowsFile: 'server/release/owner-maintenance-windows.json',
     inboxFile: '',
@@ -1420,6 +1421,7 @@ export function parseCliArgs(argv) {
 
   const boolFlags = new Map([
     ['--no-state-file', 'noStateFile'],
+    ['--no-records-pr', 'noRecordsPr'],
     ['--json', 'json'],
     ['--dry-run', 'dryRun'],
     ['--rollback', 'rollback'],
@@ -1569,7 +1571,27 @@ export function parseAuthorityDocState(text) {
   else if (/^SHADOW\b/.test(u)) state = 'shadow';
   else if (/^(LIVE\s+)?ON\b/.test(u)) state = 'on';
   else if (/^OFF\b/.test(u)) state = 'off';
+  // "default OFF in source ..." is how a registered-but-never-switched option's doc reads; it was
+  // 'unknown' (not judged), which let cashDefenceTrimColdCalls go live on 2026-11-24 unnoticed.
+  else if (/^(RELEASE\s+)?DEFAULT\s+OFF\b/.test(u)) state = 'off';
   return { raw, state };
+}
+
+/**
+ * Every authority doc the drift check cannot judge although its option has a live row (any state): a State
+ * token that is missing or reads as 'unknown'. On 2026-11-24 cashDefenceTrimColdCalls went live while its
+ * doc read "default OFF in source", which parsed as unknown, so the drift law never looked at it.
+ */
+export function findUnjudgedLiveAuthorityDocs({ snapshot, docs }) {
+  const rows = snapshot?.rows ?? {};
+  const out = [];
+  for (const [option, text] of Object.entries(docs ?? {})) {
+    if (!rows[option]) continue;
+    const parsed = parseAuthorityDocState(text);
+    if (parsed && parsed.state !== 'unknown') continue;
+    out.push({ option, docStateText: parsed ? parsed.raw : null, liveState: rows[option].state });
+  }
+  return out.sort((a, b) => a.option.localeCompare(b.option));
 }
 
 /**

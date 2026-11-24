@@ -11,12 +11,25 @@
 //   preflight <option> <targetState> [flags]
 //   set <option> <targetState> --reason ... --authority ... [--evidence-sha ...] --changed-by ... [--log-file ...] [--dry-run]
 //   verify-pickup <option> <expectedState> [--baseline <n>] [--min-workers <n>]
+//   snapshot [--state-file <path>] [--dry-run]
+//   records [--dry-run]
+//
+// Records (2026-11-24): after every verified `set`, and on demand with `records`, the tool opens ONE PR
+// that brings docs/horse-option-switch-state.json and every disagreeing authority-doc State line in step
+// with the live rows (scripts/ops/horse-option-switch-records.mjs). A lane that writes the switch through
+// its own wrapper runs `records` after its read-back. The PR never changes the switch; a failure to open
+// it never undoes or retries the write, and prints the command that finishes it.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  RECORDS_FINISH_COMMAND,
+  buildRecordsChange,
+  defaultOpenRecordsPr,
+} from './horse-option-switch-records.mjs';
 import {
   DEFAULT_MIN_PICKUP_WORKERS,
   EVIDENCE_REQUIRED_STATES,
@@ -59,6 +72,11 @@ export const USAGE = `Usage:
   node scripts/ops/horse-option-switch.mjs snapshot [--state-file <path>] [--dry-run] [--json]
       rewrite docs/horse-option-switch-state.json from the live switch rows (read-only query)
   set also rewrites that file after a verified write (--state-file <path>, or --no-state-file to skip)
+  node scripts/ops/horse-option-switch.mjs records [--dry-run] [--json]
+      open ONE PR that brings that file and every disagreeing authority-doc State line in step with
+      the live rows (read-only query; worktree of origin/main under $CA_RECORDS_ROOT or $TMPDIR)
+  set opens that records PR itself after every verified write (--no-records-pr to skip); a lane that
+  writes through its own wrapper runs the records subcommand after its read-back
   node scripts/ops/horse-option-switch.mjs verify-pickup <option> <off|shadow|on_shadow|on> [--baseline <n>] [--min-workers <n>] [--alarm-baseline <json>]
 
 Legal states: ${LEGAL_STATES.join(', ')}
@@ -562,6 +580,20 @@ async function handleSet(positionals, flags, deps) {
     stateFileWritten = stateFile;
   }
 
+  // Records PR (2026-11-24): the live rows, not anyone's memory, decide the records change. Runs only
+  // here, after the write was read back; dry runs and refused writes returned above.
+  let records = null;
+  if (deps.openRecordsPr && !flags.noRecordsPr) {
+    try {
+      records = await runRecords(
+        deps,
+        `set ${option} -> ${targetState} (audit #${row.latest_audit_id ?? '?'})`
+      );
+    } catch (err) {
+      records = { ok: false, error: err?.message || String(err) };
+    }
+  }
+
   const payload = {
     command: 'set',
     executed: true,
@@ -576,6 +608,7 @@ async function handleSet(positionals, flags, deps) {
     logFile: flags.logFile || null,
     logLine,
     stateFile: stateFileWritten,
+    records,
   };
 
   const alarmBaselineArg =
@@ -593,8 +626,15 @@ async function handleSet(positionals, flags, deps) {
         `   log line:   ${logLine}`,
         flags.logFile ? `   appended:   ${flags.logFile}` : '   log file:   (not provided)',
         stateFileWritten
-          ? `   state file: ${stateFileWritten} updated: commit it with ${option}'s authority-doc State line in one PR`
+          ? `   state file: ${stateFileWritten} updated in this checkout`
           : '   state file: (not written)',
+        records === null
+          ? `   records PR: not opened here; run ${RECORDS_FINISH_COMMAND}`
+          : records.ok === false
+            ? `   records PR: NOT OPENED (${records.error}); the switch write stands; finish with: ${RECORDS_FINISH_COMMAND}`
+            : records.noChange
+              ? '   records PR: none needed (records on main already match the live rows)'
+              : `   records PR: ${records.prUrl}`,
         `   next step:  node scripts/ops/horse-option-switch.mjs verify-pickup ${option} ${targetState} --baseline ${preBaseline}${alarmBaselineArg}`,
       ].join('\n')
     );
@@ -672,6 +712,97 @@ async function handleSnapshot(flags, deps) {
   return { exitCode: 0, data: payload };
 }
 
+function readReleaseDefaultOn(deps) {
+  try {
+    return parseReleaseDefaultOnOptions(deps.readFile(HORSE_OPTION_SWITCH_SOURCE_PATH));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Reads the live rows and asks deps.openRecordsPr to bring main's records in step with them. */
+async function runRecords(deps, trigger) {
+  const rows = deps.queryDb(buildSwitchStateSnapshotSql());
+  const snapshot = snapshotFromRows(rows, deps.now().toISOString());
+  const result = await deps.openRecordsPr({
+    repoRoot: REPO_ROOT,
+    snapshot,
+    releaseDefaultOn: readReleaseDefaultOn(deps),
+    trigger,
+    log: deps.stderr,
+  });
+  return {
+    ok: true,
+    auditMax: snapshot.auditMax,
+    rows: Object.keys(snapshot.rows).length,
+    ...result,
+  };
+}
+
+async function handleRecords(flags, deps) {
+  if (flags.dryRun) {
+    const rows = deps.queryDb(buildSwitchStateSnapshotSql());
+    const snapshot = snapshotFromRows(rows, deps.now().toISOString());
+    const change = buildRecordsChange({
+      snapshot,
+      docs: deps.readAuthorityDocs ? deps.readAuthorityDocs() : {},
+      currentStateText: (() => {
+        try {
+          return deps.readFile(SWITCH_STATE_FILE);
+        } catch {
+          return '';
+        }
+      })(),
+      releaseDefaultOn: readReleaseDefaultOn(deps),
+    });
+    const payload = {
+      command: 'records',
+      dryRun: true,
+      auditMax: snapshot.auditMax,
+      stateFileChanged: change.stateFileChanged,
+      docChanges: change.docChanges.map(({ option, path, from, to }) => ({
+        option,
+        path,
+        from,
+        to,
+      })),
+      unresolved: change.unresolved,
+    };
+    if (flags.json) deps.stdout(JSON.stringify(payload, null, 2));
+    else
+      deps.stdout(
+        [
+          `== RECORDS DRY-RUN (live audit max ${snapshot.auditMax ?? '?'}; judged against this checkout)`,
+          `   ${SWITCH_STATE_FILE}: ${change.stateFileChanged ? 'would be rewritten' : 'matches'}`,
+          ...payload.docChanges.map((c) => `   ${c.path}: "${c.from}" -> "${c.to}"`),
+          ...change.unresolved.map((u) => `   NEEDS A PERSON: ${u.option} (${u.reason})`),
+        ].join('\n')
+      );
+    return { exitCode: 0, data: payload };
+  }
+  if (!deps.openRecordsPr) throw new Error('records: no PR opener in this run');
+  const result = await runRecords(deps, 'horse-option-switch.mjs records');
+  const payload = { command: 'records', ...result, change: undefined };
+  if (flags.json) deps.stdout(JSON.stringify(payload, null, 2));
+  else
+    deps.stdout(
+      result.noChange
+        ? `== RECORDS: main already matches the live rows (audit max ${result.auditMax ?? '?'})`
+        : `== RECORDS PR: ${result.prUrl}`
+    );
+  return { exitCode: 0, data: payload };
+}
+
+export function defaultReadAuthorityDocs() {
+  const dir = resolve(REPO_ROOT, 'docs/horse-option-authority.d');
+  const docs = {};
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.md') || f.slice(0, -3).includes('.')) continue;
+    docs[f.slice(0, -3)] = readFileSync(resolve(dir, f), 'utf8');
+  }
+  return docs;
+}
+
 export async function runCli(argv, injectedDeps = {}) {
   const { command, positionals, flags } = parseCliArgs(argv);
   const deps = {
@@ -682,6 +813,9 @@ export async function runCli(argv, injectedDeps = {}) {
     appendLogLine: defaultAppendLogLine,
     // Only a direct CLI run writes the committed snapshot; tests and library callers inject their own.
     writeStateFile: null,
+    // Likewise only a direct CLI run opens the records PR (git worktree, push, gh pr create).
+    openRecordsPr: null,
+    readAuthorityDocs: defaultReadAuthorityDocs,
     now: () => new Date(),
     stdout: (msg) => console.log(msg),
     stderr: (msg) => console.error(msg),
@@ -697,9 +831,10 @@ export async function runCli(argv, injectedDeps = {}) {
   if (command === 'set') return handleSet(positionals, flags, deps);
   if (command === 'verify-pickup') return handleVerifyPickup(positionals, flags, deps);
   if (command === 'snapshot') return handleSnapshot(flags, deps);
+  if (command === 'records') return handleRecords(flags, deps);
 
   throw new Error(
-    `Unknown subcommand "${command}". Expected: status, preflight, set, verify-pickup, snapshot`
+    `Unknown subcommand "${command}". Expected: status, preflight, set, verify-pickup, snapshot, records`
   );
 }
 
@@ -707,7 +842,10 @@ const isDirectRun =
   process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  runCli(process.argv.slice(2), { writeStateFile: defaultWriteStateFile })
+  runCli(process.argv.slice(2), {
+    writeStateFile: defaultWriteStateFile,
+    openRecordsPr: defaultOpenRecordsPr,
+  })
     .then(({ exitCode }) => {
       process.exit(exitCode);
     })
