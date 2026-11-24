@@ -80,12 +80,6 @@ const KNOWN: readonly Known[] = [
     reason: 'a flush with a 50 ms timeout against a sink that never resolves: ten times the timer',
   },
   {
-    file: 'engine/solvedFlopLibrary/SolvedFlopLibrary.test.ts',
-    assertion: '(performance.now() - t0) / 200 < 5',
-    kind: 'hang',
-    reason: 'a mean over 200 lookups: the asserted total is 1 s',
-  },
-  {
     file: 'services/supabase/horseDealtHoleCards.test.ts',
     assertion: 'us < 500',
     kind: 'hang',
@@ -307,6 +301,24 @@ describe('a server test does not hold a tight upper bound on real elapsed time',
         `it('x', () => { const t0 = Date.now(); work(); expect(Date.now() - t0).toBeLessThan(limit.allowedMs); });`
       );
       expect(b.boundValue).toBeNull();
+    });
+
+    it('judges a mean over N runs by the total it is divided from', () => {
+      const [total] = surveyWallClockBounds(`
+        it('x', () => {
+          const t0 = performance.now();
+          for (let n = 0; n < 200; n++) work();
+          expect((performance.now() - t0) / 200).toBeLessThan(5);
+        });`);
+      expect(total.boundValue).toBe(1000);
+      const [tight] = surveyWallClockBounds(`
+        const RUNS = 10;
+        it('x', () => {
+          const t0 = performance.now();
+          for (let n = 0; n < RUNS; n++) work();
+          expect((performance.now() - t0) / RUNS).toBeLessThan(5);
+        });`);
+      expect(tight.boundValue).toBe(50);
     });
 
     it('does not report a test under a fake or stubbed clock', () => {

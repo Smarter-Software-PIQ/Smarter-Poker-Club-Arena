@@ -18,6 +18,8 @@
 //   - a bound that is itself measured (`first / 2`): that is the relative form;
 //   - a quotient from measureRelativeCost: `cost.ratio` is not a clock read.
 //
+// A mean over N runs, `(<elapsed>) / N < B`, is judged by its total, N * B.
+//
 // What it cannot see: an elapsed value that arrives through an imported helper
 // or an object field (`run.ms`). Those are out of reach of a text rule; the
 // law says so rather than guessing at names.
@@ -76,6 +78,24 @@ function numberOf(text: string, constants: ReadonlyMap<string, number>): number 
   if (/^\d[\d_]*(\.\d+)?$/.test(t)) return Number(t.replace(/_/g, ''));
   const known = constants.get(t);
   return known === undefined ? null : known;
+}
+
+/**
+ * The bound on the whole timed run. `expect((now - t0) / 200).toBeLessThan(5)` is a mean over 200
+ * iterations and asserts exactly what `expect(now - t0).toBeLessThan(1_000)` asserts, so it is
+ * judged as 1,000: a mean over many runs is not tighter than the total it is divided from.
+ */
+function totalBound(
+  subject: string,
+  bound: string,
+  constants: ReadonlyMap<string, number>
+): number | null {
+  const value = numberOf(bound, constants);
+  if (value === null) return null;
+  const mean = subject.match(/^\(([\s\S]+)\)\s*\/\s*([\w$]+)$/);
+  if (!mean || !readsElapsed(mean[1])) return value;
+  const divisor = numberOf(mean[2], constants);
+  return divisor !== null && divisor >= 1 ? value * divisor : value;
 }
 
 export function usesAFakeClock(source: string): boolean {
@@ -254,7 +274,7 @@ export function surveyWallClockBounds(source: string): WallClockBound[] {
       line: source.slice(0, m.index).split('\n').length,
       subject: s,
       bound: b,
-      boundValue: numberOf(b, constants),
+      boundValue: totalBound(s, b, constants),
       key: `${s} < ${b}`,
     });
   }
