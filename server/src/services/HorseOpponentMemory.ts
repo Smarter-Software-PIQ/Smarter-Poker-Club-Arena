@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import { bindToProcessRoot } from './supabase/dataActorContext.js';
 import { isOpponentMemoryBusyRefusal, reportError, reportThrottled } from './errorReporter.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
 import {
@@ -26,7 +27,7 @@ export function createOpponentMemorySchemaProbe(now = Date.now) {
       state = null;
       retryAt = Infinity;
     }
-    return (state ??= (async () => {
+    return (state ??= bindToProcessRoot(async () => {
       try {
         const { data, error } = await supabase
           .from('horse_exploit_profiles')
@@ -251,50 +252,52 @@ export async function readHorseOpponentProfiles(
   const read =
     variantSchema.get(v)?.retryAt != null
       ? Promise.reject<DurableOpponentProfile[]>(new UnsupportedOpponentMemoryVariant(v))
-      : admit(async () => {
-          const { data, error } = await supabase
-            .rpc('fn_horse_exploit_profiles_read', {
-              p_user_ids: ids,
-              p_variant: v,
-              p_mode: mode,
-              p_size: size,
-            })
-            .abortSignal(
-              signal
-                ? AbortSignal.any([signal, AbortSignal.timeout(1500)])
-                : AbortSignal.timeout(1500)
-            );
-          if (error) {
+      : admit(
+          bindToProcessRoot(async () => {
+            const { data, error } = await supabase
+              .rpc('fn_horse_exploit_profiles_read', {
+                p_user_ids: ids,
+                p_variant: v,
+                p_mode: mode,
+                p_size: size,
+              })
+              .abortSignal(
+                signal
+                  ? AbortSignal.any([signal, AbortSignal.timeout(1500)])
+                  : AbortSignal.timeout(1500)
+              );
+            if (error) {
+              if (
+                error.code === '22023' &&
+                addedMemoryVariants.has(v) &&
+                ['cash', 'tournament'].includes(mode) &&
+                ['hu', 'short', 'full'].includes(size)
+              )
+                throw unsupportedVariant(v);
+              throw queryError('opponent memory unavailable', error);
+            }
             if (
-              error.code === '22023' &&
-              addedMemoryVariants.has(v) &&
-              ['cash', 'tournament'].includes(mode) &&
-              ['hu', 'short', 'full'].includes(size)
+              !Array.isArray(data) ||
+              data.length > ids.length ||
+              data.some(
+                (p) =>
+                  !validOpponentProfile(p) ||
+                  p.variant !== v ||
+                  p.mode !== mode ||
+                  p.size !== size ||
+                  !ids.includes(p.user_id)
+              ) ||
+              new Set(data.map((p) => p.user_id)).size !== data.length
             )
-              throw unsupportedVariant(v);
-            throw queryError('opponent memory unavailable', error);
-          }
-          if (
-            !Array.isArray(data) ||
-            data.length > ids.length ||
-            data.some(
-              (p) =>
-                !validOpponentProfile(p) ||
-                p.variant !== v ||
-                p.mode !== mode ||
-                p.size !== size ||
-                !ids.includes(p.user_id)
-            ) ||
-            new Set(data.map((p) => p.user_id)).size !== data.length
-          )
-            throw new Error('opponent memory receipt incomplete');
-          // Every validated row is evidence, back-filled or not (engine
-          // HorseOpponentMemory.opponentProfileVersion); the newest version wins.
-          validatedOpponentProfiles.remember(data as DurableOpponentProfile[]);
-          noteFire('horse_opponent_memory_read_ok');
-          noteFire(opponentMemoryLatencyBucket(Date.now() - startedAt));
-          return validatedOpponentProfiles.read(ids, v, mode, size);
-        });
+              throw new Error('opponent memory receipt incomplete');
+            // Every validated row is evidence, back-filled or not (engine
+            // HorseOpponentMemory.opponentProfileVersion); the newest version wins.
+            validatedOpponentProfiles.remember(data as DurableOpponentProfile[]);
+            noteFire('horse_opponent_memory_read_ok');
+            noteFire(opponentMemoryLatencyBucket(Date.now() - startedAt));
+            return validatedOpponentProfiles.read(ids, v, mode, size);
+          })
+        );
   return read.catch((error) => {
     noteFire(opponentMemoryFailureFeature(error));
     const known = validatedOpponentProfiles.read(ids, v, mode, size);
@@ -390,25 +393,27 @@ export async function readExistingHorseOpponentDonors(
   if (!ids.length || ids.length > 10 || new Set(ids).size !== ids.length)
     throw new Error('invalid opponent memory donor roster');
   signal?.throwIfAborted();
-  return admitOpponentDonorRead(async () => {
-    const { data, error } = await supabase
-      .from('horse_exploit_profiles')
-      .select('user_id,variant,mode,size,counters,observed_hands,initialized')
-      .in('user_id', ids)
-      .eq('variant', variant)
-      .eq('mode', mode)
-      .eq('size', donorSize)
-      .limit(10)
-      .abortSignal(
-        signal ? AbortSignal.any([signal, AbortSignal.timeout(1500)]) : AbortSignal.timeout(1500)
-      );
-    if (error) throw queryError('opponent memory donor unavailable', error);
-    if (!validOpponentDonorProfiles(data, ids, variant, mode, size))
-      throw new Error('opponent memory donor receipt incomplete');
-    validatedOpponentProfiles.remember(data);
-    noteFire('horse_opponent_memory_donor_read_ok');
-    return validatedOpponentProfiles.read(ids, variant, mode, donorSize);
-  }).catch((error) => {
+  return admitOpponentDonorRead(
+    bindToProcessRoot(async () => {
+      const { data, error } = await supabase
+        .from('horse_exploit_profiles')
+        .select('user_id,variant,mode,size,counters,observed_hands,initialized')
+        .in('user_id', ids)
+        .eq('variant', variant)
+        .eq('mode', mode)
+        .eq('size', donorSize)
+        .limit(10)
+        .abortSignal(
+          signal ? AbortSignal.any([signal, AbortSignal.timeout(1500)]) : AbortSignal.timeout(1500)
+        );
+      if (error) throw queryError('opponent memory donor unavailable', error);
+      if (!validOpponentDonorProfiles(data, ids, variant, mode, size))
+        throw new Error('opponent memory donor receipt incomplete');
+      validatedOpponentProfiles.remember(data);
+      noteFire('horse_opponent_memory_donor_read_ok');
+      return validatedOpponentProfiles.read(ids, variant, mode, donorSize);
+    })
+  ).catch((error) => {
     noteFire('horse_opponent_memory_donor_read_failed');
     reportOpponentMemoryFailure(error, 'HorseOpponentMemory.donorRead');
     return validatedOpponentProfiles.read(ids, variant, mode, donorSize);

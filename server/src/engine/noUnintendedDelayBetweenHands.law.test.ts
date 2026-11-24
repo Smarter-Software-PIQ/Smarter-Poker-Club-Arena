@@ -151,6 +151,19 @@ describe('a tournament deal pays nothing after the rest', () => {
     expect(f.startedAt[0] - armedAt).toBeGreaterThanOrEqual(REST);
     expect(f.startedAt[0] - armedAt).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
   }, 10_000);
+
+  it('absorbs peak-load 360 ms F06 RPCs (1,080 ms total across begin, seq-0, seq-1) under the rest (1e532243)', async () => {
+    // 2026-11-24 live production proof: peak-load dealing p90 = 1,355 ms and
+    // seq-1 up to 562 ms overshot the old 1,000 ms / 400 ms leads.
+    const f = fixture({ rpcLatencyMs: 360 });
+    const armedAt = Date.now();
+    f.engine.armNextHandRest(REST);
+    await f.engine.awaitNextHandRestLead();
+    await f.dealsTheNextHand();
+    const gap = f.startedAt[0] - armedAt;
+    expect(gap).toBeGreaterThanOrEqual(REST);
+    expect(gap).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
+  }, 10_000);
 });
 
 describe('a timer that wakes early does not shorten a beat', () => {
@@ -287,7 +300,8 @@ describe('every wait between the hold and the deal is named', () => {
       'this.retainOriginalBatch', // the prepared deck made durable, under the rest
       'this.awaitNextHandRest', // stops SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest
     ]);
-    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 400;');
+    expect(DEALING).toContain('static readonly F06_RESERVE_LEAD_MS = 1250;');
+    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 650;');
     expect(DEALING).toContain('finishRestBeforeFirstDispatch');
     // After the rest: no round trip on the path that deals. A saved hand the
     // last look (or a later hold) refuses is released in dealHand's finally,

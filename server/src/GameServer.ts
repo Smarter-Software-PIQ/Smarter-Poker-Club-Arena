@@ -6150,6 +6150,40 @@ export class GameServer {
     console.log('[GameServer] Shutdown complete.');
   }
 
+  /**
+   * Lightweight O(1)-ish liveness verdict for the loopback-only `/livez`
+   * Docker HEALTHCHECK listener (incidents b87d2b52 / 7bf7a01f). Uses the
+   * exact same `evaluateEngineLiveness` contract as `getStatus()` without
+   * building the 168 KB `/health` telemetry payload, cloning worker state, or
+   * reading `/proc`.
+   */
+  getLiveness(): { running: boolean; liveness: 'ok' | 'standby' | 'dead' } {
+    const now = Date.now();
+    const tables: Array<{ dealable: number; paused: boolean; msSinceProgress: number }> = [];
+    for (const engine of this.tableEngines.values()) {
+      tables.push({
+        dealable: engine.dealableCount(),
+        paused: engine.isPausedByDesign(),
+        msSinceProgress: engine.msSinceProgress(),
+      });
+    }
+    const livenessVerdict = evaluateEngineLiveness({
+      isLeader: isLeader(),
+      processUptimeMs: now - this.processStartedAt,
+      discoveryLoopStalledMs: now - this.lastDiscoveryAttemptAt,
+      discoveryStaleMs: now - this.lastDiscoveryOkAt,
+      dbConfirmedDead: this.dealRateVerifier.snapshot().dbConfirmedDead,
+      tables,
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
+    });
+    return {
+      running: this.running,
+      liveness: livenessVerdict.status,
+    };
+  }
+
   getStatus(livenessQuery?: PublicTableLivenessQuery) {
     const now = Date.now();
     const liveHorseDecision = liveHorseDecisionWorkerStatus();
@@ -14016,7 +14050,8 @@ export class GameServer {
          any seat count, for as long as the database says the hold is live
          (privateGameHolds.ts). Unreadable: wait for the next pass rather than
          seat a horse into a friend's seat - this board is retried in 12 s. */
-      const privateUntil = await this.tournamentRecurring.privateGameHolds.holdUntilMs(tournamentId);
+      const privateUntil =
+        await this.tournamentRecurring.privateGameHolds.holdUntilMs(tournamentId);
       if (privateUntil === null) return;
       const waitOverride =
         seats === 2

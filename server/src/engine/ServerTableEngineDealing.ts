@@ -124,7 +124,10 @@ import {
 } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
-import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
+import {
+  bindToProcessRoot,
+  currentTournamentDataAuthority,
+} from '../services/supabase/dataActorContext.js';
 
 /**
  * The number of award groups the CLIENT will animate for this hand.
@@ -2025,10 +2028,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * before it starts is no longer fenced (`retained_original_start_unproven`):
    * it is released exactly once through fn_f06_cancel_retained_prepared_hand.
    */
-  static readonly F06_RESERVE_LEAD_MS = 1000;
+  static readonly F06_RESERVE_LEAD_MS = 1250;
   /**
    * THE OPENING CONTINUATION BATCH (SEQ-1) RIDES THE END OF THE REST TOO
-   * (hand delay, 2026-11-22, incident 1e532243).
+   * (hand delay, 2026-11-22 / 2026-11-24, incident 1e532243).
    *
    * Even after F06_RESERVE_LEAD_MS moved fn_f06_begin_hand and seq-0 under
    * the 1,500 ms rest, runOriginalController waited until the rest expired
@@ -2039,8 +2042,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * Stopping SEQ1_RETAIN_LEAD_MS before the rest ends retains seq-1 under the
    * rest while holding event dispatch, publishedHandState and flushSnapshot
    * until awaitNextHandRest() finishes on the exact rest boundary.
+   * 2026-11-24: widened F06_RESERVE_LEAD_MS (1000 -> 1250 ms) and
+   * SEQ1_RETAIN_LEAD_MS (400 -> 650 ms) after live peak-load production
+   * telemetry showed dealing p90 = 1,355 ms and seq-1 up to 562 ms while
+   * next_hand_rest sat idle for 730 ms p50.
    */
-  static readonly SEQ1_RETAIN_LEAD_MS = 400;
+  static readonly SEQ1_RETAIN_LEAD_MS = 650;
   private restFinishesInsideDeal = false;
   private restBlindRead: Promise<unknown> | null = null;
   /** Set by dealHand when its post-rest last look refused the deal. */
@@ -5504,31 +5511,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   protected async persistDiscardedCard(userId: string, seat: number, card: unknown): Promise<void> {
     const handNumberAtDiscard = this.handCount;
-    try {
-      const { error } = await supabase.from('hand_discards').upsert(
-        {
-          table_id: this.tableId,
-          hand_number: handNumberAtDiscard,
-          user_id: userId,
-          seat_number: seat,
-          discarded_card: card,
-        },
-        { onConflict: 'table_id,hand_number,user_id' }
-      );
-      if (error) {
-        reportError(
-          new Error(`hand_discards upsert failed: ${error.message}`),
-          `ServerTableEngine.${this.tableId}.hand_discards_failed`,
-          { userId, seat, handNumber: handNumberAtDiscard }
+    const tableId = this.tableId;
+    await bindToProcessRoot(async () => {
+      try {
+        const { error } = await supabase.from('hand_discards').upsert(
+          {
+            table_id: tableId,
+            hand_number: handNumberAtDiscard,
+            user_id: userId,
+            seat_number: seat,
+            discarded_card: card,
+          },
+          { onConflict: 'table_id,hand_number,user_id' }
         );
+        if (error) {
+          reportError(
+            new Error(`hand_discards upsert failed: ${error.message}`),
+            `ServerTableEngine.${tableId}.hand_discards_failed`,
+            { userId, seat, handNumber: handNumberAtDiscard }
+          );
+        }
+      } catch (err) {
+        reportError(err, `ServerTableEngine.${tableId}.hand_discards_threw`, {
+          userId,
+          seat,
+          handNumber: handNumberAtDiscard,
+        });
       }
-    } catch (err) {
-      reportError(err, `ServerTableEngine.${this.tableId}.hand_discards_threw`, {
-        userId,
-        seat,
-        handNumber: handNumberAtDiscard,
-      });
-    }
+    })();
   }
 
   private holeCardWriteBatches?: Map<

@@ -1,40 +1,52 @@
 #!/usr/bin/env bash
-# Native proof for migration 20261124003437 (every main table feeds upward
-# from higher mains and feeders). Runs on a THROWAWAY local PostgreSQL cluster
-# it creates and removes; it never connects to any other database.
+# Native PostgreSQL proof for the upward must-move ladder and all hardening
+# doors (migrations 20261124003437 and 20261124051600). Runs on a THROWAWAY
+# local PostgreSQL cluster it creates and removes; it never connects to any
+# other database.
 #
-# Proves:
-#   1. Exact 9-max screenshot reproduction (Main 1=9/9, Main 2=5/9, Main 3=9/9,
-#      Feeder=6/9):
-#      - BEFORE patch: 0 moves planned for Main 2 (stuck at 5/9 while Main 3 is 9/9).
-#      - AFTER  patch: 4 moves planned Main 3 -> Main 2 in exact roster join order;
-#        Feeder (6/9 < 7 gate) is untouched.
-#   2. Upward cascade + never downward (Main 1=8/9, Main 2=8/9, Main 3=9/9,
-#      Feeder=7/9):
-#      - Main 1 draws #1 from Main 2; Main 2 draws #1 from Main 3; Main 2 never
-#        draws from Main 1; Main 3 (with open seat) draws from Feeder, never
-#        from Main 1 or Main 2.
-#   3. 6-max 4-table upward cascade (Main 1=6/6, Main 2=3/6, Main 3=6/6,
-#      Feeder=4/6):
-#      - Main 2 fills 3 from Main 3; Main 3 fills from Feeder (no 7-player gate).
-#   4. The actual migration SQL applies cleanly to fn_cash_cluster_tick_uncapped,
-#      passes its @probe-for and @live-proof, preserves authority/reversibility,
-#      and refuses a double-apply.
+# Proves all three doors before and after applying the real migration files:
+#   1. fn_cash_cluster_tick_uncapped (20261124003437):
+#      - Exact 9-max screenshot repro (Main 1=9/9, Main 2=5/9, Main 3=9/9,
+#        Feeder=6/9): before=0 moves, after=4 moves Main 3 -> Main 2 (0 from
+#        gated Feeder).
+#      - 4-table 9-max upward cascade + zero downward pulls; Feeder(8)->Main 3
+#        stops at 6.
+#      - 5-table cascade (Main 4 -> Main 3 -> Main 2 -> Main 1).
+#      - 6-max 4-table upward cascade (Main 3 -> Main 2, Feeder -> Main 3).
+#   2. fn_cash_main_chair_is_the_lists (20261124051600):
+#      - Before: 6-max Main 1/Main 2 with live Feeder returned FALSE (bypassing
+#        the must-move list for newcomers and waitlist offers).
+#      - After: BOTH 6-max and 9-max Mains return TRUE while a live/opening
+#        feeder exists, and FALSE when no feeder exists or the feeder is breaking.
+#   3. fn_cash_seat_change_plan (20261124051600):
+#      - Before: Feeder player (at 6/9, gated) jumped into Main 3's open chair
+#        and Main 3 player jumped into Main 2's open chair.
+#      - After: upward open-chair seat changes into any Main are blocked (0
+#        moves planned), while downward (Main 2 -> Feeder) and two-way swaps
+#        still succeed.
 set -euo pipefail
 
 if [[ -n "${PG_BIN:-}" ]]; then
   :
 elif command -v initdb >/dev/null 2>&1; then
   PG_BIN="$(dirname "$(command -v initdb)")"
-elif [[ -x /usr/lib/postgresql/16/bin/initdb ]]; then
-  PG_BIN=/usr/lib/postgresql/16/bin
 else
+  for candidate in /usr/lib/postgresql/17/bin /usr/lib/postgresql/16/bin /usr/lib/postgresql/15/bin /opt/homebrew/bin; do
+    if [[ -x "$candidate/initdb" ]]; then
+      PG_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PG_BIN:-}" || ! -x "$PG_BIN/initdb" ]]; then
   echo "initdb not found; set PG_BIN" >&2
   exit 1
 fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-MIG="$ROOT/supabase/migrations/20261124003437_every_main_table_feeds_upward_from_higher_mains_and_feeders.sql"
+MIG_CASCADE="$ROOT/supabase/migrations/20261124003437_every_main_table_feeds_upward_from_higher_mains_and_feeders.sql"
+MIG_HARDEN="$ROOT/supabase/migrations/20261124051600_harden_must_move_upward_ladder_all_doors.sql"
 WORK="$(mktemp -d)"
 PORT=$((5550 + ($$ % 400)))
 trap '"$PG_BIN/pg_ctl" -D "$WORK/data" -m fast stop >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
@@ -62,7 +74,11 @@ CREATE TYPE public.cash_cluster_census_row AS (
 
 CREATE TABLE public.cash_games (
   id uuid PRIMARY KEY,
-  handedness integer NOT NULL DEFAULT 9
+  handedness integer NOT NULL DEFAULT 9,
+  must_move boolean NOT NULL DEFAULT true,
+  cluster_mode text NOT NULL DEFAULT 'must_move',
+  template_name text NOT NULL DEFAULT 'classic',
+  ruleset_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE public.tables (
@@ -73,6 +89,7 @@ CREATE TABLE public.tables (
   lifecycle text NOT NULL DEFAULT 'live',
   status text NOT NULL DEFAULT 'running',
   max_players integer NOT NULL DEFAULT 9,
+  is_deleted boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -80,6 +97,7 @@ CREATE TABLE public.table_seats (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   table_id uuid NOT NULL REFERENCES public.tables(id),
   user_id uuid NOT NULL,
+  seat_number integer NOT NULL DEFAULT 1,
   stack numeric NOT NULL DEFAULT 400,
   leave_pending boolean NOT NULL DEFAULT false,
   joined_at timestamptz NOT NULL,
@@ -91,6 +109,7 @@ CREATE TABLE public.cash_game_roster (
   game_id uuid NOT NULL REFERENCES public.cash_games(id),
   user_id uuid NOT NULL,
   joined_at timestamptz NOT NULL,
+  seat_change_used_at timestamptz,
   left_at timestamptz
 );
 
@@ -106,6 +125,38 @@ CREATE TABLE public.cash_seat_moves (
   created_at timestamptz NOT NULL DEFAULT now(),
   resolved_at timestamptz
 );
+
+CREATE TABLE public.cash_seat_change_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id uuid NOT NULL REFERENCES public.cash_games(id),
+  user_id uuid NOT NULL,
+  from_table_id uuid NOT NULL REFERENCES public.tables(id),
+  to_table_id uuid REFERENCES public.tables(id),
+  status text NOT NULL DEFAULT 'requested',
+  move_id uuid,
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz
+);
+
+CREATE TABLE public.cash_cluster_events (
+  id bigserial PRIMARY KEY,
+  game_id uuid NOT NULL,
+  table_id uuid,
+  kind text NOT NULL,
+  payload jsonb
+);
+
+CREATE OR REPLACE FUNCTION public.fn_cash_game_never_moves_players(p_template text, p_ruleset jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT false $$;
+
+CREATE OR REPLACE FUNCTION public.fn_cash_cluster_front_table(p_game_id uuid)
+RETURNS uuid LANGUAGE sql STABLE AS $$
+  SELECT t.id FROM public.tables t
+   WHERE t.cluster_id = p_game_id AND t.role = 'main' AND t.main_index = 1
+     AND t.lifecycle <> 'closed' AND NOT coalesce(t.is_deleted, false)
+   ORDER BY t.created_at LIMIT 1;
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_cash_cluster_census(p_game_id uuid, p_now timestamptz)
 RETURNS public.cash_cluster_census_row[]
@@ -123,7 +174,142 @@ LANGUAGE sql STABLE AS $$
   WHERE tb.cluster_id = p_game_id AND tb.lifecycle <> 'closed';
 $$;
 
--- Exact Step 2 preimage extracted into fn_cash_cluster_tick_uncapped(uuid,integer)
+-- Exact preimage of fn_cash_main_chair_is_the_lists (20261108193515)
+CREATE OR REPLACE FUNCTION public.fn_cash_main_chair_is_the_lists(p_table_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path TO 'public', 'pg_temp'
+AS $fn$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.tables mt
+      JOIN public.cash_games cg ON cg.id = mt.cluster_id
+     WHERE mt.id = p_table_id
+       AND mt.role = 'main'
+       AND coalesce(cg.handedness, 9) >= 7
+       AND cg.must_move
+       AND cg.cluster_mode = 'must_move'
+       AND NOT public.fn_cash_game_never_moves_players(cg.template_name, cg.ruleset_snapshot)
+       AND EXISTS (SELECT 1 FROM public.tables ft
+                    WHERE ft.cluster_id = mt.cluster_id AND ft.role = 'feeder'
+                      AND ft.lifecycle IN ('live', 'opening')
+                      AND coalesce(ft.is_deleted, false) = false
+                      AND ft.status IN ('waiting', 'running', 'active')));
+$fn$;
+REVOKE ALL ON FUNCTION public.fn_cash_main_chair_is_the_lists(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_cash_main_chair_is_the_lists(uuid) TO service_role;
+
+-- Exact preimage of fn_cash_seat_change_plan (20260909181259 + 20260921044045 + 20260925204249)
+CREATE OR REPLACE FUNCTION public.fn_cash_seat_change_plan(p_game_id uuid, p_now timestamp with time zone DEFAULT clock_timestamp())
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  r record; p record;
+  v_census public.cash_cluster_census_row[];
+  v_target uuid;
+  v_moves integer := 0;
+  v_move_a uuid; v_move_b uuid;
+  v_seat_a integer; v_seat_b integer;
+  v_front uuid;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.cash_games cg
+              WHERE cg.id = p_game_id AND cg.cluster_mode IS DISTINCT FROM 'must_move') THEN
+    RETURN 0;
+  END IF;
+  v_census := public.fn_cash_cluster_census(p_game_id, p_now);
+  v_front := public.fn_cash_cluster_front_table(p_game_id);
+
+  FOR r IN SELECT q.* FROM public.cash_seat_change_requests q
+            WHERE q.game_id = p_game_id AND q.status = 'requested'
+            ORDER BY q.created_at, q.id
+  LOOP
+    IF NOT EXISTS (SELECT 1 FROM public.table_seats ts
+                    WHERE ts.table_id = r.from_table_id AND ts.user_id = r.user_id AND ts.left_at IS NULL) THEN
+      UPDATE public.cash_seat_change_requests
+         SET status = 'cancelled', resolved_at = p_now, note = 'left_table'
+       WHERE id = r.id;
+      UPDATE public.cash_game_roster SET seat_change_used_at = NULL
+       WHERE game_id = p_game_id AND user_id = r.user_id AND left_at IS NULL;
+      INSERT INTO public.cash_cluster_events (game_id, table_id, kind, payload)
+      VALUES (p_game_id, r.from_table_id, 'seat_change_returned',
+              jsonb_build_object('player_id', r.user_id, 'reason', 'left_table'));
+      CONTINUE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM unnest(v_census) c
+                WHERE c.id = r.from_table_id AND c.id = v_front) THEN
+      UPDATE public.cash_seat_change_requests
+         SET status = 'cancelled', resolved_at = p_now, note = 'now_on_main_one'
+       WHERE id = r.id;
+      UPDATE public.cash_game_roster SET seat_change_used_at = NULL
+       WHERE game_id = p_game_id AND user_id = r.user_id AND left_at IS NULL;
+      INSERT INTO public.cash_cluster_events (game_id, table_id, kind, payload)
+      VALUES (p_game_id, r.from_table_id, 'seat_change_returned',
+              jsonb_build_object('player_id', r.user_id, 'reason', 'now_on_main_one'));
+      CONTINUE;
+    END IF;
+    CONTINUE WHEN NOT EXISTS (SELECT 1 FROM public.table_seats ts
+                               WHERE ts.table_id = r.from_table_id AND ts.user_id = r.user_id AND ts.left_at IS NULL
+                                 AND coalesce(ts.stack, 0) > 0 AND coalesce(ts.leave_pending, false) = false);
+    CONTINUE WHEN EXISTS (SELECT 1 FROM public.cash_seat_moves m WHERE m.player_id = r.user_id AND m.state = 'pending');
+    CONTINUE WHEN EXISTS (SELECT 1 FROM public.cash_seat_moves m
+                           WHERE m.player_id = r.user_id AND m.state = 'cancelled' AND m.created_at > p_now - interval '60 seconds');
+
+    SELECT c.id INTO v_target FROM unnest(v_census) c
+     WHERE c.id <> r.from_table_id AND NOT c.breaking AND c.lifecycle IN ('live', 'opening')
+       AND c.id IS DISTINCT FROM v_front
+       AND (r.to_table_id IS NULL OR c.id = r.to_table_id)
+       AND c.open_unreserved
+           - (SELECT count(*) FROM public.cash_seat_moves m
+               WHERE m.to_table_id = c.id AND m.state = 'pending' AND m.swap_move_id IS NULL) > 0
+     ORDER BY c.seated ASC, c.created_at ASC LIMIT 1;
+    IF v_target IS NOT NULL THEN
+      INSERT INTO public.cash_seat_moves (game_id, player_id, from_table_id, to_table_id, reason)
+      VALUES (p_game_id, r.user_id, r.from_table_id, v_target, 'seat_change')
+      RETURNING id INTO v_move_a;
+      UPDATE public.cash_seat_change_requests
+         SET status = 'moved', resolved_at = p_now, move_id = v_move_a, note = 'seat_open'
+       WHERE id = r.id;
+      v_moves := v_moves + 1;
+      CONTINUE;
+    END IF;
+
+    SELECT q.*, ts.seat_number AS their_seat INTO p
+      FROM public.cash_seat_change_requests q
+      JOIN unnest(v_census) c ON c.id = q.from_table_id
+      JOIN public.table_seats ts ON ts.table_id = q.from_table_id AND ts.user_id = q.user_id AND ts.left_at IS NULL
+     WHERE q.game_id = p_game_id AND q.status = 'requested' AND q.id <> r.id
+       AND q.from_table_id <> r.from_table_id
+       AND NOT c.breaking AND c.lifecycle = 'live'
+       AND c.id IS DISTINCT FROM v_front
+       AND (r.to_table_id IS NULL OR q.from_table_id = r.to_table_id)
+       AND (q.to_table_id IS NULL OR q.to_table_id = r.from_table_id)
+       AND coalesce(ts.stack, 0) > 0 AND coalesce(ts.leave_pending, false) = false
+       AND NOT EXISTS (SELECT 1 FROM public.cash_seat_moves m WHERE m.player_id = q.user_id AND m.state = 'pending')
+     ORDER BY q.created_at, q.id LIMIT 1;
+    IF FOUND THEN
+      INSERT INTO public.cash_seat_moves (game_id, player_id, from_table_id, to_table_id, reason)
+      VALUES (p_game_id, r.user_id, r.from_table_id, p.from_table_id, 'seat_change')
+      RETURNING id INTO v_move_a;
+      INSERT INTO public.cash_seat_moves (game_id, player_id, from_table_id, to_table_id, reason, swap_move_id)
+      VALUES (p_game_id, p.user_id, p.from_table_id, r.from_table_id, 'seat_change', v_move_a)
+      RETURNING id INTO v_move_b;
+      UPDATE public.cash_seat_moves SET swap_move_id = v_move_b WHERE id = v_move_a;
+      UPDATE public.cash_seat_change_requests SET status = 'moved', resolved_at = p_now, move_id = v_move_a, note = 'swap' WHERE id = r.id;
+      UPDATE public.cash_seat_change_requests SET status = 'moved', resolved_at = p_now, move_id = v_move_b, note = 'swap' WHERE id = p.id;
+      v_moves := v_moves + 2;
+    END IF;
+  END LOOP;
+  RETURN v_moves;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.fn_cash_seat_change_plan(uuid,timestamp with time zone) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_cash_seat_change_plan(uuid,timestamp with time zone) TO service_role;
+
+-- Exact Step 2 preimage of fn_cash_cluster_tick_uncapped (before 20261124003437)
 CREATE OR REPLACE FUNCTION public.fn_cash_cluster_tick_uncapped(p_game_id uuid, p_eligible_horses integer DEFAULT 0)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -194,7 +380,6 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'moves_planned', v_moves);
 END;
 $function$;
-
 REVOKE ALL ON FUNCTION public.fn_cash_cluster_tick_uncapped(uuid,integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_cash_cluster_tick_uncapped(uuid,integer) TO service_role;
 
@@ -209,6 +394,7 @@ DECLARE
   tf uuid := ('44444444-4444-4444-8444-' || lpad(p_hand::text, 12, '0'))::uuid;
   i int; u uuid; seq int := 0;
 BEGIN
+  DELETE FROM public.cash_seat_change_requests WHERE game_id = p_game;
   DELETE FROM public.cash_seat_moves WHERE game_id = p_game;
   DELETE FROM public.cash_game_roster WHERE game_id = p_game;
   DELETE FROM public.table_seats WHERE table_id IN (SELECT id FROM public.tables WHERE cluster_id = p_game);
@@ -224,28 +410,28 @@ BEGIN
 
   FOR i IN 1..p_n1 LOOP
     seq := seq + 1; u := ('aaaaaaaa-0001-4000-8000-' || lpad(seq::text, 12, '0'))::uuid;
-    INSERT INTO public.table_seats(table_id, user_id, joined_at) VALUES (t1, u, now() - (100 - seq) * interval '1 minute');
+    INSERT INTO public.table_seats(table_id, user_id, seat_number, joined_at) VALUES (t1, u, i, now() - (100 - seq) * interval '1 minute');
     INSERT INTO public.cash_game_roster(game_id, user_id, joined_at) VALUES (p_game, u, now() - (100 - seq) * interval '1 minute');
   END LOOP;
   FOR i IN 1..p_n2 LOOP
     seq := seq + 1; u := ('aaaaaaaa-0002-4000-8000-' || lpad(seq::text, 12, '0'))::uuid;
-    INSERT INTO public.table_seats(table_id, user_id, joined_at) VALUES (t2, u, now() - (100 - seq) * interval '1 minute');
+    INSERT INTO public.table_seats(table_id, user_id, seat_number, joined_at) VALUES (t2, u, i, now() - (100 - seq) * interval '1 minute');
     INSERT INTO public.cash_game_roster(game_id, user_id, joined_at) VALUES (p_game, u, now() - (100 - seq) * interval '1 minute');
   END LOOP;
   FOR i IN 1..p_n3 LOOP
     seq := seq + 1; u := ('aaaaaaaa-0003-4000-8000-' || lpad(seq::text, 12, '0'))::uuid;
-    INSERT INTO public.table_seats(table_id, user_id, joined_at) VALUES (t3, u, now() - (100 - seq) * interval '1 minute');
+    INSERT INTO public.table_seats(table_id, user_id, seat_number, joined_at) VALUES (t3, u, i, now() - (100 - seq) * interval '1 minute');
     INSERT INTO public.cash_game_roster(game_id, user_id, joined_at) VALUES (p_game, u, now() - (100 - seq) * interval '1 minute');
   END LOOP;
   FOR i IN 1..p_nf LOOP
     seq := seq + 1; u := ('aaaaaaaa-0004-4000-8000-' || lpad(seq::text, 12, '0'))::uuid;
-    INSERT INTO public.table_seats(table_id, user_id, joined_at) VALUES (tf, u, now() - (100 - seq) * interval '1 minute');
+    INSERT INTO public.table_seats(table_id, user_id, seat_number, joined_at) VALUES (tf, u, i, now() - (100 - seq) * interval '1 minute');
     INSERT INTO public.cash_game_roster(game_id, user_id, joined_at) VALUES (p_game, u, now() - (100 - seq) * interval '1 minute');
   END LOOP;
 END $$;
 SQL
 
-# 1. BEFORE patch: exact screenshot repro (9-max: Main 1=9, Main 2=5, Main 3=9, Feeder=6)
+# ── DOOR 1: fn_cash_cluster_tick_uncapped (20261124003437) ──────────────────
 before_moves=$("${PSQL[@]}" -c "
   SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 5, 9, 6);
   SELECT (public.fn_cash_cluster_tick_uncapped('00000000-0000-4000-8000-000000000009', 0)->>'moves_planned')::int;
@@ -253,22 +439,18 @@ before_moves=$("${PSQL[@]}" -c "
 echo "screenshot_repro_before=$before_moves"
 [[ "$before_moves" == "0" ]] || { echo "Expected 0 moves before patch, got $before_moves" >&2; exit 1; }
 
-# 2. Apply the actual migration SQL
-"${PSQL[@]}" -f "$MIG"
+"${PSQL[@]}" -f "$MIG_CASCADE"
 
-# 3. Verify @live-proof passes and double-apply refuses
-live_proof=$("${PSQL[@]}" -c "
+live_proof_1=$("${PSQL[@]}" -c "
   SELECT pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure) LIKE '%(c.role = ''main'' AND c.main_index > t.main_index)%'
      AND pg_get_functiondef('public.fn_cash_cluster_tick_uncapped(uuid,integer)'::regprocedure) LIKE '%EVERY MAIN FEEDS UPWARDS%';
 ")
-[[ "$live_proof" == "t" ]] || { echo "@live-proof failed: $live_proof" >&2; exit 1; }
-if "${PSQL[@]}" -f "$MIG" >/dev/null 2>&1; then
-  echo "Double-apply should have been refused" >&2
-  exit 1
+[[ "$live_proof_1" == "t" ]] || { echo "@live-proof 1 failed" >&2; exit 1; }
+if "${PSQL[@]}" -f "$MIG_CASCADE" >/dev/null 2>&1; then
+  echo "Double-apply of 20261124003437 should have been refused" >&2; exit 1
 fi
 echo "migration_applied_and_proved=ok"
 
-# 4. AFTER patch: exact screenshot repro -> 4 moves Main 3 -> Main 2, 0 from Feeder
 after_summary=$("${PSQL[@]}" -c "
   SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 5, 9, 6);
   SELECT public.fn_cash_cluster_tick_uncapped('00000000-0000-4000-8000-000000000009', 0);
@@ -283,9 +465,6 @@ after_summary=$("${PSQL[@]}" -c "
 echo "screenshot_repro_after=${after_summary%%|*} ($after_summary)"
 [[ "$after_summary" == "4|4|0" ]] || { echo "Expected 4|4|0 after patch, got $after_summary" >&2; exit 1; }
 
-# 5. Upward cascade + NEVER downward:
-#    (a) Main 1=8, Main 2=8, Main 3=9, Feeder=7 -> Main 2->Main 1 (1), Main 3->Main 2 (1), zero downward
-#    (b) Main 1=9, Main 2=9, Main 3=7, Feeder=8 -> Feeder->Main 3 (2, stops at 6), zero downward
 cascade_check=$("${PSQL[@]}" -c "
   SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 8, 8, 9, 7);
   SELECT public.fn_cash_cluster_tick_uncapped('00000000-0000-4000-8000-000000000009', 0);
@@ -312,8 +491,6 @@ feeder_to_m3=$("${PSQL[@]}" -c "
 [[ "$feeder_to_m3" == "2|0" ]] || { echo "Expected 2|0 for Feeder(8)->Main3(7), got $feeder_to_m3" >&2; exit 1; }
 echo "no_downward_pull=ok"
 
-# 6. 6-max 4-table cascade: Main 1=6, Main 2=3, Main 3=6, Feeder=4 -> Main 3 -> Main 2 (3 moves);
-#    then Main 1=6, Main 2=6, Main 3=3, Feeder=4 -> Feeder -> Main 3 (3 moves, no 7-player gate)
 six_max_1=$("${PSQL[@]}" -c "
   SELECT public.seed_4table('00000000-0000-4000-8000-000000000006', 6, 6, 3, 6, 4);
   SELECT public.fn_cash_cluster_tick_uncapped('00000000-0000-4000-8000-000000000006', 0);
@@ -334,4 +511,96 @@ six_max_2=$("${PSQL[@]}" -c "
 " | tail -1)
 [[ "$six_max_1" == "3" && "$six_max_2" == "3" ]] || { echo "Expected 3 and 3 on 6-max, got $six_max_1 and $six_max_2" >&2; exit 1; }
 echo "six_max_cascade=ok"
+
+# ── DOORS 2 & 3: BEFORE hardening (20261124051600) ──────────────────────────
+# Door 2 before: 6-max Main 1 & Main 2 return FALSE even with a live Feeder!
+six_max_main_list_before=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000006', 6, 5, 5, 6, 4);
+  SELECT public.fn_cash_main_chair_is_the_lists('11111111-1111-4111-8111-000000000006')::text || '|' ||
+         public.fn_cash_main_chair_is_the_lists('22222222-2222-4222-8222-000000000006')::text;
+" | tail -1)
+[[ "$six_max_main_list_before" == "false|false" ]] || { echo "Expected false|false before hardening on 6-max, got $six_max_main_list_before" >&2; exit 1; }
+
+# Door 3 before: Feeder player (at 6/9, gated) seat-changes UPWARD into Main 3!
+sc_before=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 9, 7, 6);
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, NULL
+    FROM public.table_seats ts
+   WHERE ts.table_id = '44444444-4444-4444-8444-000000000009' AND ts.left_at IS NULL
+   ORDER BY ts.joined_at DESC LIMIT 1;
+  SELECT public.fn_cash_seat_change_plan('00000000-0000-4000-8000-000000000009')::text;
+" | tail -1)
+[[ "$sc_before" == "1" ]] || { echo "Expected 1 upward seat-change bypass before hardening, got $sc_before" >&2; exit 1; }
+
+# Apply 20261124051600 hardening migration
+"${PSQL[@]}" -f "$MIG_HARDEN"
+
+if "${PSQL[@]}" -f "$MIG_HARDEN" >/dev/null 2>&1; then
+  echo "Double-apply of 20261124051600 should have been refused" >&2; exit 1
+fi
+
+# Door 2 after: BOTH 6-max and 9-max Mains return TRUE while feeder is live,
+# and FALSE when feeder is breaking!
+six_max_main_list_after=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000006', 6, 5, 5, 6, 4);
+  SELECT public.fn_cash_main_chair_is_the_lists('11111111-1111-4111-8111-000000000006')::text || '|' ||
+         public.fn_cash_main_chair_is_the_lists('22222222-2222-4222-8222-000000000006')::text || '|' ||
+         public.fn_cash_main_chair_is_the_lists('44444444-4444-4444-8444-000000000006')::text;
+" | tail -1)
+[[ "$six_max_main_list_after" == "true|true|false" ]] || { echo "Expected true|true|false after hardening on 6-max, got $six_max_main_list_after" >&2; exit 1; }
+
+six_max_breaking=$("${PSQL[@]}" -c "
+  UPDATE public.tables SET lifecycle = 'breaking' WHERE id = '44444444-4444-4444-8444-000000000006';
+  SELECT public.fn_cash_main_chair_is_the_lists('11111111-1111-4111-8111-000000000006')::text;
+" | tail -1)
+[[ "$six_max_breaking" == "false" ]] || { echo "Expected false when feeder is breaking, got $six_max_breaking" >&2; exit 1; }
+echo "six_max_main_chair_reserved=ok"
+
+# Door 3 after:
+# (a) Feeder -> Main 3 open chair BLOCKED (0 moves)
+# (b) Main 3 -> Main 2 open chair BLOCKED (0 moves)
+# (c) Main 2 -> Feeder open chair ALLOWED (1 move)
+# (d) Two-way swap (Main 2 <-> Feeder) ALLOWED (2 moves)
+sc_upward_blocked=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 8, 7, 6);
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, NULL
+    FROM public.table_seats ts
+   WHERE ts.table_id = '44444444-4444-4444-8444-000000000009' AND ts.left_at IS NULL
+   ORDER BY ts.joined_at DESC LIMIT 1;
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, '22222222-2222-4222-8222-000000000009'
+    FROM public.table_seats ts
+   WHERE ts.table_id = '33333333-3333-4333-8333-000000000009' AND ts.left_at IS NULL
+   ORDER BY ts.joined_at DESC LIMIT 1;
+  SELECT public.fn_cash_seat_change_plan('00000000-0000-4000-8000-000000000009')::text;
+" | tail -1)
+[[ "$sc_upward_blocked" == "0" ]] || { echo "Expected 0 upward seat-change moves after hardening, got $sc_upward_blocked" >&2; exit 1; }
+
+sc_downward_and_swap=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 9, 9, 6);
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, '44444444-4444-4444-8444-000000000009'
+    FROM public.table_seats ts
+   WHERE ts.table_id = '22222222-2222-4222-8222-000000000009' AND ts.left_at IS NULL
+   LIMIT 1;
+  SELECT public.fn_cash_seat_change_plan('00000000-0000-4000-8000-000000000009')::text;
+" | tail -1)
+[[ "$sc_downward_and_swap" == "1" ]] || { echo "Expected 1 downward seat-change move (Main 2 -> Feeder), got $sc_downward_and_swap" >&2; exit 1; }
+
+sc_swap=$("${PSQL[@]}" -c "
+  SELECT public.seed_4table('00000000-0000-4000-8000-000000000009', 9, 9, 9, 9, 9);
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, '44444444-4444-4444-8444-000000000009'
+    FROM public.table_seats ts
+   WHERE ts.table_id = '22222222-2222-4222-8222-000000000009' AND ts.left_at IS NULL LIMIT 1;
+  INSERT INTO public.cash_seat_change_requests(game_id, user_id, from_table_id, to_table_id)
+  SELECT '00000000-0000-4000-8000-000000000009', ts.user_id, ts.table_id, '22222222-2222-4222-8222-000000000009'
+    FROM public.table_seats ts
+   WHERE ts.table_id = '44444444-4444-4444-8444-000000000009' AND ts.left_at IS NULL LIMIT 1;
+  SELECT public.fn_cash_seat_change_plan('00000000-0000-4000-8000-000000000009')::text;
+" | tail -1)
+[[ "$sc_swap" == "2" ]] || { echo "Expected 2 moves for two-way swap, got $sc_swap" >&2; exit 1; }
+echo "seat_change_upward_blocked=ok"
 echo "PROOF OK"

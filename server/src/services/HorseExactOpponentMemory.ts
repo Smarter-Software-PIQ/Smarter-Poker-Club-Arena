@@ -5,6 +5,7 @@ import {
   queryError,
 } from './HorseOpponentMemory.js';
 import { supabase } from './supabase.js';
+import { bindToProcessRoot } from './supabase/dataActorContext.js';
 import {
   memoryVariant,
   validOpponentProfile,
@@ -46,7 +47,10 @@ export async function readExactHorseOpponentProfiles(
   const startedAt = Date.now();
   let data: unknown;
   try {
-    data = await admitCompletedHandExactRead(async () => {
+    // 2026-11-24 (incident 1e532243): run this read-only, separately-admitted
+    // SECURITY DEFINER query at process root (service actor) so it never takes
+    // FOR KEY SHARE on engine_tournament_leases or consumes/trips EventDbBulkhead.
+    const executeAtRoot = bindToProcessRoot(async () => {
       const response = await supabase
         .rpc('fn_horse_exact_profiles_read', {
           p_user_ids: ids,
@@ -62,6 +66,7 @@ export async function readExactHorseOpponentProfiles(
       if (response.error) throw queryError(INVALID, response.error);
       return response.data;
     });
+    data = await admitCompletedHandExactRead(executeAtRoot);
   } catch (error) {
     // The admission refusal keeps its own identity so callers can still log a
     // busy refusal as one throttled line; a query error carries only its class.

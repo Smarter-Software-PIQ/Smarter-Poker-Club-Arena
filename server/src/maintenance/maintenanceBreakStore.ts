@@ -12,8 +12,6 @@ import { maintenanceSupabase, supabase } from '../services/supabase.js';
 import { bindToProcessRoot } from '../services/supabase/dataActorContext.js';
 import type { MaintenanceBreakStore, PersistedMaintenanceBreak } from './MaintenanceBreak.js';
 
-const TABLE = 'engine_maintenance_break';
-
 export function createSupabaseMaintenanceBreakStore(version?: string): MaintenanceBreakStore {
   return {
     loadReleaseBoundary: bindToProcessRoot(async (): Promise<number | null> => {
@@ -27,12 +25,28 @@ export function createSupabaseMaintenanceBreakStore(version?: string): Maintenan
       }
       return Date.parse(data);
     }),
+    loadReleaseBoundaryFreezeStartedAt: bindToProcessRoot(
+      async (releaseAt: number): Promise<number | null> => {
+        const { data, error } = await supabase
+          .from('engine_maintenance_thaws')
+          .select('freeze_started_at')
+          .eq('contract_version', 3)
+          .gte('release_target_at', new Date(releaseAt - 1_000).toISOString())
+          .lte('release_target_at', new Date(releaseAt + 1_000).toISOString())
+          .order('release_target_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error || !data?.freeze_started_at) return null;
+        const parsed = Date.parse(data.freeze_started_at);
+        return Number.isFinite(parsed) && parsed > 0 && parsed < releaseAt ? parsed : null;
+      }
+    ),
     async load(): Promise<PersistedMaintenanceBreak | null> {
       // .maybeSingle() per CLAUDE.md rule 5.1 - the common case is no row at
       // all, and .single() throws PGRST116 on zero rows, which on this path
       // would make every ordinary boot log an error.
       const { data, error } = await supabase
-        .from(TABLE)
+        .from('engine_maintenance_break')
         .select('phase, announced_at, break_started_at, break_ends_at, reason, ownership_token')
         .eq('id', true)
         .maybeSingle();

@@ -13,7 +13,10 @@
  *    per worker per clock minute; the rest of the shadow's per-minute budget is left for hands with a person dealt
  *    in. This orders a measurement only: no decision reads it.
  *  - LATENCY BREAKER (automatic self-disable): per option and worker, one re-decision over 150 ms, or three over
- *    50 ms within the last 20, stops that option's re-decisions in this worker until the worker restarts.
+ *    50 ms within the last 20, stops that option's re-decisions in this worker until the worker restarts. A
+ *    re-decision is charged the time it actually ran (2026-11-23, see optionShadowStageChargedMs): its wall time, or
+ *    the worker thread's own CPU time over the same span when that is lower, so a pause of the thread that the
+ *    re-decision did not cause (descheduled, waiting) is not charged to the option.
  *  - COMPANIONS: an option that acts only with another option on (the math core's street flag needs omahaMathCore)
  *    is re-decided with the companion true as well when it is flipped to true.
  *
@@ -134,6 +137,47 @@ export const OPTION_SHADOW_STAGE_WINDOW = 20;
 /** Staged re-decisions per worker per clock minute in hands with no person dealt in. */
 export const OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE = 2;
 
+/**
+ * THE TIME A STAGED RE-DECISION IS CHARGED (2026-11-23, PLO-OWNER lead-5 PHASE4).
+ *
+ * WHY. The breaker read wall time only, so a pause of the worker thread during a re-decision was charged to the
+ * option. Live, serving 735299cd5fda (2026-11-23 04:33-08:06Z, horse_brain_flush_receipts): omahaMathCorePlo5Flop
+ * re-decided 727 times, avg 17.0 ms, and one re-decision of 195.8 ms (07:21:25-07:22:25Z, worker 78ffa527) tripped
+ * the one-over-150 ms rule, while that worker's 16 PLO5 and 32 hold'em acted decisions of the same minute took at
+ * most 41.4 ms. Five of the 727 took 100-200 ms (0.69%), against 80 of 137,292 acted decisions (0.058%) on the
+ * engine's eight workers, and in those five minutes no acted decision of the same worker took over 78 ms. On the Mac
+ * (origin/main 608f33c5, Node 22.23.3, 10,000 PLO5 flop core decisions over 624 states) the same path used at most
+ * 27.5 ms of thread CPU once warm (p99.9 18.7 ms), and its one 146.1 ms wall reading used 27.5 ms of CPU. On
+ * 2026-11-22 19:32Z (ea92b56f) omahaStabDefenceIsPriced, a 1.4-6.4 ms re-decision, tripped the same rule at 392.2 ms.
+ *
+ * WHAT. A re-decision is charged min(wall, thread CPU): the CPU the worker thread itself spent between the
+ * re-decision's start and end (process.threadCpuUsage reads the calling thread only; process.cpuUsage would add every
+ * other thread of the process). A re-decision that is slow because it computes is on the CPU for that time, so it is
+ * charged its wall time less only the time its thread did not run, and a slow option trips at the same re-decision
+ * as before. With no CPU reading (NaN, negative, absent, or a runtime without threadCpuUsage) the charge is the wall
+ * time, exactly as before; a wall time that is not a number is charged as such and trips, as before. The charge is
+ * never above the wall time, so the breaker trips nowhere it did not trip before. Charged: work on the worker thread
+ * inside the re-decision, its own share of garbage collection included. Not charged: time the thread did not run
+ * (descheduled, or blocked in a synchronous wait); the staged decide path does no synchronous I/O (the core reads
+ * its tables when its modules load).
+ */
+export function optionShadowStageChargedMs(wallMs: number, threadCpuMs?: number | null): number {
+  if (typeof threadCpuMs !== 'number' || !Number.isFinite(threadCpuMs) || threadCpuMs < 0)
+    return wallMs;
+  return threadCpuMs < wallMs ? threadCpuMs : wallMs;
+}
+
+/** True when the wall time alone would have been a slow (or hard) re-decision and the charged time is not. */
+export function optionShadowStageWallOnlySlow(
+  wallMs: number,
+  threadCpuMs?: number | null
+): boolean {
+  return (
+    wallMs > OPTION_SHADOW_STAGE_SLOW_MS &&
+    !(optionShadowStageChargedMs(wallMs, threadCpuMs) > OPTION_SHADOW_STAGE_SLOW_MS)
+  );
+}
+
 export function optionShadowStaged(
   option: string | null | undefined,
   table: OptionShadowStageTable = OPTION_SHADOW_STAGE
@@ -197,9 +241,13 @@ export class OptionShadowStageGuard {
     return this.off.has(option);
   }
 
-  /** Records one staged re-decision's time. True exactly when this one trips the breaker. */
-  note(option: string, ms: number): boolean {
+  /**
+   * Records one staged re-decision: its wall time and, when read, the worker thread's CPU time over the same span.
+   * It is charged optionShadowStageChargedMs(ms, threadCpuMs). True exactly when this one trips the breaker.
+   */
+  note(option: string, ms: number, threadCpuMs?: number | null): boolean {
     if (this.off.has(option)) return false;
+    ms = optionShadowStageChargedMs(ms, threadCpuMs);
     const slow = !(ms <= OPTION_SHADOW_STAGE_SLOW_MS);
     const ring = this.recent.get(option) ?? [];
     ring.push(slow);

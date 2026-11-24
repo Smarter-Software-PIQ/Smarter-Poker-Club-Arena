@@ -487,9 +487,125 @@ describe('the lobby', () => {
     expect(screen.getByText('1 Waiting To Change Here')).toBeTruthy();
     // the hero's place
     expect(screen.getByText('You Are Number 2 On The Must Move List.')).toBeTruthy();
-    // REQUEST: on Main 2 only (not Main 1, not the hero's own feeder)
-    expect(screen.getAllByRole('button', { name: 'Request' }).length).toBe(1);
-    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeTruthy();
+    // REQUEST: a Feeder player cannot seat-change upward into Main 1 or Main 2
+    expect(screen.queryByRole('button', { name: 'Request' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeDisabled();
+    expect(screen.getByText('No Other Table To Change To Yet.')).toBeTruthy();
+  });
+
+  it('blocks Request on upward Mains and opening tables, while allowing downward/lateral live tables', async () => {
+    const MAIN3 = 't-main3';
+    const FEEDER2 = 't-feeder2';
+    const OPENING_FEEDER = 't-feeder-opening';
+    const base = lobby();
+    const tables = [
+      ...base.tables,
+      {
+        id: MAIN3,
+        name: 'NLH Main 3',
+        role: 'main',
+        main_index: 3,
+        lifecycle: 'live',
+        status: 'running',
+        max_players: 6,
+        seated: 6,
+        open_seats: 0,
+        seat_change_queue: 0,
+        seats: [],
+      },
+      {
+        id: OPENING_FEEDER,
+        name: 'NLH Opening Feeder',
+        role: 'feeder',
+        main_index: null,
+        lifecycle: 'opening',
+        status: 'waiting',
+        max_players: 6,
+        seated: 1,
+        open_seats: 5,
+        seat_change_queue: 0,
+        seats: [],
+      },
+    ];
+
+    // 1. Feeder player: cannot request Main 1, Main 2, Main 3, or opening feeder.
+    mocks.rpc.mockResolvedValue({
+      data: { ...base, tables },
+      error: null,
+    });
+    const first = render(
+      <MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(screen.getByText('NLH 0.10/0.25 Action')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Request' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeDisabled();
+    first.unmount();
+
+    // 2. Main 3 player: cannot request Main 1, Main 2, or opening feeder; CAN request live Feeder.
+    mocks.rpc.mockResolvedValue({
+      data: {
+        ...lobby({ table_id: MAIN3, role: 'main', main_index: 3 }),
+        tables,
+      },
+      error: null,
+    });
+    const second = render(
+      <MustMoveLobbyModal isOpen gameId={GAME} currentTableId={MAIN3} onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Request' })).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeEnabled();
+    const secondReqHead = screen
+      .getByRole('button', { name: 'Request' })
+      .closest('.mml-table-head');
+    expect(secondReqHead?.querySelector('.mml-table-name')?.textContent).toBe('Feeder');
+    expect(secondReqHead?.querySelector('.mml-table-state')?.textContent).toBe('Running');
+    second.unmount();
+
+    // 3. Main 2 player: CAN request live Main 3 and live Feeder, never Main 1, Main 2, or opening.
+    mocks.rpc.mockResolvedValue({
+      data: {
+        ...lobby({ table_id: MAIN2, role: 'main', main_index: 2 }),
+        tables,
+      },
+      error: null,
+    });
+    const third = render(
+      <MustMoveLobbyModal isOpen gameId={GAME} currentTableId={MAIN2} onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Request' })).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeEnabled();
+    const thirdTargets = screen
+      .getAllByRole('button', { name: 'Request' })
+      .map((btn) => btn.closest('.mml-table-head')?.querySelector('.mml-table-name')?.textContent);
+    expect(thirdTargets).toEqual(['Feeder', 'Main 3']);
+    third.unmount();
+
+    // 4. Feeder player with a second live Feeder: lateral Feeder -> Feeder IS allowed.
+    mocks.rpc.mockResolvedValue({
+      data: {
+        ...base,
+        tables: [
+          ...tables,
+          {
+            id: FEEDER2,
+            name: 'NLH Feeder 2',
+            role: 'feeder',
+            main_index: null,
+            lifecycle: 'live',
+            status: 'running',
+            max_players: 6,
+            seated: 3,
+            open_seats: 3,
+            seat_change_queue: 0,
+            seats: [],
+          },
+        ],
+      },
+      error: null,
+    });
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Request' })).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeEnabled();
   });
 
   it('every table header reads its average stack and total chips after the seat count (Dan 2026-10-15)', async () => {
@@ -534,7 +650,11 @@ describe('the lobby', () => {
 
   it('asks the door with the table, or null for any, and repeats the answer', async () => {
     mocks.rpc.mockImplementation(async (fn: string, args: Record<string, unknown>) => {
-      if (fn === 'fn_cash_game_lobby') return { data: lobby(), error: null };
+      if (fn === 'fn_cash_game_lobby')
+        return {
+          data: lobby({ table_id: MAIN2, role: 'main', main_index: 2, must_move_position: 1 }),
+          error: null,
+        };
       if (fn === 'fn_cash_seat_change_request') {
         return {
           data: {
@@ -543,8 +663,8 @@ describe('the lobby', () => {
             request_id: 'r',
             to_table_id: args.p_to_table_id ?? null,
             to_table_name: null,
-            to_role: 'main',
-            to_main_index: 2,
+            to_role: 'feeder',
+            to_main_index: null,
             position: args.p_to_table_id ? null : 1,
             used_at: null,
           },
@@ -553,18 +673,18 @@ describe('the lobby', () => {
       }
       return { data: null, error: null };
     });
-    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={MAIN2} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Request' })).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'Request' }));
     await waitFor(() =>
       expect(mocks.rpc).toHaveBeenCalledWith('fn_cash_seat_change_request', {
         p_game_id: GAME,
-        p_to_table_id: MAIN2,
+        p_to_table_id: FEEDER,
       })
     );
     await waitFor(() =>
       expect(mocks.toast.success).toHaveBeenCalledWith(
-        'Seat Change Granted. Moving To Main 2 After This Hand.'
+        'Seat Change Granted. Moving To Feeder After This Hand.'
       )
     );
     fireEvent.click(screen.getByRole('button', { name: 'Request Any Table' }));
@@ -583,12 +703,16 @@ describe('the lobby', () => {
 
   it('a refusal is shown in the player words and nothing else changes', async () => {
     mocks.rpc.mockImplementation(async (fn: string) => {
-      if (fn === 'fn_cash_game_lobby') return { data: lobby(), error: null };
+      if (fn === 'fn_cash_game_lobby')
+        return {
+          data: lobby({ table_id: MAIN2, role: 'main', main_index: 2, must_move_position: 1 }),
+          error: null,
+        };
       return { data: null, error: { message: 'SEAT_CHANGE_USED: you have used your seat change' } };
     });
-    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={MAIN2} onClose={vi.fn()} />);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Request Any Table' })).toBeEnabled()
     );
     fireEvent.click(screen.getByRole('button', { name: 'Request Any Table' }));
     await waitFor(() =>

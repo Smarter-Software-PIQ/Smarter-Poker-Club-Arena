@@ -143,7 +143,9 @@ test.describe('Production Create A Club Certificate', () => {
     await expect(invite).toBeVisible();
     const inviteInput = invite.getByLabel('Your Invite Link', { exact: true });
     await expect(inviteInput).toHaveValue(/^https:\/\/smarter\.poker\/i\/[A-HJ-NP-Z2-9]{7}$/);
-    await expect(invite.getByRole('button', { name: 'Send Link', exact: true })).toBeEnabled();
+    // Desktop Chromium has no Web Share sheet, so the button says what the tap does:
+    // Copy Link (src/lib/share.ts hasShareSheet, #10982). A phone shows Send Link.
+    await expect(invite.getByRole('button', { name: 'Copy Link', exact: true })).toBeEnabled();
     await page.screenshot({
       path: 'test-results/create-club-send-link-mobile.png',
       fullPage: true,
@@ -159,12 +161,14 @@ test.describe('Production Create A Club Certificate', () => {
     });
     expect(await page.evaluate(() => typeof navigator.share)).toBe('undefined');
     const shortUrl = await inviteInput.inputValue();
-    await invite.getByRole('button', { name: 'Send Link', exact: true }).click();
+    await invite.getByRole('button', { name: 'Copy Link', exact: true }).click();
     await expect(invite.getByRole('button', { name: 'Link Copied', exact: true })).toBeVisible();
     const copiedInvite = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedInvite).toContain(shortUrl);
     expect(copiedInvite).toContain(`Invited You To Join ${clubName} On Smarter.Poker!`);
-    expect(copiedInvite).toMatch(/Club ID: \S+/);
+    // Since #11455 (2026-11-19) the shared text is the signed headline, the club's
+    // measured figures and the link; it no longer carries a Club ID line.
+    expect(copiedInvite).not.toContain('Club ID');
     const copiedScreenshot = 'test-results/create-club-link-copied-mobile.png';
     await page.screenshot({ path: copiedScreenshot, fullPage: true });
     await testInfo.attach('Send Link Clipboard Result', {
@@ -184,7 +188,8 @@ test.describe('Production Create A Club Certificate', () => {
     // wallet announcement that happens to contain the same number.
     // The club starts at 100K, then the atomic welcome transaction moves the
     // reviewed 100 BBJ seed and 200 Spins seed into their club-owned reserves.
-    await expect(page.getByLabel(/^99\.7K Club Bank Chips$/)).toBeVisible({
+    // Figures print exactly since #10797 (2026-11-14): compactChips is exactChips.
+    await expect(page.getByLabel(/^99,700 Club Bank Chips$/)).toBeVisible({
       timeout: 60_000,
     });
     const welcome = page.getByRole('region', { name: 'Opening Welcome Package', exact: true });

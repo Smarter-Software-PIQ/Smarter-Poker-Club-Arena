@@ -443,10 +443,11 @@ export function classifyEventDbOutcome(
   return 'ok';
 }
 
-/** A thrown attempt: our deadline or a caller timeout is congestion; the rest is not evidence. */
+/** A thrown attempt: our own transport deadline or a call that actually waited
+ * at least EVENT_DB_SLOW_CALL_MS is congestion; a caller's shorter abort (such
+ * as an observe-only 1.5 s AbortSignal.timeout) is not evidence that the event's
+ * lane is congested. */
 export function classifyEventDbFailure(error: unknown, elapsedMs: number): EventDbOutcome {
   if (error instanceof Error && error.message === 'supabase_timeout') return 'congested';
-  const name = (error as { name?: unknown } | null)?.name;
-  if (name === 'TimeoutError') return 'congested';
   return elapsedMs >= EVENT_DB_SLOW_CALL_MS ? 'congested' : 'neutral';
 }
