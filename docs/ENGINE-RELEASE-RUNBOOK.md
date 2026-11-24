@@ -388,10 +388,17 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
    restart, no container change, hands dealt (`dealRate.handsInWindow` must
    rise when seats exist), bounded memory. Then `check_soak_hand_gap_delay`
    runs `fn_ca_hand_gap_unintended_delay` over the steady-state soak window
-   (when installed on the copy) and fails closed if any graded shape with at
-   least 5 graded hands has `unintended_p95_ms > budget_ms` (250 ms)
-   (`hand_gap_unintended_delay_exceeded`) or if the check is unreadable
-   (`hand_gap_check_unreadable`).
+   (when installed on the copy) and judges each graded (kind, shape) cell as
+   a sample, not by its slowest hand (since 2026-11-24): any single gap more
+   than 5,000 ms over what it owed fails at any sample size (`hard_ceiling`);
+   a cell of at least 10 graded hands fails when its count of hands over the
+   250 ms budget is improbable at a 5 % allowed share (one-sided exact
+   binomial, 95 % confidence; `over_budget_share`); cells under 10 hands are
+   pooled per kind and tested the same way (`over_budget_share_pooled`).
+   Either records `hand_gap_unintended_delay_exceeded`; the run log and the
+   certificate's `handGapCheck.breaches[].verdict` name the cell, n, the rule
+   and the slowest hands' ids. An unreadable check records
+   `hand_gap_check_unreadable`.
 7. `qualify-tournament-freeze-fixes.py`, then a fatal-log scan
    (`FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault`)
    and `check_engine_lifecycle_logs`: queries `public.engine_lifecycle_logs`
