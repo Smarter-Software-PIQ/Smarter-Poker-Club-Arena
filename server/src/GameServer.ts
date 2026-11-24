@@ -115,6 +115,7 @@ import { ServerTableEngine } from './engine/ServerTableEngine.js';
 import { TableRestartBackoff } from './engine/TableRestartBackoff.js';
 import { equityGovernor } from './engine/EquityLoadGovernor.js';
 import { stopBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { stopHorseErrorLog } from './services/HorseErrorLog.js';
 import { stopHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { HorseDecisionAbortedError } from './engine/horseDecision/client.js';
 import {
@@ -6051,6 +6052,11 @@ export class GameServer {
       // is not an ownership stop: unwritten evidence is reported, never a reason to hold the leases.
       stopHorseUpgradeEvidenceFlush(),
     ]);
+    // The Horse error log closes its open minutes AFTER the decision workers have drained, so a fallback
+    // taken during the drain is still a row, then waits at most 5,000 ms for the last writes (usually
+    // none in flight). It never rejects and owns no lease: an unwritten row is logged, never a reason to
+    // hold the leases.
+    await stopHorseErrorLog();
     if (horseDecisionStop.status === 'rejected') {
       const error = new AggregateError(
         [horseDecisionStop.reason],
