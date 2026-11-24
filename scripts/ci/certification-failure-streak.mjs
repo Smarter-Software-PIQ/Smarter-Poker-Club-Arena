@@ -32,7 +32,7 @@
  * It also names the failed steps and the first error line of each failed
  * certificate job, for the alert's description. No timer and no watcher
  * (CLAUDE.md 10.85): it rides the run. It makes a fixed, small number of
- * single GitHub API reads (MAX_PAGES run lists, then one job list per run) and never polls.
+ * single GitHub API reads (at most MAX_PAGES run lists and MAX_JOB_READS job lists) and never polls.
  *
  * Run:  GH_TOKEN=... GITHUB_REPOSITORY=owner/repo RUN_ID=... WORKFLOW_FILE=x.yml \
  *       CERT_JOB=certify CERT_RESULT=failure [GITHUB_OUTPUT=...] \
@@ -48,6 +48,11 @@ import { pathToFileURL } from 'node:url';
 // not enough history (2026-11-24, review of #11919).
 export const PER_PAGE = 100;
 export const MAX_PAGES = 3;
+// Job lists are read one per run, so they are capped per verdict: every lane
+// shares one REST quota, and a failed run must not spend hundreds of reads
+// finding its predecessor (review of #11919). Reaching the cap without a run
+// that ran the certificate is an unknown history, which alerts.
+export const MAX_JOB_READS = 30;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
 const PASSED = 'success';
 
@@ -143,6 +148,12 @@ export async function readPrevious({ token, repo, workflowFile, runId, jobName, 
         .filter((run) => String(run.id) !== String(runId))
         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
       for (const run of candidates) {
+        if (examined >= MAX_JOB_READS) {
+          return {
+            previous: 'unknown',
+            error: `no run that executed ${jobName} within ${MAX_JOB_READS} job-list reads on main`,
+          };
+        }
         examined += 1;
         const jobs = await read(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, token);
         const conclusion = certificateConclusion(jobs, jobName);

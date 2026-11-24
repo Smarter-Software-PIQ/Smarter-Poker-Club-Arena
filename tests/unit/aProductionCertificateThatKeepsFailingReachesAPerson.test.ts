@@ -201,8 +201,8 @@ describe('the streak rules', () => {
     expect(decide({ result: 'failure', previous: out.previous }).record).toBe(true);
   });
 
-  it('pages the history: a certificate run on page two is found', async () => {
-    const { read, calls } = pagedHistory(250, { 850: 'success' });
+  it('stops at thirty job-list reads: a certificate run beyond the cap is unknown, and alerts', async () => {
+    const { read, calls } = pagedHistory(250, { 950: 'success' });
     const out = await readPrevious({
       token: 't',
       repo: 'o/r',
@@ -211,15 +211,13 @@ describe('the streak rules', () => {
       jobName: 'certify',
       read,
     });
-    expect(out.previous).toBe('success');
-    const pages = calls
-      .filter((c) => c.includes('/workflows/'))
-      .map((c) => c.match(/[?&]page=(\d+)/)?.[1]);
-    expect(pages).toEqual(['1', '2']);
-    expect(decide({ result: 'failure', previous: out.previous }).record).toBe(false);
+    expect(out.previous).toBe('unknown');
+    expect(out.error).toMatch(/no run that executed certify within 30 job-list reads on main/);
+    expect(calls.filter((c) => /\/runs\/\d+\/jobs/.test(c)).length).toBe(30);
+    expect(decide({ result: 'failure', previous: out.previous }).record).toBe(true);
   });
 
-  it('only skipped runs in all pages is unknown, and alerts; it reads at most three pages', async () => {
+  it('only skipped runs is unknown, and alerts, after exactly thirty job reads and one page', async () => {
     const { read, calls } = pagedHistory(400, {});
     const out = await readPrevious({
       token: 't',
@@ -230,9 +228,25 @@ describe('the streak rules', () => {
       read,
     });
     expect(out.previous).toBe('unknown');
-    expect(out.error).toMatch(/no run that executed certify among 300 completed runs on main/);
-    expect(calls.filter((c) => c.includes('/workflows/')).length).toBe(3);
+    expect(calls.filter((c) => /\/runs\/\d+\/jobs/.test(c)).length).toBe(30);
+    expect(calls.filter((c) => c.includes('/workflows/')).length).toBe(1);
     expect(decide({ result: 'failure', previous: out.previous }).record).toBe(true);
+  });
+
+  it('an exhausted short history with no certificate run is unknown, and alerts', async () => {
+    const { read, calls } = pagedHistory(12, {});
+    const out = await readPrevious({
+      token: 't',
+      repo: 'o/r',
+      workflowFile: 'x.yml',
+      runId: '1',
+      jobName: 'certify',
+      read,
+    });
+    expect(out.previous).toBe('unknown');
+    expect(out.error).toMatch(/no run that executed certify among 12 completed runs on main/);
+    expect(calls.filter((c) => /\/runs\/\d+\/jobs/.test(c)).length).toBe(12);
+    expect(calls.filter((c) => c.includes('/workflows/')).length).toBe(1);
   });
 
   it('classifies a job list', () => {
