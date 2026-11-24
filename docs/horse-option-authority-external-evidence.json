@@ -1,0 +1,223 @@
+{
+  "schema": "horse-option-authority-external-evidence/v1",
+  "about": "Paths an option authority doc cites that CI cannot check: absolute Mac paths (external SSD, internal disk) and archive-relative paths that look like repository paths. Each entry was checked by hand on verifiedOn; status found or not-found. A not-found entry needs the words EVIDENCE FILE NOT FOUND (checked <date>) in its doc. Read by tests/an-authority-doc-cites-evidence-that-exists.law.test.ts; scripts/ops/horse-authority-evidence-paths.mjs extracts the paths.",
+  "entries": [
+    {
+      "doc": "cashDefenceTrimColdCalls.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/LIVE-REMEASURE-20261124-0815Z.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "cashDefenceTrimColdCalls.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/TRIM-COLDCALLS-REREAD.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "cashDefenceTrimColdCalls.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/holdem-ablation/HOLDEM-SWITCH-ABLATION.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemHeadsUpPostflopBalance.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/HYDRATED-TIER1-RESULTS-20261122.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/HYDRATED-TIER1-RESULTS-20261122.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/plo-handoff-review-01a1cbbd/hvh48-audit-01TLQer7J/D-nlh-cash/REPORT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/HOLDEM-HAND-ANALYSIS.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/HOLDEM-RULES-CODE-AUDIT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/LIVE-REMEASURE-20261124-0815Z.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemValueAndCallsArePriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/holdem-ablation/HOLDEM-SWITCH-ABLATION.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Users/smarter.poker/Documents/Claude/antigravity-coordinator-01UxDLnH/evidence/heads-up/HU30D-REPLAY-SUMMARY.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/antigravity-coordinator-01UxDLnH",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/horse-decisions-01UxDLnM/replay6/prod-switch-20261120T2115Z.json",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/hu-29a711f2-replay-20261120",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/hu-29a711f2-replay-20261120/runs/",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huBbDefendsUnreadToPrice.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/holdem-ablation/HOLDEM-SWITCH-ABLATION.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "huOpenerDefendsToPrice.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/HYDRATED-TIER1-RESULTS-20261122.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "lightningEarlyFoldNeedsFoldThrough.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/coord-efnft-01Gw7aDt/run/",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "lightningEarlyFoldNeedsFoldThrough.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/efnft2-01Gw7a/run/",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardBluffTrimIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/criteria/CRITERIA-MULTIBOARD-BLUFF-TRIM-PRICED.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardBluffTrimIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/v36-blufftrim/REPORT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardFreerollIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/criteria/CRITERIA-MULTIBOARD-FREEROLL-PRICED.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardFreerollIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/v36-freeroll/REPORT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardNonFreerollIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/criteria/CRITERIA-MULTIBOARD-NONFREEROLL-PRICED.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "multiBoardNonFreerollIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/v86-multiboard/REPORT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaBluffCatcherFoldVsValueLeader.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/COORDINATION-INBOX.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaFlopFacingBetEv.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/LIVE-REMEASURE-20261124-0815Z.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaFlopFacingBetEv.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaMathCorePlo5Flop.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/mc-on.exec.log",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaOpponentLifetimeHud.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/HUD-DRIFT-ALERT.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaOpponentLifetimeHud.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/hud-on3.exec.log",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaPreflopJamFacingReraiseIsPriced.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/woowoo-48h-audit-01BNteGYgf/repairs/CALL-OR-RAISE-2/",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "omahaPreflopJamFacingReraiseIsPriced.md",
+      "path": "scripts/r4.sql",
+      "status": "not-found",
+      "verifiedOn": "2026-11-24",
+      "where": "archive-relative (woowoo-48h-audit-01BNteGYgf/repairs/CALL-OR-RAISE-2/), not a repository path; absent there and from the repository"
+    },
+    {
+      "doc": "omahaUnderpairNoMultiwayFlopContinue.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/COORDINATION-INBOX.md",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "plo6FacingBetIsPriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/hvh48-audit-01TLQer7J/C",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "plo6FacingBetIsPricedV2.md",
+      "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/plo6-v2-declared-400f6-100m6/",
+      "status": "found",
+      "verifiedOn": "2026-11-24"
+    }
+  ]
+}
