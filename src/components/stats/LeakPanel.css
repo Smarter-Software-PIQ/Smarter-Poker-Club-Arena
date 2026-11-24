@@ -143,3 +143,33 @@
   line-height: 1.55;
   color: rgba(200, 224, 245, 0.6);
 }
+
+.leak-assistant-row {
+  margin-top: 0.8rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.leak-assistant-btn {
+  padding: 0.48rem 0.85rem;
+  border: 1px solid rgba(99, 231, 255, 0.35);
+  border-radius: 3px;
+  background: rgba(99, 231, 255, 0.08);
+  color: #8eeeff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.leak-assistant-btn:hover {
+  background: rgba(99, 231, 255, 0.16);
+  border-color: rgba(99, 231, 255, 0.6);
+}
+
+@media print {
+  .leak-assistant-row {
+    display: none;
+  }
+}

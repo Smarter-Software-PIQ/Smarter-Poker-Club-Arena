@@ -836,24 +836,14 @@ export default function HandHistoryPage() {
   };
 
   /**
-   * Jarvis analysis. The hand travels by ID: the analysis page reads the
-   * record itself, under the viewer's own session. The old link serialised the
-   * viewer's HOLE CARDS into the query string - into browser history and every
-   * referer header on the way.
+   * Personal Assistant Leak Finder analysis. The hand travels strictly by ID:
+   * the analysis page reads the record itself under the viewer's own session
+   * and owner-scoped RLS. Never serialise hole cards into a query string.
    */
   const analyzeWithJarvis = (hand: HandRecord) => {
     try {
-      const summary = {
-        id: hand.id,
-        table: hand.tableName || '',
-        stakes: hand.blinds,
-        pot: hand.replay.potTotal,
-        result: hand.replay.players.find((p) => p.userId === userId)?.net ?? 0,
-        players: hand.players.length,
-        playedAt: new Date(hand.timestamp).toISOString(),
-      };
-      const path = `/hub/jarvis?hand=${encodeURIComponent(JSON.stringify(summary))}`;
-      // Dan 2026-09-05: with a live table open, Jarvis opens in a hub tab
+      const path = `/hub/personal-assistant/leaks?source=club-arena&hand=${encodeURIComponent(hand.id)}`;
+      // Dan 2026-09-05: with a live table open, Leak Finder opens in a hub tab
       // beside the game (the strip can see it, swipe reaches it); otherwise
       // the browser tab it has always been.
       if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
@@ -861,10 +851,10 @@ export default function HandHistoryPage() {
       } else {
         openInBrowser(`https://smarter.poker${path}`, 'noopener');
       }
-      toast.info('Opening Jarvis Analysis');
+      toast.info('Opening Leak Finder Analysis');
     } catch (err) {
       reportError(err, 'HandHistoryPage.Failed_to_send_hand_to_Jarvis');
-      toast.error('Could Not Open Jarvis Analysis');
+      toast.error('Could Not Open Leak Finder Analysis');
     }
   };
 

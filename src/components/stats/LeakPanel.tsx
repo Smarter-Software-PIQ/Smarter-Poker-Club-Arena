@@ -23,6 +23,8 @@ interface Props {
   metricAvailability?: Partial<
     Record<'fold_to_three_bet' | 'aggression_factor' | 'cbet_flop', boolean>
   >;
+  /** Optional handoff to the World Hub Personal Assistant Leak Finder. */
+  onOpenLeakFinder?: () => void;
 }
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -36,6 +38,7 @@ export default function LeakPanel({
   positions,
   still = false,
   metricAvailability = {},
+  onOpenLeakFinder,
 }: Props) {
   const reduceMotionPref = useReducedMotion();
   const reduceMotion = reduceMotionPref || still;
@@ -44,6 +47,15 @@ export default function LeakPanel({
     () => findLeaks(overall, positions, metricAvailability),
     [overall, positions, metricAvailability]
   );
+
+  const assistantAction =
+    onOpenLeakFinder && !still ? (
+      <div className="leak-assistant-row">
+        <button type="button" className="leak-assistant-btn" onClick={onOpenLeakFinder}>
+          Open Personal Assistant Leak Finder
+        </button>
+      </div>
+    ) : null;
 
   if (!analysed) {
     return (
@@ -54,6 +66,7 @@ export default function LeakPanel({
             ? 'Play Some Hands And This Will Tell You What To Work On First.'
             : `About ${handsShort.toLocaleString()} More Hands And There Will Be Enough Here To Point At Something Real. Naming A Leak Off A Smaller Sample Would Mostly Be Describing Variance.`}
         </p>
+        {assistantAction}
       </div>
     );
   }
@@ -68,6 +81,7 @@ export default function LeakPanel({
           Structural Problems Are Not There - The Next Gains Are In Hand-By-Hand Decisions Rather
           Than In Your Overall Frequencies.
         </p>
+        {assistantAction}
       </div>
     );
   }
@@ -116,6 +130,7 @@ export default function LeakPanel({
         These Are Frequency-Level Findings. They Cannot See How You Played Any Individual Hand, So
         Treat Them As Where To Look Rather Than As A Verdict.
       </p>
+      {assistantAction}
     </div>
   );
 }
