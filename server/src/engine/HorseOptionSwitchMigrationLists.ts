@@ -64,7 +64,7 @@ export const OPTION_SWITCH_LAST_LIST_MIGRATION =
 export const OPTION_SWITCH_LIST_MIGRATION_COUNT = 45;
 /** The migration that turned the lists into rows. */
 export const OPTION_SWITCH_WHITELIST_MIGRATION =
-  '20261122195216_a_horse_option_registers_itself.sql';
+  '20261124055958_a_horse_option_registers_itself.sql';
 /**
  * The migration that makes the switch functions tell the style options by canary, so a non-style option in shadow
  * keeps every rule of `on` (2026-11-18). aShadowOptionKeepsEveryRuleOfOn.law.test.ts reads it.

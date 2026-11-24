@@ -1,6 +1,6 @@
 # A Horse option registers itself: the whitelist is rows, not a re-asserted list (2026-11-19)
 
-Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261122195216_a_horse_option_registers_itself.sql`.
+Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124055958_a_horse_option_registers_itself.sql`.
 
 ## The problem
 
@@ -97,6 +97,20 @@ since the shadow list (2026-11-18) and the on_shadow list (2026-11-19), and seve
   option would lose (shadow, on_shadow);
 - generator: `--register <file> [--allow-shadow] [option ...]`.
 
+## 2026-11-24: Rebuilt On Main bf6fb356036e, Re-Reserved As 20261124055958
+
+Rebuilt by the HORSE DECISIONS lead (Claude session 01BNteGZ) on fresh `origin/main` (`bf6fb356036e`), carrying only
+this change's own files (the earlier build sat on an unmerged combination branch):
+
+- the frozen anchor is unchanged: `20261122181616_horse_option_switch_turn5_antigravity_train.sql` is still the
+  newest full-list migration on main (45 full-list migrations, 365 options: 7 style, 358 plain, 75 off-only, 200
+  shadow, 278 on_shadow), and its fingerprint, derived again with `optionSwitchListsFingerprint`, is still
+  `c8cca75e4b8a5e518e8cffb0e75c976b`;
+- the migration is re-reserved with `scripts/new-migration.mjs` as `20261124055958`, newer than every migration on main
+  (the old reservation was older than about thirty migrations merged since), so it is the newest switch migration
+  on main when it merges and the older-first installer never sends it ahead of a newer file;
+- the proof script keeps main's refused line.
+
 ## 2026-11-23: Re-Anchored On Turn 5 (45 Frozen Full-List Migrations)
 
 Re-anchored by the HORSE DECISIONS lead (Claude session 01BbZPDk) on the Antigravity Coordinator's Turn 5
@@ -104,8 +118,8 @@ Re-anchored by the HORSE DECISIONS lead (Claude session 01BbZPDk) on the Antigra
 migration:
 
 - the frozen anchor is now `20261122181616` (45 full-list migrations, 365 options: 7 style, 358 plain — 75 off-only,
-  200 shadow, 278 on_shadow, fingerprint `c8cca75e4b8a5e518e8cffb0e75c976b`); the whitelist migration keeps its
-  reserved version `20261122195216`, which still installs after the anchor;
+  200 shadow, 278 on_shadow, fingerprint `c8cca75e4b8a5e518e8cffb0e75c976b`); the whitelist migration kept its
+  reserved version (re-reserved on 2026-11-24, below), which still installs after the anchor;
 - the throwaway Postgres proof reads its frozen lists from the Turn 5 migration and its refusal and overwrite
   checks name `20261122181616`;
 - `scripts/ci/test-horse-option-switch-evidence-postgres.sh` keeps every refused option merged since (#11741,
@@ -115,10 +129,10 @@ migration:
 
 Synced onto `origin/main` (`59d700196f6f`):
 
-- reserves version `20261122195216` and advances the frozen anchor to installed Turn 4B
+- reserved the version this migration then carried (re-reserved on 2026-11-24) and advanced the frozen anchor to installed Turn 4B
   `20261122131322_horse_option_switch_turn4b_plo_replacements_and_locks.sql` (44 full-list migrations, 363 options:
   7 style, 356 plain — 74 off-only, 198 shadow, 277 on_shadow, fingerprint `d6f68f3b860b4817332fda57508c2f9e`);
-- stamps `-- registry-lists-version: 20261122195216` in `fn_ca_horse_option_switch_states` so stamped historical
+- stamps its own version (`-- registry-lists-version: <version>`) in `fn_ca_horse_option_switch_states` so stamped historical
   full-list migrations (including `20261122131322`) refuse at install time to overwrite the row-based whitelist;
 - updates `scripts/ci/test-horse-option-switch-evidence-postgres.sh` to include the three `#11763` refused
   multi-board options (`multiBoardFreerollIsPriced`, `multiBoardNonFreerollIsPriced`, `multiBoardBluffTrimIsPriced`).
