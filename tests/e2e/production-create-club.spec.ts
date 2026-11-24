@@ -143,7 +143,9 @@ test.describe('Production Create A Club Certificate', () => {
     await expect(invite).toBeVisible();
     const inviteInput = invite.getByLabel('Your Invite Link', { exact: true });
     await expect(inviteInput).toHaveValue(/^https:\/\/smarter\.poker\/i\/[A-HJ-NP-Z2-9]{7}$/);
-    await expect(invite.getByRole('button', { name: 'Send Link', exact: true })).toBeEnabled();
+    // Desktop Chromium has no Web Share sheet, so the button says what the tap does:
+    // Copy Link (src/lib/share.ts hasShareSheet, #10982). A phone shows Send Link.
+    await expect(invite.getByRole('button', { name: 'Copy Link', exact: true })).toBeEnabled();
     await page.screenshot({
       path: 'test-results/create-club-send-link-mobile.png',
       fullPage: true,
@@ -159,7 +161,7 @@ test.describe('Production Create A Club Certificate', () => {
     });
     expect(await page.evaluate(() => typeof navigator.share)).toBe('undefined');
     const shortUrl = await inviteInput.inputValue();
-    await invite.getByRole('button', { name: 'Send Link', exact: true }).click();
+    await invite.getByRole('button', { name: 'Copy Link', exact: true }).click();
     await expect(invite.getByRole('button', { name: 'Link Copied', exact: true })).toBeVisible();
     const copiedInvite = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedInvite).toContain(shortUrl);
