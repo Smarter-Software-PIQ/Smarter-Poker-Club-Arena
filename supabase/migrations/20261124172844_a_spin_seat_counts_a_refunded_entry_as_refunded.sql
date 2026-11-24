@@ -107,6 +107,7 @@ BEGIN
     INTO v_t
     FROM public.tournaments t
    WHERE t.id = p_tournament_id
+   -- @lifecycle-exclusive-lock: serializes Spin third-seat entry booking against concurrent seats/unregistrations/draw
    FOR UPDATE;
   IF NOT FOUND
      OR (lower(COALESCE(v_t.variant,'')) <> 'spin'
@@ -460,6 +461,7 @@ BEGIN
     INTO v_t
     FROM public.tournaments t
    WHERE t.id = p_tournament_id
+   -- @lifecycle-exclusive-lock: serializes Spin draw-and-settle contract stamping against concurrent draw/booking
    FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Spin tournament % does not exist', p_tournament_id
