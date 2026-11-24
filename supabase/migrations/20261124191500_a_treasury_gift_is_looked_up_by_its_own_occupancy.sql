@@ -47,7 +47,19 @@
 --
 -- Guarded single-anchor amendment over the live definition; idempotent.
 --
--- @live-proof: position('original_treasury_gift_occupancy_once prefilter' in pg_get_functiondef('smarter_private.original_treasury_participant_gift(jsonb,uuid,timestamptz)'::regprocedure)) > 0
+-- The pin moves with the body. smarter_private.original_inventory_proof_sources_match()
+-- pins this function's definition md5 (one signature/md5 pair in its source
+-- list); a changed body with the old pin left behind would turn it false and
+-- the original-inventory generation NULL (the 2026-11-07 class, refused by the
+-- applier's stale-pin guard). So, in this same transaction: the old md5 must
+-- appear exactly once in that list, it is replaced by the new md5, owner,
+-- ACL, security and config of the list function stay the same, the list
+-- answers TRUE again, the generation keeps its original-inventory-245-v1
+-- shape (its value rotates because it hashes the list function's own body,
+-- as with 20261123202500), and no installed function still names either old
+-- md5. Nothing pins the list function itself (checked 2026-11-24).
+--
+-- @live-proof: position('original_treasury_gift_occupancy_once prefilter' in pg_get_functiondef('smarter_private.original_treasury_participant_gift(jsonb,uuid,timestamptz)'::regprocedure)) > 0 AND smarter_private.original_inventory_proof_sources_match() IS TRUE AND smarter_private.original_inventory_basis_generation() LIKE 'original-inventory-245-v1:%'
 
 BEGIN;
 
@@ -72,6 +84,16 @@ DECLARE
   AND v->>'status'='proven' AND v->>'table_id'=p_table::text$n$;
   v_def text;
   v_after text;
+  c_psm constant regprocedure :=
+    'smarter_private.original_inventory_proof_sources_match()'::regprocedure;
+  v_old_gift text;
+  v_new_gift text;
+  v_old_psm text;
+  v_psm text;
+  v_psm_new text;
+  m jsonb;
+  m2 jsonb;
+  v_stale text;
 BEGIN
   v_def := pg_get_functiondef(v_proc);
   IF position(v_marker IN v_def) > 0 THEN
@@ -81,6 +103,16 @@ BEGIN
   IF (length(v_def) - length(replace(v_def, v_anchor, ''))) / length(v_anchor) <> 1 THEN
     RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_ANCHOR_NOT_UNIQUE: the live definition no longer has exactly one anchor';
   END IF;
+  -- The pinned list must be healthy and must name exactly this body once.
+  IF smarter_private.original_inventory_proof_sources_match() IS NOT TRUE THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_SOURCES_MISMATCH_BEFORE' USING ERRCODE = '55000';
+  END IF;
+  v_old_gift := md5(v_def);
+  v_psm := pg_get_functiondef(c_psm);
+  v_old_psm := md5(v_psm);
+  IF (length(v_psm) - length(replace(v_psm, v_old_gift, ''))) / 32 <> 1 THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_PIN_NOT_UNIQUE: % is not pinned exactly once', v_old_gift USING ERRCODE = '55000';
+  END IF;
   EXECUTE replace(v_def, v_anchor, v_new);
   v_after := pg_get_functiondef(v_proc);
   IF position(v_marker IN v_after) = 0
@@ -88,6 +120,31 @@ BEGIN
      OR position($c$AND v->>'occupancy_id'=p_participant->>'occupancy_id'$c$ IN v_after) = 0
      OR position($c$IF n<>1 THEN RETURN NULL;END IF;RETURN g;$c$ IN v_after) = 0 THEN
     RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_DID_NOT_LAND';
+  END IF;
+
+  -- Move the pin on the changed body.
+  v_new_gift := md5(v_after);
+  SELECT jsonb_build_object('o', proowner, 'a', proacl, 's', prosecdef, 'c', proconfig, 'v', provolatile)
+    INTO m FROM pg_catalog.pg_proc WHERE oid = c_psm;
+  v_psm_new := replace(v_psm, v_old_gift, v_new_gift);
+  EXECUTE v_psm_new;
+  SELECT jsonb_build_object('o', proowner, 'a', proacl, 's', prosecdef, 'c', proconfig, 'v', provolatile)
+    INTO m2 FROM pg_catalog.pg_proc WHERE oid = c_psm;
+  IF m2 IS DISTINCT FROM m OR pg_get_functiondef(c_psm) <> v_psm_new THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_PIN_POSTIMAGE %', md5(pg_get_functiondef(c_psm)) USING ERRCODE = '55000';
+  END IF;
+  IF smarter_private.original_inventory_proof_sources_match() IS NOT TRUE THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_SOURCES_STILL_DIFFER' USING ERRCODE = '55000';
+  END IF;
+  IF smarter_private.original_inventory_basis_generation() NOT LIKE 'original-inventory-245-v1:%' THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_GENERATION_SHAPE %', smarter_private.original_inventory_basis_generation() USING ERRCODE = '55000';
+  END IF;
+  SELECT string_agg(DISTINCT x.md5 || ' is still pinned by ' || q.oid::regprocedure::text, '; ')
+    INTO v_stale
+    FROM (VALUES (v_old_gift), (v_old_psm)) x(md5)
+    JOIN pg_catalog.pg_proc q ON strpos(q.prosrc, x.md5) > 0;
+  IF v_stale IS NOT NULL THEN
+    RAISE EXCEPTION 'TREASURY_GIFT_PREFILTER_STALE_PIN: %', v_stale USING ERRCODE = '55000';
   END IF;
 END
 $amend$;

@@ -71,6 +71,20 @@ describe('a treasury gift is looked up by its own occupancy', () => {
     expect(sql).toContain('TREASURY_GIFT_PREFILTER_MATCHED_A_FOREIGN_CHAIR');
   });
 
+  it('moves the original-inventory pin on the changed body in the same transaction', () => {
+    // The 2026-11-07 class: a changed body left pinned by its old md5 turns
+    // original_inventory_proof_sources_match() false and the generation NULL.
+    expect(sql).toContain('TREASURY_GIFT_PREFILTER_PIN_NOT_UNIQUE');
+    expect(sql).toContain('v_psm_new := replace(v_psm, v_old_gift, v_new_gift);');
+    expect(sql).toContain('TREASURY_GIFT_PREFILTER_PIN_POSTIMAGE');
+    expect(sql).toContain('TREASURY_GIFT_PREFILTER_SOURCES_STILL_DIFFER');
+    expect(sql).toContain('TREASURY_GIFT_PREFILTER_STALE_PIN');
+    expect(sql).not.toMatch(/^--\s*@stale-pin-ok:/m);
+    expect(sql).toMatch(
+      /@live-proof: .*original_inventory_proof_sources_match\(\) IS TRUE AND smarter_private\.original_inventory_basis_generation\(\) LIKE 'original-inventory-245-v1:%'/
+    );
+  });
+
   it('no later migration redefines the gift lookup without the prefilter', () => {
     expect(file).toBeTruthy();
     const later = files.filter((f) => f > (file as string));

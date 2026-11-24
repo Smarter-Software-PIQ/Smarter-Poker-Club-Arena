@@ -113,7 +113,8 @@ The proof derives its `occupancy_id` from the witness's own `source#>>'{seat_eve
 
    - Re-applying the migration is a no-op.
 
-3. **The migration's own probe:**
+3. **The pin moves with the body.** `smarter_private.original_inventory_proof_sources_match()` pins this function's md5 (`95b9a25f9a422bb7d8df115f86bc5993` on 2026-11-24). The first push was refused by the hosted DDL-guard rehearsal (applier stale-pin guard). The migration now moves that one pin in the same transaction. It asserts the list answers TRUE again, the generation keeps its `original-inventory-245-v1` shape and no installed function still names either old md5. The generation value rotates because it hashes the list function's own body, as it did with 20261123202500. Nothing pins the list function itself.
+4. **The migration's own probe:**
    - Every admitted witness still proves its own chair.
    - A random foreign occupancy finds nothing.
 
