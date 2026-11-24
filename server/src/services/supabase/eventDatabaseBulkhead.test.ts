@@ -227,5 +227,17 @@ describe('what an answer says about the lane', () => {
     expect(classifyEventDbOutcome(500, 'XX000', 10)).toBe('neutral');
     expect(classifyEventDbFailure(new Error('supabase_timeout'), 10)).toBe('congested');
     expect(classifyEventDbFailure(new TypeError('fetch failed'), 10)).toBe('neutral');
+    // A caller's own short AbortSignal.timeout (e.g. 1500 ms on an observe-only
+    // memory read) is below EVENT_DB_SLOW_CALL_MS and must not halve the
+    // tournament's bulkhead; once it actually waited >= EVENT_DB_SLOW_CALL_MS
+    // it still counts as congestion.
+    const shortCallerTimeout = Object.assign(
+      new Error('The operation was aborted due to timeout'),
+      {
+        name: 'TimeoutError',
+      }
+    );
+    expect(classifyEventDbFailure(shortCallerTimeout, 1_500)).toBe('neutral');
+    expect(classifyEventDbFailure(shortCallerTimeout, 2_000)).toBe('congested');
   });
 });

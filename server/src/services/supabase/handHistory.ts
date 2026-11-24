@@ -30,6 +30,7 @@ import { memoryVariant, type DurableOpponentProfile } from '../../engine/HorseOp
  */
 
 import { supabase } from './client.js';
+import { bindToProcessRoot } from './dataActorContext.js';
 import { isOpponentMemoryBusyRefusal, reportError, reportThrottled } from '../errorReporter.js';
 import {
   releaseHandFactsCapture,
@@ -542,6 +543,19 @@ export function tournamentStackProofIsExact(
  * of the canonical columns, and buildHandHistoryTiers() materialises them on
  * demand without adding a second persistence path.
  */
+/**
+ * Detached post-commit completed-hand observations in flight. Tracked only so
+ * deterministic unit tests can drain them without sleeping; production callers
+ * never wait on observe-only opponent memory reads before dealing the next hand.
+ */
+const pendingHandHistoryObservations = new Set<Promise<void>>();
+
+export async function flushPendingHandHistoryObservationsForTests(): Promise<void> {
+  while (pendingHandHistoryObservations.size > 0) {
+    await Promise.allSettled([...pendingHandHistoryObservations]);
+  }
+}
+
 export async function logHandHistory(params: {
   publicMemoryDomain?: HorsePublicMemoryDomain | null;
   tableId: string;
@@ -1127,118 +1141,134 @@ export async function logHandHistory(params: {
     const acceptedRosterField = acceptedActorRoster ? { acceptedActorRoster } : {};
     const variant = memoryVariant(params.gameVariant);
     const dealt = params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0;
-    let durableOpponentProfiles: DurableOpponentProfile[] | undefined;
-    // A failed read is named, so the worker can tell it from a read that found no saved row.
-    let durableOpponentProfilesReadFailed = false;
-    if (variant && (await horseOpponentMemorySchema()) === 'installed') {
-      durableOpponentProfiles = [];
+    // 2026-11-24 (incident 1e532243): never hold logHandHistory / postHandTasks /
+    // next-hand start on the observe-only opponent-memory read. Detach at process
+    // root (service actor) so completed-hand learning runs off the critical path
+    // and never competes with tournament dealing on EventDbBulkhead or leases.
+    const dispatchCompletedHandObservation = bindToProcessRoot(async () => {
       try {
-        const actors = [
-          ...new Set(
-            acceptedActions
-              .map((a) => a.userId)
-              .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        let durableOpponentProfiles: DurableOpponentProfile[] | undefined;
+        // A failed read is named, so the worker can tell it from a read that found no saved row.
+        let durableOpponentProfilesReadFailed = false;
+        if (variant && (await horseOpponentMemorySchema()) === 'installed') {
+          durableOpponentProfiles = [];
+          try {
+            const actors = [
+              ...new Set(
+                acceptedActions
+                  .map((a) => a.userId)
+                  .filter((id): id is string => typeof id === 'string' && id.length > 0)
+              ),
+            ];
+            if (actors.length)
+              durableOpponentProfiles = await (
+                params.publicMemoryDomain === undefined
+                  ? // Legacy completed-hand read: its own admission gate, never the decision gate (M1).
+                    (
+                      ids: string[],
+                      v: string,
+                      mode: 'cash' | 'tournament',
+                      size: 'hu' | 'short' | 'full'
+                    ) =>
+                      readHorseOpponentProfiles(
+                        ids,
+                        v,
+                        mode,
+                        size,
+                        undefined,
+                        admitCompletedHandExactRead
+                      )
+                  : (
+                      ids: string[],
+                      v: string,
+                      mode: 'cash' | 'tournament',
+                      size: 'hu' | 'short' | 'full'
+                    ) =>
+                      readExactHorseOpponentProfiles(ids, v, mode, size, params.publicMemoryDomain)
+              )(
+                actors,
+                variant,
+                params.tournamentId ? 'tournament' : 'cash',
+                dealt <= 2 ? 'hu' : dealt <= 5 ? 'short' : 'full'
+              );
+          } catch (error) {
+            durableOpponentProfilesReadFailed = true;
+            if (isOpponentMemoryBusyRefusal(error))
+              reportThrottled(
+                'HandHistory.durable_opponent_read',
+                'opponent memory unavailable: busy - completed-hand read refused at admission'
+              );
+            else reportError(error, 'HandHistory.durable_opponent_read');
+          }
+        }
+        const observation = getLiveHorseDecisionWorker().observeCompletedHand({
+          ...(params.publicMemoryDomain !== undefined
+            ? { publicMemoryDomain: params.publicMemoryDomain }
+            : {}),
+          // STYLE READ M1: the format is known from the hand itself; the style learner needs no durable row.
+          ...(publicMemoryDomainIsValid(params.publicMemoryDomain)
+            ? { styleMemoryMode: params.tournamentId ? ('tournament' as const) : ('cash' as const) }
+            : {}),
+          // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
+          ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
+          durableOpponentProfiles,
+          ...(durableOpponentProfilesReadFailed
+            ? { durableOpponentProfilesRead: 'failed' as const }
+            : {}),
+          generation: params.handNumber,
+          fence: [
+            params.tableId,
+            params.handNumber,
+            params.atomicCommit.leaseGeneration ?? 'unleased',
+            'observe',
+          ].join(':'),
+          handKey,
+          committedHandId: handId,
+          actions: acceptedActions,
+          horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
+          bigBlind: params.bigBlind,
+          showdown: params.showdownReveal ?? null,
+          // omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead): the revealed holdings this row stores as
+          // hole_cards and its board, for a one-board non-bomb hand only.
+          ...(holeCardsPayload &&
+          boardPayload &&
+          !params.bombPot &&
+          !params.communityCards2?.length &&
+          !params.communityCards3?.length &&
+          !params.ritBoards?.length
+            ? { betReadShown: holeCardsPayload, betReadBoard: boardPayload }
+            : {}),
+          riverCallContext: {
+            variant: params.gameVariant,
+            boardCount: Math.max(
+              params.ritBoards?.length ?? 0,
+              params.communityCards3?.length ? 3 : params.communityCards2?.length ? 2 : 1
+            ),
+          },
+          // HorseWinnerRead: every dealt player's net, from the committed hand.
+          ...(params.contributions
+            ? { results: handNetResults(params.contributions, params.winners) }
+            : {}),
+          // V45: the hand's scope - card family and how many were dealt in.
+          scope: readScopeOf(
+            params.gameVariant,
+            params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
           ),
-        ];
-        if (actors.length)
-          durableOpponentProfiles = await (
-            params.publicMemoryDomain === undefined
-              ? // Legacy completed-hand read: its own admission gate, never the decision gate (M1).
-                (
-                  ids: string[],
-                  v: string,
-                  mode: 'cash' | 'tournament',
-                  size: 'hu' | 'short' | 'full'
-                ) =>
-                  readHorseOpponentProfiles(
-                    ids,
-                    v,
-                    mode,
-                    size,
-                    undefined,
-                    admitCompletedHandExactRead
-                  )
-              : (
-                  ids: string[],
-                  v: string,
-                  mode: 'cash' | 'tournament',
-                  size: 'hu' | 'short' | 'full'
-                ) => readExactHorseOpponentProfiles(ids, v, mode, size, params.publicMemoryDomain)
-          )(
-            actors,
-            variant,
-            params.tournamentId ? 'tournament' : 'cash',
-            dealt <= 2 ? 'hu' : dealt <= 5 ? 'short' : 'full'
-          );
+          ...(capturedAcceptedTerminal?.observation ?? {}),
+          ...acceptedRosterField,
+        });
+        void observation.catch((error) =>
+          reportError(error, 'HandHistory.horse_mind_observation_failed')
+        );
       } catch (error) {
-        durableOpponentProfilesReadFailed = true;
-        if (isOpponentMemoryBusyRefusal(error))
-          reportThrottled(
-            'HandHistory.durable_opponent_read',
-            'opponent memory unavailable: busy - completed-hand read refused at admission'
-          );
-        else reportError(error, 'HandHistory.durable_opponent_read');
+        reportError(error, 'HandHistory.horse_mind_observation_failed');
+        /* observation must never endanger settlement */
       }
-    }
-    const observation = getLiveHorseDecisionWorker().observeCompletedHand({
-      ...(params.publicMemoryDomain !== undefined
-        ? { publicMemoryDomain: params.publicMemoryDomain }
-        : {}),
-      // STYLE READ M1: the format is known from the hand itself; the style learner needs no durable row.
-      ...(publicMemoryDomainIsValid(params.publicMemoryDomain)
-        ? { styleMemoryMode: params.tournamentId ? ('tournament' as const) : ('cash' as const) }
-        : {}),
-      // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
-      ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
-      durableOpponentProfiles,
-      ...(durableOpponentProfilesReadFailed
-        ? { durableOpponentProfilesRead: 'failed' as const }
-        : {}),
-      generation: params.handNumber,
-      fence: [
-        params.tableId,
-        params.handNumber,
-        params.atomicCommit.leaseGeneration ?? 'unleased',
-        'observe',
-      ].join(':'),
-      handKey,
-      committedHandId: handId,
-      actions: acceptedActions,
-      horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
-      bigBlind: params.bigBlind,
-      showdown: params.showdownReveal ?? null,
-      // omahaBetReadIsPerOpponent's learner (HorseOmahaBetRead): the revealed holdings this row stores as
-      // hole_cards and its board, for a one-board non-bomb hand only.
-      ...(holeCardsPayload &&
-      boardPayload &&
-      !params.bombPot &&
-      !params.communityCards2?.length &&
-      !params.communityCards3?.length &&
-      !params.ritBoards?.length
-        ? { betReadShown: holeCardsPayload, betReadBoard: boardPayload }
-        : {}),
-      riverCallContext: {
-        variant: params.gameVariant,
-        boardCount: Math.max(
-          params.ritBoards?.length ?? 0,
-          params.communityCards3?.length ? 3 : params.communityCards2?.length ? 2 : 1
-        ),
-      },
-      // HorseWinnerRead: every dealt player's net, from the committed hand.
-      ...(params.contributions
-        ? { results: handNetResults(params.contributions, params.winners) }
-        : {}),
-      // V45: the hand's scope - card family and how many were dealt in.
-      scope: readScopeOf(
-        params.gameVariant,
-        params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
-      ),
-      ...(capturedAcceptedTerminal?.observation ?? {}),
-      ...acceptedRosterField,
     });
-    void observation.catch((error) =>
-      reportError(error, 'HandHistory.horse_mind_observation_failed')
-    );
+    const pendingObservation = dispatchCompletedHandObservation().finally(() => {
+      pendingHandHistoryObservations.delete(pendingObservation);
+    });
+    pendingHandHistoryObservations.add(pendingObservation);
   } catch (error) {
     reportError(error, 'HandHistory.horse_mind_observation_failed');
     /* observation must never endanger settlement */
