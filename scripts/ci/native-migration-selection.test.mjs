@@ -104,3 +104,35 @@ test('a failed grep batch fails the whole native selection, never a partial succ
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// 2026-11-24, PR #11957 CI: parallel grep lanes shared one stdout pipe. grep
+// block-buffers a pipe, so once a batch printed more than one buffer its
+// writes interleaved with another lane's mid-line, and the law read a spliced
+// name ("h20260927163617_...sql") and lost the file it came from. Each batch
+// now writes its own file; the shared pipe carries no file names at all.
+test('parallel lanes never splice names: every batch writes its own file, the shared pipe carries none', () => {
+  const root = mkdtempSync(join(tmpdir(), 'native-migrations-splice-'));
+  try {
+    const expected = [];
+    for (let i = 0; i < 1600; i++) {
+      const name = `${String(i).padStart(14, '0')}_${'a_long_migration_name_'.repeat(8)}${i}.sql`;
+      writeFileSync(join(root, name), '-- @live-proof: (SELECT 1) = 1\n');
+      expected.push(join(root, name));
+    }
+    let shared = null;
+    const runner = (command, args, options) => {
+      if (command === 'rg')
+        return { error: Object.assign(new Error('missing'), { code: 'ENOENT' }) };
+      const result = spawnSync(command, args, options);
+      shared = result.stdout;
+      return result;
+    };
+    const result = nativeMigrationSelection('^-- @live-proof: ', root, { runner });
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, '');
+    assert.equal(shared, '');
+    assert.deepEqual(result.stdout.trim().split('\n'), expected.sort());
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
