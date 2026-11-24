@@ -1,0 +1,266 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "created_at": "2026-11-23 10:00:00.000000+00",
+    "gv": "plo4",
+    "bb": "1.00",
+    "btn": "1",
+    "build": "testbuild0000",
+    "hh": true,
+    "rake": "0",
+    "bbj": "0",
+    "pot": "6.00",
+    "tid": "t1",
+    "cc": ["Aspades", "Kspades", "Qspades", "2diamonds", "3clubs"],
+    "cc2": null,
+    "rit": null,
+    "bomb": false,
+    "pl": [
+      [1, "h1", 103, "TestHorse", true],
+      [2, "p1", 97, "TestPerson", false]
+    ],
+    "ac": [
+      [1, "preflop", "sb", 0.5, "forced", false, null, null, "h1"],
+      [2, "preflop", "bb", 1, "forced", false, null, null, "p1"],
+      [1, "preflop", "call", 0.5, "horse_policy", null, 1.5, 0.5, "h1"],
+      [2, "preflop", "check", 0, "human", null, 2, 0, "p1"],
+      [2, "flop", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "flop", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "turn", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "turn", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "river", "bet", 2, "human", null, 2, 0, "p1"],
+      [1, "river", "call", 2, "horse_policy", null, 4, 2, "h1"]
+    ],
+    "w": [
+      {
+        "userId": "h1",
+        "amount": 6,
+        "potIndex": 0
+      }
+    ],
+    "pots": [
+      {
+        "amount": 6,
+        "eligible": ["h1", "p1"]
+      }
+    ],
+    "sd": [
+      [1, "h1", false],
+      [2, "p1", false]
+    ],
+    "hc": {
+      "h1": [
+        {
+          "rank": "J",
+          "suit": "spades"
+        },
+        {
+          "rank": "T",
+          "suit": "spades"
+        },
+        {
+          "rank": "4",
+          "suit": "hearts"
+        },
+        {
+          "rank": "5",
+          "suit": "hearts"
+        }
+      ],
+      "p1": [
+        {
+          "rank": "A",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "K",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "7",
+          "suit": "clubs"
+        },
+        {
+          "rank": "8",
+          "suit": "clubs"
+        }
+      ]
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "created_at": "2026-11-23 11:00:00.000000+00",
+    "gv": "plo4",
+    "bb": "1.00",
+    "btn": "1",
+    "build": "testbuild0000",
+    "hh": true,
+    "rake": "0",
+    "bbj": "0",
+    "pot": "6.00",
+    "tid": "t1",
+    "cc": ["Aspades", "Kspades", "Qspades", "2diamonds", "3clubs"],
+    "cc2": null,
+    "rit": null,
+    "bomb": false,
+    "pl": [
+      [1, "h1", 97, "TestHorse", true],
+      [2, "p1", 103, "TestPerson", false]
+    ],
+    "ac": [
+      [1, "preflop", "sb", 0.5, "forced", false, null, null, "h1"],
+      [2, "preflop", "bb", 1, "forced", false, null, null, "p1"],
+      [1, "preflop", "call", 0.5, "horse_policy", null, 1.5, 0.5, "h1"],
+      [2, "preflop", "check", 0, "human", null, 2, 0, "p1"],
+      [2, "flop", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "flop", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "turn", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "turn", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "river", "bet", 2, "human", null, 2, 0, "p1"],
+      [1, "river", "call", 2, "horse_policy", null, 4, 2, "h1"]
+    ],
+    "w": [
+      {
+        "userId": "p1",
+        "amount": 6,
+        "potIndex": 0
+      }
+    ],
+    "pots": [
+      {
+        "amount": 6,
+        "eligible": ["h1", "p1"]
+      }
+    ],
+    "sd": [
+      [1, "h1", false],
+      [2, "p1", false]
+    ],
+    "hc": {
+      "h1": [
+        {
+          "rank": "7",
+          "suit": "hearts"
+        },
+        {
+          "rank": "8",
+          "suit": "hearts"
+        },
+        {
+          "rank": "9",
+          "suit": "clubs"
+        },
+        {
+          "rank": "6",
+          "suit": "diamonds"
+        }
+      ],
+      "p1": [
+        {
+          "rank": "A",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "K",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "7",
+          "suit": "clubs"
+        },
+        {
+          "rank": "8",
+          "suit": "clubs"
+        }
+      ]
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "created_at": "2026-11-23 12:00:00.000000+00",
+    "gv": "plo4",
+    "bb": "1.00",
+    "btn": "1",
+    "build": "testbuild0000",
+    "hh": true,
+    "rake": "0",
+    "bbj": "0",
+    "pot": "6.00",
+    "tid": "t1",
+    "cc": ["Aspades", "Kspades", "Qspades", "2diamonds", "3clubs"],
+    "cc2": null,
+    "rit": null,
+    "bomb": false,
+    "pl": [
+      [1, "h1", 97, "TestHorse", true],
+      [2, "p1", 103, "TestPerson", false]
+    ],
+    "ac": [
+      [1, "preflop", "sb", 0.5, "forced", false, null, null, "h1"],
+      [2, "preflop", "bb", 1, "forced", false, null, null, "p1"],
+      [1, "preflop", "call", 0.5, "horse_policy", null, 1.5, 0.5, "h1"],
+      [2, "preflop", "check", 0, "human", null, 2, 0, "p1"],
+      [2, "flop", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "flop", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "turn", "check", 0, "human", null, 2, 0, "p1"],
+      [1, "turn", "check", 0, "horse_policy", null, 2, 0, "h1"],
+      [2, "river", "bet", 2, "human", null, 2, 0, "p1"],
+      [1, "river", "call", 2, "horse_policy", null, 4, 2, "h1"]
+    ],
+    "w": [
+      {
+        "userId": "p1",
+        "amount": 6,
+        "potIndex": 0
+      }
+    ],
+    "pots": [
+      {
+        "amount": 6,
+        "eligible": ["h1", "p1"]
+      }
+    ],
+    "sd": [
+      [1, "h1", true],
+      [2, "p1", false]
+    ],
+    "hc": {
+      "h1": [
+        {
+          "rank": "7",
+          "suit": "hearts"
+        },
+        {
+          "rank": "8",
+          "suit": "hearts"
+        },
+        {
+          "rank": "9",
+          "suit": "clubs"
+        },
+        {
+          "rank": "6",
+          "suit": "diamonds"
+        }
+      ],
+      "p1": [
+        {
+          "rank": "A",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "K",
+          "suit": "diamonds"
+        },
+        {
+          "rank": "7",
+          "suit": "clubs"
+        },
+        {
+          "rank": "8",
+          "suit": "clubs"
+        }
+      ]
+    }
+  }
+]
