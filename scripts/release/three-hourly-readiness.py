@@ -31,6 +31,7 @@ DEFAULT_REPO = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
 DEFAULT_HEALTH_URL = "https://engine.smarter.poker/health"
 DEFAULT_CONTROL_REF = "refs/remotes/origin/main"
 DEFAULT_LIMIT = 10
+SELECTABLE_SEARCH_LIMIT = 60
 
 CHICAGO = ZoneInfo("America/Chicago")
 THREE_HOURLY_START_HOURS = (1, 4, 7, 10, 13, 16, 19, 22)
@@ -1007,7 +1008,9 @@ def classify_candidate(
     return ("PENDING", "awaiting " + ", ".join(waiting))
 
 
-def walk_candidates_git(repo_root, control_ref, serving_sha, limit, git_fn=git_read):
+def walk_candidates_git(
+    repo_root, control_ref, serving_sha, limit, git_fn=git_read, max_search_limit=None
+):
     """Read control SHA and first-parent commits since serving_sha from local git."""
     control_sha = git_fn(repo_root, "rev-parse", "--verify", f"{control_ref}^{{commit}}")
     if not SHA_RE.fullmatch(control_sha):
@@ -1031,7 +1034,9 @@ def walk_candidates_git(repo_root, control_ref, serving_sha, limit, git_fn=git_r
 
     raw_commits = git_fn(repo_root, "rev-list", "--first-parent", f"{serving_sha}..{control_sha}")
     all_shas = [line for line in raw_commits.splitlines() if line]
+    search_cap = max(limit, max_search_limit or limit)
     selected_shas = all_shas[:limit]
+    extra_shas = all_shas[limit:search_cap]
 
     subjects = {}
     for sha in selected_shas:
@@ -1043,9 +1048,113 @@ def walk_candidates_git(repo_root, control_ref, serving_sha, limit, git_fn=git_r
         "servingSha": serving_sha,
         "totalCommitsSinceServing": len(all_shas),
         "limit": limit,
+        "searchLimit": search_cap,
         "shas": selected_shas,
+        "extraShas": extra_shas,
         "subjects": subjects,
     }
+
+
+def compute_migration_hold_advisory(
+    next_open_cycle, migration_gate, candidates, active_backup, recent_backup
+):
+    """Recommend holding ordinary migrations from a certifying/certified copy time (O19/W8a).
+
+    O3 deferral starts at cycleStart - 90m, but a Backup run certifying the
+    cycle's candidate often exports production earlier. When the migration gate
+    is still OPEN and either a selectable candidate or an active non-post-seal
+    Backup run started before O3 deferral, ordinary migration installs would
+    invalidate that copy and cost the cycle. Reuses already-fetched data with
+    zero extra API calls.
+    """
+    inactive = {
+        "active": False,
+        "source": "schedule",
+        "runId": None,
+        "sha": None,
+        "sinceUtc": None,
+        "sinceChicagoLabel": None,
+        "o3DeferStartUtc": next_open_cycle.get("o3DeferStartUtc") if next_open_cycle else None,
+        "reason": "no early certifying or certified copy ahead of O3 deferral",
+    }
+    if not next_open_cycle or not migration_gate:
+        return inactive
+    if migration_gate.get("status") != GATE_OPEN:
+        return inactive
+
+    o3_start_epoch = next_open_cycle.get("o3DeferStartEpoch")
+    o3_start_utc = next_open_cycle.get("o3DeferStartUtc")
+    cutoff_epoch = next_open_cycle.get("preparationCutoffEpoch")
+    cycle_id = next_open_cycle.get("cycleId") or "next cycle"
+    if o3_start_epoch is None or not o3_start_utc or cutoff_epoch is None:
+        return inactive
+
+    recent_by_id = {
+        r.get("id"): r for r in (recent_backup or ()) if isinstance(r, dict) and r.get("id")
+    }
+
+    selectable = next((c for c in (candidates or ()) if c.get("status") == "SELECTABLE"), None)
+    if selectable is not None:
+        backup = selectable.get("backup") or {}
+        run_id = backup.get("runId")
+        run_obj = recent_by_id.get(run_id) if run_id else None
+        ts_raw = (run_obj.get("createdAt") if run_obj else None) or backup.get("updatedAt")
+        if ts_raw:
+            try:
+                since_dt = parse_iso_utc(ts_raw)
+                since_epoch = int(since_dt.timestamp())
+            except ReadError:
+                since_dt = None
+                since_epoch = None
+            if since_dt is not None and since_epoch < o3_start_epoch:
+                since_utc = format_utc(since_dt)
+                run_label = f"Backup run {run_id}" if run_id else "certified Backup"
+                return {
+                    "active": True,
+                    "source": "selectable_backup",
+                    "runId": run_id,
+                    "sha": selectable.get("sha"),
+                    "sinceUtc": since_utc,
+                    "sinceChicagoLabel": format_chicago(since_dt),
+                    "o3DeferStartUtc": o3_start_utc,
+                    "reason": (
+                        f"hold ordinary migrations now (from {run_label} at {since_utc}; "
+                        f"before O3 deferral {o3_start_utc}) so the {cycle_id} copy stays valid"
+                    ),
+                }
+
+    certifying = [
+        r
+        for r in (active_backup or ())
+        if isinstance(r, dict) and r.get("event") != "repository_dispatch" and r.get("createdAt")
+    ]
+    if certifying:
+        latest = max(certifying, key=lambda r: (r.get("createdAt") or "", r.get("id") or 0))
+        try:
+            since_dt = parse_iso_utc(latest["createdAt"])
+            since_epoch = int(since_dt.timestamp())
+        except ReadError:
+            since_dt = None
+            since_epoch = None
+        if since_dt is not None and since_epoch < o3_start_epoch and since_epoch < cutoff_epoch:
+            since_utc = format_utc(since_dt)
+            run_id = latest.get("id")
+            run_label = f"Backup run {run_id}" if run_id else "active Backup"
+            return {
+                "active": True,
+                "source": "active_backup",
+                "runId": run_id,
+                "sha": latest.get("headSha") or None,
+                "sinceUtc": since_utc,
+                "sinceChicagoLabel": format_chicago(since_dt),
+                "o3DeferStartUtc": o3_start_utc,
+                "reason": (
+                    f"hold ordinary migrations now (from {run_label} at {since_utc}; "
+                    f"before O3 deferral {o3_start_utc}) so the {cycle_id} certifying copy stays valid"
+                ),
+            }
+
+    return inactive
 
 
 ACTIVE_RUN_STATUSES = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
@@ -1123,7 +1232,7 @@ def determine_verdict(health, candidates, active_backup, git_info):
 
 def collect_readiness(
     repo=DEFAULT_REPO,
-    limit=DEFAULT_LIMIT,
+    limit=None,
     health_url=DEFAULT_HEALTH_URL,
     control_ref=DEFAULT_CONTROL_REF,
     repo_root=None,
@@ -1135,8 +1244,11 @@ def collect_readiness(
     projection_fn=None,
 ):
     """Collect live readiness state across health, schedule, GitHub workflows and git."""
-    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+    explicit_limit = limit is not None
+    effective_limit = DEFAULT_LIMIT if limit is None else limit
+    if not isinstance(effective_limit, int) or isinstance(effective_limit, bool) or effective_limit <= 0:
         raise ValueError("--limit must be a positive integer")
+    search_limit = effective_limit if explicit_limit else max(effective_limit, SELECTABLE_SEARCH_LIMIT)
 
     checked_at = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     health_reader = health_fn or (lambda: fetch_health(health_url))
@@ -1155,6 +1267,7 @@ def collect_readiness(
         "schedule": None,
         "nextOpenCycle": None,
         "migrationGate": None,
+        "migrationHoldAdvisory": None,
         "closedCycleStageRun": None,
         "git": None,
         "activeRuns": {"stage": [], "backup": []},
@@ -1200,7 +1313,12 @@ def collect_readiness(
 
         remote_main_sha = fetch_remote_main_sha(repo, gh_get=gh_reader)
         git_walk = walk_candidates_git(
-            resolved_root, control_ref, health["releaseSha"], limit, git_fn=git_reader
+            resolved_root,
+            control_ref,
+            health["releaseSha"],
+            effective_limit,
+            git_fn=git_reader,
+            max_search_limit=search_limit,
         )
         control_sha = git_walk["controlSha"]
         local_ref_stale = remote_main_sha != control_sha
@@ -1212,7 +1330,10 @@ def collect_readiness(
             "localRefStale": local_ref_stale,
             "servingSha": health["releaseSha"],
             "totalCommitsSinceServing": git_walk["totalCommitsSinceServing"],
-            "limit": limit,
+            "limit": effective_limit,
+            "searchLimit": git_walk["searchLimit"],
+            "extendedSearchUsed": False,
+            "extendedSearchInspected": len(git_walk["shas"]),
         }
 
         proj_reader = projection_fn or (
@@ -1221,8 +1342,7 @@ def collect_readiness(
         control_proj = proj_reader(control_sha)
         prequal_index = fetch_prequal_index(repo, gh_get=gh_reader)
 
-        candidates = []
-        for sha in git_walk["shas"]:
+        def _inspect_candidate(sha, subject=None):
             backup_info = mark_abandoned_backup_pending(
                 fetch_backup_status(repo, sha, gh_get=gh_reader), sha, recent_backup
             )
@@ -1239,20 +1359,49 @@ def collect_readiness(
                 schedule=schedule,
                 active_backup_runs=active_backup,
             )
-            candidates.append(
-                {
-                    "sha": sha,
-                    "shortSha": sha[:12],
-                    "subject": git_walk["subjects"].get(sha, ""),
-                    "backup": backup_info,
-                    "prequalification": prequal_info,
-                    "controlInputsMatch": ctrl_match,
-                    "changedControlPaths": changed_paths,
-                    "status": status,
-                    "reason": reason,
-                }
-            )
+            return {
+                "sha": sha,
+                "shortSha": sha[:12],
+                "subject": subject if subject is not None else git_walk["subjects"].get(sha, ""),
+                "backup": backup_info,
+                "prequalification": prequal_info,
+                "controlInputsMatch": ctrl_match,
+                "changedControlPaths": changed_paths,
+                "status": status,
+                "reason": reason,
+            }
+
+        candidates = [_inspect_candidate(sha) for sha in git_walk["shas"]]
+
+        # O19 (D1): when the default 10-commit window contains no SELECTABLE
+        # candidate, continue walking up to SELECTABLE_SEARCH_LIMIT (60) until
+        # the first SELECTABLE commit is found so busy nights never hide an
+        # older certified candidate. Check CONTROL_INPUTS locally first so
+        # disqualified commits cost zero extra GitHub API calls.
+        if not any(c["status"] == "SELECTABLE" for c in candidates) and git_walk["extraShas"]:
+            report["git"]["extendedSearchUsed"] = True
+            inspected = len(git_walk["shas"])
+            for extra_sha in git_walk["extraShas"]:
+                inspected += 1
+                if proj_reader(extra_sha) != control_proj:
+                    continue
+                extra_cand = _inspect_candidate(extra_sha, subject="")
+                if extra_cand["status"] == "SELECTABLE":
+                    extra_cand["subject"] = git_reader(
+                        resolved_root, "show", "-s", "--format=%s", extra_sha
+                    )
+                    candidates.append(extra_cand)
+                    break
+            report["git"]["extendedSearchInspected"] = inspected
+
         report["candidates"] = candidates
+        report["migrationHoldAdvisory"] = compute_migration_hold_advisory(
+            report["nextOpenCycle"],
+            report["migrationGate"],
+            candidates,
+            active_backup,
+            recent_backup,
+        )
 
         verdict, selectable_sha, summary = determine_verdict(
             health, candidates, active_backup, report["git"]
@@ -1425,6 +1574,9 @@ def render_table(report):
             lines.append(
                 f"  nextDefer:     {gate['nextDeferStartUtc']} | {gate['nextDeferStartChicagoLabel']} ({_format_minutes(gate['minutesToNextDefer'])}; {gate['nextDeferKind']})"
             )
+        hold_adv = report.get("migrationHoldAdvisory")
+        if hold_adv and hold_adv.get("active"):
+            lines.append(f"  copyHold:      ACTIVE NOW - {hold_adv['reason']}")
 
     active = report.get("activeRuns") or {}
     stage_runs = active.get("stage") or []
@@ -1463,9 +1615,13 @@ def render_table(report):
             )
         shown = len(report.get("candidates") or [])
         total = git_info["totalCommitsSinceServing"]
+        search_note = ""
+        if git_info.get("extendedSearchUsed"):
+            inspected = git_info.get("extendedSearchInspected", shown)
+            search_note = f"; searched {inspected}"
         lines.append(
             f"CANDIDATES ON {git_info['controlRef']} SINCE {git_info['servingSha'][:12]} "
-            f"(showing {shown} of {total}; control={git_info['controlSha'][:12]})"
+            f"(showing {shown} of {total}{search_note}; control={git_info['controlSha'][:12]})"
         )
         candidates = report.get("candidates") or []
         if not candidates:
@@ -1519,8 +1675,11 @@ def build_parser():
     parser.add_argument(
         "--limit",
         type=int,
-        default=DEFAULT_LIMIT,
-        help=f"Maximum first-parent commits since serving SHA to inspect (default: {DEFAULT_LIMIT})",
+        default=None,
+        help=(
+            f"Maximum first-parent commits since serving SHA to inspect "
+            f"(default: {DEFAULT_LIMIT}, extending up to {SELECTABLE_SEARCH_LIMIT} to find a selectable candidate)"
+        ),
     )
     parser.add_argument(
         "--health-url",
@@ -1547,7 +1706,7 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.limit <= 0:
+    if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be a positive integer")
 
     now_utc = None
@@ -1580,6 +1739,7 @@ def main(argv=None):
             "schedule": None,
             "nextOpenCycle": None,
             "migrationGate": None,
+            "migrationHoldAdvisory": None,
             "closedCycleStageRun": None,
             "git": None,
             "activeRuns": {"stage": [], "backup": []},

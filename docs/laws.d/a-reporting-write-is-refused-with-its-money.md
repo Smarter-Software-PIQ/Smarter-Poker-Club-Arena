@@ -1,0 +1,3 @@
+# tests/a-reporting-write-is-refused-with-its-money.law.test.ts
+
+A reporting write is refused with its money: every EXCEPTION WHEN OTHERS handler in the seven Club Data reporting functions that run inside a money transaction (fn_ca_club_data_fact_put, fn_ca_club_data_hand_put, fn_ca_club_data_pacific_cash_register and the wallet and rake reporting triggers) re-raises a refusal a retry can change (smarter_private.bank_refusal_is_transient) before it contains anything else, so a busy or deadlocked report refuses its rake bank or wallet write whole instead of being lost while the money moves; a deterministic reporting defect is still contained (migration 20261123072817).

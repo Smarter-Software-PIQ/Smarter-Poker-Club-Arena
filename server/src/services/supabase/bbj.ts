@@ -508,6 +508,19 @@ export async function processBBJPayout(
  * retryable BBJ_DROP_BANKING_PENDING, so the next attempt banks it. Returns
  * the receipt's pool, or null when this hand has no stored drop at all.
  */
+async function readContributionPoolId(params: BBJPayoutParams): Promise<string | null> {
+  const { data: contribution, error: contributionErr } = await supabase
+    .from('bbj_contributions')
+    .select('pool_id')
+    .eq('table_id', params.tableId)
+    .eq('hand_number', params.handNumber)
+    .maybeSingle();
+  if (contributionErr) {
+    throw new Error(`bbj_contributions destination read failed: ${contributionErr.message}`);
+  }
+  return contribution?.pool_id ?? null;
+}
+
 async function bankThisHandsPendingDrop(params: BBJPayoutParams): Promise<string | null> {
   const { data: pending, error: pendingErr } = await supabase
     .from('hand_bank_obligation_pending')
@@ -519,7 +532,17 @@ async function bankThisHandsPendingDrop(params: BBJPayoutParams): Promise<string
   if (pendingErr) {
     throw new Error(`hand_bank_obligation_pending read failed: ${pendingErr.message}`);
   }
-  if (!pending?.hand_id) return null;
+  if (!pending?.hand_id) {
+    /* CONCURRENT BANKER RACE (incident 7a0c2e25, 2026-11-24).
+       fn_ca_bank_pending_hand_obligations inserts bbj_contributions and deletes
+       hand_bank_obligation_pending in one atomic transaction. If the projection
+       continuation commits between attemptBBJPayoutOnce's first receipt read and
+       the pending read above, both reads miss even though the receipt is on
+       disk (hand #60701395, Midway Union, $1,978.16). Because pending -> banked
+       is one-way and bbj_contributions is immutable, one re-read closes the
+       window completely without ever substituting the club's current pool. */
+    return readContributionPoolId(params);
+  }
 
   const { error: bankErr } = await supabase.rpc('fn_ca_bank_pending_hand_obligations', {
     p_hand_id: pending.hand_id,
@@ -527,19 +550,11 @@ async function bankThisHandsPendingDrop(params: BBJPayoutParams): Promise<string
   if (bankErr) {
     throw new Error(`${BBJ_DROP_BANKING_PENDING}: banking refused (${bankErr.message})`);
   }
-  const { data: banked, error: bankedErr } = await supabase
-    .from('bbj_contributions')
-    .select('pool_id')
-    .eq('table_id', params.tableId)
-    .eq('hand_number', params.handNumber)
-    .maybeSingle();
-  if (bankedErr) {
-    throw new Error(`bbj_contributions destination read failed: ${bankedErr.message}`);
-  }
-  if (!banked?.pool_id) {
+  const bankedPoolId = await readContributionPoolId(params);
+  if (!bankedPoolId) {
     throw new Error(`${BBJ_DROP_BANKING_PENDING}: the hand's drop is stored and not yet banked`);
   }
-  return banked.pool_id;
+  return bankedPoolId;
 }
 
 /**
@@ -564,17 +579,8 @@ async function attemptBBJPayoutOnce(
   if (!prior) {
     // Contribution posting owns private/union routing. Never substitute the
     // club's current pool when the original receipt is missing or unreadable.
-    const { data: contribution, error: contributionErr } = await supabase
-      .from('bbj_contributions')
-      .select('pool_id')
-      .eq('table_id', params.tableId)
-      .eq('hand_number', params.handNumber)
-      .maybeSingle();
-    if (contributionErr) {
-      throw new Error(`bbj_contributions destination read failed: ${contributionErr.message}`);
-    }
-    poolId = contribution?.pool_id;
-    if (!poolId) poolId = await bankThisHandsPendingDrop(params);
+    poolId = (await readContributionPoolId(params)) ?? undefined;
+    if (!poolId) poolId = (await bankThisHandsPendingDrop(params)) ?? undefined;
   }
   if (!poolId) throw new Error('BBJ hand has no confirmed payout destination');
 

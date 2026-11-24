@@ -932,18 +932,28 @@ export async function getAvailableActions(
   }
 }
 
+let serverStatusInFlight: Promise<ServerStatus | null> | null = null;
+
 /**
- * Get game server health/status.
+ * Get game server health/status. Coalesces concurrent in-flight requests so
+ * simultaneous mounts share a single GET /health round-trip.
  */
 export async function getServerStatus(): Promise<ServerStatus | null> {
-  try {
-    const response = await engineFetch(`${GAME_SERVER_URL}/health`, { cache: 'no-store' });
-    if (!response.ok) return null;
-    return (await response.json()) as ServerStatus;
-  } catch (err) {
-    reportError(err, 'GameServerAPI.getStatus');
-    return null;
-  }
+  if (serverStatusInFlight) return serverStatusInFlight;
+  const pending = (async (): Promise<ServerStatus | null> => {
+    try {
+      const response = await engineFetch(`${GAME_SERVER_URL}/health`, { cache: 'no-store' });
+      if (!response.ok) return null;
+      return (await response.json()) as ServerStatus;
+    } catch (err) {
+      reportError(err, 'GameServerAPI.getStatus');
+      return null;
+    }
+  })().finally(() => {
+    if (serverStatusInFlight === pending) serverStatusInFlight = null;
+  });
+  serverStatusInFlight = pending;
+  return pending;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

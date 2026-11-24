@@ -1100,15 +1100,3 @@
   width: clamp(9px, 2cqw, 14px) !important;
   height: clamp(9px, 2cqw, 14px) !important;
 }
-@media (max-width: 640px) {
-  .lobby-table.has-premium-chassis
-    tbody
-    tr[data-id][data-kind='mtt']
-    > td.lt-col-status
-    .lt-invite-btn {
-    height: 24px;
-    min-height: 24px;
-    padding: 2px 8px;
-    font-size: 10px;
-  }
-}

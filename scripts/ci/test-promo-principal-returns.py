@@ -18,6 +18,8 @@ p.add_argument('--ticket-tree',type=Path,default=root)
 p.add_argument('--custody-migration',type=Path,default=root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql')
 p.add_argument('--return-migration',type=Path,default=root/'supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql')
 p.add_argument('--refund-migration',type=Path,default=root/'supabase/migrations/20261123000232_a_refunded_entry_keeps_its_promo_with_the_player.sql')
+p.add_argument('--keep-migration',type=Path,default=root/'supabase/migrations/20261123071237_a_refunded_entry_keeps_its_promo_on_a_ticket_and_past_a_clos.sql')
+p.add_argument('--notice-migration',type=Path,default=root/'supabase/migrations/20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql')
 ORIGINAL_SPENT_FEE_MD5='9de436b1f7c01c95f2b4574a37a9f3bb'
 p.add_argument('--current-financial',type=Path,default=root/'tests/fixtures/promo-principal-returns/current-financial-owners.json')
 p.add_argument('--disburse-owner',type=Path,default=root/'tests/fixtures/promo-principal-returns/disburse.sql')
@@ -149,6 +151,18 @@ try:
  original_spent_fee=e.sql(db,"SELECT md5(pg_get_functiondef('public.fn_ca_promo_return_spent_event_fee(uuid)'::regprocedure))",label='original-spent-fee-owner-pin')[1].strip()
  if original_spent_fee!=ORIGINAL_SPENT_FEE_MD5:raise SystemExit('original spent-fee owner pin changed: '+original_spent_fee)
  e.sql(db,file=args.refund_migration,label='promo-refunded-entry-keeps-promo')
+ # A refunded entry also keeps its promo past a closed grant (20261123071237).
+ # This closure has no returned-ticket owner, so it installs the migration's
+ # wallet section, byte for byte, up to its own ticket boundary.
+ remember(args.keep_migration)
+ keep_text=args.keep_migration.read_text();keep_boundary='-- TICKET REFUND SECTION.'
+ if keep_text.count(keep_boundary)!=1 or keep_text.count('\nCOMMIT;')!=1:raise SystemExit('keep migration wallet boundary changed')
+ e.sql(db,keep_text[:keep_text.index(keep_boundary)]+'COMMIT;',label='promo-refunded-entry-keeps-promo-past-a-closed-grant')
+ remember(args.notice_migration)
+ notice_text=args.notice_migration.read_text();notice_boundary='-- TICKET REFUND NOTICE SECTION.'
+ if notice_text.count(notice_boundary)!=1 or notice_text.count('\nCOMMIT;')!=1:raise SystemExit('notice migration wallet boundary changed')
+ e.sql(db,notice_text[:notice_text.index(notice_boundary)]+'COMMIT;',label='promo-refunded-entry-notifies-player-wallet')
+ e.sql(db,"CREATE EXTENSION IF NOT EXISTS plpgsql_check;DO $$DECLARE f text;n int;BEGIN FOR f IN SELECT unnest(ARRAY['public.fn_ca_promo_restore_refunded_entry_cost(uuid,text,numeric,uuid,uuid)','public.fn_ca_promo_refund_successor_grant(uuid,numeric,text,text,uuid)','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)','public.fn_ca_promo_return_refunded_principal(uuid)']) LOOP SELECT count(*) INTO n FROM plpgsql_check_function_tb(f::regprocedure) c WHERE c.level='error';IF n<>0 THEN RAISE EXCEPTION 'plpgsql_check found % error(s) in %',n,f;END IF;END LOOP;END$$;",label='keep-wallet-owners-plpgsql-check-clean')
  # A cloned original financial closure isolates the additional real reentry
  # case from every existing return/race opening. No provider or money adapter.
  bust_db=e.database(db)
@@ -370,8 +384,10 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  IF (SELECT count(*) FROM public.tournament_refund_tranches WHERE entitlement_id='97000000-0000-0000-0000-000000000003')<>1 THEN RAISE EXCEPTION 'original refund tranche was not consumed exactly once';END IF;
  IF EXISTS(SELECT 1 FROM public.tournament_escrow WHERE tournament_id='97000000-0000-0000-0000-000000000001' AND (prize_balance<>0 OR fee_balance<>0 OR bounty_balance<>0)) THEN RAISE EXCEPTION 'original refund escrow did not balance';END IF;
  credit:=(result->>'credit_ledger_id')::uuid;
+ IF NOT EXISTS(SELECT 1 FROM public.ca_promo_refund_notices n WHERE n.ledger_id=credit AND n.entitlement_id='97000000-0000-0000-0000-000000000003' AND n.user_id='10000000-0000-0000-0000-000000000001' AND n.club_id='20000000-0000-0000-0000-000000000001' AND n.tournament_id='97000000-0000-0000-0000-000000000001' AND n.refund_kind='wallet' AND n.refund_amount=20 AND n.promo_kept_locked=10 AND n.promo_kept_unlocked=0 AND n.promo_returned_to_fund=0) THEN RAISE EXCEPTION 'wallet refund notice receipt missing or wrong';END IF;
+ IF to_regclass('public.notifications') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.notifications n JOIN public.ca_promo_refund_notices r ON r.notification_id=n.id WHERE r.ledger_id=credit AND n.type='promo_play_through' AND n.title='Tournament Entry Refunded' AND n.message='Your 20.00 Entry To Native Original Entry Refund Was Refunded. 10.00 Of It Is Promo Chips And Stays Under Play-Through.') THEN RAISE EXCEPTION 'wallet refund player notification missing or wrong';END IF;
  paid:=public.fn_ca_promo_return_refunded_principal(credit);
- IF paid<>0 OR EXISTS(SELECT 1 FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')) OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund'))<>1 OR (SELECT remaining FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')<>10 OR (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>20 THEN RAISE EXCEPTION 'refund replay moved promo or restored it twice';END IF;
+ IF paid<>0 OR EXISTS(SELECT 1 FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')) OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund'))<>1 OR (SELECT count(*) FROM public.ca_promo_refund_notices WHERE ledger_id=credit)<>1 OR (SELECT remaining FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund')<>10 OR (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>20 THEN RAISE EXCEPTION 'refund replay moved promo or restored it twice';END IF;
  END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;
  """,label='actual-exact-entry-refund-keeps-promo-with-the-member')
  e.report['native'].append({'case':'actual-exact-entry-refund-keeps-promo-with-the-member','assertions':10})
@@ -386,9 +402,9 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  # Typed opening facts describe an already-funded entry. The fee-source
  # trigger, original exact refund, all fund/wallet journals and deferred guards
  # are real. Actual fee production is separately qualified by the fee lane.
- for promo,closed,lost,cross in [(10,False,False,False),(20,False,False,False),(10,True,False,False),(10,True,True,False),(10,False,False,True)]:
+ for promo,closed,lost,cross,lapsed in [(10,False,False,False,False),(20,False,False,False,False),(10,True,False,False,False),(10,True,True,False,False),(10,True,True,False,True),(10,False,False,True,False)]:
   fee_db=e.database(db);event,charge,entitlement,record,source=[str(uuid.uuid4()) for _ in range(5)]
-  label='fee-refund-'+str(promo)+('-lost' if lost else '-closed' if closed else '-active')+('-satellite-cross-club' if cross else '')
+  label='fee-refund-'+str(promo)+('-lapsed' if lapsed else '')+('-lost' if lost else '-closed' if closed else '-active')+('-satellite-cross-club' if cross else '')
   wallet_club='20000000-0000-0000-0000-000000000099' if cross else '20000000-0000-0000-0000-000000000001'
   source_user='30000000-0000-0000-0000-000000000001' if cross else '10000000-0000-0000-0000-000000000001'
   source_type='prize_liability' if cross else 'player_wallet'
@@ -425,6 +441,7 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  IF (SELECT fee_target FROM public.ca_promo_play_through_grants WHERE source_ref='{label}')<>{promo}*4 THEN RAISE EXCEPTION 'fee spend changed original target';END IF;
  END$$;
  SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label=label+'-source')
+  if lapsed:e.sql(fee_db,f"UPDATE public.ca_promo_play_through_grants SET expires_at=clock_timestamp()-interval '1 second' WHERE source_ref='{label}';",label=label+'-thirty-days-over')
   if lost:
    candidate=str(uuid.uuid4())
    e.sql(fee_db,f"""BEGIN;
@@ -435,6 +452,9 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='spent' WHERE source_ref='{label}';COMMIT;""",label=label+'-original-loss-receipt-opening')
   if closed and not lost:
    e.sql(fee_db,f"""BEGIN;UPDATE public.ca_promo_principal_custody SET amount=0 WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}');UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='met' WHERE source_ref='{label}';COMMIT;""",label=label+'-matured-opening-state')
+  if cross:
+   # The fund return that remains (a refund wallet in another club) is still
+   # one atomic journal: a failing fee leg takes the credit and tranche with it.
    e.sql(fee_db,"ALTER TABLE public.chip_ledger ADD CONSTRAINT native_fee_return_fault CHECK(NOT(category='reversal' AND amount=1)) NOT VALID;",label='actual-fee-return-ledger-fault')
    e.sql(fee_db,f"""DO $$BEGIN
  BEGIN
@@ -443,7 +463,6 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  EXCEPTION WHEN check_violation THEN NULL; END;
  IF (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>10 OR EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}') THEN RAISE EXCEPTION 'failed fee refund retained credit or tranche';END IF;
  END$$;ALTER TABLE public.chip_ledger DROP CONSTRAINT native_fee_return_fault;""",label='actual-fee-refund-fault-rolls-back-credit-and-tranche')
-  if cross:
    e.sql(fee_db,f"""DO $$BEGIN
  BEGIN
  PERFORM public.fn_settle_tournament_refund_exact('{event}','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',20,18,0,2,'atomic_cancel_tournament','Wrong Physical Refund Wallet');
@@ -451,16 +470,23 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  IF EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}') OR (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>10 THEN RAISE EXCEPTION 'wrong physical refund recipient leaked money';END IF;
  END$$;""",label='satellite-cross-wrong-physical-wallet-refuses')
   # An open grant in the refund wallet's own club keeps everything with the
-  # member. A closed grant is terminal and a cross-club wallet cannot carry the
-  # lock, so both keep the original fund return.
-  kept=not closed and not cross
-  to_fund=0 if kept else (promo/10 if closed and not lost else promo)
+  # member, locked. A finished play-through leaves the refund unlocked with
+  # the member. A grant the entry itself used up is locked again under a
+  # successor. Only a grant whose 30 days are over, or a refund wallet in
+  # another club, keeps the original fund return.
+  treatment='fund' if cross or lapsed else 'successor' if lost else 'released' if closed else 'restore'
+  kept=treatment=='restore'
+  to_fund=promo if treatment=='fund' else 0
+  keep_rows={'released':1,'successor':2}.get(treatment,0)
   expected_wallet=30-to_fund;expected_fund=1050-promo+to_fund
   e.sql(fee_db,f"""BEGIN;DO $$DECLARE result jsonb;credit uuid;paid numeric;BEGIN
  result:=public.fn_settle_tournament_refund_exact('{event}','10000000-0000-0000-0000-000000000001','{wallet_club}',20,18,0,2,'atomic_cancel_tournament','Native Fee Refund');
  IF (result->>'paid')::numeric<>20 THEN RAISE EXCEPTION 'actual original fee refund refused: %',result;END IF;
  IF (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>{expected_wallet} OR (SELECT promo_balance FROM public.clubs WHERE id='20000000-0000-0000-0000-000000000001')<>{expected_fund} THEN RAISE EXCEPTION 'fee refund returned wrong amount or took unrelated cash';END IF;
- IF (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund' AND amount={promo}/10.0)<>{0 if kept else 1} THEN RAISE EXCEPTION 'original spent-fee fund receipt count wrong';END IF;
+ IF (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund' AND amount={promo}/10.0)<>{1 if treatment=='fund' else 0} THEN RAISE EXCEPTION 'original spent-fee fund receipt count wrong';END IF;
+ IF (SELECT count(*) FROM public.ca_promo_refund_keep_receipts)<>{keep_rows} OR (SELECT COALESCE(sum(amount),0) FROM public.ca_promo_refund_keep_receipts WHERE treatment='{treatment}' AND grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}'))<>{promo/10 if treatment=='released' else promo if treatment=='successor' else 0} THEN RAISE EXCEPTION 'keep receipts are missing or wrong';END IF;
+ {("IF public.fn_ca_promo_locked_at('"+wallet_club+"','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001')<>0 OR EXISTS(SELECT 1 FROM public.ca_promo_play_through_grants WHERE closed_at IS NULL) THEN RAISE EXCEPTION 'a finished play-through was locked again';END IF;" if treatment=='released' else '')}
+ {("IF public.fn_ca_promo_locked_at('"+wallet_club+"','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001')<>"+str(promo)+" OR (SELECT count(*)||':'||sum(s.remaining)::numeric(12,2)||':'||sum(s.amount)::numeric(12,2) FROM public.ca_promo_play_through_grants s JOIN public.ca_promo_refund_keep_receipts k ON k.successor_grant_id=s.id JOIN public.ca_promo_play_through_grants o ON o.id=k.grant_id WHERE s.closed_at IS NULL AND s.id<>o.id AND o.source_ref='"+label+"' AND s.club_id=o.club_id AND s.user_id=o.user_id AND s.expires_at=o.expires_at AND s.multiplier=o.multiplier AND s.funded_from_type=o.funded_from_type AND s.funded_from_id=o.funded_from_id AND s.source_kind=o.source_kind AND s.source_ledger_id IS NULL AND s.fee_target=s.amount*4)<>'2:"+format(promo,'.2f')+":"+format(promo,'.2f')+"' OR (SELECT sum(c.amount) FROM public.ca_promo_principal_custody c WHERE c.kind='player_wallet')<>"+str(promo)+" THEN RAISE EXCEPTION 'a used-up grant did not lock its refunded promo again under successors';END IF;" if treatment=='successor' else '')}
  IF (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund' AND amount={promo}/10.0)<>{1 if kept else 0} THEN RAISE EXCEPTION 'restored spent-fee receipt count wrong';END IF;
  {("IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_grants WHERE source_ref='"+label+"' AND closed_at IS NULL AND remaining="+str(promo)+") OR public.fn_ca_promo_locked_at('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001')<>"+str(promo)+" THEN RAISE EXCEPTION 'open grant did not keep its whole refunded promo locked in the wallet';END IF;" if kept else '')}
  {("IF (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>10 OR (SELECT promo_balance FROM public.clubs WHERE id='"+wallet_club+"')<>1000 OR (SELECT club_id FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id='"+charge+"')<>'20000000-0000-0000-0000-000000000001'::uuid THEN RAISE EXCEPTION 'satellite earner/source fund confused with physical refund wallet';END IF;" if cross else '')}
@@ -470,12 +496,12 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  VALUES('{source}','{record}','{event}','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','NLH','{entitlement}','{charge}','{entitlement}',clock_timestamp(),2,'{{"rake_credit":2}}');
  DO $$DECLARE credit uuid;paid numeric;BEGIN
  SELECT credit_ledger_id INTO credit FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}';paid:=public.fn_ca_promo_return_spent_event_fee(credit);
- IF paid<>{0 if kept else promo if lost else promo/10} OR (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund')<>{0 if kept else 1} OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}'))<>{1 if kept else 0} OR (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>{expected_wallet} THEN RAISE EXCEPTION 'spent-fee response-loss replay changed money';END IF;
+ IF paid<>{0 if treatment!='fund' else promo if lost else promo/10} OR (SELECT count(*) FROM public.ca_promo_refund_keep_receipts)<>{keep_rows} OR (SELECT count(*) FROM public.ca_promo_refund_keep_receipts WHERE successor_grant_id IS NOT NULL)<>{2 if treatment=='successor' else 0} OR (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund')<>{1 if treatment=='fund' else 0} OR (SELECT count(*) FROM public.ca_promo_refund_restore_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}'))<>{1 if kept else 0} OR (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>{expected_wallet} THEN RAISE EXCEPTION 'spent-fee response-loss replay changed money';END IF;
  IF EXISTS(SELECT 1 FROM public.tournament_escrow WHERE tournament_id='{event}' AND (prize_balance<>0 OR fee_balance<>0)) THEN RAISE EXCEPTION 'actual fee refund escrow did not conserve';END IF;
  END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label=label+'-actual-refund-return-and-replay')
-  e.report['native'].append({'case':label,'assertions':10+(2 if closed else 0)+(3 if cross else 0),'opening_limit':'already-funded entry and recognized fee batch facts; all refund journals and deferred guards actual'})
+  e.report['native'].append({'case':label,'assertions':13+(2 if cross else 0)+(3 if cross else 0)+(3 if treatment=='successor' else 0),'opening_limit':'already-funded entry and recognized fee batch facts; all refund journals and deferred guards actual'})
  e.sql(db,"""DO $$BEGIN
- IF has_function_privilege('authenticated','public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_leave_principal(uuid,uuid)','EXECUTE') THEN RAISE EXCEPTION 'browser can invoke private principal return';END IF;
+ IF has_function_privilege('authenticated','public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_leave_principal(uuid,uuid)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_emit_refund_notice(uuid,uuid,uuid,uuid,uuid,text,numeric,numeric,numeric,numeric,numeric)','EXECUTE') OR has_table_privilege('authenticated','public.ca_promo_refund_notices','SELECT') OR has_table_privilege('anon','public.ca_promo_refund_notices','SELECT') THEN RAISE EXCEPTION 'browser can invoke private principal return or refund notice owner';END IF;
  IF NOT EXISTS(SELECT 1 FROM cron.job WHERE jobname='promo-principal-product-expiry' AND schedule='*/15 * * * *' AND command='SELECT public.fn_ca_promo_expire_principal(100)') THEN RAISE EXCEPTION 'product expiry schedule registration differs';END IF;
  END$$;""",label='private-owner-and-product-schedule')
  e.report['native'].append({'case':'private-owner-and-product-schedule','assertions':2})

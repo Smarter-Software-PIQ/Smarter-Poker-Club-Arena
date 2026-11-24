@@ -3396,6 +3396,14 @@
 
   .club-home--unified-mobile .club-lobby-frame > .club-mobile-welcome {
     padding-top: 13px;
+    padding-bottom: 4px;
+    border-bottom: 0;
+  }
+
+  /* Section 1 (Welcome + Club Name + Identity + BBJ) shares one unified top area
+     with a single horizontal divider below the identity and BBJ frames. */
+  .club-home--unified-mobile .club-lobby-frame > .lobby-top {
+    padding-block-end: 12px;
     border-bottom: 1px solid #25313a;
   }
 }

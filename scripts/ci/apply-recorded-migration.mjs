@@ -65,6 +65,7 @@ import {
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
 import { classifyMigration } from './recording-only.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
+import { installerClaimRisks, isClaimChecked } from './migration-installer-claim-shape.mjs';
 import {
   observeWheelWalletReaders,
   WHEEL_WALLET_CUTOVER,
@@ -259,6 +260,13 @@ if (!shape.ok) {
 if (isCostChecked(file)) {
   const risks = migrationCostRisks(file, sql);
   if (risks.length) refused(risks.join('\n'));
+}
+// A migration that would force the applier's own deferred claim check is
+// refused before anything is sent (migration-installer-claim-shape.mjs, shared
+// with tests/a-migration-cannot-force-the-installers-claim-check.law.test.ts).
+if (isClaimChecked(file)) {
+  const forced = installerClaimRisks(file, sql);
+  if (forced.length) refused(forced.join('\n'));
 }
 const preamble = shape.ok ? shape.indexes : [];
 let serialJournalIndex;

@@ -22,6 +22,10 @@ DECLARE
   v_columns text[];
   v_promo_tickets_installed boolean;
   v_promo_returns_installed boolean;
+  v_promo_all_sources_installed boolean;
+  v_promo_hardening_installed boolean;
+  v_promo_exit_source text;
+  v_funded_return_source text;
 BEGIN
   SELECT string_agg(required.version, ', ' ORDER BY required.version)
   INTO v_missing
@@ -229,6 +233,34 @@ BEGIN
     RAISE EXCEPTION 'cashier promo returns successor migration history drift';
   END IF;
 
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124004000'
+  ) INTO v_promo_all_sources_installed;
+  IF v_promo_all_sources_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124004000'
+       AND name = 'promo_wallet_sends_follow_promo_chip_rules'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '7136cfa91bb173dc0556b2a2352508a5'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo all-sources successor migration history drift';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124042000'
+  ) INTO v_promo_hardening_installed;
+  IF v_promo_hardening_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261124042000'
+       AND name = 'harden_promo_wallet_invariants'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '6687b7534bcb35ee6624e016e0cc414a'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo hardening successor migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
@@ -255,6 +287,8 @@ BEGIN
       -- 20261115062830 adds the qualified club-wide funding filter; 160320's proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
       'hash', '926853d2cd2082737ab82c8a562b8534',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '35bbd530c2b26b74443b56ecbc8d064b',
       'owner', 'postgres'
     ),
     jsonb_build_object(
@@ -401,6 +435,20 @@ BEGIN
     jsonb_build_object(
       'signature', 'public.fn_club_promo_wallet_send(uuid,uuid,numeric,text,text,uuid)',
       'hash', 'b616cd82da2a682fcdf8b8b366872eda'
+    ),
+    jsonb_build_object(
+      'signature', 'public.fn_cashier_player_wallet_send(uuid,uuid,numeric,text,text,uuid)',
+      'hash', '2697ce061ec1b7436fc8ae825129d649',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', 'bba74bfb3be130aba9285997ab8b47ca',
+      'owner', 'postgres'
+    ),
+    jsonb_build_object(
+      'signature', 'public.fn_cashier_promo_allowance(uuid,uuid[])',
+      'hash', '7ae8c0d2d74bdbf7b43643904eed612c',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '000dd55cdf184882157039c32bc67353',
+      'owner', 'postgres'
     ),
     -- Phase 5 cross-wallet statement doors, recorded version 20260923150831
     -- (file 20260923131325_cashier_statements_read_every_wallet_in_one_keyset).
@@ -621,7 +669,8 @@ BEGIN
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_contract)
   LOOP
     IF (v_item ->> 'promo_successor_version' = '20261116154719' AND v_promo_tickets_installed)
-       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed) THEN
+       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed)
+       OR (v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed) THEN
       v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
     END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
@@ -701,6 +750,9 @@ BEGIN
   );
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_private_contract)
   LOOP
+    IF v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'private cashier function missing: %', v_item ->> 'signature';
@@ -731,7 +783,9 @@ BEGIN
       -- destination's balance. Native proof and live source agree exactly.
       'hash', 'fcfeeb86ff63e1a4e4c01315d851a1e8'),
     jsonb_build_object('signature', 'public.fn_club_bank_reverse_core_20261004(uuid,text,uuid)',
-      'hash', '2a67b4b80c857356ef0eaca621b358c3'),
+      'hash', '2a67b4b80c857356ef0eaca621b358c3',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '32861dd6d55361fc1aed61336972c76e'),
     jsonb_build_object('signature', 'public.fn_admin_remove_chips_core_20261004(uuid,uuid,numeric,text,uuid)',
       'hash', 'ac293c1623da0db62d74f5e888c1011a'),
     jsonb_build_object('signature', 'public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
@@ -740,7 +794,9 @@ BEGIN
       -- ceiling, inserted at the downline-limit anchor. Body derived from that
       -- source in tests/cashier-authority-exact-intent.test.ts; earlier pin
       -- 7087a67e16f6d7990c28fbb549464bef.
-      'hash', 'be708b91a9ce7080e2826d2f53513cc5'),
+      'hash', 'be708b91a9ce7080e2826d2f53513cc5',
+      'promo_successor_version', '20261124004000',
+      'promo_successor_hash', '488d14c1a1db37cef0ff40a676ed9f5f'),
     jsonb_build_object('signature', 'public.fn_club_promo_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
       -- Derived from the protected source fixture and exact migration patch;
       -- the previous body omitted the payer's ledger source column.
@@ -757,6 +813,9 @@ BEGIN
   );
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_private_contract)
   LOOP
+    IF v_item ->> 'promo_successor_version' = '20261124004000' AND v_promo_all_sources_installed THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'private cashier core missing: %', v_item ->> 'signature';
@@ -947,6 +1006,72 @@ BEGIN
      OR has_table_privilege('authenticated', 'public.rate_limits', 'UPDATE')
      OR has_table_privilege('authenticated', 'public.rate_limits', 'DELETE') THEN
     RAISE EXCEPTION 'cashier limiter access boundary drift';
+  END IF;
+
+  -- Structural promo-wallet invariants (20261124042000): pin every promo
+  -- allowance helper and agent-wallet send core, plus the DB-level chip_ledger
+  -- promo-conservation guard and play-through exit lock guard so no future
+  -- migration can silently re-open any promo bypass.
+  IF v_promo_hardening_installed THEN
+    v_private_contract := jsonb_build_array(
+      jsonb_build_object('signature', 'public.fn_agent_wallet_send_core_20260830(uuid,uuid,numeric,text,text,uuid)',
+        'hash', '0595ac89538448cc983f8ac942a3b170', 'service_execute', true),
+      jsonb_build_object('signature', 'public.fn_ca_agent_promo_downline_sent_7d(uuid,uuid,timestamptz)',
+        'hash', '6a68b134a7aea0f8ea709160a420647e', 'service_execute', true),
+      jsonb_build_object('signature', 'public.fn_ca_agent_promo_daily_allowance(uuid,uuid,timestamptz)',
+        'hash', '8596482922261059168d9034b5259f95', 'service_execute', true)
+    );
+    FOR v_item IN SELECT value FROM jsonb_array_elements(v_private_contract)
+    LOOP
+      v_oid := to_regprocedure(v_item ->> 'signature');
+      IF v_oid IS NULL THEN
+        RAISE EXCEPTION 'promo hardening function missing: %', v_item ->> 'signature';
+      END IF;
+      SELECT md5(prosrc), pg_get_userbyid(proowner), prosecdef,
+             coalesce(proconfig @> ARRAY['search_path=public, pg_temp'], false)
+        INTO v_actual_hash, v_actual_owner, v_security_definer, v_search_path_pinned
+        FROM pg_proc WHERE oid = v_oid;
+      IF v_actual_hash IS DISTINCT FROM v_item ->> 'hash'
+         OR v_actual_owner IS DISTINCT FROM 'postgres'
+         OR v_security_definer IS DISTINCT FROM true
+         OR v_search_path_pinned IS DISTINCT FROM true
+         OR has_function_privilege('anon', v_oid, 'EXECUTE')
+         OR has_function_privilege('authenticated', v_oid, 'EXECUTE')
+         OR has_function_privilege('service_role', v_oid, 'EXECUTE')
+            <> (v_item ->> 'service_execute')::boolean THEN
+        RAISE EXCEPTION
+          'promo hardening function drift: % hash=% owner=% definer=% pinned=%',
+          v_item ->> 'signature', v_actual_hash, v_actual_owner,
+          v_security_definer, v_search_path_pinned;
+      END IF;
+    END LOOP;
+
+    SELECT prosrc INTO v_funded_return_source
+      FROM pg_proc
+     WHERE oid = to_regprocedure('public.fn_ca_funded_chip_return_journal()');
+    IF v_funded_return_source IS NULL
+       OR position('promo_wallet_cannot_convert_to_non_promo' in v_funded_return_source) = 0
+       OR NOT EXISTS (
+         SELECT 1 FROM pg_trigger
+          WHERE tgrelid = 'public.chip_ledger'::regclass
+            AND tgname = 'zz_ca_funded_return_journal'
+            AND NOT tgisinternal AND tgenabled <> 'D'
+       ) THEN
+      RAISE EXCEPTION 'promo ledger conservation guard drift';
+    END IF;
+
+    SELECT prosrc INTO v_promo_exit_source
+      FROM pg_proc
+     WHERE oid = to_regprocedure('public.fn_ca_promo_play_through_on_exit()');
+    IF v_promo_exit_source IS NULL
+       OR position('IN(''club_treasury'',''promo_wallet'',''union_wallet'')' in v_promo_exit_source) > 0
+       OR position('NEW.to_entity_id=NEW.club_id' in v_promo_exit_source) = 0
+       OR (SELECT count(*) FROM pg_trigger
+            WHERE tgrelid = 'public.chip_ledger'::regclass
+              AND tgname IN ('zz_ca_promo_play_through_exit', 'zz_ca_agent_promo_exit')
+              AND NOT tgisinternal AND tgenabled <> 'D') <> 2 THEN
+      RAISE EXCEPTION 'promo play-through exit lock guard drift';
+    END IF;
   END IF;
 END;
 $cashier_contract$;

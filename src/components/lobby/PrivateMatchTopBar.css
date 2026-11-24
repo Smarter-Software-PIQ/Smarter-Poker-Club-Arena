@@ -1,0 +1,167 @@
+/* Top-of-lobby Private Heads-Up & Private Spin creation bar.
+   Zero :hover rules (Club Arena touch-first CSS law). */
+
+.private-match-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.private-match-topbar__create-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgb(69 173 255 / 42%);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(18 42 74 / 88%) 0%, rgb(8 17 30 / 94%) 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(184 223 255 / 16%),
+    0 3px 10px rgb(0 0 0 / 40%);
+}
+
+.private-match-topbar__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.private-match-topbar__eyebrow {
+  color: #7cc5ff;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.private-match-topbar__title {
+  color: #f3f7fc;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.private-match-topbar__btn {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid rgb(96 190 255 / 72%);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(42 152 245 / 34%) 0%, rgb(13 54 104 / 86%) 100%);
+  color: #ffffff;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.private-match-topbar__btn:active:not(:disabled) {
+  filter: brightness(1.18);
+}
+
+.private-match-topbar__btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.private-match-topbar__active-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.private-match-topbar__active-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgb(245 197 66 / 45%);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(42 33 12 / 78%) 0%, rgb(16 14 10 / 92%) 100%);
+}
+
+.private-match-topbar__active-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.private-match-topbar__active-tag {
+  color: #ffd76a;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.private-match-topbar__active-name {
+  color: #f5f8fc;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.private-match-topbar__active-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.private-match-topbar__action {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid rgb(138 168 198 / 40%);
+  border-radius: 999px;
+  background: rgb(11 24 40 / 90%);
+  color: #dcecff;
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.private-match-topbar__action--primary {
+  border-color: rgb(69 173 255 / 65%);
+  color: #9be0ff;
+}
+
+.private-match-topbar__action--danger {
+  border-color: rgb(255 98 112 / 55%);
+  background: rgb(56 14 22 / 84%);
+  color: #ffb8bf;
+}
+
+.private-match-topbar__action:active:not(:disabled) {
+  filter: brightness(1.16);
+}
+
+.private-match-topbar__action:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .private-match-topbar__create-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .private-match-topbar__btn {
+    width: 100%;
+    text-align: center;
+  }
+}

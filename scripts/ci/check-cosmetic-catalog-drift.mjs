@@ -27,16 +27,12 @@
  * Exit:  0 agree (or skipped) · 1 drift · 2 script error
  */
 import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { supabaseServerHeaders } from './supabase-auth-headers.mjs';
 
-const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) {
-  console.log('check-cosmetic-catalog-drift: SKIPPED (no Supabase credentials in env)');
-  process.exit(0);
-}
-
-const read = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 /** Pull `id`/`vipOnly` pairs out of an array literal in a TS source file. */
 function parseVipOnlyList(src, marker) {
@@ -71,98 +67,154 @@ function parseMetaMap(src, marker, endMarker, kind) {
   return out;
 }
 
-const modal = read('src/components/table/ThemeSettingsModal.tsx');
-const themeLib = read('src/lib/tableTheme.ts');
-const cardImg = read('src/components/table/CardImage.tsx');
+/** Parse CARD_BACK_ALIASES (`legacyId: 'canonicalId'` or `'legacy-id': 'canonicalId'`). */
+export function parseCardBackAliases(src) {
+  const start = src.indexOf('const CARD_BACK_ALIASES');
+  if (start === -1) throw new Error('marker not found: const CARD_BACK_ALIASES');
+  const end = src.indexOf('};', start);
+  if (end === -1) throw new Error('closing brace not found for CARD_BACK_ALIASES');
+  const block = src.slice(start, end);
+  const out = new Map();
+  for (const m of block.matchAll(/^\s*(?:'([^']+)'|(\w+))\s*:\s*'([^']+)'/gm)) {
+    out.set(m[1] || m[2], m[3]);
+  }
+  return out;
+}
 
-const code = {
-  theme_id: (() => {
-    const start = themeLib.indexOf('THEME_PRESET_CATALOG');
-    const end = themeLib.indexOf('];', start);
-    if (start === -1 || end === -1) throw new Error('THEME_PRESET_CATALOG not found');
-    const block = themeLib.slice(start, end);
-    const out = new Map();
-    /* THE ID, NOT EVERY FIELD THAT ENDS IN `id` (2026-09-06).
-       This was /id: '([^']+)'.../ with no boundary, and every entry in this
-       catalog also carries `table_id`, `button_id`, `background_id` and
-       `cards_id`. `table_id: 'classic_green'` CONTAINS the substring
-       `id: 'classic_green'`, so the scanner read felt asset names as theme
-       ids and then reported all nine of them missing from cosmetic_catalog,
-       plus all nine real theme ids missing from the code. Every one of those
-       eighteen lines was false: the code's ids (default-dark, classic-brown,
-       neon-blue ...) match the database exactly.
-       The lookbehind rejects a preceding word character, so `table_id:` no
-       longer matches and only the entry's own `id:` does. */
-    for (const m of block.matchAll(/(?<![\w$])id: '([^']+)'[\s\S]{0,260}?tier: '(free|vip)'/g)) {
-      out.set(m[1], m[2]);
+export function loadCodeCatalogs() {
+  const modal = read('src/components/table/ThemeSettingsModal.tsx');
+  const themeLib = read('src/lib/tableTheme.ts');
+  const cardImg = read('src/components/table/CardImage.tsx');
+
+  const code = {
+    theme_id: (() => {
+      const start = themeLib.indexOf('THEME_PRESET_CATALOG');
+      const end = themeLib.indexOf('];', start);
+      if (start === -1 || end === -1) throw new Error('THEME_PRESET_CATALOG not found');
+      const block = themeLib.slice(start, end);
+      const out = new Map();
+      /* THE ID, NOT EVERY FIELD THAT ENDS IN `id` (2026-09-06).
+         This was /id: '([^']+)'.../ with no boundary, and every entry in this
+         catalog also carries `table_id`, `button_id`, `background_id` and
+         `cards_id`. `table_id: 'classic_green'` CONTAINS the substring
+         `id: 'classic_green'`, so the scanner read felt asset names as theme
+         ids and then reported all nine of them missing from cosmetic_catalog,
+         plus all nine real theme ids missing from the code. Every one of those
+         eighteen lines was false: the code's ids (default-dark, classic-brown,
+         neon-blue ...) match the database exactly.
+         The lookbehind rejects a preceding word character, so `table_id:` no
+         longer matches and only the entry's own `id:` does. */
+      for (const m of block.matchAll(/(?<![\w$])id: '([^']+)'[\s\S]{0,260}?tier: '(free|vip)'/g)) {
+        out.set(m[1], m[2]);
+      }
+      return out;
+    })(),
+    button_id: parseVipOnlyList(modal, 'BUTTON_ASSETS'),
+    background_id: parseMetaMap(
+      modal,
+      'const BACKGROUND_META',
+      'const BACKGROUND_FALLBACK',
+      'vipOnly'
+    ),
+    table_id: parseMetaMap(themeLib, 'const FELT_META', '/** Display order', 'tier'),
+    cards_id: (() => {
+      // CARD_BACK_CATALOG entries carry `tier: 'standard' | 'premium' | 'exclusive'`.
+      const start = cardImg.indexOf('CARD_BACK_CATALOG');
+      const end = cardImg.indexOf('];', start);
+      const block = cardImg.slice(start, end);
+      const out = new Map();
+      for (const m of block.matchAll(
+        /id: '([^']+)'[\s\S]{0,240}?tier: '(standard|premium|exclusive)'/g
+      )) {
+        out.set(m[1], m[2] === 'standard' ? 'free' : 'vip');
+      }
+      return out;
+    })(),
+  };
+
+  // Legacy card-back aliases retained in cosmetic_catalog (e.g. dragon -> diamond,
+  // galaxy -> neon; migration 20261112150007) so stored user_theme_settings rows
+  // keep resolving for VIP holders without offering duplicate retired SKUs.
+  const aliases = {
+    cards_id: parseCardBackAliases(cardImg),
+  };
+
+  return { code, aliases };
+}
+
+export function compareCosmeticCatalogs({ code, aliases = {}, db }) {
+  const problems = [];
+  for (const [category, entries] of Object.entries(code)) {
+    const freeInCode = [...entries.values()].filter((t) => t === 'free').length;
+    if (freeInCode !== 3) {
+      problems.push(`${category}: code offers ${freeInCode} free assets, the rule is exactly 3`);
     }
-    return out;
-  })(),
-  button_id: parseVipOnlyList(modal, 'BUTTON_ASSETS'),
-  background_id: parseMetaMap(
-    modal,
-    'const BACKGROUND_META',
-    'const BACKGROUND_FALLBACK',
-    'vipOnly'
-  ),
-  table_id: parseMetaMap(themeLib, 'const FELT_META', '/** Display order', 'tier'),
-  cards_id: (() => {
-    // CARD_BACK_CATALOG entries carry `tier: 'standard' | 'premium' | 'exclusive'`.
-    const start = cardImg.indexOf('CARD_BACK_CATALOG');
-    const end = cardImg.indexOf('];', start);
-    const block = cardImg.slice(start, end);
-    const out = new Map();
-    for (const m of block.matchAll(
-      /id: '([^']+)'[\s\S]{0,240}?tier: '(standard|premium|exclusive)'/g
-    )) {
-      out.set(m[1], m[2] === 'standard' ? 'free' : 'vip');
+    for (const [assetId, tier] of entries) {
+      const dbTier = db.get(`${category}:${assetId}`);
+      if (!dbTier) problems.push(`${category}/${assetId}: in code, MISSING from cosmetic_catalog`);
+      else if (dbTier !== tier)
+        problems.push(`${category}/${assetId}: code says ${tier}, database says ${dbTier}`);
     }
-    return out;
-  })(),
-};
-
-const res = await fetch(
-  `${url.replace(/\/+$/, '')}/rest/v1/cosmetic_catalog?select=category,asset_id,tier`,
-  {
-    headers: supabaseServerHeaders(key),
+    const categoryAliases = aliases[category];
+    for (const [key2, dbTier] of db.entries()) {
+      const [cat, ...rest] = key2.split(':');
+      if (cat !== category) continue;
+      const assetId = rest.join(':');
+      if (entries.has(assetId)) continue;
+      const targetId = categoryAliases?.get(assetId);
+      const targetTier = targetId ? entries.get(targetId) : undefined;
+      if (targetTier) {
+        if (dbTier !== targetTier) {
+          problems.push(
+            `${category}/${assetId}: legacy alias of ${targetId} (${targetTier}), database says ${dbTier}`
+          );
+        }
+        continue;
+      }
+      problems.push(`${category}/${assetId}: in cosmetic_catalog, MISSING from code`);
+    }
   }
-);
-if (!res.ok) {
-  console.error(`check-cosmetic-catalog-drift: cannot read cosmetic_catalog (${res.status})`);
-  process.exit(2);
-}
-const db = new Map();
-for (const row of await res.json()) db.set(`${row.category}:${row.asset_id}`, row.tier);
-
-const problems = [];
-for (const [category, entries] of Object.entries(code)) {
-  const freeInCode = [...entries.values()].filter((t) => t === 'free').length;
-  if (freeInCode !== 3) {
-    problems.push(`${category}: code offers ${freeInCode} free assets, the rule is exactly 3`);
-  }
-  for (const [assetId, tier] of entries) {
-    const dbTier = db.get(`${category}:${assetId}`);
-    if (!dbTier) problems.push(`${category}/${assetId}: in code, MISSING from cosmetic_catalog`);
-    else if (dbTier !== tier)
-      problems.push(`${category}/${assetId}: code says ${tier}, database says ${dbTier}`);
-  }
-  for (const key2 of db.keys()) {
-    const [cat, ...rest] = key2.split(':');
-    if (cat === category && !entries.has(rest.join(':')))
-      problems.push(`${category}/${rest.join(':')}: in cosmetic_catalog, MISSING from code`);
-  }
+  return problems;
 }
 
-if (problems.length === 0) {
-  console.log('check-cosmetic-catalog-drift: OK — the picker and the trigger agree.');
-  process.exit(0);
+async function main() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.log('check-cosmetic-catalog-drift: SKIPPED (no Supabase credentials in env)');
+    process.exit(0);
+  }
+
+  const { code, aliases } = loadCodeCatalogs();
+  const res = await fetch(
+    `${url.replace(/\/+$/, '')}/rest/v1/cosmetic_catalog?select=category,asset_id,tier`,
+    {
+      headers: supabaseServerHeaders(key),
+    }
+  );
+  if (!res.ok) {
+    console.error(`check-cosmetic-catalog-drift: cannot read cosmetic_catalog (${res.status})`);
+    process.exit(2);
+  }
+  const db = new Map();
+  for (const row of await res.json()) db.set(`${row.category}:${row.asset_id}`, row.tier);
+
+  const problems = compareCosmeticCatalogs({ code, aliases, db });
+  if (problems.length === 0) {
+    console.log('check-cosmetic-catalog-drift: OK — the picker and the trigger agree.');
+    process.exit(0);
+  }
+  console.error('\nTHE COSMETIC PRICE LIST HAS DRIFTED:\n');
+  for (const p of problems) console.error(`  ${p}`);
+  console.error(
+    '\nThe picker draws from the TypeScript catalogs; the database trigger on' +
+      '\nuser_theme_settings enforces cosmetic_catalog. When they disagree a player' +
+      '\neither clicks a free tile that the server refuses forever, or unlocks a paid' +
+      '\ncosmetic for nothing. Fix both, in the same PR.'
+  );
+  process.exit(1);
 }
-console.error('\nTHE COSMETIC PRICE LIST HAS DRIFTED:\n');
-for (const p of problems) console.error(`  ${p}`);
-console.error(
-  '\nThe picker draws from the TypeScript catalogs; the database trigger on' +
-    '\nuser_theme_settings enforces cosmetic_catalog. When they disagree a player' +
-    '\neither clicks a free tile that the server refuses forever, or unlocks a paid' +
-    '\ncosmetic for nothing. Fix both, in the same PR.'
-);
-process.exit(1);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

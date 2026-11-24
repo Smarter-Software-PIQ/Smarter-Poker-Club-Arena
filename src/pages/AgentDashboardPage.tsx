@@ -1,4 +1,5 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../components/legal/promoPlayThroughTerms';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  AGENT DASHBOARD PAGE — Agent Operations Center
@@ -1063,6 +1064,17 @@ function AgentDashboardContent() {
                       </option>
                     ))}
                   </select>
+                  {transferDestination === 'promo_wallet' && (
+                    <>
+                      <p className="admin-hint" style={{ marginTop: 6, fontSize: 12 }}>
+                        {PROMO_PLAY_THROUGH_SENDER_TERMS}
+                      </p>
+                      <p className="admin-hint" style={{ marginTop: 4, fontSize: 12 }}>
+                        Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7
+                        Days. All Funding And Destination Wallets Share This Limit.
+                      </p>
+                    </>
+                  )}
                 </div>
                 <div>
                   <label className="admin-label">Amount (Chips)</label>

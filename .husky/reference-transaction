@@ -22,8 +22,36 @@ while read -r OLD NEW REF; do
   # the working tree exactly as it was (measured on git 2.43 and Apple git
   # 2.50.1). Removing an entry (pop or drop of the last one) is still allowed
   # so an old list can be drained. Commit to your own branch instead.
+  #
+  # CLEAR IS REFUSED TOO (2026-11-23). The shared list held 141 entries from
+  # many agents that night, and one clear in any worktree deletes all of them.
+  # A clear deletes refs/stash while its log still lists entries; the drop or
+  # pop of the LAST entry deletes it after the log is already empty (measured
+  # on Apple git 2.50.1). So "deleted with entries still listed" is a clear.
+  #
+  # WHAT THIS HOOK CANNOT REFUSE: pop, apply and the drop of one entry among
+  # several. Apply and pop rewrite the working tree without touching
+  # refs/stash first, and a drop among several rewrites the stash log with no
+  # ref transaction at all, so no hook runs before they act. Those three are
+  # refused by the written rule (AGENTS.md, CLAUDE.md 10.87 rule 5) only.
   if [ "$REF" = "refs/stash" ]; then
-    [ "$NEW" != "$ZERO" ] || continue
+    if [ "$NEW" = "$ZERO" ]; then
+      ENTRIES=$(git rev-list -g --count refs/stash 2>/dev/null || echo 0)
+      case "$ENTRIES" in ''|*[!0-9]*) ENTRIES=0 ;; esac
+      [ "$ENTRIES" -gt 0 ] || continue
+      {
+        echo
+        echo "  BLOCKED: this repository refuses 'stash clear'."
+        echo
+        echo "  Every worktree of this clone shares ONE stash list. It holds"
+        echo "  $ENTRIES entries, and most of them belong to other agents."
+        echo "  Nothing was removed. To set your own work aside, commit it on"
+        echo "  your own branch or copy the files to your own folder instead"
+        echo "  (CLAUDE.md 10.87 rule 5)."
+        echo
+      } >&2
+      exit 1
+    fi
     {
       echo
       echo "  BLOCKED: this repository refuses new stash entries."
@@ -31,7 +59,8 @@ while read -r OLD NEW REF; do
       echo "  Every worktree of this clone shares ONE stash list, so another"
       echo "  agent's pop can take your changes, and yours can take theirs."
       echo "  Your working tree is untouched. Commit the changes on your own"
-      echo "  branch in your own worktree instead (CLAUDE.md 10.87 rule 5)."
+      echo "  branch in your own worktree, or copy the files to your own"
+      echo "  folder, instead (CLAUDE.md 10.87 rule 5)."
       echo
     } >&2
     exit 1

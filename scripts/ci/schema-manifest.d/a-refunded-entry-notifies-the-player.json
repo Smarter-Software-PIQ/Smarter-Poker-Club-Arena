@@ -1,0 +1,21 @@
+{
+  "_owner": "20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql adds ca_promo_refund_notices and fn_ca_promo_emit_refund_notice, and updates fn_ca_promo_return_refunded_principal, fn_ca_promo_returned_ticket_principal_fee, fn_ca_promo_grant_notice and fn_ca_promo_daily_digest.",
+  "tables": ["ca_promo_refund_notices"],
+  "functions": ["fn_ca_promo_emit_refund_notice", "fn_ca_promo_grant_notice"],
+  "columns": {
+    "ca_promo_refund_notices": [
+      "ledger_id",
+      "entitlement_id",
+      "user_id",
+      "club_id",
+      "tournament_id",
+      "refund_kind",
+      "refund_amount",
+      "promo_kept_locked",
+      "promo_kept_unlocked",
+      "promo_returned_to_fund",
+      "notification_id",
+      "created_at"
+    ]
+  }
+}

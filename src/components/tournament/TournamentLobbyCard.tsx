@@ -333,6 +333,8 @@ function TournamentLobbyCardInner({
         status: String(row.status ?? ''),
         variant: typeof row.variant === 'string' ? row.variant : null,
         max_players: Number(row.maxPlayers ?? row.max_players ?? 0),
+        format_contract: row.format_contract ?? row.formatContract,
+        current_players: Number(row.currentPlayers ?? row.current_players ?? NaN),
         started_at: typeof row.started_at === 'string' ? row.started_at : null,
         alreadySeated: isRegistered,
       })
@@ -899,276 +901,282 @@ function TournamentLobbyCardInner({
   const Section = unframed ? ClubPageSection : SpadeConsole;
   return (
     <>
-    {privateInvite.element}
-    <Section
-      data-unframed={unframed || undefined}
-      as="div"
-      className={styles.card}
-      /* The recorded format names the card; a format nobody has recorded is
+      {privateInvite.element}
+      <Section
+        data-unframed={unframed || undefined}
+        as="div"
+        className={styles.card}
+        /* The recorded format names the card; a format nobody has recorded is
          plainly a Tournament, never a guess. */
-      eyebrow={formatKnown ? getTypeLabel(displayType) : 'Tournament'}
-      title={formatTournamentTitle(tournament.name)}
-      subtitle={[guarantee, destination].filter(Boolean).join(' · ') || undefined}
-      pill={pill}
-      pillInk={pillInk}
-      onClick={() => navigate(`/tournaments/${tournament.id}`)}
-      style={{
-        cursor: 'pointer',
-        opacity: mounted ? 1 : 0,
-        transform: mounted ? 'translateY(0)' : 'translateY(8px)',
-        transition:
-          'opacity 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-      }}
-      foot={primary ? undefined : 'foot'}
-      plates={
-        primary
-          ? {
-              secondary: {
-                label: 'Details',
-                onClick: (e) => {
-                  e.stopPropagation();
-                  navigate(`/tournaments/${tournament.id}`);
+        eyebrow={formatKnown ? getTypeLabel(displayType) : 'Tournament'}
+        title={formatTournamentTitle(tournament.name)}
+        subtitle={[guarantee, destination].filter(Boolean).join(' · ') || undefined}
+        pill={pill}
+        pillInk={pillInk}
+        onClick={() => navigate(`/tournaments/${tournament.id}`)}
+        style={{
+          cursor: 'pointer',
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(8px)',
+          transition:
+            'opacity 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+        }}
+        foot={primary ? undefined : 'foot'}
+        plates={
+          primary
+            ? {
+                secondary: {
+                  label: 'Details',
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    navigate(`/tournaments/${tournament.id}`);
+                  },
                 },
-              },
-              primary,
-            }
-          : undefined
-      }
-    >
-      {tags.length > 0 && (
-        <p className={styles.tags}>
-          {tags.map((tag) => (
-            <span key={tag} className={`${styles.tag} sc-label sc-ink--blue`}>
-              {tag}
-            </span>
-          ))}
-        </p>
-      )}
+                primary,
+              }
+            : undefined
+        }
+      >
+        {tags.length > 0 && (
+          <p className={styles.tags}>
+            {tags.map((tag) => (
+              <span key={tag} className={`${styles.tag} sc-label sc-ink--blue`}>
+                {tag}
+              </span>
+            ))}
+          </p>
+        )}
 
-      <div className={styles.rows}>
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">Buy-In</span>
-          {/* Whole chips only (Dan 2026-08-20), and EXACT: this is the figure
+        <div className={styles.rows}>
+          <div className={styles.row}>
+            <span className="sc-label sc-ink--blue">Buy-In</span>
+            {/* Whole chips only (Dan 2026-08-20), and EXACT: this is the figure
               the server charges, so it is never abbreviated. */}
-          <span className={`${styles.value} sc-ink--silver`}>
-            {tournament.buyInLabel ?? money(tournament.buyIn)}
-          </span>
-        </div>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {tournament.buyInLabel ?? money(tournament.buyIn)}
+            </span>
+          </div>
 
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">
-            {spinLabels
-              ? spinLabels.moneyLabel
-              : (tournament.bountyPool ?? 0) > 0
-                ? 'Total Pool'
-                : 'Prize Pool'}
-          </span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {spinLabels
-              ? (spinLabels.money ?? 'Unavailable')
-              : (() => {
-                  return compactChips(
-                    displayTotalPool(
-                      tournament.prizePool,
-                      tournament.guaranteedPrize,
-                      tournament.bountyPool,
-                      tournament.totalRake,
-                      tournament.prize_pool_finalized === true
-                    )
-                  );
-                })()}
-            {/* `guaranteedPrize && ...` printed a literal 0 after the pool
+          <div className={styles.row}>
+            <span className="sc-label sc-ink--blue">
+              {spinLabels
+                ? spinLabels.moneyLabel
+                : (tournament.bountyPool ?? 0) > 0
+                  ? 'Total Pool'
+                  : 'Prize Pool'}
+            </span>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {spinLabels
+                ? (spinLabels.money ?? 'Unavailable')
+                : (() => {
+                    return compactChips(
+                      displayTotalPool(
+                        tournament.prizePool,
+                        tournament.guaranteedPrize,
+                        tournament.bountyPool,
+                        tournament.totalRake,
+                        tournament.prize_pool_finalized === true
+                      )
+                    );
+                  })()}
+              {/* `guaranteedPrize && ...` printed a literal 0 after the pool
                 ("400" for a 40-chip pool with no guarantee): React renders the
                 number 0. Compare, never coerce. */}
-            {!spinLabels && (tournament.guaranteedPrize ?? 0) > 0 && (
-              <span className={`${styles.gtd} sc-ink--gold`}>GTD</span>
-            )}
-            {/* THE OVERLAY, BESIDE THE POOL IT IS NOT PART OF (2026-11-06).
+              {!spinLabels && (tournament.guaranteedPrize ?? 0) > 0 && (
+                <span className={`${styles.gtd} sc-ink--gold`}>GTD</span>
+              )}
+              {/* THE OVERLAY, BESIDE THE POOL IT IS NOT PART OF (2026-11-06).
                 The pool is what the field paid net of rake; the house share
                 still owed if the field closes now is shown on its own, the
                 same figure the Rewards tab prints beside the guarantee. */}
-            {(() => {
-              if (spinLabels || tournament.prize_pool_finalized === true) return null;
-              // Paid entries only. A ticket-funded entry (Free Buy) puts promo
-              // chips in the pool that do not count toward the guarantee, so
-              // the row alone cannot price its overlay; Rewards reads that
-              // from the database authority instead.
-              if (!((tournament.buyIn ?? 0) > 0)) return null;
-              const overlay = guaranteeShortfall(
-                tournament.guaranteedPrize,
-                tournament.prizePool,
-                tournament.bountyPool,
-                tournament.totalRake
-              );
-              return overlay > 0 ? (
-                <span className={`${styles.overlay} sc-ink--silver`}>
-                  {compactChips(overlay)} Overlay
-                </span>
-              ) : null;
-            })()}
-          </span>
-        </div>
+              {(() => {
+                if (spinLabels || tournament.prize_pool_finalized === true) return null;
+                // Paid entries only. A ticket-funded entry (Free Buy) puts promo
+                // chips in the pool that do not count toward the guarantee, so
+                // the row alone cannot price its overlay; Rewards reads that
+                // from the database authority instead.
+                if (!((tournament.buyIn ?? 0) > 0)) return null;
+                const overlay = guaranteeShortfall(
+                  tournament.guaranteedPrize,
+                  tournament.prizePool,
+                  tournament.bountyPool,
+                  tournament.totalRake
+                );
+                return overlay > 0 ? (
+                  <span className={`${styles.overlay} sc-ink--silver`}>
+                    {compactChips(overlay)} Overlay
+                  </span>
+                ) : null;
+              })()}
+            </span>
+          </div>
 
-        {/* The multiplier is the whole reason the format exists, so a Spin
+          {/* The multiplier is the whole reason the format exists, so a Spin
             says where it stands: the ladder's ceiling while it fills, the
             drawn number once the wheel has landed. */}
-        {spinLabels && (
-          <div className={styles.row}>
-            <span className="sc-label sc-ink--blue">Multiplier</span>
-            <span className={`${styles.value} sc-ink--gold`}>{spinLabels.multiplier}</span>
-          </div>
-        )}
+          {spinLabels && (
+            <div className={styles.row}>
+              <span className="sc-label sc-ink--blue">Multiplier</span>
+              <span className={`${styles.value} sc-ink--gold`}>{spinLabels.multiplier}</span>
+            </div>
+          )}
 
-        <div className={styles.row}>
-          {/* ENTRIES, NOT PLAYERS (2026-08-25). This number comes from
+          <div className={styles.row}>
+            {/* ENTRIES, NOT PLAYERS (2026-08-25). This number comes from
               tournaments.current_players, which is a REGISTRATION counter: it
               is incremented on entry and is never decremented on an
               unregistration or an elimination, so it drifts above the number of
               people actually sitting down. Labelling it "Players" presented a
               registration total as live seat truth. The seat truth lives in
               tournament_players and is what TournamentInfoPanel reads. */}
-          <span className="sc-label sc-ink--blue">Entries</span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {tournament.registeredPlayers.toLocaleString()}
-            {entryCapacity !== null ? `/${entryCapacity.toLocaleString()}` : ''}
-          </span>
-        </div>
-
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">Starting Chips</span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {tournament.startingChips ? compactChips(tournament.startingChips) : '-'}
-            {structureFacts.startingDepthBB !== null &&
-              ` · ${structureFacts.startingDepthBB.toLocaleString(undefined, { maximumFractionDigits: 2 })} BB`}
-          </span>
-        </div>
-
-        {tournament.gameType && (
-          <div className={styles.row}>
-            <span className="sc-label sc-ink--blue">Game</span>
+            <span className="sc-label sc-ink--blue">Entries</span>
             <span className={`${styles.value} sc-ink--silver`}>
-              {(
-                {
-                  NLH: 'NLH',
-                  FLH: 'FLH',
-                  PLO4: 'PLO4',
-                  PLO5: 'PLO5',
-                  PLO6: 'PLO6',
-                  PLO8: 'PLO8',
-                  PLO_HILO: 'PLO Hi-Lo',
-                  SHORT_DECK: 'Short Deck',
-                  PINEAPPLE: 'Crazy Pineapple',
-                  MIXED: 'Mixed',
-                } as Record<string, string>
-              )[tournament.gameType ?? ''] ?? tournament.gameType}
+              {tournament.registeredPlayers.toLocaleString()}
+              {entryCapacity !== null ? `/${entryCapacity.toLocaleString()}` : ''}
             </span>
           </div>
-        )}
 
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">Structure</span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {structureFacts.speedLabel ?? 'Unconfirmed'}
-          </span>
-        </div>
-
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">Levels</span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {mttClockDescription(structureFacts)}
-          </span>
-        </div>
-
-        {hasLateReg &&
-          (tournament.status === 'registering' ||
-            (tournament.status === 'running' && lateRegActive)) && (
-            <div className={styles.row}>
-              <span className="sc-label sc-ink--blue">Late Reg</span>
-              <span className={`${styles.value} sc-ink--gold`}>
-                {tournament.status === 'running'
-                  ? lateRegCountdown || 'Open'
-                  : lateRegLevels > 0
-                    ? tournament.add_on_available === true
-                      ? `Through Lvl ${lateRegLevels} + Add-On`
-                      : `Through Lvl ${lateRegLevels}`
-                    : tournament.add_on_available === true
-                      ? 'Through The Add-On'
-                      : `${lateRegMinutes} Min`}
-              </span>
-            </div>
-          )}
-
-        {tournament.status === 'bagged' && stageNote && (
-          <div className={`${styles.row} ${styles.rowStacked}`}>
-            <span className="sc-label sc-ink--blue">{stageNote.headline}</span>
-            <span className={`${styles.value} sc-ink--gold`}>
-              {stageNote.next ?? 'Next Day To Be Announced'}
-            </span>
-          </div>
-        )}
-
-        {startsWhenFull && tournament.status === 'registering' && (
           <div className={styles.row}>
-            <span className="sc-label sc-ink--blue">Starts</span>
-            <span className={`${styles.value} sc-ink--silver`}>When Full</span>
+            <span className="sc-label sc-ink--blue">Starting Chips</span>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {tournament.startingChips ? compactChips(tournament.startingChips) : '-'}
+              {structureFacts.startingDepthBB !== null &&
+                ` · ${structureFacts.startingDepthBB.toLocaleString(undefined, { maximumFractionDigits: 2 })} BB`}
+            </span>
           </div>
-        )}
 
-        {!startsWhenFull &&
-          tournament.startsAt &&
-          tournament.status === 'registering' &&
-          countdown && (
+          {tournament.gameType && (
             <div className={styles.row}>
-              <span className="sc-label sc-ink--blue">Starts In</span>
-              <span
-                className={`${styles.value} ${isCountdownCritical ? 'sc-ink--red' : 'sc-ink--silver'}`}
-              >
-                {countdown}
+              <span className="sc-label sc-ink--blue">Game</span>
+              <span className={`${styles.value} sc-ink--silver`}>
+                {(
+                  {
+                    NLH: 'NLH',
+                    FLH: 'FLH',
+                    PLO4: 'PLO4',
+                    PLO5: 'PLO5',
+                    PLO6: 'PLO6',
+                    PLO8: 'PLO8',
+                    PLO_HILO: 'PLO Hi-Lo',
+                    SHORT_DECK: 'Short Deck',
+                    PINEAPPLE: 'Crazy Pineapple',
+                    MIXED: 'Mixed',
+                  } as Record<string, string>
+                )[tournament.gameType ?? ''] ?? tournament.gameType}
               </span>
             </div>
           )}
 
-        <div className={styles.row}>
-          <span className="sc-label sc-ink--blue">Seats</span>
-          <span className={`${styles.value} sc-ink--silver`}>
-            {hasMaxPlayers
-              ? isFull
-                ? 'Tournament Full'
-                : `${spotsRemaining.toLocaleString()} ${spotsRemaining === 1 ? 'Spot' : 'Spots'} Remaining`
-              : unlimited
-                ? 'Open Entry'
-                : 'Entry Details Unavailable'}
-          </span>
-        </div>
-      </div>
-      {!['finished', 'completed', 'cancelled'].includes(
-        String(tournament.status || '').toLowerCase()
-      ) && (
-        <div className={styles.inviteRow}>
-          <button
-            type="button"
-            className={styles.inviteBtn}
-            data-testid="tournament-card-invite-btn"
-            onClick={handleInviteToTournament}
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            <InviteLinkIcon />
-            <span>
-              {inviteFeedback === 'copied'
-                ? 'Invite Link Copied'
-                : inviteFeedback === 'shared'
-                  ? 'Invite Link Shared'
-                  : 'Invite To Game'}
+          <div className={styles.row}>
+            <span className="sc-label sc-ink--blue">Structure</span>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {structureFacts.speedLabel ?? 'Unconfirmed'}
             </span>
-          </button>
-          {inviteFallbackUrl && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+          </div>
+
+          <div className={styles.row}>
+            <span className="sc-label sc-ink--blue">Levels</span>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {mttClockDescription(structureFacts)}
+            </span>
+          </div>
+
+          {hasLateReg &&
+            (tournament.status === 'registering' ||
+              (tournament.status === 'running' && lateRegActive)) && (
+              <div className={styles.row}>
+                <span className="sc-label sc-ink--blue">Late Reg</span>
+                <span className={`${styles.value} sc-ink--gold`}>
+                  {tournament.status === 'running'
+                    ? lateRegCountdown || 'Open'
+                    : lateRegLevels > 0
+                      ? tournament.add_on_available === true
+                        ? `Through Lvl ${lateRegLevels} + Add-On`
+                        : `Through Lvl ${lateRegLevels}`
+                      : tournament.add_on_available === true
+                        ? 'Through The Add-On'
+                        : `${lateRegMinutes} Min`}
+                </span>
+              </div>
+            )}
+
+          {tournament.status === 'bagged' && stageNote && (
+            <div className={`${styles.row} ${styles.rowStacked}`}>
+              <span className="sc-label sc-ink--blue">{stageNote.headline}</span>
+              <span className={`${styles.value} sc-ink--gold`}>
+                {stageNote.next ?? 'Next Day To Be Announced'}
+              </span>
             </div>
           )}
+
+          {startsWhenFull && tournament.status === 'registering' && (
+            <div className={styles.row}>
+              <span className="sc-label sc-ink--blue">Starts</span>
+              <span className={`${styles.value} sc-ink--silver`}>When Full</span>
+            </div>
+          )}
+
+          {!startsWhenFull &&
+            tournament.startsAt &&
+            tournament.status === 'registering' &&
+            countdown && (
+              <div className={styles.row}>
+                <span className="sc-label sc-ink--blue">Starts In</span>
+                <span
+                  className={`${styles.value} ${isCountdownCritical ? 'sc-ink--red' : 'sc-ink--silver'}`}
+                >
+                  {countdown}
+                </span>
+              </div>
+            )}
+
+          <div className={styles.row}>
+            <span className="sc-label sc-ink--blue">Seats</span>
+            <span className={`${styles.value} sc-ink--silver`}>
+              {hasMaxPlayers
+                ? isFull
+                  ? 'Tournament Full'
+                  : `${spotsRemaining.toLocaleString()} ${spotsRemaining === 1 ? 'Spot' : 'Spots'} Remaining`
+                : unlimited
+                  ? 'Open Entry'
+                  : 'Entry Details Unavailable'}
+            </span>
+          </div>
         </div>
-      )}
-    </Section>
+        {/* Owner ruling (2026-11-23): MTT display cards on the front-facing
+          tournament lobby list do not show an Invite link button — Invite
+          links for MTTs live inside the clicked-in tournament lobby
+          (TournamentDetails). Seat-first cards (SNG, Spin) and Satellites keep
+          their direct Invite control. */}
+        {['sng', 'spin', 'satellite'].includes(tournament.type) &&
+          !['finished', 'completed', 'cancelled'].includes(
+            String(tournament.status || '').toLowerCase()
+          ) && (
+            <div className={styles.inviteRow}>
+              <button
+                type="button"
+                className={styles.inviteBtn}
+                data-testid="tournament-card-invite-btn"
+                onClick={handleInviteToTournament}
+                onDoubleClick={(e) => e.stopPropagation()}
+              >
+                <InviteLinkIcon />
+                <span>
+                  {inviteFeedback === 'copied'
+                    ? 'Invite Link Copied'
+                    : inviteFeedback === 'shared'
+                      ? 'Invite Link Shared'
+                      : 'Invite To Game'}
+                </span>
+              </button>
+              {inviteFallbackUrl && (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
+                </div>
+              )}
+            </div>
+          )}
+      </Section>
     </>
   );
 }

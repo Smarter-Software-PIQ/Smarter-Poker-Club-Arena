@@ -74,3 +74,27 @@ Official REPLAY-V2 run (`2026-11-22`, checkout `06f1ebf461e4`, live 67-row switc
   - `horse_only`: `n = 11`, `+218.68 bb`, `+19.88 +/- 22.35 bb` (`mean - SE = -2.47`).
 - **Verdict-only receipt split (multiway vs heads-up):** `hu_cash_matched_commitment*` nodes scored `19 fixed / 6 newly wrong` (`covered` `11/2`, base `6/3`, `wager` `2/1`; `phase13_*_multiway_commitment_floor` `1/0`), whereas `ft_semibluff_raise_skip_multiway` scored `0 fixed / 12 newly wrong` and `(no receipt)` scored `7 fixed / 13 newly wrong` (driven by multiway `flop fold -> call` transitions that graded strongly positive on real cards; `plo6_facing_bet_priced_v2_*` receipts are now wired in `HorseLogic.ts` and `HorseDataLedger.ts` for future replay attribution).
 - **Disposition:** stays `OFF` and `Evidence NOT MET` pending verdict-only / real-card disposition.
+
+### Committed-SHA parity re-run (2026-11-22, Antigravity Coordinator)
+
+Re-run on committed Turn 5 head `0b5e0a8bb96e` with the same inputs as the official run (set `HVH48-C`, memory as of decision, scorer `5302af2ab3e`, seeds `1,7,42`, switch snapshot `prod-switch-20261122T0336Z.json`, `0` arm errors, `0` illegal / refused; hole-card scratch deleted after scoring).
+
+- Verdict-only: reproduced exactly (`fixed 25`, `newlyWrong 30`, `changed 68`, `unchanged 10110`, `unjudged 8`, `replayed 10178 of 11558`).
+- Real-card EV: `+809.56 bb` over `68 / 68` graded nodes (official run `+799.49 bb`). `people` `n = 21`, `+207.23 bb` (`mean - SE = -4.81`); `mixed` `n = 36`, `+388.57 bb` (`mean - SE = +6.64`); `horse_only` `n = 11`, `+213.75 bb`.
+- Split by field (multiway means two or more live opponents at the decision):
+
+| Field    | Street and change | Changed | Fixed / newly wrong | Real-card bb | Mean +/- SE per node |
+| -------- | ----------------- | ------- | ------------------- | ------------ | -------------------- |
+| Heads-up | flop fold to call | 10      | 7 / 1               | +218.44      | +21.84 +/- 15.70     |
+| Heads-up | turn fold to call | 4       | 4 / 0               | +24.58       | +6.15 +/- 2.06       |
+| Heads-up | river (all)       | 17      | 8 / 8               | +178.43      | +10.50 +/- 21.23     |
+| Multiway | flop fold to call | 24      | 3 / 15              | +54.23       | +2.26 +/- 3.63       |
+| Multiway | turn fold to call | 7       | 1 / 6               | +152.37      | +21.77 +/- 8.38      |
+| Multiway | river             | 6       | 2 / 0               | +181.50      | +30.25 +/- 15.04     |
+
+- Finding: the verdict-only harm is concentrated in multiway flop and turn `fold -> call` (`4` fixed / `21` newly wrong), but real-card EV on the same nodes is positive (`+206.6 bb`; multiway turn significantly positive). The `ft_semibluff_raise_skip_multiway` subset is `14` changed, `0` fixed / `12` newly wrong, `-15.52 bb` real-card (noise). A multiway flop/turn exclusion is therefore not supported by real-card EV and was not built. The two measures also disagree on heads-up rivers (river `fold -> call` `7 / 0` verdict-only but `-164.14 bb` real-card; river `call -> fold` `0 / 8` verdict-only but `+262.07 bb` real-card), so any V3 must be decided on real-card EV and the declared field results, not verdict-only alone.
+- Against the REPLAY-6 declared bar: `changed >= 20` MET (`68`); `0` illegal / refused MET; base fidelity `>= 70%` MET (`77.3%`); `fixed >= 2 x newlyWrong` NOT MET (`25` vs `60`). Disposition unchanged: `OFF`, `Evidence NOT MET`.
+
+### V3 trial: measured heads-up river bettor range (2026-11-23, not adopted)
+
+A V3 behind this same option priced heads-up river first bets against a range measured from `8,588` production PLO6 cash heads-up river first bets called to showdown (Oct 24 to Nov 23, read-only, audit hands excluded): big bets (`0.7` to `1.1` pot) are far more nut-heavy than V2 assumes (`42%` in the top `2%`, `85%` in the top `10%`) and small and medium bets are wider. Against V2 on the same base and seeds (`0` all-in-or-fold actions, errors or fallbacks): `HVH48-C` verdict-only `31 / 30 / 77` vs `25 / 30 / 68`; real-card `+646.60 bb` vs `+813.09 bb`; human-like league (`100` sessions) `+6.50 +/- 3.68` vs `+9.59 +/- 3.43 bb/100` against off; horse mirror (`40` sessions) `+4.23 +/- 1.52` vs `+3.62 +/- 1.26`. Paired V3 minus V2: `-3.10 +/- 2.62` human-like, `+0.61 +/- 1.07` mirror. Only `16` of the measured bets were made by people, so the measured range describes horse betting; V3 helped against horse ranges and hurt against human-like bettors and was not committed. A real fix needs people's own PLO6 river ranges (not yet measurable) and a per-bettor adaptive range rather than any rule keyed to whether the bettor is a person; the measurement should also include bets that drew a fold.

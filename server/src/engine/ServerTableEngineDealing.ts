@@ -2156,8 +2156,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         startBlindRead();
         // withStepBudget names its own phase; the felt is still resting.
         this.setLoopPhase('next_hand_rest');
-        const left = (this.nextHandNotBeforeMs ?? Date.now()) - Date.now();
-        if (left > 0) await this.sleep(left);
+        // Not before the deadline: one timer can wake 1-2 ms short of it,
+        // which started the next hand at rest - 1 ms (2026-11-23,
+        // ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS).
+        if (this.nextHandNotBeforeMs !== null) await this.sleepUntil(this.nextHandNotBeforeMs);
       }
       this.nextHandNotBeforeMs = null;
     }

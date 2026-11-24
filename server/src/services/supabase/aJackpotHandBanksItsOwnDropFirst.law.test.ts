@@ -169,4 +169,101 @@ describe('a jackpot hand banks its own drop before it asks where the drop went',
     // A non-retryable refusal makes one attempt, and says so.
     expect(raiseFinancialAlert.mock.calls[0][3]).toMatchObject({ attempts: 1 });
   });
+
+  it.each(['main', 'mini'] as const)(
+    'closes the concurrent-banker race when the drop banks between the receipt and pending reads (%s)',
+    async (kind) => {
+      // Reproduce incident 7a0c2e25 (hand #60701395): Read #1 on bbj_contributions
+      // misses while the projection banker is mid-flight; before Read #2 on
+      // hand_bank_obligation_pending runs, the banker atomically inserts
+      // bbj_contributions and deletes hand_bank_obligation_pending.
+      const baseFrom = from.getMockImplementation()!;
+      let contributionReads = 0;
+      from.mockImplementation((name: string) => {
+        if (name === 'hand_bank_obligation_pending' && contributionReads === 1) {
+          rows.hand_bank_obligation_pending = [];
+          rows.bbj_contributions = [
+            { table_id: 'table-1', hand_number: 60218398, pool_id: 'union-pool' },
+          ];
+        }
+        const q = baseFrom(name);
+        if (name === 'bbj_contributions') {
+          const origMaybeSingle = q.maybeSingle;
+          q.maybeSingle = async () => {
+            contributionReads++;
+            return origMaybeSingle();
+          };
+        }
+        return q;
+      });
+
+      const callParams =
+        kind === 'main'
+          ? { ...params, kind: undefined, tierId: undefined, payoutTotalPercent: 25 }
+          : params;
+      const outcome = await processBBJPayout(callParams);
+
+      expect(outcome.status).toBe('paid');
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(rpc).toHaveBeenCalledWith(
+        kind === 'mini' ? 'fn_bbj_mini_payout' : 'bbj_atomic_payout_v2',
+        expect.objectContaining({ p_pool_id: 'union-pool' })
+      );
+      expect(settle).toHaveBeenCalledTimes(1);
+      expect(raiseFinancialAlert).not.toHaveBeenCalled();
+    }
+  );
+
+  it('pays when a concurrent banker finishes before our banking RPC runs (status absent)', async () => {
+    const baseRpc = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name: string, args: Row) => {
+      if (name === 'fn_ca_bank_pending_hand_obligations') {
+        rows.hand_bank_obligation_pending = [];
+        rows.bbj_contributions = [
+          { table_id: 'table-1', hand_number: 60218398, pool_id: 'union-pool' },
+        ];
+        return { data: { status: 'absent', items: [] }, error: null };
+      }
+      return baseRpc(name, args);
+    });
+
+    const outcome = await processBBJPayout(params);
+    expect(outcome.status).toBe('paid');
+    expect(rpc).toHaveBeenCalledWith(
+      'fn_bbj_mini_payout',
+      expect.objectContaining({ p_pool_id: 'union-pool' })
+    );
+    expect(raiseFinancialAlert).not.toHaveBeenCalled();
+  });
+
+  it('refuses ambiguous bbj_contributions on the post-pending re-read without substituting a pool', async () => {
+    const baseFrom = from.getMockImplementation()!;
+    let contributionReads = 0;
+    from.mockImplementation((name: string) => {
+      if (name === 'hand_bank_obligation_pending' && contributionReads === 1) {
+        rows.hand_bank_obligation_pending = [];
+        rows.bbj_contributions = [
+          { table_id: 'table-1', hand_number: 60218398, pool_id: 'union-pool' },
+          { table_id: 'table-1', hand_number: 60218398, pool_id: 'other-pool' },
+        ];
+      }
+      const q = baseFrom(name);
+      if (name === 'bbj_contributions') {
+        const origMaybeSingle = q.maybeSingle;
+        q.maybeSingle = async () => {
+          contributionReads++;
+          return origMaybeSingle();
+        };
+      }
+      return q;
+    });
+
+    const outcome = await processBBJPayout(params);
+    expect(outcome.status).toBe('queued');
+    expect(outcome.status === 'queued' && outcome.lastError).toContain(
+      'bbj_contributions destination read failed: multiple rows'
+    );
+    expect(rpc).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+  });
 });

@@ -2745,11 +2745,13 @@ test.describe('every top chair stands on the rail', () => {
 import { registerAddOnNoticeContainmentCases } from './support/addOnNoticeContainmentCases';
 import { registerObserverAvatarSizingCases } from './support/observerAvatarSizingCases';
 
-// These cold allocations share the same renderer CPU budget. Separate default
-// groups still competed on hosted workers and starved two 60s fixtures. Keep
-// this bounded family together; default mode runs every case after a failure,
-// with all existing assertions and individual deadlines unchanged.
-test.describe('cold observer and phone geometry', () => {
+// Each cold family keeps its own `mode: 'default'` group so its renderer-heavy
+// fixtures run sequentially without starving one another on hosted workers,
+// while staying well below a CSS Beat shard's ~67-test width. Keeping all 69
+// cases inside a single top-level default group made Playwright assign one
+// indivisible 69-test block and leave an adjacent shard with zero tests
+// (tests/no-css-beat-shard-is-ever-empty.law.test.ts).
+test.describe('cold observer canvases (2-9 seats)', () => {
   test.describe.configure({ mode: 'default' });
   // Owner screenshot October 22: the spectator phone must use the broad, tall
   // desktop preview instead of inheriting the seated player's compact canvas.
@@ -3001,6 +3003,10 @@ test.describe('cold observer and phone geometry', () => {
         });
     });
   }
+});
+
+test.describe('cold phone captions, bubbles and notice containment', () => {
+  test.describe.configure({ mode: 'default' });
 
   // Shared notice containment is part of the existing felt browser gate.
   registerAddOnNoticeContainmentCases();
@@ -3218,6 +3224,10 @@ test.describe('cold observer and phone geometry', () => {
       expect(result.ellipsis).not.toBe('ellipsis');
     }
   });
+});
+
+test.describe('cold phone paint coverage, crowns and motion', () => {
+  test.describe.configure({ mode: 'default' });
 
   test('painted coverage rejects opaque avatar pixels through rotation and clipping, while transparent canvas stays clear', async ({
     page,
@@ -3567,16 +3577,20 @@ test.describe('cold observer and phone geometry', () => {
     expect(result.potWidth).toBeGreaterThan(0);
     await page.screenshot({ path: testInfo.outputPath('phone-energy-cues.png') });
   });
+});
 
-  // Spectator artwork shares the occupied bottom chair's unchanged display size.
-  test.describe('observer avatar artwork allocations', () => {
-    // Match the dense-ring groups above: cold portrait decoding and layout must
-    // not compete across four workers for the same browser CPU budget. Default
-    // mode retains every independent case after a failure, all assertions and
-    // each existing 60s deadline. The earlier independent suites stay parallel/sharded.
-    test.describe.configure({ mode: 'default' });
-    registerObserverAvatarSizingCases();
-  });
+// Spectator artwork shares the occupied bottom chair's unchanged display size.
+test.describe('observer avatar artwork allocations', () => {
+  // Match the dense-ring groups above: cold portrait decoding and layout must
+  // not compete across four workers for the same browser CPU budget. Default
+  // mode retains every independent case after a failure, all assertions and
+  // each existing 60s deadline. The earlier independent suites stay parallel/sharded.
+  test.describe.configure({ mode: 'default' });
+  registerObserverAvatarSizingCases();
+});
+
+test.describe('cold scaled phone full ring and dealer geometry', () => {
+  test.describe.configure({ mode: 'default' });
 
   test('six-max dealer stays fixed through hero wagers and sizing tools stay behind the raise panel', async ({
     page,

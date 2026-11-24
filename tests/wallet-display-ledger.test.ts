@@ -67,6 +67,7 @@ describe('TransactionHistory category labels', () => {
     expect(formatCategory('bounty')).toBe('Bounty');
     expect(formatCategory('rakeback')).toBe('Rakeback');
     expect(formatCategory('addon_refund')).toBe('Add-On Refund');
+    expect(formatCategory('promo_reversal')).toBe('Promo Chips Returned To Sponsor');
   });
 
   it('degrades an unknown category to English, never to the enum or to blank', () => {

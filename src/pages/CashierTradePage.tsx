@@ -1,4 +1,5 @@
 import { BUY_IN_LADDER } from '../utils/buyIn';
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../components/legal/promoPlayThroughTerms';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import {
   SEND_SOURCE_LABELS,
@@ -2763,11 +2764,38 @@ function CashierTradeWorkspace() {
   const promoSourceSelected =
     (amountModal === 'ticket' && ticketSource === 'promo_wallet') ||
     (amountModal === 'send' && sendSource === 'promo_wallet');
+  const promoTargetIds =
+    amountModal === 'send'
+      ? picked
+          .filter((target) => {
+            if (target.userId === user?.id) return false;
+            const recovered =
+              transferRecovery?.submissionId === submissionIdRef.current
+                ? transferRecovery.destinations?.[target.userId]
+                : undefined;
+            return (recovered ?? recipientWallets[target.userId]) === 'promo_wallet';
+          })
+          .map((target) => target.userId)
+      : [];
+  const promoDestinationSelected = promoTargetIds.length > 0;
+  const promoAnyDestinationSelected =
+    amountModal === 'send' &&
+    picked.some((target) => {
+      const recovered =
+        transferRecovery?.submissionId === submissionIdRef.current
+          ? transferRecovery.destinations?.[target.userId]
+          : undefined;
+      return (recovered ?? recipientWallets[target.userId]) === 'promo_wallet';
+    });
+  const promoCappedSelected = promoSourceSelected || promoDestinationSelected;
+  const promoTargetKey = JSON.stringify(promoTargetIds);
   useEffect(() => {
     setPromoAllowance(null);
     setPromoAllowanceUnread(false);
-    if (!promoSourceSelected || !clubUuid || !user?.id || !isAgentRole(myRole)) return;
-    const ids = (JSON.parse(pickedWalletKey) as string[]).filter((id) => id !== user.id);
+    if (!promoCappedSelected || !clubUuid || !user?.id || !isAgentRole(myRole)) return;
+    const ids = promoSourceSelected
+      ? (JSON.parse(pickedWalletKey) as string[]).filter((id) => id !== user.id)
+      : (JSON.parse(promoTargetKey) as string[]);
     if (ids.length === 0) return;
     let live = true;
     void (async () => {
@@ -2803,11 +2831,21 @@ function CashierTradeWorkspace() {
     return () => {
       live = false;
     };
-  }, [promoSourceSelected, clubUuid, user?.id, pickedWalletKey, myRole, promoAllowanceEpoch]);
+  }, [
+    promoCappedSelected,
+    promoSourceSelected,
+    clubUuid,
+    user?.id,
+    pickedWalletKey,
+    promoTargetKey,
+    myRole,
+    promoAllowanceEpoch,
+  ]);
   /** The smallest remaining allowance among the selected downlines, if read. */
   const promoAllowanceFloor = (() => {
     if (!promoAllowance) return null;
     const known = picked
+      .filter((target) => promoSourceSelected || promoTargetIds.includes(target.userId))
       .map((target) => promoAllowance[target.userId])
       .filter((left): left is number => typeof left === 'number');
     return known.length > 0 ? Math.min(...known) : null;
@@ -2825,8 +2863,10 @@ function CashierTradeWorkspace() {
           ? null
           : (ticketValues.find((value) => value > promoAllowanceFloor) ?? null)));
   const promoShortfalls =
-    promoSourceSelected && promoAllowance && picked.length > 1
+    (promoSourceSelected && promoAllowance && picked.length > 1) ||
+    (promoDestinationSelected && promoAllowance && picked.length > 1)
       ? picked.flatMap((target) => {
+          if (!promoSourceSelected && !promoTargetIds.includes(target.userId)) return [];
           const left = promoAllowance[target.userId];
           const wanted =
             amountModal === 'ticket'
@@ -6503,45 +6543,47 @@ function CashierTradeWorkspace() {
                     </>
                   );
                 })()}
-                {((amountModal === 'send' && sendSource === 'promo_wallet') ||
-                  (amountModal === 'ticket' && ticketSource === 'promo_wallet')) &&
-                  isAgentRole(myRole) && (
-                    <>
-                      <p>
-                        {
-                          'Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All Destination Wallets Share This Limit.'
-                        }
+                {amountModal === 'send' &&
+                  (sendSource === 'promo_wallet' ||
+                    sendSource === 'club_promo_wallet' ||
+                    promoAnyDestinationSelected) && <p>{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>}
+                {promoCappedSelected && isAgentRole(myRole) && (
+                  <>
+                    <p>
+                      {
+                        'Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All Funding And Destination Wallets Share This Limit.'
+                      }
+                    </p>
+                    {promoAllowanceFloor !== null && (
+                      <p role="status" title="Promo Allowance Remaining">
+                        {picked.length === 1
+                          ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
+                          : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
                       </p>
-                      {promoAllowanceFloor !== null && (
-                        <p role="status" title="Promo Allowance Remaining">
-                          {picked.length === 1
-                            ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
-                            : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
-                        </p>
-                      )}
-                      {promoShortfalls.length > 0 && (
-                        <p role="status" title="Promo Allowance Below This Send">
-                          {`${
-                            amountModal === 'ticket' && promoShortfallValue !== null
-                              ? `Can Not Receive A ${exactChipFigure(promoShortfallValue)} Promo Ticket`
-                              : 'Can Not Receive Their Amount'
-                          }: ${promoShortfalls
-                            .slice(0, PROMO_SHORTFALL_NAMES)
-                            .map((row) => `${row.name} (${exactChipFigure(row.left)} Remaining)`)
-                            .join(', ')}${
-                            promoShortfalls.length > PROMO_SHORTFALL_NAMES
-                              ? `, And ${promoShortfalls.length - PROMO_SHORTFALL_NAMES} More`
-                              : ''
-                          }.`}
-                        </p>
-                      )}
-                      {promoAllowanceUnread && (
-                        <p role="status">
-                          {'Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.'}
-                        </p>
-                      )}
-                    </>
-                  )}
+                    )}
+                    {promoShortfalls.length > 0 && (
+                      <p role="status" title="Promo Allowance Below This Send">
+                        {`${
+                          amountModal === 'ticket' && promoShortfallValue !== null
+                            ? `Can Not Receive A ${exactChipFigure(promoShortfallValue)} Promo Ticket`
+                            : 'Can Not Receive Their Amount'
+                        }: ${promoShortfalls
+                          .slice(0, PROMO_SHORTFALL_NAMES)
+                          .map((row) => `${row.name} (${exactChipFigure(row.left)} Remaining)`)
+                          .join(', ')}${
+                          promoShortfalls.length > PROMO_SHORTFALL_NAMES
+                            ? `, And ${promoShortfalls.length - PROMO_SHORTFALL_NAMES} More`
+                            : ''
+                        }.`}
+                      </p>
+                    )}
+                    {promoAllowanceUnread && (
+                      <p role="status">
+                        {'Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.'}
+                      </p>
+                    )}
+                  </>
+                )}
                 {amountModal === 'diamonds' && user?.id && picked.length === 1 ? (
                   <DiamondWalletTransfer
                     key={`${user?.id}:${picked[0].userId}`}
