@@ -74,3 +74,108 @@ export const SCOPE_ALL_GAMES = SCOPE_CASH;
 export function aggressionFactorLabel(basis: 'postflop' | 'all_streets' | undefined): string {
   return basis === 'postflop' ? 'Aggression Factor (Postflop)' : 'Aggression Factor';
 }
+
+export const OVERVIEW_RATE_FIELDS = new Set([
+  'vpip',
+  'pfr',
+  'three_bet_percent',
+  'fold_to_three_bet',
+  'cbet_flop',
+  'wtsd',
+  'itm_percent',
+  'roi',
+]);
+
+const AVAILABILITY_EXPORT_KEYS = [
+  'three_bet_percent',
+  'fold_to_three_bet',
+  'cbet_flop',
+  'aggression_factor',
+  'wtsd',
+  'hours_played',
+] as const;
+
+export function buildStatsExportMetadata(
+  exportContext: {
+    clubName: string;
+    timezone: string;
+    asset: string;
+    contract: {
+      contract_version: number | null;
+      generated_at: string | null;
+      coverage: {
+        analysis_hand_cap: number | null;
+        analysis_hands_capped: boolean;
+        lifetime_index_complete: boolean;
+        rollup_covered_through: string | null;
+      };
+      quality: {
+        club_breakdown_starts_at: string | null;
+        cash_money_source: string;
+      };
+    };
+    privacyPresentationMode: boolean;
+  },
+  clubId: string | null,
+  rangeLabel: string
+) {
+  const { coverage, quality, contract_version, generated_at } = exportContext.contract;
+  return {
+    clubId,
+    clubName: exportContext.clubName,
+    range: rangeLabel === 'All' ? 'All Time' : `Last ${rangeLabel}`,
+    timezone: exportContext.timezone,
+    asset: exportContext.asset,
+    unit: exportContext.asset,
+    coverage: JSON.stringify({
+      analysis_hand_cap: coverage.analysis_hand_cap,
+      analysis_hands_capped: coverage.analysis_hands_capped,
+      lifetime_index_complete: coverage.lifetime_index_complete,
+      rollup_covered_through: coverage.rollup_covered_through,
+      club_breakdown_starts_at: quality.club_breakdown_starts_at,
+    }),
+    source: quality.cash_money_source,
+    schemaVersion: contract_version,
+    generatedAt: generated_at,
+    privacyPresentationMode: exportContext.privacyPresentationMode,
+  };
+}
+
+export function buildOverviewExportPayload(
+  overall: Record<string, unknown>,
+  availability: Partial<Record<(typeof AVAILABILITY_EXPORT_KEYS)[number], boolean>>,
+  tournaments: {
+    entries: number;
+    cashes: number;
+    wins: number;
+    best_finish: number | null;
+    total_buyins: number;
+    total_winnings: number;
+    total_prizes: number;
+    total_bounty_winnings: number;
+    total_bounties: number;
+    net_profit: number;
+    itm_percent: number;
+    roi: number;
+  }
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    ...overall,
+    tournament_entries: tournaments.entries,
+    tournament_cashes: tournaments.cashes,
+    tournament_wins: tournaments.wins,
+    tournament_best_finish: tournaments.best_finish ?? '',
+    tournament_total_buyins: tournaments.total_buyins,
+    tournament_total_winnings: tournaments.total_winnings,
+    tournament_total_prizes: tournaments.total_prizes,
+    tournament_total_bounty_winnings: tournaments.total_bounty_winnings,
+    tournament_total_bounties: tournaments.total_bounties,
+    tournament_net_profit: tournaments.net_profit,
+    itm_percent: tournaments.itm_percent,
+    roi: tournaments.roi,
+  };
+  for (const key of AVAILABILITY_EXPORT_KEYS) {
+    if (!availability[key]) payload[key] = 'Unavailable';
+  }
+  return payload;
+}
