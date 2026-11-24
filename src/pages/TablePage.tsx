@@ -5557,7 +5557,7 @@ function LiveTablePage({
       (heroSitsOutPerRow ||
         (!heroWaitingForButton &&
           !heroWaitingForEntryBlind &&
-          heroEntrySeat?.status === 'sitting_out'))) ||
+          tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out'))) ||
     (!!lightningRoom && lightningSitOut.sittingOut);
   /**
    * A PROVISIONAL stamp, replaced by the server's the moment the seat read
@@ -10815,6 +10815,13 @@ function LiveTablePage({
     playTurnAlert,
   } = useTableSound();
 
+  const autoTopUpEnabledRef = useRef(isAutoRebuyEnabled);
+  autoTopUpEnabledRef.current = isAutoRebuyEnabled;
+
+  useEffect(() => {
+    onTableInfoUpdate?.({ isAutoRebuyEnabled });
+  }, [isAutoRebuyEnabled, onTableInfoUpdate]);
+
   const tournamentPurchaseScope = tableState.tournamentId ?? 'no-tournament';
   const [tournamentAutoRebuy, setTournamentAutoRebuy] = usePlayerPreference(
     'table:autoTournamentRebuy',
@@ -10834,17 +10841,10 @@ function LiveTablePage({
 
   useEffect(() => {
     onTableInfoUpdate?.({
-      isAutoRebuyEnabled,
       tournamentAutoRebuy: canSetTournamentAutoPurchase ? tournamentAutoRebuy : undefined,
       tournamentAutoAddOn: canSetTournamentAutoPurchase ? tournamentAutoAddOn : undefined,
     });
-  }, [
-    isAutoRebuyEnabled,
-    canSetTournamentAutoPurchase,
-    tournamentAutoRebuy,
-    tournamentAutoAddOn,
-    onTableInfoUpdate,
-  ]);
+  }, [canSetTournamentAutoPurchase, tournamentAutoRebuy, tournamentAutoAddOn, onTableInfoUpdate]);
 
   // All-in dramatic mode
   const [isAllInMode, setIsAllInMode] = useState(false);
@@ -29274,8 +29274,6 @@ function LiveTablePage({
     autoTopUpKeyRef.current = null;
     autoTopUpRefusedForHandRef.current = null;
   }
-  const autoTopUpEnabledRef = useRef(isAutoRebuyEnabled);
-  autoTopUpEnabledRef.current = isAutoRebuyEnabled;
   useEffect(
     () => () => {
       // Late funding replies belong to the departed mount, even if the next table has the same ID.
@@ -29784,11 +29782,13 @@ function LiveTablePage({
     Number.isFinite(addOnPeriod.walletBalance) &&
     addOnPeriod.walletBalance < addOnPrice;
   useEffect(() => {
-    if (autoRebuyInsufficient) toast.info('You Need More Chips To Auto Rebuy');
-  }, [autoRebuyInsufficient, toast]);
+    if (autoRebuyInsufficient)
+      toast.info(`You Need More ${seatUnits(tableState.arenaAsset)} To Auto Rebuy`);
+  }, [autoRebuyInsufficient, tableState.arenaAsset, toast]);
   useEffect(() => {
-    if (autoAddOnInsufficient) toast.info('You Need More Chips For Auto Add-On');
-  }, [autoAddOnInsufficient, toast]);
+    if (autoAddOnInsufficient)
+      toast.info(`You Need More ${seatUnits(tableState.arenaAsset)} For Auto Add-On`);
+  }, [autoAddOnInsufficient, tableState.arenaAsset, toast]);
 
   const isModalActive = Boolean(
     tournamentWinner ||
