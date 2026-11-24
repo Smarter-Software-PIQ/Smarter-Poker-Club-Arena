@@ -94,6 +94,11 @@ on:
         required: false
         default: false
         type: boolean
+      release_freeze_override:
+        description: 'Outage only: why this file must install inside the 23:45-04:15 Chicago release schema freeze (at least 20 characters); empty = refused inside the freeze'
+        required: false
+        default: ''
+        type: string
   repository_dispatch:
     types: [apply-merged-migration]
 
@@ -171,6 +176,13 @@ jobs:
           RECOVER_TRANSIENT_OID: ${{ inputs.recover_transient_oid }}
           MAINTENANCE_THAW_REPAIR: ${{ inputs.maintenance_thaw_repair }}
           QUALIFY_RAKE_REPORT_HISTORY: ${{ inputs.qualify_rake_report_history }}
+          RELEASE_FREEZE_OVERRIDE: ${{ inputs.release_freeze_override }}
+          # A HAND INSTALL RESPECTS THE RELEASE SCHEMA FREEZE (2026-11-24): every
+          # run is held to the 23:45-04:15 Chicago freeze except a job-token
+          # repository_dispatch whose intent the step above proved (the merge
+          # dispatcher already chose a send time outside the freeze; a queue
+          # wait past 23:45 must not strand its file). scripts/ci/release-freeze-admission.mjs.
+          RELEASE_FREEZE_ENFORCED: ${{ (github.event_name == 'repository_dispatch' && (endsWith(github.actor, '[bot]') || endsWith(github.triggering_actor, '[bot]'))) && 'false' || 'true' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
@@ -260,6 +272,7 @@ jobs:
           node scripts/ci/install-older-merged-first.mjs \
             --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt \
             --migration "$MIGRATION_FILE" \
+            ${RELEASE_FREEZE_OVERRIDE:+--release-freeze-override "$RELEASE_FREEZE_OVERRIDE"} \
             ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee /tmp/apply.log
           code=${PIPESTATUS[0]}
           if [[ "$code" != "0" ]]; then
@@ -291,6 +304,7 @@ jobs:
           node scripts/ci/apply-recorded-migration.mjs \
             --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt \
             --migration "$MIGRATION_FILE" \
+            ${RELEASE_FREEZE_OVERRIDE:+--release-freeze-override "$RELEASE_FREEZE_OVERRIDE"} \
             "${recovery_args[@]}" \
             ${{ (inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') && '--dry-run' || '' }} 2>&1 | tee -a /tmp/apply.log
           code=${PIPESTATUS[0]}

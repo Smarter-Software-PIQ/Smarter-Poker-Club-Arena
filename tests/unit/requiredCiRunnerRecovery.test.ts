@@ -48,6 +48,12 @@ const calledNameStep = {
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py',
 };
+const owedMainStep = {
+  name: 'An owed Main starts before an extra table',
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  run: 'python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py',
+};
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
   expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
@@ -57,9 +63,13 @@ const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>
   // exactly, then removed with it so every original field stays fingerprinted.
   expect(job.steps[index + 1]).toStrictEqual(calledNameStep);
   expect(job.steps.filter((step) => step.name === calledNameStep.name)).toHaveLength(1);
-  expect(job.steps[index + 2]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
-  // Pin this exact added proof; every original engine job field stays fingerprinted.
-  job.steps.splice(index, 2);
+  // The owed-Main proof rides directly behind the seat-call proof (20261124072701): pinned
+  // exactly, then removed with the other two so every original field stays fingerprinted.
+  expect(job.steps[index + 2]).toStrictEqual(owedMainStep);
+  expect(job.steps.filter((step) => step.name === owedMainStep.name)).toHaveLength(1);
+  expect(job.steps[index + 3]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // Pin these exact added proofs; every original engine job field stays fingerprinted.
+  job.steps.splice(index, 3);
 };
 
 const backupSequenceStep = {

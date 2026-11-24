@@ -4584,6 +4584,31 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigBetIsPotShare: false, omahaBigBetSizeIsPriced: true },
     b: { omahaBigBetIsPotShare: true },
   })),
+  // 2026-11-22 PLO-OWNER lead-5 (default OFF, PLO4/PLO5 cash): omahaPricedRaiseNeverMakesNonNutRaise. Both arms run
+  // the two live turn and river raise rules it limits; a adds the option, b is today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_priced_raise_never_makes_non_nut_raise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaTurnRiverRaiseIsPriced: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+      omahaPricedRaiseNeverMakesNonNutRaise: true,
+    },
+    b: { omahaTurnRiverRaiseIsPriced: true, omahaTurnRiverRaiseNeedsNuts: true },
+  })),
+  // 2026-11-22 PLO-OWNER lead-5 (default OFF, PLO4/PLO5 cash): omahaLateFlattenedCallIsPriced. Both arms run the
+  // facing-bet verdict that prices the late-flattened river call; a adds the option, b is today. The spot is rare
+  // (once in 14,614 replayed states), so this card can show no difference.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_late_flattened_call_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaLateFlattenedCallIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5 (default OFF, PLO4/PLO5 cash): R2 omahaFlopBetIsPricedOnHisResponse
   // (replaces #13 omahaBareOverpairOopFlopCheck + HUD flop raiser/stabber range); a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

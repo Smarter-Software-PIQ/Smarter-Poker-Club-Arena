@@ -90,6 +90,7 @@ import {
   publishVarietyHolds,
   varietyFirstPlan,
   varietyHoldsThisCycle,
+  varietyOwedGamesThisCycle,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -303,6 +304,12 @@ interface CycleBeat {
   /** One entry per opening feeder this cycle reached: what the fleet counted,
    *  what it selected, what it seated and why it skipped the rest. */
   openingFeeders: OpeningFeederDiag[];
+  /** Games owed a start whose extra tables this cycle holds (HorseVarietyFirst).
+   *  The heartbeat carries them as `detail.variety_owed_games`; the database
+   *  reads the newest fresh beat so a waiting-list feeder of another game does
+   *  not take the slot an owed Main 1 needs (fn_cash_hourly_feeder_admissible,
+   *  20261124072701). Empty in a cycle that holds nothing. */
+  varietyOwedGames: string[];
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -1456,6 +1463,7 @@ export class HorseFleetManager {
       bookingsReadFailed: 0,
       bookedOut: 0,
       openingFeeders: [],
+      varietyOwedGames: [],
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -3112,17 +3120,22 @@ export class HorseFleetManager {
          hold belongs to fn_offer_open_seat's own sweep, which expires it and
          passes the seat to the next player in line. A draining table is still
          never answered, whatever the policy says. */
-      /* Nothing is held until this cycle has shown it can make an owed start
+      /* Nothing is held until this cycle has shown it is seating
          (HorseVarietyFirst.varietyHoldsThisCycle): not while the hourly read
-         is outstanding or failed, not in a withheld cycle, not when the cap
-         admits no owed table. */
+         is outstanding or failed, not in a withheld cycle. A FULL CAP HOLDS
+         (2026-11-24): the owed start is waiting for the next freed slot, and
+         an extra table must not take it. The owed games ride the heartbeat
+         so the database's feeder opener holds on the same list. */
       this.varietyHeldStarts = new Set();
       clearVarietyHolds();
+      beat.varietyOwedGames = [];
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
       const varietyHeld = varietyHoldsThisCycle(variety, {
         withheld: !!cycleWithheld,
-        admitted: (tableId) => hourlyAdmissions.has(tableId),
+      });
+      beat.varietyOwedGames = varietyOwedGamesThisCycle(variety, {
+        withheld: !!cycleWithheld,
       });
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
@@ -5465,6 +5478,7 @@ export class HorseFleetManager {
             horses_seated_cash: beat.horsesSeatedCash,
             gates: beat.gates,
             opening_feeders: beat.openingFeeders,
+            variety_owed_games: beat.varietyOwedGames,
           },
         },
       });

@@ -15,8 +15,8 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "d349c59e55f35a9f1f39b269664994f33df64fca4170ec209a5ae7d5b3c25fe6",
-    "scripts/ci/apply-recorded-migration.mjs": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
-    ".github/workflows/apply-merged-migration.yml": "e5de82524b9b5b649ec040613f26b197aa3239f3233d0e5fb5f605dfd99debe2",
+    "scripts/ci/apply-recorded-migration.mjs": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5",
+    ".github/workflows/apply-merged-migration.yml": "0415f45797830cf4f58f4b96e6ce690422e43cc7107a826e1c3328c6106808be",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -215,5 +215,18 @@
     "after": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
     "review": "Eight added lines only: one import of installerClaimRisks and isClaimChecked from scripts/ci/migration-installer-claim-shape.mjs and, directly after the unchanged install-budget refusal, a refusal (via the existing refused()) of a migration from 20261123024924 on whose install text runs SET CONSTRAINTS ALL IMMEDIATE outside the shape IF <condition> THEN SET CONSTRAINTS ALL IMMEDIATE; RAISE EXCEPTION. Nothing removed or reordered; it runs before any connection, so it can only refuse earlier and send nothing. Every file before 20261123024924 takes exactly the old path, and 20261123024924 itself passes. Same rule as the merge check tests/a-migration-cannot-force-the-installers-claim-check.law.test.ts. No financial, native-fixture or production qualification is restamped or claimed.",
     "reason": "2026-11-23: 20261123024924 (#11810) forced all deferred constraints on its install path; the applier's own deferred claim check (ca_migration_applier_claim_is_recorded, 20261119053515) fired before the history row existed and production refused the install at 04:10 UTC with migration_applier_claim_unrecorded, nothing applied. Repaired in #11822."
+  },
+  "aHandInstallRespectsTheReleaseFreeze20261124": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
+        "after": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5"
+      },
+      ".github/workflows/apply-merged-migration.yml": {
+        "before": "e5de82524b9b5b649ec040613f26b197aa3239f3233d0e5fb5f605dfd99debe2",
+        "after": "0415f45797830cf4f58f4b96e6ce690422e43cc7107a826e1c3328c6106808be"
+      }
+    },
+    "review": "Reviewed exact diff. Additions only: one import of releaseFreezeAdmission from scripts/ci/release-freeze-admission.mjs and, directly after the unchanged :50-:03 break-window refusal, a block that runs only when RELEASE_FREEZE_ENFORCED is 'true' (set only by apply-merged-migration.yml). Inside the nightly release schema freeze (23:45-04:15 America/Chicago) it refuses via the existing refused() before any connection, unless --dry-run, the maintenance-window route, or --release-freeze-override with at least 20 characters naming an outage. Nothing removed or reordered; with the flag unset (every throwaway-database proof and native fixture) the old path is taken byte for byte. Law: tests/a-hand-install-respects-the-release-freeze.law.test.ts. No financial, native-fixture or production qualification is restamped or claimed. Reviewed exact diff. Three additions only: a workflow_dispatch input release_freeze_override (string, default ''); in the 'Apply the migration' step env, RELEASE_FREEZE_OVERRIDE from that input and RELEASE_FREEZE_ENFORCED, which is 'false' only for a repository_dispatch whose actor or triggering actor is a [bot] (the merge dispatcher's proven job-token send) and 'true' otherwise; and one line on each of the existing install-older-merged-first.mjs and apply-recorded-migration.mjs calls forwarding --release-freeze-override only when the input is set. No queue, environment, permission, token or selection change. Law: tests/a-hand-install-respects-the-release-freeze.law.test.ts."
   }
 }

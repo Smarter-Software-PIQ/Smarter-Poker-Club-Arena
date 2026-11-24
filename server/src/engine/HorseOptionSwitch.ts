@@ -413,6 +413,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
   'omahaBigDrawBetIsPricedOnHisResponse',
+  // 2026-11-22 PLO-OWNER lead-5 (hands b910fc9e, 89b5b740): the priced turn and river raise rule never returns a
+  // non-nut raise and the nut rule reads Lightning (ships dark)
+  'omahaPricedRaiseNeverMakesNonNutRaise',
+  // 2026-11-22 PLO-OWNER lead-5 (hand b1e6ae31): a river raise flattened to a call late is priced (ships dark)
+  'omahaLateFlattenedCallIsPriced',
   // 2026-11-19 HORSE DECISIONS lane builder F-FIX (auditor F): Omaha tournament multiway call-offs and bets priced
   'omahaMultiwayIsPricedInTournaments',
   'omahaMadeHandBetIsPriced',
