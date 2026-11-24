@@ -1072,7 +1072,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   holdemFlopIsPriced: [
     HOLDEM,
     'NLH cash and Lightning, flop, heads-up and multiway',
-    'the priced chooser on the flop: bet / size / check and call / fold by EV with a computed two-street realization; value raises; a combo-draw raise only in position',
+    'the priced chooser on the flop: bet / size / check and call / fold by EV, computed two-street realization; value raises; combo-draw raises in position only',
   ],
   holdemLateStreetBluffRaiseIsPriced: [
     HOLDEM,
@@ -1082,7 +1082,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   holdemTurnRiverRaiseNeedsValue: [
     HOLDEM,
     'NLH cash, Lightning and tournaments, heads-up and multiway, turn and river facing a wager',
-    "a turn or river raise stands only for a value hand (equity above 0.5 against every opponent's continuing line range); any other raise becomes the priced call or fold",
+    "a turn or river raise stands only for a value hand (equity above 0.5 against each opponent's continuing range); any other raise becomes the priced call or fold",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,
