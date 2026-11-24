@@ -97,7 +97,9 @@ describe('an unknown balance is unknown, not zero', () => {
     const helper = sliceEnclosingBlock(page, 'const readBustBalance = useCallback(');
     expect(helper).toContain('for (let attempt = 0; attempt < 2; attempt += 1)');
     expect(helper).toContain('return null;');
-    expect(page).toContain('setBustWalletBalance(await readBustBalance(userId, tableId));');
+    expect(page).toMatch(
+      /const balance = await readBustBalance\(userId, tableId\);[\s\S]{0,450}?setBustWalletBalance\(balance\);/
+    );
   });
 });
 

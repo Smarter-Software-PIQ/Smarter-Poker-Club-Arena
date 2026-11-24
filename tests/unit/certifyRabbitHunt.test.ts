@@ -13,6 +13,8 @@ import {
   RABBIT_HUNT_GAME_NAME,
   RABBIT_HUNT_CLUB_NAME_PREFIX,
   LEAVE_SETTLES_WITHIN_MS,
+  certificationBuyIn,
+  CERT_PLAYER_FUNDING_CHIPS,
 } from '../../scripts/ci/certify-rabbit-hunt.mjs';
 import { readFileSync } from 'node:fs';
 import { sliceCall } from '../helpers/sourceWindow';
@@ -471,5 +473,29 @@ describe('the rabbit-hunt club is settled by one cleanup the run and the stale s
     expect(source.match(/settleRabbitHuntClub\(/g)?.length).toBe(3);
     expect(RABBIT_HUNT_GAME_NAME).toBe('Cert RH');
     expect(RABBIT_HUNT_CLUB_NAME_PREFIX).toBe('Cert RH ');
+  });
+});
+
+describe('the certification buys in for the table minimum the product sets (2026-11-24)', () => {
+  it('buys in for exactly the table minimum: 50 BB at a 0.10 big blind is 5 chips', () => {
+    expect(certificationBuyIn({ minBuyIn: 5 })).toBe(5);
+    expect(certificationBuyIn({ minBuyIn: '5.00' })).toBe(5);
+  });
+  it('refuses an unreadable minimum instead of guessing one', () => {
+    for (const minBuyIn of [undefined, null, 'x', 0, -1]) {
+      expect(() => certificationBuyIn({ minBuyIn })).toThrow(/unreadable/);
+    }
+  });
+  it('refuses a minimum the club funding cannot cover', () => {
+    expect(() => certificationBuyIn({ minBuyIn: CERT_PLAYER_FUNDING_CHIPS + 1 })).toThrow(
+      /more than/
+    );
+  });
+  it('never hard-codes a buy-in amount again, and says why a seat was refused', () => {
+    const src = readFileSync('scripts/ci/certify-rabbit-hunt.mjs', 'utf8');
+    expect(src).not.toMatch(/p_amount:\s*\d/);
+    expect(src).toContain('p_amount: buyIn,');
+    expect(src).toContain('tables?id=eq.${T}&select=min_buy_in');
+    expect(src).toContain('{ buyIn, refused }');
   });
 });

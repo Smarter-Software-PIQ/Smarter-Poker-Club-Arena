@@ -3180,7 +3180,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * Called when a player sits down at a table with wait_for_big_blind enabled.
    * The player cannot play until the BB position rotates to their seat.
    */
-  public registerWaitForBB(userId: string): void {
+  public registerWaitForBB(userId: string, postWhenClear = false): void {
     // Dan 2026-08-26, binding: "Every single player needs to either wait for
     // the BB or post when entering a cash game... no free hands or coming in
     // behind the blinds."
@@ -3202,7 +3202,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       // survive the deploy that happens on every push to server/**, and a hold
       // that evaporates hands the player a free hand AND the button. See
       // persistEntryHold().
-      this.persistEntryHold(userId, { hold: 'waiting' });
+      if (postWhenClear) this.postBBWhenClear.add(userId);
+      this.persistEntryHold(userId, {
+        hold: 'waiting',
+        ...(postWhenClear ? { agreed: true } : {}),
+      });
     }
   }
 

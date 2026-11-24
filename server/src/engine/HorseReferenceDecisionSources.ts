@@ -159,6 +159,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the lifetime public opponent profile: statistic registry, public hand record and recall keys read by the accessor; public fields only',
     'src/engine/HorseOmahaRiverCurrentNutsCallFloor.ts':
       'the default-off river current-nuts call floor (EMERG lane RANGE-MODEL-2 2026-11-20, omahaRiverCurrentNutsCallFloor): in PLO4/PLO5 cash on the river facing a wager, a final fold with the exact current nuts becomes the legal call where a full chop with every live opponent still returns the call; the outermost answer of the wager_rules node; pure',
+    'src/engine/HorseOopReraiseRangeHoldsWiring.ts':
+      "the default-off out-of-position 3-bet range rule wiring (PLO-LEAD-6 2026-11-24, omahaOopReraiseRangeHoldsVsReraise and holdemOopReraiseRangeHoldsVsReraise): routes an out-of-position decision facing one open, asks the Horse's own answer to the 4-bet on the public frame, applies the priced call or fold in wager_rules; inert with both options off",
+    'src/engine/HorseOopReraiseRangeHolds.ts':
+      "the same rule's pure price: the opener's answers to a 3-bet (fitted population prior), the 4-bet frame, EV(3-bet) against the admitted call, the seeded planned-fold keep frequency; no I/O, no random stream",
     'src/engine/HorseOmahaFourBetFoldPricedCall.ts':
       "the default-off priced call of a fold facing a 4-bet (EMERG lane PREFLOP-UNCONTESTED 2026-11-20, omahaFourBetFoldPricedCall): in PLO4/PLO5 cash preflop, after hero's own raise, facing a 4-bet or more heads-up, a final fold becomes the legal call where omahaReraisedCallPriced gives EV(call) > 0; the outermost answer of the wager_rules node; pure",
     'src/engine/HorseOmahaFacingBetValueShareMeasured.ts':

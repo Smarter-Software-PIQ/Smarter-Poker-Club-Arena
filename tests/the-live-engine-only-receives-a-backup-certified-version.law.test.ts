@@ -239,12 +239,14 @@ describe('auto-deploy-hetzner.yml requires the Backup Engine certificate', () =>
 });
 
 it('refuses missing, superseded and incompatible daytime qualification evidence', () => {
+  // The 22-case suite ran 29.6 s standalone on the shared Mac on 2026-11-24;
+  // a 10 s bound killed a passing suite on every pre-push hook that day.
   const result = spawnSync('python3', ['-B', 'tests/operations/engine-prequalification.test.py'], {
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: 180000,
   });
   expect(result.status, result.stderr).toBe(0);
-});
+}, 190000);
 
 it('binds explicit finite owner selection to the existing receiver without authorizing database work', () => {
   const stage = parse(

@@ -30,6 +30,7 @@ interface Props {
   isOwnProfile: boolean;
   onPresentationModeChange?: (enabled: boolean) => void;
   onDashboardLayoutChange?: (layout: string[]) => void;
+  onOpenLeakFinder?: () => void;
   ruleReport?: {
     title: string;
     sourceVersion: string;
@@ -58,6 +59,7 @@ export default function WorkspaceTab({
   isOwnProfile,
   onPresentationModeChange,
   onDashboardLayoutChange,
+  onOpenLeakFinder,
   ruleReport = null,
 }: Props) {
   const owner = useUserStore((state) => state.user?.id ?? 'guest');
@@ -414,6 +416,7 @@ export default function WorkspaceTab({
         onPrivacyModeChange={(enabled) => void changePrivacy(enabled)}
         onLeakStatusChange={(id, status) => void changeLeakStatus(id, status)}
         onAlertToggle={(id, enabled) => void toggleAlert(id, enabled)}
+        onOpenLeakFinder={onOpenLeakFinder}
       />
       {isOwnProfile && workspace && (
         <SpadeConsole eyebrow="Private Controls" title="Workspace Builder" pill="Saved" foot="foot">

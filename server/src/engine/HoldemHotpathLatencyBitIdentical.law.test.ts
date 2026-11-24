@@ -21,7 +21,6 @@
  * is 100% bit-for-bit identical to the reference algorithms across normal deck, Short Deck,
  * NLH cash, NLH tournament, and Omaha/Pineapple corpora, with zero RNG drift.
  */
-import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 import {
@@ -70,6 +69,19 @@ import { replayProfiles, stateAt, type ExtractedHand } from './HorseComplaintRep
 import { SeededRandom } from './equity/SeededRandom.js';
 import { isBoardOnlyRiverHand } from './HorseBoardContact.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
+import { measureRelativeCost } from '../testing/relativeCost.js';
+
+/** Alternating timed rounds of the priced decisions and of their reference enumeration. */
+const HOTPATH_COST_ROUNDS = 9;
+/**
+ * The priced decisions may cost at most this share of the reference enumeration.
+ * MEASURED 2026-11-24 (Apple Silicon, machine load average 17-19): hoisted hot path 0.04 (2.3 ms against
+ * 54 ms); with the bitmask fast path of holdemComboRows switched off, so the generic per-combo
+ * enumeration runs, 0.78 (43 ms against 55 ms). 0.2 sits between the two, about five times the
+ * measured cost and a quarter of the unoptimized one. The retired 25 ms ceiling allowed about
+ * fifteen times the measured cost.
+ */
+const HOTPATH_MAX_COST_RATIO = 0.2;
 
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) {
@@ -343,36 +355,51 @@ describe('Holdem hot-path optimizations are 100% bit-identical', () => {
       }
     }
 
-    // Latency regression guard: unoptimized flop/turn combo enumeration took ~22-30ms on Apple Silicon (~75ms prod).
-    // Warm up JIT once, then verify it completes well under 15ms even on contended CI runners.
-    holdemDangerBoardBettorEquity(hero, turn, []);
-    holdemCommittedNoPairDecision({
+    // Cost regression guard. The two priced decisions below each enumerate every unseen combo once
+    // (holdemComboRows on the turn and on the flop). Unoptimized, that enumeration took 22-30 ms on
+    // Apple Silicon and about 75 ms in production; hoisted, both decisions together take about 1.6 ms.
+    //
+    // The bound is a quotient, not a number of milliseconds (2026-11-24): `elapsedMs < 25` read
+    // 29.08 ms on a busy hosted runner with nothing changed (PR #11910, run 45375939160) and failed a
+    // required shard. The reference is the independent enumeration above on the same two boards, in
+    // the same process, in alternating rounds; the fastest round of each is kept. A busy or slow
+    // machine slows both sides alike, a hot-path regression slows only the subject.
+    const noPairInput = {
       hole: cards('AhQd'),
       board: flop,
-      dead: [],
+      dead: [] as Card[],
       pot: 60,
       toCall: 18,
       jamTotal: 40,
       equity: 0.32,
       rake: 0.05,
-    });
-    const t0 = performance.now();
-    const dangerEq = holdemDangerBoardBettorEquity(hero, turn, []);
-    const committedDec = holdemCommittedNoPairDecision({
-      hole: cards('AhQd'),
-      board: flop,
-      dead: [],
-      pot: 60,
-      toCall: 18,
-      jamTotal: 40,
-      equity: 0.32,
-      rake: 0.05,
-    });
-    const elapsedMs = performance.now() - t0;
+    };
+    let dangerEq: number | null = null;
+    let committedDec: ReturnType<typeof holdemCommittedNoPairDecision> = null;
+    const cost = measureRelativeCost(
+      () => {
+        dangerEq = holdemDangerBoardBettorEquity(hero, turn, []);
+        committedDec = holdemCommittedNoPairDecision(noPairInput);
+      },
+      () => {
+        refComboRows(hero, turn, []);
+        refComboRows(noPairInput.hole, flop, []);
+      },
+      { warmupRounds: 2, rounds: HOTPATH_COST_ROUNDS }
+    );
     expect(dangerEq).not.toBeNull();
     expect(committedDec).not.toBeNull();
-    // Both combined take ~1.6ms on Apple Silicon; 25ms ceiling catches any catastrophic regression without CI flake.
-    expect(elapsedMs).toBeLessThan(25);
+    console.info(
+      `[holdem hot path cost] subject ${cost.subjectMs.toFixed(3)} ms, reference ` +
+        `${cost.referenceMs.toFixed(3)} ms, ratio ${cost.ratio.toFixed(4)} ` +
+        `(limit ${HOTPATH_MAX_COST_RATIO}, fastest of ${cost.rounds} alternating rounds)`
+    );
+    expect(
+      cost.ratio,
+      `the two priced decisions took ${cost.subjectMs.toFixed(3)} ms against ` +
+        `${cost.referenceMs.toFixed(3)} ms for the reference enumeration of the same boards ` +
+        `(fastest of ${cost.rounds} alternating rounds each)`
+    ).toBeLessThan(HOTPATH_MAX_COST_RATIO);
   });
 
   it('produces bit-identical holdemLineRange + holdemFillEquities and holdemRangeEquity', () => {

@@ -15,6 +15,7 @@
  */
 import type { TournamentTabProps } from './types';
 import SatelliteCard from './SatelliteCard';
+import qualifierSeal from '../../lobby/console-art/qualifier-seal.webp';
 import { useSatellites } from './useSatellites';
 import './SatellitesTab.css';
 
@@ -57,15 +58,46 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
   return (
     <div className="tab-pane-content sat-list">
       {cards.map((sat) => (
-        <SatelliteCard
-          key={sat.id}
-          onRegistered={retry}
-          tournament={sat}
-          /* `registration` is null when the batch query failed. Passing null
+        <article key={sat.id} className="approved-satellite">
+          <div className="console-ticket" aria-label="Satellite Qualifier">
+            <small>Satellite Into</small>
+            <strong className="ticket-title" aria-label="Seat Into">
+              {tournament.name}
+            </strong>
+            <dl className="ticket-counts">
+              <div>
+                <dt>Admission</dt>
+                <dd>{sat.buyIn} Chips</dd>
+              </div>
+              <div>
+                <dt>Filled</dt>
+                <dd>
+                  {sat.registeredPlayers}
+                  {sat.maxPlayers ? ` / ${sat.maxPlayers}` : ''}
+                </dd>
+              </div>
+            </dl>
+            <img className="ticket-qualifier" src={qualifierSeal} alt="Qualifier" />
+            <b className="ticket-start">
+              {sat.startsWhenFull
+                ? '◷  Starts When Full'
+                : sat.startsAt
+                  ? new Date(sat.startsAt).toLocaleString()
+                  : 'Start Time Pending'}
+            </b>
+          </div>
+          <details>
+            <summary>Entry Details &amp; Registration</summary>
+            <SatelliteCard
+              onRegistered={retry}
+              tournament={sat}
+              /* `registration` is null when the batch query failed. Passing null
              makes the card fall back to its own lookup rather than render a
              live Register button at a player who is already in. */
-          knownRegistration={registration ? Boolean(registration[sat.id]) : null}
-        />
+              knownRegistration={registration ? Boolean(registration[sat.id]) : null}
+            />
+          </details>
+        </article>
       ))}
     </div>
   );

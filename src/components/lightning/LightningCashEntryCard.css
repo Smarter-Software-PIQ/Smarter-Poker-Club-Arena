@@ -4,3 +4,10 @@
   aspect-ratio: 729 / 945;
   margin-inline: auto;
 }
+.lightning-cash-card {
+  border-radius: 14px;
+  background: radial-gradient(ellipse at top, #16375e, #050b13 65%);
+  box-shadow:
+    0 0 0 1px #476683,
+    0 3px 14px #02070c;
+}

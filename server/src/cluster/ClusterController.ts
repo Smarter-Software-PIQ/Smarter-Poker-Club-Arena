@@ -49,7 +49,11 @@ import { supabase } from '../services/supabase.js';
 import { reportError } from '../services/errorReporter.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { clusterMetrics } from './ClusterMetrics.js';
-import { noteMovesPlanned, tickReportsMovesPlanned } from './seatBoundarySignals.js';
+import {
+  noteMovesPlanned,
+  tickPlannedSourceTableIds,
+  tickReportsMovesPlanned,
+} from './seatBoundarySignals.js';
 
 export const CLUSTER_TICK_MS = 5000;
 
@@ -184,7 +188,10 @@ function noteCommittedPlans(data: unknown): void {
   for (const entry of results) {
     const game = (entry as { game_id?: unknown } | null)?.game_id;
     if (typeof game !== 'string') continue;
-    if (tickReportsMovesPlanned((entry as { result?: unknown }).result)) noteMovesPlanned(game);
+    const result = (entry as { result?: unknown }).result;
+    if (tickReportsMovesPlanned(result)) {
+      noteMovesPlanned(game, tickPlannedSourceTableIds(result));
+    }
   }
 }
 
@@ -457,7 +464,9 @@ export class ClusterController {
     // while this wake RPC was in flight, this controller generation still owns
     // leadership and the SQL already committed those planned moves. Only a
     // stopped/superseded controller generation signals nothing.
-    if (!error && tickReportsMovesPlanned(data)) noteMovesPlanned(gameId);
+    if (!error && tickReportsMovesPlanned(data)) {
+      noteMovesPlanned(gameId, tickPlannedSourceTableIds(data));
+    }
     if (!wakeIsCurrent()) return;
     if (error) {
       reportError(error, 'ClusterController.wake_rpc_failed', { game_id: gameId });

@@ -50,8 +50,18 @@ function tableCallback(name: string, scope: Record<string, unknown>) {
       node.name.getText(ast) === name &&
       node.initializer &&
       ts.isJsxExpression(node.initializer)
-    )
-      return node.initializer.expression;
+    ) {
+      const callback = node.initializer.expression;
+      if (!callback || !ts.isIdentifier(callback)) return callback;
+      let target: ts.Expression | undefined;
+      const find = (child: ts.Node) => {
+        if (ts.isVariableDeclaration(child) && child.name.getText(ast) === callback.text)
+          target = child.initializer;
+        ts.forEachChild(child, find);
+      };
+      find(ast);
+      return target;
+    }
   }, scope);
 }
 
@@ -101,6 +111,45 @@ describe('the mounted tournament purchase callbacks preserve unknown outcomes', 
     };
   }
 
+  it('submits one exact-price automatic rebuy only when the opt-in and balance allow it', () => {
+    const f = fixture();
+    const confirmTournamentRebuy = vi.fn();
+    const confirmTournamentAddOn = vi.fn();
+    const state = {
+      ...f,
+      showRebuyModal: true,
+      automaticRebuy: true,
+      rebuyAffordable: false,
+      rebuyPrice: 10,
+      autoRebuyAttempted: false,
+      autoRebuyAttemptRef: { current: null },
+      confirmTournamentRebuy,
+      confirmTournamentAddOn,
+      addOnPeriod: { active: false },
+    };
+    const run = (scope: typeof state) =>
+      tableFunction((node, ast) => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          node.name.getText(ast) === 'runAutomaticTournamentPurchase' &&
+          node.initializer &&
+          ts.isCallExpression(node.initializer)
+        )
+          return node.initializer.arguments[0];
+      }, scope)();
+
+    run(state);
+    expect(confirmTournamentRebuy).not.toHaveBeenCalled();
+    run({ ...state, rebuyAffordable: true, automaticRebuy: false });
+    expect(confirmTournamentRebuy).not.toHaveBeenCalled();
+    run({ ...state, rebuyAffordable: true });
+    expect(confirmTournamentRebuy).toHaveBeenCalledExactlyOnceWith(10);
+    expect(state.autoRebuyAttemptRef.current).toBe('original-prompt');
+    run({ ...state, rebuyAffordable: true, autoRebuyAttempted: true });
+    expect(confirmTournamentRebuy).toHaveBeenCalledTimes(1);
+    expect(confirmTournamentAddOn).not.toHaveBeenCalled();
+  });
+
   it.each([false, null, { success: false }])(
     'does not turn resolved service value %s into add-on success',
     async (receipt) => {
@@ -125,8 +174,8 @@ describe('the mounted tournament purchase callbacks preserve unknown outcomes', 
     expect(await accept()).toBe(true);
     expect(f.addOnPurchasePendingRef.current).toBe(false);
     expect(f.tournamentService.processAddOn.mock.calls).toEqual([
-      ['tournament', 'player'],
-      ['tournament', 'player'],
+      ['tournament', 'player', undefined],
+      ['tournament', 'player', undefined],
     ]);
   });
 
@@ -187,8 +236,8 @@ describe('the mounted tournament purchase callbacks preserve unknown outcomes', 
     expect(f.releaseBustHold).not.toHaveBeenCalled();
     await confirm();
     expect(f.tournamentService.processRebuy.mock.calls).toEqual([
-      ['tournament', 'player', 'original-prompt'],
-      ['tournament', 'player', 'original-prompt'],
+      ['tournament', 'player', 'original-prompt', undefined],
+      ['tournament', 'player', 'original-prompt', undefined],
     ]);
     expect(f.rebuyPurchasePendingRef.current).toBe(false);
     expect(f.bustHoldRef.current.pendingExit).toBeNull();
@@ -534,10 +583,10 @@ describe('every player rebuy prompt owns one required idempotency token', () => 
       /const beginRebuyPrompt = useCallback[\s\S]*?if \(rebuyPromptTokenRef\.current\)[\s\S]*?return rebuyPromptTokenRef\.current[\s\S]*?const token = uuid\(\)/
     );
     expect(tablePage).toMatch(
-      /const token = rebuyPromptTokenRef\.current \?\? beginRebuyPrompt\(\);[\s\S]*?processRebuy\(\s*tableState\.tournamentId,\s*userId,\s*token\s*\)/
+      /const token = rebuyPromptTokenRef\.current \?\? beginRebuyPrompt\(\);[\s\S]*?processRebuy\(\s*tableState\.tournamentId,\s*userId,\s*token,\s*expectedTotal,?\s*\)/
     );
     expect(tablePage).toMatch(
-      /processRebuy\(\s*tableState\.tournamentId,\s*userId,\s*token\s*\);[\s\S]*?endRebuyPrompt\(\)/
+      /processRebuy\(\s*tableState\.tournamentId,\s*userId,\s*token,\s*expectedTotal,?\s*\);[\s\S]*?endRebuyPrompt\(\)/
     );
     expect(tablePage).toMatch(
       /Unanswered for two minutes is a decline[\s\S]*?setShowRebuyModal\(false\);[\s\S]*?endRebuyPrompt\(\)/

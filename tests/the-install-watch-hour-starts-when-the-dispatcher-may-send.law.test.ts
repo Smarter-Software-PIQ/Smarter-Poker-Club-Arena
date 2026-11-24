@@ -20,6 +20,17 @@
  * merged-migration-dispatch.mjs without moving the SQL fails here.
  * Behaviour is proved natively by
  * scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py.
+ *
+ * THE DATABASE MOVES FIRST WHEN THE DEFERRAL WIDENS (2026-11-24, O21). The
+ * three-hourly deferral goes from 90 to 150 minutes before a cycle start. The
+ * dispatcher's constant takes effect the moment it merges; a migration is
+ * itself held by that deferral. Had both moved in one pull request, the watch
+ * would have paged every healthy file merged in [cycleStart - 150m,
+ * cycleStart - 90m) until the migration installed. So the SQL helper moves
+ * first and the law is one-sided while they differ: the SQL minutes are never
+ * SMALLER than the dispatcher's (the watch may page a stuck file late, never
+ * a healthy file early). SQL_DEFER_MINUTES is the helper's value; the
+ * dispatcher may hold only that or the value it had before.
  */
 import { describe, expect, it } from 'vitest';
 import { migrationCorpus } from './helpers/migrationCorpus';
@@ -32,6 +43,11 @@ import {
   inReleaseSchemaFreeze,
   threeHourlyDeferralWindow,
 } from '../scripts/ci/merged-migration-dispatch.mjs';
+
+/** Minutes before a cycle start at which the SQL helper's deferral opens (O21). */
+const SQL_DEFER_MINUTES = 150;
+/** The dispatcher's value before O21; allowed only until the dispatcher half of O21 merges. */
+const DISPATCHER_DEFER_MINUTES_BEFORE_O21 = 90;
 
 const hhmm = ([h, m]: number[]) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 const FROM = hhmm(RELEASE_SCHEMA_FREEZE_CHICAGO.from);
@@ -87,8 +103,53 @@ describe("the install watch's hour starts when the dispatcher may send", () => {
     const { body } = newestBody(THREE_HOURLY);
     expect(body).toMatch(/AT TIME ZONE 'America\/Chicago'/);
     expect(body).toContain(`ARRAY[${THREE_HOURLY_START_HOURS.join(', ')}]`);
-    expect(body).toContain(`interval '${THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES} minutes'`);
     expect(body).toContain(`interval '${THREE_HOURLY_POST_SEAL_CLEAR_MINUTE} minutes'`);
+    // Exactly one opening bound and one clearing bound, and no other interval of minutes.
+    const opens = [...body.matchAll(/p_at >= c\.cycle_start - interval '(\d+) minutes'/g)].map(
+      (m) => Number(m[1])
+    );
+    expect(opens).toEqual([SQL_DEFER_MINUTES]);
+    expect(body).toContain(
+      `p_at <  c.cycle_start + interval '${THREE_HOURLY_POST_SEAL_CLEAR_MINUTE} minutes'`
+    );
+    expect([...body.matchAll(/interval '(\d+) minutes'/g)].map((m) => Number(m[1])).sort()).toEqual(
+      [
+        THREE_HOURLY_POST_SEAL_CLEAR_MINUTE,
+        THREE_HOURLY_POST_SEAL_CLEAR_MINUTE,
+        SQL_DEFER_MINUTES,
+      ].sort()
+    );
+    // The watch never pages a file before the dispatcher may send it: the SQL
+    // deferral is never shorter than the dispatcher's.
+    expect(SQL_DEFER_MINUTES).toBeGreaterThanOrEqual(THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES);
+    expect([DISPATCHER_DEFER_MINUTES_BEFORE_O21, SQL_DEFER_MINUTES]).toContain(
+      THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES
+    );
+    // The helper looks as many whole hours ahead as its deferral reaches:
+    // date_trunc('hour') of cycleStart - 150m is cycleStart - 3h.
+    const offsets = /unnest\(ARRAY\[([\d, ]+)\]\) AS off/.exec(body);
+    expect(offsets, 'the helper must enumerate whole-hour offsets').not.toBeNull();
+    expect(offsets![1].split(', ').map(Number)).toEqual(
+      Array.from({ length: Math.ceil(SQL_DEFER_MINUTES / 60) + 1 }, (_, i) => i)
+    );
+    // Consecutive windows never meet, so the helper can match at most one cycle.
+    expect(SQL_DEFER_MINUTES + THREE_HOURLY_POST_SEAL_CLEAR_MINUTE).toBeLessThan(180);
+  });
+
+  it('the newest three-hourly helper is the 150 minute one, pinned to the body it replaces', () => {
+    const { name } = newestBody(THREE_HOURLY);
+    expect(name).toContain('the_install_watch_follows_the_150_minute_deferral');
+    const sql = migrationCorpus().find((m) => m.name === name)!.sql;
+    expect(sql).toMatch(
+      /^-- @replaces-md5: smarter_private\.ca_three_hourly_deferral_clears_at\(timestamp with time zone\)=[0-9a-f]{32}$/m
+    );
+    expect(sql).toContain('THREE_HOURLY_DEFERRAL_150_PREIMAGE_DRIFT');
+    expect(sql).toContain('THREE_HOURLY_DEFERRAL_150_GRANTS_CHANGED');
+    // It replaces the helper only: the due-at helper and the watch read it by name.
+    expect(DUE.test(sql)).toBe(false);
+    expect(/fn_ca_merged_migration_install_watch\s*\(/i.test(sql.replace(/^--.*$/gm, ''))).toBe(
+      false
+    );
   });
 
   it('the due-at helper releases O3-deferred and freeze-held files at the dispatcher release instant, plus the hour', () => {
