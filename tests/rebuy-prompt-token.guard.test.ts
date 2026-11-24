@@ -174,8 +174,8 @@ describe('the mounted tournament purchase callbacks preserve unknown outcomes', 
     expect(await accept()).toBe(true);
     expect(f.addOnPurchasePendingRef.current).toBe(false);
     expect(f.tournamentService.processAddOn.mock.calls).toEqual([
-      ['tournament', 'player'],
-      ['tournament', 'player'],
+      ['tournament', 'player', undefined],
+      ['tournament', 'player', undefined],
     ]);
   });
 
@@ -236,8 +236,8 @@ describe('the mounted tournament purchase callbacks preserve unknown outcomes', 
     expect(f.releaseBustHold).not.toHaveBeenCalled();
     await confirm();
     expect(f.tournamentService.processRebuy.mock.calls).toEqual([
-      ['tournament', 'player', 'original-prompt'],
-      ['tournament', 'player', 'original-prompt'],
+      ['tournament', 'player', 'original-prompt', undefined],
+      ['tournament', 'player', 'original-prompt', undefined],
     ]);
     expect(f.rebuyPurchasePendingRef.current).toBe(false);
     expect(f.bustHoldRef.current.pendingExit).toBeNull();
