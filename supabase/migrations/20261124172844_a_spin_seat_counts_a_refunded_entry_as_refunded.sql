@@ -58,8 +58,8 @@
 -- Reserve contribution, rake, journal and every other line of both bodies
 -- are the production definitions read on 2026-11-24 (md5
 -- 3e861cfde0bda50d16bc836a665bf4ab and 8f6dc9dd3e7f95a7f9e7fe58e126c825)
--- unchanged. CREATE OR REPLACE keeps the existing grants
--- (postgres, service_role).
+-- unchanged. Explicit REVOKE/GRANT below preserves the production authority
+-- (postgres owner + service_role execute only; no PUBLIC/anon/authenticated).
 --
 -- Regression: scripts/ci/test-spin-books-net-of-refunds.py (real PG17, the
 -- pinned live definition refuses the re-registered and left-the-board
@@ -350,6 +350,11 @@ BEGIN
     'entry_reserve_id',v_reserve.id,'entry_journal_id',v_journal_id);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_spin_book_entry(uuid)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_spin_book_entry(uuid)
+  TO service_role;
 
 -- @probe-for: public.fn_spin_book_entry
 -- Runs the new body once against the oldest partly filled Spin (it reaches
@@ -923,6 +928,11 @@ BEGIN
     'owner_id',v_owner);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_spin_draw_and_settle(uuid, jsonb)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_spin_draw_and_settle(uuid, jsonb)
+  TO service_role;
 
 -- @probe-for: public.fn_spin_draw_and_settle
 -- Runs the new body once against the same board. Its own refusal codes
