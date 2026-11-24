@@ -249,7 +249,6 @@ export class EventDatabaseBulkhead {
       throw new Error('supabase_timeout');
     }
     this.parkedTotal++;
-    this.note(key, state, 'is parking calls');
     return new Promise<EventDbPermit>((resolve, reject) => {
       const waiter: Waiter = { permit, resolve, reject, signal, onAbort: undefined };
       if (signal) {
@@ -267,6 +266,7 @@ export class EventDatabaseBulkhead {
       }
       state.queue.push(waiter);
       this.waiting.add(key);
+      this.note(key, state, 'is parking calls');
     });
   }
 
@@ -292,8 +292,18 @@ export class EventDatabaseBulkhead {
         }
       }
     } else if (outcome === 'slow' || outcome === 'congested') {
+      if (outcome === 'congested') state.congestedStreak++;
+      // An isolated serialization retry (e.g. a single 40001 on a quiet event
+      // at inFlight=0) cools one slot without cutting the event's bound in
+      // half for the next ~210 calls. Halve immediately on slow answers, on
+      // sustained congestion (streak >= 2), or when concurrency is already
+      // active (inFlight + cooling >= minPerEvent).
+      const shouldHalve =
+        outcome === 'slow' ||
+        state.congestedStreak >= 2 ||
+        state.inFlight + state.cooling >= this.minPerEvent;
       const at = this.now();
-      if (at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
+      if (shouldHalve && at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
         state.lastDecreaseAt = at;
         state.goodSinceIncrease = 0;
         const next = Math.max(this.minPerEvent, Math.floor(state.limit / 2));
@@ -303,7 +313,6 @@ export class EventDatabaseBulkhead {
         }
       }
       if (outcome === 'congested') {
-        state.congestedStreak++;
         const ceiling = Math.min(
           EVENT_DB_BACKOFF_BASE_MS * 2 ** Math.min(state.congestedStreak - 1, 10),
           EVENT_DB_BACKOFF_MAX_MS

@@ -4,6 +4,8 @@ import {
   HorseRequestRetentionBudget,
   HorseRequestCapacityError,
   horseRequestAllowance,
+  HORSE_REQUEST_MAX_BYTES,
+  HORSE_REQUEST_MAX_NODES,
   HORSE_REQUEST_MAX_PENDING,
   HORSE_REQUEST_MAX_PLANS,
   HORSE_REQUEST_RETAINED_BYTES,
@@ -102,7 +104,9 @@ describe('Horse request retention ownership', () => {
   });
 
   it('refuses oversized, cyclic, deep, accessor and non-plain payloads without executing getters', () => {
-    expect(() => horseRequestAllowance('x'.repeat(400_000))).toThrow(HorseRequestCapacityError);
+    expect(() =>
+      horseRequestAllowance('x'.repeat(Math.ceil(HORSE_REQUEST_MAX_BYTES / 6) + 1))
+    ).toThrow(HorseRequestCapacityError);
     const cycle: Record<string, unknown> = {};
     cycle.self = cycle;
     expect(() => horseRequestAllowance(cycle)).toThrow(HorseRequestCapacityError);
@@ -119,7 +123,9 @@ describe('Horse request retention ownership', () => {
       HorseRequestCapacityError
     );
     expect(() => horseRequestAllowance(new Map())).toThrow(HorseRequestCapacityError);
-    expect(() => horseRequestAllowance(Array(100_000))).toThrow(HorseRequestCapacityError);
+    expect(() => horseRequestAllowance(Array(HORSE_REQUEST_MAX_NODES + 1))).toThrow(
+      HorseRequestCapacityError
+    );
   });
 
   it('reserves enough space for all sixteen maximum-size valid effects', () => {
