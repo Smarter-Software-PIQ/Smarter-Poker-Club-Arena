@@ -23,7 +23,13 @@ Receipt: `omaha_multiway_field_draws_independent` (a multiway verdict drew its f
 
 ## What Was Measured
 
-Counts only, on 16,081 real multiway PLO4/PLO5 cash decisions (Nov 20 08Z - Nov 24 08Z; public snapshot and the deciding Horse's own cards only), replayed with the production switch rows: see the PR for the table by street and direction.
+Counts only, on 16,081 real multiway PLO4/PLO5 cash decisions facing a wager (Nov 20 08Z - Nov 24 08Z, 15,609 distinct states; public snapshot and the deciding Horse's own cards only), seed 1, off against on. They show what the option changes, not whether the change wins chips.
+
+- Production rows of 2026-11-24 05:20Z (`omahaFlopFacingBetEv` on): 88 changed, all flop fold/call swaps (PLO4 8 call to fold, 12 fold to call; PLO5 34 and 34); flop fold rates by price move by at most 0.4 points.
+- The same rows with `omahaFacingBetEvShownField` on: 188 changed (flop as above; turn PLO4 9 / 14, PLO5 37 / 30; river PLO4 2 / 2, PLO5 3 / 3); turn fold rates by price move by at most 0.7 points.
+- Production rows now (`omahaFlopFacingBetEv` off): 0 changed.
+
+Every change is a fold/call swap, balanced in both directions: the defect is per-decision sampling error, not a bias toward folding or calling.
 
 ## Tests
 
