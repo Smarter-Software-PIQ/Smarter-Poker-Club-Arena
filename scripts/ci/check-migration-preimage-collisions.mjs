@@ -154,6 +154,141 @@ function isPostImageAssertionContext(code, matchOffset, matchLength, normalizedS
   return false;
 }
 
+const MULTI_WORD_PG_TYPES = [
+  'timestamp with time zone',
+  'timestamp without time zone',
+  'time with time zone',
+  'time without time zone',
+  'double precision',
+  'character varying',
+  'bit varying',
+];
+
+function splitTopLevelParams(raw) {
+  const parts = [];
+  let cur = '';
+  let depth = 0;
+  let inSingle = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inSingle) {
+      cur += ch;
+      if (ch === "'" && raw[i + 1] === "'") {
+        cur += raw[i + 1];
+        i += 1;
+      } else if (ch === "'") {
+        inSingle = false;
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      cur += ch;
+    } else if (ch === '(') {
+      depth += 1;
+      cur += ch;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      cur += ch;
+    } else if (ch === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
+
+function stripDefaultClause(param) {
+  let depth = 0;
+  let inSingle = false;
+  for (let i = 0; i < param.length; i += 1) {
+    const ch = param[i];
+    if (inSingle) {
+      if (ch === "'" && param[i + 1] === "'") {
+        i += 1;
+      } else if (ch === "'") {
+        inSingle = false;
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '(') {
+      depth += 1;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (depth === 0) {
+      if (ch === '=') return param.slice(0, i).trim();
+      if (
+        (ch === 'd' || ch === 'D') &&
+        /^default\b/i.test(param.slice(i)) &&
+        (i === 0 || /\s/.test(param[i - 1]))
+      ) {
+        return param.slice(0, i).trim();
+      }
+    }
+  }
+  return param.trim();
+}
+
+function extractParamType(rawParam) {
+  let s = stripDefaultClause(rawParam).replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  if (/^out\b/i.test(s)) return null; // OUT params are not part of regprocedure identity
+  s = s.replace(/^(?:in|inout|variadic)\s+/i, '').trim();
+  // Remove type modifiers like numeric(12,2) or varchar(64)
+  s = s.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+  // Preserve array suffix [] cleanly
+  const lower = s.toLowerCase().replace(/"/g, '');
+  for (const multi of MULTI_WORD_PG_TYPES) {
+    const re = new RegExp(`(?:^|\\s)(${multi}(?:\\s*\\[\\s*\\])*)$`, 'i');
+    const match = re.exec(lower);
+    if (match) return match[1].replace(/\s*\[\s*\]/g, '[]');
+  }
+  // Otherwise the type is the trailing token (e.g. `p_day date` -> `date`, `uuid[]` -> `uuid[]`)
+  const tokens = lower.replace(/\s*\[\s*\]/g, '[]').split(/\s+/).filter(Boolean);
+  return tokens.length > 0 ? tokens[tokens.length - 1] : null;
+}
+
+function extractCreateFunctionSignatures(code) {
+  const sigs = new Set();
+  const createFnRe =
+    /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(?:"?([A-Za-z_][A-Za-z0-9_]*)"?)\s*\.\s*)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\(/gi;
+  let cm;
+  while ((cm = createFnRe.exec(code)) !== null) {
+    const schema = (cm[1] || 'public').toLowerCase();
+    const fn = cm[2].toLowerCase();
+    // Walk balanced parens starting right after '('
+    let i = cm.index + cm[0].length;
+    let depth = 1;
+    let inSingle = false;
+    while (i < code.length && depth > 0) {
+      const ch = code[i];
+      if (inSingle) {
+        if (ch === "'" && code[i + 1] === "'") i += 1;
+        else if (ch === "'") inSingle = false;
+      } else if (ch === "'") {
+        inSingle = true;
+      } else if (ch === '(') {
+        depth += 1;
+      } else if (ch === ')') {
+        depth -= 1;
+      }
+      i += 1;
+    }
+    if (depth !== 0) continue;
+    const rawParams = code.slice(cm.index + cm[0].length, i - 1);
+    const paramTypes = splitTopLevelParams(rawParams)
+      .map(extractParamType)
+      .filter((t) => t !== null);
+    sigs.add(normalizeSignature(`${schema}.${fn}(${paramTypes.join(',')})`));
+  }
+  return sigs;
+}
+
 /**
  * Extract declared pre-image MD5 pins and post-image MD5 outputs from a
  * single SQL migration.
@@ -161,17 +296,9 @@ function isPostImageAssertionContext(code, matchOffset, matchLength, normalizedS
 export function extractMigrationMd5Pins(sql) {
   const src = String(sql);
   const code = stripCommentsPreservingLines(src);
-  const redefinedFnNames = new Set();
-  const createFnRe =
-    /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(?:"?([A-Za-z_][A-Za-z0-9_]*)"?)\s*\.\s*)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\(/gi;
-  let cm;
-  while ((cm = createFnRe.exec(code)) !== null) {
-    const schema = (cm[1] || 'public').toLowerCase();
-    const fn = cm[2].toLowerCase();
-    redefinedFnNames.add(`${schema}.${fn}`);
-  }
+  const redefinedSigs = extractCreateFunctionSignatures(code);
   if (!/[0-9a-f]{32}/i.test(src)) {
-    return { preImages: [], postImages: [], redefinedFnNames };
+    return { preImages: [], postImages: [], redefinedSigs };
   }
   const preImages = [];
   const postImages = [];
@@ -295,7 +422,7 @@ export function extractMigrationMd5Pins(sql) {
     });
   }
 
-  return { preImages, postImages, redefinedFnNames };
+  return { preImages, postImages, redefinedSigs };
 }
 
 /**
@@ -310,7 +437,7 @@ export function findPreimageCollisions(migrations) {
   const collisions = [];
 
   for (const migration of ordered) {
-    const { preImages, postImages, redefinedFnNames } = extractMigrationMd5Pins(migration.sql);
+    const { preImages, postImages, redefinedSigs } = extractMigrationMd5Pins(migration.sql);
 
     if (isPreimageCollisionChecked(migration.file)) {
       // Collect all accepted pre-image MD5s per normalized signature in this migration.
@@ -349,17 +476,12 @@ export function findPreimageCollisions(migrations) {
       }
     }
 
-    // Clear stale earlier post-images for any function fully redefined here
-    // without an explicit post-image MD5; declared postImages below restore
-    // the new known post-image if present.
-    if (redefinedFnNames.size > 0) {
-      for (const sig of [...latestPostBySig.keys()]) {
-        const openIdx = sig.indexOf('(');
-        const qualName = openIdx >= 0 ? sig.slice(0, openIdx) : sig;
-        if (redefinedFnNames.has(qualName)) {
-          latestPostBySig.delete(sig);
-        }
-      }
+    // Clear stale earlier post-images only for the exact function overload
+    // fully redefined here without an explicit post-image MD5; sibling
+    // overloads keep their tracked post-images, and declared postImages below
+    // restore the new known post-image if present.
+    for (const sig of redefinedSigs) {
+      latestPostBySig.delete(sig);
     }
 
     // Advance the known post-image state after checking this migration's pre-images.
