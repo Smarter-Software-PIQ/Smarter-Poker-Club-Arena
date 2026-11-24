@@ -155,4 +155,55 @@ describe('ClubWorkspaceProvider transient reads', () => {
     expect(screen.queryByText(/access could not be verified/i)).not.toBeInTheDocument();
     expect(membershipRead).toHaveBeenCalledTimes(3);
   });
+  it('retries a failed verification when the player returns to the page', async () => {
+    vi.useFakeTimers();
+    membershipRead.mockReset();
+    membershipRead.mockRejectedValue(new Error('read stalled'));
+
+    render(
+      <MemoryRouter initialEntries={['/clubs/a41434bb-8d0c-400a-8f0d-e8b3d65afed4/cashier']}>
+        <ClubWorkspaceProvider>
+          <WorkspaceProbe />
+        </ClubWorkspaceProvider>
+      </MemoryRouter>
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(3_100);
+    });
+    expect(screen.getByText('error')).toBeInTheDocument();
+
+    membershipRead.mockReset();
+    membershipRead.mockResolvedValue({ data: { role: 'owner', status: 'active' }, error: null });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getByText('ready')).toBeInTheDocument();
+    expect(screen.queryByText(/access could not be verified/i)).not.toBeInTheDocument();
+  });
+
+  it('does not re-read a verified page when the player returns to it', async () => {
+    membershipRead.mockReset();
+    membershipRead.mockResolvedValue({ data: { role: 'owner', status: 'active' }, error: null });
+
+    render(
+      <MemoryRouter initialEntries={['/clubs/a41434bb-8d0c-400a-8f0d-e8b3d65afed4/cashier']}>
+        <ClubWorkspaceProvider>
+          <WorkspaceProbe />
+        </ClubWorkspaceProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('ready', {}, { timeout: 3_000 })).toBeInTheDocument();
+    const reads = membershipRead.mock.calls.length;
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+    });
+
+    expect(membershipRead).toHaveBeenCalledTimes(reads);
+  });
 });

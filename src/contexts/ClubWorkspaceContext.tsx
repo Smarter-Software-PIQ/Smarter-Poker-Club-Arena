@@ -140,6 +140,24 @@ export function ClubWorkspaceProvider({ children }: { children: ReactNode }) {
     };
   }, [reload]);
 
+  // A failed verification retries when the player comes back to the page,
+  // not only when the network returns (2026-11-24). On a phone the usual way
+  // out of a stalled read is switching apps or tabs and back, which fires no
+  // 'online' event, so the fault card stayed up until Try Again was tapped.
+  // Only while the card is showing: a verified page never re-reads on focus.
+  useEffect(() => {
+    if (status !== 'error') return;
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') reload();
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  }, [status, reload]);
+
   useEffect(() => {
     let cancelled = false;
 

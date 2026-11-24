@@ -46,6 +46,7 @@ player's table socket and action submits failed the same way at 14:13Z.
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #11894  | `src/lib/supabase.ts`: the client's `accessToken` hook sends the stored token while it has more than 90 s left; otherwise `getSession()` refreshes under the lock. Covers requests even before the SDK has initialized.                                                                                    |
 | this PR | Vendored auth-js (`scripts/ci/build-auth-initialization-recovery.py` → `vendor/supabase-auth-js/`): `getSession()` returns a still-valid stored session without the lock once the client has initialized. Fixes all 45 direct callers at the SDK, where they all land. Every refresh still takes the lock. |
+| this PR | `ClubWorkspaceContext`: a failed verification retries when the page becomes visible or focused again.                                                                                                                                                                                                      |
 | this PR | `src/contexts/clubWorkspaceReadTimeout.ts`: the workspace deadline is named `TimeoutError` whether the read throws or returns the abort.                                                                                                                                                                   |
 
 ## Hardening (each fails the build on regression)
@@ -63,12 +64,21 @@ player's table socket and action submits failed the same way at 14:13Z.
 - `package-lock.json` pins the archive integrity; the generator verifies the
   upstream registry bytes and every preimage before writing.
 
-## Not fixed here
+## World Hub
 
-The World Hub (`Smarter-Poker-World-Hub`) uses registry auth-js 2.112.4 with the
-same storage key, so its own reads still take the shared lock and can still
-hit this failure. Its own client needs the same change through its own
-delivery route.
+Checked and not exposed. The Hub ships registry auth-js 2.112.4, whose
+`getSession()` takes no lock unless a custom `lock` option is supplied, and
+the Hub supplies none. Supabase made the same change upstream; the vendored
+2.90.1 now matches that behaviour for reads.
+
+## Recovery on the fault card
+
+The club workspace already re-read on the browser `online` event. A failed
+verification now also retries when the page becomes visible or focused again,
+which is how a phone player leaves a stalled read (switching apps or tabs fires
+no `online` event). It only listens while the card is showing, so a verified
+page never re-reads on focus. Pinned in `tests/unit/clubWorkspaceProvider.test.tsx`
+(verified to fail with the listener removed).
 
 ## Method for the next agent (owner standing order)
 
@@ -79,5 +89,9 @@ test, constraint or gate that fails the build). Prove each guard by running it
 against the old code. Read production evidence after publish: here the first
 fix was verified live and the error sink then showed the same abort from the
 45 direct callers, which led to the SDK-level fix. Before pushing, run the
-repo's ratchet and contract suites, not just the tests you wrote:
-`discardedErrorReadRatchet` refused the first push of #11894 in CI.
+repo's ratchet and contract suites in every test directory (`tests/unit`,
+`tests/config`, `tests/*.law.test.ts`), not just the tests you wrote:
+`discardedErrorReadRatchet` refused the first push of #11894 in CI, and a
+`tests/config` source contract refused the first push of this change. Verify
+claims about other apps against their code before writing them down: this
+record first said the Hub was exposed, and its SDK showed otherwise.
