@@ -69,8 +69,6 @@ export function lightningBustVerdict(
   return { kind: 'prompt', maximum: read.maximum };
 }
 
-/** How long the opt-in auto top-up is given to land before the player is asked. */
-export const LIGHTNING_BUST_AUTO_TOP_UP_GRACE_MS = 2500;
 /** A read that could not answer (a hand still settling, a failed read) is asked again. */
 export const LIGHTNING_BUST_RECHECK_MS = 1500;
 export const LIGHTNING_BUST_MAX_READS = 6;
@@ -79,7 +77,7 @@ export function useLightningBustRebuy(input: {
   room: { poolSessionId: string; clusterId: string } | null;
   userId: string | null | undefined;
   candidate: LightningBustCandidate;
-  /** The opt-in auto top-up is on: give it its moment first. */
+  /** The player chose automatic funding instead of a manual rebuy prompt. */
   autoTopUpEnabled: boolean;
   /** Another money sheet (or this prompt) is already open: do not stack one. */
   blocked: boolean;
@@ -101,21 +99,17 @@ export function useLightningBustRebuy(input: {
 
   // A positive stack re-arms the prompt for the next bust.
   useEffect(() => {
-    if (candidate === 'funded') firedRef.current.fired = false;
+    if (candidate === 'funded' || autoTopUpEnabled) firedRef.current.fired = false;
     if (candidate !== 'bust') firedRef.current.reads = 0;
-  }, [candidate]);
+  }, [candidate, autoTopUpEnabled]);
 
   useEffect(() => {
-    if (!key || !room || !userId || candidate !== 'bust' || blocked) return;
+    if (!key || !room || !userId || candidate !== 'bust' || blocked || autoTopUpEnabled) return;
     if (firedRef.current.fired || firedRef.current.reads >= LIGHTNING_BUST_MAX_READS) return;
     const owner = firedRef.current;
     let cancelled = false;
     const first = owner.reads === 0;
-    const wait = first
-      ? autoTopUpEnabled
-        ? LIGHTNING_BUST_AUTO_TOP_UP_GRACE_MS
-        : 0
-      : LIGHTNING_BUST_RECHECK_MS;
+    const wait = first ? 0 : LIGHTNING_BUST_RECHECK_MS;
     const timer = setTimeout(() => {
       owner.reads += 1;
       void read(room.clusterId, room.poolSessionId, userId)

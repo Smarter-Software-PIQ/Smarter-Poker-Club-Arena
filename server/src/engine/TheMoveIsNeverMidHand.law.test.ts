@@ -64,6 +64,7 @@ afterEach(() => vi.restoreAllMocks());
 const read = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
 const BASE = read('./ServerTableEngineBase.ts');
 const DEALING = read('./ServerTableEngineDealing.ts');
+const SEATING = read('./ServerTableEngineSeating.ts');
 const SETTLEMENT = read('./ServerTableEngineSettlement.ts');
 const MOVES = read('../services/supabase/seatMoves.ts');
 const HUB = read('../transport/TableStateHub.ts');
@@ -321,8 +322,9 @@ describe('D4 - an entry hold never outlives the deal that made it meaningless', 
       /for \(const p of players\) \{\s*if \(p\.entry_hold === 'moved'\)\s*this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
     );
     expect(DEALING).toMatch(
-      /entryHold === 'waiting' && entryAgreed[\s\S]{0,600}?this\.postBBWhenClear\.add\(p\.user_id\)/
+      /this\.registerWaitForBB\(\s*p\.user_id,\s*\(entryHold === 'waiting' && entryAgreed\)/
     );
+    expect(SEATING).toMatch(/if \(postWhenClear\) this\.postBBWhenClear\.add\(userId\);/);
   });
 });
 

@@ -1743,8 +1743,19 @@ class TournamentService {
        seats are held hears the rule now rather than after a refused
        purchase. The database's entry guard applies the same rule to the
        registration itself. A database without the door yet admits as before. */
-    if (isSitAndGoInviteFormat(tournament as { variant?: string | null; max_players?: number | null; format_contract?: unknown })) {
-      const admission = await acceptPrivateGameInvite(tournamentId, privateInviteTokenFor(tournamentId));
+    if (
+      isSitAndGoInviteFormat(
+        tournament as {
+          variant?: string | null;
+          max_players?: number | null;
+          format_contract?: unknown;
+        }
+      )
+    ) {
+      const admission = await acceptPrivateGameInvite(
+        tournamentId,
+        privateInviteTokenFor(tournamentId)
+      );
       if (!admission.unavailable && !admission.allowed) {
         if (admission.reason && /private_game/.test(admission.reason)) {
           throw new Error(privateGameRefusalText(admission.reason));
@@ -2621,7 +2632,8 @@ class TournamentService {
   async processRebuy(
     tournamentId: string,
     userId: string,
-    clientToken: string
+    clientToken: string,
+    expectedTotal?: number
   ): Promise<{ success: true; newStack: number; tableId: string; seatNumber: number }> {
     if (typeof clientToken !== 'string' || !clientToken.trim()) {
       throw new Error('A rebuy prompt token is required');
@@ -2659,6 +2671,10 @@ class TournamentService {
         // the remainder feeds the prize pool. Until this, a 20 rebuy charged 22
         // while a 20 entry charged 20 - two prices for one rule.
         const rebuyTotalCost = rebuyCost;
+        if (expectedTotal !== undefined) {
+          if (!tournament.is_rebuy) throw new Error('Auto Rebuy Is Unavailable For This Event');
+          if (rebuyTotalCost !== expectedTotal) throw new Error('The Rebuy Price Changed');
+        }
 
         // 2026-08-27: the frozen-pool pre-check that lived here is GONE. It read
         // public.wallets - frozen since 2026-08-21, nothing maintains it - so a
@@ -2751,7 +2767,8 @@ class TournamentService {
    */
   async processAddOn(
     tournamentId: string,
-    userId: string
+    userId: string,
+    expectedTotal?: number
   ): Promise<{ success: true; newStack: number }> {
     const newStack = await withTournamentPurchaseIntent(
       { tournamentId, userId, kind: 'addon' },
@@ -2779,6 +2796,8 @@ class TournamentService {
         // process_tournament_rebuy now charges an add-on at face value and books
         // no rake for it; the whole add-on goes to the prize pool.
         const addonTotalCost = addonCost;
+        if (expectedTotal !== undefined && addonTotalCost !== expectedTotal)
+          throw new Error('The Add-On Price Changed');
 
         // 2026-08-27: the frozen-pool pre-check that lived here is GONE. It read
         // public.wallets - frozen since 2026-08-21, nothing maintains it - so a

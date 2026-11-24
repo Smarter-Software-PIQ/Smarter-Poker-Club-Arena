@@ -268,6 +268,8 @@ interface TableInstance {
   seatChangeOffInLightning?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
+  tournamentAutoRebuy?: boolean;
+  tournamentAutoAddOn?: boolean;
   standUpNextBB?: boolean;
   straddleAvailable?: boolean;
   straddleEnabled?: boolean;
@@ -2404,6 +2406,8 @@ export default function MultiTablePage() {
           seatChangeOffInLightning: t.seatChangeOffInLightning,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
+          tournamentAutoRebuy: t.tournamentAutoRebuy,
+          tournamentAutoAddOn: t.tournamentAutoAddOn,
           standUpNextBB: t.standUpNextBB,
           straddleAvailable: t.straddleAvailable,
           straddleEnabled: t.straddleEnabled,
