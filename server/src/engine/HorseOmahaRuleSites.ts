@@ -543,6 +543,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaOopReraiseRangeHoldsVsReraise: priced(
     "an out-of-position preflop 3-bet facing one open stands only when EV(3-bet), priced on the opener's measured answer to a 3-bet (fitted population answer when unread) and the Horse's own answer to the 4-bet at the real depth, is at least the priced call the existing calling rule admits (or 0), and that answer is not a fold except a blocker kept at the seeded frequency that holds the range's fold-to-4-bet share under horse.reraiseFoldShareCap; it only removes 3-bets, as the call or the fold (default OFF; PLO-LEAD-6)"
   ),
+  omahaOopReraiseRangeReadsOpenerRecord: priced(
+    "with omahaOopReraiseRangeHoldsVsReraise on, the out-of-position 3-bet rule reads this opener's own record of answering a 3-bet in position (horse_exact_profiles.opener_response; his 4-bet share anchored to a 0.10 baseline, population weight 0, own record mass 6): his call : 4-bet split is his own and the planned-fold guard and the price bind with weight w = min(1, his 4-bet rate / 0.10), a rejected 3-bet standing at the seeded frequency 1 - w; no record, w = 1; it only removes 3-bets (default OFF; PLO-LEAD-6)"
+  ),
   omahaFourBetFoldPricedCall: priced(
     "a preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the call only where the engine's priced call of a re-raise (omahaReraisedCallPriced) is positive; it changes only a fold (default OFF)"
   ),

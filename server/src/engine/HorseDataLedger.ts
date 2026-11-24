@@ -1222,6 +1222,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'omahaOopReraiseRangeReadsOpenerRecord',
+    "PLO-LEAD-6 2026-11-24 (league probes of #11917: priced with the population's call : 4-bet split, the out-of-position 3-bet rule lost against openers who never 4-bet light). With omahaOopReraiseRangeHoldsVsReraise on, PLO4/PLO5 cash (horse.omahaGameScope.<option>): the rule reads this opener's own record of answering a 3-bet in position (horse_exact_profiles.opener_response, HorseOpenerAnswersThreeBet; public actions only). His 4-bet share is (his 4-bets + 6 x 0.10) / (his answers + 6): baseline 0.10, population weight 0, own record mass 6. The rest of what does not fold is a call. The planned-fold guard and the price bind with weight w = min(1, 4-bet share / 0.10): a 3-bet the rule rejected stands at the seeded frequency 1 - w (keep unit: hash of id, pot and own cards), recorded on the receipt (openerRecord, reason opener_record_planned_fold / opener_record_price). No record: w = 1, the verdict of the rule without this option. Default off (read === true). Off: byte-identical.",
+    'V94'
+  ),
+  flag(
+    'holdemOopReraiseRangeReadsOpenerRecord',
+    'PLO-LEAD-6 2026-11-24. The same reading as omahaOopReraiseRangeReadsOpenerRecord for holdemOopReraiseRangeHoldsVsReraise on NLH cash tables (heads-up league probes: without it the rule cost 25 bb/100 against an opener who never 4-bets light and 21 against one who calls every 3-bet; with it neither is a significant loss and the always-4-bet opener is still beaten by 69-109 bb/100). Default off (read === true). Off: byte-identical.',
+    "Hold'em Strategy"
+  ),
+  flag(
     'reraiseFoldShareCap',
     'Runtime setting horse.reraiseFoldShareCap (default 0.45): the most of the out-of-position 3-bet range the two OOP re-raise range options let fold to a 4-bet (planned blocker folds kept at the frequency that holds it); never above the pure-bluff break-even of the 4-bet size; a parameter, not a switch',
     'V94'

@@ -4641,6 +4641,11 @@ export interface HorseDecideOpts {
    * folded against a 61% break-even). The rejected 3-bet calls only where the brain's own call bar for the spot admits
    * the call and it is priced at or above 0. Never a tournament, Short Deck or Lightning. Default OFF. */
   holdemOopReraiseRangeHoldsVsReraise?: boolean;
+  /** 2026-11-24 PLO-LEAD-6 (default OFF): with omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise
+   *  on, the planned-fold guard binds in proportion to this opener's own 4-bet record (HorseOpenerAnswersThreeBet,
+   *  horse_exact_profiles.opener_response, anchored to a 0.10 baseline) and his call : 4-bet split is his own. */
+  omahaOopReraiseRangeReadsOpenerRecord?: boolean;
+  holdemOopReraiseRangeReadsOpenerRecord?: boolean;
   /** horse.reraiseFoldShareCap (runtime setting, default 0.45): the most of the out-of-position 3-bet range the two
    *  options above let fold to a 4-bet; never above the 4-bettor's pure-bluff break-even for the size. */
   reraiseFoldShareCap?: number;

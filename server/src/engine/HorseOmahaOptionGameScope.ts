@@ -199,6 +199,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaBigDrawBetIsPricedOnHisResponse',
   // PLO-LEAD-6 2026-11-24: PLO4/PLO5 cash, default OFF
   'omahaOopReraiseRangeHoldsVsReraise',
+  // PLO-LEAD-6 2026-11-24: PLO4/PLO5 cash, default OFF (reads the opener's own record)
+  'omahaOopReraiseRangeReadsOpenerRecord',
 ]);
 
 const SCOPABLE: ReadonlySet<string> = new Set(OMAHA_OPTION_GAME_SCOPE_OPTIONS);

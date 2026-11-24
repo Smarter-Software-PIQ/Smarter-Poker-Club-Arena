@@ -34,6 +34,7 @@ import {
 } from '../../src/benchmark/ExploiterLeague.js';
 import { HORSE_HYBRID_PROFILES } from '../../src/engine/HorseHybridProfile.js';
 import type { HorseDecideOpts, HorseProfileMods } from '../../src/engine/HorseLogic.js';
+import { HorseMind } from '../../src/engine/HorseMind.js';
 
 const arg = (k: string, d?: string): string | undefined => {
   const i = process.argv.indexOf(`--${k}`);
@@ -52,9 +53,17 @@ const PROD = (
 const OPTION =
   VARIANT === 'nlh' ? 'holdemOopReraiseRangeHoldsVsReraise' : 'omahaOopReraiseRangeHoldsVsReraise';
 const CAP = arg('cap');
+// --record: the ON arm also reads the opener's own record of answering a 3-bet (HorseOpenerAnswersThreeBet). Every
+// sandbox learns that record from its own hands (both arms; only a reader of it can change a decision), as the
+// accepted-hand learner keeps it for a live table.
+const RECORD = process.argv.includes('--record');
+const RECORD_OPTION =
+  VARIANT === 'nlh' ? 'holdemOopReraiseRangeReadsOpenerRecord' : 'omahaOopReraiseRangeReadsOpenerRecord';
+HorseMind.setLearnsOpenerResponseInSandbox(true);
 const ON = {
   ...PROD,
   [OPTION]: true,
+  ...(RECORD ? { [RECORD_OPTION]: true } : {}),
   ...(CAP !== undefined ? { reraiseFoldShareCap: Number(CAP) } : {}),
 } as HorseDecideOpts;
 
@@ -142,6 +151,7 @@ async function main() {
       pairs: PAIRS,
       seed: SEED,
       cap: CAP ?? null,
+      record: RECORD,
       hands: r.hands,
       onBb100: r.bb100,
       se: r.stderr,
@@ -206,6 +216,7 @@ async function main() {
     pairs: PAIRS,
     seed: SEED,
     cap: CAP ?? null,
+    record: RECORD,
     ...rows,
     onMinusOffBb100: mean * 100,
     onMinusOffSe: (sd / Math.sqrt(d.length)) * 100,
