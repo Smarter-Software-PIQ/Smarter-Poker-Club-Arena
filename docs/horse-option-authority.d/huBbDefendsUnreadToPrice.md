@@ -79,7 +79,7 @@ Machine-read (README.md, "The Replay row"); a run row is written by the scorer a
 
 How the rows are produced (run from `server/` on the operations Mac; `ARCHIVE` is `/Volumes/SmarterArchives/agent-evidence/extreme-archive/hu-29a711f2-replay-20261120`, `SWITCH` is `/Volumes/SmarterArchives/agent-evidence/extreme-archive/horse-decisions-01UxDLnM/replay6/prod-switch-20261120T2115Z.json`):
 
-1. Re-decide the placed two-player human NLH tournament nodes (`nodes_30d/E.job.json` and `nodes/E.job.json`, extracted via `server/scripts/complaint-extract.sql`, audited by Auditor E's unmodified `analyze.mjs`, and placed by `server/scripts/hvh48-audit-nodes.py --set E`) on merged `main` (`#11556` `f90f60b7c9b0` + `#11563` `d6b032d3204`), off against `huBbDefendsUnreadToPrice` on:
+1. Re-decide the placed two-player human NLH tournament nodes (`nodes_30d/E.job.json` and `nodes/E.job.json`, extracted via `scripts/horse-measure/sql/complaint-extract.sql`, audited by Auditor E's unmodified `analyze.mjs`, and placed by `server/scripts/hvh48-audit-nodes.py --set E`) on merged `main` (`#11556` `f90f60b7c9b0` + `#11563` `d6b032d3204`), off against `huBbDefendsUnreadToPrice` on:
    - `npx tsx scripts/audited-node-option-replay.ts --job $ARCHIVE/nodes_30d/E.job.json --switch $SWITCH --arms on=huBbDefendsUnreadToPrice --out $ARCHIVE/runs-f90f60b7/HU30D.replay.jsonl`
    - `npx tsx scripts/audited-node-option-replay.ts --job $ARCHIVE/nodes/E.job.json --switch $SWITCH --arms on=huBbDefendsUnreadToPrice --out $ARCHIVE/runs-f90f60b7/HU14D.replay.jsonl`
 2. Score with the committed scorer (`--placed`, `--line on`, `--row on`) and copy the printed `- Replay:` rows unedited:
@@ -89,3 +89,9 @@ How the rows are produced (run from `server/` on the operations Mac; `ARCHIVE` i
 ## Rollback
 
 Set `huBbDefendsUnreadToPrice` to `off` via the `horse-option-switch` CLI (`fn_ca_horse_option_switch_set('huBbDefendsUnreadToPrice', 'off', '<actor>', '<reason>')`) to restore the base brain within ~30s; zero data migration needed.
+
+## Evidence check, 2026-11-24
+
+Checked 2026-11-24: `antigravity-coordinator-01UxDLnH/evidence/heads-up/HU30D-REPLAY-SUMMARY.md` is present on the Mac's internal disk at `/Users/smarter.poker/Documents/Claude/antigravity-coordinator-01UxDLnH/evidence/heads-up/HU30D-REPLAY-SUMMARY.md`, with the sha256 this file states (`3d921a94...`). The archive entry `/Volumes/SmarterArchives/agent-evidence/antigravity-coordinator-01UxDLnH` is a link to a folder on a second archive volume that holds two files and no `evidence/` folder, which is why the ablation reported the summary missing. `HU30D.voluntary.score.log` and `HU14D.voluntary.score.log` are present, with the stated sha256, in `/Volumes/SmarterArchives/agent-evidence/extreme-archive/hu-29a711f2-replay-20261120/runs/`. The query was cited under `server/scripts/`; the committed file is `scripts/horse-measure/sql/complaint-extract.sql` (corrected above).
+
+Independent result (`/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/holdem-ablation/HOLDEM-SWITCH-ABLATION.md` sections 2 and 5, build `b99bd306892c`): switching it off changes 0 of 10,800 replayed decisions (423 heads-up cash, 981 heads-up tournament states) and 0 on the real cash and tournament sets. Production telemetry shows it is reached (`hu_bb_defends_unread_to_price` 236 fires, 2026-11-21 to 2026-11-24), so it is not unreachable; no test set shows it changing an action. It is listed in `docs/ops/horse-dead-options-20261124.md`.
