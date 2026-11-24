@@ -116,4 +116,32 @@ BEGIN
 END
 $migration$;
 
+-- Each new body runs once before COMMIT. With no accepted hand the clock
+-- refuses by name, after the body has been entered and its settings and
+-- tournament reads have run; the source arithmetic itself is proved on
+-- production's preimages by scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py.
+-- @probe-for: public.fn_ca_promo_profit_capture_cash
+-- @probe-for: public.fn_ca_promo_accept_cash_hand
+DO $probe$
+BEGIN
+  IF public.fn_ca_promo_position_stack_before(gen_random_uuid(), gen_random_uuid(), 48) <> 48 THEN
+    RAISE EXCEPTION 'probe_position_stack_before_without_marker_changed';
+  END IF;
+  BEGIN
+    PERFORM public.fn_ca_promo_profit_capture_cash(gen_random_uuid(), gen_random_uuid(), '[]'::jsonb, '{}'::jsonb, '{}'::jsonb);
+    RAISE EXCEPTION 'probe_expected_capture_clock_refusal';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'promo_cash_original_accepted_hand_missing' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM public.fn_ca_promo_accept_cash_hand(gen_random_uuid(), gen_random_uuid(), '[]'::jsonb, '{}'::jsonb, '{}'::jsonb);
+    RAISE EXCEPTION 'probe_expected_accept_clock_refusal';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'promo_cash_original_accepted_hand_missing' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;

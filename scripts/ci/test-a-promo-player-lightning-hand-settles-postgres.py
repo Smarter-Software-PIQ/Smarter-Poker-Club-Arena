@@ -116,8 +116,14 @@ CREATE FUNCTION public.fn_ca_promo_play_through_state(p_club_id uuid, p_user_id 
   cycle_fees numeric, granted_at timestamptz, expires_at timestamptz, state text)
  LANGUAGE sql AS $f$ SELECT g.id,g.amount,g.remaining,g.fee_target,g.fee_target,g.cycle_started_at,0::numeric,g.granted_at,g.expires_at,'locked'
   FROM public.ca_promo_play_through_grants g WHERE g.club_id=p_club_id AND g.user_id=p_user_id AND g.closed_at IS NULL $f$;
-CREATE FUNCTION public.fn_ca_promo_capture_cash_hand_clock(p_hand uuid, p_table uuid) RETURNS void LANGUAGE sql AS
- $f$ INSERT INTO public.ca_promo_cash_hand_clocks(hand_id) SELECT p_hand WHERE NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks WHERE hand_id=p_hand) $f$;
+-- Like production's clock: an unknown hand is refused by name (the migration's probe relies on it).
+CREATE FUNCTION public.fn_ca_promo_capture_cash_hand_clock(p_hand uuid, p_table uuid) RETURNS void LANGUAGE plpgsql AS
+ $f$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM public.lightning_hand WHERE hand_id=p_hand) THEN
+   RAISE EXCEPTION 'promo_cash_original_accepted_hand_missing' USING ERRCODE='23514';
+  END IF;
+  INSERT INTO public.ca_promo_cash_hand_clocks(hand_id) SELECT p_hand WHERE NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks WHERE hand_id=p_hand);
+ END $f$;
 CREATE FUNCTION public.fn_ca_promo_integrity_source_loss(uuid,uuid,uuid,uuid,uuid[],numeric) RETURNS void LANGUAGE sql AS $f$ SELECT $f$;
 CREATE FUNCTION public.fn_ca_promo_move_selected_custody(p_club uuid,p_user uuid,p_from text,p_from_id uuid,p_to text,p_to_id uuid,
   p_amount numeric,p_reason text,p_grants uuid[]) RETURNS numeric LANGUAGE sql AS
