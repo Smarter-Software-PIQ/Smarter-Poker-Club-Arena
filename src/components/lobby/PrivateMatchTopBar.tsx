@@ -7,6 +7,7 @@
  * unregister and permanently close their open private event at any time.
  */
 import type { MyPrivateMatchInfo, PrivateMatchFormat } from '../../lib/privateSeatFirstMatch';
+import './PremiumMttRows.css';
 import './PrivateMatchTopBar.css';
 
 export interface ActivePrivateMatchRow {
