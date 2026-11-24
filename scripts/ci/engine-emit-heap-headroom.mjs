@@ -12,12 +12,15 @@
 // links. tsconfig.runtime.json now sets isolatedModules and the emit needs
 // about 790 MiB.
 //
-// This check runs the exact emit with the heap the Dockerfile grants minus a
-// fixed margin. If it cannot finish there, headroom under the bound has fallen
-// below the margin and the build fails here, in a pull request, before any
-// release build runs out of memory. It names the largest program files and the
-// observed peak so the next change can be cut at its cause instead of raising
-// the bound.
+// This check runs the exact emit with a FIXED heap ceiling, EMIT_HEAP_CEILING_MIB
+// (924 MiB: the original 1024 MiB compiler bound minus a 100 MiB margin). The
+// ceiling does not follow the Dockerfile: when release custody raises the
+// compiler heap (#11934: 2048 MiB) the emit still fails here as soon as it
+// grows past ~924 MiB, instead of being allowed to grow toward the new bound.
+// Raising EMIT_HEAP_CEILING_MIB is a deliberate, reviewed edit of this file:
+// first cut what the emit needs (the failure names the largest program files),
+// and raise the ceiling only with a measured reason in the same pull request.
+// It never exceeds the Dockerfile compiler heap minus the margin.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -26,6 +29,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const HEADROOM_MARGIN_MIB = 100;
+export const EMIT_HEAP_CEILING_MIB = 924;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const server = join(root, 'server');
@@ -92,7 +96,12 @@ function largestProgramFiles(count) {
 
 function main() {
   const bound = boundFromDockerfile(readFileSync(join(server, 'Dockerfile'), 'utf8'));
-  const limit = bound - HEADROOM_MARGIN_MIB;
+  if (EMIT_HEAP_CEILING_MIB > bound - HEADROOM_MARGIN_MIB) {
+    throw new Error(
+      `EMIT_HEAP_CEILING_MIB ${EMIT_HEAP_CEILING_MIB} leaves less than ${HEADROOM_MARGIN_MIB} MiB under the ${bound} MiB compiler heap in server/Dockerfile`
+    );
+  }
+  const limit = EMIT_HEAP_CEILING_MIB;
   const outDir = mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), 'engine-emit-headroom-'));
   const started = Date.now();
   const result = spawnSync(
@@ -114,7 +123,7 @@ function main() {
   const peak = peakFromTraceGc(output);
   const used = /^Memory used:\s+(\d+)K$/m.exec(output)?.[1];
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  const facts = `bound ${bound} MiB, checked at ${limit} MiB (margin ${HEADROOM_MARGIN_MIB} MiB), observed peak heap ${peak.toFixed(0)} MiB${used ? `, heap at exit ${Math.round(Number(used) / 1024)} MiB` : ''}, ${seconds} s`;
+  const facts = `fixed ceiling ${limit} MiB (Dockerfile compiler heap ${bound} MiB), observed peak heap ${peak.toFixed(0)} MiB${used ? `, heap at exit ${Math.round(Number(used) / 1024)} MiB` : ''}, ${seconds} s`;
   if (result.status === 0) {
     console.log(`ENGINE_EMIT_HEAP_HEADROOM ok: ${facts}`);
     console.log(`ENGINE_EMIT_HEAP_PEAK_MIB=${peak.toFixed(0)}`);
@@ -124,8 +133,8 @@ function main() {
   console.error(
     [
       `ENGINE_EMIT_HEAP_HEADROOM failed: the engine image emit (tsc --project server/tsconfig.emit.json) did not finish inside ${limit} MiB of heap,`,
-      `so less than ${HEADROOM_MARGIN_MIB} MiB is left under the ${bound} MiB compiler bound in server/Dockerfile. ${facts}; exit ${result.status ?? result.signal}.`,
-      'Cut what the emit needs (a non-runtime file in the program, a construct that makes the emit consult the checker); raising the bound is a release-control change.',
+      `the fixed ceiling EMIT_HEAP_CEILING_MIB in scripts/ci/engine-emit-heap-headroom.mjs. ${facts}; exit ${result.status ?? result.signal}.`,
+      'Cut what the emit needs (a non-runtime file in the program, a construct that makes the emit consult the checker); raising the ceiling is a deliberate, reviewed edit with a measured reason, and raising the Dockerfile heap is a release-control change.',
       `Program: ${files} TypeScript files, ${total} syntax nodes. Largest by syntax nodes:`,
       ...largest.map((row) => `  ${String(row.nodes).padStart(8)}  ${row.file}`),
       '--- last compiler output ---',

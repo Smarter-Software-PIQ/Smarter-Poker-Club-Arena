@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  EMIT_HEAP_CEILING_MIB,
   HEADROOM_MARGIN_MIB,
   boundFromDockerfile,
   peakFromTraceGc,
@@ -11,7 +12,7 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-test('the bound is the one compiler RUN heap in server/Dockerfile, not the serving NODE_OPTIONS', () => {
+test('the Dockerfile heap is the one compiler RUN heap in server/Dockerfile, not the serving NODE_OPTIONS', () => {
   const dockerfile = readFileSync(join(root, 'server/Dockerfile'), 'utf8');
   const bound = boundFromDockerfile(dockerfile);
   assert.ok(Number.isInteger(bound) && bound > HEADROOM_MARGIN_MIB);
@@ -28,6 +29,13 @@ test('the bound is the one compiler RUN heap in server/Dockerfile, not the servi
     )
   );
   assert.equal(HEADROOM_MARGIN_MIB, 100);
+});
+
+test('the ceiling is fixed at 924 MiB, below the Dockerfile heap by at least the margin, whatever that heap is', () => {
+  // A raised compiler heap (#11934) must not raise what the emit may need.
+  assert.equal(EMIT_HEAP_CEILING_MIB, 924);
+  const bound = boundFromDockerfile(readFileSync(join(root, 'server/Dockerfile'), 'utf8'));
+  assert.ok(EMIT_HEAP_CEILING_MIB <= bound - HEADROOM_MARGIN_MIB);
 });
 
 test('the observed peak is the largest heap before a collection', () => {
