@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 import { resolveClubIdFilter } from '../../src/utils/clubIdResolver';
+import { KINGS_CLUB_UUID } from '../../src/lib/constants';
 const read = (path: string) => readFileSync(path, 'utf8');
 describe('Kings Club identity and branding', () => {
   it.each(['shark-club', 'kings-club', 'KINGS-CLUB'])('keeps %s on the existing club', (slug) => {
@@ -27,9 +28,8 @@ describe('Kings Club identity and branding', () => {
       expect(read(file)).toContain('images/kings-club-logo.png');
       expect(read(file)).not.toContain('images/shark-club-card.jpg');
     }
-    expect(read('src/pages/InvitePage.tsx')).toContain(
-      "club.id === 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'"
-    );
+    expect(read('src/pages/InvitePage.tsx')).toContain('club.id === KINGS_CLUB_UUID');
+    expect(KINGS_CLUB_UUID).toBe('a41434bb-8d0c-400a-8f0d-e8b3d65afed4');
     expect(read('src/pages/InvitePage.tsx')).not.toContain("includes('SHARK')");
     expect(read('src/pages/HomePage.tsx')).toContain("name: 'Kings Club'");
     expect(read('src/App.tsx')).toContain('<ClubBrandRedirect />');

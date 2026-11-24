@@ -163,18 +163,20 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
     });
   }, [scope, shownMembers, clubLevel, shownActive, activeCash, activeEvents]);
 
-  const showActivityDetails = Number(clubId) !== SHARK_CLUB_ID;
+  const isKingsClub = !isUnion && Number(clubId) === SHARK_CLUB_ID;
+  const showActivityDetails = !isKingsClub;
   const activityFloorName =
     splitFloorLabel === 'MIDWAY UNION' ? 'THE MIDWAY UNION' : splitFloorLabel;
   const memberDisplay = kingsDisplayTotals?.member_total;
   const activeDisplay = kingsDisplayTotals?.active_total;
-  const membersText =
-    memberDisplay?.toLocaleString() ??
-    figureOr(shownMembers == null ? null : shownMembers.toLocaleString(), cached.members);
+  const membersText = isKingsClub
+    ? (memberDisplay?.toLocaleString() ?? '…')
+    : figureOr(shownMembers?.toLocaleString(), cached.members);
   const levelText = figureOr(clubLevel == null ? null : Math.max(1, clubLevel), cached.level);
-  const activeText =
-    activeDisplay?.toLocaleString() ??
-    figureOr(shownActive == null ? null : shownActive.toLocaleString(), cached.active);
+  const activeText = isKingsClub
+    ? (activeDisplay?.toLocaleString() ?? '…')
+    : figureOr(shownActive?.toLocaleString(), cached.active);
+  const hasActivePlayers = (isKingsClub ? (activeDisplay ?? 0) : (shownActive ?? 0)) > 0;
   /* Dan 2026-09-09: ACTIVE was one figure that mixed cash seats with
      tournament seats, so 291 beside a lobby of 21 cash players looked wrong.
      The split prints under the total: who is at cash tables, who is in
@@ -260,10 +262,10 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-label sc-label sc-ink--blue">LEVEL</span>
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
-        <div className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}>
+        <div className={`club-card-stat ${hasActivePlayers ? 'club-card-stat--active' : ''}`}>
           <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
           <span
-            className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
+            className={`club-card-stat-value ${hasActivePlayers ? 'sc-ink--green' : 'sc-ink--silver'}`}
           >
             {activeText}
           </span>

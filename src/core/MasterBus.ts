@@ -1216,6 +1216,8 @@ export interface BusPayloadMap {
       | 'SIT_OUT'
       | 'STAND_UP_BB'
       | 'AUTO_TOP_UP'
+      | 'TOGGLE_AUTO_TOURNAMENT_REBUY'
+      | 'TOGGLE_AUTO_TOURNAMENT_ADD_ON'
       | 'TOGGLE_SOUNDS'
       | 'TOGGLE_VIBRATIONS'
       | 'TOGGLE_STRADDLE'

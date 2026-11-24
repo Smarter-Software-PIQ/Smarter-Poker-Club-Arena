@@ -68,6 +68,32 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+describe('automatic tournament purchases', () => {
+  it('reports both switches and sends table-scoped actions', () => {
+    openMenu([tab({ isTournament: true, tournamentAutoRebuy: false, tournamentAutoAddOn: true })]);
+    expect(badge('Auto Rebuy')).toBe('OFF');
+    expect(badge('Auto Add-On')).toBe('ON');
+    fireEvent.click(row('Auto Rebuy'));
+    fireEvent.click(row('Auto Add-On'));
+    expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'TOGGLE_AUTO_TOURNAMENT_REBUY',
+    });
+    expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'TOGGLE_AUTO_TOURNAMENT_ADD_ON',
+    });
+    expect(screen.getByRole('menu')).toBeTruthy();
+  });
+
+  it('offers only the cash top-up control at a cash table', () => {
+    openMenu([tab({ isTournament: false })]);
+    expect(row('Auto Top Up')).toBeTruthy();
+    expect(row('Auto Rebuy')).toBeUndefined();
+    expect(row('Auto Add-On')).toBeUndefined();
+  });
+});
+
 describe('the Sounds and Vibrations rows', () => {
   it('show the setting the account actually has, not a field nobody reports', () => {
     act(() => setTableSetting('isSoundEnabled', true));

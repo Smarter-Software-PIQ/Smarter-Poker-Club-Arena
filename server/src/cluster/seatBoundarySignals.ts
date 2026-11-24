@@ -39,12 +39,73 @@
  */
 
 const plannedByGame = new Map<string, number>();
+const plannedGameWideByGame = new Map<string, number>();
+const plannedByTable = new Map<string, number>();
 const arrivedByTable = new Map<string, number>();
 
-/** The ClusterController committed at least one must-move plan for this game. */
-export function noteMovesPlanned(gameId: string | null | undefined): void {
+const tableArrivalListeners = new Map<string, Set<() => void>>();
+const tablePlanListeners = new Map<string, Set<() => void>>();
+const gamePlanListeners = new Map<string, Set<() => void>>();
+
+function addListener(
+  map: Map<string, Set<() => void>>,
+  key: string,
+  listener: () => void
+): () => void {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+    map.set(key, set);
+  }
+  set.add(listener);
+  return () => {
+    const current = map.get(key);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size === 0) map.delete(key);
+  };
+}
+
+function notifyListeners(map: Map<string, Set<() => void>>, key: string): void {
+  const set = map.get(key);
+  if (!set || set.size === 0) return;
+  for (const listener of [...set]) {
+    try {
+      listener();
+    } catch {
+      /* signal listeners are synchronous wakes and must never throw into callers */
+    }
+  }
+}
+
+/**
+ * The ClusterController committed at least one must-move plan for this game.
+ * When `sourceTableIds` is supplied (non-empty), only those source tables are
+ * targeted (so uninvolved feeders and Main 1 are not disturbed unless named,
+ * e.g. in a swap). When omitted, a game-wide signal is raised for non-Main-1
+ * tables while Main 1 continues to wait for actual `noteSeatArrival(tableId)`.
+ */
+export function noteMovesPlanned(
+  gameId: string | null | undefined,
+  sourceTableIds?: Iterable<string> | null
+): void {
   if (!gameId) return;
   plannedByGame.set(gameId, (plannedByGame.get(gameId) ?? 0) + 1);
+  const sources = new Set<string>();
+  if (sourceTableIds) {
+    for (const id of sourceTableIds) {
+      if (typeof id === 'string' && id.length > 0) sources.add(id);
+    }
+  }
+  if (sources.size > 0) {
+    for (const tableId of sources) {
+      plannedByTable.set(tableId, (plannedByTable.get(tableId) ?? 0) + 1);
+      notifyListeners(tablePlanListeners, tableId);
+    }
+    return;
+  }
+  plannedGameWideByGame.set(gameId, (plannedGameWideByGame.get(gameId) ?? 0) + 1);
+  notifyListeners(gamePlanListeners, gameId);
 }
 
 /** Captured before a feeder's pending-move read; compared before its deal. */
@@ -52,15 +113,52 @@ export function movesPlannedGeneration(gameId: string | null | undefined): numbe
   return gameId ? (plannedByGame.get(gameId) ?? 0) : 0;
 }
 
+/** Game-wide (unspecified source) move-plan generation for non-Main-1 tables. */
+export function gameWideMovesPlannedGeneration(gameId: string | null | undefined): number {
+  return gameId ? (plannedGameWideByGame.get(gameId) ?? 0) : 0;
+}
+
+/** Table-targeted move-plan generation (includes swaps naming Main 1). */
+export function tableMovesPlannedGeneration(tableId: string | null | undefined): number {
+  return tableId ? (plannedByTable.get(tableId) ?? 0) : 0;
+}
+
 /** A seat move into this table committed (its executor RPC returned). */
 export function noteSeatArrival(tableId: string | null | undefined): void {
   if (!tableId) return;
   arrivedByTable.set(tableId, (arrivedByTable.get(tableId) ?? 0) + 1);
+  notifyListeners(tableArrivalListeners, tableId);
 }
 
 /** Captured before a table's roster read; compared before its deal. */
 export function seatArrivalGeneration(tableId: string | null | undefined): number {
   return tableId ? (arrivedByTable.get(tableId) ?? 0) : 0;
+}
+
+/**
+ * Subscribe to synchronous wake callbacks for this table's seat arrivals,
+ * table-targeted plans (including swaps), and (when `gameId` is passed for a
+ * non-Main-1 table) game-wide plans. Always call the returned unsubscribe in a
+ * `finally` block so zero listeners leak.
+ */
+export function subscribeSeatBoundaryChange(
+  target: { tableId?: string | null; gameId?: string | null },
+  onChange: () => void
+): () => void {
+  const unsubs: Array<() => void> = [];
+  if (target.tableId) {
+    unsubs.push(addListener(tableArrivalListeners, target.tableId, onChange));
+    unsubs.push(addListener(tablePlanListeners, target.tableId, onChange));
+  }
+  if (target.gameId) {
+    unsubs.push(addListener(gamePlanListeners, target.gameId, onChange));
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const unsub of unsubs) unsub();
+  };
 }
 
 /**
@@ -78,8 +176,53 @@ export function tickReportsMovesPlanned(result: unknown): boolean {
   });
 }
 
+/**
+ * Extract explicit planned source table IDs from a tick result when the SQL
+ * reports them alongside `moves_planned`. Returns `undefined` when any
+ * `moves_planned` action omits source table IDs so callers fall back to the
+ * game-wide signal (excluding Main 1 unless explicitly named).
+ */
+export function tickPlannedSourceTableIds(result: unknown): string[] | undefined {
+  const actions = (result as { actions?: unknown } | null | undefined)?.actions;
+  if (!Array.isArray(actions)) return undefined;
+  const sources = new Set<string>();
+  let sawPlanned = false;
+  for (const action of actions) {
+    if (!action || typeof action !== 'object') continue;
+    const rec = action as Record<string, unknown>;
+    const planned = rec.moves_planned;
+    if (typeof planned !== 'number' || !(planned > 0)) continue;
+    sawPlanned = true;
+    const list = rec.source_table_ids ?? rec.from_table_ids ?? rec.swap_table_ids;
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+    let added = false;
+    for (const id of list) {
+      if (typeof id === 'string' && id.length > 0) {
+        sources.add(id);
+        added = true;
+      }
+    }
+    if (!added) return undefined;
+  }
+  return sawPlanned && sources.size > 0 ? [...sources] : undefined;
+}
+
+/** Test seam only: counts active wake listeners across all tables/games. */
+export function seatBoundaryListenerCountForTest(): number {
+  let count = 0;
+  for (const set of tableArrivalListeners.values()) count += set.size;
+  for (const set of tablePlanListeners.values()) count += set.size;
+  for (const set of gamePlanListeners.values()) count += set.size;
+  return count;
+}
+
 /** Test seam only: production never resets a counter. */
 export function resetSeatBoundarySignalsForTest(): void {
   plannedByGame.clear();
+  plannedGameWideByGame.clear();
+  plannedByTable.clear();
   arrivedByTable.clear();
+  tableArrivalListeners.clear();
+  tablePlanListeners.clear();
+  gamePlanListeners.clear();
 }

@@ -83,7 +83,7 @@ const TOURS: TourEntry[] = [
       },
       {
         title: 'Open A Hand',
-        body: 'Expand Any Hand For The Full Rundown, Replay It, Share It, Or Send It To Jarvis.',
+        body: 'Expand Any Hand For The Full Rundown, Replay It, Share It, Or Open It In Personal Assistant.',
       },
     ],
   },

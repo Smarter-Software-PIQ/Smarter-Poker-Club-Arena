@@ -90,6 +90,7 @@ import type { TimeBankEvent } from './TimeBankEngine.js';
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import type { HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
+import { horseOptionsOn, recordHorseError } from '../services/HorseErrorLog.js';
 import { ServerTableEngineSeating } from './ServerTableEngineSeating.js';
 // Static watchdog thresholds live on the Base class (single source of truth).
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
@@ -875,6 +876,34 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         'ServerTableEngine.' + this.tableId + '.watchdog_seat_missing'
       );
       if (this.watchdogTrips >= 3) this.killForRestart('current_seat_not_in_state');
+      return;
+    }
+    // A legitimate turn can outlive WATCHDOG_STALL_MS (45s): e.g. 15s primary +
+    // 2s grace + 30s reconnect protection (49s), VIP 45s protection (62s), or
+    // an active time bank (72s+). Stand down when any of the three server-owned
+    // timers for this seat holds a live future deadline inside a bounded 90s
+    // ceiling (so a corrupted far-future timer can never mask a genuine hang).
+    const now = Date.now();
+    const maxLiveDeadlineMs = now + 90_000;
+    const isLiveDeadline = (deadlineMs: number): boolean =>
+      Number.isFinite(deadlineMs) && deadlineMs > now && deadlineMs <= maxLiveDeadlineMs;
+    const primaryDeadline =
+      typeof this.preciseTimer.getDeadline === 'function'
+        ? this.preciseTimer.getDeadline(this.tableId, p.user_id)
+        : 0;
+    const disconnectDeadline =
+      typeof this.disconnectEngine.armedAutoActionDeadlineMs === 'function'
+        ? this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, p.user_id)
+        : 0;
+    const timeBankDeadline =
+      typeof this.preciseTimer.getDeadline === 'function'
+        ? this.preciseTimer.getDeadline(this.tableId, `timebank:${p.user_id}`)
+        : 0;
+    if (
+      isLiveDeadline(primaryDeadline) ||
+      isLiveDeadline(disconnectDeadline) ||
+      isLiveDeadline(timeBankDeadline)
+    ) {
       return;
     }
     // PreciseActionTimer keys on user_id (SeatPlayer.user_id in types.ts) — an
@@ -3083,6 +3112,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (!deadline || deadline <= Date.now()) return false;
     // A running bank owns its accounting until its own expiry callback hands over.
     if (this.timeBankEngine.getPlayerBank(this.tableId, userId)?.isActive) return false;
+    // protectExpiredTurn() may synchronously emit PLAYER_DISCONNECTED, whose
+    // mid-turn handler already re-entered here and armed disconnect:<userId>.
+    if (this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, userId) > 0) return true;
     this.preciseTimer.cancelTimer(this.tableId, userId);
     this.disconnectEngine.onPlayerTurn(
       this.tableId,
@@ -4654,6 +4686,25 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               ...(fallbackAction === 'call' ? { amount: pricedCall ?? toCall } : {}),
               thinkTime: 0,
             };
+        // THE HORSE ERROR LOG (2026-11-24): the rejected decision and the liveness action the seat takes
+        // instead, as a durable public-context row (services/HorseErrorLog.ts). Never throws.
+        recordHorseError({
+          type: 'decision_fallback',
+          reason: workerRefusalReason ?? horseDecisionFallbackReason(error),
+          error,
+          horseId: decisionPlayer.user_id,
+          tableId: this.tableId,
+          handNumber,
+          variant: activeVariant,
+          mode: tournamentHand ? 'tournament' : 'cash',
+          street: String(state.stage),
+          action: String(safeDecision.action),
+          optionsOn: horseOptionsOn(decisionSnapshot.opts),
+          extra: {
+            fallback_reason: horseDecisionFallbackReason(error),
+            core_recovered: !!coreRecovered,
+          },
+        });
         safeDecision.executionWitness = createHorseExecutionWitness(
           decisionSnapshot,
           safeDecision,
@@ -5378,6 +5429,23 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             }
 
             const horseWatchMode = tournamentHand ? 'tournament' : 'cash';
+            // THE HORSE ERROR LOG (2026-11-24): a legalizer correction is counted AND written as a durable
+            // public-context row (services/HorseErrorLog.ts), so the switch watch lists read a real number.
+            const noteLegalizerCorrection = (reason: string): void => {
+              noteHorseLegalizerDegraded(activeVariant, horseWatchMode, reason);
+              recordHorseError({
+                type: 'action_corrected',
+                reason,
+                horseId: decisionPlayer.user_id,
+                tableId: this.tableId,
+                handNumber,
+                variant: activeVariant,
+                mode: horseWatchMode,
+                street: String(state.stage),
+                optionsOn: horseOptionsOn(decisionSnapshot.opts),
+                extra: { chosen_action: String(action) },
+              });
+            };
             noteHorseTelemetryOpportunity(activeVariant, horseWatchMode, 'commit_evaluated');
             const wholeChipWager =
               tournamentHand ||
@@ -5442,7 +5510,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
                     !commitActions.legalActions.includes('all_in')
                   ) {
-                    noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'pot_or_cap_max_bet');
+                    noteLegalizerCorrection('pot_or_cap_max_bet');
                   }
                 }
                 amount = clamped;
@@ -5489,11 +5557,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
                     !commitActions.legalActions.includes('all_in')
                   ) {
-                    noteHorseLegalizerDegraded(
-                      activeVariant,
-                      horseWatchMode,
-                      'pot_or_cap_max_raise'
-                    );
+                    noteLegalizerCorrection('pot_or_cap_max_raise');
                   }
                 }
                 amount = clamped;
@@ -5536,7 +5600,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 action = 'raise';
                 amount = snapWagerCap(commitActions.maxRaiseTo);
                 noteHorseActionClamped(activeVariant, horseWatchMode, 'all_in_to_max_raise');
-                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'all_in_to_max_raise');
+                noteLegalizerCorrection('all_in_to_max_raise');
               } else if (
                 commitActions.legalActions.includes('bet') &&
                 typeof commitActions.maxRaiseTo === 'number'
@@ -5544,7 +5608,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 action = 'bet';
                 amount = snapWagerCap(commitActions.maxRaiseTo);
                 noteHorseActionClamped(activeVariant, horseWatchMode, 'all_in_to_max_bet');
-                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'all_in_to_max_bet');
+                noteLegalizerCorrection('all_in_to_max_bet');
               }
             }
 
@@ -5562,11 +5626,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 action = substituted as typeof action;
                 amount = substituted === 'call' ? toCall : undefined;
                 noteHorseActionClamped(activeVariant, horseWatchMode, 'fixed_limit_capped_street');
-                noteHorseLegalizerDegraded(
-                  activeVariant,
-                  horseWatchMode,
-                  'fixed_limit_capped_street'
-                );
+                noteLegalizerCorrection('fixed_limit_capped_street');
               }
             }
 
@@ -5583,7 +5643,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               action === 'all_in' &&
               !commitActions.legalActions.includes('all_in');
             if (promotedShoveIsIllegal) {
-              noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'promoted_shove_illegal');
+              noteLegalizerCorrection('promoted_shove_illegal');
             }
 
             const normalizedAmount =
@@ -5667,11 +5727,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 !horseFeatureAcceptanceUsable(decision)
               ) {
                 noteFire('horse_feature_authority_withdrawn_before_acceptance');
-                noteHorseLegalizerDegraded(
-                  activeVariant,
-                  horseWatchMode,
-                  'feature_authority_refused'
-                );
+                noteLegalizerCorrection('feature_authority_refused');
                 return false;
               }
               const receiptsBefore = acceptedActions.length;
@@ -5704,7 +5760,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             };
             worker.runWithDispatchBarrier(() => {
               if (decision.policyFallback === 'brain_exception') {
-                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'brain_exception');
+                noteLegalizerCorrection('brain_exception');
               }
               if (!promotedShoveIsIllegal) {
                 applied = attemptAction(
@@ -5779,7 +5835,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               }
               if (!applied) {
                 if (!promotedShoveIsIllegal) {
-                  noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'controller_rejected');
+                  noteLegalizerCorrection('controller_rejected');
                 }
                 attemptingFallback = true;
                 console.warn(

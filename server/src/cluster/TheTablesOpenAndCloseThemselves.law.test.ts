@@ -852,8 +852,9 @@ describe('the must move lobby: the roster is the order, the seat change is once,
       /for \(const p of players\) \{\s*if \(p\.entry_hold === 'moved'\)\s*this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
     );
     expect(DEALING).toMatch(
-      /entryHold === 'waiting' && entryAgreed[\s\S]*?this\.postBBWhenClear\.add\(p\.user_id\)/
+      /this\.registerWaitForBB\(\s*p\.user_id,\s*\(entryHold === 'waiting' && entryAgreed\)/
     );
+    expect(SEATING).toMatch(/if \(postWhenClear\) this\.postBBWhenClear\.add\(userId\);/);
     // On restart, retain the move until the first eligible deal.
     expect(DEALING).toContain("if (rowHold === 'moved') continue;");
     expect(BASE).toContain("p.entry_hold === 'moved'");
