@@ -63,7 +63,9 @@ describe('A0.14 - no player-visible string carries the forbidden words', () => {
   it('scans every src/ file outside comments and identifiers', () => {
     const hits: string[] = [];
     for (const file of walk(path.join(ROOT, 'src'))) {
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const raw = fs.readFileSync(file, 'utf8');
+      if (!/rathole|hit/i.test(raw)) continue;
+      const code = stripComments(raw);
       code.split('\n').forEach((line, i) => {
         if (FORBIDDEN.test(line))
           hits.push(`${path.relative(ROOT, file)}:${i + 1}: ${line.trim()}`);
