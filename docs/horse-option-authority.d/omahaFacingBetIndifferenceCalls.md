@@ -14,6 +14,13 @@ Tables: `server/src/engine/HorseOmahaFacingBetRangeTables.json` (v1-2026-11-24),
 
 Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfold/abl/states`, 4,661 postflop facing-bet states, 2 seeds, live switch rows of 2026-11-24 05:20Z): see `plo-lead6-01BNteGX/plo-pricing/BUILD.md` (heads-up and multiway fold % by street and size, before / after, every option alone and together). Law tests: `anOmahaFacingBetDefendsAtThePrice.law.test.ts`, `HorseOmahaFacingBetPriced.realHands.law.test.ts`, `anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`. Not measured: live rates, the league mirror and the human-calibrated league (cards `plo4_/plo5_omahaFacingBetIndifferenceCalls` in `HorseLeague.ts`).
 
+## Prior anchor
+
+- Baseline: indifference: a call is made at EV >= the estimate's own error (0 for an exact count), not EV > 2% of the pot.
+- Population weight: none of its own; it fits no population rate and only moves the call margin of the verdict it sits on (F1, M1, F3 or today's verdict), whose prior is anchored in that option's doc.
+- Own record: it reads no record; the verdict's own read (F1 / F3 record shrink) is used unchanged.
+- No unshown cards: the tables are fitted by `scripts/ops/omaha-facing-bet-range-fit.mjs` from `hand_history` hole cards only of players the showdown lists as not mucked; at decision time the option reads the public table state and the deciding Horse's own cards only (`anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`).
+
 ## Replay
 
 - Replay: fixed 20; newlyWrong 8; changed 31; unchanged 3732; unjudged 3; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm f1f2f6 vs off; replayed 3763 of 3884

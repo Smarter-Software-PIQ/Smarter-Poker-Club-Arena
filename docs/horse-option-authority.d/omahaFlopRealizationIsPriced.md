@@ -18,6 +18,13 @@ Tables: `server/src/engine/HorseOmahaFacingBetRangeTables.json` (v1-2026-11-24.2
 
 Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfold/abl/states`, 4,661 postflop facing-bet states, 2 seeds, live switch rows of 2026-11-24 05:20Z): see `plo-lead6-01BNteGX/plo-pricing/BUILD.md` (heads-up and multiway fold % by street and size, before / after, every option alone and together). Law tests: `anOmahaFacingBetDefendsAtThePrice.law.test.ts`, `HorseOmahaFacingBetPriced.realHands.law.test.ts`, `anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`. Not measured: live rates, the league mirror and the human-calibrated league (cards `plo4_/plo5_omahaFlopRealizationIsPriced` in `HorseLeague.ts`).
 
+## Prior anchor
+
+- Baseline: break-even defence, s / (1 + s); the law test holds the heads-up range to s / (1 + s) + 0.05 (flop 0.4-0.7 pot: 34.6% PLO4 / 34.4% PLO5 against 38.2% / 37.0% on about 600 states each).
+- Population weight: the flop range and his later-street bet rates, sizes and ranges are measured population tables; no realization factor and no multiplier fitted on the Horses' own results is used (the circular fit of `omahaFlopFacingBetEv`). With `omahaFacingBetMinimumDefencePrior` on, the no-record flop prior is bounded the same way (calibration: no flop bound needed). His later bet rates are shrunk toward his own public per-street counters.
+- Own record: the bettor's own shown record of the cell (`HorseOmahaBetRead`, from 4 shown bets) replaces the table's weak share through a Beta-binomial shrink with 8 prior bets (`OMAHA_MEASURED_RECORD_PRIOR`), so it dominates once it has a real sample; a record is never bounded by F6.
+- No unshown cards: the tables are fitted by `scripts/ops/omaha-facing-bet-range-fit.mjs` from `hand_history` hole cards only of players the showdown lists as not mucked; at decision time the option reads the public table state and the deciding Horse's own cards only (`anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`).
+
 ## Replay
 
 - Replay: fixed 22; newlyWrong 14; changed 60; unchanged 3703; unjudged 24; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm f3 vs off; replayed 3763 of 3884

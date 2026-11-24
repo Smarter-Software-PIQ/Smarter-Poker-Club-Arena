@@ -16,6 +16,13 @@ Tables: `server/src/engine/HorseOmahaFacingBetRangeTables.json` (v1-2026-11-24),
 
 Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfold/abl/states`, 4,661 postflop facing-bet states, 2 seeds, live switch rows of 2026-11-24 05:20Z): see `plo-lead6-01BNteGX/plo-pricing/BUILD.md` (heads-up and multiway fold % by street and size, before / after, every option alone and together). Law tests: `anOmahaFacingBetDefendsAtThePrice.law.test.ts`, `HorseOmahaFacingBetPriced.realHands.law.test.ts`, `anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`. Not measured: live rates, the league mirror and the human-calibrated league (cards `plo4_/plo5_omahaMultiwayValueBetIsPriced` in `HorseLeague.ts`).
 
+## Prior anchor
+
+- Baseline: a check becomes a bet only for a value hand (showdown share against one caller's measured range at least one half) where EV(bet) - EV(check) > 2% of the pot.
+- Population weight: the measured share of multiway wagers every player folded to and the measured calling ranges, at full weight and NOT reduced: this is one reason it is NOT READY (real-card replay 0 fixed / 81 newly wrong).
+- Own record: it reads no opponent record.
+- No unshown cards: the tables are fitted by `scripts/ops/omaha-facing-bet-range-fit.mjs` from `hand_history` hole cards only of players the showdown lists as not mucked; at decision time the option reads the public table state and the deciding Horse's own cards only (`anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`).
+
 ## Replay
 
 - Replay: fixed 26; newlyWrong 83; changed 148; unchanged 3615; unjudged 39; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm m123 vs off; replayed 3763 of 3884
