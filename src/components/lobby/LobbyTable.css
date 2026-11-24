@@ -614,10 +614,10 @@ abbr.lt-variant[title] {
   gap: 4px;
   min-height: 24px;
   padding: 2px 8px;
-  border: 1px solid rgb(69 173 255 / 45%);
-  border-radius: 999px;
-  background: rgb(22 139 255 / 16%);
-  color: #8fd4ff;
+  border: 0;
+  background: url('/assets/club-buttons/game-cards/nlh/spade-nlh-premium-v1/buttons/join-plate.png')
+    center / contain no-repeat;
+  color: #d9edff;
   font:
     700 0.64rem/1 'Roboto Condensed',
     Inter,
@@ -635,8 +635,6 @@ abbr.lt-variant[title] {
 }
 
 .lt-invite-btn.is-done {
-  border-color: rgb(53 217 90 / 55%);
-  background: rgb(53 217 90 / 16%);
   color: #c8ffd2;
 }
 

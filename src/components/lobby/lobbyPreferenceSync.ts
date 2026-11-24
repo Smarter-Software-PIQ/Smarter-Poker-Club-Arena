@@ -138,6 +138,7 @@ export function flushLobby(owner: string, clubId: string): Promise<void> {
   return flushScope({
     owner,
     scope: lobbyScope(clubId),
+    confirmSave: (field) => field !== 'view.favoritesOnly',
     send: (changes) =>
       callPreferenceRpc(owner, 'fn_save_lobby_preferences', {
         p_club_id: clubId,
