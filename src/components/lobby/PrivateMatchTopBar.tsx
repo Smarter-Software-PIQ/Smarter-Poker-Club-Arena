@@ -17,6 +17,7 @@ export interface ActivePrivateMatchRow {
 
 export interface PrivateMatchTopBarProps {
   format: PrivateMatchFormat;
+  colSpan: number;
   canCreate: boolean;
   activeMatches: readonly ActivePrivateMatchRow[];
   closingId: string | null;
@@ -28,6 +29,7 @@ export interface PrivateMatchTopBarProps {
 
 export function PrivateMatchTopBar({
   format,
+  colSpan,
   canCreate,
   activeMatches,
   closingId,
@@ -41,40 +43,51 @@ export function PrivateMatchTopBar({
   const isSpin = format === 'spin';
 
   return (
-    <section
-      className="private-match-topbar"
-      aria-label={isSpin ? 'Private Spins' : 'Private Heads-Up Matches'}
-      data-testid={isSpin ? 'private-spin-topbar' : 'private-hu-topbar'}
-    >
+    <>
       {canCreate && (
-        <div className="private-match-topbar__create-row">
-          <div className="private-match-topbar__copy">
-            <span className="private-match-topbar__eyebrow">Invite Link Only</span>
-            <span className="private-match-topbar__title">
-              {isSpin ? 'Private Spin (3-Max)' : 'Private Heads-Up Match (2-Max)'}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="private-match-topbar__btn"
-            data-testid={isSpin ? 'create-private-spin-btn' : 'create-private-hu-btn'}
-            onClick={onOpenCreate}
-          >
-            {isSpin ? 'Create Private Spin' : 'Create Private Heads-Up'}
-          </button>
-        </div>
+        <tr
+          className="lt-tournament-header private-match-topbar"
+          data-game-heading="private-create"
+          data-kind={isSpin ? 'spin' : 'sng'}
+          data-testid={isSpin ? 'private-spin-topbar' : 'private-hu-topbar'}
+          role="row"
+        >
+          <td colSpan={colSpan} role="gridcell">
+            <div className="lt-tournament-heading">
+              <span
+                className="lt-tournament-icon"
+                data-tournament-icon={isSpin ? 'spin' : 'sng'}
+                aria-hidden="true"
+              />
+              <span className="lt-tournament-heading__name">
+                {isSpin ? 'Private Spin (3-Max)' : 'Private Heads-Up Match (2-Max)'}
+                <span className="lt-tournament-heading__format">Invite Link Only</span>
+              </span>
+              <button
+                type="button"
+                className="lt-tournament-heading__guarantee private-match-topbar__btn"
+                data-testid={isSpin ? 'create-private-spin-btn' : 'create-private-hu-btn'}
+                onClick={onOpenCreate}
+              >
+                {isSpin ? 'Create Private Spin' : 'Create Private Heads-Up'}
+              </button>
+            </div>
+          </td>
+        </tr>
       )}
 
-      {activeMatches.length > 0 && (
-        <div className="private-match-topbar__active-list">
-          {activeMatches.map((match) => {
-            const closing = closingId === match.info.tournamentId;
-            return (
-              <div
-                key={match.info.tournamentId}
-                className="private-match-topbar__active-item"
-                data-testid="active-private-match-banner"
-              >
+      {activeMatches.map((match) => {
+        const closing = closingId === match.info.tournamentId;
+        return (
+          <tr
+            key={match.info.tournamentId}
+            className="lt-tournament-header private-match-topbar private-match-topbar--active"
+            data-game-heading="private-match"
+            data-testid="active-private-match-banner"
+            role="row"
+          >
+            <td colSpan={colSpan} role="gridcell">
+              <div className="private-match-topbar__active-item">
                 <div className="private-match-topbar__active-info">
                   <span className="private-match-topbar__active-tag">
                     {match.info.isCreator ? 'Your Private Event' : 'Invited Private Event'} ·{' '}
@@ -85,7 +98,7 @@ export function PrivateMatchTopBar({
                 <div className="private-match-topbar__active-actions">
                   <button
                     type="button"
-                    className="private-match-topbar__action"
+                    className="lt-invite-btn private-match-topbar__action"
                     onClick={() => onOpenMatch(match)}
                   >
                     Open Table
@@ -93,17 +106,17 @@ export function PrivateMatchTopBar({
                   {match.info.isCreator && match.info.inviteToken && (
                     <button
                       type="button"
-                      className="private-match-topbar__action private-match-topbar__action--primary"
+                      className="lt-invite-btn private-match-topbar__action"
                       data-testid="active-private-share-btn"
                       onClick={() => onShareLink(match)}
                     >
-                      Share Link
+                      Invite
                     </button>
                   )}
                   {match.info.isCreator && (
                     <button
                       type="button"
-                      className="private-match-topbar__action private-match-topbar__action--danger"
+                      className="lt-invite-btn private-match-topbar__action private-match-topbar__action--danger"
                       data-testid="active-private-close-btn"
                       disabled={closing}
                       onClick={() => onCloseMatch(match.info.tournamentId)}
@@ -113,10 +126,10 @@ export function PrivateMatchTopBar({
                   )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
+            </td>
+          </tr>
+        );
+      })}
+    </>
   );
 }

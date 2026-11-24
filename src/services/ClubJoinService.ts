@@ -1,5 +1,7 @@
 import type { ArenaAccessContext } from '../../server/src/domain/ArenaContext';
 import { supabase } from '../lib/supabase';
+import { SHARK_CLUB_ID } from '../lib/constants';
+import { readKingsClubDisplayTotals } from './KingsClubDisplayService';
 import { masterBus } from '../core/MasterBus';
 import { ClubEntryTrustService } from './ClubEntryTrustService';
 import { isJoinableClubCode } from '../utils/clubCode';
@@ -19,6 +21,8 @@ export interface ClubJoinPreview {
   description?: string | null;
   logo_url?: string | null;
   member_count?: number;
+  member_display_total?: number | null;
+  active_display_total?: number | null;
   requires_approval?: boolean;
   membership_status?: string | null;
 }
@@ -38,9 +42,7 @@ export interface ClubJoinResult {
 /** Identifiers accepted by the authoritative join RPC: code, UUID, or safe slug. */
 export function isClubJoinIdentifier(value: string | null | undefined): value is string {
   const normalized = value?.trim() || '';
-  return (
-    isJoinableClubCode(normalized) || isEntityId(normalized) || CLUB_SLUG_RE.test(normalized)
-  );
+  return isJoinableClubCode(normalized) || isEntityId(normalized) || CLUB_SLUG_RE.test(normalized);
 }
 
 interface PendingJoin {
@@ -87,7 +89,15 @@ export async function previewClubJoin(identifier: string): Promise<ClubJoinPrevi
     metadata: error ? { error_code: error.code || 'unknown' } : undefined,
   });
   if (error) throw new Error(error.message || 'Could not look up that club.');
-  return (data || { found: false }) as ClubJoinPreview;
+  const preview = (data || { found: false }) as ClubJoinPreview;
+  if (Number(preview.club_id) !== SHARK_CLUB_ID) return preview;
+
+  const totals = await readKingsClubDisplayTotals();
+  return {
+    ...preview,
+    member_display_total: totals?.member_total ?? null,
+    active_display_total: totals?.active_total ?? null,
+  };
 }
 
 function savePending(value: PendingJoin | null): void {
