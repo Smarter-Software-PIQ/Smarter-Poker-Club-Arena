@@ -3,23 +3,53 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import LeakPanel from '../../src/components/stats/LeakPanel';
+import StatsWorkspacePanel from '../../src/components/stats/StatsWorkspacePanel';
 import { hubTabTitle } from '../../src/utils/hubTab';
+import type { StatsWorkspaceSnapshot } from '../../src/services/StatsWorkspaceService';
 
 const ROOT = resolve(__dirname, '../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 
-describe('Club Arena <-> Personal Assistant Leak Finder wiring', () => {
-  it('HandHistoryPage routes hand analysis to /hub/personal-assistant/leaks by hand ID (never 404 /hub/jarvis)', () => {
+const EMPTY_WORKSPACE: StatsWorkspaceSnapshot = {
+  preferences: {
+    dashboardLayout: ['overview', 'performance', 'hands'],
+    privacyPresentationMode: false,
+  },
+  reports: [],
+  leaks: [],
+  goals: [],
+  progress: [],
+  collections: [],
+  alerts: [],
+  coverage: { capped: false, rowLimit: 50 },
+};
+
+describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression fortress', () => {
+  it('HandHistoryPage routes hand analysis to /hub/personal-assistant/leaks by hand ID with zero retired Jarvis identifiers/URLs', () => {
     const source = read('src/pages/HandHistoryPage.tsx');
     expect(source).toContain(
       '/hub/personal-assistant/leaks?source=club-arena&hand=${encodeURIComponent(hand.id)}'
     );
     expect(source).not.toContain('/hub/jarvis');
     expect(source).not.toContain('Send It To Jarvis');
+    expect(source).not.toContain('analyzeWithJarvis');
+    expect(source).not.toContain('Failed_to_send_hand_to_Jarvis');
+    expect(source).toContain('analyzeInPersonalAssistant');
     expect(source).toContain(
       "masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: userId ?? undefined });"
     );
     expect(source).toContain("openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer')");
+    expect(source).toContain('Opening Leak Finder (Solver Audit Covers Holdem Hands)');
+  });
+
+  it('HandHistoryPage distinguishes linked hand network errors from missing/foreign hands and offers Personal Assistant return navigation', () => {
+    const source = read('src/pages/HandHistoryPage.tsx');
+    expect(source).toContain("useState<'idle' | 'loading' | 'missing' | 'error'>('idle')");
+    expect(source).toContain("setLinkedState('error')");
+    expect(source).toContain('Retry Linked Hand');
+    expect(source).toContain("searchParams.get('source') === 'personal-assistant'");
+    expect(source).toContain('Return To Personal Assistant');
+    expect(source).toContain('returnLeakId');
   });
 
   it('pageTutorials uses Personal Assistant copy instead of retired Jarvis', () => {
@@ -28,15 +58,18 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring', () => {
     expect(tutorials).toContain('Open It In Personal Assistant');
   });
 
-  it('PlayerStatsPage and AnalysisTab wire Personal Assistant Leak Finder via hub tab during live play or browser otherwise (own profile only)', () => {
+  it('PlayerStatsPage, AnalysisTab, and WorkspaceTab wire Personal Assistant Leak Finder via hub tab during live play or browser otherwise (own profile only)', () => {
     const pageSource = read('src/pages/PlayerStatsPage.tsx');
     const tabSource = read('src/pages/stats/AnalysisTab.tsx');
+    const workspaceSource = read('src/pages/stats/WorkspaceTab.tsx');
     expect(pageSource).toContain('/hub/personal-assistant/leaks?source=club-arena-stats');
     expect(pageSource).toContain(
       "masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });"
     );
     expect(pageSource).toContain('onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}');
+    expect(pageSource).toContain('onOpenLeakFinder={openLeakFinder}');
     expect(tabSource).toContain('onOpenLeakFinder={onOpenLeakFinder}');
+    expect(workspaceSource).toContain('onOpenLeakFinder={onOpenLeakFinder}');
   });
 
   it('MultiTablePage OPEN_HUB_TAB guards native Capacitor builds and updates existing tab URLs for new hands', () => {
@@ -60,6 +93,37 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
 
     rerender(<LeakPanel overall={null} positions={null} still onOpenLeakFinder={onOpen} />);
+    expect(
+      screen.queryByRole('button', { name: 'Open Personal Assistant Leak Finder' })
+    ).toBeNull();
+  });
+
+  it('StatsWorkspacePanel renders the Personal Assistant Leak Finder CTA for the profile owner and hides it for non-owners', () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(
+      <StatsWorkspacePanel
+        isOwnProfile
+        workspace={EMPTY_WORKSPACE}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        onOpenLeakFinder={onOpen}
+      />
+    );
+    const button = screen.getByRole('button', { name: 'Open Personal Assistant Leak Finder' });
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <StatsWorkspacePanel
+        isOwnProfile={false}
+        workspace={EMPTY_WORKSPACE}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        onOpenLeakFinder={onOpen}
+      />
+    );
     expect(
       screen.queryByRole('button', { name: 'Open Personal Assistant Leak Finder' })
     ).toBeNull();

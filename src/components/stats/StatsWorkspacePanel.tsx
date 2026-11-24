@@ -14,6 +14,7 @@ interface Props {
   onPrivacyModeChange?: (enabled: boolean) => void;
   onLeakStatusChange?: (leakId: string, status: WorkspaceLeakStatus) => void;
   onAlertToggle?: (alertId: string, enabled: boolean) => void;
+  onOpenLeakFinder?: () => void;
 }
 
 const LEAK_STATUS: Record<WorkspaceLeakStatus, string> = {
@@ -36,6 +37,7 @@ export default function StatsWorkspacePanel({
   onPrivacyModeChange,
   onLeakStatusChange,
   onAlertToggle,
+  onOpenLeakFinder,
 }: Props) {
   if (!isOwnProfile) {
     return (
@@ -132,9 +134,20 @@ export default function StatsWorkspacePanel({
         </section>
 
         <section className="stats-workspace__section" aria-labelledby="workspace-leaks-title">
-          <h3 id="workspace-leaks-title" className="sc-label">
-            Leak Lifecycle
-          </h3>
+          <div className="stats-workspace__intro">
+            <h3 id="workspace-leaks-title" className="sc-label">
+              Leak Lifecycle
+            </h3>
+            {onOpenLeakFinder && (
+              <button
+                type="button"
+                className="stats-workspace__word-action"
+                onClick={onOpenLeakFinder}
+              >
+                Open Personal Assistant Leak Finder
+              </button>
+            )}
+          </div>
           {workspace.leaks.length === 0 ? (
             <p className="sc-copy stats-workspace__muted">No Tracked Leaks.</p>
           ) : (
