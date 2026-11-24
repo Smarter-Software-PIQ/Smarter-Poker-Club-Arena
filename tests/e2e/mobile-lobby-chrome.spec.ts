@@ -94,7 +94,8 @@ test('The Shared Lobby Matches The Approved Canvas Inside The Club Chrome', asyn
     .join('\n');
   for (const width of [393, 971]) {
     await page.setViewportSize({ width, height: 1014 });
-    await page.setContent(`<style>body{margin:0;line-height:1.6;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+      <style>body{margin:0;line-height:1.6;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
       ${styles}</style>
       <section class="tournament-details console-lobby"><header class="details-header">
       <div class="mtt-meta"><div class="mtt-price"><p class="tournament-buyin">35 Chips</p></div></div></header></section>
