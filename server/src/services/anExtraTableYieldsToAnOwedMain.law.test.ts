@@ -180,6 +180,18 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(claim).toBeGreaterThan(publish);
     expect(fleet).toContain('variety_drain_table: beat.varietyDrainTable,');
   });
+  it('releases a table only on a fully read waiting list (an unread list is never "no person waiting")', () => {
+    const reset = fleet.indexOf('this.humansWaitingReadComplete = false;');
+    const set = fleet.indexOf('this.humansWaitingReadComplete = true;');
+    const catchAt = fleet.indexOf("reportError(err, 'HorseFleet.humansWaitingByTable');");
+    expect(reset).toBeGreaterThan(-1);
+    // set only after every early return and the catch of the read
+    expect(set).toBeGreaterThan(catchAt);
+    const gate = fleet.indexOf('this.humansWaitingReadComplete\n');
+    const decide = fleet.indexOf('varietyDrain = varietyDrainTable({');
+    expect(gate).toBeGreaterThan(-1);
+    expect(decide).toBeGreaterThan(gate);
+  });
   it('a surplus table is neither walked into nor answered by a seat call (the existing doors)', () => {
     expect(fleet).toContain('if (surplusTableIds.has(table.id)) {');
     expect(fleet).toContain('if (surplusTableIds.has(String(offer.table_id))) continue;');

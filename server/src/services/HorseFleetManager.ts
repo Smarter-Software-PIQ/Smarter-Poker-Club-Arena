@@ -962,6 +962,11 @@ export class HorseFleetManager {
     seatedRows?: readonly { table_id?: string | null; user_id?: string | null }[]
   ): Promise<Map<string, number>> {
     const out = new Map<string, number>();
+    // True only when every waiting list was read in full this cycle. An empty
+    // map is also what a failed or partial read returns (fail closed for the
+    // release rule), so a reader that must not mistake "unread" for "nobody
+    // waiting" (the variety drain) checks this flag instead.
+    this.humansWaitingReadComplete = false;
     try {
       /* PAGED (2026-09-06). A bare `.select()` is capped at db-max-rows (1,000)
          by PostgREST WITHOUT erroring - the truncation this file documents
@@ -1027,8 +1032,12 @@ export class HorseFleetManager {
       reportError(err, 'HorseFleet.humansWaitingByTable');
       return new Map();
     }
+    this.humansWaitingReadComplete = true;
     return out;
   }
+
+  /** Set by humansWaitingByTable: every waiting list was read in full this cycle. */
+  private humansWaitingReadComplete = false;
 
   /**
    * The games with anyone 'waiting' on their list (HorseListFeedsTable).
@@ -3157,7 +3166,13 @@ export class HorseFleetManager {
          A failed read of the cap, the census or the Lightning games releases
          nothing. */
       let varietyDrain: string | null = null;
-      if (beat.varietyOwedGames.length > 0 && cashPlanLightningGames) {
+      // A table is released only on a fully read waiting list: an unread list
+      // must never be taken for "no person waiting" (fail closed).
+      if (
+        beat.varietyOwedGames.length > 0 &&
+        cashPlanLightningGames &&
+        this.humansWaitingReadComplete
+      ) {
         const room = await readHourlyCashRoom();
         if (!readIsCurrent()) return;
         const personWaitingGames = new Set<string>();
