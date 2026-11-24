@@ -342,6 +342,7 @@ import {
   isLightningObserverSnapshot,
   mapEngineSnapshot,
   resolveSeatSitOut,
+  type EnginePublicPlayer,
 } from '../utils/mapEngineSnapshot';
 import { selectBoundaryHoldBanner } from '../utils/boundaryHoldBanner';
 import {
@@ -26287,7 +26288,10 @@ function LiveTablePage({
 
            The stamps are their own state and reach SeatSlot as their own prop. */
         const snapshot = engineSnapshotRef.current;
-        const engineSeats = snapshot?.table_id === tableId ? snapshot.players : undefined;
+        const engineSeats =
+          snapshot?.table_id === tableId && Array.isArray(snapshot.players)
+            ? (snapshot.players as EnginePublicPlayer[])
+            : undefined;
         const players = prev.players.map((p, index) => {
           if (!p || !p.id) return p;
           // The row refresh can finish after a reconnect snapshot. Reconcile
