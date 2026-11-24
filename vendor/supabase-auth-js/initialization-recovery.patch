@@ -1,13 +1,14 @@
 --- a/package/dist/main/GoTrueClient.js
 +++ b/package/dist/main/GoTrueClient.js
-@@ -97,0 +98 @@
+@@ -97,0 +98,2 @@
 +        this.pendingLockAcquisition = null;
-@@ -197 +198,3 @@
++        this.sessionReadReady = false;
+@@ -197 +199,3 @@
 -        this.initialize();
 +        this.initialize().catch((error) => {
 +            console.warn('[AuthClient] Initial session admission failed', error?.name ?? 'Error')
 +        });
-@@ -232,9 +235,23 @@
+@@ -232,9 +236,27 @@
 -        if (this.initializePromise) {
 -            return await this.initializePromise;
 -        }
@@ -24,10 +25,14 @@
 +
 +      const initialization = (async () => {
 +        try {
-+          return await this._acquireLock(this.lockAcquireTimeout, async () => {
++          const result = await this._acquireLock(this.lockAcquireTimeout, async () => {
 +            entered = true
 +            return await this._initialize()
 +          })
++          // A completed initialization lets getSession() read a still-valid
++          // stored session without the cross-tab lock.
++          if (!result.error) this.sessionReadReady = true
++          return result
 +        } catch (error) {
 +          // An unacquired lock executed no initializer effects. Retire only this
 +          // failed generation; a later explicit API request may initialize anew.
@@ -40,16 +45,43 @@
 +      })()
 +      this.initializePromise = initialization
 +      return await initialization
-@@ -502 +519 @@
+@@ -502 +524 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1006 +1023 @@
+@@ -1006 +1028 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1088 +1105 @@
+@@ -1086,0 +1109,22 @@
++    /**
++     * Smarter.Poker (2026-11-24): reading a still-valid stored session is a read,
++     * not a rotation, so it takes no lock. The cross-tab lock serialises refresh
++     * token rotation. Holding it for every read meant any other same-origin tab
++     * that kept it past the acquire budget failed every request in this tab with
++     * "AbortError: signal is aborted without reason". Only after this client has
++     * initialized, only with plain storage, and only outside the expiry margin;
++     * everything else goes through the lock exactly as upstream.
++     */
++    async _readSessionWithoutLock() {
++        if (!this.sessionReadReady || this.userStorage || this.storage.isServer) {
++            return null;
++        }
++        const maybeSession = await (0, helpers_1.getItemAsync)(this.storage, this.storageKey);
++        if (!maybeSession || !this._isValidSession(maybeSession) || !maybeSession.expires_at) {
++            return null;
++        }
++        if (maybeSession.expires_at * 1000 - Date.now() < constants_1.EXPIRY_MARGIN_MS) {
++            return null;
++        }
++        return maybeSession;
++    }
+@@ -1088 +1132,5 @@
 -        await this.initializePromise;
++        const stored = await this._readSessionWithoutLock();
++        if (stored) {
++            return { data: { session: stored }, error: null };
++        }
 +        await this.initialize();
-@@ -1100,51 +1117,64 @@
+@@ -1100,51 +1148,64 @@
 -        this._debug('#_acquireLock', 'begin', acquireTimeout);
 -        try {
 -            if (this.lockAcquired) {
@@ -165,45 +197,46 @@
 +      } finally {
 +        this._debug('#_acquireLock', 'end')
 +      }
-@@ -1249 +1279 @@
+@@ -1249 +1310 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1301 +1331 @@
+@@ -1301 +1362 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1353 +1383 @@
+@@ -1353 +1414 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1414 +1444 @@
+@@ -1414 +1475 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1569 +1599 @@
+@@ -1569 +1630 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1613 +1643 @@
+@@ -1613 +1674 @@
 -            await this.initializePromise;
 +            await this.initialize();
-@@ -1617 +1647,3 @@
+@@ -1617 +1678,3 @@
 -        })();
 +        })().catch((error) => {
 +            console.warn('[AuthClient] Initial auth subscription admission failed', error?.name ?? 'Error');
 +        });
-@@ -2127 +2159 @@
+@@ -2127 +2190 @@
 -            await this.initializePromise;
 +            await this.initialize();
-@@ -2279 +2311 @@
+@@ -2279 +2342 @@
 -                await this.initializePromise;
 +                await this.initialize();
 --- a/package/dist/module/GoTrueClient.js
 +++ b/package/dist/module/GoTrueClient.js
-@@ -94,0 +95 @@
+@@ -94,0 +95,2 @@
 +        this.pendingLockAcquisition = null;
-@@ -194 +195,3 @@
++        this.sessionReadReady = false;
+@@ -194 +196,3 @@
 -        this.initialize();
 +        this.initialize().catch((error) => {
 +            console.warn('[AuthClient] Initial session admission failed', error?.name ?? 'Error')
 +        });
-@@ -229,9 +232,23 @@
+@@ -229,9 +233,27 @@
 -        if (this.initializePromise) {
 -            return await this.initializePromise;
 -        }
@@ -220,10 +253,14 @@
 +
 +      const initialization = (async () => {
 +        try {
-+          return await this._acquireLock(this.lockAcquireTimeout, async () => {
++          const result = await this._acquireLock(this.lockAcquireTimeout, async () => {
 +            entered = true
 +            return await this._initialize()
 +          })
++          // A completed initialization lets getSession() read a still-valid
++          // stored session without the cross-tab lock.
++          if (!result.error) this.sessionReadReady = true
++          return result
 +        } catch (error) {
 +          // An unacquired lock executed no initializer effects. Retire only this
 +          // failed generation; a later explicit API request may initialize anew.
@@ -236,16 +273,43 @@
 +      })()
 +      this.initializePromise = initialization
 +      return await initialization
-@@ -499 +516 @@
+@@ -499 +521 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1003 +1020 @@
+@@ -1003 +1025 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1085 +1102 @@
+@@ -1083,0 +1106,22 @@
++    /**
++     * Smarter.Poker (2026-11-24): reading a still-valid stored session is a read,
++     * not a rotation, so it takes no lock. The cross-tab lock serialises refresh
++     * token rotation. Holding it for every read meant any other same-origin tab
++     * that kept it past the acquire budget failed every request in this tab with
++     * "AbortError: signal is aborted without reason". Only after this client has
++     * initialized, only with plain storage, and only outside the expiry margin;
++     * everything else goes through the lock exactly as upstream.
++     */
++    async _readSessionWithoutLock() {
++        if (!this.sessionReadReady || this.userStorage || this.storage.isServer) {
++            return null;
++        }
++        const maybeSession = await getItemAsync(this.storage, this.storageKey);
++        if (!maybeSession || !this._isValidSession(maybeSession) || !maybeSession.expires_at) {
++            return null;
++        }
++        if (maybeSession.expires_at * 1000 - Date.now() < EXPIRY_MARGIN_MS) {
++            return null;
++        }
++        return maybeSession;
++    }
+@@ -1085 +1129,5 @@
 -        await this.initializePromise;
++        const stored = await this._readSessionWithoutLock();
++        if (stored) {
++            return { data: { session: stored }, error: null };
++        }
 +        await this.initialize();
-@@ -1097,51 +1114,64 @@
+@@ -1097,51 +1145,64 @@
 -        this._debug('#_acquireLock', 'begin', acquireTimeout);
 -        try {
 -            if (this.lockAcquired) {
@@ -361,56 +425,61 @@
 +      } finally {
 +        this._debug('#_acquireLock', 'end')
 +      }
-@@ -1246 +1276 @@
+@@ -1246 +1307 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1298 +1328 @@
+@@ -1298 +1359 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1350 +1380 @@
+@@ -1350 +1411 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1411 +1441 @@
+@@ -1411 +1472 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1566 +1596 @@
+@@ -1566 +1627 @@
 -        await this.initializePromise;
 +        await this.initialize();
-@@ -1610 +1640 @@
+@@ -1610 +1671 @@
 -            await this.initializePromise;
 +            await this.initialize();
-@@ -1614 +1644,3 @@
+@@ -1614 +1675,3 @@
 -        })();
 +        })().catch((error) => {
 +            console.warn('[AuthClient] Initial auth subscription admission failed', error?.name ?? 'Error');
 +        });
-@@ -2124 +2156 @@
+@@ -2124 +2187 @@
 -            await this.initializePromise;
 +            await this.initialize();
-@@ -2276 +2308 @@
+@@ -2276 +2339 @@
 -                await this.initializePromise;
 +                await this.initialize();
 --- a/package/dist/main/GoTrueClient.d.ts
 +++ b/package/dist/main/GoTrueClient.d.ts
-@@ -74,0 +75 @@
+@@ -74,0 +75,3 @@
 +    private pendingLockAcquisition;
++    private sessionReadReady;
++    private _readSessionWithoutLock;
 --- a/package/dist/module/GoTrueClient.d.ts
 +++ b/package/dist/module/GoTrueClient.d.ts
-@@ -74,0 +75 @@
+@@ -74,0 +75,3 @@
 +    private pendingLockAcquisition;
++    private sessionReadReady;
++    private _readSessionWithoutLock;
 --- a/package/src/GoTrueClient.ts
 +++ b/package/src/GoTrueClient.ts
-@@ -272,0 +273,4 @@
+@@ -272,0 +273,5 @@
 +  private pendingLockAcquisition: {
 +    timeout: number
 +    waiting: { fn: () => Promise<any>; resolve: (value: any) => void; reject: (reason: any) => void }[]
 +  } | null = null
-@@ -405 +409,3 @@
++  private sessionReadReady = false
+@@ -405 +410,3 @@
 -    this.initialize()
 +    this.initialize().catch((error: any) => {
 +      console.warn('[AuthClient] Initial session admission failed', error?.name ?? 'Error')
 +    })
-@@ -451,5 +457,17 @@
+@@ -451,5 +458,21 @@
 -
 -    this.initializePromise = (async () => {
 -      return await this._acquireLock(this.lockAcquireTimeout, async () => {
@@ -420,10 +489,14 @@
 +    let initialization!: Promise<InitializeResult>;
 +    initialization = (async () => {
 +      try {
-+        return await this._acquireLock(this.lockAcquireTimeout, async () => {
++        const result = await this._acquireLock(this.lockAcquireTimeout, async () => {
 +          entered = true
 +          return await this._initialize()
 +        })
++        // A completed initialization lets getSession() read a still-valid
++        // stored session without the cross-tab lock.
++        if (!result.error) this.sessionReadReady = true
++        return result
 +      } catch (error: any) {
 +        // An unacquired lock executed no initializer effects. Retire only this
 +        // failed generation; a later explicit API request may initialize anew.
@@ -433,23 +506,60 @@
 +        }
 +        throw error
 +      }
-@@ -457,2 +475,2 @@
+@@ -457,2 +480,2 @@
 -
 -    return await this.initializePromise
 +    this.initializePromise = initialization
 +    return await initialization
-@@ -752 +770 @@
+@@ -752 +775 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -1386 +1404 @@
+@@ -1386 +1409 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -1473 +1491 @@
+@@ -1471,0 +1495,23 @@
++  /**
++   * Smarter.Poker (2026-11-24): reading a still-valid stored session is a read,
++   * not a rotation, so it takes no lock. The cross-tab lock serialises refresh
++   * token rotation. Holding it for every read meant any other same-origin tab
++   * that kept it past the acquire budget failed every request in this tab with
++   * "AbortError: signal is aborted without reason". Only after this client has
++   * initialized, only with plain storage, and only outside the expiry margin;
++   * everything else goes through the lock exactly as upstream.
++   */
++  private async _readSessionWithoutLock(): Promise<Session | null> {
++    if (!this.sessionReadReady || this.userStorage || this.storage.isServer) {
++      return null
++    }
++    const maybeSession: unknown = await getItemAsync(this.storage, this.storageKey)
++    if (!maybeSession || !this._isValidSession(maybeSession) || !maybeSession.expires_at) {
++      return null
++    }
++    if (maybeSession.expires_at * 1000 - Date.now() < EXPIRY_MARGIN_MS) {
++      return null
++    }
++    return maybeSession
++  }
++
+@@ -1473 +1519,5 @@
 -    await this.initializePromise
++    const stored = await this._readSessionWithoutLock()
++    if (stored) {
++      return { data: { session: stored }, error: null }
++    }
 +    await this.initialize()
-@@ -1489,14 +1507,35 @@
+@@ -1489 +1539,9 @@
 -
--    try {
++    // Only admitted operations enter pendingInLock. Waiting for a native
++    // acquisition must never be mistaken for owning that native lock.
++    const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
++      const last = this.pendingInLock.length
++        ? this.pendingInLock[this.pendingInLock.length - 1] : Promise.resolve()
++      const result = (async () => { await last; return await operation() })()
++      this.pendingInLock.push(result.then(() => {}, () => {}))
++      return result
++    }
+@@ -1491,12 +1549,25 @@
 -      if (this.lockAcquired) {
 -        const last = this.pendingInLock.length
 -          ? this.pendingInLock[this.pendingInLock.length - 1]
@@ -462,16 +572,6 @@
 -
 -        this.pendingInLock.push(
 -          (async () => {
-+    // Only admitted operations enter pendingInLock. Waiting for a native
-+    // acquisition must never be mistaken for owning that native lock.
-+    const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-+      const last = this.pendingInLock.length
-+        ? this.pendingInLock[this.pendingInLock.length - 1] : Promise.resolve()
-+      const result = (async () => { await last; return await operation() })()
-+      this.pendingInLock.push(result.then(() => {}, () => {}))
-+      return result
-+    }
-+    try {
 +      if (this.lockAcquired) return await enqueue(fn)
 +      const pending = this.pendingLockAcquisition
 +      if (acquireTimeout > 0 && pending && pending.timeout === acquireTimeout) {
@@ -497,7 +597,7 @@
 +              enqueue(request.fn).then(request.resolve, request.reject)
 +            }
 +            if (admission) admission.waiting.length = 0
-@@ -1504,3 +1543,9 @@
+@@ -1504,3 +1575,9 @@
 -              await result
 -            } catch (e: any) {
 -              // we just care if it finished
@@ -510,7 +610,7 @@
 +                await Promise.all(waitOn)
 +                this.pendingInLock.splice(0, waitOn.length)
 +              }
-@@ -1508,33 +1553,3 @@
+@@ -1508,33 +1585,3 @@
 -          })()
 -        )
 -
@@ -547,7 +647,7 @@
 +          } finally {
 +            this.lockAcquired = false
 +            this._debug('#_acquireLock', 'lock released for storage key', this.storageKey)
-@@ -1542,8 +1557,10 @@
+@@ -1542,8 +1589,10 @@
 -
 -          return await result
 -        } finally {
@@ -566,32 +666,32 @@
 +      } finally {
 +        if (admission && this.pendingLockAcquisition === admission) this.pendingLockAcquisition = null
 +      }
-@@ -1719 +1736 @@
+@@ -1719 +1768 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -1785 +1802 @@
+@@ -1785 +1834 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -1855 +1872 @@
+@@ -1855 +1904 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -1927 +1944 @@
+@@ -1927 +1976 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -2141 +2158 @@
+@@ -2141 +2190 @@
 -    await this.initializePromise
 +    await this.initialize()
-@@ -2226 +2243 @@
+@@ -2226 +2275 @@
 -      await this.initializePromise
 +      await this.initialize()
-@@ -2231 +2248,3 @@
+@@ -2231 +2280,3 @@
 -    })()
 +    })().catch((error: any) => {
 +      console.warn('[AuthClient] Initial auth subscription admission failed', error?.name ?? 'Error')
 +    })
-@@ -2880 +2899 @@
+@@ -2880 +2931 @@
 -      await this.initializePromise
 +      await this.initialize()
-@@ -3060 +3079 @@
+@@ -3060 +3111 @@
 -        await this.initializePromise
 +        await this.initialize()
