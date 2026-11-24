@@ -34,7 +34,7 @@ export function registerObserverAvatarSizingCases(
       topRail
         ? `every top chair stands on the rail: ${topRail.seats}-max ${topRail.spectator === 'true' ? 'spectator' : 'seated'}${topRail.tournament === 'true' ? ' tournament' : ''} at ${topRail.width}x${topRail.height}`
         : mobileArtwork
-          ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}${'tournament' in mobileArtwork ? ' tournament' : ''}`
+          ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}${'tournament' in mobileArtwork ? ' tournament' : ''}${'avatarNames' in mobileArtwork ? ' photo opponents' : ''}`
           : `spectators match avatar artwork and retain fixed chairs at ${width}px${emptyBottom ? ' with an empty bottom chair' : ''}`,
       async ({ page, browser }, testInfo) => {
         test.setTimeout(60_000);
@@ -119,7 +119,9 @@ export function registerObserverAvatarSizingCases(
                 'tests/e2e/fixtures/table-art',
                 route.request().url().includes('vip_aztec_warrior')
                   ? 'vip_aztec_warrior@2x.webp'
-                  : 'vip_wolf@2x.webp'
+                  : route.request().url().includes('photo_portrait')
+                    ? 'photo_portrait.webp'
+                    : 'vip_wolf@2x.webp'
               )
             ),
             contentType: 'image/webp',
