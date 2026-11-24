@@ -14,6 +14,29 @@ export const FIXED_MOBILE_ARTWORK_CASES = [
   { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
   // Dan 2026-11-18: six-max tournaments take the same size as cash.
   { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '', tournament: 'true' },
+  // 2026-11-24 (CLAUDE.md 10.7c): live nine-seat tables seat uploaded
+  // photographs beside character art. An opaque photo's painted subject is its
+  // whole frame, and the subject match used to scale every photo chair down to
+  // the character reference's figure: 126.4 here, 129.6-133.1 on production,
+  // against the 140 floor. Character reference at the bottom, photos round the
+  // ring; the production floor gate must hold for every chair.
+  {
+    seats: '9',
+    spectator: 'true',
+    cards: '2',
+    occupiedSeats: '',
+    avatarNames: ['vip_wolf@2x.webp', ...Array(8).fill('photo_portrait.webp')].join(','),
+  },
+  // 2026-11-24 (CLAUDE.md 10.7c): a watched six-max table with photo
+  // opponents beside a character-art chair. Production painted 190.0 against
+  // the 191 spectator floor on every six-max release since 11-24 10:47Z.
+  {
+    seats: '6',
+    spectator: 'true',
+    cards: '2',
+    occupiedSeats: '',
+    avatarNames: ['vip_wolf@2x.webp', ...Array(5).fill('photo_portrait.webp')].join(','),
+  },
 ] as const;
 
 export type FixedMobileArtworkSettings = (typeof FIXED_MOBILE_ARTWORK_CASES)[number];
@@ -159,6 +182,10 @@ export async function checkFixedMobileArtwork(
     // often mounts between actions, then receives CHECK/FOLD/RAISE later.
     await settle();
     await waitForMobileAvatarGrowth(page);
+    // The photo ring proves the absolute floor only: a wide photograph may take
+    // its own smaller rail size by design, so the uniform-art invariants below
+    // (one ring zoom, one displayed size) do not describe it.
+    if ('avatarNames' in settings) return;
     await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
     const withoutCaptions = await read();
     if (settings.seats === '9' && settings.spectator === 'true' && shortPhone) {
