@@ -867,6 +867,124 @@ jobs:
           gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
           echo "Posted keep-serving cycle $cycle to issue #$LOG_ISSUE."
 
+  cutover-outcome-record:
+    # A REPEATED CUTOVER REFUSAL CANNOT HIDE (2026-11-24, incident fix audit,
+    # CR1). From 11-18 the scheduled cutover kept serving cycle after cycle on
+    # the same refused gate; the daily miss was paged (EngineCutoverMissed) but
+    # nothing recorded which gate refused each cycle, and nothing failed when it
+    # refused again. This job, inside the same run (no watcher, no cron), turns
+    # this cycle's daily-selection.json into one record on a rolling ledger
+    # carried as the `cutover-outcome-ledger` artifact (the previous run's copy,
+    # or the committed Nov 18-24 seed), and fails naming the gate when this
+    # cycle and the previous one refused on the same gate. A seal, a selection
+    # or a different gate resets it; a ledger it cannot read fails as "could not
+    # tell". It also opens one issue, because Stage runs four times an hour and
+    # the non-admitted runs finish green within minutes, so the red-main
+    # detector's latest-verdict rule would never see this failure. DETECTION
+    # ONLY: it never dispatches, retries, certifies or advances a release, and
+    # `signal` does not wait for it.
+    if: always() && needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result != 'skipped' && github.run_attempt == 1
+    name: Record The Cycle Outcome And Fail On A Repeated Refusal
+    needs: [detect, selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/ci
+      - name: Download this cycle's selection
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
+          path: selection-artifact
+      - name: Read the previous cycle's ledger
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p previous-ledger
+          # Newest unexpired ledger from an earlier run. An API failure is
+          # "could not tell" and fails this job; no ledger at all is the seed.
+          listing=$(gh api "repos/$REPO/actions/artifacts?name=cutover-outcome-ledger&per_page=30") || {
+            echo "::error title=Cutover outcome record could not tell::the artifact listing for cutover-outcome-ledger failed"; exit 2; }
+          id=$(jq -r --arg run "$GITHUB_RUN_ID" '[.artifacts[] | select(.expired | not) | select((.workflow_run.id | tostring) != $run)] | sort_by(.created_at) | reverse | .[0].id // empty' <<<"$listing")
+          if [ -z "$id" ]; then
+            echo "No earlier ledger artifact: seeding from scripts/ci/cutover-outcome-ledger-seed.json."
+            echo "path=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          gh api "repos/$REPO/actions/artifacts/$id/zip" > previous-ledger/ledger.zip || {
+            echo "::error title=Cutover outcome record could not tell::downloading ledger artifact $id failed"; exit 2; }
+          unzip -oq previous-ledger/ledger.zip -d previous-ledger
+          [ -s previous-ledger/cutover-outcome-ledger.json ] || {
+            echo "::error title=Cutover outcome record could not tell::ledger artifact $id holds no cutover-outcome-ledger.json"; exit 2; }
+          echo "Previous ledger: artifact $id."
+          echo "path=previous-ledger/cutover-outcome-ledger.json" >> "$GITHUB_OUTPUT"
+      - name: Record this cycle and check for a repeated refusal
+        id: record
+        env:
+          CYCLE: ${{ needs.detect.outputs.daily_preparation_date }}
+          PREVIOUS: ${{ steps.previous.outputs.path }}
+        run: |
+          set -uo pipefail
+          [ -f selection-artifact/daily-selection.json ] || {
+            echo "::error title=Cutover outcome record could not tell::this cycle produced no daily-selection.json"; exit 2; }
+          python3 -B scripts/ci/cutover-outcome-ledger.py record \
+            --selection selection-artifact/daily-selection.json --cycle "$CYCLE" --run-id "$GITHUB_RUN_ID" \
+            --previous-ledger "$PREVIOUS" --seed scripts/ci/cutover-outcome-ledger-seed.json \
+            --output cutover-outcome-ledger.json --verdict cutover-outcome-verdict.json
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f cutover-outcome-verdict.json ]; then
+            jq -r '"### Cycle outcome record", "",
+              "- **Cycle:** `\(.record.cycle // "?")` \(.record.outcome // (.couldNotTell // "?"))",
+              "- **Refused gate:** `\(.record.gate // "none")`",
+              "- **Same-gate streak:** \(.streak // 0)" + (if .repeated then " (FAILED: repeated refusal)" else "" end)' \
+              cutover-outcome-verdict.json >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          [ "$code" = 2 ] && exit 2
+          exit 0
+      - name: Carry the ledger to the next cycle
+        if: steps.record.outputs.code == '0' || steps.record.outputs.code == '3'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-outcome-ledger
+          path: |
+            cutover-outcome-ledger.json
+            cutover-outcome-verdict.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Open one issue naming the repeated gate, then fail
+        if: steps.record.outputs.code == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gate=$(jq -r .gate cutover-outcome-verdict.json)
+          title="Engine cutover refused twice on the same gate: $gate"
+          body=$(jq -r --arg run "$RUN_URL" '"The scheduled engine cutover refused on gate `\(.gate)` for \(.streak) consecutive cycles: \(.cycles | join(", ")).\n\nRefused candidates: \(.refusedShas | map((. // "unknown")[0:12]) | join(", "))\nNewest reason: \(.record.reason // "no reason recorded")\nStage run: \($run)\n\nDetection only: nothing was dispatched, retried or certified. The gate needs an owner; a seal or a different gate resets this check."' cutover-outcome-verdict.json)
+          existing=$(gh issue list --repo "$REPO" --state open --search "\"$title\" in:title" --json number,title | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty') || existing=""
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body" >/dev/null
+            echo "Commented on #$existing."
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body" >/dev/null
+            echo "Opened: $title"
+          fi
+          echo "::error title=Engine cutover refused twice on the same gate: $gate::see $RUN_URL"
+          exit 1
+      - name: Fail the run on a repeated refusal even if the issue could not be opened
+        if: always() && steps.record.outputs.code == '3'
+        run: exit 1
+
   signal:
     name: Dispatch The Exact Main SHA
     needs: [detect, selection]

@@ -43,6 +43,16 @@ Local native re-runs of #11186, #11192 and #11197: `pg_ctl` could not start a pr
 5. **Production runtimes outside scratch**: World Hub #2875 installer refusal, in a required check (verified).
 6. **Cross-task SSD deletion**: `scripts/agent-tree-janitor.sh` already removes only locked-out, clean and pushed trees and uses `scripts/ops/safe-worktree-prune.mjs` (2026-11-22). The 2026-11-16 deleter stays unidentified; no further code change made.
 
+## A repeated cutover refusal cannot hide (CR1)
+
+**Why it broke.** From 2026-11-18 the scheduled cutover kept serving cycle after cycle. The daily miss was paged (`EngineCutoverMissed`), but nothing recorded which gate refused each cycle and nothing failed when the same gate refused again, so three cycles in a row on `backup-lacks-installed-migration` (11-21 22:00, 11-22 01:00, 11-22 04:00 CST) read as weather, not a defect with an owner.
+
+**Fix, inside the existing run.** `stage-engine-release.yml` job `cutover-outcome-record` (needs `detect`, `selection`; admitted scheduled cycles only, attempt 1, no owner window; no new cron or watcher) runs `scripts/ci/cutover-outcome-ledger.py record`. One record per cycle (`selected`, `keep-serving`, `blocked`; a selected cycle is upgraded next cycle to `sealed`, `serving-advanced` or `not-sealed` with gate `receiver-did-not-seal`) with the newest refused candidate's normalised gate, on a rolling ledger carried as the `cutover-outcome-ledger` artifact (90 days, last 240 cycles), seeded from `scripts/ci/cutover-outcome-ledger-seed.json`. The same gate twice in a row fails the job with `::error` naming the gate and opens or comments on one issue `Engine cutover refused twice on the same gate: <gate>` (the red-main detector reads only the latest verdict, and Stage's non-admitted runs go green within minutes). An unreadable ledger is "could not tell" and fails. Detection only; `signal` does not depend on it.
+
+**Backfill (Nov 18-24, 26 cycles, from the archived `daily-engine-selection-*` artifacts).** It would have failed at 11-22 01:00 and 04:00 CST on `backup-lacks-installed-migration`. Other gates seen: `backup-lacks-candidate-migration` (11-19), `no-certified-candidate` (11-20, 11-22 10:00: newer merges, none Backup-certified), `prequalification-unavailable` (11-21), `serving-rollback-rehearsal-unavailable` (11-21 16:00, 11-22 22:00, 11-23 22:00, 11-24 13:00), `backup-holds-migration-production-lacks` (11-23). The selection labels any candidate whose Backup evidence lacks the rehearsal fields as `serving rollback rehearsal unavailable`, including the 11-24 13:00 hand-gap refusal; the record keeps the selection's own label.
+
+**Proof.** `scripts/ci/test-cutover-outcome-ledger.py` (17 cases: two identical refusals fail; a seal, a selection, a different gate or nothing-to-ship resets; a receiver that did not seal twice fails one cycle late; the same cycle counts once; unreadable inputs exit 2; the real refusal strings classify; the seed is the backfill; the job's wiring). It runs in the required `Incident class proofs` check.
+
 ## Open, not done here
 
 - `chip_ledger` per-row LIKE: every current site is bounded by an indexed entity filter (#11199 audit), but no law enforces it; the index uses en_US collation, so the wallet-credit range does not apply.
