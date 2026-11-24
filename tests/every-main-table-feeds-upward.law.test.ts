@@ -14,7 +14,7 @@
  *
  * Migration 20261124003437 widens Step 2's source-table filter so every Main N
  * draws from higher-numbered Mains (c.role = 'main' AND c.main_index > t.main_index),
- * the Feeder and any breaking table — never downward from a lower Main.
+ * the Feeder and any breaking table - never downward from a lower Main.
  * Native behaviour is proved by scripts/dev/prove-every-main-table-feeds-upward.sh.
  */
 import { describe, expect, it } from 'vitest';

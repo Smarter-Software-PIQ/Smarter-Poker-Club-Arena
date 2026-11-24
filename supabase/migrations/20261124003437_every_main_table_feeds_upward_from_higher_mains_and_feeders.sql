@@ -20,7 +20,7 @@
 --     1. Main 1 drained Main 2 (because Main 2 players sit at the top of the
 --        Must Move List, ahead of Main 3).
 --     2. Main 2 (t.main_index = 2) could only draw from the Feeder or a
---        breaking table — never from Main 3.
+--        breaking table - never from Main 3.
 --     3. On 9-max, the Feeder was gated below 7 players (handedness - 2), and
 --        newcomers are routed to the Feeder while a feeder is live, so Main 2
 --        remained short-handed while Main 3 stayed 9/9.
