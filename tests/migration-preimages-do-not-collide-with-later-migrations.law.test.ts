@@ -211,6 +211,32 @@ describe('migration pre-image MD5 freshness check', () => {
     );
   });
 
+  it('clears a stale post-image when an intervening migration redefines the function without pinning a new post-image', () => {
+    const migrations = [
+      {
+        file: 'supabase/migrations/20261119100000_pinned.sql',
+        sql: `-- @live-proof: md5(pg_get_functiondef('public.fn_redef(date)'::regprocedure)) = '${MD5_A}'`,
+      },
+      {
+        file: 'supabase/migrations/20261119173316_unpinned_redef.sql',
+        sql: `CREATE OR REPLACE FUNCTION public.fn_redef(p_day date) RETURNS jsonb LANGUAGE plpgsql AS $$ BEGIN RETURN '{}'::jsonb; END; $$;`,
+      },
+      {
+        file: 'supabase/migrations/20261124152017_later_live_pin.sql',
+        sql: `
+          DO $pins$
+          BEGIN
+            IF md5(pg_get_functiondef('public.fn_redef(date)'::regprocedure)) IS DISTINCT FROM '${MD5_B}' THEN
+              RAISE EXCEPTION 'pre-image drifted';
+            END IF;
+          END $pins$;
+        `,
+      },
+    ];
+
+    expect(findPreimageCollisions(migrations)).toEqual([]);
+  });
+
   it('all existing migrations >= 20261120000000 in supabase/migrations have zero pre-image collisions', () => {
     const { checkedCount, collisions } = checkMigrationsDir(MIGRATIONS_DIR);
     expect(checkedCount).toBeGreaterThan(0);

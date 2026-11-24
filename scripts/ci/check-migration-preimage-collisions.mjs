@@ -160,10 +160,19 @@ function isPostImageAssertionContext(code, matchOffset, matchLength, normalizedS
  */
 export function extractMigrationMd5Pins(sql) {
   const src = String(sql);
-  if (!/[0-9a-f]{32}/i.test(src)) {
-    return { preImages: [], postImages: [] };
-  }
   const code = stripCommentsPreservingLines(src);
+  const redefinedFnNames = new Set();
+  const createFnRe =
+    /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(?:"?([A-Za-z_][A-Za-z0-9_]*)"?)\s*\.\s*)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\(/gi;
+  let cm;
+  while ((cm = createFnRe.exec(code)) !== null) {
+    const schema = (cm[1] || 'public').toLowerCase();
+    const fn = cm[2].toLowerCase();
+    redefinedFnNames.add(`${schema}.${fn}`);
+  }
+  if (!/[0-9a-f]{32}/i.test(src)) {
+    return { preImages: [], postImages: [], redefinedFnNames };
+  }
   const preImages = [];
   const postImages = [];
 
@@ -286,7 +295,7 @@ export function extractMigrationMd5Pins(sql) {
     });
   }
 
-  return { preImages, postImages };
+  return { preImages, postImages, redefinedFnNames };
 }
 
 /**
@@ -301,7 +310,7 @@ export function findPreimageCollisions(migrations) {
   const collisions = [];
 
   for (const migration of ordered) {
-    const { preImages, postImages } = extractMigrationMd5Pins(migration.sql);
+    const { preImages, postImages, redefinedFnNames } = extractMigrationMd5Pins(migration.sql);
 
     if (isPreimageCollisionChecked(migration.file)) {
       // Collect all accepted pre-image MD5s per normalized signature in this migration.
@@ -337,6 +346,19 @@ export function findPreimageCollisions(migrations) {
           earlierLine: latest.line,
           earlierPostMd5: latest.md5,
         });
+      }
+    }
+
+    // Clear stale earlier post-images for any function fully redefined here
+    // without an explicit post-image MD5; declared postImages below restore
+    // the new known post-image if present.
+    if (redefinedFnNames.size > 0) {
+      for (const sig of [...latestPostBySig.keys()]) {
+        const openIdx = sig.indexOf('(');
+        const qualName = openIdx >= 0 ? sig.slice(0, openIdx) : sig;
+        if (redefinedFnNames.has(qualName)) {
+          latestPostBySig.delete(sig);
+        }
       }
     }
 
