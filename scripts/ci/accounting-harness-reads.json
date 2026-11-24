@@ -565,6 +565,7 @@
     "scripts/ci/qualification-input-projections.py",
     "scripts/ci/qualify-commission-club-legacy.py",
     "scripts/ci/recorded-migrations.manifest.json",
+    "scripts/ci/release-freeze-admission.mjs",
     "scripts/ci/satellite_bubble_handoff.py",
     "scripts/ci/satellite_qualifier_concurrency.py",
     "scripts/ci/satellite_qualifier_fixture.py",
