@@ -941,6 +941,7 @@ export function evaluatePreflight(input) {
     inboxText = undefined,
     requireInbox = false,
     recentConfigAlarms = [],
+    authorityEvidence = null,
   } = input;
 
   const failures = [];
@@ -1058,6 +1059,24 @@ export function evaluatePreflight(input) {
       failures.push({
         code: 'EVIDENCE_NOT_RECORDED',
         reason: `Evidence sha256 ${evidenceSha} for "${option}" is not recorded in public.ca_horse_option_switch_evidence`,
+      });
+    }
+    // 11. The cited authority file must itself claim "Evidence MET" (its status paragraph, the
+    // law EveryHorseOptionRecordsItsReplay's reading). That law already fails the build when a file
+    // claims MET without a replay whose newlyWrong <= fixed, so this one check carries all five
+    // criteria to the write. A file saying "Evidence NOT MET" (or nothing) cannot be switched on by
+    // this tool, whatever the reason given: on 2026-11-22 an option was switched on with its own file
+    // stating "Evidence NOT MET" (audit #185) and had to be rolled back (audit #191). A rollback is
+    // exempt: it only restores a state that was already live.
+    if (!isRollback && authorityEvidence !== 'met') {
+      failures.push({
+        code: 'AUTHORITY_EVIDENCE_NOT_MET',
+        reason:
+          authorityEvidence === 'not_met'
+            ? `The authority file for "${option}" states "Evidence NOT MET"; it cannot be switched ${targetState} until its status paragraph states "Evidence MET" (with a passing replay row)`
+            : authorityEvidence === 'unreadable'
+              ? `The authority file for "${option}" could not be read; state "${targetState}" needs a file whose status paragraph states "Evidence MET"`
+              : `The authority file for "${option}" does not state "Evidence MET" in its status paragraph; state "${targetState}" needs it`,
       });
     }
   }
@@ -1522,6 +1541,26 @@ export function formatSwitchStateSnapshot(snapshot) {
  * The machine-read State of an authority doc: the first `**State: ...**` token. Returns null when the doc
  * has none. 'on' = LIVE ON / ON; 'off' = OFF (dark or rolled back); 'shadow' / 'on_shadow' as written.
  */
+/**
+ * The evidence claim of an authority doc, read as the law EveryHorseOptionRecordsItsReplay reads it: the
+ * status paragraph is the first paragraph under the `# ` title; it claims eligibility for switch-on only
+ * with the words "Evidence MET". Returns 'met', 'not_met' (says "Evidence NOT MET") or 'none'.
+ */
+export function parseAuthorityDocEvidence(text) {
+  const lines = String(text ?? '').split('\n');
+  let i = lines.findIndex((l) => l.startsWith('# '));
+  if (i < 0) return 'none';
+  i++;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  const out = [];
+  while (i < lines.length && lines[i].trim() !== '' && !lines[i].startsWith('#'))
+    out.push(lines[i++]);
+  const status = out.join(' ');
+  if (/\bEvidence NOT MET\b/.test(status)) return 'not_met';
+  if (/\bEvidence MET\b/.test(status)) return 'met';
+  return 'none';
+}
+
 export function parseAuthorityDocState(text) {
   const m = /\*\*State:\s*([^*]+?)\s*\*\*/.exec(String(text ?? ''));
   if (!m) return null;

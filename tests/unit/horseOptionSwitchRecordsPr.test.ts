@@ -227,7 +227,12 @@ function mockDeps(opts: { refusal?: string | null } = {}) {
         liveHorseDecision: { phase: 'ready', upgradeManifest: { sourceRevision: SERVING_SHA } },
       })),
       readFile: vi.fn(() => JSON.stringify({ version: 1, windows: [] })),
-      readFileBuffer: vi.fn(() => Buffer.from('authority-doc')),
+      // A switch-on needs a cited file whose status paragraph states "Evidence MET".
+      readFileBuffer: vi.fn(() =>
+        Buffer.from(
+          '# styleTightPlayerExploit\n\n**State: OFF**. Evidence MET (replay row below).\n'
+        )
+      ),
       appendLogLine: vi.fn(),
       writeStateFile: vi.fn(),
       openRecordsPr,
