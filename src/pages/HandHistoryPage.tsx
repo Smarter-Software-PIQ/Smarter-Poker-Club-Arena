@@ -64,6 +64,7 @@ import { handNotesService, type HandNote } from '../services/HandNotesService';
 import { handFlagService, type HandFlag } from '../services/HandFlagService';
 import { toPokerStarsFile } from '../utils/pokerStarsExport';
 import { openInBrowser } from '../lib/openExternal';
+import { WEB_ORIGIN } from '../lib/appBase';
 import { downloadBlob } from '../utils/downloadCsv';
 import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { useSharedHandShortLink } from '../hooks/useSharedHandShortLink';
@@ -529,11 +530,11 @@ export default function HandHistoryPage() {
       try {
         const row = await handHistoryService.getHand(linkedHandId);
         if (!alive || requestKeyRef.current !== archiveScope) return;
-        if (row && !searchParams.has('gameMode') && row.tournament_id) {
+        if (row && Boolean(row.tournament_id) !== (gameMode === 'tournament')) {
           setSearchParams(
             (current) => {
               const next = new URLSearchParams(current);
-              next.set('gameMode', 'tournament');
+              next.set('gameMode', row.tournament_id ? 'tournament' : 'cash');
               return next;
             },
             { replace: true }
@@ -846,12 +847,14 @@ export default function HandHistoryPage() {
       // Dan 2026-09-05: with a live table open, Leak Finder opens in a hub tab
       // beside the game (the strip can see it, swipe reaches it); otherwise
       // the browser tab it has always been.
-      if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
+      const liveTables = Number(document.body?.dataset.caLiveTables ?? '0');
+      if (liveTables > 0) {
         masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: userId ?? undefined });
+        toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
       } else {
-        openInBrowser(`https://smarter.poker${path}`, 'noopener');
+        openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
+        toast.info('Opening Leak Finder Analysis');
       }
-      toast.info('Opening Leak Finder Analysis');
     } catch (err) {
       reportError(err, 'HandHistoryPage.Failed_to_send_hand_to_Jarvis');
       toast.error('Could Not Open Leak Finder Analysis');
@@ -898,7 +901,7 @@ export default function HandHistoryPage() {
     <div className="hand-history-page" data-arena-surface="play">
       <CasinoSurfaceHeader
         title="Hand Archive"
-        description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Send It To Jarvis."
+        description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Open It In Personal Assistant."
         status="HAND RECORD // LIVE"
         metrics={
           showingForeignLink
@@ -1303,6 +1306,8 @@ export default function HandHistoryPage() {
                         <button
                           type="button"
                           className="analyze-btn"
+                          title="Analyze In Personal Assistant Leak Finder"
+                          aria-label="Analyze Hand In Personal Assistant Leak Finder"
                           onClick={() => analyzeWithJarvis(hand)}
                         >
                           Analyze

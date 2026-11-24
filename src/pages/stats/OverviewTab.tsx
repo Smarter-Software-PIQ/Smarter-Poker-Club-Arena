@@ -217,7 +217,7 @@ export default function OverviewTab({
 
       {/* Hand-by-hand solver audit and persisted coaching live in World Hub's
           Personal Assistant Leak Finder (linked from Analysis -> What To Work On
-          and Hand History -> Analyze With Jarvis), keeping this Overview strictly
+          and Hand History -> Analyze), keeping this Overview strictly
           focused on measured session & lifetime frequencies. */}
 
       {/* Rivals: the most socially engaging stat on the page, so it sits

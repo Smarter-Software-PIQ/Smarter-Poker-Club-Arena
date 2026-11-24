@@ -12,7 +12,9 @@ import { Suspense, lazy, useCallback, useMemo, type ReactNode } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import LeakPanel from '../../components/stats/LeakPanel';
 import { masterBus } from '../../core/MasterBus';
+import { WEB_ORIGIN } from '../../lib/appBase';
 import { openInBrowser } from '../../lib/openExternal';
+import { useAuthUser } from '../../hooks/useAuthUser';
 import type { AdvancedStatsInput } from '../../components/stats/AdvancedStatsSummary';
 import { formatCard, handDate } from './format';
 import StatsEvidenceLink from '../../components/stats/StatsEvidenceLink';
@@ -228,14 +230,15 @@ export default function AnalysisTab({
     }
   };
 
+  const { user: authUser } = useAuthUser();
   const openLeakFinder = useCallback(() => {
     const path = '/hub/personal-assistant/leaks?source=club-arena-stats';
     if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
-      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: targetUserId });
+      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: authUser?.id ?? targetUserId });
     } else {
-      openInBrowser(`https://smarter.poker${path}`, 'noopener');
+      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
     }
-  }, [targetUserId]);
+  }, [authUser?.id, targetUserId]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
