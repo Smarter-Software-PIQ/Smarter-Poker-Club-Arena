@@ -32,7 +32,7 @@
  * It also names the failed steps and the first error line of each failed
  * certificate job, for the alert's description. No timer and no watcher
  * (CLAUDE.md 10.85): it rides the run. It makes a fixed, small number of
- * single GitHub API reads (at most MAX_RUNS_EXAMINED job lists) and never polls.
+ * single GitHub API reads (MAX_PAGES run lists, then one job list per run) and never polls.
  *
  * Run:  GH_TOKEN=... GITHUB_REPOSITORY=owner/repo RUN_ID=... WORKFLOW_FILE=x.yml \
  *       CERT_JOB=certify CERT_RESULT=failure [GITHUB_OUTPUT=...] \
@@ -41,7 +41,13 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-export const MAX_RUNS_EXAMINED = 10;
+// The history is paged, never polled: at most MAX_PAGES single list reads of
+// PER_PAGE completed runs on main, then one job-list read per run until the
+// newest run whose certificate job actually ran. Club Create Certification
+// starts on every publish and skips certify on most of them, so twenty runs is
+// not enough history (2026-11-24, review of #11919).
+export const PER_PAGE = 100;
+export const MAX_PAGES = 3;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
 const PASSED = 'success';
 
@@ -118,24 +124,38 @@ async function api(path, token, { text = false } = {}) {
   return text ? res.text() : res.json();
 }
 
-/** previous certificate result on main, newest first, skipping runs where it did not run. */
+/**
+ * previous certificate result on main, newest first, passing over runs where
+ * it did not run. When no run in the paged history executed the certificate,
+ * the answer is unknown, which alerts: an unread history is never a pass.
+ */
 export async function readPrevious({ token, repo, workflowFile, runId, jobName, read = api }) {
   try {
-    const runs = await read(
-      `/repos/${repo}/actions/workflows/${encodeURIComponent(workflowFile)}/runs?branch=main&status=completed&per_page=20`,
-      token
-    );
-    const candidates = (runs.workflow_runs || [])
-      .filter((run) => String(run.id) !== String(runId))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
-      .slice(0, MAX_RUNS_EXAMINED);
-    for (const run of candidates) {
-      const jobs = await read(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, token);
-      const conclusion = certificateConclusion(jobs, jobName);
-      if (conclusion === 'unknown') return { previous: 'unknown' };
-      if (conclusion) return { previous: conclusion, runId: run.id, runUrl: run.html_url };
+    let examined = 0;
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const runs = await read(
+        `/repos/${repo}/actions/workflows/${encodeURIComponent(workflowFile)}/runs` +
+          `?branch=main&status=completed&per_page=${PER_PAGE}&page=${page}`,
+        token
+      );
+      const listed = runs.workflow_runs || [];
+      const candidates = listed
+        .filter((run) => String(run.id) !== String(runId))
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      for (const run of candidates) {
+        examined += 1;
+        const jobs = await read(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, token);
+        const conclusion = certificateConclusion(jobs, jobName);
+        if (conclusion === 'unknown')
+          return { previous: 'unknown', error: `job list of run ${run.id} unreadable` };
+        if (conclusion) return { previous: conclusion, runId: run.id, runUrl: run.html_url };
+      }
+      if (listed.length < PER_PAGE) break;
     }
-    return { previous: 'none' };
+    return {
+      previous: 'unknown',
+      error: `no run that executed ${jobName} among ${examined} completed runs on main`,
+    };
   } catch (error) {
     return { previous: 'unknown', error: error.message };
   }

@@ -144,7 +144,7 @@ describe('the streak rules', () => {
       read: async (path: string) =>
         path.includes('/workflows/') ? { workflow_runs: [] } : { jobs: [] },
     });
-    expect(none.previous).toBe('none');
+    expect(none.previous).toBe('unknown');
     const broken = await readPrevious({
       token: 't',
       repo: 'o/r',
@@ -157,6 +157,84 @@ describe('the streak rules', () => {
     });
     expect(broken.previous).toBe('unknown');
   });
+  // A paged history, newest first; certify ran only where `ran` says.
+  const pagedHistory = (total: number, ran: Record<number, string>) => {
+    const runs = Array.from({ length: total }, (_, i) => ({
+      id: 1000 - i,
+      created_at: new Date(Date.UTC(2026, 10, 24, 12) - i * 60_000).toISOString(),
+      html_url: `u${1000 - i}`,
+    }));
+    const calls: string[] = [];
+    const read = async (path: string) => {
+      calls.push(path);
+      if (path.includes('/workflows/')) {
+        const page = Number(path.match(/[?&]page=(\d+)/)?.[1]);
+        const perPage = Number(path.match(/[?&]per_page=(\d+)/)?.[1]);
+        expect(perPage).toBe(100);
+        expect(path).toContain('branch=main');
+        expect(path).toContain('status=completed');
+        return { workflow_runs: runs.slice((page - 1) * perPage, page * perPage) };
+      }
+      const id = Number(path.match(/runs\/(\d+)\/jobs/)?.[1]);
+      const conclusion = ran[id] ?? 'skipped';
+      return {
+        jobs: [
+          { name: 'publication', conclusion: 'success' },
+          { name: 'certify', conclusion },
+        ],
+      };
+    };
+    return { read, calls };
+  };
+
+  it('finds a failed certificate behind twenty runs that skipped it', async () => {
+    const { read } = pagedHistory(21, { 980: 'failure' });
+    const out = await readPrevious({
+      token: 't',
+      repo: 'o/r',
+      workflowFile: 'x.yml',
+      runId: '1',
+      jobName: 'certify',
+      read,
+    });
+    expect(out).toEqual({ previous: 'failure', runId: 980, runUrl: 'u980' });
+    expect(decide({ result: 'failure', previous: out.previous }).record).toBe(true);
+  });
+
+  it('pages the history: a certificate run on page two is found', async () => {
+    const { read, calls } = pagedHistory(250, { 850: 'success' });
+    const out = await readPrevious({
+      token: 't',
+      repo: 'o/r',
+      workflowFile: 'x.yml',
+      runId: '1',
+      jobName: 'certify',
+      read,
+    });
+    expect(out.previous).toBe('success');
+    const pages = calls
+      .filter((c) => c.includes('/workflows/'))
+      .map((c) => c.match(/[?&]page=(\d+)/)?.[1]);
+    expect(pages).toEqual(['1', '2']);
+    expect(decide({ result: 'failure', previous: out.previous }).record).toBe(false);
+  });
+
+  it('only skipped runs in all pages is unknown, and alerts; it reads at most three pages', async () => {
+    const { read, calls } = pagedHistory(400, {});
+    const out = await readPrevious({
+      token: 't',
+      repo: 'o/r',
+      workflowFile: 'x.yml',
+      runId: '1',
+      jobName: 'certify',
+      read,
+    });
+    expect(out.previous).toBe('unknown');
+    expect(out.error).toMatch(/no run that executed certify among 300 completed runs on main/);
+    expect(calls.filter((c) => c.includes('/workflows/')).length).toBe(3);
+    expect(decide({ result: 'failure', previous: out.previous }).record).toBe(true);
+  });
+
   it('classifies a job list', () => {
     expect(
       certificateConclusion({ jobs: [{ name: 'certify', conclusion: 'timed_out' }] }, 'certify')
