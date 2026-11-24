@@ -258,15 +258,31 @@ export function MustMoveLobbyModal({
   /* LIGHTNING 2.0 PHASE 3. The server says which table is the main game - a
      Lightning-capable Cluster begins as a single feeder and has no Main 1 at
      all - and this mirrors fn_cash_seat_change_request's own refusal, so the
-     button and the door cannot disagree about what they forbid. */
+     button and the door cannot disagree about what they forbid.
+     UPWARD LADDER HARDENING (2026-11-24): open-chair seat changes upward into
+     any Main (Feeder -> Main N, or Main N -> Main M with N > M) are forbidden
+     by fn_cash_seat_change_plan (must-move order only), and swaps require a
+     live table (never 'opening'). Excluding both here prevents clicking
+     Request from silently burning the player's one-per-stay seat_change_used_at. */
   const frontTableId = lobby?.front_table_id ?? null;
   const showSeatChange = !lightning && seatChangeEnabled;
+  const meTable = myTableId ? (tableById.get(myTableId) ?? null) : null;
+  const myRole = meTable?.role ?? me?.role ?? null;
+  const myMainIndex = meTable?.main_index ?? me?.main_index ?? null;
+  const isUpwardMainTarget = (t: LobbyTable): boolean =>
+    t.role === 'main' &&
+    (myRole === 'feeder' ||
+      (myRole === 'main' &&
+        myMainIndex != null &&
+        t.main_index != null &&
+        myMainIndex > t.main_index));
   const canRequestTo = (t: LobbyTable): boolean =>
     showSeatChange &&
     Boolean(me?.seat_change.available) &&
     !isMainOne(t, frontTableId) &&
     t.id !== myTableId &&
-    (t.lifecycle === 'live' || t.lifecycle === 'opening');
+    t.lifecycle === 'live' &&
+    !isUpwardMainTarget(t);
   const otherTablesExist = (lobby?.tables ?? []).some((t) => canRequestTo(t));
 
   return (

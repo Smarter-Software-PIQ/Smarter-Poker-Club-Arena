@@ -151,6 +151,48 @@ describe('a committed plan reaches its game the moment the planner returns', () 
     expect(movesPlannedGeneration('woken')).toBe(1);
     await controller.stop();
   });
+  it('a wake still signals moves_planned when a periodic pass refreshes rowByGame mid-wake', async () => {
+    vi.useFakeTimers();
+    let releaseWake!: (value: { data: unknown; error: unknown }) => void;
+    const wakeReply = new Promise<{ data: unknown; error: unknown }>((r) => {
+      releaseWake = r;
+    });
+    const controller = build(async (fn) =>
+      fn === 'fn_cash_cluster_tick_uncapped'
+        ? wakeReply
+        : { data: pass([{ id: 'woken', result: quiet }]), error: null }
+    );
+    await controller.tick();
+    controller.start();
+    controller.wake('woken', { now: true });
+    await vi.advanceTimersByTimeAsync(0);
+    // Periodic 5 s pass runs while the wake RPC is in flight and replaces rowByGame['woken'].
+    await controller.tick();
+    expect(movesPlannedGeneration('woken')).toBe(0);
+    // Wake RPC returns with moves_planned > 0 while this controller generation is still current.
+    releaseWake({ data: planned, error: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(movesPlannedGeneration('woken')).toBe(1);
+    await controller.stop();
+  });
+
+  it('a wake fenced by stop() mid-RPC signals nothing even with moves_planned > 0', async () => {
+    vi.useFakeTimers();
+    let releaseWake!: (value: { data: unknown; error: unknown }) => void;
+    const wakeReply = new Promise<{ data: unknown; error: unknown }>((r) => {
+      releaseWake = r;
+    });
+    const controller = build(async (fn) =>
+      fn === 'fn_cash_cluster_tick_uncapped' ? wakeReply : { data: pass([]), error: null }
+    );
+    controller.start();
+    controller.wake('woken', { now: true });
+    await vi.advanceTimersByTimeAsync(0);
+    const stopping = controller.stop();
+    releaseWake({ data: planned, error: null });
+    await stopping;
+    expect(movesPlannedGeneration('woken')).toBe(0);
+  });
 });
 
 describe('a vacancy reaches the planner without the 500 ms burst hold (2026-10-24)', () => {
@@ -231,11 +273,13 @@ describe('a vacancy reaches the planner without the 500 ms burst hold (2026-10-2
     await controller.stop();
   });
 
-  it('the engine sends a vacancy as `now` and every other reason through the hold', async () => {
+  it('the engine sends seat departures and seat moves as `now` and other reasons through the hold', async () => {
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const base = readFileSync(join(__dirname, '..', 'engine', 'ServerTableEngineBase.ts'), 'utf8');
-    expect(base).toMatch(/wakeCluster\(String\(gameId\), \{ now: reason === 'seat_left' \}\);/);
+    expect(base).toMatch(
+      /wakeCluster\(String\(gameId\), \{ now: reason === 'seat_left' \|\| reason === 'seat_move' \}\);/
+    );
     expect(base.match(/wakeCluster\(/g)).toHaveLength(1);
   });
 });

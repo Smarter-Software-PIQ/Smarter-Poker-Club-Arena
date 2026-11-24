@@ -239,7 +239,7 @@ describe('a Lightning player between hands', () => {
       /* Join Lightning is one tap (2026-10-24): the refusal opens the game's
          door with the amount question already up, never the waiting list. */
       expect(page).toMatch(
-        /if \(anchorLightningClusterId\) \{\s*\/\*[\s\S]*?\*\/\s*openLightningAnchorEntry\(\);\s*return false;\s*\}\s*toast\.info\('This Seat Is Reserved/
+        /if \(anchorLightningClusterId\) \{\s*\/\*[\s\S]*?\*\/\s*openLightningAnchorEntry\(\);\s*return false;\s*\}\s*toast\.info\(\s*\/must-move list\/i\.test\(rawRefusalMessage\)\s*\?\s*message\s*:\s*'This Seat Is Reserved/
       );
       expect(page).toMatch(
         /const openLightningAnchorEntry = \(\) => \{\s*if \(!anchorLightningClusterId\) return;\s*navigate\(lightningJoinRoute\(anchorLightningClusterId\)\);\s*\};/

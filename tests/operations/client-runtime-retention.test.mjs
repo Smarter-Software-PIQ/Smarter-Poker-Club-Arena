@@ -17,6 +17,8 @@ import {
   readRetentionReceipt,
   receiptArtifactId,
   assertReceiptOrigins,
+  RetainedOriginMovedError,
+  finalizeRetention,
   publicationDecision,
   focusedRetentionPublisher,
 } from '../../scripts/ci/client-runtime-retention.mjs';
@@ -796,4 +798,76 @@ test('focused cash verification reuses exact retention proof before generic sour
   assert.match(body, /receipt.runtimeSha !== live \|\| receipt.verificationSha !== target/);
   assert.match(body, /await requireCurrentReceipt\(receipt\)/);
   assert.match(body, /finally/);
+});
+
+test('a moved origin names every differing field and is re-admitted against what it now serves', async () => {
+  const info = (sha, run) =>
+    Buffer.from(JSON.stringify({ ca_sha: sha, run_id: run, built_by: 'publish-club-arena.yml' }));
+  const manifest = Buffer.from('retained immutable manifest');
+  const retained = info('d'.repeat(40), '45333099623');
+  const receipt = {
+    runtimeSha: 'd'.repeat(40),
+    verificationSha: 'b'.repeat(40),
+    originalPublisherRunId: '45333099623',
+    buildInfoSHA256: hash(retained),
+    manifestSHA256: hash(manifest),
+  };
+  // 45334000482: another publisher committed 74d10c32 while this run waited.
+  const moved = info('7'.repeat(40), '45333715752');
+  let thrown;
+  try {
+    assertReceiptOrigins(receipt, [moved, moved], [Buffer.from('newer manifest'), manifest]);
+  } catch (error) {
+    thrown = error;
+  }
+  assert.ok(thrown instanceof RetainedOriginMovedError);
+  assert.match(thrown.message, /https:\/\/ca-static\.smarter\.poker: ca_sha d{40} -> 7{40}, run_id 45333099623 -> 45333715752/);
+  assert.match(thrown.message, /release manifest bytes/);
+  assert.match(thrown.message, /https:\/\/smarter\.poker\/hub\/club-arena: ca_sha/);
+
+  const fresh = { ...receipt, runtimeSha: '7'.repeat(40), originalPublisherRunId: '45333715752' };
+  const lines = [];
+  const result = await finalizeRetention(receipt, {
+    requireCurrent: async () => {
+      throw thrown;
+    },
+    readmit: async (target) => {
+      assert.equal(target, receipt.verificationSha);
+      return fresh;
+    },
+    log: (line) => lines.push(line),
+  });
+  assert.equal(result, fresh);
+  assert.match(lines[0], /re-admitted b{40} against the runtime it now serves/);
+
+  // An unchanged origin keeps the original receipt and never re-admits.
+  assert.equal(
+    await finalizeRetention(receipt, {
+      requireCurrent: async () => {},
+      readmit: async () => assert.fail('must not re-admit'),
+    }),
+    receipt
+  );
+  // A refused re-admission still fails, naming both reasons.
+  await assert.rejects(
+    finalizeRetention(receipt, {
+      requireCurrent: async () => {
+        throw thrown;
+      },
+      readmit: async () => {
+        throw new Error('The complete backlog changes client build inputs or an unclassified path.');
+      },
+    }),
+    /no longer serves retained runtime[\s\S]*Re-admission of b{40}[\s\S]*client build inputs/
+  );
+  // Any other receipt failure is not re-admitted.
+  await assert.rejects(
+    finalizeRetention(receipt, {
+      requireCurrent: async () => {
+        throw new Error('The complete client backlog differs from its receipt.');
+      },
+      readmit: async () => assert.fail('must not re-admit'),
+    }),
+    /differs from its receipt/
+  );
 });
