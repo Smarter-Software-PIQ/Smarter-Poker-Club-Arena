@@ -336,6 +336,7 @@ describe('shipped functionality is still here', () => {
       'reference-transaction', // what saves your commits from a reset
       'build-info.json', // how to check it actually shipped
       'estate-integrity', // what watches the guards
+      'Close out a set of fixes', // what to do after fixing, before reporting done (owner 2026-11-24)
     ]) {
       expect(p.includes(needle), `AGENT-PLAYBOOK.md no longer mentions ${needle}`).toBe(true);
     }
