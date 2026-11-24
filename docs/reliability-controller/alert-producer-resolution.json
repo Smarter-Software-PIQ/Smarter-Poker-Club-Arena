@@ -6,10 +6,10 @@
       "via": "Alertmanager resolved notifications (b_operational_alert_resolved_twin_closes_firing)"
     },
     "bug-report-routing": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "fn_bug_report_route_on_insert fires and nothing resolves it"
+      "kind": "in-function",
+      "resolvers": ["fn_bug_report_delivery_resolves_its_alert"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the bug report delivery reaches status delivered"
     },
     "ca-stall-watch": {
       "kind": "in-function",
@@ -17,10 +17,10 @@
       "since": "#11220 (finished tournaments)"
     },
     "cash-pot-conservation-measurement": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "fn_cash_pot_conservation_check fires and nothing resolves it"
+      "kind": "in-function",
+      "resolvers": ["fn_cash_pot_conservation_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "a later complete check no longer finds that condition"
     },
     "club-arena.deploy-monitoring": {
       "kind": "twin-event",
@@ -63,16 +63,16 @@
       "via": "financial_alerts resolution (fn_ca_incident_resolution_reaches_the_alerts)"
     },
     "host-heartbeat": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "record_host_heartbeat posts an 'info' HostHeartbeatResumed row and never resolves the firing silence episode (3 firing, 0 resolved on 2026-11-24)"
+      "kind": "in-function",
+      "resolvers": ["record_host_heartbeat", "host_heartbeat_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the host heartbeats again (silence); the volume is back above 5% free (disk)"
     },
     "install-queue": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "external sender not found; 6 rows firing, 0 resolved"
+      "kind": "in-function",
+      "resolvers": ["fn_resolve_operational_alerts"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "operations/ops-mac/heartbeat.sh: the queue process runs (queue-down); the failed job's migration is recorded installed or its PR closed (failed)"
     },
     "local.series-runtime": {
       "kind": "twin-event",
@@ -87,16 +87,15 @@
       "via": "World Hub scripts/local_scraper_runtime.py outbox resolve"
     },
     "mac-studio-git-maintenance": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "Mac sender; 34 firing, 0 resolved"
+      "kind": "in-function",
+      "resolvers": ["fn_resolve_operational_alerts"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "operations/ops-mac/git-maintenance-guard.sh: the repo is back at or under PACK_LIMIT pack files"
     },
     "midway-weekly-payout-followup": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "sender not found; 1 firing, 0 resolved"
+      "kind": "informational",
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "reason": "a single follow-up recorded once on 2026-11-02 (issue #9413); no producer records it again, and the Z2 migration resolved that row after checking the live fn_ca_engine_release_stall_check declares v_open uuid"
     },
     "migration-install-watch": {
       "kind": "in-function",
@@ -107,10 +106,9 @@
       "via": "OpenClaw job staleness resolve"
     },
     "owner-accounting-notifications": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "fn_mirror_notification_to_push_outbox records; nothing resolves"
+      "kind": "informational",
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "reason": "records status 'info' only (Accounting Documents Issued, Owner Copy); nothing fires"
     },
     "owner-operational-notifications": {
       "kind": "in-function",
@@ -122,10 +120,10 @@
       "via": "production integrity audit resolved verdict"
     },
     "rakeback-settler-read-horizon": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "fn_rakeback_settler_stranded_source_check fires and nothing resolves it"
+      "kind": "in-function",
+      "resolvers": ["fn_rakeback_settler_stranded_source_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the read horizon is present and held no longer than 20 minutes"
     },
     "reliability-drill": {
       "kind": "twin-event",
@@ -142,10 +140,10 @@
       "since": "#11197"
     },
     "weekly-payout": {
-      "kind": "pending",
-      "owner": "Production Alerts lane (B1)",
-      "until": "2026-12-08",
-      "reason": "weekly_payout_* fire and nothing resolves them"
+      "kind": "in-function",
+      "resolvers": ["weekly_payout_paid_resolves_its_alerts", "weekly_payout_readiness_check"],
+      "since": "Z2: every alert source clears on its own condition (2026-11-24)",
+      "condition": "the period records agents_paid, clubs_paid and players_paid; not-ready resolves when the period is ready (WeeklyPayoutInvoiceMismatch never auto-resolves)"
     },
     "workers.deploy-error-poll": {
       "kind": "twin-event",
