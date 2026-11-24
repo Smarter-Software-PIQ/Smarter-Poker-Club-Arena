@@ -128,6 +128,7 @@ interface CtaSpec {
 const titleCaseRule = (r: RuleMedallion): RuleMedallion => ({
   ...r,
   label: titleCase(r.label),
+  detail: r.detail && titleCase(r.detail),
   tip: titleCase(r.tip),
 });
 

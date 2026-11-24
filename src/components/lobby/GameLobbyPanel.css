@@ -471,7 +471,7 @@
     system-ui,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
