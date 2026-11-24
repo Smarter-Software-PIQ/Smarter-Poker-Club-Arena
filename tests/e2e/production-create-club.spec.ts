@@ -166,7 +166,9 @@ test.describe('Production Create A Club Certificate', () => {
     const copiedInvite = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedInvite).toContain(shortUrl);
     expect(copiedInvite).toContain(`Invited You To Join ${clubName} On Smarter.Poker!`);
-    expect(copiedInvite).toMatch(/Club ID: \S+/);
+    // Since #11455 (2026-11-19) the shared text is the signed headline, the club's
+    // measured figures and the link; it no longer carries a Club ID line.
+    expect(copiedInvite).not.toContain('Club ID');
     const copiedScreenshot = 'test-results/create-club-link-copied-mobile.png';
     await page.screenshot({ path: copiedScreenshot, fullPage: true });
     await testInfo.attach('Send Link Clipboard Result', {
@@ -186,7 +188,8 @@ test.describe('Production Create A Club Certificate', () => {
     // wallet announcement that happens to contain the same number.
     // The club starts at 100K, then the atomic welcome transaction moves the
     // reviewed 100 BBJ seed and 200 Spins seed into their club-owned reserves.
-    await expect(page.getByLabel(/^99\.7K Club Bank Chips$/)).toBeVisible({
+    // Figures print exactly since #10797 (2026-11-14): compactChips is exactChips.
+    await expect(page.getByLabel(/^99,700 Club Bank Chips$/)).toBeVisible({
       timeout: 60_000,
     });
     const welcome = page.getByRole('region', { name: 'Opening Welcome Package', exact: true });

@@ -35,6 +35,7 @@ function deferred() {
 function harness(tableCount = 1) {
   let row: PersistedMaintenanceBreak | null = null;
   let boundary: number | null = null;
+  let boundaryFreezeStartedAt: number | null = null;
   let dbNow = epoch;
   const engine = {
     paused: false,
@@ -63,6 +64,7 @@ function harness(tableCount = 1) {
     loadReleaseBoundary: vi.fn(async () =>
       boundary !== null && dbNow < boundary ? boundary : null
     ),
+    loadReleaseBoundaryFreezeStartedAt: vi.fn(async () => boundaryFreezeStartedAt),
     save: async (next) => {
       if (row && row.ownershipToken !== next.ownershipToken) throw new Error('owner');
       row = { ...next };
@@ -101,6 +103,7 @@ function harness(tableCount = 1) {
   const contract = vi.fn(async () => {});
   const emit = vi.fn();
   const emitPresentation = vi.fn();
+  const recordOutcome = vi.fn(async () => {});
   const owner = new MaintenanceBreak({
     store,
     assertRecoveryWindowContract: contract,
@@ -108,6 +111,7 @@ function harness(tableCount = 1) {
     isRunning: () => true,
     emit,
     emitPresentation,
+    recordOutcome,
     thaw: (request, signal) => runMaintenanceThawV3(request, rpc, { signal }),
   });
   owners.push(owner);
@@ -116,6 +120,7 @@ function harness(tableCount = 1) {
     contract,
     emit,
     emitPresentation,
+    recordOutcome,
     engine,
     store,
     rpc,
@@ -128,6 +133,9 @@ function harness(tableCount = 1) {
     },
     set boundary(value: number | null) {
       boundary = value;
+    },
+    set boundaryFreezeStartedAt(value: number | null) {
+      boundaryFreezeStartedAt = value;
     },
     set dbNow(value: number) {
       dbNow = value;
@@ -248,9 +256,11 @@ describe('real maintenance owner consumes the current v3 contract', () => {
     await ending;
     expect(h.engine.resumes).toBe(0);
   });
-  it('holds a row-deleted boot on the release witness without fabricating ownership', async () => {
+  it('holds a row-deleted boot on the release witness without fabricating ownership, and records break outcome on thaw', async () => {
     const h = harness();
+    const freezeStart = epoch - 240_000;
     h.boundary = epoch + 2_000;
+    h.boundaryFreezeStartedAt = freezeStart;
     await h.owner.start();
     expect(h.engine.paused).toBe(true);
     expect(h.row).toBeNull();
@@ -260,8 +270,32 @@ describe('real maintenance owner consumes the current v3 contract', () => {
     expect(h.engine.resumes).toBe(1);
     expect(h.rpc).not.toHaveBeenCalled();
     expect(h.store.clear).not.toHaveBeenCalled();
+    expect(h.recordOutcome).toHaveBeenCalledTimes(1);
+    expect(h.recordOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        breakStartedAtMs: freezeStart,
+        tablesResumed: 1,
+      })
+    );
   });
-  it('retains unknown recovery state and resumes after a successful empty read', async () => {
+  it('falls back to releaseAt - BREAK_DURATION_MS when freeze_started_at is unavailable on a row-deleted boot', async () => {
+    const h = harness();
+    const releaseAt = epoch + 2_000;
+    h.boundary = releaseAt;
+    h.boundaryFreezeStartedAt = null;
+    await h.owner.start();
+    h.dbNow = releaseAt;
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(h.engine.resumes).toBe(1);
+    expect(h.recordOutcome).toHaveBeenCalledTimes(1);
+    expect(h.recordOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        breakStartedAtMs: releaseAt - MaintenanceBreak.BREAK_DURATION_MS,
+        tablesResumed: 1,
+      })
+    );
+  });
+  it('retains unknown recovery state and resumes after a successful empty read without fabricating a break log row', async () => {
     const h = harness();
     let unreadable = true;
     vi.mocked(h.store.load).mockImplementation(async () => {
@@ -279,6 +313,7 @@ describe('real maintenance owner consumes the current v3 contract', () => {
     await vi.advanceTimersByTimeAsync(MaintenanceBreak.THAW_RETRY_MS + 1);
     expect(h.engine.resumes).toBe(1);
     expect(h.rpc).not.toHaveBeenCalled();
+    expect(h.recordOutcome).not.toHaveBeenCalled();
   });
   it.each(['owner', 'receipt', 'step', 'legacy'] as const)(
     'keeps the durable row on %s refusal',

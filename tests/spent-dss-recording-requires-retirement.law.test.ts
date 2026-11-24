@@ -18,7 +18,10 @@ describe('spent DSS recording requires retirement', () => {
       join(
         process.env.RUNNER_TEMP ||
           process.env.TMPDIR ||
-          (process.platform === 'darwin' ? '/Volumes/SmarterWork/agent-work' : tmpdir()),
+          (process.platform === 'darwin'
+            ? (mkdirSync(join(process.cwd(), 'node_modules/.cache'), { recursive: true }),
+              join(process.cwd(), 'node_modules/.cache'))
+            : tmpdir()),
         'dss-recording-'
       )
     );

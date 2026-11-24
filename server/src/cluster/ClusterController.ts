@@ -451,10 +451,14 @@ export class ClusterController {
       p_game_id: gameId,
       p_eligible_horses: eligible,
     });
-    if (!wakeIsCurrent()) return;
+    if (!this.lifecycleIsCurrent(generation)) return;
     // Tell the game's feeders now, before anything below awaits
-    // (seatBoundarySignals). Like the pass, a fenced wake signals nothing.
+    // (seatBoundarySignals). Even if a periodic 5 s pass refreshed `rowByGame`
+    // while this wake RPC was in flight, this controller generation still owns
+    // leadership and the SQL already committed those planned moves. Only a
+    // stopped/superseded controller generation signals nothing.
     if (!error && tickReportsMovesPlanned(data)) noteMovesPlanned(gameId);
+    if (!wakeIsCurrent()) return;
     if (error) {
       reportError(error, 'ClusterController.wake_rpc_failed', { game_id: gameId });
       return;

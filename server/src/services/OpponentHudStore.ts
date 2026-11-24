@@ -65,6 +65,7 @@ import {
 } from '../engine/opponentHud/OpponentHudBackfillPlan.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
 import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../engine/HorseOptionSwitch.js';
+import { bindToProcessRoot } from './supabase/dataActorContext.js';
 
 export const HUD_DB_TIMEOUT_MS = 2_000;
 export const HUD_RETRY_MS = 15_000;
@@ -1280,12 +1281,18 @@ export class OpponentHudStore {
   /** Timers only: every one of them does nothing while the option is off (the switch arms the store). */
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.persist(), HUD_PERSIST_MS);
+    this.timer = setInterval(
+      bindToProcessRoot(() => void this.persist()),
+      HUD_PERSIST_MS
+    );
     (this.timer as { unref?: () => void }).unref?.();
-    this.alertTimer = setInterval(() => {
-      this.tickAlerts();
-      void this.maybeReconcile();
-    }, HUD_ALERT_WINDOW_MS);
+    this.alertTimer = setInterval(
+      bindToProcessRoot(() => {
+        this.tickAlerts();
+        void this.maybeReconcile();
+      }),
+      HUD_ALERT_WINDOW_MS
+    );
     (this.alertTimer as { unref?: () => void }).unref?.();
   }
   stop(): void {
@@ -1718,14 +1725,14 @@ export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
       ? (clientForTest as HudDbClient)
       : (await import('./supabase.js')).supabase;
   return {
-    async read(userIds, family, signal) {
+    read: bindToProcessRoot(async (userIds, family, signal) => {
       const { data, error } = await (await client())
         .rpc('fn_opponent_hud_profiles_read', { p_user_ids: userIds, p_family: family })
         .abortSignal(signal);
       if (error) throw new Error(missing(error) ? HUD_SCHEMA_MISSING : 'opponent hud read failed');
       return (data ?? []) as HudStoredRow[];
-    },
-    async recent(family, sinceIso, afterUser, limit, signal) {
+    }),
+    recent: bindToProcessRoot(async (family, sinceIso, afterUser, limit, signal) => {
       const { data, error } = await (
         await client()
       )
@@ -1738,8 +1745,8 @@ export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
         .abortSignal(signal);
       if (error) throw new Error('opponent hud recent failed');
       return (data ?? []) as HudStoredRow[];
-    },
-    async handsPage(afterAt, afterId, limit, signal, untilIso) {
+    }),
+    handsPage: bindToProcessRoot(async (afterAt, afterId, limit, signal, untilIso) => {
       const { data, error, status } = await (
         await client()
       )
@@ -1752,19 +1759,19 @@ export function supabaseHudDeps(clientForTest?: unknown): OpponentHudStoreDeps {
         .abortSignal(signal);
       if (error) throw hudDbFailure('opponent hud hands page failed', error, status);
       return (data ?? []) as { id: string; created_at: string }[];
-    },
+    }),
     alert(name, firing, summary) {
       // Production Alerts through the sink the main process injects (index.ts): this module, on the decision closure
       // through the engine wiring, never imports an alert module (HorseDecisionClosure.test.ts).
       alertSink?.(name, firing, summary);
     },
-    async upsert(rows, signal) {
+    upsert: bindToProcessRoot(async (rows, signal) => {
       const { data, error } = await (await client())
         .rpc('fn_opponent_hud_profiles_upsert', { p_rows: rows })
         .abortSignal(signal);
       if (error) throw new Error('opponent hud upsert failed');
       return (data ?? []) as string[];
-    },
+    }),
     now: () => Date.now(),
   };
 }

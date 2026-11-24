@@ -288,6 +288,32 @@ describe('when every attempt fails, the hit is queued and alarmed, never dropped
     expect(String(settle.mock.calls[0][1])).toContain('nothing to pay');
   });
 
+  it('mini_disabled_for_club is a final mini refusal: nothing to pay, no retry, claim closed, no CRITICAL alert', async () => {
+    const claim = vi.fn().mockResolvedValue(true);
+    const settle = vi.fn().mockResolvedValue(true);
+    setBBJPayoutQueue({ claim, settle } as never);
+    rpc.mockResolvedValue({
+      data: [{ applied: false, already_paid: false, refused: 'mini_disabled_for_club' }],
+      error: null,
+    });
+
+    const outcome = await run(
+      processBBJPayout({
+        ...PARAMS,
+        kind: 'mini',
+        tierId: 'micro',
+        payoutTotalPercent: 0,
+      })
+    );
+
+    expect(outcome).toEqual({ status: 'nothing_to_pay', reason: 'mini_disabled_for_club' });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(String(settle.mock.calls[0][1])).toContain('mini_disabled_for_club');
+    expect(raiseFinancialAlert).not.toHaveBeenCalled();
+  });
+
   it('an empty pool is final: nothing to pay, and the claim is closed', async () => {
     rpc.mockResolvedValue({ data: [{ applied: false, already_paid: false }], error: null });
     from.mockImplementation((name: string) => {

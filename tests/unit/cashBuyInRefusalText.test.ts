@@ -112,6 +112,33 @@ describe('cashBuyInRefusalText', () => {
     expect(cashBuyInRefusalText('Banned from this club')).toBe('You Cannot Buy In At This Club');
   });
 
+  it('distinguishes must-move list SEAT_RESERVED from ordinary waiting-list SEAT_RESERVED', () => {
+    expect(
+      cashBuyInRefusalText('SEAT_RESERVED: this seat goes to the next player on the must-move list')
+    ).toBe(
+      'This Seat Goes To The Next Player On The Must Move List. Tap Join Game To Sit At The Feeder Table.'
+    );
+    expect(
+      cashBuyInRefusalText('SEAT_RESERVED: This Seat Goes To The Next Player On The Must-Move List')
+    ).toBe(
+      'This Seat Goes To The Next Player On The Must Move List. Tap Join Game To Sit At The Feeder Table.'
+    );
+    expect(
+      cashBuyInRefusalText(
+        'SEAT_RESERVED: the open seat is held for the next player on the waiting list'
+      )
+    ).toBe(
+      'This Seat Is Reserved For The Next Player On The Waiting List. Please Join The Waitlist.'
+    );
+    expect(
+      cashBuyInRefusalText(
+        'SEAT_RESERVED: the open seat is held for a player the game is moving here'
+      )
+    ).toBe(
+      'This Seat Is Reserved For The Next Player On The Waiting List. Please Join The Waitlist.'
+    );
+  });
+
   it('reads a real Error object, not just a string', () => {
     expect(
       cashBuyInRefusalText(new Error('VIP_ONLY: this table is open to VIP members only'))
