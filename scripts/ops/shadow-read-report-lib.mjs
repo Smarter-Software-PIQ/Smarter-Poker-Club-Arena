@@ -416,8 +416,12 @@ SELECT json_build_object(
   ),
   'errorLog', (
     SELECT json_build_object(
+      -- Occurrences, not rows: services/HorseErrorLog.ts writes one row per
+      -- (type, reason, game, mode) per minute carrying how many it stands for.
       'count', (
-        SELECT count(*)::bigint
+        SELECT COALESCE(sum(
+                 CASE WHEN context->>'occurrences' ~ '^[0-9]{1,9}$'
+                      THEN (context->>'occurrences')::bigint ELSE 1 END), 0)::bigint
         FROM public.horse_error_log
         WHERE created_at >= ${sinceLit}::timestamptz
           AND created_at <= ${untilLit}::timestamptz
@@ -425,7 +429,9 @@ SELECT json_build_object(
       'recent', (
         SELECT COALESCE(json_agg(row_to_json(el)), '[]'::json)
         FROM (
-          SELECT id, horse_id, error_type, error_message, created_at
+          SELECT id, horse_id, error_type, context->>'reason' AS reason,
+                 context->>'variant' AS variant, context->>'occurrences' AS occurrences,
+                 error_message, created_at
           FROM public.horse_error_log
           WHERE created_at >= ${sinceLit}::timestamptz
             AND created_at <= ${untilLit}::timestamptz
