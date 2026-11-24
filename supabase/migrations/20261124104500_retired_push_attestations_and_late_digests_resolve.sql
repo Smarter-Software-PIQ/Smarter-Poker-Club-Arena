@@ -45,6 +45,10 @@ BEGIN
     IF position('owner-operational-push' in pg_get_functiondef(f)) = 0 THEN
       RAISE EXCEPTION 'rewrite of fn_try_record_owner_notification did not land';
     END IF;
+    -- The #11893 step must survive the rewrite: A NEWER CHIP-INTEGRITY ATTESTATION SUPERSEDES the older ones.
+    IF position('A NEWER CHIP-INTEGRITY ATTESTATION SUPERSEDES' in pg_get_functiondef(f)) = 0 THEN
+      RAISE EXCEPTION 'the #11893 attestation supersede step did not survive the rewrite';
+    END IF;
   END IF;
 END
 $migration$;
