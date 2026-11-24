@@ -516,7 +516,7 @@ describe('2. a table over the cap drains through the engine, never a mid-hand cu
     // (Slice 2, 2026-09-05: the select also carries cluster_id and lifecycle,
     //  so the fleet can keep its hands off the controller's tables.)
     expect(FLEET).toMatch(
-      /current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey\(rules_profile:ruleset_snapshot->>rules_profile\)'/
+      /current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey\(rules_profile:ruleset_snapshot->>rules_profile, must_move, cluster_mode\)'/
     );
     expect(FLEET).toMatch(
       /if \(isRetiringTable\(t as \{ settings\?: unknown \}\)\) \{\s*surplusTableIds\.add\(t\.id\);/

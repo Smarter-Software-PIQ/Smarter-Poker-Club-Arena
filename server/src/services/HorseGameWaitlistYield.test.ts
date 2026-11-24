@@ -108,6 +108,37 @@ describe('the attribution: one game-list person, one table, once', () => {
     ).toBeNull();
   });
 
+  it('prefers a live feeder with horses over a higher-horse Main, falling back when no live feeder has horses', () => {
+    // Live feeder with fewer horses still beats Main 1 & Main 2 so fn_offer_open_seat
+    // offers the freed Feeder chair immediately instead of waiting for a must-move cascade.
+    expect(
+      yieldTableForGame(MUSTMOVE, [
+        { id: T_A, clusterId: MUSTMOVE, lifecycle: 'live', role: 'main', horses: 9 },
+        { id: T_B, clusterId: MUSTMOVE, lifecycle: 'live', role: 'main', horses: 8 },
+        { id: T_C, clusterId: MUSTMOVE, lifecycle: 'live', role: 'feeder', horses: 2 },
+      ])
+    ).toBe(T_C);
+
+    // Among multiple live feeders, picks the one with most horses, ties by id.
+    expect(
+      yieldTableForGame(MUSTMOVE, [
+        { id: T_A, clusterId: MUSTMOVE, lifecycle: 'live', role: 'main', horses: 9 },
+        { id: T_C, clusterId: MUSTMOVE, lifecycle: 'live', role: 'feeder', horses: 4 },
+        { id: T_B, clusterId: MUSTMOVE, lifecycle: 'live', role: 'feeder', horses: 4 },
+      ])
+    ).toBe(T_B);
+
+    // Breaking feeder, opening feeder, or 0-horse live feeder falls back to highest-horse live Main.
+    expect(
+      yieldTableForGame(MUSTMOVE, [
+        { id: T_A, clusterId: MUSTMOVE, lifecycle: 'live', role: 'main', horses: 6 },
+        { id: T_B, clusterId: MUSTMOVE, lifecycle: 'breaking', role: 'feeder', horses: 5 },
+        { id: T_C, clusterId: MUSTMOVE, lifecycle: 'opening', role: 'feeder', horses: 2 },
+        { id: T_M, clusterId: MUSTMOVE, lifecycle: 'live', role: 'feeder', horses: 0 },
+      ])
+    ).toBe(T_A);
+  });
+
   it('a horse on the game list is ignored', () => {
     expect(attribute([row({ user_id: HORSE_WAITER })]).size).toBe(0);
   });
@@ -329,12 +360,12 @@ describe('the rotator stands exactly one horse up for a game-list person', () =>
     }
   );
 
-  it('Lightning game, all 18 seats horses, one person on the game list: one horse, one table', async () => {
+  it('Lightning game, all 18 seats horses, one person on the game list: one horse, one table (prefers live feeder)', async () => {
     const { leaves } = await run(lightningFloor({ gameWaitlist: [gameRow()] }));
     expect(leaves).toHaveLength(1);
-    expect(leaves[0].tableId).toBe(T_A);
-    // The newest arrival is the one asked, as for any table-list person.
-    expect(leaves[0].userId).toBe(HORSES[0]);
+    expect(leaves[0].tableId).toBe(T_B);
+    // The newest arrival at the feeder (T_B) is the one asked, as for any table-list person.
+    expect(leaves[0].userId).toBe(HORSES[6]);
   });
 
   it('a horse on the game list stands nobody up', async () => {
@@ -492,14 +523,14 @@ describe("Stable Hand's human_yield applies yieldCount once, on one table", () =
     );
   };
 
-  it('one person on a Lightning list: human_yield orders on exactly one table, yieldCount(1) of them', async () => {
+  it('one person on a Lightning list: human_yield orders on exactly one table (prefers live feeder), yieldCount(1) of them', async () => {
     hostFloor([gameRow()]);
     const snap = await buildFloorSnapshot();
     expect(snap.unreadableHosts).toEqual([]);
     const yields = planFloor(snap).stand.filter((o) => o.reason === 'human_yield');
-    expect(new Set(yields.map((o) => o.tableId))).toEqual(new Set([T_A]));
+    expect(new Set(yields.map((o) => o.tableId))).toEqual(new Set([T_B]));
     expect(yields).toHaveLength(2); // yieldCount(1) = humans_waiting + 1
-    const t = snap.hosts[0].tables.find((x) => x.tableId === T_A)!;
+    const t = snap.hosts[0].tables.find((x) => x.tableId === T_B)!;
     expect(t.waitlistOldestJoinedAtMs).toBe(NOW - 60_000);
   });
 

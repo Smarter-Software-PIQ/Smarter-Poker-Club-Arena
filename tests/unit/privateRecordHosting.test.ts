@@ -35,7 +35,13 @@ afterEach(() => {
 });
 function fixture() {
   const root = mkdtempSync(
-    join(process.env.RUNNER_TEMP ?? '/Volumes/SmarterWork/agent-work', 'private-record-hosting-')
+    join(
+      process.env.RUNNER_TEMP ??
+        process.env.TMPDIR ??
+        (mkdirSync(join(process.cwd(), 'node_modules/.cache'), { recursive: true }),
+        join(process.cwd(), 'node_modules/.cache')),
+      'private-record-hosting-'
+    )
   );
   roots.push(root);
   mkdirSync(join(root, 'dist'));

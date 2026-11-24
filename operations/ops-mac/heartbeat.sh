@@ -2,6 +2,16 @@
 # Every 5 minutes under launchd (com.smarter-poker.ops-heartbeat): reports this
 # Mac's health to smarter_private.record_host_heartbeat('ops-mac-studio', ...).
 # A silence over 15 minutes raises a critical Production Alert.
+#
+# EVERY INSTALL-QUEUE ALERT CLEARS ON ITS OWN CONDITION (2026-11-24): the queue
+# raised InstallQueueServiceDown and InstallQueueJobFailed and nothing ever
+# resolved them. This heartbeat now measures both conditions each run and
+# resolves through public.fn_resolve_operational_alerts:
+#   - queue-down:ops-mac-studio:*  when the install-queue process is running;
+#   - failed:<job>                 when the job's migration version is recorded in
+#                                  supabase_migrations.schema_migrations (installed
+#                                  since), or the job ended because its PR closed
+#                                  without merge (nothing left to install).
 Q=~/.smarter-poker/install-queue; O=~/.smarter-poker/ops
 J=$(python3 - <<'PY'
 import json, os, subprocess, time, glob
@@ -35,3 +45,25 @@ if ! pgrep -f 'ops/install-queue.sh' >/dev/null; then
   K="queue-down:ops-mac-studio:$(date -u +%Y%m%dT%H)"
   echo "SELECT public.fn_record_operational_alert('install-queue', :'k', 'InstallQueueServiceDown', 'firing', 'critical', jsonb_build_object('target_task_id','01a09b86-5ba8-7290-8657-1041f13dd3ca','host','ops-mac-studio','action','kickstarted by heartbeat'));" | $O/db.sh -v "k=$K" -f - >> $L 2>&1
 fi
+if pgrep -f 'ops/install-queue.sh' >/dev/null; then
+  echo "SELECT public.fn_resolve_operational_alerts('install-queue', 'queue-down:ops-mac-studio:', 'install queue process running at heartbeat');" | $O/db.sh -f - >> $L 2>&1
+fi
+F=$(python3 - "$Q/failed" <<'PY'
+import glob, json, os, sys
+out=[]
+for p in sorted(glob.glob(os.path.join(sys.argv[1], '*.job')))[-200:]:
+    f={}
+    for line in open(p, errors='replace'):
+        k, _, v = line.rstrip('\n').partition('=')
+        f.setdefault(k, v)
+    out.append({"key": "failed:" + os.path.basename(p), "version": f.get("FILE", "")[:14],
+                "closed": f.get("RESULT", "").startswith("PR closed without merge")})
+print(json.dumps(out))
+PY
+)
+echo "SELECT count(public.fn_resolve_operational_alerts('install-queue', j->>'key',
+  CASE WHEN (j->>'closed')::boolean THEN 'PR closed without merge; nothing left to install'
+       ELSE 'migration '||(j->>'version')||' is recorded as installed' END))
+  FROM jsonb_array_elements(:'f'::jsonb) j
+ WHERE (j->>'closed')::boolean
+    OR EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations m WHERE m.version = j->>'version');" | $O/db.sh -v "f=$F" -f - >> $L 2>&1

@@ -199,6 +199,7 @@ import {
 } from './HorseQueueAdmission.js';
 import {
   gameOwesALine,
+  isMainTableReservedForMustMoveList,
   lastChairGameKey,
   lastChairVerdict,
   openChairsByGame,
@@ -1529,7 +1530,7 @@ export class HorseFleetManager {
           let q = supabase
             .from('tables')
             .select(
-              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey(rules_profile:ruleset_snapshot->>rules_profile)'
+              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey(rules_profile:ruleset_snapshot->>rules_profile, must_move, cluster_mode)'
             )
             .is('tournament_id', null)
             .in('status', ['waiting', 'running'])
@@ -2915,6 +2916,7 @@ export class HorseFleetManager {
           id: String(t.id),
           clusterId: t.cluster_id ? String(t.cluster_id) : null,
           lifecycle: t.lifecycle ?? null,
+          role: t.role ?? null,
           horses: (seatsByTable.get(t.id) ?? []).filter((x) => horseIdSet.has(x.user_id)).length,
         })),
         allActiveSeats
@@ -3292,11 +3294,13 @@ export class HorseFleetManager {
          seats, so the seat stage knows when it is about to buy a game's LAST
          chair; and the seats each table gained this cycle, so the line is
          asked for in the same cycle the game filled. See HorseLastChair. */
+      const occupiedCountOf = (id: string) =>
+        new Set((seatsByTable.get(id) ?? []).map((seat) => seat.seat_number)).size;
+      const pendingCountOf = (id: string) => pendingMovesByTable.get(id) ?? 0;
       const openChairsLeft = openChairsByGame({
         tables: orderedTables,
-        occupiedByTable: (id) =>
-          new Set((seatsByTable.get(id) ?? []).map((seat) => seat.seat_number)).size,
-        pendingArrivalsByTable: (id) => pendingMovesByTable.get(id) ?? 0,
+        occupiedByTable: occupiedCountOf,
+        pendingArrivalsByTable: pendingCountOf,
       });
       const seatedThisCycleByTable = new Map<string, number>();
       let lastChairLeftOpen = 0;
@@ -3494,7 +3498,16 @@ export class HorseFleetManager {
             occupiedNumbers.size,
             cashPlanLightningGames
           );
-          let countOnly = queueOnly;
+          /* A Main whose open chairs belong strictly to the must-move list
+             (fn_cash_main_chair_is_the_lists) takes no direct horse buy-in and
+             does not claim seating capacity ahead of its Feeder. */
+          const mainReservedForList = isMainTableReservedForMustMoveList(
+            table,
+            orderedTables,
+            occupiedCountOf,
+            pendingCountOf
+          );
+          let countOnly = queueOnly || mainReservedForList;
 
           // ── V14 OCCUPANCY (Dan 2026-08-23) ────────────────────────────────
           // Every table used to carry ONE fixed target from DEFAULT_TABLES, so
@@ -3782,6 +3795,7 @@ export class HorseFleetManager {
           /* The fleet-wide cap, spent down as the floor fills. Last, so it
              cannot be undone by anything above it. */
           seatsNeeded = queueOnly ? 0 : Math.min(seatsNeeded, seatBudget);
+          if (mainReservedForList) seatsNeeded = 0;
           if (diag) diag.wanted = seatsNeeded;
           if (seatsNeeded <= 0) {
             if (!table.cluster_id) continue;
@@ -4301,7 +4315,14 @@ export class HorseFleetManager {
             }
             // Full Classic games grow through real waiting rows, not a forecast
             // that could count horses held by seating or host occupancy caps.
-            if (!queueOnly) clusterPools.push(clusterPool);
+            // A reserved Main with open chairs (or while a buyable Feeder chair
+            // remains) stays out of clusterPools so allocateBuyers gives horse
+            // capacity to the Feeder instead of an un-buyable Main.
+            const skipReservedMainPool =
+              mainReservedForList &&
+              (currentCount < table.max_players ||
+                (openChairsLeft.get(lastChairGameKey(table)) ?? 0) > 0);
+            if (!queueOnly && !skipReservedMainPool) clusterPools.push(clusterPool);
           } else {
             nextEligible.set(table.id, pool.length);
           }

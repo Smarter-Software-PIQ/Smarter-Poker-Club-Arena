@@ -23,6 +23,8 @@ describe('Create Club production certification contract', () => {
     expect(spec).toContain('navigator.clipboard.readText()');
     expect(spec).toContain('expect(copiedInvite).toContain(shortUrl)');
     expect(spec).toContain("name: 'Link Copied', exact: true }");
+    expect(spec).toContain("expect(copiedInvite).not.toContain('Club ID')");
+    expect(read('src/services/ClubInviteService.ts')).not.toContain('Club ID');
     expect(spec).toContain("await testInfo.attach('Immediate Send Link'");
     for (const file of [
       'create-club-defaults-mobile.png',
@@ -251,7 +253,10 @@ describe('Create Club production certification contract', () => {
     expect(spec).toContain('createdClub?.id');
     expect(spec).toContain('escapeRegExp(createdClubRef)');
     expect(spec).not.toContain('/\\/clubs\\/[0-9a-f-]{36}');
-    expect(spec).toContain('getByLabel(/^99\\.7K Club Bank Chips$/)');
+    expect(spec).toContain('getByLabel(/^99,700 Club Bank Chips$/)');
+    expect(read('src/utils/format.ts')).toContain(
+      'export const compactChips = (n: FigureInput): string => exactChips(n);'
+    );
     expect(spec).not.toContain('getByText(/99\\.7K/).first()');
   });
 
