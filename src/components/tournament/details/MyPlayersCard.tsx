@@ -10,6 +10,7 @@
 
 import { useId, useState, type ReactNode } from 'react';
 import { chips, chipsCompact, ordinal, type TournamentTabProps } from './types';
+import PlayerAvatar from '../../avatars/PlayerAvatar';
 import WatchAtTableButton from '../../club/WatchAtTableButton';
 import { myPlayerStatusText, type MyPlayersSummary } from './myPlayersSummary';
 import '../../../styles/tournament-lobby-3d.css';
@@ -96,6 +97,7 @@ export default function MyPlayersCard({
           {summary.players.map((p) => (
             <li key={p.userId} className={`mp-card__row mp-card__row--${p.state}`}>
               <span className="mp-card__player">
+                <PlayerAvatar src={p.avatarUrl ?? undefined} name={p.username} size="xs" />
                 <span className="mp-card__name">{p.username}</span>
                 <span className="mp-card__status">
                   {myPlayerStatusText(p, ordinal, chipsCompact)}

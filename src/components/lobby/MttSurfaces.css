@@ -1,0 +1,992 @@
+/* The shell supplies the canvas. The page, scroll containers and data groups
+   do not paint skins, fallback images or ornamental pseudo-elements. */
+.tournament-details.console-lobby.console-lobby {
+  background: #040d18;
+  --rail-edge: #8296a9;
+  --surface-ink: #eff6ff;
+}
+.console-lobby.console-lobby.console-lobby
+  :is(
+    .details-header,
+    .details-tabs,
+    .details-content,
+    .details-footer,
+    .tournament-name,
+    .tournament-desc,
+    .details-header__actions,
+    .mtt-header-info,
+    .mtt-meta,
+    .nightly-plaque,
+    .arena-format-plaque,
+    .approved-satellite,
+    .sat-list,
+    .rk-list,
+    .rk-item,
+    .et-item,
+    .et-scroll,
+    .un-head,
+    .un-head__title,
+    .un-clubs,
+    .un-card__head,
+    .rw-list,
+    .tt-list,
+    .rw,
+    .tl-panel,
+    .tl-stat-grid,
+    .rw-payouts,
+    .mtt-rewards-summary,
+    .tl-section-head,
+    .un-head__name,
+    .rw-row,
+    .dov-band,
+    .dov-band__section
+  ) {
+  background: transparent;
+  border: 0;
+  border-image: none;
+  box-shadow: none;
+  text-shadow: none;
+}
+.console-lobby.console-lobby .tl-panel::before,
+.console-lobby.console-lobby .tl-panel::after,
+.console-lobby.console-lobby .tl-row::before,
+.console-lobby.console-lobby .tl-row::after,
+.console-lobby.console-lobby .details-header::before,
+.console-lobby.console-lobby .details-footer::before,
+.console-lobby.console-lobby .details-content::before {
+  content: none;
+}
+.console-lobby.console-lobby .details-content {
+  margin: 0 5px;
+  padding: 3px 0;
+}
+.console-lobby.console-lobby .details-header {
+  padding: 4px 6px 0;
+}
+.console-lobby.console-lobby .details-footer {
+  margin: 4px 6px;
+  padding: 5px 0;
+  min-height: 62px;
+}
+.console-lobby.console-lobby .details-tabs .tab,
+.console-lobby.console-lobby .details-footer .btn,
+.console-lobby.console-lobby .mtt-meta :is(b, button) {
+  border-style: solid;
+  border-width: 1px;
+  box-shadow: none;
+}
+.console-lobby.console-lobby .details-header .nightly-plaque,
+.nightly-plaque:has(.event-title-guarantee) {
+  aspect-ratio: auto;
+  display: grid;
+  justify-items: center;
+  padding: 5px 0 1px;
+  min-height: 60px;
+  background: none;
+}
+.console-lobby .nightly-plaque small,
+.console-lobby .nightly-plaque strong,
+.nightly-plaque:has(.event-title-guarantee) > :is(small, strong) {
+  opacity: 1;
+}
+.event-title-guarantee {
+  display: block;
+  text-align: center;
+  font:
+    750 clamp(13px, 3vw, 17px)/1.25 Arial,
+    sans-serif;
+  color: #f7d47f;
+  letter-spacing: 0.02em;
+  padding: 1px 4px 3px;
+}
+.arena-format-plaque,
+.glp .arena-format-plaque {
+  background: transparent;
+}
+.arena-lobby-title:has(.event-title-guarantee) {
+  flex-wrap: wrap;
+}
+.arena-lobby-title .event-title-guarantee {
+  flex-basis: 100%;
+}
+.console-lobby .mtt-meta {
+  margin: 3px 0;
+  font-size: 12px;
+}
+.console-lobby .mtt-header-info {
+  line-height: 1.3;
+}
+.console-lobby.console-lobby
+  .details-content
+  :is(.et-panel, .un-panel, .rw, .tt-panel, .rk-panel, .blinds-tab) {
+  padding: 0;
+  min-height: 0;
+}
+.console-lobby.console-lobby
+  .details-content
+  :is(
+    .rw-payouts,
+    .rw-head,
+    .un-head__title,
+    .un-stats,
+    .rk-stats,
+    .et-stats,
+    .et-scroll,
+    .un-clubs,
+    .tl-list
+  ) {
+  border: 0;
+  border-image: none;
+  box-shadow: none;
+  background: none;
+}
+.console-lobby.console-lobby
+  .details-content
+  :is(
+    .tl-stat,
+    .et-row,
+    .rk-row,
+    .un-card,
+    .tt-item,
+    .blinds-tab__card:has(.approved-schedule-scroll)
+  ) {
+  border-image: none;
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 7px;
+  box-shadow: none;
+  background: transparent;
+}
+.console-lobby.console-lobby .details-content :is(.et-item, .rk-item) {
+  padding: 0;
+}
+.console-lobby.console-lobby .details-content .un-head__title > .tl-stat__label,
+.console-lobby.console-lobby .details-content .et-panel > .tl-section-head,
+.console-lobby.console-lobby .details-content .mtt-rewards-summary h3,
+.console-lobby.console-lobby .details-content .rw-payouts > .tl-section-head,
+.console-lobby .console-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: auto;
+  min-height: 43px;
+  aspect-ratio: auto;
+  margin: 0;
+  padding: 5px 8px;
+  background: transparent;
+  color: #f0f6ff;
+  border: 0;
+  border-bottom: 1px solid #53738b;
+  font:
+    800 21px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.console-lobby.console-lobby .details-content .et-panel > .tl-section-head > *,
+.console-lobby.console-lobby .details-content .rw-payouts > .tl-section-head > *,
+.console-lobby.console-lobby .details-content .mtt-rewards-summary h3 small {
+  opacity: 1;
+}
+.console-lobby.console-lobby .details-content .un-head__name {
+  display: block;
+  width: 100%;
+  padding: 14px 3px;
+  margin: 0;
+  aspect-ratio: auto;
+  background: none;
+  border: 0;
+  text-align: center;
+}
+.console-lobby.console-lobby .details-content .rw .rw-head {
+  order: 3;
+  padding: 0;
+}
+.console-lobby .rw-head summary,
+.console-lobby .approved-satellite summary {
+  cursor: pointer;
+  font: 600 13px Arial;
+  padding: 12px 4px;
+  color: #b5cbe0;
+}
+.console-lobby.console-lobby .approved-satellite details {
+  background: transparent;
+}
+.console-lobby.console-lobby .details-content .rw-payouts .tl-row {
+  border: 0;
+  border-bottom: 1px solid #384a5a;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.console-lobby.console-lobby .details-content .rw-payouts .tl-row::before {
+  content: none;
+}
+.console-lobby.console-lobby .details-content .rw-payouts .rw-list::before {
+  content: none;
+}
+.console-lobby .payout-column-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  text-align: center;
+  border-bottom: 1px solid #40586e;
+  padding: 8px 0;
+  font:
+    700 14px 'Arial Narrow',
+    Arial;
+}
+.console-lobby .rw-payouts[data-projected='true'] .rw-row--p1 .rw-rank::before {
+  content: '';
+  display: inline-block;
+  vertical-align: middle;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  background: url('./console-art/first-medal.webp') center/contain no-repeat;
+}
+.console-lobby
+  :is(.console-countdown, .console-ticket, .console-prize, .console-strip, .console-table) {
+  box-sizing: border-box;
+  color: var(--surface-ink);
+  text-align: center;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+}
+.console-countdown {
+  container-type: inline-size;
+  padding: 10px 5px;
+}
+.console-countdown h3 {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  font-size: clamp(17px, 5vw, 23px);
+}
+.console-countdown .console-time {
+  display: block;
+  border: 3px solid #91a6bc;
+  border-top-color: #e6f3ff;
+  border-radius: 9px;
+  font:
+    bold 16cqw/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.03em;
+  text-shadow: 0 1px 5px #356eec;
+}
+.console-countdown dl,
+.console-ticket dl,
+.console-strip,
+.console-ledger {
+  margin: 8px 0;
+}
+.console-countdown :is(dt, dd),
+.console-ticket :is(dt, dd),
+.console-strip :is(dt, dd),
+.console-ledger :is(dt, dd) {
+  margin: 0;
+}
+.console-countdown dt,
+.console-strip dt,
+.console-ticket dt {
+  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 750;
+}
+.console-facts > div,
+.console-prize,
+.console-pair,
+.console-strip {
+  border-block: 1px solid var(--rail-edge);
+}
+.console-facts > div,
+.console-ledger > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px;
+}
+.console-facts > div + div {
+  border-top: 0;
+}
+.console-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.console-facts dt::before {
+  content: '';
+  display: inline-block;
+  width: 34px;
+  height: 32px;
+  background: url('./console-art/mtt-chip.webp') center/contain no-repeat;
+  mix-blend-mode: lighten;
+}
+.console-facts > div:nth-child(2) dt::before {
+  background-image: url('./console-art/mtt-guarantee.webp');
+}
+.console-facts dd {
+  font-size: clamp(23px, 7vw, 36px);
+  font-weight: 800;
+}
+.console-pair,
+.console-strip,
+.ticket-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 8px 0;
+}
+.console-pair > div + div,
+.console-strip > div + div,
+.ticket-counts > div + div {
+  border-left: 1px solid #70859a;
+}
+.console-pair dd,
+.console-strip dd {
+  font-size: clamp(22px, 6.5vw, 30px);
+  font-weight: 800;
+}
+.console-lobby.console-lobby .mtt-instruments > div {
+  border: 1px solid #6c829a;
+  border-image: none;
+  background: transparent;
+}
+.console-lobby.console-lobby .mtt-instruments > div:nth-child(2) {
+  background: #063980;
+}
+.console-strip {
+  order: -2;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 13px 0;
+}
+.console-ticket {
+  margin: 8px auto 2px;
+  width: 98%;
+  padding: 24px 16px;
+  display: grid;
+  justify-items: center;
+  align-content: space-evenly;
+  min-height: clamp(345px, 105vw, 470px);
+  gap: 10px;
+  position: relative;
+  background: linear-gradient(115deg, #b9cada, #f1f5fa 40%, #becde0);
+  color: #081728 !important;
+  mask:
+    radial-gradient(circle at left center, transparent 0 15px, #000 16px) left/51% 100% no-repeat,
+    radial-gradient(circle at right center, transparent 0 15px, #000 16px) right/51% 100% no-repeat;
+  border-radius: 12px;
+}
+.console-ticket small,
+.console-ticket .ticket-qualifier,
+.console-ticket .ticket-start {
+  text-transform: uppercase;
+  font-weight: 800;
+}
+.console-ticket small {
+  font-size: 21px;
+}
+.console-ticket .ticket-title {
+  font-size: clamp(25px, 9vw, 41px);
+  color: #0c1a2c;
+  line-height: 1.1;
+}
+.console-ticket .ticket-counts {
+  width: 100%;
+  padding-top: 20px;
+  border-top: 3px dotted #496177;
+}
+.console-ticket dd {
+  font-size: clamp(22px, 7vw, 32px);
+  font-weight: 800;
+}
+.console-ticket .ticket-qualifier {
+  border: 1px solid #d8ad55;
+  background: #0b2443;
+  color: #ffd980;
+  padding: 7px 20px;
+  border-radius: 6px;
+  font-size: 20px;
+}
+.console-table {
+  display: grid;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 387/426;
+  max-width: 470px;
+  margin: 0 auto;
+}
+.console-table .seating-rail,
+.console-table .seating-copy {
+  grid-area: 1/1;
+}
+.console-table .seating-rail {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.console-table .seating-copy {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  gap: 12px;
+  max-width: 76%;
+  padding-top: 6%;
+}
+.seating-brand {
+  display: grid;
+  font-size: 31px;
+  color: #62c8ff;
+}
+.seating-brand small {
+  font: 700 16px Arial;
+  color: white;
+}
+.console-table .table-message {
+  font-size: clamp(23px, 7vw, 33px);
+}
+.console-table .table-hint {
+  font-size: 15px;
+}
+.console-table .mtt-start-clock {
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  color: #67deff;
+}
+.console-prize {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px 6px;
+}
+.console-prize img {
+  width: 22%;
+  max-width: 90px;
+  height: 92px;
+  object-fit: contain;
+}
+.console-prize strong,
+.console-prize span {
+  display: block;
+  font-weight: 800;
+}
+.console-prize strong {
+  font-size: clamp(32px, 11vw, 55px);
+  line-height: 1.15;
+}
+.console-prize span {
+  font-size: 22px;
+  text-transform: uppercase;
+}
+.console-ledger {
+  padding: 0;
+}
+.console-ledger > div {
+  border-bottom: 1px solid #40596e;
+}
+.console-ledger dd {
+  font:
+    bold 24px 'Arial Narrow',
+    Arial;
+}
+
+/* Border-only atlases have transparent centers. Place exactly one on the
+   visible component; scroll parents, repeated-row wrappers and headers stay bare. */
+.console-lobby.console-lobby.console-lobby
+  .details-content
+  :is(
+    .console-countdown,
+    .et-panel,
+    .un-panel,
+    .rw,
+    .tt-panel:has(.console-table),
+    .approved-satellite,
+    .blinds-tab__card:has(.approved-schedule-scroll)
+  ) {
+  border: 13px solid transparent;
+  border-image: url('./console-art/chrome-case.webp') 41 / 32px stretch;
+  padding: 4px;
+  background: transparent;
+}
+.console-lobby.console-lobby.console-lobby
+  .details-content
+  :is(
+    .et-row,
+    .rk-row,
+    .un-card,
+    .console-prize,
+    .console-time,
+    .tl-stat,
+    .console-facts > div,
+    .console-pair,
+    .console-strip,
+    .mtt-instruments > div
+  ) {
+  border: 6px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 11px stretch;
+  background-color: transparent;
+  box-shadow: none;
+}
+.console-lobby.console-lobby .details-content :is(.rw, .un-panel, .et-panel) {
+  min-height: min(120vw, 500px);
+}
+.console-lobby
+  .details-content
+  :is(.console-prize, .console-countdown .console-facts > div, .console-countdown .console-pair) {
+  margin-block: 6px;
+}
+.console-lobby.console-lobby .details-content :is(.et-stats, .rk-stats, .un-stats) .tl-stat {
+  background: transparent;
+}
+.console-lobby.console-lobby .details-content .un-head__name {
+  padding: 12px 4px;
+  border-block: 1px solid #638099;
+}
+.console-lobby .details-content .un-head__name::before,
+.console-lobby .details-content .un-head__name::after {
+  content: '';
+  display: inline-block;
+  width: 21px;
+  height: 28px;
+  margin: 0 8px;
+  vertical-align: middle;
+  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
+  mix-blend-mode: lighten;
+}
+.console-lobby .details-content .un-head__name::after {
+  transform: scaleX(-1);
+}
+.console-lobby
+  .details-content
+  :is(
+    .et-panel > .tl-section-head h3,
+    .mtt-rewards-summary h3,
+    .rw-payouts > .tl-section-head h3,
+    .un-head__title > .tl-stat__label
+  ) {
+  justify-content: flex-start;
+  gap: 7px;
+  display: flex;
+  align-items: center;
+}
+.console-lobby
+  .details-content
+  :is(
+    .et-panel > .tl-section-head h3,
+    .mtt-rewards-summary h3,
+    .rw-payouts > .tl-section-head h3,
+    .un-head__title > .tl-stat__label
+  )::before {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 27px;
+  height: 27px;
+  background: url('./console-art/glyph-players.webp') center/contain no-repeat;
+}
+.console-lobby.console-lobby .details-content .mtt-rewards-summary h3::before {
+  background-image: url('./console-art/glyph-gift.webp');
+}
+.console-lobby .details-content .rw-payouts > .tl-section-head h3::before {
+  background-image: url('./console-art/glyph-cup.webp');
+}
+.console-lobby .details-content .mtt-rewards-summary h3 small {
+  margin-left: auto;
+}
+.console-lobby.console-lobby
+  .details-content
+  :is(
+    .rw-gtd,
+    .rw-mix,
+    .dov-info,
+    .blinds-tab__blind,
+    .blinds-tab__clockwrap,
+    .club-page-heading,
+    .TournamentLobbyCard_row
+  ) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.console-lobby .details-content .console-ledger {
+  padding-inline: 5px;
+}
+.console-lobby.console-lobby .details-content .un-panel .un-clubs {
+  padding: 4px 0;
+}
+.glp.glp .arena-event-card {
+  background: transparent;
+  border: 0;
+  border-image: none;
+  box-shadow: none;
+}
+.glp.glp .arena-event-card:before,
+.glp.glp .arena-event-card:after {
+  content: none;
+}
+
+/* Chrome belongs to the visible instrument. Wrapper and list resets above
+   keep the original shell visible through the transparent border centers. */
+.console-lobby.console-lobby.console-lobby .details-content .console-time {
+  border: 12px solid transparent;
+  border-image: url('./console-art/chrome-readout.webp') 21 / 16px stretch;
+  background: linear-gradient(167deg, #091421, #01060d 64%, #061329);
+  padding: 0;
+  font-size: 16cqw;
+  text-shadow:
+    0 0 3px #70aaff,
+    0 0 10px #123ac9;
+}
+.console-countdown h3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0 0 3px;
+  font-family: 'DIN Condensed', 'Arial Narrow', sans-serif;
+  font-size: clamp(20px, 6vw, 29px);
+}
+.console-countdown h3::before,
+.console-countdown h3::after,
+.console-prize::after {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 21px;
+  height: 34px;
+  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
+}
+.console-countdown h3::after,
+.console-prize::after {
+  transform: scaleX(-1);
+}
+.console-lobby.console-lobby.console-lobby
+  .details-content
+  :is(
+    .rk-row,
+    .et-row,
+    .un-card,
+    .tt-item,
+    .console-prize,
+    .console-facts > div,
+    .console-pair,
+    .console-strip
+  ) {
+  background: linear-gradient(165deg, #162c40 0%, #04111d 26%, #030910 67%, #0a2032 100%);
+}
+.console-lobby.console-lobby.console-lobby .details-content :is(.tl-stat, .mtt-instruments > div) {
+  border: 6px solid transparent;
+  border-image: url('./console-art/chrome-stat.webp') 11 / 8px stretch;
+  background: linear-gradient(157deg, #102840, #020a14 70%, #10273a);
+}
+.console-lobby.console-lobby.console-lobby .details-content .mtt-instruments > div:nth-child(2) {
+  border-image-source: url('./console-art/chrome-active.webp');
+  background: linear-gradient(#1367ef, #092c83 50%, #03183e);
+}
+.console-lobby.console-lobby .details-content .un-head__name {
+  border: 6px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 9px stretch;
+  margin: 2px 0 8px;
+  color: #f4f8ff;
+  text-shadow: 1px 2px #324454;
+}
+.console-lobby .console-section-heading,
+.console-lobby
+  .details-content
+  :is(
+    .un-head__title > .tl-stat__label,
+    .mtt-rewards-summary h3,
+    .et-panel > .tl-section-head,
+    .rw-payouts > .tl-section-head
+  ) {
+  position: relative;
+  border-bottom: 1px solid #547694;
+  padding-right: 19px;
+}
+.console-lobby .console-section-heading::after,
+.console-lobby
+  .details-content
+  :is(
+    .un-head__title > .tl-stat__label,
+    .mtt-rewards-summary h3,
+    .et-panel > .tl-section-head,
+    .rw-payouts > .tl-section-head
+  )::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 24%;
+  height: 52%;
+  width: 4px;
+  border-radius: 3px;
+  background: #7fd6ff;
+  transform: skew(-17deg);
+  box-shadow:
+    0 0 3px #0395ff,
+    0 0 8px 2px #105aff;
+}
+.console-lobby .details-content .mtt-rewards-summary[data-provisional='true'] h3 small {
+  color: #55eaff;
+  border: 1px solid #208af0;
+  border-radius: 10px;
+  background: #06223e;
+  padding: 3px 6px;
+  margin-right: 3px;
+}
+.console-lobby.console-lobby .console-ledger > div {
+  border: 5px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 7px stretch;
+  margin: 3px 0;
+  padding: 3px 8px;
+}
+.console-lobby .console-prize {
+  gap: 10px;
+}
+.console-prize::after {
+  height: 58px;
+  width: 27px;
+}
+.console-lobby.console-lobby .console-ticket {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 377/460;
+  margin: 0;
+  align-content: space-evenly;
+  padding: 7% 5%;
+  background: url('./console-art/silver-ticket-stock.webp') center/100% 100% no-repeat;
+  mask: none;
+  border-radius: 0;
+}
+.console-ticket small {
+  font-size: clamp(16px, 5vw, 23px);
+}
+.console-lobby .console-ticket .ticket-title {
+  font-family: 'DIN Condensed', 'Arial Narrow', sans-serif;
+  font-size: clamp(27px, 10vw, 49px);
+  font-weight: 800;
+  line-height: 1;
+}
+.console-lobby .ticket-counts {
+  padding-top: 14px;
+  margin: 6px 0;
+}
+.console-ticket dt::before {
+  content: '';
+  display: block;
+  width: 46px;
+  height: 40px;
+  margin: 0 auto 4px;
+  background: url('./console-art/ticket-chip.webp') center/contain no-repeat;
+}
+.console-ticket .ticket-counts > div + div dt::before {
+  background-image: url('./console-art/ticket-field.webp');
+}
+.console-lobby .console-ticket .ticket-qualifier {
+  display: block;
+  width: 78%;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.console-lobby .console-table {
+  width: 100%;
+  isolation: isolate;
+}
+.console-table::before {
+  content: '';
+  position: absolute;
+  inset: 15% 5% 9%;
+  border-radius: 40%/35%;
+  background: radial-gradient(ellipse at 50% 5%, #1659a0 0%, #0b2a65 29%, #02102f 75%, #083c94);
+}
+.console-table .seating-rail,
+.console-table .seating-copy {
+  position: relative;
+}
+.console-lobby .console-table .seating-copy {
+  gap: 12px;
+}
+.console-lobby .console-table .mtt-start-clock {
+  justify-self: center;
+  border: 6px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 8px stretch;
+  background: #061326;
+  padding: 3px 5px;
+  text-transform: uppercase;
+}
+.console-lobby.console-lobby .details-content .rw-payouts[data-projected='true'] {
+  border: 7px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 10px stretch;
+  padding: 2px;
+}
+.console-lobby.console-lobby .details-footer {
+  padding: 5px 4px;
+  gap: 8px;
+}
+.console-lobby.console-lobby .details-footer .btn-share,
+.console-lobby.console-lobby .details-tabs .tab {
+  background: linear-gradient(#13263b, #06111e 50%, #0c1d30);
+  border-color: #8098b3;
+}
+.console-lobby.console-lobby .details-tabs .tab.active,
+.console-lobby.console-lobby .details-footer .btn-register.btn-register {
+  background: linear-gradient(#187fff, #0748ba 24%, #063589 76%, #0d62cd) !important;
+  color: #fff;
+  border-color: #9bceff !important;
+}
+
+.console-lobby .details-content .rk-panel[data-registering='true'] .rk-main {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.console-lobby .details-content .rk-panel[data-registering='true'] .rk-subline {
+  flex: 0 1 74px;
+  text-align: center;
+}
+.console-lobby .details-content .rk-panel[data-registering='true'] .rk-sub {
+  white-space: normal;
+  line-height: 1.15;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+}
+.console-lobby .details-content .rk-panel[data-registering='true'] .rk-row {
+  grid-template-columns: 22px 36px minmax(0, 1fr);
+}
+.console-lobby.console-lobby .details-content .et-stats {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+.console-lobby.console-lobby .details-content .un-head__title > .tl-stat__label {
+  justify-content: flex-start;
+}
+.console-lobby.console-lobby
+  .details-content
+  :is(.et-panel, .rw-payouts)
+  > .tl-section-head
+  .tl-section-title {
+  font:
+    700 clamp(19px, 5.4vw, 25px)/1 'DIN Condensed',
+    'Arial Narrow',
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  color: #f4f8ff;
+  text-shadow: 0 1px 2px #23384e;
+}
+.console-lobby.console-lobby .details-content .tl-section-note {
+  font-size: 12px;
+  color: #c6d6e2;
+}
+.console-lobby.console-lobby .details-content .console-section-heading {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.console-lobby .console-section-heading::before {
+  content: '♤';
+  width: 27px;
+  height: 17px;
+  border: 2px solid #b3c4d5;
+  border-radius: 40%;
+  text-align: center;
+  font-size: 13px;
+  line-height: 15px;
+}
+.console-lobby .console-prize::before {
+  content: '';
+  width: 27px;
+  height: 58px;
+  flex: none;
+  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
+}
+.console-lobby .console-countdown .console-pair > div,
+.console-lobby .console-strip > div {
+  position: relative;
+  padding-left: 20%;
+}
+.console-lobby .console-countdown .console-pair > div::before,
+.console-lobby .console-strip > div::before {
+  content: '';
+  position: absolute;
+  left: 3%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24%;
+  height: 70%;
+  background: url('./console-art/mtt-chip.webp') center/contain no-repeat;
+}
+.console-lobby .console-countdown .console-pair > div:first-child::before {
+  background-image: url('./console-art/ticket.webp');
+}
+.console-lobby .console-strip > div:first-child::before {
+  background-image: url('./console-art/glyph-players.webp');
+}
+.console-lobby .console-strip > div:last-child::before {
+  content: '◷';
+  background: none;
+  color: #e3edfa;
+  font-size: 22px;
+  display: grid;
+  place-items: center;
+}
+.console-lobby .details-header .arena-format-plaque {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 8px;
+}
+.console-lobby .details-header .arena-format-plaque img {
+  flex: 0 0 100%;
+}
+.console-lobby .details-header .arena-format-plaque strong {
+  font-size: clamp(16px, 4.4vw, 21px);
+  padding: 5px 0 2px;
+}
+.console-lobby .details-header .arena-format-plaque .event-title-guarantee {
+  padding: 3px 0 0;
+}
+
+.console-lobby.console-lobby .details-header .nightly-plaque {
+  border: 6px solid transparent;
+  border-image: url('./console-art/chrome-row.webp') 13 / 9px stretch;
+}
+
+.console-lobby .details-header .details-header__actions {
+  margin: 2px 0 0;
+  justify-content: center;
+}
+.console-lobby .console-table .seating-brand svg {
+  justify-self: center;
+}
+.console-lobby .console-countdown .dov-hero__note {
+  display: block;
+  margin: 3px 0;
+  color: #b9c9dc;
+}
+.console-lobby .console-countdown h3 {
+  column-gap: 5px;
+}
+.console-lobby.console-lobby .details-header :is(.mtt-meta b, .mtt-meta button, .mtt-header-info) {
+  text-transform: capitalize;
+}
+.console-lobby.console-lobby
+  :is(
+    .details-tabs .tab,
+    .details-footer button,
+    .console-countdown dt,
+    .console-ticket dt,
+    .console-strip dt,
+    .tl-section-title,
+    .console-section-heading
+  ) {
+  text-transform: capitalize;
+}
