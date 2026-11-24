@@ -121,6 +121,7 @@ import {
   TRANSACTION_BUDGET_SECONDS,
 } from './maintenance-window-migrations.mjs';
 import { ACCOUNTING_ADMISSION_SOURCES } from './accounting-migration-admission.mjs';
+import { releaseFreezeAdmission } from './release-freeze-admission.mjs';
 
 const DIR = 'supabase/migrations';
 const args = process.argv.slice(2);
@@ -367,6 +368,31 @@ if (!MAINTENANCE_WINDOW && (minute >= 50 || minute <= 3)) {
   refused(
     `it is :${String(minute).padStart(2, '0')} UTC and the break window is :50-:03. Dispatch again after :03. Do not loop.`
   );
+}
+
+// THE NIGHTLY RELEASE SCHEMA FREEZE IS AN APPLIER RULE (2026-11-24). The merge
+// dispatcher holds ordinary files merged inside the freeze and sends them at
+// its end; hand dispatches at 2026-11-21 06:38Z and 2026-11-22 07:15Z installed
+// inside it anyway, so every Backup copy lacked them and the routine 04:00
+// cutover kept serving. scripts/ci/release-freeze-admission.mjs decides; an
+// outage that cannot wait passes --release-freeze-override "<why>".
+// Enforced on the production route only: apply-merged-migration.yml sets
+// RELEASE_FREEZE_ENFORCED=true for the step (inherited by the older-first
+// installer's child applier); throwaway-database proofs do not set it and keep
+// their own shifted clocks.
+if (process.env.RELEASE_FREEZE_ENFORCED === 'true') {
+  const freeze = releaseFreezeAdmission({
+    nowMs: Date.now(),
+    dryRun: DRY_RUN,
+    maintenanceWindow: MAINTENANCE_WINDOW,
+    override: argValue('--release-freeze-override'),
+  });
+  if (!freeze.admit) refused(freeze.reason);
+  if (freeze.basis === 'outage_override') {
+    console.log(
+      `[apply] release schema freeze OVERRIDDEN for an outage: ${freeze.override}. This install makes tonight's Backup copy stale; the routine cutover keeps serving until a copy taken after it certifies.`
+    );
+  }
 }
 
 const CONN = process.env.DATABASE_URL;
