@@ -7,8 +7,10 @@
  *   1. 96 seat-first boards whose human window had closed hours earlier were
  *      each retried every 12 s and each came back "top-up added 0 of 1" -
  *      two RPCs a try, ~7 calls a second, about a whole core. A board that
- *      keeps coming back short is now asked less and less often (12 s doubling
- *      to ten minutes), and a board with a HUMAN in it keeps the 12 s cadence.
+ *      keeps coming back short is now asked less and less often (12 s doubling,
+ *      capped since 2026-11-24 at one minute so a late rung is not starved by
+ *      fresher boards - spin-ladder-rung-overshoot), and a board with a HUMAN
+ *      in it keeps the 12 s cadence.
  *
  *   2. The websocket upgrade awaited four independent gates one after the
  *      other. Measured from a browser: 7-11 s to `open`, against a 15 s client
@@ -28,9 +30,17 @@ const WS = read('server/src/transport/EngineWebSocketServer.ts');
 describe('a seat-first board that will not fill is asked less and less often', () => {
   const fill = sliceBlockAfter(GAME_SERVER, 'private async fillPartialSeatFirstGame(');
 
-  it('backs off on consecutive misses, capped at ten minutes', () => {
+  it('backs off on consecutive misses through the one ladder function', () => {
+    // 2026-11-24 (spin-ladder-rung-overshoot): the ten-minute cap starved the
+    // board whose rung closed earliest. The doubling and its one-minute cap now
+    // live in seatFirstLadderBackoffMs, pinned by value in
+    // server/src/aLateRungIsAskedOnceAMinute.law.test.ts.
     expect(fill).toContain('seatFirstFillMisses');
-    expect(fill).toMatch(/Math\.min\(12_000 \* 2 \*\* Math\.min\(misses, 6\), 10 \* 60_000\)/);
+    expect(fill).toMatch(/const interval = seatFirstLadderBackoffMs\(misses\);/);
+    const ladder = read('server/src/config/seatFirstLadder.ts');
+    const fn = sliceBlockAfter(ladder, 'export function seatFirstLadderBackoffMs(');
+    expect(fn).toMatch(/SEAT_FIRST_LADDER_BACKOFF_BASE_MS \* 2 \*\* Math\.min\(n, 6\)/);
+    expect(fn).toContain('SEAT_FIRST_LADDER_BACKOFF_MAX_MS');
   });
 
   it('only the window-closed trigger backs off - a human is never left waiting', () => {
