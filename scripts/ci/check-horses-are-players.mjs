@@ -86,6 +86,11 @@ const PRESUME_ROSTER =
   'humanUserIds (Dan 2026-10-25, "TAG THEM ALL FROM THE START, UNLESS OTHERWISE PROVEN DIFFERENTLY", PLO only) hands the horse brain the roster of seats a person plays, so presumedAggressorRead can read each PERSON as an aggressive raiser until their own hands prove otherwise. It is IDENTIFICATION passed as data to the brain\'s opponent read: no horse is denied, paid, timed or treated differently by it, and it is recorded as the owner exception in CLAUDE.md 10.5. See docs/changelog/2026-10-25-plo-every-person-is-an-aggressive-raiser-until-proven-otherwise.md.';
 
 const REGISTER = {
+  'server/src/engine/anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts': {
+    allowed: 1,
+    kind: 'EQUAL OUTCOME',
+    why: 'The identity law of the PLO4/PLO5 facing-bet price (2026-11-24) flips is_horse on every other seat of a recorded state and asserts that every verdict, EV and receipt is byte-identical, which proves a Horse opponent and a person opponent get exactly the same price. It is a test: it seats, pays, times and decides nothing for any horse.',
+  },
   'server/src/benchmark/ReplayOpponentMemory.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',
