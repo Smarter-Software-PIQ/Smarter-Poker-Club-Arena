@@ -4,7 +4,7 @@ Built 2026-11-24 by PLO-OWNER lead-6 (session 01BNteGX) from the PLO4/PLO5 over-
 
 ## What It Does
 
-F1. PLO4/PLO5 cash (tables and Lightning), turn and river, inside `omahaFacingBetEv` (it acts only where that verdict decides; `HorseLogic.omahaFacingBetEvCount` -> `HorseOmahaFacingBetPriced.ts`).
+F1. PLO4/PLO5 cash (tables and Lightning), turn and river, heads-up (a multiway spot is `omahaFacingBetFieldIsJoint`'s; with it off a multiway spot keeps today's verdict), inside `omahaFacingBetEv` (it acts only where that verdict decides; `HorseLogic.omahaFacingBetEvCount` -> `HorseOmahaFacingBetPriced.ts`).
 
 The bettor's range is his MEASURED strength histogram (8 bins of the share of holdings of his size that beat his hand) for the street, line (the previous street's aggressor, any other first wager, a raise), size bucket and pot type (heads-up or multiway). Where his own shown record of the cell has at least 4 shown bets (`HorseOmahaBetRead` per-opponent cells, the same learner for every opponent), the cell's weak share is moved by his shown weak share against the population's (prior 8 shown bets). With no record, today's public read factor moves the table, as today. The Horse's share against every bin is an exact count (`omahaEvHandCounts`), so the price is exact; the turn keeps today's realization and caps. The per-street 0.8 / 0.9 narrowing and the fixed 13-19% river bluff share are not used. Receipts `omaha_priced_facing_bet_range_call` / `_fold`, `omaha_priced_facing_bet_changed`, `omaha_priced_facing_bet_record_read`.
 
