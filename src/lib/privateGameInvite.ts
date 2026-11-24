@@ -364,35 +364,49 @@ interface EngineHoldSupport {
 }
 
 let engineSupportCache: { at: number; value: EngineHoldSupport } | null = null;
+let engineSupportInFlight: Promise<EngineHoldSupport> | null = null;
+let engineSupportEpoch = 0;
 
 /** The serving engine's answer, read from /health and kept for a minute. */
 async function engineHoldSupport(): Promise<EngineHoldSupport> {
   if (engineSupportCache && Date.now() - engineSupportCache.at < 60_000)
     return engineSupportCache.value;
+  if (engineSupportInFlight) return engineSupportInFlight;
+  const epoch = engineSupportEpoch;
   const base =
     import.meta.env.VITE_GAME_SERVER_URL ||
     (import.meta.env.PROD ? 'https://engine.smarter.poker' : 'http://localhost:8080');
-  let value: EngineHoldSupport = { seatFirst: false, sitAndGo: false };
-  try {
-    const response = await fetch(`${base}/health`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (response.ok) {
-      const health = (await response.json()) as {
-        privateGameHolds?: unknown;
-        privateSitAndGoHolds?: unknown;
-      } | null;
-      value = {
-        seatFirst: health?.privateGameHolds === 1,
-        sitAndGo: health?.privateSitAndGoHolds === 1,
-      };
+  const pending = (async (): Promise<EngineHoldSupport> => {
+    let value: EngineHoldSupport = { seatFirst: false, sitAndGo: false };
+    let answered = false;
+    try {
+      const response = await fetch(`${base}/health`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        const health = (await response.json()) as {
+          privateGameHolds?: unknown;
+          privateSitAndGoHolds?: unknown;
+        } | null;
+        value = {
+          seatFirst: health?.privateGameHolds === 1,
+          sitAndGo: health?.privateSitAndGoHolds === 1,
+        };
+        answered = true;
+      }
+    } catch {
+      value = { seatFirst: false, sitAndGo: false };
     }
-  } catch {
-    value = { seatFirst: false, sitAndGo: false };
-  }
-  engineSupportCache = { at: Date.now(), value };
-  return value;
+    if (epoch === engineSupportEpoch && answered) {
+      engineSupportCache = { at: Date.now(), value };
+    }
+    return value;
+  })().finally(() => {
+    if (engineSupportInFlight === pending) engineSupportInFlight = null;
+  });
+  engineSupportInFlight = pending;
+  return pending;
 }
 
 /**
@@ -413,7 +427,9 @@ export async function privateSitAndGoHoldsSupported(): Promise<boolean> {
   return (await engineHoldSupport()).sitAndGo;
 }
 
-/** Test seam: forget the cached engine answer. */
+/** Test seam: forget the cached engine answer and any in-flight probe. */
 export function _resetPrivateGameSupportForTests(): void {
+  engineSupportEpoch += 1;
   engineSupportCache = null;
+  engineSupportInFlight = null;
 }
