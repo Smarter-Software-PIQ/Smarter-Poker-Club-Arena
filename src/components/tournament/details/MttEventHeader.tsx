@@ -1,8 +1,8 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { titleCase } from '../../../utils/titleCase';
 import { ArenaLobbyTitle } from '../../lobby/ArenaLobbyTitle';
-
 import { TournamentRegisterButton } from '../TournamentRegisterButton';
+import '../../lobby/MttSurfaces.css';
 
 interface Props extends ComponentProps<typeof ArenaLobbyTitle> {
   status: string;

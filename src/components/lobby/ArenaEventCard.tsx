@@ -7,6 +7,7 @@ import trophy from './console-art/trophy.webp';
 import diamond from './console-art/diamond.webp';
 import chips from './console-art/chips.webp';
 import ticket from './console-art/ticket.webp';
+import './ArenaLobbyConsole.css';
 
 export function ArenaEventCard({
   data,
