@@ -3558,10 +3558,16 @@ export class HorseDecisionWorkerRuntime {
       } catch {
         /* an unreadable scale is a moved scale: skip */
       }
-      const admitted = shadowScaleMoved
-        ? null
-        : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
+      // HOLD'EM SHADOW (2026-11-24): an inline (before the answer) re-decision in a hold'em game runs under the
+      // stage's latency breaker, so a slow option holds at most one live decision per worker
+      const holdem = optionShadowStageIsHoldem(optionShadowStageGameOf(player, gameState));
+      const breakerOff = holdem && this.optionShadowStageGuard.disabled(shadowPick!);
+      const admitted =
+        shadowScaleMoved || breakerOff
+          ? null
+          : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
       if (shadowScaleMoved) shadowSkipped('scale');
+      else if (breakerOff) shadowSkipped('stage_disabled');
       else if (admitted === null) shadowSkipped('rate');
       else {
         if (admitted === 'person_over')
@@ -3569,7 +3575,7 @@ export class HorseDecisionWorkerRuntime {
         const pick = shadowPick!;
         for (let i = 1; i < shadowOptions.length; i++)
           this.deps.noteFeature('option_shadow_rotated_out_seen');
-        this.optionShadowReceipt(
+        const timed = this.optionShadowReceipt(
           request,
           player,
           gameState,
@@ -3580,6 +3586,8 @@ export class HorseDecisionWorkerRuntime {
           rngBefore,
           governorScale
         );
+        if (holdem && timed !== null && this.optionShadowStageGuard.note(pick, timed.wallMs))
+          this.deps.noteFeature('option_shadow_inline_self_disabled_seen');
       }
     }
     if (!horseDecisionEffectsAreValid(captured.effects)) {

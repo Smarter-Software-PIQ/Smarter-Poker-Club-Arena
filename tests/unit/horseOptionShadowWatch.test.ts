@@ -147,6 +147,7 @@ describe('the report and the VERDICT', () => {
     const cases: Array<[string, (r: ReturnType<typeof cleanHoldemRows>) => void]> = [
       ['acted_leak', (r) => r.fires.push(fire('holdem_priced_value_raise_deferred', 1))],
       ['breaker', (r) => r.fires.push(fire('option_shadow_stage_self_disabled_seen', 1))],
+      ['breaker', (r) => r.fires.push(fire('option_shadow_inline_self_disabled_seen', 1))],
       ['redecide_failed', (r) => r.fires.push(fire('option_shadow_redecide_failed_seen', 1))],
       ['errors', (r) => r.errors.push({ error_type: 'x', n: '1', last_at: SINCE } as never)],
       [

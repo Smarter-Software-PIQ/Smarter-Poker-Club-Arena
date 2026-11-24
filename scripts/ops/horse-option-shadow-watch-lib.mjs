@@ -48,6 +48,7 @@ export const ACTED_RECEIPTS = Object.freeze({
 /** The counters of the stage and the shadow that are not the option's own (one shadow row globally). */
 export const GUARD_FEATURES = Object.freeze({
   breaker: 'option_shadow_stage_self_disabled_seen',
+  inlineBreaker: 'option_shadow_inline_self_disabled_seen',
   breakerSkips: 'option_shadow_skipped_stage_disabled_seen',
   redecideFailed: 'option_shadow_redecide_failed_seen',
   unencodable: 'option_shadow_unencodable_seen',
@@ -268,7 +269,7 @@ export function evaluateWatch({ option, since, release = null, actedPrefixes = [
   if (redecisions === 0) reasons.push('no_redecisions');
   if (leakCheck === 'checked' && actedLeaks > 0) reasons.push('acted_leak');
   if (leakCheck === 'unknown') reasons.push('acted_leak_unchecked');
-  if (guards.breaker > 0) reasons.push('breaker');
+  if (guards.breaker > 0 || guards.inlineBreaker > 0) reasons.push('breaker');
   if (guards.redecideFailed > 0) reasons.push('redecide_failed');
   if (guards.unencodable > 0) reasons.push('unencodable');
   if (errorTotal > 0) reasons.push('errors');
@@ -346,7 +347,7 @@ export function formatWatchReport(rep) {
     );
   L.push('--- breaker and guards ---');
   L.push(
-    `  breaker(self_disabled)=${rep.guards.breaker} stage_disabled_skips=${rep.guards.breakerSkips} redecide_failed=${rep.guards.redecideFailed} unencodable=${rep.guards.unencodable} scale_mismatch=${rep.guards.scaleMismatch} receipt_dropped=${rep.guards.receiptDropped} wall_only_slow=${rep.guards.wallOnlySlow}`
+    `  breaker(self_disabled)=${rep.guards.breaker} inline_breaker=${rep.guards.inlineBreaker} stage_disabled_skips=${rep.guards.breakerSkips} redecide_failed=${rep.guards.redecideFailed} unencodable=${rep.guards.unencodable} scale_mismatch=${rep.guards.scaleMismatch} receipt_dropped=${rep.guards.receiptDropped} wall_only_slow=${rep.guards.wallOnlySlow}`
   );
   for (const s of rep.skips) L.push(`  ${s.feature} = ${s.n}`);
   for (const o of rep.others) L.push(`  other option: ${o.feature} = ${o.n}`);
@@ -367,7 +368,7 @@ export function formatWatchReport(rep) {
       `  ${l.scope.padEnd(46)} n=${l.samples} avg=${ms(l.avgMs)} p50<=${ms(l.p50Ms)} p95<=${ms(l.p95Ms)} max=${ms(l.maxMs)} >50ms=${l.over50} >100ms=${l.over100} (${pct(l.over100Pct)})`
     );
   L.push(
-    `VERDICT=${rep.verdict} option=${rep.option} redecisions=${rep.redecisions} person=${rep.personHands} disagree=${pct(rep.disagreePct)} breaker=${rep.guards.breaker} acted_leaks=${rep.leakCheck === 'checked' ? rep.actedLeaks : rep.leakCheck} errors=${rep.errorTotal} over100ms=${rep.over100}${rep.reasons.length ? ` reasons=${rep.reasons.join(',')}` : ''}`
+    `VERDICT=${rep.verdict} option=${rep.option} redecisions=${rep.redecisions} person=${rep.personHands} disagree=${pct(rep.disagreePct)} breaker=${rep.guards.breaker + rep.guards.inlineBreaker} acted_leaks=${rep.leakCheck === 'checked' ? rep.actedLeaks : rep.leakCheck} errors=${rep.errorTotal} over100ms=${rep.over100}${rep.reasons.length ? ` reasons=${rep.reasons.join(',')}` : ''}`
   );
   return L.join('\n');
 }

@@ -47,7 +47,11 @@ Omaha entries keep their form (`{ games: [4, 5], streets: [...] }`). Nothing els
 its ordinary `shadow` row. The law `aPricedOptionDeclaresAShadowStageEntry.law.test.ts` fails the build when a
 registered option whose name says it is priced (`/pric/i`) takes `shadow` or `on_shadow` and is neither in
 `OPTION_SHADOW_STAGE` nor in `OPTION_SHADOW_STAGE_UNSTAGED` with the reason it cannot be staged. An option that is not
-staged keeps the inline option shadow (15 ms budget, re-decided before the answer, no breaker).
+staged keeps the inline option shadow (re-decided before the answer, only when the acted decision took 15 ms or less).
+In a hold'em game that inline re-decision also runs under the stage's latency breaker (one over 150 ms, or three over
+50 ms in the last 20, stops it in that worker: `option_shadow_inline_self_disabled_seen`, then
+`option_shadow_skipped_stage_disabled_seen`), so a slow unstaged Hold'em option holds at most one live decision per
+worker before it stops. Stage it to take it off the live path entirely.
 
 Open branches of the Hold'em lane add their own line this way (tournament raise defence, late-street chooser, 3-bet
 range), and add the option's acted receipt prefixes to `ACTED_RECEIPTS` in

@@ -813,6 +813,35 @@ describe("hold'em options in the stage (2026-11-24): NLH cash, Lightning and tou
     }
   });
 
+  it('an option that is not staged, before the answer in a hold-em game, runs under the breaker; in PLO as before', async () => {
+    // the flipped re-decision computes for 165 ms (over the 150 ms hard limit); the acted one is instant
+    const slow: Decide = (_p, _g, _s, _m, o = {}) => {
+      fastRandom();
+      if (o[NOT_STAGED] !== undefined) {
+        const t0 = performance.now();
+        while (performance.now() - t0 < 165) {
+          /* compute */
+        }
+      }
+      return { ...CALL };
+    };
+    const nlh = [fastRequest(cash(), 1), fastRequest(cash(), 2)];
+    const plain = await run(nlh, slow, null);
+    const shadow = await run(nlh, slow, { [NOT_STAGED]: 'shadow' });
+    expect(shadow.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+    // the first is re-decided inline and trips the breaker; the second is not re-decided at all
+    expect(shadow.calls).toHaveLength(3);
+    expect(shadow.features).toContain('option_shadow_inline_self_disabled_seen');
+    expect(shadow.features).toContain('option_shadow_skipped_stage_disabled_seen');
+    expect(shadow.fasts[0]!.decision.optionShadowReceipt?.option).toBe(NOT_STAGED);
+    expect(shadow.fasts[1]!.decision.optionShadowReceipt).toBeUndefined();
+    // PLO: the inline shadow is unchanged (no breaker), both re-decided
+    const plo = [fastRequest(plo4With('person'), 1), fastRequest(plo4With('person'), 2)];
+    const ploShadow = await run(plo, slow, { [NOT_STAGED]: 'shadow' });
+    expect(ploShadow.calls).toHaveLength(4);
+    expect(ploShadow.features).not.toContain('option_shadow_inline_self_disabled_seen');
+  });
+
   const decide = HorseLogic.decide.bind(HorseLogic) as unknown as Decide;
   const fixtures = recordedFast();
   for (const option of [HV, HT, TRIM])

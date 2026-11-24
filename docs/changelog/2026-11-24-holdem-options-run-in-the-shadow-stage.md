@@ -23,6 +23,11 @@ no Horse-only cap, no per-game time.
 - Registration law `aPricedOptionDeclaresAShadowStageEntry.law.test.ts`: a registered option whose name says it is
   priced and that takes shadow or on_shadow is in `OPTION_SHADOW_STAGE` or in `OPTION_SHADOW_STAGE_UNSTAGED` with
   its reason. The options that predate the rule are listed there and keep the inline shadow.
+- **No Hold'em option runs before the answer without a latency guard.** An option that is not staged still takes the
+  inline shadow (re-decided before the answer); in a hold'em game that re-decision now runs under the stage's breaker
+  (`option_shadow_inline_self_disabled_seen`, then `option_shadow_skipped_stage_disabled_seen`), so a slow option
+  (one chooser measured up to about 0.3 s on a cold cache) holds at most one live decision per worker. PLO inline
+  re-decisions are unchanged.
 - Read-only watcher `scripts/ops/horse-option-shadow-watch.mjs <option> --since <ISO>` with `VERDICT=CLEAN|DIRTY`,
   for PLO and Hold'em (replaces the ad-hoc `check-plo5-flop-shadow.sh`). Unit tests:
   `tests/unit/horseOptionShadowWatch.test.ts`.
