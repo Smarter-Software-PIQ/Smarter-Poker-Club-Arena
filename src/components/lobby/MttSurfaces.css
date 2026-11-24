@@ -1,5 +1,12 @@
 /* The shell supplies the canvas. The page, scroll containers and data groups
    do not paint skins, fallback images or ornamental pseudo-elements. */
+/* A routed lobby owns its page edges inside the locked Club Arena chrome.
+   The host still reserves its measured bottom navigation height. */
+main:has(> .tournament-details.console-lobby) {
+  padding-inline: 0;
+  padding-top: 0;
+}
+
 .tournament-details.console-lobby.console-lobby {
   background: #040d18;
   /* The approved review mounted every tab in the same 600px interior. */

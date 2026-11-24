@@ -15,15 +15,29 @@
  *   2. the twelve socket-only harnesses listen on no TCP address at all
  *      (`-c listen_addresses=`) and print the server log when pg_ctl fails;
  *   3. the TLS credential check, which needs TCP, asks the kernel for its port
- *      and hands it to its fixture.
+ *      and hands it to its fixture;
+ *   4. (2026-11-24) no vitest test starts PostgreSQL on TCP either. Twelve
+ *      tests/unit Postgres tests still drew `20000 + random * 30000` and
+ *      listened on 127.0.0.1; PR #11911's first run lost
+ *      playedHeadsUpClubRetirement.pg.test.ts to "could not start server" in
+ *      1.5 s and passed on a rerun. They now listen on a socket in a directory
+ *      of their own (tests/helpers/scratchPostgres.ts) and fail with the server
+ *      log when the start fails.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { execFileSync } from 'child_process';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { join, relative } from 'path';
+import {
+  scratchPostgresListenOptions,
+  scratchPostgresSocket,
+  showServerLogWhenStartFails,
+} from './helpers/scratchPostgres';
 
 const ROOT = join(__dirname, '..');
 const CI = join(ROOT, 'scripts', 'ci');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
+const TESTS = join(ROOT, 'tests');
 const TCP = /-h\s*['"]?127\.0\.0\.1|listen_addresses\s*=\s*'(127\.0\.0\.1|\*|localhost)'/;
 
 const SOCKET_ONLY = [
@@ -69,5 +83,58 @@ describe('a test database never guesses a TCP port', () => {
     expect(sh).not.toMatch(/-p 5\d{4}/);
     expect(fixture).toContain('process.env.PRIVATE_RECORD_PG_PORT');
     expect(fixture.match(/port: PG_PORT/g)).toHaveLength(5);
+  });
+
+  it('no vitest test starts PostgreSQL on TCP or on a guessed port', () => {
+    // The index, not a directory walk: one read of tracked files, so the law costs the same on a loaded disk.
+    const files = execFileSync(
+      'git',
+      ['grep', '-l', 'pg_ctl', '--', 'tests/*.ts', 'tests/*.tsx', 'tests/*.mjs', 'tests/*.js'],
+      { cwd: ROOT, encoding: 'utf8' }
+    )
+      .split('\n')
+      .filter(Boolean)
+      .map((f) => join(ROOT, f));
+    const self = join(TESTS, 'a-test-database-never-guesses-a-tcp-port.law.test.ts');
+    const starters = files.filter((f) => f !== self);
+    expect(starters.length).toBeGreaterThan(12);
+    const tcp = starters
+      .filter((f) => {
+        const s = readFileSync(f, 'utf8');
+        return (
+          TCP.test(s) ||
+          /PG(HOST|_HOST)\s*:\s*['"](127\.0\.0\.1|localhost)['"]/.test(s) ||
+          /Math\.random\(\)\s*\*\s*\d{3,}/.test(s)
+        );
+      })
+      .map((f) => relative(ROOT, f));
+    expect(tcp).toEqual([]);
+  });
+
+  it('the scratch-Postgres helper listens on its own socket only and shows the server log on a failed start', () => {
+    const socket = scratchPostgresSocket();
+    try {
+      expect(join(socket, '.s.PGSQL.5432').length).toBeLessThanOrEqual(100);
+      const options = scratchPostgresListenOptions(socket);
+      expect(options).toContain(`-k '${socket}'`);
+      expect(options).toContain("-c listen_addresses=''");
+      expect(options).not.toMatch(TCP);
+      const other = scratchPostgresSocket();
+      rmSync(other, { recursive: true, force: true });
+      expect(other).not.toBe(socket);
+      const log = join(socket, 'postgres.log');
+      writeFileSync(
+        log,
+        'FATAL:  could not bind IPv4 address "127.0.0.1": Address already in use\n'
+      );
+      expect(() =>
+        showServerLogWhenStartFails(log, () => {
+          throw new Error('pg_ctl: could not start server');
+        })
+      ).toThrow(/could not start server[\s\S]*Address already in use/);
+      expect(showServerLogWhenStartFails(log, () => 'started')).toBe('started');
+    } finally {
+      rmSync(socket, { recursive: true, force: true });
+    }
   });
 });
