@@ -90,7 +90,11 @@ describe('what a sat-out seat says', () => {
 
   it('the held-arrival footer scopes Sitting Out to tournaments and offers no return action', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
-    const bar = sliceBetween(page, 'heroWaitingForButton ? (', ') : lightningRoom');
+    const bar = sliceBetween(
+      page,
+      'heroWaitingForButton && !heroSitsOutPerRow ? (',
+      ') : lightningRoom'
+    );
     expect(bar).toContain(
       "tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'"
     );

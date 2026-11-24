@@ -632,7 +632,8 @@ describe('Item 10 - busting holds action so the rebuy can be offered', () => {
        that `onConfirmRebuy` satisfied — so the CONFIRM path proved the claim
        about the DECLINE path, and deleting `onCloseRebuyModal` entirely still
        passed. Slice each handler and assert inside it. */
-    const confirm = sliceBlockAfter(src, 'onConfirmRebuy={');
+    expect(src).toContain('onConfirmRebuy={confirmTournamentRebuy}');
+    const confirm = sliceBlockAfter(src, 'const confirmTournamentRebuy =');
     expect(confirm, 'a rebuy must discard the deferred exit').toMatch(
       /bustHoldRef\.current\.pendingExit = null;/
     );
@@ -999,7 +1000,9 @@ describe('Second audit - the balance gate cannot lock out a funded player', () =
     /* 2026-09-04: the read moved into readBustBalance (null after one retry,
        never 0 for "unknown") and the layer stopped re-collapsing it - see
        tests/run-it-multiple-times-tells-the-truth.law.test.ts. */
-    expect(page).toMatch(/setBustWalletBalance\(await readBustBalance\(userId, tableId\)\)/);
+    expect(page).toMatch(
+      /const balance = await readBustBalance\(userId, tableId\);[\s\S]*?setBustWalletBalance\(balance\)/
+    );
     expect(read('src/components/table/TableModalsLayer.tsx')).not.toContain(
       'accountBalance={bustWalletBalance ?? 0}'
     );

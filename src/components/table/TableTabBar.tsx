@@ -43,6 +43,8 @@ export interface TabInfo {
   handNumber?: number;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
+  tournamentAutoRebuy?: boolean;
+  tournamentAutoAddOn?: boolean;
   /** The owning table page's `seatCanAddFunds` answer for this seat. `false`
    *  removes Top Up and Auto Top Up from the hamburger (B12, 2026-09-19): a
    *  Diamond tournament seat has no top-up writer, and both items reached the
@@ -667,6 +669,22 @@ export function TableTabBar({
                 }),
               onAddOn: () =>
                 masterBus.emit('TABLE_MENU_ACTION', { tableId: activeTabId, action: 'ADD_ON' }),
+              onToggleAutoTournamentRebuy:
+                tabs.find((t) => t.id === activeTabId)?.tournamentAutoRebuy !== undefined
+                  ? () =>
+                      masterBus.emit('TABLE_MENU_ACTION', {
+                        tableId: activeTabId,
+                        action: 'TOGGLE_AUTO_TOURNAMENT_REBUY',
+                      })
+                  : undefined,
+              onToggleAutoTournamentAddOn:
+                tabs.find((t) => t.id === activeTabId)?.tournamentAutoAddOn !== undefined
+                  ? () =>
+                      masterBus.emit('TABLE_MENU_ACTION', {
+                        tableId: activeTabId,
+                        action: 'TOGGLE_AUTO_TOURNAMENT_ADD_ON',
+                      })
+                  : undefined,
               onSessionStats: () =>
                 masterBus.emit('TABLE_MENU_ACTION', {
                   tableId: activeTabId,
@@ -722,6 +740,12 @@ export function TableTabBar({
                 ? 'ON'
                 : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
+                ? 'ON'
+                : 'OFF',
+              autoTournamentRebuyBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoRebuy
+                ? 'ON'
+                : 'OFF',
+              autoTournamentAddOnBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoAddOn
                 ? 'ON'
                 : 'OFF',
               soundsBadge: soundOn ? 'ON' : 'OFF',

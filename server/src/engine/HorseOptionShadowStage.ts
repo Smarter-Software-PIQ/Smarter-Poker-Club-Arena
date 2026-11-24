@@ -1,13 +1,17 @@
 /**
- * SHADOW STAGE FOR THE DARK PLO4/PLO5 CASH OPTIONS (2026-11-20, PLO-OWNER lane SHADOW).
+ * SHADOW STAGE FOR THE DARK PLO4/PLO5 CASH OPTIONS (2026-11-20, PLO-OWNER lane SHADOW), AND FOR THE HOLD'EM OPTIONS
+ * (2026-11-24, PLO-OWNER lead-6: any registered option that declares an entry, whatever its game).
  *
- * WHY. A PLO4/PLO5 cash option that ships dark cannot be graded offline: replays find too few decisions with a
- * person in the hand. The option shadow (HorseOptionShadow.ts, Horse Switch lane) already re-decides a committed
- * decision once with one option flipped and journals the counterfactual, never acting on it. For the options listed
- * here (and only for them) this file fits that shadow to PLO4/PLO5 cash:
- *  - SCOPE: a listed option is re-decided only in a PLO4 or PLO5 cash decision (table and Lightning; the scope the
- *    omaha option game scope reads, omahaOptionGameOf), in its listed games and streets. Never PLO6, PLO8, hold'em,
- *    a tournament or a bomb pot: there it is left out before the pick, so it spends no budget.
+ * WHY. A dark option cannot be graded offline alone: replays find too few decisions with a person in the hand. The
+ * option shadow (HorseOptionShadow.ts, Horse Switch lane) already re-decides a committed decision once with one
+ * option flipped and journals the counterfactual, never acting on it. For the options listed here (and only for them)
+ * this file fits that shadow to a live trial:
+ *  - SCOPE: a listed option is re-decided only in a decision of one of its listed GAMES (optionShadowStageGameOf) and
+ *    streets. The games: 4 and 5 (PLO4 / PLO5 cash, table and Lightning; the scope the omaha option game scope reads,
+ *    omahaOptionGameOf, exactly as before 2026-11-24), and nlh_cash, nlh_lightning, nlh_tournament (no-limit hold'em,
+ *    two hole cards, one board, no bomb pot; tournament by HorseLogic.isTournamentMode's reading, Lightning by the
+ *    public memory domain's speed). Never PLO6, PLO8, short deck, fixed limit or a game an entry does not list: there
+ *    it is left out before the pick, so it spends no budget.
  *  - ACTED-TIME BUDGET: 50 ms instead of the shadow's 15 ms (most priced Omaha postflop decisions take over 15 ms).
  *  - SAMPLING: a hand with no person dealt in takes at most OPTION_SHADOW_STAGE_HORSE_ONLY_PER_MINUTE re-decisions
  *    per worker per clock minute; the rest of the shadow's per-minute budget is left for hands with a person dealt
@@ -19,6 +23,16 @@
  *    re-decision did not cause (descheduled, waiting) is not charged to the option.
  *  - COMPANIONS: an option that acts only with another option on (the math core's street flag needs omahaMathCore)
  *    is re-decided with the companion true as well when it is flipped to true.
+ *  - WHAT A TRIAL SHOWS (2026-11-24): besides option_shadow_<option>_<changed|same>_seen, a staged re-decision in a
+ *    hold'em game that changed the action counts its direction, option_shadow_<option>_dir_<from>_to_<to>_seen (or
+ *    _dir_size_seen when only the amount moved; + _person_seen with a person dealt in), and its time is noted per
+ *    game, latency scope option_shadow_stage_redecide_game_<plo4|plo5|nlh_cash|nlh_lightning|nlh_tournament>, beside
+ *    the scope option_shadow_stage_redecide it always had. A PLO re-decision counts the counters it counted before.
+ *
+ * REGISTERING AN OPTION (one line). Add `<option>: holdemStage(['nlh_cash', 'nlh_lightning'], ['flop'])` (or an
+ * Omaha entry) to OPTION_SHADOW_STAGE. A registered option whose name says it is priced (/pric/i) and that takes
+ * shadow or on_shadow must be listed there or in OPTION_SHADOW_STAGE_UNSTAGED with the reason it cannot be staged:
+ * the law aPricedOptionDeclaresAShadowStageEntry.law.test.ts fails otherwise (optionShadowStageRegistrationGaps).
  *
  * TIMING (2026-11-20, VERIFIER V52). Nothing of a staged re-decision runs before the answer is sent: up to the
  * FAST_RESULT the worker does exactly what it does with no row, and reads no seat of the table for the stage. After
@@ -35,15 +49,28 @@
  * re-decision is running waits for it to end (at most one re-decision; the breaker bounds how long and how often).
  *
  * WHAT IT NEVER DOES. It runs after the acted decision is final and changes nothing of it (the law
- * aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts). It adds no row, no state and no setting: a listed
- * option is staged by the same `shadow` row as any option. With no listed option in shadow nothing here runs past a
- * name lookup. It reads no hole card, no opponent identity and no person/Horse fact for any decision.
+ * aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts, PLO4 cash, NLH cash, Lightning and tournament). It
+ * adds no row, no state and no setting: a listed option is staged by the same `shadow` row as any option. With no
+ * listed option in shadow nothing here runs past a name lookup. It reads no hole card value, no opponent identity
+ * and no person/Horse fact for any decision.
  */
 import { omahaOptionGameOf, type OmahaOptionGame } from './HorseOmahaOptionGameScope.js';
 
+/** A hold'em game of the stage: no-limit hold'em cash table, cash Lightning, or a tournament. */
+export type OptionShadowStageHoldemGame = 'nlh_cash' | 'nlh_lightning' | 'nlh_tournament';
+/** A game of the stage: 4 = PLO4 cash, 5 = PLO5 cash (table and Lightning), or a hold'em game. */
+export type OptionShadowStageGame = OmahaOptionGame | OptionShadowStageHoldemGame;
+export const OPTION_SHADOW_STAGE_GAMES: readonly OptionShadowStageGame[] = Object.freeze([
+  4,
+  5,
+  'nlh_cash',
+  'nlh_lightning',
+  'nlh_tournament',
+] as const);
+
 export interface OptionShadowStageEntry {
-  /** The games (4 = PLO4 cash, 5 = PLO5 cash) the option is re-decided in. */
-  readonly games: readonly OmahaOptionGame[];
+  /** The games the option is re-decided in (OptionShadowStageGame). */
+  readonly games: readonly OptionShadowStageGame[];
   /** The streets it is re-decided on (gameState.stage); absent = every street. */
   readonly streets?: readonly string[];
   /** Options passed true with it when it is flipped to true. */
@@ -52,6 +79,17 @@ export interface OptionShadowStageEntry {
 export type OptionShadowStageTable = Readonly<Record<string, OptionShadowStageEntry>>;
 
 const PLO4_PLO5: OptionShadowStageEntry = Object.freeze({ games: Object.freeze([4, 5] as const) });
+
+/** A hold'em entry in one line: its games and, when it acts on some streets only, those streets. */
+export function holdemStage(
+  games: readonly OptionShadowStageHoldemGame[],
+  streets?: readonly string[]
+): OptionShadowStageEntry {
+  return Object.freeze({
+    games: Object.freeze([...games]),
+    ...(streets ? { streets: Object.freeze([...streets]) } : {}),
+  });
+}
 
 /**
  * The staged options. A name the registry does not hold, or that does not take shadow there, is inert (the shadow
@@ -126,7 +164,99 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     streets: Object.freeze(['flop']),
     companions: Object.freeze(['omahaMathCore']),
   }),
+  // PLO-OWNER lead-6 2026-11-24 (HOLD'EM SHADOW): the hold'em options meant to be trialled, each in the games and
+  // streets it acts in (its switch scope). Open branches add theirs here, one line each.
+  // NLH cash (table and Lightning), heads-up postflop
+  holdemValueAndCallsArePriced: holdemStage(
+    ['nlh_cash', 'nlh_lightning'],
+    ['flop', 'turn', 'river']
+  ),
+  // hold'em tournaments: preflop all-in calls and postflop calls facing a jam (every street)
+  holdemTournamentAllInCallIsPriced: holdemStage(['nlh_tournament']),
+  // NLH cash preflop facing a single open (the V85/V87 defence path reads it at cash tables, Lightning included)
+  cashDefenceTrimColdCalls: holdemStage(['nlh_cash', 'nlh_lightning'], ['preflop']),
 });
+
+/**
+ * THE PRICED OPTIONS THAT ARE NOT STAGED, AND WHY (2026-11-24). A registered option whose name says it is priced and
+ * that takes shadow or on_shadow is either in OPTION_SHADOW_STAGE or here (optionShadowStageRegistrationGaps). These
+ * keep the inline option shadow (15 ms acted budget, re-decided before the answer, no breaker), exactly as before.
+ */
+const PREDATES =
+  'listed before the staging rule (2026-11-24): keeps the inline option shadow until its lane adds an entry and measures its re-decision cost';
+const PLO6 =
+  'a PLO6 option: PLO6 is not a game of the stage (its re-decision cost is not measured)';
+const EVERY_GAME =
+  'acts in every game: an entry would have to list every game, and its re-decision cost is not measured outside hold-em';
+export const OPTION_SHADOW_STAGE_UNSTAGED: Readonly<Record<string, string>> = Object.freeze({
+  tokenCallPrice: EVERY_GAME,
+  callDeductionPricing: EVERY_GAME,
+  omahaPreflopReraiseDefencePricedInPosition: PREDATES,
+  omahaReraisedCallVsRaisePriced: PREDATES,
+  omahaPreflopJamFacingReraiseIsPriced: PREDATES,
+  omahaPairedBoardFoldRespectsPrice: PREDATES,
+  omahaStrongHandCheckIsPriced: PREDATES,
+  omahaTurnStabDefenceIsPriced: PREDATES,
+  omahaRiverBluffCatchIsPriced: PREDATES,
+  // the inline-shadow fixture of anOptionInShadowNeverChangesTheActedDecision.test.ts and the staged fixture of
+  // aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts (which stages it by its own table)
+  omahaTurnRiverRaiseIsPriced: 'the inline shadow test fixture: ' + PREDATES,
+  omahaDrawRaiseIsPriced: PREDATES,
+  omahaOopTurnBarrelIsPriced: PREDATES,
+  omahaPressureIsPriced: PREDATES,
+  omahaBigBetCallsArePriced: PREDATES,
+  omahaUnderpairMultiwayIsPriced: PREDATES,
+  omahaSampledRaiseIsPricedAtEverySize: PREDATES,
+  omahaTurnSetSizeIsPriced: PREDATES,
+  omahaBlockerBluffIsPriced: PREDATES,
+  omahaPricedInLightning: PREDATES,
+  plo6ManiacPriceRefusalToRangePlay: PLO6,
+  plo6FacingBetIsPricedV2: PLO6,
+  holdemRiverFullHouseValueIsPriced: PREDATES,
+  huBbDefendsUnreadToPrice: PREDATES,
+});
+
+/** A priced option by name: the options the registration law holds to a stage entry or a stated reason. */
+export const OPTION_SHADOW_STAGE_PRICED_NAME = /pric/i;
+
+/**
+ * The registration gaps: every registered option that takes shadow or on_shadow and is priced by name (or is
+ * staged) must be staged or have a stated reason, never both; a staged or reasoned name must not be off-only.
+ * Empty when the registration holds.
+ */
+export function optionShadowStageRegistrationGaps(
+  registry: ReadonlyArray<{ readonly name: string; readonly states: readonly string[] }>,
+  table: OptionShadowStageTable = OPTION_SHADOW_STAGE,
+  unstaged: Readonly<Record<string, string>> = OPTION_SHADOW_STAGE_UNSTAGED
+): string[] {
+  const gaps: string[] = [];
+  const byName = new Map(registry.map((e) => [e.name, e]));
+  for (const e of registry) {
+    const shadowable = e.states.includes('shadow') || e.states.includes('on_shadow');
+    if (!shadowable || !OPTION_SHADOW_STAGE_PRICED_NAME.test(e.name)) continue;
+    const staged = Object.hasOwn(table, e.name);
+    const reason = Object.hasOwn(unstaged, e.name) ? String(unstaged[e.name] ?? '').trim() : null;
+    if (!staged && reason === null)
+      gaps.push(
+        `${e.name}: a priced option declares a shadow stage entry or states why it cannot be staged`
+      );
+    if (staged && reason !== null) gaps.push(`${e.name}: both staged and listed as not staged`);
+    if (reason === '') gaps.push(`${e.name}: the reason it cannot be staged is empty`);
+  }
+  for (const name of Object.keys(unstaged)) {
+    const e = byName.get(name);
+    if (!e) gaps.push(`${name}: listed as not staged but not registered`);
+    else if (!e.states.includes('shadow') && !e.states.includes('on_shadow'))
+      gaps.push(`${name}: listed as not staged but takes neither shadow nor on_shadow`);
+  }
+  for (const [name, entry] of Object.entries(table)) {
+    if (entry.games.length === 0) gaps.push(`${name}: a stage entry lists no game`);
+    for (const g of entry.games)
+      if (!OPTION_SHADOW_STAGE_GAMES.includes(g))
+        gaps.push(`${name}: unknown stage game ${String(g)}`);
+  }
+  return gaps;
+}
 
 /** The acted decision may have taken this long and a listed option is still re-decided. */
 export const OPTION_SHADOW_STAGE_ACTED_BUDGET_MS = 50;
@@ -188,6 +318,116 @@ export function optionShadowStaged(
   return typeof option === 'string' && Object.hasOwn(table, option);
 }
 
+interface StageGameState {
+  readonly gameVariant?: unknown;
+  readonly gameMode?: unknown;
+  readonly tournament?: unknown;
+  readonly bigBlind?: unknown;
+  readonly bombPot?: unknown;
+  readonly boardCount?: unknown;
+  readonly communityCards2?: readonly unknown[] | null;
+  readonly communityCards3?: readonly unknown[] | null;
+  readonly publicMemoryDomain?: { readonly speed?: unknown } | null;
+}
+
+/**
+ * The hold'em game of a decision: no-limit hold'em (gameVariant nlh), two hole cards, one board, no bomb pot.
+ * A tournament by HorseLogic.isTournamentMode's reading (gameMode when set, else a tournament object or a big
+ * blind of 10 or more); a cash decision is Lightning when its public memory domain's speed says so. Null otherwise.
+ * Reads the hole card COUNT only. Never throws.
+ */
+export function optionShadowStageHoldemGameOf(
+  player: unknown,
+  gameState: unknown
+): OptionShadowStageHoldemGame | null {
+  try {
+    const gs = gameState as StageGameState | null;
+    if (!gs || String(gs.gameVariant ?? '').toLowerCase() !== 'nlh') return null;
+    const cards = (player as { cards?: unknown } | null)?.cards;
+    if (!Array.isArray(cards) || cards.length !== 2) return null;
+    if ((gs.boardCount ?? 1) !== 1 || gs.communityCards2?.length || gs.communityCards3?.length)
+      return null;
+    if (gs.bombPot === true) return null;
+    const tournament = gs.gameMode
+      ? gs.gameMode === 'tournament'
+      : gs.tournament != null || Number(gs.bigBlind ?? 0) >= 10;
+    if (tournament) return 'nlh_tournament';
+    return gs.publicMemoryDomain?.speed === 'lightning' ? 'nlh_lightning' : 'nlh_cash';
+  } catch {
+    return null;
+  }
+}
+
+/** The stage game of a decision: PLO4/PLO5 cash exactly as omahaOptionGameOf reads it, else its hold'em game. */
+export function optionShadowStageGameOf(
+  player: unknown,
+  gameState: unknown
+): OptionShadowStageGame | null {
+  let game: OptionShadowStageGame | null = null;
+  try {
+    game = omahaOptionGameOf(
+      player as Parameters<typeof omahaOptionGameOf>[0],
+      gameState as Parameters<typeof omahaOptionGameOf>[1]
+    );
+  } catch {
+    game = null;
+  }
+  return game ?? optionShadowStageHoldemGameOf(player, gameState);
+}
+
+/** The name a stage game is noted under (latency scope option_shadow_stage_redecide_game_<code>). */
+export function optionShadowStageGameCode(game: OptionShadowStageGame): string {
+  return game === 4 ? 'plo4' : game === 5 ? 'plo5' : game;
+}
+
+/** True for a hold'em game of the stage (the per-direction counters are taken there). */
+export function optionShadowStageIsHoldem(
+  game: OptionShadowStageGame | null | undefined
+): game is OptionShadowStageHoldemGame {
+  return game === 'nlh_cash' || game === 'nlh_lightning' || game === 'nlh_tournament';
+}
+
+const DIRECTION_ACTIONS: Readonly<Record<string, string>> = Object.freeze({
+  fold: 'fold',
+  check: 'check',
+  call: 'call',
+  bet: 'bet',
+  raise: 'raise',
+  all_in: 'allin',
+  allin: 'allin',
+  'all-in': 'allin',
+});
+
+/**
+ * What a changed re-decision would have changed: `<from>_to_<to>` over fold, check, call, bet, raise, allin (any
+ * other action reads `other`), or `size` when the action is the same and only the amount moved (fold_to_call,
+ * call_to_fold, raise_to_call, check_to_bet, bet_to_check, size, ...). Null for a receipt that did not change.
+ */
+export function optionShadowStageDirection(receipt: {
+  readonly changed: boolean;
+  readonly actual: { readonly action: string };
+  readonly would: { readonly action: string } | null;
+}): string | null {
+  if (!receipt.changed || !receipt.would) return null;
+  const from = DIRECTION_ACTIONS[String(receipt.actual.action).toLowerCase()] ?? 'other';
+  const to = DIRECTION_ACTIONS[String(receipt.would.action).toLowerCase()] ?? 'other';
+  return from === to ? 'size' : `${from}_to_${to}`;
+}
+
+/** The per-direction counters of one changed staged receipt (empty when it did not change). */
+export function optionShadowStageDirectionKeys(receipt: {
+  readonly option: string;
+  readonly changed: boolean;
+  readonly personDealt: boolean;
+  readonly actual: { readonly action: string };
+  readonly would: { readonly action: string } | null;
+}): string[] {
+  const dir = optionShadowStageDirection(receipt);
+  if (dir === null) return [];
+  const key = `option_shadow_${receipt.option}_dir_${dir}`;
+  return receipt.personDealt ? [`${key}_seen`, `${key}_person_seen`] : [`${key}_seen`];
+}
+
 /**
  * The options in shadow this decision may re-decide: every option that is not listed, unchanged and in order, and a
  * listed option only when the decision is in its games and streets. With no listed option in `options` the same
@@ -200,13 +440,10 @@ export function optionShadowStageInScope(
   table: OptionShadowStageTable = OPTION_SHADOW_STAGE
 ): readonly string[] {
   if (!options.some((o) => Object.hasOwn(table, o))) return options;
-  let game: OmahaOptionGame | null = null;
+  let game: OptionShadowStageGame | null = null;
   let street = '';
   try {
-    game = omahaOptionGameOf(
-      player as Parameters<typeof omahaOptionGameOf>[0],
-      gameState as Parameters<typeof omahaOptionGameOf>[1]
-    );
+    game = optionShadowStageGameOf(player, gameState);
     street = String((gameState as { stage?: unknown } | null)?.stage ?? '').toLowerCase();
   } catch {
     game = null;
