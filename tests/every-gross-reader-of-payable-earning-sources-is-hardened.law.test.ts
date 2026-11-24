@@ -54,11 +54,13 @@ describe('gross original rake fallbacks and own-agent interpretation are hardene
 });
 
 describe('BBJ payout closes the concurrent-banker TOCTOU race structurally (7a0c2e25)', () => {
-  it('re-reads bbj_contributions via readContributionPoolId when hand_bank_obligation_pending is absent', () => {
+  it('re-reads bbj_contributions via readContributionPoolId and checks hand_atomic_commits when hand_bank_obligation_pending is absent', () => {
     const fnBody = sliceMethod(BBJ_TS, 'async function bankThisHandsPendingDrop(');
     expect(fnBody).not.toMatch(/if\s*\(\s*!pending\?\.hand_id\s*\)\s*return\s+null\s*;/);
     expect(fnBody).toMatch(
-      /if\s*\(\s*!pending\?\.hand_id\s*\)\s*\{[\s\S]*?return\s+readContributionPoolId\(params\)\s*;/
+      /if\s*\(\s*!pending\?\.hand_id\s*\)\s*\{[\s\S]*?readContributionPoolId\(params\)[\s\S]*?if\s*\(\s*banked\s*\)\s*return\s+banked\s*;/
     );
+    expect(fnBody).toMatch(/from\(\s*['"]hand_atomic_commits['"]\s*\)/);
+    expect(fnBody).toMatch(/\.is\(\s*['"]post_commit_completed_at['"]\s*,\s*null\s*\)/);
   });
 });

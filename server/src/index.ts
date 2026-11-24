@@ -110,7 +110,7 @@ import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const INTERNAL_LIVENESS_PORT = resolveInternalLivenessPort();
+const INTERNAL_LIVENESS_PORT = resolveInternalLivenessPort(process.env, PORT);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MEMBER FEE ROLLUP - RETIRED (2026-09-04)

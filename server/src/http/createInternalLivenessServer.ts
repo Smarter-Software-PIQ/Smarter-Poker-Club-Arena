@@ -5,7 +5,8 @@ export const HTTP_LISTEN_BACKLOG = 4096;
 
 /** Loopback-only host for Docker HEALTHCHECK; never published outside the container. */
 export const INTERNAL_LIVENESS_HOST = '127.0.0.1';
-export const DEFAULT_INTERNAL_LIVENESS_PORT = 8081;
+export const INTERNAL_LIVENESS_PORT_OFFSET = 10000;
+export const DEFAULT_INTERNAL_LIVENESS_PORT = 8080 + INTERNAL_LIVENESS_PORT_OFFSET;
 
 export interface InternalLivenessVerdict {
   running: boolean;
@@ -13,18 +14,42 @@ export interface InternalLivenessVerdict {
 }
 
 /**
+ * Derive the default container-local liveness port from the main HTTP port
+ * (`mainPort + 10000`, e.g. `8080 -> 18080`, `8081 -> 18081`). Never collides
+ * with `8080`/`8081` or a rolling-handoff `ENGINE_HANDOFF_PEER_PORT`.
+ */
+export function defaultInternalLivenessPort(mainPort = 8080): number {
+  const normalized =
+    Number.isInteger(mainPort) && mainPort >= 1 && mainPort <= 65535 ? mainPort : 8080;
+  const candidate = normalized + INTERNAL_LIVENESS_PORT_OFFSET;
+  return candidate <= 65535 ? candidate : normalized - INTERNAL_LIVENESS_PORT_OFFSET;
+}
+
+/**
  * Parse INTERNAL_LIVENESS_PORT. Explicit `0` or `off` disables binding (useful
- * for isolated harnesses); unset or invalid values default to 8081.
+ * for isolated harnesses); unset, invalid, or colliding (`=== mainPort`) values
+ * fall back cleanly to `defaultInternalLivenessPort(mainPort)`.
  */
 export function resolveInternalLivenessPort(
-  env: Readonly<Record<string, string | undefined>> = process.env
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  mainPort?: number
 ): number {
+  const parsedEnvPort = env.PORT !== undefined ? Number(env.PORT.trim()) : Number.NaN;
+  const effectiveMainPort =
+    mainPort !== undefined && Number.isInteger(mainPort) && mainPort >= 1 && mainPort <= 65535
+      ? mainPort
+      : Number.isInteger(parsedEnvPort) && parsedEnvPort >= 1 && parsedEnvPort <= 65535
+        ? parsedEnvPort
+        : 8080;
+  const fallback = defaultInternalLivenessPort(effectiveMainPort);
   const raw = env.INTERNAL_LIVENESS_PORT?.trim().toLowerCase();
-  if (raw === undefined || raw === '') return DEFAULT_INTERNAL_LIVENESS_PORT;
+  if (raw === undefined || raw === '') return fallback;
   if (raw === '0' || raw === 'off' || raw === 'false') return 0;
   const parsed = Number(raw);
-  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) return parsed;
-  return DEFAULT_INTERNAL_LIVENESS_PORT;
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 && parsed !== effectiveMainPort) {
+    return parsed;
+  }
+  return fallback;
 }
 
 /**

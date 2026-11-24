@@ -156,6 +156,20 @@ describe('a queued bbj_payout row', () => {
     expect((patches[0] as { last_error: string }).last_error).toContain('fetch failed');
   });
 
+  it('resolves a nothing_to_pay refusal while preserving the explanatory refusal note in last_error', async () => {
+    processBBJPayout.mockResolvedValue({
+      status: 'nothing_to_pay',
+      reason: 'mini_disabled_for_club',
+    });
+    const summary = await reconcilePendingFees();
+    expect(summary).toMatchObject({ scanned: 1, resolved: 1, stillFailing: 0, exhausted: 0 });
+    expect(patches[0]).toMatchObject({
+      attempts: 1,
+      last_error: 'nothing to pay (mini_disabled_for_club); claim closed',
+    });
+    expect((patches[0] as { resolved_at?: string }).resolved_at).toBeTruthy();
+  });
+
   it('refuses a row whose parameters are missing rather than paying the wrong people', async () => {
     from.mockImplementation((name: string) => {
       if (name === 'pending_fee_distributions')

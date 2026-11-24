@@ -761,7 +761,9 @@ export async function reconcilePendingFees(): Promise<{
     const patch: Record<string, unknown> = {
       attempts,
       last_attempt_at: new Date().toISOString(),
-      last_error: ok ? null : failureMessage.slice(0, 500),
+      // Preserve the explanatory refusal note when nothing_to_pay resolves the
+      // claim; paid / already_paid leave failureMessage empty and clear last_error.
+      last_error: failureMessage ? failureMessage.slice(0, 500) : null,
     };
     if (ok) patch.resolved_at = new Date().toISOString();
 

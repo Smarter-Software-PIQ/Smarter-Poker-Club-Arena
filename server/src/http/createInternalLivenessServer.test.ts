@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -6,8 +7,10 @@ import type { Server } from 'node:http';
 import {
   createInternalLivenessServer,
   DEFAULT_INTERNAL_LIVENESS_PORT,
+  defaultInternalLivenessPort,
   HTTP_LISTEN_BACKLOG,
   INTERNAL_LIVENESS_HOST,
+  INTERNAL_LIVENESS_PORT_OFFSET,
   resolveInternalLivenessPort,
   type InternalLivenessVerdict,
 } from './createInternalLivenessServer.js';
@@ -76,28 +79,71 @@ describe('internal loopback /livez server and HTTP listen backlog (b87d2b52)', (
     expect((await fetch(`${base}/livez`)).status).toBe(200);
   });
 
-  it('parses INTERNAL_LIVENESS_PORT safely with default 8081 and explicit disable support', () => {
-    expect(resolveInternalLivenessPort({})).toBe(DEFAULT_INTERNAL_LIVENESS_PORT);
-    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '' })).toBe(8081);
-    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '0' })).toBe(0);
-    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'off' })).toBe(0);
-    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '8099' })).toBe(8099);
-    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'invalid' })).toBe(8081);
+  it('derives default port as mainPort + 10000 (8080 -> 18080, 8081 -> 18081) and refuses === mainPort', () => {
+    expect(INTERNAL_LIVENESS_PORT_OFFSET).toBe(10000);
+    expect(DEFAULT_INTERNAL_LIVENESS_PORT).toBe(18080);
+    expect(defaultInternalLivenessPort(8080)).toBe(18080);
+    expect(defaultInternalLivenessPort(8081)).toBe(18081);
+    expect(defaultInternalLivenessPort(60000)).toBe(50000);
+
+    expect(resolveInternalLivenessPort({})).toBe(18080);
+    expect(resolveInternalLivenessPort({}, 8080)).toBe(18080);
+    expect(resolveInternalLivenessPort({}, 8081)).toBe(18081);
+    expect(resolveInternalLivenessPort({ PORT: '8081' })).toBe(18081);
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '' }, 8081)).toBe(18081);
+
+    // Explicit disable support
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '0' }, 8080)).toBe(0);
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'off' }, 8080)).toBe(0);
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'false' }, 8081)).toBe(0);
+
+    // Valid non-colliding custom override
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '18099' }, 8080)).toBe(18099);
+
+    // Refuses === mainPort by falling back cleanly to mainPort + 10000
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '8080' }, 8080)).toBe(18080);
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: '8081' }, 8081)).toBe(18081);
+    expect(resolveInternalLivenessPort({ PORT: '8081', INTERNAL_LIVENESS_PORT: '8081' })).toBe(
+      18081
+    );
+
+    // Invalid override falls back cleanly
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'invalid' }, 8080)).toBe(18080);
+    expect(resolveInternalLivenessPort({ INTERNAL_LIVENESS_PORT: 'invalid' }, 8081)).toBe(18081);
   });
 
-  it('pins explicit backlog >= 4096 in index.ts and loopback /livez in Dockerfile + engine-up.sh', () => {
+  it('pins explicit backlog >= 4096 in index.ts, sp.engine.livez label in Dockerfile, and rollback-safe gating in engine-up.sh', () => {
     expect(HTTP_LISTEN_BACKLOG).toBeGreaterThanOrEqual(4096);
 
     const indexSource = readFileSync(resolve(process.cwd(), 'src/index.ts'), 'utf8');
+    expect(indexSource).toContain('resolveInternalLivenessPort(process.env, PORT)');
     expect(indexSource).toContain('httpServer.listen(PORT, undefined, HTTP_LISTEN_BACKLOG,');
     expect(indexSource).toContain('INTERNAL_LIVENESS_HOST');
     expect(indexSource).toContain('closeInternalLivenessServer');
 
     const dockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8');
-    const engineUp = readFileSync(resolve(process.cwd(), 'scripts/engine-up.sh'), 'utf8');
-    expect(dockerfile).toContain("fetch('http://127.0.0.1:8081/livez')");
-    expect(engineUp).toContain("fetch('http://127.0.0.1:8081/livez')");
+    const engineUpPath = resolve(process.cwd(), 'scripts/engine-up.sh');
+    const engineUp = readFileSync(engineUpPath, 'utf8');
+
+    // Dockerfile advertises sp.engine.livez="1" and computes PORT+10000 dynamically
+    expect(dockerfile).toContain('LABEL sp.engine.livez="1"');
+    expect(dockerfile).toContain('process.env.INTERNAL_LIVENESS_PORT');
+    expect(dockerfile).toContain('process.env.PORT||8080');
+    expect(dockerfile).toContain("+p+'/livez'");
+    expect(dockerfile).not.toContain('127.0.0.1:8081/livez');
     expect(dockerfile).not.toContain('0.0.0.0:8080/health');
-    expect(engineUp).not.toContain('0.0.0.0:8080/health');
+
+    // engine-up.sh inspects the immutable image label and only uses /livez when label === 1,
+    // preserving legacy 0.0.0.0:8080/health for rollbacks to any pre-/livez sealed image
+    expect(engineUp).toContain(
+      'docker image inspect -f \'{{index .Config.Labels "sp.engine.livez"}}\' "$AUTHORIZED_IMAGE_ID"'
+    );
+    expect(engineUp).toContain('if [ "$LIVEZ_CAPABLE" = "1" ]; then');
+    expect(engineUp).toContain("+p+'/livez'");
+    expect(engineUp).toContain("fetch('http://0.0.0.0:8080/health')");
+    expect(engineUp).not.toContain('127.0.0.1:8081/livez');
+
+    // engine-up.sh must remain valid bash syntax
+    expect(() => execFileSync('bash', ['-n', engineUpPath], { stdio: 'pipe' })).not.toThrow();
   });
 });

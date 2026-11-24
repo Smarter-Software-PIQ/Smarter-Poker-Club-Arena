@@ -127,6 +127,11 @@ ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
 # runtime environment.  An env file can override ENV, but it cannot rewrite an
 # OCI label on an already-built image.
 LABEL org.opencontainers.image.revision=$GIT_COMMIT_SHA
+# Advertises that this image binds the isolated loopback /livez liveness server
+# on PORT+10000 (or INTERNAL_LIVENESS_PORT). engine-up.sh gates its /livez
+# --health-cmd override on this label so rolling back to any pre-/livez sealed
+# image preserves the legacy /health probe.
+LABEL sp.engine.livez="1"
 
 # 2026-08-15 SELF-HEALING. Without a HEALTHCHECK, Docker's only restart trigger
 # is process exit — so a process that is up but wedged (every table frozen) was
@@ -153,6 +158,6 @@ LABEL org.opencontainers.image.revision=$GIT_COMMIT_SHA
 # grace. Once grace clears, three failures still identify a sustained wedge in
 # roughly one minute. Linux exposes /proc stat start time in USER_HZ (100 Hz).
 HEALTHCHECK --interval=20s --timeout=15s --start-period=300s --retries=3 \
-  CMD node -e "const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://127.0.0.1:8081/livez').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))"
+  CMD node -e "const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);const m=Number(process.env.PORT||8080);const r=Number(process.env.INTERNAL_LIVENESS_PORT||0);const p=(Number.isInteger(r)&&r>=1&&r<=65535&&r!==m)?r:(m+10000<=65535?m+10000:m-10000);fetch('http://127.0.0.1:'+p+'/livez').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]
