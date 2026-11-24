@@ -4418,6 +4418,77 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
     b: {},
   })),
+  // 2026-11-24 PLO-OWNER lead-6 (default OFF, PLO4/PLO5 cash): the corrected facing-bet price on measured ranges
+  // (F1-F3, F6, multiway M1-M3); each card's a adds one option to the b that carries what it acts inside.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_range_is_measured_by_line`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetRangeIsMeasuredByLine: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_indifference_calls`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetIndifferenceCalls: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_realization_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFlopRealizationIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_minimum_defence_prior`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFlopRealizationIsPriced: true,
+      omahaFacingBetMinimumDefencePrior: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFlopRealizationIsPriced: true,
+    },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_field_is_joint`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_call_needs_nut_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_value_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaMultiwayValueBetIsPriced: true },
+    b: {},
+  })),
   // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, PLO4/PLO5 cash): omahaStabDefenceIsPriced; a on, b today. The
   // option reads a lifetime record: without a provider fed by the harness both arms decide alike.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
