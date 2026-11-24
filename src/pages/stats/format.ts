@@ -143,7 +143,7 @@ export function buildStatsExportMetadata(
 
 export function buildOverviewExportPayload(
   overall: Record<string, unknown>,
-  availability: Record<string, boolean | undefined>,
+  availability: Partial<Record<(typeof AVAILABILITY_EXPORT_KEYS)[number], boolean>>,
   tournaments: {
     entries: number;
     cashes: number;
