@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { KINGS_CLUB_UUID } from '../lib/constants';
 import { reportError } from './errorReporter';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,7 +36,7 @@ export function resolveClubIdFilter(clubIdParam: string): {
   value: string | number;
 } {
   if (clubIdParam.toLowerCase() === 'shark-club' || clubIdParam.toLowerCase() === 'kings-club') {
-    return { column: 'id', value: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' };
+    return { column: 'id', value: KINGS_CLUB_UUID };
   }
   if (isUUID(clubIdParam)) {
     return { column: 'id', value: clubIdParam };

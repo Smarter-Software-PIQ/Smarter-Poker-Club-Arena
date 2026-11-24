@@ -134,6 +134,7 @@ const monoNow = (): number => performance.now();
 export class CashNextHandSpan {
   private readonly startMono: number;
   private readonly bounds: { name: string; at: number }[];
+  private readonly subSpans: Record<string, number> = {};
   /** The first wait the metric contract excludes (waiting for players, a pause, a rebuy pause). */
   excluded: string | null = null;
   /** Set once the rest has ended; a later pass with the span still open never dealt. */
@@ -158,6 +159,25 @@ export class CashNextHandSpan {
     const last = this.bounds[this.bounds.length - 1];
     if (last.name === phase) return;
     this.bounds.push({ name: phase, at: Math.max(now, last.at) });
+  }
+
+  /**
+   * Record an overlapping parallel-branch RPC duration (e.g. `load_seats`,
+   * `refresh_rake`, `refresh_dealing_halt`, `leave_pending` inside
+   * `prepareNextHand`). Accumulated across passes; never added to `stages`.
+   */
+  recordSubSpan(name: string, durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    this.subSpans[name] = (this.subSpans[name] ?? 0) + durationMs;
+  }
+
+  /** Rounded overlapping branch durations, or null when none were recorded. */
+  subSpansMs(): Record<string, number> | null {
+    const entries = Object.entries(this.subSpans);
+    if (entries.length === 0) return null;
+    const out: Record<string, number> = {};
+    for (const [k, v] of entries) out[k] = Math.round(v);
+    return out;
   }
 
   elapsedMs(now: number = monoNow()): number {
@@ -204,6 +224,12 @@ export interface CashNextHandBreach {
   /** A partition of gapMs by loop phase; sums to gapMs exactly. */
   readonly stages: Readonly<Record<string, number>>;
   /**
+   * Overlapping per-branch RPC timings inside parallel preparation steps
+   * (`load_seats`, `refresh_rake`, `refresh_dealing_halt`, `leave_pending`).
+   * Overlap each other inside `load_next_hand_inputs` and are never added to `stages`.
+   */
+  readonly prepareSpansMs?: Readonly<Record<string, number>> | null;
+  /**
    * The completed hand's settlement spans (PostHandStageTiming), by stage.
    * These overlap each other and the stages, and are never added to the gap.
    */
@@ -236,6 +262,7 @@ export function cashNextHandBreachLine(b: CashNextHandBreach): string | null {
   const gapMs = ms(b.gapMs);
   if (gapMs === null || !(b.gapMs > CASH_NEXT_HAND_LIMIT_MS)) return null;
   const s = b.settlement;
+  const prepSpans = b.prepareSpansMs ? durations(b.prepareSpansMs) : null;
   const outcome = b.outcome === 'aborted' ? 'aborted' : 'dealt';
   const why = reason(b.reason);
   const excluded = reason(b.excluded);
@@ -252,6 +279,7 @@ export function cashNextHandBreachLine(b: CashNextHandBreach): string | null {
     limitMs: CASH_NEXT_HAND_LIMIT_MS,
     at: ms(b.at),
     stages: durations(b.stages),
+    ...(prepSpans && Object.keys(prepSpans).length > 0 ? { prepareSpansMs: prepSpans } : {}),
     ...(s
       ? {
           settlement: {

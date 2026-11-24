@@ -18,6 +18,7 @@ import {
 } from '../runtimeSettings/index.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
+import { recordHorseError } from '../../services/HorseErrorLog.js';
 import { HorseObserverParticipantRegistry } from './observerParticipants.js';
 import { availableParallelism } from 'node:os';
 import {
@@ -505,10 +506,20 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   private shardFailed(index: number, failed: LiveHorseDecisionWorkerClient, error: Error): void {
     if (this.clients[index] !== failed) return;
     const first = this.booted;
-    if (first === null || this.stopping) return this.fatal(error);
+    // THE HORSE ERROR LOG (2026-11-24): a lost decision worker is a durable row whether it is replaced
+    // alone or ends the process (GameServer's shutdown waits for the write). Never throws.
+    const workerFailed = (outcome: string): void =>
+      recordHorseError({ type: 'worker_failed', reason: outcome, error, extra: { shard: index } });
+    if (first === null || this.stopping) {
+      workerFailed(first === null ? 'failed_before_boot' : 'failed_while_stopping');
+      return this.fatal(error);
+    }
     const at = this.now();
     const recent = this.replacements.filter(
       (r) => r.shard === index && at - r.at < SHARD_REPLACEMENT_WINDOW_MS
+    );
+    workerFailed(
+      recent.length >= SHARD_REPLACEMENT_LIMIT ? 'replacement_limit_fatal' : 'replaced_alone'
     );
     if (recent.length >= SHARD_REPLACEMENT_LIMIT) {
       return this.fatal(
