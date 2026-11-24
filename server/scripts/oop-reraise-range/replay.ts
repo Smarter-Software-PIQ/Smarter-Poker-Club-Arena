@@ -73,9 +73,32 @@ function profileRows(): unknown[] {
   const H = 44;
   const shape =
     READ === 'wide'
-      ? { pfr: 0.6, rfi: 0.62, vpip: 0.72, threeBet: 0.3, foldTo3Bet: 0.0, foldToBet: 0.3, betCheckedTo: 0.5 }
-      : { pfr: 0.12, rfi: 0.14, vpip: 0.18, threeBet: 0.04, foldTo3Bet: 0.7, foldToBet: 0.55, betCheckedTo: 0.35 };
-  const opp = { rfiOpp: 30, threeBetOpp: 24, foldTo3BetOpp: 12, betCheckedToOpp: 40, foldToBetOpp: 30, riverCallOpp: 8 };
+      ? {
+          pfr: 0.6,
+          rfi: 0.62,
+          vpip: 0.72,
+          threeBet: 0.3,
+          foldTo3Bet: 0.0,
+          foldToBet: 0.3,
+          betCheckedTo: 0.5,
+        }
+      : {
+          pfr: 0.12,
+          rfi: 0.14,
+          vpip: 0.18,
+          threeBet: 0.04,
+          foldTo3Bet: 0.7,
+          foldToBet: 0.55,
+          betCheckedTo: 0.35,
+        };
+  const opp = {
+    rfiOpp: 30,
+    threeBetOpp: 24,
+    foldTo3BetOpp: 12,
+    betCheckedToOpp: 40,
+    foldToBetOpp: 30,
+    riverCallOpp: 8,
+  };
   const c: Record<string, number> = {
     hands: H,
     vpip: shape.vpip * H,
@@ -94,9 +117,18 @@ function profileRows(): unknown[] {
     riverCall: 0.5 * opp.riverCallOpp,
   };
   for (const [long, fast] of Object.entries({
-    hands: 'fHands', pfr: 'fPfr', rfiOpp: 'fRfiOpp', rfi: 'fRfi', threeBetOpp: 'fThreeBetOpp', threeBet: 'fThreeBet',
-    betCheckedToOpp: 'fBetCheckedToOpp', betCheckedTo: 'fBetCheckedTo', foldToBetOpp: 'fFoldToBetOpp',
-    foldToBet: 'fFoldToBet', riverCallOpp: 'fRiverCallOpp', riverCall: 'fRiverCall',
+    hands: 'fHands',
+    pfr: 'fPfr',
+    rfiOpp: 'fRfiOpp',
+    rfi: 'fRfi',
+    threeBetOpp: 'fThreeBetOpp',
+    threeBet: 'fThreeBet',
+    betCheckedToOpp: 'fBetCheckedToOpp',
+    betCheckedTo: 'fBetCheckedTo',
+    foldToBetOpp: 'fFoldToBetOpp',
+    foldToBet: 'fFoldToBet',
+    riverCallOpp: 'fRiverCallOpp',
+    riverCall: 'fRiverCall',
   }))
     c[fast] = c[long]! * 0.3;
   return ['full', 'short'].map((size) => ({
@@ -137,7 +169,16 @@ function deal(i: number) {
 const str = (c: { rank: string; suit: string }[]) => c.map((x) => x.rank + x.suit[0]).join('');
 const DED = {
   bbj: { feeBB: 0.25, enabled: true, minPotBB: 10, minPlayersDealt: 3 },
-  rake: { cap: 5, percent: 10, noFlopNoDrop: true, playerCountCaps: [[2, 2.5], [3, 5], [4, 5]] },
+  rake: {
+    cap: 5,
+    percent: 10,
+    noFlopNoDrop: true,
+    playerCountCaps: [
+      [2, 2.5],
+      [3, 5],
+      [4, 5],
+    ],
+  },
   rules: 'controller-rake-bbj-v1',
   status: 'captured',
   version: 1,
@@ -180,7 +221,14 @@ const POSITIONS: Record<string, { hero: number; opener: number }> = {
   sb_btn: { hero: 2, opener: 1 },
   bb_utg: { hero: 3, opener: 4 },
 };
-const OTHER_STACK: Record<number, number> = { 1: 872.4, 2: 399, 3: 640, 4: 614.17, 5: 493.5, 6: 700 };
+const OTHER_STACK: Record<number, number> = {
+  1: 872.4,
+  2: 399,
+  3: 640,
+  4: 614.17,
+  5: 493.5,
+  6: 700,
+};
 const OPEN_TO = OMAHA ? 9 : 5;
 const PREFLOP_ORDER = [4, 5, 6, 1, 2, 3];
 
@@ -198,18 +246,39 @@ function build(D: number, hole: unknown[], threeTo: number | null) {
   for (const s of [1, 2, 3, 4, 5, 6]) stack[s] = stack0[s]! - inv[s]!;
   let pot = 1 + 2 + ANTE;
   const tuple = () =>
-    [1, 2, 3, 4, 5, 6].map((s) => [s, Math.round(stack[s]! * 100) / 100, bet[s]!, inv[s]!, dead[s]!, 0, folded.has(s) ? 1 : allIn.has(s) ? 2 : 0]);
+    [1, 2, 3, 4, 5, 6].map((s) => [
+      s,
+      Math.round(stack[s]! * 100) / 100,
+      bet[s]!,
+      inv[s]!,
+      dead[s]!,
+      0,
+      folded.has(s) ? 1 : allIn.has(s) ? 2 : 0,
+    ]);
   const acts: Record<string, unknown>[] = [
     { ord: 0, seat: 2, stage: 'preflop', action: 'sb', amount: 1, origin: 'forced' },
     { ord: 1, seat: 3, stage: 'preflop', action: 'bb', amount: 2, origin: 'forced' },
   ];
-  if (ANTE) acts.push({ ord: 2, seat: 3, stage: 'preflop', action: 'ante', amount: ANTE, origin: 'forced', dead: true });
-  const push = (a: Record<string, unknown>) => acts.push({ ord: acts.length, stage: 'preflop', ...a });
+  if (ANTE)
+    acts.push({
+      ord: 2,
+      seat: 3,
+      stage: 'preflop',
+      action: 'ante',
+      amount: ANTE,
+      origin: 'forced',
+      dead: true,
+    });
+  const push = (a: Record<string, unknown>) =>
+    acts.push({ ord: acts.length, stage: 'preflop', ...a });
   const order = [...PREFLOP_ORDER];
   let heroNode = -1;
   for (const s of order) {
     if (s === opener) {
-      bet[s] = OPEN_TO; inv[s] = OPEN_TO; stack[s] = stack0[s]! - OPEN_TO; pot += OPEN_TO;
+      bet[s] = OPEN_TO;
+      inv[s] = OPEN_TO;
+      stack[s] = stack0[s]! - OPEN_TO;
+      pot += OPEN_TO;
       push({ seat: s, action: 'raise', amount: OPEN_TO, origin: 'player', isFullRaise: true });
       continue;
     }
@@ -219,15 +288,25 @@ function build(D: number, hole: unknown[], threeTo: number | null) {
       const heroBet = bet[hero]!;
       const toCall = OPEN_TO - heroBet;
       push({
-        seat: hero, action: 'fold', amount: 0, origin: 'horse_policy',
+        seat: hero,
+        action: 'fold',
+        amount: 0,
+        origin: 'horse_policy',
         publicNode: pn(tuple(), hero, {
-          pot, toCall, currentBet: OPEN_TO, minRaiseTo: OPEN_TO + (OPEN_TO - 2),
+          pot,
+          toCall,
+          currentBet: OPEN_TO,
+          minRaiseTo: OPEN_TO + (OPEN_TO - 2),
           maxRaiseTo: OMAHA ? OPEN_TO + pot + toCall : heroBet + stack[hero]!,
         }),
       });
       break;
     }
-    if (!acts.some((a) => a.seat === opener && a.action === 'raise') && PREFLOP_ORDER.indexOf(s) > PREFLOP_ORDER.indexOf(opener)) continue;
+    if (
+      !acts.some((a) => a.seat === opener && a.action === 'raise') &&
+      PREFLOP_ORDER.indexOf(s) > PREFLOP_ORDER.indexOf(opener)
+    )
+      continue;
     folded.add(s);
     push({ seat: s, action: 'fold', amount: 0, origin: 'horse_policy' });
   }
@@ -240,7 +319,10 @@ function build(D: number, hole: unknown[], threeTo: number | null) {
     (acts[heroNode] as Record<string, unknown>).amount = threeTo;
     (acts[heroNode] as Record<string, unknown>).isFullRaise = true;
     const heroIn = threeTo - heroBet;
-    stack[hero] = stack[hero]! - heroIn; inv[hero] = inv[hero]! + heroIn; bet[hero] = threeTo; pot += heroIn;
+    stack[hero] = stack[hero]! - heroIn;
+    inv[hero] = inv[hero]! + heroIn;
+    bet[hero] = threeTo;
+    pot += heroIn;
     // players after the hero who have not acted fold to the 3-bet
     for (const s of PREFLOP_ORDER.slice(PREFLOP_ORDER.indexOf(hero) + 1)) {
       if (s === opener || folded.has(s)) continue;
@@ -248,54 +330,112 @@ function build(D: number, hole: unknown[], threeTo: number | null) {
       push({ seat: s, action: 'fold', amount: 0, origin: 'horse_policy' });
     }
     const openerAll = OPEN_TO + stack[opener]!;
-    const want = OMAHA ? threeTo + (pot + (threeTo - OPEN_TO)) : Math.round(threeTo * 2.3 * 100) / 100;
+    const want = OMAHA
+      ? threeTo + (pot + (threeTo - OPEN_TO))
+      : Math.round(threeTo * 2.3 * 100) / 100;
     const fourTo = Math.min(openerAll, want);
     const oIn = fourTo - bet[opener]!;
-    stack[opener] = stack[opener]! - oIn; inv[opener] = inv[opener]! + oIn; bet[opener] = fourTo; pot += oIn;
+    stack[opener] = stack[opener]! - oIn;
+    inv[opener] = inv[opener]! + oIn;
+    bet[opener] = fourTo;
+    pot += oIn;
     const oAll = stack[opener]! <= 0.005;
     if (oAll) allIn.add(opener);
-    push({ seat: opener, action: oAll ? 'all_in' : 'raise', amount: fourTo, origin: 'player', isFullRaise: true });
+    push({
+      seat: opener,
+      action: oAll ? 'all_in' : 'raise',
+      amount: fourTo,
+      origin: 'player',
+      isFullRaise: true,
+    });
     toCall4 = Math.min(fourTo - threeTo, stack[hero]!);
     const heroMax = threeTo + stack[hero]!;
     fourNode = acts.length;
     push({
-      seat: hero, action: 'fold', amount: 0, origin: 'horse_policy',
+      seat: hero,
+      action: 'fold',
+      amount: 0,
+      origin: 'horse_policy',
       publicNode: pn(tuple(), hero, {
-        pot, toCall: toCall4, currentBet: fourTo,
+        pot,
+        toCall: toCall4,
+        currentBet: fourTo,
         minRaiseTo: oAll ? null : Math.min(heroMax, fourTo + (fourTo - threeTo)),
-        maxRaiseTo: oAll ? null : Math.min(heroMax, OMAHA ? fourTo + pot + (fourTo - threeTo) : heroMax),
+        maxRaiseTo: oAll
+          ? null
+          : Math.min(heroMax, OMAHA ? fourTo + pot + (fourTo - threeTo) : heroMax),
         legalActions: oAll ? ['fold', 'call', 'all_in'] : ['fold', 'call', 'raise', 'all_in'],
       }),
     });
   }
   const h = {
-    handId: 'a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778', variant: VARIANT, bigBlind: 2, smallBlind: 1, buttonSeat: 1,
+    handId: 'a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778',
+    variant: VARIANT,
+    bigBlind: 2,
+    smallBlind: 1,
+    buttonSeat: 1,
     publicMemoryDomain: { version: 1, speed: 'table', ante: OMAHA ? 'big_blind' : 'none' },
     players: [1, 2, 3, 4, 5, 6].map((s) => ({ seat: s, userId: 'u' + s, isHorse: s !== opener })),
-    horseHoleCards: { ['u' + hero]: hole }, actions: acts,
+    horseHoleCards: { ['u' + hero]: hole },
+    actions: acts,
   };
   return { h, heroNode, fourNode, toCall4 };
 }
 
+function mixSeed(seed: number): number {
+  let h = (seed >>> 0) ^ 0x2545f491;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0 || 1;
+}
 function run(h: Record<string, unknown>, ord: number, seed: number) {
   const { opener } = POSITIONS[POS]!;
   const node = (h.actions as unknown[])[ord];
-  const st = stateAt(h as never, node as never) as { gs: Record<string, unknown>; hero: unknown; pn: unknown };
-  const g = st.gs as { players: { user_id: string; username: string }[]; humanUserIds?: string[]; actionHistory: { userId: string }[] };
+  const st = stateAt(h as never, node as never) as {
+    gs: Record<string, unknown>;
+    hero: unknown;
+    pn: unknown;
+  };
+  const g = st.gs as {
+    players: { user_id: string; username: string }[];
+    humanUserIds?: string[];
+    actionHistory: { userId: string }[];
+  };
   const P = 'p' + opener;
-  for (const p of g.players) if (p.user_id === P) { p.user_id = OPENER_ID; p.username = OPENER_ID; }
+  for (const p of g.players)
+    if (p.user_id === P) {
+      p.user_id = OPENER_ID;
+      p.username = OPENER_ID;
+    }
   if (g.humanUserIds) g.humanUserIds = g.humanUserIds.map((x) => (x === P ? OPENER_ID : x));
   for (const a of g.actionHistory) if (a.userId === P) a.userId = OPENER_ID;
   HorseMind.reset();
   if (PROFILE.length) HorseMind.importDurableOpponentProfiles(PROFILE as never);
-  seedFastRandom(seed);
+  // the strategy stream from a mixed seed: xorshift32 started from a small integer returns a run of near-zero values,
+  // which would take the first branch of every mixed decision (the trace harness's seeds did); --raw-seed keeps it
+  seedFastRandom(process.argv.includes('--raw-seed') ? seed : mixSeed(seed));
   seedHorseBetSizeRandom(seed ^ 0x5bd1e995);
   seedHorseTimingRandom(seed ^ 0x9e3779b9);
   drainFires();
-  const d = HorseLogic.decide(st.hero as never, JSON.parse(JSON.stringify(st.gs)), hy.style, { ...hy.mods }, { ...OPTS, decisionTimeMs: FIXED_NOW } as never) as Record<string, unknown>;
+  const d = HorseLogic.decide(
+    st.hero as never,
+    JSON.parse(JSON.stringify(st.gs)),
+    hy.style,
+    { ...hy.mods },
+    { ...OPTS, decisionTimeMs: FIXED_NOW } as never
+  ) as Record<string, unknown>;
   const k = actionKind(d.action as never, d.amount as never, st.pn as never);
-  const fires = drainFires().map((f) => f.feature).filter((f) => /oop_reraise|v53|reraise_by_position|oop_reraised|priced_fold|three_bet/.test(f));
-  return { k, amt: d.amount as number | undefined, fires, receipt: d.oopReraiseRangeHolds as Record<string, unknown> | undefined };
+  const fires = drainFires()
+    .map((f) => f.feature)
+    .filter((f) =>
+      /oop_reraise|v53|reraise_by_position|oop_reraised|priced_fold|three_bet/.test(f)
+    );
+  return {
+    k,
+    amt: d.amount as number | undefined,
+    fires,
+    receipt: d.oopReraiseRangeHolds as Record<string, unknown> | undefined,
+  };
 }
 
 if (START === 0 || !arg('append')) writeFileSync(OUT, '');
@@ -304,21 +444,43 @@ const t0 = Date.now();
 const wall = process.hrtime.bigint();
 for (let i = START; i < START + N; i++) {
   const hole = deal(i);
-  const cls = OMAHA ? omahaHandClass(hole as never) : holdemClassOf(hole[0] as never, hole[1] as never);
+  const cls = OMAHA
+    ? omahaHandClass(hole as never)
+    : holdemClassOf(hole[0] as never, hole[1] as never);
   for (const D of DEPTHS) {
     const b = build(D, hole, null);
     const a = run(b.h, b.heroNode, 1000 + i);
     decisions++;
-    const row: Record<string, unknown> = { i, D, pos: POS, read: READ, hole: str(hole), cls, tb: a.k, tbAmt: a.amt, tbFires: a.fires };
+    const row: Record<string, unknown> = {
+      i,
+      D,
+      pos: POS,
+      read: READ,
+      hole: str(hole),
+      cls,
+      tb: a.k,
+      tbAmt: a.amt,
+      tbFires: a.fires,
+    };
     if (a.receipt) {
       const r = a.receipt as Record<string, unknown>;
-      row.rc = { verdict: r.verdict, reason: r.reason, fourBetAnswer: r.fourBetAnswer, keep: r.keep, ev: r.ev, answers: r.answers, callAdmitted: r.callAdmitted, blocker: r.blocker, effBB: r.effBB };
+      row.rc = {
+        verdict: r.verdict,
+        reason: r.reason,
+        fourBetAnswer: r.fourBetAnswer,
+        keep: r.keep,
+        ev: r.ev,
+        answers: r.answers,
+        callAdmitted: r.callAdmitted,
+        blocker: r.blocker,
+        effBB: r.effBB,
+      };
     }
     if ((a.k === 'raise' || a.k === 'jam') && Number.isFinite(a.amt)) {
       const b4 = build(D, hole, a.amt as number);
       const f = run(b4.h, b4.fourNode, 5000 + i);
       decisions++;
-      Object.assign(row, { f4: f.k, f4Amt: f.amt });
+      Object.assign(row, { f4: f.k, f4Amt: f.amt, f4Fires: f.fires });
     } else if (a.k === 'jam') {
       Object.assign(row, { f4: 'allin' });
     }

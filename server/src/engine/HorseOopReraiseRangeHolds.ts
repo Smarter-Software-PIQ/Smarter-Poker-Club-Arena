@@ -67,7 +67,8 @@ export const OOP_RERAISE_GAMES: Readonly<Record<OopReraiseGame, string>> = Objec
 });
 const HOLE_COUNT: Readonly<Record<OopReraiseGame, number>> = { plo4: 4, plo5: 5, nlh: 2 };
 
-/** The cap on the fold-to-4-bet share of the out-of-position 3-bet range (runtime setting horse.reraiseFoldShareCap). */
+/** The cap on the fold-to-4-bet share of the out-of-position 3-bet range (runtime setting
+ *  horse.reraiseFoldShareCap). */
 export const RERAISE_FOLD_SHARE_CAP_DEFAULT = 0.45;
 /** A hold'em 4-bet is priced at this multiple of the 3-bet (pot limit: the pot-sized 4-bet). */
 export const HOLDEM_FOUR_BET_MULTIPLE = 2.3;
@@ -596,34 +597,99 @@ export function oopReraiseBlocker(hole: readonly Card[]): boolean {
   return hole.some((c) => c.rank === 'A');
 }
 
-/** Masses per bucket (continuing 3-bets, blocker 3-bets that would fold), measured by the replay; version below. */
-export const OOP_RERAISE_BLOCKER_MASS_VERSION = '2026-11-24.v1';
-export const OOP_RERAISE_BLOCKER_MASS: Readonly<Record<string, { cont: number; block: number }>> =
-  Object.freeze({
-    /*@@MASS@@*/
-  } as Record<string, { cont: number; block: number }>);
+/**
+ * Per bucket (game : depth : the opener's fold to a 3-bet, f0 under 0.25, f25 to 0.5, f50 above), measured by
+ * server/scripts/oop-reraise-range/replay.ts with the options on (arm on2, 2026-11-24, the production options of the
+ * day; four positions, three opener reads, the strategy stream from spread seeds):
+ * cont = 3-bets that stand on their price and the Horse's own continue against the 4-bet, block = blocker 3-bets that
+ * pass the price but whose answer is a fold, mix = the share of the standing 3-bets that fold at the replay's
+ * separately asked 4-bet node (the Horse's own answer to a 4-bet is itself a mixed decision for some hands).
+ */
+export const OOP_RERAISE_BLOCKER_MASS_VERSION = '2026-11-24.v3';
+export const OOP_RERAISE_BLOCKER_MASS: Readonly<
+  Record<string, { cont: number; block: number; mix: number }>
+> = Object.freeze({
+  'nlh:135_250:f0': { cont: 405, block: 0, mix: 0.0 },
+  'nlh:135_250:f50': { cont: 472, block: 876, mix: 0.0678 },
+  'nlh:250_500:f0': { cont: 259, block: 0, mix: 0.0 },
+  'nlh:250_500:f50': { cont: 250, block: 817, mix: 0.192 },
+  'nlh:80_135:f0': { cont: 260, block: 0, mix: 0.0 },
+  'nlh:80_135:f25': { cont: 160, block: 184, mix: 0.025 },
+  'nlh:80_135:f50': { cont: 160, block: 235, mix: 0.025 },
+  'nlh:gt500:f0': { cont: 131, block: 0, mix: 0.0 },
+  'nlh:gt500:f50': { cont: 104, block: 357, mix: 0.2308 },
+  'nlh:le80:f0': { cont: 331, block: 0, mix: 0.0 },
+  'nlh:le80:f25': { cont: 160, block: 128, mix: 0.025 },
+  'nlh:le80:f50': { cont: 160, block: 145, mix: 0.025 },
+  'plo4:135_250:f0': { cont: 77, block: 0, mix: 0.0 },
+  'plo4:135_250:f25': { cont: 54, block: 47, mix: 0.0 },
+  'plo4:135_250:f50': { cont: 75, block: 139, mix: 0.0 },
+  'plo4:250_500:f0': { cont: 48, block: 0, mix: 0.0 },
+  'plo4:250_500:f25': { cont: 44, block: 24, mix: 0.0 },
+  'plo4:250_500:f50': { cont: 48, block: 148, mix: 0.0 },
+  'plo4:80_135:f0': { cont: 36, block: 0, mix: 0.0 },
+  'plo4:80_135:f25': { cont: 40, block: 0, mix: 0.0 },
+  'plo4:80_135:f50': { cont: 127, block: 0, mix: 0.0 },
+  'plo4:gt500:f0': { cont: 36, block: 0, mix: 0.0 },
+  'plo4:gt500:f25': { cont: 24, block: 12, mix: 0.0 },
+  'plo4:gt500:f50': { cont: 28, block: 79, mix: 0.0 },
+  'plo4:le80:f0': { cont: 63, block: 0, mix: 0.0 },
+  'plo4:le80:f25': { cont: 65, block: 0, mix: 0.0 },
+  'plo4:le80:f50': { cont: 127, block: 0, mix: 0.0 },
+  'plo5:135_250:f0': { cont: 31, block: 0, mix: 0.0 },
+  'plo5:135_250:f25': { cont: 56, block: 15, mix: 0.0 },
+  'plo5:135_250:f50': { cont: 60, block: 66, mix: 0.0 },
+  'plo5:250_500:f0': { cont: 25, block: 0, mix: 0.0 },
+  'plo5:250_500:f25': { cont: 48, block: 8, mix: 0.0 },
+  'plo5:250_500:f50': { cont: 48, block: 73, mix: 0.0 },
+  'plo5:80_135:f0': { cont: 60, block: 0, mix: 0.0 },
+  'plo5:80_135:f50': { cont: 81, block: 0, mix: 0.0 },
+  'plo5:gt500:f0': { cont: 10, block: 0, mix: 0.0 },
+  'plo5:gt500:f25': { cont: 16, block: 0, mix: 0.0 },
+  'plo5:gt500:f50': { cont: 24, block: 21, mix: 0.0 },
+  'plo5:le80:f0': { cont: 67, block: 0, mix: 0.0 },
+  'plo5:le80:f50': { cont: 90, block: 0, mix: 0.0 },
+});
 
-/** The keep table's bucket: game, depth and whether the opener's answer is measured. */
+/** The keep table's depth buckets (effective stack in big blinds). */
+export function oopReraiseKeepDepth(effBB: number): string {
+  if (!(effBB > 80)) return 'le80';
+  if (effBB <= 135) return '80_135';
+  if (effBB <= 250) return '135_250';
+  if (effBB <= 500) return '250_500';
+  return 'gt500';
+}
+
+/** The keep table's bucket: game, depth and the band of the opener's fold to a 3-bet. */
 export function oopReraiseKeepBucket(
   game: OopReraiseGame,
   effBB: number,
-  source: OpenerAnswersRead['source']
+  foldShare: number
 ): string {
-  return `${game}:${oopReraiseDepthBucket(effBB)}:${source}`;
+  const band = !(foldShare >= 0.25) ? 'f0' : foldShare < 0.5 ? 'f25' : 'f50';
+  return `${game}:${oopReraiseKeepDepth(effBB)}:${band}`;
 }
 
 /**
- * The planned-fold keep frequency q for a bucket: q = min(1, F* / (1 - F*) x M_cont / M_block), where M_cont is the mass of
- * the bucket's 3-bets that continue against the 4-bet and M_block the mass of its blocker 3-bets that would fold
- * (OOP_RERAISE_BLOCKER_MASS, measured by server/scripts/oop-reraise-range/replay.ts with the option on and no planned
- * fold kept). Kept at that frequency the range's fold share is F* at most; a bucket not measured gets 0 (no planned
- * fold is kept).
+ * The keep frequency aims this far under the cap: the table pools positions and reads inside a bucket, its masses are
+ * counts, and the keep draw is one seeded unit per hand, so the realized share of one table varies around the aim
+ * (replay: aimed at the cap the NLH unread and tight-read rows at 100-200 bb came out up to 0.09 over it; aimed 0.05
+ * under it, up to 0.03 over; realized keep frequency up to 0.07 above the asked one in a bucket).
+ */
+export const OOP_RERAISE_KEEP_MARGIN = 0.08;
+
+/**
+ * The planned-fold keep frequency q for a bucket. Kept blockers fold to the 4-bet, the standing range folds at its
+ * measured mix share, so the range's fold share is (mix x cont + q x block) / (cont + q x block); holding it at
+ * F = F* - OOP_RERAISE_KEEP_MARGIN (F* the cap) gives q = cont x (F - mix) / (block x (1 - F)), clamped to [0, 1]
+ * (OOP_RERAISE_BLOCKER_MASS). A bucket not measured, or with no blocker mass, gets 0: no planned fold is kept.
  */
 export function oopReraiseKeepFrequency(cap: number, bucket: string): number {
   const m = OOP_RERAISE_BLOCKER_MASS[bucket];
   if (!m || !(m.block > 0) || !(m.cont >= 0)) return 0;
-  const f = clamp(cap, 0, 0.95);
-  return clamp(((f / (1 - f)) * m.cont) / m.block, 0, 1);
+  const f = clamp(cap - OOP_RERAISE_KEEP_MARGIN, 0, 0.95);
+  const mix = clamp(Number.isFinite(m.mix) ? m.mix : 0, 0, 1);
+  return clamp((m.cont * (f - mix)) / (m.block * (1 - f)), 0, 1);
 }
 
 /** The fold share at which a 4-bet of the given size breaks even with any hand when it is never called. */
@@ -753,7 +819,7 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
     verdict = 'kept';
     reason = 'priced_continue';
   } else if (blocker) {
-    const bucket = oopReraiseKeepBucket(spot.game, spot.effBB, i.answers.source);
+    const bucket = oopReraiseKeepBucket(spot.game, spot.effBB, phi);
     const frequency = oopReraiseKeepFrequency(cap, bucket);
     const unit = oopReraiseKeepUnit(i.horseId, P0, hole);
     keep = { frequency: r4(frequency), unit: r4(unit), bucket };

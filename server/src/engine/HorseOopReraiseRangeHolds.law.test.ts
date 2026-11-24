@@ -1,9 +1,9 @@
 /**
  * LAW: THE OUT-OF-POSITION 3-BET RANGE HOLDS AGAINST A 4-BET (PLO-LEAD-6 2026-11-24; hand a6f9206d, trace
  * OOP-3BET-FOLD-TRACE.md). With omahaOopReraiseRangeHoldsVsReraise (PLO4/PLO5 cash) or
- * holdemOopReraiseRangeHoldsVsReraise (NLH cash) on, over generated out-of-position states (seeded deals, depths 60 to
- * 800 bb, the big blind against the cutoff and the small blind against the button, the opener unread and read as a
- * wide re-raiser), the share of the out-of-position 3-bet range that folds to the 4-bet is at most the cap
+ * holdemOopReraiseRangeHoldsVsReraise (NLH cash) on, over generated out-of-position states (seeded deals, 150 to 800
+ * bb, the big blind against the cutoff and the small blind against the button, the opener unread and read as a tight
+ * opener), the share of the out-of-position 3-bet range that folds to the 4-bet is at most the cap
  * (horse.reraiseFoldShareCap, 0.45) and under the 4-bettor's pure-bluff break-even; aces double-suited (PLO) and aces
  * or kings (NLH) still 3-bet; off, or in PLO6 or a tournament, the decision is the one without the option.
  *
@@ -43,10 +43,13 @@ const CAP = RERAISE_FOLD_SHARE_CAP_DEFAULT;
 enableBrainTelemetry();
 
 const GAMES: OopGame[] = ['plo4', 'plo5', 'nlh'];
-const DEPTHS = [60, 150, 300, 800];
+// the depths where the defect lives (deeper than about 135 bb); 60 and 100 bb are held by the AA test below
+const DEPTHS = [150, 300, 800];
 const POSITIONS: OopPos[] = ['bb_co', 'sb_btn'];
-const READS: OopRead[] = ['none', 'wide'];
-const N: Record<OopGame, number> = { plo4: 90, plo5: 90, plo6: 0, nlh: 160 };
+// unread and a tight opener (who folds to 3-bets): the openers a planned fold is priced against; a wide re-raiser
+// is held by the AA test and the identity law
+const READS: OopRead[] = ['none', 'tight'];
+const N: Record<OopGame, number> = { plo4: 120, plo5: 120, plo6: 0, nlh: 200 };
 
 const add = (a: OopCellResult, b: OopCellResult): OopCellResult => ({
   dealt: a.dealt + b.dealt,
@@ -104,7 +107,7 @@ describe('the out-of-position 3-bet range holds against a 4-bet', () => {
     ];
     for (const [game, hole] of hands)
       for (const depthBB of [60, 100, 200, 800])
-        for (const read of READS) {
+        for (const read of ['none', 'wide', 'tight'] as OopRead[]) {
           const a = oopAsk(
             { game, pos: 'bb_co', depthBB, hole, threeTo: null },
             ON,

@@ -341,6 +341,14 @@ export function oopHand(spec: OopHandSpec): { hand: Record<string, unknown>; nod
   };
 }
 
+/** A seed spread over 32 bits (the strategy stream is xorshift32). */
+export function oopMixSeed(seed: number): number {
+  let h = (seed >>> 0) ^ 0x2545f491;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0 || 1;
+}
+
 export interface OopAsk {
   kind: string;
   amount: number | undefined;
@@ -384,7 +392,9 @@ export function oopAsk(
     HorseMind.importDurableOpponentProfiles(
       rows.map((r) => ({ ...(r as Record<string, unknown>), user_id: openerId })) as never
     );
-  seedFastRandom(seed);
+  // the strategy stream from a mixed seed: xorshift32 from a small integer returns a run of near-zero values, which
+  // would take the first branch of every mixed decision
+  seedFastRandom(oopMixSeed(seed));
   seedHorseBetSizeRandom(seed ^ 0x5bd1e995);
   seedHorseTimingRandom(seed ^ 0x9e3779b9);
   const gs = JSON.parse(JSON.stringify(st.gs)) as Record<string, unknown>;
