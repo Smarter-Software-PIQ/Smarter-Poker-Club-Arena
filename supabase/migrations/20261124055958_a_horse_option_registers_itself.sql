@@ -10,7 +10,7 @@
 -- THE COLLISION. The database whitelist of the Horse option switch was three CHECK constraints on
 -- public.ca_horse_style_switch and the literal lists inside public.fn_ca_horse_option_switch_states. A CHECK cannot
 -- be added to, only replaced, so every pull request that registered one option (or moved one to off-only) carried a
--- migration re-asserting ALL the registered names (285 on 2026-11-19, 346 on 2026-11-20, 365 on 2026-11-23). Migrations install in merge order: of two such pull requests the second
+-- migration re-asserting ALL the registered names (285 on 2026-11-19, 346 on 2026-11-20, 365 on 2026-11-23, 367 on 2026-11-24). Migrations install in merge order: of two such pull requests the second
 -- overwrote the first, and one generated before the first merged silently un-locked every option the first had
 -- locked. Three lanes lost an afternoon to it on 2026-11-19 and one stale list was a blocking review finding.
 --
@@ -45,7 +45,7 @@
 -- THE SEED CARRIES NO LIST. The rows are read from what is INSTALLED: the names of the CHECK constraint this file
 -- replaces, each classified by the states function this file replaces, and refused unless the constraint and the
 -- function name exactly the same options. It then refuses to install unless what it read is exactly the lists of
--- the last full-list migration (20261122181616, by fingerprint): the database and the law start from the same
+-- the last full-list migration (20261123071956, by fingerprint): the database and the law start from the same
 -- whitelist, or nothing changes. A full-list follow-up that is merged but not installed yet, or one merged after
 -- this file was written, stops it loudly instead of being overwritten or overwriting.
 --
@@ -55,7 +55,7 @@
 -- fn_ca_horse_option_switch_states keeps its signature and its grant (service_role only). Installing this file
 -- twice leaves the same state. Registering an option ENABLES NOTHING: no row is the release default.
 --
--- COST: one table of one short row per registered option (365), one primary-key read per switch write, three ALTERs on a table of one row
+-- COST: one table of one short row per registered option (367), one primary-key read per switch write, three ALTERs on a table of one row
 -- per switched option that is read once per 30 seconds. No live table is touched or locked.
 BEGIN;
 
@@ -84,9 +84,9 @@ ALTER TABLE public.ca_horse_option_whitelist ENABLE ROW LEVEL SECURITY;
 DO $seed$
 DECLARE
   v_me       constant text := '20261124055958_a_horse_option_registers_itself';
-  -- the lists of the last full-list migration, 20261122181616: md5 of 'option:kind:off-only(0|1):shadow level' joined by ','
+  -- the lists of the last full-list migration, 20261123071956: md5 of 'option:kind:off-only(0|1):shadow level' joined by ','
   -- in byte order of the option. everyUpgradeHasALiveSwitch.law.test.ts computes it from that file.
-  v_lists    constant text := 'c8cca75e4b8a5e518e8cffb0e75c976b';
+  v_lists    constant text := '42fe91b250933682bd22383fcc3b6bd3';
   v_found    text;
   v_type     "char";
   v_def      text;
@@ -162,7 +162,7 @@ BEGIN
                         ORDER BY w.option COLLATE "C"))
     INTO v_found FROM public.ca_horse_option_whitelist w;
   IF v_found IS DISTINCT FROM v_lists THEN
-    RAISE EXCEPTION 'the installed whitelist (% options, lists %) is not the one of 20261122181616_horse_option_switch_turn5_antigravity_train (lists %): a full-list follow-up is not installed yet, or a newer one is. Nothing is changed',
+    RAISE EXCEPTION 'the installed whitelist (% options, lists %) is not the one of 20261123071956_horse_option_switch_non_nut_raise_and_late_call (lists %): a full-list follow-up is not installed yet, or a newer one is. Nothing is changed',
       cardinality(v_names), v_found, v_lists;
   END IF;
   -- every row already written fits the seeded whitelist (the CHECKs being replaced said so; read, not trusted)

@@ -97,6 +97,20 @@ since the shadow list (2026-11-18) and the on_shadow list (2026-11-19), and seve
   option would lose (shadow, on_shadow);
 - generator: `--register <file> [--allow-shadow] [option ...]`.
 
+## 2026-11-24: Re-Anchored On #11825 (46 Frozen Full-List Migrations)
+
+Main merged PR #11825 (`b319a8eb0b5a`), whose full-list migration
+`20261123071956_horse_option_switch_non_nut_raise_and_late_call.sql` follows Turn 5 and adds two PLO options default
+OFF. Re-anchored on it:
+
+- the frozen anchor is now `20261123071956` (46 full-list migrations, 367 options: 7 style, 360 plain, 75 off-only,
+  202 shadow, 280 on_shadow), fingerprint `42fe91b250933682bd22383fcc3b6bd3`, derived with
+  `optionSwitchListsFingerprint` from the file;
+- the whitelist migration keeps version `20261124055958`, newer than every full-list migration on main, so the
+  #11825 list (stamp `20261123071956`) still installs before it and refuses to install after it;
+- the throwaway Postgres proof reads its frozen lists from the #11825 migration and its refusal and overwrite checks
+  name `20261123071956`.
+
 ## 2026-11-24: Rebuilt On Main bf6fb356036e, Re-Reserved As 20261124055958
 
 Rebuilt by the HORSE DECISIONS lead (Claude session 01BNteGZ) on fresh `origin/main` (`bf6fb356036e`), carrying only

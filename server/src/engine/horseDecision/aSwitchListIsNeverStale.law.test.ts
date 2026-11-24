@@ -7,11 +7,11 @@
  * re-held an option the owner's delegate had just lifted.
  *
  * With the row-based whitelist (`OPTION_SWITCH_WHITELIST_MIGRATION`), full-list migrations are frozen at
- * `OPTION_SWITCH_LAST_LIST_MIGRATION` (45 files) and new lanes ship commuting `--register` migrations
+ * `OPTION_SWITCH_LAST_LIST_MIGRATION` (46 files) and new lanes ship commuting `--register` migrations
  * (`SELECT public.fn_ca_horse_option_register(...)`) that add no full-list migration.
  *
  * The three guards (HorseOptionSwitchMigrationLists.ts) stay active together:
- *   1. THE FROZEN HISTORICAL CHAIN: the 45 full-list migrations from the base through OPTION_SWITCH_CHAIN_ANCHOR
+ *   1. THE FROZEN HISTORICAL CHAIN: the 46 full-list migrations from the base through OPTION_SWITCH_CHAIN_ANCHOR
  *      through OPTION_SWITCH_LAST_LIST_MIGRATION form one unbroken chain (pre-chain versions pinned; every
  *      post-anchor list names its immediate predecessor on `-- registry:follows:` and stamps its version into
  *      fn_ca_horse_option_switch_states). Commuting `--register` migrations carry no list marker and pass cleanly.

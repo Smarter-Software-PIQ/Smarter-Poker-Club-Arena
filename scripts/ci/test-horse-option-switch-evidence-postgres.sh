@@ -137,7 +137,7 @@ fi
 
 # The lists the switch was installed with: the first marked blocks of the LAST full-list migration. Frozen; an
 # option registered after it is a row of the whitelist table, proven in the last section.
-list_migration="$repo/supabase/migrations/20261122181616_horse_option_switch_turn5_antigravity_train.sql"
+list_migration="$repo/supabase/migrations/20261123071956_horse_option_switch_non_nut_raise_and_late_call.sql"
 names_of() { # marker
   awk -v b="-- registry:$1:begin" -v e="-- registry:$1:end" 'index($0, b) {on = 1; next} index($0, e) {exit} on' "$list_migration" | tr -s "', 
 " ' ' | sed 's/^ //; s/ $//'
@@ -478,7 +478,7 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   # migration (a follow-up that is merged and not installed yet), the whitelist migration refuses and changes nothing.
   if [ "$has_older_lists" = 1 ]; then
     older="$(in_db older_lists -f "$whitelist_migration" 2>&1 | sed -n 's/^.*ERROR:  //p' | head -1 || true)"
-    case "$older" in *"is not the one of 20261122181616_horse_option_switch_turn5_antigravity_train"*) check "over an older full list the whitelist migration refuses to install" refused refused;; *) check "over an older full list the whitelist migration refuses to install" refused "$older";; esac
+    case "$older" in *"is not the one of 20261123071956_horse_option_switch_non_nut_raise_and_late_call"*) check "over an older full list the whitelist migration refuses to install" refused refused;; *) check "over an older full list the whitelist migration refuses to install" refused "$older";; esac
     check "and it left that database as it was: no whitelist table, the literal CHECK still there" "|c" "$(qd older_lists "SELECT to_regclass('public.ca_horse_option_whitelist')")|$(qd older_lists "SELECT contype FROM pg_constraint WHERE conrelid = 'public.ca_horse_style_switch'::regclass AND conname = 'ca_horse_style_switch_option_is_registered'")"
   fi
   rows_digest() { q "SELECT md5(coalesce(string_agg(option || '|' || state || '|' || updated_by || '|' || coalesce(note, ''), ';' ORDER BY option), '')) || '|' || (SELECT count(*) FROM public.ca_horse_style_switch_audit) FROM public.ca_horse_style_switch"; }
@@ -599,7 +599,7 @@ SQL
   case "$stamped_over" in *"is older than the installed list 20261124055958"*) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused refused;; *) check "a stamped older full-list follow-up refuses to install over the whitelist migration" refused "$stamped_over";; esac
   # and if an unstamped or newer-stamped full-list follow-up ever put the literal lists back, registering refuses
   # loudly instead of adding a row nothing reads (everyUpgradeHasALiveSwitch.law.test.ts refuses such a file first)
-  sed "s/20261122181616/99999999999999/g" "$list_migration" > "$work/newer-list-overwrite.sql"
+  sed "s/20261123071956/99999999999999/g" "$list_migration" > "$work/newer-list-overwrite.sql"
   PGOPTIONS='-c client_min_messages=warning' in_db order_ba -f "$work/newer-list-overwrite.sql" >/dev/null
   expect_refusal_in "after an old full-list follow-up overwrote the switch, registering refuses and says why" order_ba "no longer reads public.ca_horse_option_whitelist" "SELECT public.fn_ca_horse_option_register('proofOptionD', 'plain', false, 'none', '$reg_b')"
 
