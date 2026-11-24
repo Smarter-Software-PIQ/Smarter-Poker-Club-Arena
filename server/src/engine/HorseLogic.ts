@@ -467,6 +467,7 @@ import {
   SUITS,
   validateAction,
   calculateBettingState,
+  calculateRake,
   HEADS_UP_RAKE_PERCENT,
 } from './PokerEngine.js';
 // V3 (2026-07-23): real-time opponent intelligence — live stats, range reading,
@@ -9970,18 +9971,24 @@ function oopReraiseContext(player: SeatPlayer, gs: HorseGameStateV2): OopReraise
       bombPot: gs.bombPot === true,
       allInOrFold: gs.allInOrFold === true,
     },
-    rakeFraction: (call) => {
-      if (tournament) return 0;
+    // the whole deduction of a pot of `pot` chips that sees a flop (the rake to its cap and the jackpot drop), as a
+    // share of it: each branch of the price is raked on its own pot
+    rakeOfPot: (pot) => {
+      if (tournament || !(pot > 0)) return 0;
       try {
-        return (
-          horseCallDeductionFraction(player, gs, call) ??
-          rakeDrag(
-            Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
-            gs.bigBlind || 1,
-            gs.rakeConfig,
-            dealtHorseTableSize(gs, player.seat)
-          )
-        );
+        const dealt = dealtHorseTableSize(gs, player.seat);
+        const bb = gs.bigBlind || 1;
+        const r = gs.rakeConfig;
+        if (!r) {
+          const capChips = Math.max(bb * 2.5, 3);
+          return Math.min(pot * RAKE_PCT, capChips) / pot;
+        }
+        const rake = r.timedRake ? 0 : calculateRake(pot, true, r, dealt);
+        const b = gs.bbjConfig;
+        const bbj =
+          b?.enabled && dealt >= b.minPlayersDealt ? Math.round(bb * b.feeBB * 100) / 100 : 0;
+        const total = rake + Math.min(Math.max(0, pot - rake), bbj);
+        return Number.isFinite(total) && total >= 0 ? Math.min(1, total / pot) : 0;
       } catch {
         return 0;
       }

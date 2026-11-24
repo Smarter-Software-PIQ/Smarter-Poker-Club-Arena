@@ -528,8 +528,8 @@ export interface OopReraiseInput {
   openBand: readonly [number, number] | null;
   /** the Horse's own answer to the 4-bet on the frame (HorseLogic re-asks it); null when it could not be asked */
   fourBetAnswer: OopReraiseAnswer | null;
-  /** the share of a won pot the deduction takes */
-  rakeFraction: number;
+  /** the share of a pot (contested past the flop) the deduction takes: each branch is raked on its own pot */
+  rakeOfPot: (pot: number) => number;
   /** whether the existing calling rule admits the call of the open (Omaha: omahaDowngradedThreeBetCalls; hold'em:
    *  the brain's call bar) */
   callAdmitted: boolean;
@@ -747,8 +747,15 @@ function equityAgainstBand(
  */
 export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null {
   const { spot, hole, dead } = i;
-  const rake = clamp(Number.isFinite(i.rakeFraction) ? i.rakeFraction : 0, 0, 0.5);
-  const keepRake = 1 - rake;
+  const unraked = (pot: number): number => {
+    let r = 0;
+    try {
+      r = i.rakeOfPot(pot);
+    } catch {
+      r = 0;
+    }
+    return 1 - clamp(Number.isFinite(r) ? r : 0, 0, 0.5);
+  };
   const raiseTo = Math.min(spot.heroBet + spot.heroStack, i.raiseTo);
   const fourTo = oopReraiseFourBetTo(spot, raiseTo);
   const P0 = spot.pot;
@@ -774,14 +781,14 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
   const R = (spr: number, equity: number | null): number =>
     omahaPreflopDefenceRealization(false, spr, 0, shape, 0, equity ?? undefined);
   const rCall = R(spr1, eqOpen);
-  const evCall = eqOpen === null ? null : rCall * eqOpen * potCall * keepRake - c0;
+  const evCall = eqOpen === null ? null : rCall * eqOpen * potCall * unraked(potCall) - c0;
   const alternative = i.callAdmitted && evCall !== null ? Math.max(0, evCall) : 0;
   // The 3-bet called.
   const openerCalls = Math.min(spot.openerStack, Math.max(0, raiseTo - spot.openerBet));
   const pot3 = P0 + I3 + openerCalls;
   const spr3 = Math.max(0, Math.min(spot.heroStack - I3, spot.openerStack - openerCalls)) / pot3;
   const r3 = R(spr3, eqCalled);
-  const evCalled = r3 * eqCalled * pot3 * keepRake - I3;
+  const evCalled = r3 * eqCalled * pot3 * unraked(pot3) - I3;
   // The 4-bet.
   const openerIn4 = Math.max(0, fourTo - spot.openerBet);
   const C4 = Math.min(Math.max(0, fourTo - raiseTo), Math.max(0, spot.heroStack - I3));
@@ -789,10 +796,11 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
   const spr4 = Math.max(0, Math.min(spot.heroStack - I3 - C4, spot.openerStack - openerIn4)) / pot4;
   const rFour = R(spr4, eqFour);
   const v4Fold = -I3;
-  const v4Call = rFour * eqFour * pot4 * keepRake - I3 - C4;
+  const v4Call = rFour * eqFour * pot4 * unraked(pot4) - I3 - C4;
   const eff = Math.min(spot.heroBet + spot.heroStack, spot.openerBet + spot.openerStack);
   const dead0 = Math.max(0, P0 - spot.heroBet - spot.openerBet);
-  const v4Raise = eqFour * (dead0 + 2 * eff) * keepRake - (eff - spot.heroBet);
+  const potJam = dead0 + 2 * eff;
+  const v4Raise = eqFour * potJam * unraked(potJam) - (eff - spot.heroBet);
   const answer = i.fourBetAnswer;
   const v4 =
     answer === 'fold'

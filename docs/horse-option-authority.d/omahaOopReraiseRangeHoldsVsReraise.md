@@ -19,7 +19,35 @@ Default OFF in source (read `=== true`), registered in the option switch, switch
 
 ## What Was Measured
 
-@@OMAHA_TABLE@@
+Generated-state replay (`server/scripts/oop-reraise-range/replay.ts`; the production options of 2026-11-24 about 07:10Z; a six-seat cash table, the Horse out of position facing one open at four seats (big blind against the cutoff, the button and under the gun; small blind against the button); seeded uniform deals, 400 per seat, read and depth in PLO and 1,500 in NLH; the opener unread, read as a wide re-raiser (counters shaped like PFR 60%, fold to a 3-bet 0) or as a tight opener (PFR 12%, fold to a 3-bet 70%); the 4-bet pot-sized in PLO and 2.3x the 3-bet in NLH, the Horse's answer asked at a separate 4-bet node; the strategy stream from spread seeds). Off is today's brain (arm offm), on the option (arm on5: keep table 2026-11-24.v3, margin 0.08, each branch raked on its own pot). Cap 0.45.
+
+PLO4: 3-bet % of dealt / share of the 3-bets that fold to the 4-bet (n 3-bets); off -> on
+
+| depth  | all reads                         | unread                          | wide re-raiser read             | tight read                      |
+| ------ | --------------------------------- | ------------------------------- | ------------------------------- | ------------------------------- |
+| 60 bb  | 11.5% / 4% -> 7.2% / 0% (n 345)   | 7.9% / 0% -> 5.8% / 0% (n 92)   | 18.8% / 7% -> 7.9% / 0% (n 126) | 7.9% / 0% -> 7.9% / 0% (n 127)  |
+| 100 bb | 11.5% / 10% -> 5.2% / 1% (n 250)  | 7.9% / 0% -> 3.4% / 0% (n 55)   | 18.8% / 19% -> 4.2% / 4% (n 68) | 7.9% / 0% -> 7.9% / 0% (n 127)  |
+| 150 bb | 11.5% / 33% -> 3.5% / 10% (n 170) | 7.9% / 50% -> 3.2% / 17% (n 52) | 18.8% / 19% -> 3.9% / 0% (n 62) | 7.9% / 50% -> 3.5% / 14% (n 56) |
+| 200 bb | 11.5% / 40% -> 3.0% / 17% (n 143) | 7.9% / 65% -> 2.9% / 33% (n 46) | 18.8% / 19% -> 3.1% / 0% (n 49) | 7.9% / 65% -> 3.0% / 19% (n 48) |
+| 300 bb | 11.5% / 49% -> 2.3% / 17% (n 109) | 7.9% / 78% -> 2.2% / 33% (n 36) | 18.8% / 25% -> 2.6% / 0% (n 42) | 7.9% / 78% -> 1.9% / 23% (n 31) |
+| 400 bb | 11.5% / 53% -> 1.9% / 21% (n 92)  | 7.9% / 78% -> 2.2% / 33% (n 36) | 18.8% / 31% -> 1.6% / 0% (n 25) | 7.9% / 78% -> 1.9% / 23% (n 31) |
+| 800 bb | 11.5% / 78% -> 2.4% / 19% (n 114) | 7.9% / 78% -> 2.4% / 38% (n 39) | 18.8% / 78% -> 2.5% / 0% (n 40) | 7.9% / 78% -> 2.2% / 20% (n 35) |
+
+PLO5: 3-bet % of dealt / share of the 3-bets that fold to the 4-bet (n 3-bets); off -> on
+
+| depth  | all reads                        | unread                          | wide re-raiser read             | tight read                      |
+| ------ | -------------------------------- | ------------------------------- | ------------------------------- | ------------------------------- |
+| 60 bb  | 9.1% / 4% -> 5.5% / 2% (n 264)   | 5.6% / 0% -> 4.2% / 0% (n 67)   | 16.0% / 6% -> 6.7% / 4% (n 107) | 5.6% / 0% -> 5.6% / 0% (n 90)   |
+| 100 bb | 9.1% / 10% -> 3.8% / 0% (n 183)  | 5.6% / 0% -> 2.8% / 0% (n 44)   | 16.0% / 17% -> 3.1% / 0% (n 49) | 5.6% / 0% -> 5.6% / 0% (n 90)   |
+| 150 bb | 9.1% / 33% -> 2.6% / 14% (n 126) | 5.6% / 56% -> 2.2% / 11% (n 36) | 16.0% / 17% -> 2.5% / 0% (n 40) | 5.6% / 56% -> 3.1% / 28% (n 50) |
+| 200 bb | 9.1% / 35% -> 2.3% / 21% (n 112) | 5.6% / 60% -> 2.5% / 20% (n 40) | 16.0% / 17% -> 1.6% / 0% (n 26) | 5.6% / 60% -> 2.9% / 33% (n 46) |
+| 300 bb | 9.1% / 38% -> 2.0% / 15% (n 94)  | 5.6% / 60% -> 1.8% / 0% (n 28)  | 16.0% / 22% -> 1.4% / 0% (n 22) | 5.6% / 60% -> 2.8% / 32% (n 44) |
+| 400 bb | 9.1% / 45% -> 1.8% / 15% (n 84)  | 5.6% / 60% -> 1.8% / 0% (n 28)  | 16.0% / 35% -> 1.0% / 0% (n 16) | 5.6% / 60% -> 2.5% / 32% (n 40) |
+| 800 bb | 9.1% / 71% -> 1.7% / 18% (n 83)  | 5.6% / 60% -> 1.5% / 0% (n 24)  | 16.0% / 78% -> 1.1% / 6% (n 17) | 5.6% / 60% -> 2.6% / 33% (n 42) |
+
+Reading. Every on row is under the cap (highest 38%, PLO4 unread at 800 bb). The out-of-position 3-bet rate falls from 9-11.5% of dealt hands to 1.5-7%: at 150 bb and deeper the PLO5 range is 80% aces (PLO4 60%), at 60-100 bb 43% (PLO4 28%), the rest single-ace hands and, at 60-100 bb, some hands without an ace; the planned folds kept are ace-blocker hands. With the measured read of the opener of hand a6f9206d at 785 bb (the real-hand law) aces double-suited and aces with a suited ace 3-bet and the range folds at most 45% (today about 68%). 3-bets made under V53 pressure are rejected far more often (arm on0: PLO5 at 150 bb and deeper 92% rejected against 70% without pressure; at 60-100 bb 79% against 29%). With the option on, `omahaOopReraisedPotStrongRange` turned a 4-bet call of the kept range into a fold once in 1,127 PLO 3-bets that faced the 4-bet at 150 bb and deeper (off: 449 of 4,950). A few standing 3-bets fold at the separately asked 4-bet node because the Horse's own answer to a 4-bet is a mixed decision for some hands (`mix` in the keep table).
+
+Not run: the audited-decision scorer, the league card, a live read. Realization is the engine's re-raised-pot fit (2,023 recorded calls).
 
 ## Replay
 

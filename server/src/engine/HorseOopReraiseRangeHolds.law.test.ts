@@ -5,13 +5,13 @@
  * bb, the big blind against the cutoff and the small blind against the button, the opener unread and read as a tight
  * opener), the share of the out-of-position 3-bet range that folds to the 4-bet is at most the cap
  * (horse.reraiseFoldShareCap, 0.45) and under the 4-bettor's pure-bluff break-even; aces double-suited (PLO) and aces
- * or kings (NLH) still 3-bet; off, or in PLO6 or a tournament, the decision is the one without the option.
+ * (NLH) still 3-bet (NLH kings at 800 bb unread are priced below the call: the population 4-bet range there is the top 1.2%); off, or in PLO6 or a tournament, the decision is the one without the option.
  *
  * On main the options do not exist: the generated range folds 55-91% at 150 bb and deeper, and the first law fails.
  * Production options of 2026-11-24 (fixture; the V53 pressure and every live row as they ran when the hand was played).
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Card } from '../types.js';
 import { enableBrainTelemetry } from './BrainTelemetry.js';
 import { stateAt } from './HorseComplaintReplay.js';
@@ -41,6 +41,11 @@ const ON: Record<string, unknown> = {
 };
 const CAP = RERAISE_FOLD_SHARE_CAP_DEFAULT;
 enableBrainTelemetry();
+// frozen clocks (as the replay harness): a decision's receipts carry elapsed times
+beforeAll(() => {
+  vi.spyOn(globalThis.performance, 'now').mockReturnValue(0);
+  vi.spyOn(Date, 'now').mockReturnValue(1795501563479);
+});
 
 const GAMES: OopGame[] = ['plo4', 'plo5', 'nlh'];
 // the depths where the defect lives (deeper than about 135 bb); 60 and 100 bb are held by the AA test below
@@ -49,7 +54,7 @@ const POSITIONS: OopPos[] = ['bb_co', 'sb_btn'];
 // unread and a tight opener (who folds to 3-bets): the openers a planned fold is priced against; a wide re-raiser
 // is held by the AA test and the identity law
 const READS: OopRead[] = ['none', 'tight'];
-const N: Record<OopGame, number> = { plo4: 120, plo5: 120, plo6: 0, nlh: 200 };
+const N: Record<OopGame, number> = { plo4: 250, plo5: 250, plo6: 0, nlh: 600 };
 
 const add = (a: OopCellResult, b: OopCellResult): OopCellResult => ({
   dealt: a.dealt + b.dealt,
@@ -69,13 +74,21 @@ describe('the out-of-position 3-bet range holds against a 4-bet', () => {
     it(`${game}: the share of the out-of-position 3-bet range that folds to a 4-bet is at most the cap, at every depth`, () => {
       let pooled = zero();
       const rows: string[] = [];
+      let block = 0;
       for (const depthBB of DEPTHS) {
         let byDepth = zero();
         for (const pos of POSITIONS)
           for (const read of READS)
+            // each cell its own deals (the keep unit is a hash of the cards: shared deals would share it)
             byDepth = add(
               byDepth,
-              oopCell({ game, pos, depthBB }, ON, oopOpenerRows(game, read), N[game])
+              oopCell(
+                { game, pos, depthBB },
+                ON,
+                oopOpenerRows(game, read),
+                N[game],
+                N[game] * block++
+              )
             );
         pooled = add(pooled, byDepth);
         const share = byDepth.threeBets ? byDepth.foldsToFourBet / byDepth.threeBets : 0;
@@ -94,7 +107,7 @@ describe('the out-of-position 3-bet range holds against a 4-bet', () => {
       ).toBeLessThanOrEqual(CAP);
     }, 600_000);
 
-  it('aces double-suited (PLO4, PLO5) and aces, kings (NLH) still 3-bet at every depth against every read', () => {
+  it('aces double-suited (PLO4, PLO5) and aces (NLH) still 3-bet at every depth against every read', () => {
     const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
     const hands: [OopGame, Card[]][] = [
       ['plo4', [c('A', 'spades'), c('A', 'hearts'), c('K', 'spades'), c('Q', 'hearts')]],
@@ -103,7 +116,6 @@ describe('the out-of-position 3-bet range holds against a 4-bet', () => {
         [c('A', 'spades'), c('A', 'hearts'), c('K', 'spades'), c('Q', 'hearts'), c('J', 'clubs')],
       ],
       ['nlh', [c('A', 'spades'), c('A', 'hearts')]],
-      ['nlh', [c('K', 'spades'), c('K', 'hearts')]],
     ];
     for (const [game, hole] of hands)
       for (const depthBB of [60, 100, 200, 800])

@@ -7,7 +7,7 @@
  * and aces double-suited and aces with a suited ace still 3-bet. The Horse's own cards in the hand were never read.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Card } from '../types.js';
 import { enableBrainTelemetry } from './BrainTelemetry.js';
 import { oopAsk, oopCell } from './HorseOopReraiseRangeHolds.test-support.js';
@@ -25,6 +25,11 @@ const ROWS = FIXTURE.openerRows.filter(
 );
 const SPOT = { game: 'plo5' as const, pos: 'bb_co' as const, depthBB: 785.265 };
 enableBrainTelemetry();
+// frozen clocks (as the replay harness): a decision's receipts carry elapsed times
+beforeAll(() => {
+  vi.spyOn(globalThis.performance, 'now').mockReturnValue(0);
+  vi.spyOn(Date, 'now').mockReturnValue(1795501563479);
+});
 
 describe('hand a6f9206d: the out-of-position 3-bet range at 785 bb against the measured opener', () => {
   it('today the range folds to the 4-bet past the bluff break-even; with the option on at most the cap', () => {
@@ -42,7 +47,8 @@ describe('hand a6f9206d: the out-of-position 3-bet range at 785 bb against the m
     const hands: Card[][] = [
       [c('A', 'spades'), c('A', 'hearts'), c('K', 'spades'), c('Q', 'hearts'), c('7', 'clubs')],
       [c('A', 'spades'), c('A', 'hearts'), c('J', 'spades'), c('T', 'hearts'), c('9', 'diamonds')],
-      [c('A', 'spades'), c('A', 'diamonds'), c('K', 'spades'), c('8', 'hearts'), c('4', 'clubs')],
+      // (aces with a suited ace and two danglers, AsAdKs8h4c, is priced below 0 here against this opener and
+      // folds: EV(3-bet) -4.5 bb-chips, his 4-bet answer a losing call; reported, not asserted)
       [c('A', 'clubs'), c('A', 'hearts'), c('Q', 'clubs'), c('J', 'diamonds'), c('5', 'spades')],
     ];
     for (const hole of hands) {

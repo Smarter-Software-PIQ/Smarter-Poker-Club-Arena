@@ -67,8 +67,8 @@ export interface OopReraiseOpts {
 /** What HorseLogic hands the wiring about a decision (its own helpers, so the scope is read one way). */
 export interface OopReraiseContext {
   exclusions: OopReraiseExclusions;
-  /** the share of a won pot the deduction takes for a call of `call` chips (0 in tournaments) */
-  rakeFraction: (call: number) => number;
+  /** the share of a pot of `pot` chips (contested past the flop) the deduction takes (0 in tournaments) */
+  rakeOfPot: (pot: number) => number;
 }
 
 type Gs = OopReraiseState & OopReraiseFrameState & { stage?: unknown; gameVariant?: unknown };
@@ -97,7 +97,7 @@ interface Collected {
   answers: OpenerAnswersRead;
   openBand: readonly [number, number] | null;
   callAdmitted: boolean;
-  rakeFraction: number;
+  rakeOfPot: (pot: number) => number;
 }
 
 /** The route in progress (null: none; the stage returns its input). Synchronous, one decision at a time. */
@@ -233,7 +233,7 @@ export function oopReraiseRangeHoldsStage(
       answers,
       openBand,
       callAdmitted,
-      rakeFraction: ctx.rakeFraction(Math.min(spot.toCall, spot.heroStack)),
+      rakeOfPot: ctx.rakeOfPot,
     };
     return decision;
   } catch {
@@ -348,7 +348,7 @@ export function oopReraiseRangeHoldsDecide(
       answers: collected.answers,
       openBand: collected.openBand,
       fourBetAnswer: answer,
-      rakeFraction: collected.rakeFraction,
+      rakeOfPot: collected.rakeOfPot,
       callAdmitted: collected.callAdmitted,
       cap:
         typeof opts.reraiseFoldShareCap === 'number' && Number.isFinite(opts.reraiseFoldShareCap)

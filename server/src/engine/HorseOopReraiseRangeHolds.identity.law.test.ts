@@ -5,7 +5,7 @@
  * read no identity field and no other player's cards.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   oopAsk,
@@ -25,6 +25,11 @@ const ON: Record<string, unknown> = {
   holdemOopReraiseRangeHoldsVsReraise: true,
 };
 enableBrainTelemetry();
+// frozen clocks (as the replay harness): a decision's receipts carry elapsed times
+beforeAll(() => {
+  vi.spyOn(globalThis.performance, 'now').mockReturnValue(0);
+  vi.spyOn(Date, 'now').mockReturnValue(1795501563479);
+});
 
 describe('the out-of-position 3-bet range rule reads no identity and no unshown card', () => {
   it('the same public spot under two opener ids decides the same', () => {
