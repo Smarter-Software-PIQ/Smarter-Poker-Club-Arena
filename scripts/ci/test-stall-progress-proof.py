@@ -522,8 +522,8 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
         # (a) Bounded complete v3 thaw skips in final 70s even with engine_maintenance_break deleted & profiles locked!
         sql('''TRUNCATE engine_maintenance_break, engine_maintenance_thaws, tick_calls;
         INSERT INTO engine_maintenance_thaws VALUES(
-          clock_timestamp() - interval '4 minutes', 3, '{"complete":true}'::jsonb,
-          clock_timestamp() + interval '1 minute'
+          now() - interval '3 minutes 50 seconds', 3, '{"complete":true}'::jsonb,
+          now() + interval '1 minute'
         );''')
         holder_v3 = subprocess.Popen(
             [str(pg_bin / 'psql'), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', str(port), '-U', 'fixture_owner', '-d', 'postgres'],
