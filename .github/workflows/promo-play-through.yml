@@ -232,7 +232,7 @@ jobs:
         run: |
           set -o pipefail
           python3 -B scripts/ci/test-promo-obligation-earning-matrix.py --pg-bin /usr/lib/postgresql/17/bin | tee "$RUNNER_TEMP/promo-obligation-matrix.log"
-          tail -n 1 "$RUNNER_TEMP/promo-obligation-matrix.log" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and v.get("checks",0)>=160 else "the matrix printed no passed verdict with its full case count")'
+          tail -n 1 "$RUNNER_TEMP/promo-obligation-matrix.log" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and v.get("checks",0)>=192 else "the matrix printed no passed verdict with its full case count")'
       - name: Settled Mystery Bounty pool residual earns from champion entry (5f8a23ea)
         if: steps.relevant.outputs.run == 'true'
         env:

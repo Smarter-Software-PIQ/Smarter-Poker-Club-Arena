@@ -51,7 +51,7 @@ describe('promo play-through is a required proof', () => {
     expect(text).toContain(
       'python3 -B scripts/ci/test-promo-obligation-earning-matrix.py --pg-bin /usr/lib/postgresql/17/bin'
     );
-    expect(text).toContain('v.get("checks",0)>=160');
+    expect(text).toContain('v.get("checks",0)>=192');
     const matrix = readFileSync('scripts/ci/test-promo-obligation-earning-matrix.py', 'utf8');
     for (const kind of [
       'place',
@@ -64,6 +64,8 @@ describe('promo play-through is a required proof', () => {
       'own_bounty',
       'bounty',
       'mystery_bounty',
+      'equal_share',
+      'equal_share_bounty',
     ]) {
       expect(matrix).toContain(`'${kind}'`);
     }
