@@ -50,6 +50,10 @@ jobs:
             scripts/ci/restore-schema-for-rehearsal.sh
             scripts/ci/fixtures/window-queue-rehearsal/**
             tests/fixtures/sp-critical-scan-preimage-20261117.sql
+            scripts/ci/cutover-outcome-ledger.py
+            scripts/ci/cutover-outcome-ledger-seed.json
+            scripts/ci/test-cutover-outcome-ledger.py
+            .github/workflows/stage-engine-release.yml
             .github/workflows/incident-class-proofs.yml
         shell: bash
         run: |
@@ -74,6 +78,9 @@ jobs:
           done <<< "$PROOF_PATHS"
           echo "No incident class proof input changed; the proofs have nothing new to verify."
           echo "run=false" >> "$GITHUB_OUTPUT"
+      - name: A cutover refused twice on the same gate fails, a seal resets it (CR1, 2026-11-24)
+        if: steps.relevant.outputs.run == 'true'
+        run: python3 -B scripts/ci/test-cutover-outcome-ledger.py
       - name: Install PostgreSQL 17 from the signed PGDG source only
         if: steps.relevant.outputs.run == 'true'
         uses: ./.github/actions/install-postgres-17
