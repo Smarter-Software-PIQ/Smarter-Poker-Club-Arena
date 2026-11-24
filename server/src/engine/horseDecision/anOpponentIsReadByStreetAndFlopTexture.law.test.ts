@@ -419,11 +419,15 @@ describe('an opponent is read by street and by flop texture', () => {
     // and, since 2026-11-19 (omahaFacingBetValueShareIsMeasured, default off) by that option's one wiring
     // function, which HorseLogic's facing-bet count calls behind that option and the mind, for the bettor alone;
     // and, since 2026-11-19 (omahaBluffIsPricedAgainstTheTarget, default off) by that option's module, which reads
-    // the target's foldToBet street cell only when the option is on and its wager is priced
+    // the target's foldToBet street cell only when the option is on and its wager is priced;
+    // and, since 2026-11-24 (omahaFlopRealizationIsPriced, default off) by the flop call tree's rule, which HorseLogic
+    // calls only behind that option, reading the bettor's own per-street bet counters (with the mind on) to shrink
+    // the measured later-street bet rates toward them, for the bettor alone
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
       'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
       'engine/HorseOmahaFacingBetValueShareMeasuredRule.ts',
+      'engine/HorseOmahaFlopCallTree.ts',
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
     ]);
@@ -501,6 +505,8 @@ describe('an opponent is read by street and by flop texture', () => {
       // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19)
       'engine/HorseOmahaFlopBettorRead.ts',
       // the default-off flop defence tree (omahaFlopDefenceIsPriced, dark batch 2026-11-18): the counters' TYPE only
+      // the flop call tree (omahaFlopRealizationIsPriced, default off, 2026-11-24): the counters' type only
+      'engine/HorseOmahaFlopCallTree.ts',
       'engine/HorseOmahaFlopDefenceTree.ts',
       // the flop rule that asks for the bettor read (flopTextureOf)
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
