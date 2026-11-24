@@ -18,10 +18,12 @@
 -- (2026-11-22 15:46Z) all failed at exactly 120.0 s with "canceling statement
 -- due to statement timeout" inside fn_ca_promo_fee_state_refresh, line 46 at IF.
 --
--- (The 160.2 s run 3420840 at 2026-11-24 06:40Z is NOT a sweep overrun: 30
--- cron jobs started 06:40:02-04Z, including one-row sentinels, all recorded
--- end_time 06:42:41.7-42.1Z together. The pg_cron launcher stalled while the
--- database was saturated; the sweep's own candidate query finished 06:40:15Z.)
+-- (The 160.2 s run 3420840 at 2026-11-24 06:40Z is NOT a sweep overrun. The
+-- pg_cron launcher was blocked for 157.7 s by job 286, a multi-statement
+-- command whose replay sends NOTICEs: pg_cron 1.6.4 loops on PQgetResult
+-- inside its launcher. 27 runs recorded their end within 0.5 s of 286's, and
+-- the sweep's own candidate query finished 06:40:15Z. Fixed at its source by
+-- 20261124204828_every_cron_job_is_one_statement.sql.)
 --
 -- PostgreSQL cannot arm a fresh statement timer inside a procedure: neither
 -- SET LOCAL nor set_config('statement_timeout', ...) before or after an
