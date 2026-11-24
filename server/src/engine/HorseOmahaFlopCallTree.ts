@@ -34,7 +34,6 @@
 import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire } from './BrainTelemetry.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
 import { omahaEvBluffShare } from './HorseOmahaFacingBetEv.js';
 import {
@@ -43,6 +42,13 @@ import {
 } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaBareOverpairFlopFacingBetSpot } from './HorseOmahaOopChecks.js';
 import { omahaPricedShrunk } from './HorseOmahaPricedRules.js';
+import {
+  OMAHA_FAST_PAIR_STRIDE,
+  omahaFastBestPre,
+  omahaFastCard,
+  omahaFastPairsInto,
+  omahaFastTriplesPre,
+} from './HorseOmahaFastScore.js';
 import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { omahaBetReadOwnCellOf } from './HorseOmahaBetRead.js';
 import {
@@ -206,9 +212,18 @@ function flopSamples(
   // The pool, ranked on the flop: the bettor's and the field's flop bins.
   const P = OMAHA_FLOP_CALL_TREE_POOL;
   const cards = new Int8Array(P * n);
+  // the same cards as integers (HorseOmahaFastScore: HorseEval's order, faster), the hero's and the board's
+  const ints = new Int32Array(P * n);
+  const unseenInt = Int32Array.from(unseen.map(omahaFastCard));
+  const np = (n * (n - 1)) / 2;
+  const pairStride = np * OMAHA_FAST_PAIR_STRIDE;
+  const pairs = new Int32Array(P * pairStride);
+  const heroPairs = new Int32Array(pairStride);
+  omahaFastPairsInto(Int32Array.from(hole.map(omahaFastCard)), 0, n, heroPairs, 0);
+  const boardInt = board.map(omahaFastCard);
+  const flopTriples = omahaFastTriplesPre(boardInt);
   const score = new Float64Array(P);
   const deck = new Int8Array(m);
-  const tmp: Card[] = new Array<Card>(n);
   for (let p = 0; p < P; p++) {
     for (let i = 0; i < m; i++) deck[i] = i;
     for (let k = 0; k < n; k++) {
@@ -217,9 +232,10 @@ function flopSamples(
       deck[k] = deck[j];
       deck[j] = t;
       cards[p * n + k] = deck[k];
-      tmp[k] = unseen[deck[k]];
+      ints[p * n + k] = unseenInt[deck[k]];
     }
-    score[p] = scoreOmahaHiPartial(tmp, board);
+    omahaFastPairsInto(ints, p * n, n, pairs, p * pairStride);
+    score[p] = omahaFastBestPre(pairs, p * pairStride, np, flopTriples);
   }
   const order = Array.from({ length: P }, (_, p) => p).sort((a, b) => score[b] - score[a] || a - b);
   const binOfPool = new Int8Array(P);
@@ -305,15 +321,27 @@ function flopSamples(
     }
     return -1;
   };
-  const scoreOf = (p: number, full: Card[]): number => {
-    for (let k = 0; k < n; k++) tmp[k] = unseen[cards[p * n + k]];
-    return scoreOmahaHiPartial(tmp, full);
+  // A holding's turn score is kept for the turn card it was scored on: its river scores add only the six board
+  // triples that hold the river card, and the river ranking pool is the turn pool's own holdings.
+  const turnScore = new Float64Array(P);
+  const turnStamp = new Int32Array(P);
+  let stamp = 0;
+  let turnTriples = flopTriples;
+  let riverTriples = flopTriples;
+  const turnScoreOf = (p: number): number => {
+    if (turnStamp[p] !== stamp) {
+      turnScore[p] = omahaFastBestPre(pairs, p * pairStride, np, turnTriples);
+      turnStamp[p] = stamp;
+    }
+    return turnScore[p];
   };
-  const rankPool = (full: Card[], size: number, skip: number[]): Float64Array => {
+  const riverScoreOf = (p: number): number =>
+    omahaFastBestPre(pairs, p * pairStride, np, riverTriples, turnScoreOf(p));
+  const rankPool = (size: number, skip: number[], scoreOf: (p: number) => number): Float64Array => {
     const out: number[] = [];
     for (let p = 0; p < P && out.length < size; p++) {
       if (skip.some((c) => holds(p, c))) continue;
-      out.push(scoreOf(p, full));
+      out.push(scoreOf(p));
     }
     return Float64Array.from(out);
   };
@@ -349,21 +377,20 @@ function flopSamples(
   let beatBettor = 0;
   let lostSameClass = 0;
   let behindIn = 0;
-  const turnBoard: Card[] = [...board, board[0]];
-  const full: Card[] = [...board, board[0], board[0]];
   for (let t = 0; t < m; t++) {
     const c1 = circle[t];
-    turnBoard[3] = unseen[c1];
-    full[3] = unseen[c1];
     used[c1] = 1;
-    const poolT = rankPool(turnBoard, OMAHA_FLOP_CALL_TREE_TURN_POOL, [c1]);
+    stamp++;
+    turnTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1]]);
+    const poolT = rankPool(OMAHA_FLOP_CALL_TREE_TURN_POOL, [c1], turnScoreOf);
+    const heroTurn = omahaFastBestPre(heroPairs, 0, np, turnTriples);
     for (let k = 0; k < R; k++) {
       const c2 = circle[(t + 1 + (Math.floor(((k + start) * half) / R) % half)) % m];
       const r = t * R + k;
-      full[4] = unseen[c2];
       used[c2] = 1;
-      const poolR = rankPool(full, OMAHA_FLOP_CALL_TREE_RIVER_POOL, [c1, c2]);
-      const hero = scoreOmahaHiPartial(hole, full);
+      riverTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1], unseenInt[c2]], true);
+      const poolR = rankPool(OMAHA_FLOP_CALL_TREE_RIVER_POOL, [c1, c2], riverScoreOf);
+      const hero = omahaFastBestPre(heroPairs, 0, np, riverTriples, heroTurn);
       heroRiver[r] = strengthIn(poolR, hero);
       for (let s = 0; s < H; s++) {
         const b = binAt(cumBettor, step(0));
@@ -389,13 +416,14 @@ function flopSamples(
           }
           mark(g, 1);
           picked[f + 1] = g;
-          fieldScore[f] = scoreOf(g, full);
           fieldIn[f] = f < A ? 1 : step(5 + 4 * f) < cont ? 1 : 0;
+          // a player behind who does not continue is never compared: he is not scored
+          fieldScore[f] = fieldIn[f] ? riverScoreOf(g) : 0;
         }
         for (let u = 1; u <= f; u++) mark(picked[u], 0);
         mark(p, 0);
         if (!whole) continue;
-        const bettor = scoreOf(p, full);
+        const bettor = riverScoreOf(p);
         let best = bettor;
         let tied = hero === bettor ? 1 : 0;
         let bestField = -1;
@@ -416,7 +444,7 @@ function flopSamples(
         sTurn[ns] = t;
         sRun[ns] = r;
         sScored[ns] = s >= H / 2 ? 1 : 0;
-        sBinT[ns] = omahaMeasuredBinOf(strengthIn(poolT, scoreOf(p, turnBoard)));
+        sBinT[ns] = omahaMeasuredBinOf(strengthIn(poolT, turnScoreOf(p)));
         sBinR[ns] = omahaMeasuredBinOf(strengthIn(poolR, bettor));
         sShare[ns] = hero > best ? 1 : hero === best ? 1 / (1 + tied) : 0;
         sBeats[ns] = beats;

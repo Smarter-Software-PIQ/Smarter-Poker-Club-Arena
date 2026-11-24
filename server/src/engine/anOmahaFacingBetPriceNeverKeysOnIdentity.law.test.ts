@@ -15,6 +15,7 @@ const FILES = [
   'HorseOmahaFacingBetPriced.ts',
   'HorseOmahaPricedJointSample.ts',
   'HorseOmahaFlopCallTree.ts',
+  'HorseOmahaFastScore.ts',
   'HorseOmahaMultiwayValueBet.ts',
 ];
 

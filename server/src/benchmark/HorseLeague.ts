@@ -3374,10 +3374,27 @@ const PLO_FACING_BET_PRICED_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as 
       }))
     )
 );
+/**
+ * The flop call tree against the live switches of 2026-11-24 after 07:08Z (omahaFacingBetEv on, omahaFlopFacingBetEv
+ * off): b is that live set, a adds omahaFlopRealizationIsPriced alone. Development cards, dealt by name only.
+ */
+const PLO_FLOP_CALL_TREE_VS_LIVE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    ([2, 6, 9] as const).map((seats) => ({
+      name: `${variant}_omaha_facing_bet_priced_grade_f3live_${seats === 2 ? 'hu' : seats + 'max'}`,
+      variant,
+      seats,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetEv: true, omahaFlopRealizationIsPriced: true },
+      b: { omahaFacingBetEv: true },
+    }))
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   ...PLO_FACING_BET_PRICED_GRADE_CARDS,
+  ...PLO_FLOP_CALL_TREE_VS_LIVE_CARDS,
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },

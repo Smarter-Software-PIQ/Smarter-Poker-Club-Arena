@@ -131,6 +131,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the joint showdown sample of the default-off corrected facing-bet price and multiway value bet (PLO-OWNER lead-6 2026-11-24): the bettor and the field dealt on the same cards from measured ranges, card-seeded',
     'src/engine/HorseOmahaFlopCallTree.ts':
       "the default-off flop call tree (PLO-OWNER lead-6 2026-11-24, omahaFlopRealizationIsPriced): in PLO4/PLO5 cash a flop fold or call facing a bet is the two-street tree on the bettor's measured range and the joint field, his later bet rates measured; it never raises",
+    'src/engine/HorseOmahaFastScore.ts':
+      'the integer-card Omaha high score of the flop call tree (PLO-OWNER lead-6 2026-11-24, omahaFlopRealizationIsPriced): the same order as HorseEval.scoreOmahaHiPartial, faster; it decides nothing on its own',
     'src/engine/HorseOmahaMultiwayValueBet.ts':
       "the default-off priced multiway value bet (PLO-OWNER lead-6 2026-11-24, omahaMultiwayValueBetIsPriced): in PLO4/PLO5 cash a final multiway check becomes the best of three bet sizes where it beats the check against the field's measured fold and calling ranges",
     'src/engine/HorseOmahaStabDefence.ts':
