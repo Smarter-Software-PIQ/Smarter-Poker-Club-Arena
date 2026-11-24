@@ -774,12 +774,41 @@ export function holdemLateVerdict(
   const options: HoldemLateOption[] = [];
   const valueRaise = new Map<number, boolean>();
   if (!spot.facing) {
+    // EV(check). Heads-up with him still to act on this street: he bets the fitted checked-to share pi of his range
+    // (his top (1 - beta) pi and bottom beta pi, beta = b / (1 + 2b) for his bet b of HOLDEM_LATE_LOOKAHEAD_BET pots)
+    // and the Horse answers with the better of fold and call against that part; he checks the rest and the hand goes
+    // on at showdown value. Otherwise (he has acted, or more than one opponent) the showdown value.
+    let checkEv = rho * showdown * P;
+    const o0 = reads.length === 1 ? reads[0]! : null;
+    const heActed = (gs.actionHistory ?? []).some(
+      (a) =>
+        a.stage === spot.street &&
+        o0 !== null &&
+        (a.userId !== undefined ? a.userId === o0.opp.user_id : a.seat === o0.opp.seat)
+    );
+    if (o0 && !heActed && !o0.opp.is_all_in && num(o0.opp.stack) > 0) {
+      const pi = clamp01(
+        HOLDEM_LATE_BET_SHARE_PRIOR[spot.street][holdemLateLineOf(gs, o0.opp, spot.street)]
+          .checkedTo
+      );
+      const bb = Math.min(HOLDEM_LATE_LOOKAHEAD_BET * P, num(o0.opp.stack), spot.stack);
+      const bf = bb / Math.max(1e-9, P);
+      const beta = bf / (1 + 2 * bf);
+      const top = holdemEquityOfShare(o0.range, (1 - beta) * pi, 'top');
+      const bot = holdemEquityOfShare(o0.range, beta * pi, 'bottom');
+      const mid = holdemEquityOfShare(o0.range, 1 - pi, 'top', (1 - beta) * pi);
+      const wB = top.weight + bot.weight;
+      const eB = wB > 0 ? (top.equity * top.weight + bot.equity * bot.weight) / wB : showdown;
+      const piEff = wB / Math.max(1e-9, o0.range.total);
+      const eC = mid.weight > 0 ? mid.equity : showdown;
+      checkEv = piEff * Math.max(0, rho * eB * (P + 2 * bb) - bb) + (1 - piEff) * rho * eC * P;
+    }
     options.push({
       kind: 'check',
       to: 0,
-      ev: rho * showdown * P,
-      evNoBlock: rho * showdown * P,
-      evNoNut: rho * showdown * P,
+      ev: checkEv,
+      evNoBlock: checkEv,
+      evNoNut: checkEv,
     });
     const effAll = Math.min(
       spot.heroIn + spot.stack,

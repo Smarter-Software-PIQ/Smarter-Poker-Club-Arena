@@ -154,7 +154,8 @@ describe('LAW: the chooser is the math, never a roll', () => {
         expect(v.options.find((o) => o.kind === 'call')!.ev, s.k).toBeLessThan(0);
       }
     }
-    expect(bets).toBeGreaterThan(20);
+    // coverage of the generated set (the check is priced with his bet behind it, so fewer of these states bet)
+    expect(bets).toBeGreaterThanOrEqual(10);
     expect(folds).toBeGreaterThan(20);
   }, 600_000);
 });
