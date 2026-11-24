@@ -124,11 +124,31 @@ export function HubFrame({
 }: HubFrameProps) {
   const ref = useRef<HTMLIFrameElement>(null);
   const initialSrc = useRef(src).current;
+  const lastPropSrcRef = useRef(src);
   /* Latest callbacks, so the one-time effect below never calls a stale one. */
   const cbRef = useRef({ onLocationChange, onClubArenaTarget });
   cbRef.current = { onLocationChange, onClubArenaTarget };
   /* The last same-origin page the frame was on: what an explicit Reload restores. */
   const lastPathRef = useRef(src);
+
+  // When an external caller (e.g. OPEN_HUB_TAB for a different ?hand=<id>) updates
+  // `src` on an already-open hub tab, navigate the existing same-origin iframe
+  // in place without remounting it.
+  useEffect(() => {
+    if (src === lastPropSrcRef.current) return;
+    lastPropSrcRef.current = src;
+    lastPathRef.current = src;
+    const iframe = ref.current;
+    if (!iframe) return;
+    try {
+      const current = iframe.contentWindow?.location;
+      if (current && `${current.pathname}${current.search}` !== src) {
+        current.assign(src);
+      }
+    } catch {
+      iframe.src = src;
+    }
+  }, [src]);
   /* A frame does not LOAD until its tab has been on screen once. Tabs restored
      after a reload arrive inactive, and three Next.js apps booting behind a
      live hand on a phone wastes resources before a page is requested.
