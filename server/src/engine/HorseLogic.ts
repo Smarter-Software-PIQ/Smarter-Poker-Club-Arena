@@ -243,6 +243,7 @@ import {
 } from './HorseOmahaNoCategoricalRules.js';
 import {
   withOmahaOptionGameScope,
+  omahaOptionGameOf,
   type OmahaOptionGameScope,
 } from './HorseOmahaOptionGameScope.js';
 import { withBlanketRowsOffInPlo45Cash } from './HorseOmahaBlanketRowsOffInPlo45Cash.js';
@@ -424,6 +425,7 @@ import {
   oopReraiseRangeHoldsDecide,
   oopReraiseRangeHoldsOn,
   oopReraiseRangeHoldsRouting,
+  oopReraiseRangeHoldsScoped,
   oopReraiseRangeHoldsStage,
   type OopReraiseContext,
 } from './HorseOopReraiseRangeHoldsWiring.js';
@@ -17160,9 +17162,12 @@ export class HorseLogic {
     // decision facing one open is asked through the rule's route (HorseOopReraiseRangeHoldsWiring); off, or out of
     // its spot, nothing here runs and the decision below is the one asked.
     if (oopReraiseRangeHoldsOn(opts) && !oopReraiseRangeHoldsRouting()) {
-      const scoped = opts.omahaOptionGameScope
-        ? withOmahaOptionGameScope(opts, player, gameState)
-        : opts;
+      // the game scope of the omaha option, read the way withOmahaOptionGameScope reads it (that one read site
+      // stays below, inside the decision this route asks)
+      const scoped = oopReraiseRangeHoldsScoped(
+        opts,
+        opts.omahaOptionGameScope ? omahaOptionGameOf(player, gameState) : null
+      );
       const routed = oopReraiseRangeHoldsDecide(
         player,
         gameState,

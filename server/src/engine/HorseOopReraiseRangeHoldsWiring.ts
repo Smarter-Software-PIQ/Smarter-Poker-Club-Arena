@@ -88,6 +88,22 @@ export function oopReraiseRangeHoldsOn(opts: OopReraiseOpts): boolean {
   );
 }
 
+/**
+ * The options with the PLO option's game scope applied (horse.omahaGameScope.omahaOopReraiseRangeHoldsVsReraise):
+ * off in a PLO4/PLO5 cash decision of the other game, as withOmahaOptionGameScope sets it for the decision itself.
+ * `game` is HorseOmahaOptionGameScope.omahaOptionGameOf of the decision (null outside PLO4/PLO5 cash).
+ */
+export function oopReraiseRangeHoldsScoped<
+  O extends OopReraiseOpts & { omahaOptionGameScope?: unknown },
+>(opts: O, game: 4 | 5 | null): O {
+  const scope = opts.omahaOptionGameScope as Readonly<Record<string, unknown>> | undefined;
+  const only =
+    scope && typeof scope === 'object' ? scope[OMAHA_OOP_RERAISE_RANGE_HOLDS] : undefined;
+  if (game === null || (only !== 4 && only !== 5) || only === game) return opts;
+  if (opts.omahaOopReraiseRangeHoldsVsReraise !== true) return opts;
+  return { ...opts, omahaOopReraiseRangeHoldsVsReraise: false };
+}
+
 /** The inputs the stage collects in pass 1. */
 interface Collected {
   spot: OopReraiseSpot;
