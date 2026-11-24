@@ -67,6 +67,8 @@
 -- charge and orphan refund stay refused) and
 -- tests/a-spin-seat-counts-a-refunded-entry-as-refunded.law.test.ts.
 
+BEGIN;
+
 CREATE OR REPLACE FUNCTION public.fn_spin_book_entry(p_tournament_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -348,6 +350,28 @@ BEGIN
     'entry_reserve_id',v_reserve.id,'entry_journal_id',v_journal_id);
 END;
 $function$;
+
+-- @probe-for: public.fn_spin_book_entry
+-- Runs the new body once against the oldest partly filled Spin (it reaches
+-- the net-of-refunds proof and refuses with three_paid_seats_required), or a
+-- missing id on an empty database. Always undone.
+DO $probe$
+DECLARE
+  v_id uuid;
+  v_res jsonb;
+BEGIN
+  SELECT t.id INTO v_id FROM public.tournaments t
+   WHERE t.variant = 'spin' AND t.status = 'REGISTERING' AND t.started_at IS NULL
+     AND COALESCE(t.max_players, 0) = 3
+   ORDER BY t.created_at LIMIT 1;
+  v_res := public.fn_spin_book_entry(COALESCE(v_id, '00000000-0000-0000-0000-000000000000'::uuid));
+  IF v_res IS NULL OR v_res->>'reason' IS NULL THEN
+    RAISE EXCEPTION 'spin_book_entry_probe_failed: %', v_res;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 CREATE OR REPLACE FUNCTION public.fn_spin_draw_and_settle(p_tournament_id uuid, p_tiers jsonb)
  RETURNS jsonb
@@ -899,3 +923,31 @@ BEGIN
     'owner_id',v_owner);
 END;
 $function$;
+
+-- @probe-for: public.fn_spin_draw_and_settle
+-- Runs the new body once against the same board. Its own refusal codes
+-- (55000, P0002, 22023, 23514) are the expected answer for a board that
+-- is not yet three paid seats; any other error, such as a body that cannot
+-- execute, rolls this migration back. Always undone.
+DO $probe$
+DECLARE
+  v_id uuid;
+BEGIN
+  SELECT t.id INTO v_id FROM public.tournaments t
+   WHERE t.variant = 'spin' AND t.status = 'REGISTERING' AND t.started_at IS NULL
+     AND COALESCE(t.max_players, 0) = 3
+   ORDER BY t.created_at LIMIT 1;
+  BEGIN
+    PERFORM public.fn_spin_draw_and_settle(
+      COALESCE(v_id, '00000000-0000-0000-0000-000000000000'::uuid), '[]'::jsonb);
+  EXCEPTION
+    -- Its own refusals: not three paid identities / closed status / Diamond
+    -- (55000), missing board (P0002), not a Spin (22023), bad contract (23514).
+    WHEN SQLSTATE '55000' OR SQLSTATE 'P0002' OR SQLSTATE '22023' OR SQLSTATE '23514' THEN NULL;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+COMMIT;
