@@ -154,7 +154,8 @@ if [ "$APPLY" = 1 ]; then
   say "-- prune-stale-worktrees.sh"
   IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$CLONE/scripts/prune-stale-worktrees.sh" 2>&1 | grep -E "^(PRUNE|SQUASHED|Removed|removed)" | sed 's/^/  /'
   T2=$(git worktree list | wc -l | tr -d ' ')
-  git worktree prune
+  # Never a bare prune: a tree on an unmounted drive is not a deleted tree (2026-11-22).
+  node "$CLONE/scripts/ops/safe-worktree-prune.mjs" --repo "$CLONE" || true
 else
   say "-- prune-stale-worktrees.sh --dry-run"
   IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$CLONE/scripts/prune-stale-worktrees.sh" --dry-run 2>&1 | grep -cE "^PRUNE" | sed 's/^/  prunable trees: /'
