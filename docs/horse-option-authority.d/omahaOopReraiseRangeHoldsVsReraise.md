@@ -1,6 +1,6 @@
 # omahaOopReraiseRangeHoldsVsReraise: Authority For The Live Switch
 
-Built 2026-11-24 by PLO-LEAD-6 from the trace of hand a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778 (OOP-3BET-FOLD-TRACE.md). Evidence NOT MET: the audited-decision scorer and the league card were not run; the generated-state replay below is the only grade. This file does not authorize switching the option on.
+Built 2026-11-24 by PLO-LEAD-6 from the trace of hand a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778 (OOP-3BET-FOLD-TRACE.md). Evidence NOT MET: the audited-decision scorer was not run; the generated-state replay and the league runs below (mirror and heads-up exploit probes) are the only grades. This file does not authorize switching the option on.
 
 ## What It Does
 
@@ -47,7 +47,37 @@ PLO5: 3-bet % of dealt / share of the 3-bets that fold to the 4-bet (n 3-bets); 
 
 Reading. Every on row is under the cap (highest 38%, PLO4 unread at 800 bb). The out-of-position 3-bet rate falls from 9-11.5% of dealt hands to 1.5-7%: at 150 bb and deeper the PLO5 range is 80% aces (PLO4 60%), at 60-100 bb 43% (PLO4 28%), the rest single-ace hands and, at 60-100 bb, some hands without an ace; the planned folds kept are ace-blocker hands. With the measured read of the opener of hand a6f9206d at 785 bb (the real-hand law) aces double-suited and aces with a suited ace 3-bet and the range folds at most 45% (today about 68%). 3-bets made under V53 pressure are rejected far more often (arm on0: PLO5 at 150 bb and deeper 92% rejected against 70% without pressure; at 60-100 bb 79% against 29%). With the option on, `omahaOopReraisedPotStrongRange` turned a 4-bet call of the kept range into a fold once in 1,127 PLO 3-bets that faced the 4-bet at 150 bb and deeper (off: 449 of 4,950). A few standing 3-bets fold at the separately asked 4-bet node because the Horse's own answer to a 4-bet is a mixed decision for some hands (`mix` in the keep table).
 
-Not run: the audited-decision scorer, the league card, a live read. Realization is the engine's re-raised-pot fit (2,023 recorded calls).
+Not run: the audited-decision scorer, a live read (the league runs are in the next section). Realization is the engine's re-raised-pot fit (2,023 recorded calls).
+
+## League (chips), 2026-11-24
+
+Harness `server/scripts/oop-reraise-range/league.ts`; the production options of 2026-11-24 in both arms, the option (and nothing else) added in ON; same seeds; one niced job at a time; no database. bb/100 ± standard error. Not the declared league card (`plo4/plo5_omaha_oop_reraise_range_holds_vs_reraise`), whose arms carry no production options.
+
+Mirror (HorseLeague `runMatchup`, production styles; half the seats ON, half OFF, swapped; ON's chips against OFF):
+
+| card                 | hands  | ON         | OFF  |
+| -------------------- | ------ | ---------- | ---- |
+| PLO5 6-max 100 bb    | 12,000 | -0.3 ± 2.0 | +0.3 |
+| PLO5 6-max 300 bb    | 12,000 | -2.0 ± 2.4 | +2.0 |
+| PLO5 heads-up 100 bb | 16,000 | -1.9 ± 4.1 | +1.9 |
+| PLO5 heads-up 300 bb | 16,000 | +1.7 ± 7.5 | -1.7 |
+| PLO4 6-max 100 bb    | 12,000 | +1.8 ± 1.8 | -1.8 |
+
+Exploit probes (ExploiterLeague `runExploiterCell`, heads-up, the script in seat 0 with memory on; the script is the production Horse with the option OFF except its answer to the Horse's 3-bet of its own button open: a 4-bets every such 3-bet (pot), b 4-bets only with aces or kings and otherwise never re-raises, c calls every such 3-bet). 12,000 hands per arm on the same deals; the Horse's bb/100 against the script, and ON - OFF differenced hand by hand (`ExploiterCellSpec.onPair`). Fold to 4-bet: the share of the Horse's out-of-position 3-bets that folded when script a 4-bet them.
+
+| game, depth | probe | OFF         | ON          | ON - OFF    | 3-bets OFF -> ON | fold to 4-bet OFF -> ON |
+| ----------- | ----- | ----------- | ----------- | ----------- | ---------------- | ----------------------- |
+| PLO5 100 bb | a     | -5.1 ± 8.4  | +7.0 ± 7.9  | +12.2 ± 5.8 | 223 -> 59        | 73% -> 3%               |
+| PLO5 100 bb | b     | -4.1 ± 7.5  | +2.5 ± 6.5  | +6.7 ± 5.0  | 235 -> 57        |                         |
+| PLO5 100 bb | c     | -2.0 ± 7.1  | +4.5 ± 6.1  | +6.5 ± 5.2  | 235 -> 61        |                         |
+| PLO5 300 bb | a     | -8.5 ± 9.9  | +13.1 ± 8.8 | +21.7 ± 6.2 | 229 -> 52        | 80% -> 21%              |
+| PLO5 300 bb | b     | -3.5 ± 10.7 | +10.9 ± 9.9 | +14.4 ± 7.9 | 234 -> 55        |                         |
+| PLO5 300 bb | c     | +7.2 ± 11.3 | +10.4 ± 9.7 | +3.2 ± 7.2  | 228 -> 55        |                         |
+| PLO4 300 bb | a     | -9.5 ± 8.0  | -9.5 ± 8.1  | +0.0 ± 4.7  | 151 -> 66        | 75% -> 50%              |
+| PLO4 300 bb | b     | -7.9 ± 9.1  | -8.1 ± 7.7  | -0.3 ± 6.6  | 149 -> 67        |                         |
+| PLO4 300 bb | c     | -10.2 ± 9.7 | -4.2 ± 7.7  | +6.0 ± 6.5  | 149 -> 64        |                         |
+
+Reading. ON never loses chips in PLO at the measured standard errors: it gains against the always-4-bet script (PLO5 +12 at 100 bb, +22 at 300 bb), and the near-aces range at 300 bb gains or breaks even against the scripts that do not 4-bet light (b, c), because the 3-bets it drops were losing ones and the call or fold that replaces them is the existing rule's. The mirror cards are all within about one standard error of 0. Against script a the share of the out-of-position 3-bets that fold to the 4-bet falls from 73-80% to 3% (PLO5 100 bb) and 21% (PLO5 300 bb); PLO4 at 300 bb reads 50% of 66 3-bets, over the cap: the keep table was fitted on six-max positions and heads-up ranges are wider (stated, not tuned). The heads-up out-of-position 3-bet count falls about four times (PLO5 223-235 -> 52-61 per 12,000 hands; PLO4 149-151 -> 64-67). Winning setting for PLO4/PLO5: the default (`horse.reraiseFoldShareCap` 0.45, ace blockers); nothing was tuned.
 
 ## Replay
 
