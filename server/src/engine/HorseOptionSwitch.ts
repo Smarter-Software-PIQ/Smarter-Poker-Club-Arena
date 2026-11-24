@@ -465,6 +465,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
   'holdemTournamentAllInCallIsPriced',
+  // 2026-11-24 Hold'em tournament raise defence (NLH-TOURNAMENT-SWEEP L1/L2/L4): the fold, call or shove facing a
+  // non-all-in raise priced by EV against the raiser's measured range, three scopes (ships dark)
+  'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
+  'holdemTournamentBlindDefenceIsPriced',
+  'holdemTournamentCommittedRaiseIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -1045,6 +1050,21 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
     'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
+  ],
+  holdemTournamentHeadsUpBigBlindDefenceIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments, two dealt: the big blind facing the small blind's non-all-in open, <= 25bb",
+    'heads-up big blind fold / call / shove priced by EV against the measured open range, pot odds, realisation and the pay-jump factor (sweep L1)',
+  ],
+  holdemTournamentBlindDefenceIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments, three or more dealt: a blind facing one non-all-in open, nobody else in, <= 25bb",
+    'blind fold / call / shove against a steal priced by EV against the measured open range, squeeze and overcall shares behind (sweep L2)',
+  ],
+  holdemTournamentCommittedRaiseIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments: a non-all-in re-raise after the Horse's own raise (<= 40bb) and any raise that commits the Horse",
+    'fold / call / shove facing a re-raise priced by EV; a committing raise priced exactly as the all-in it is (sweep L4)',
   ],
   holdemValueAndCallsArePriced: [
     HOLDEM,

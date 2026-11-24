@@ -102,6 +102,9 @@ const BRAIN_FILES = [
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
   // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
   'engine/HorseOmahaBigDrawBetPriced.ts',
+  // Hold'em tournament raise defence (2026-11-24, default off): the wiring reads its three options and fires its
+  // own receipts where it answers.
+  'engine/HorseHoldemTournamentRaiseDefenceWiring.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit

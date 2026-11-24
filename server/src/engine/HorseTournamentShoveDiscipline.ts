@@ -42,6 +42,7 @@
 
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
+import { holdemRaiseDefenceOwns } from './HorseHoldemTournamentRaiseDefenceWiring.js';
 
 /** Deepest effective stack (in big blinds) that may shove first in, from the
  *  button or the small blind (Dan 2026-10-25: "SINCE WHEN IS IT GTO TO OPEN
@@ -192,6 +193,8 @@ export function tournamentShoveDiscipline(
 ): HorseDecision {
   if (gs.stage !== 'preflop' || !isTournament(gs) || !noLimit(gs)) return decision;
   if (gs.allInOrFold === true || gs.wagersCapped === true) return decision;
+  // Hold'em tournament raise defence (default OFF): its priced shove is not rewritten here.
+  if (holdemRaiseDefenceOwns(decision)) return decision;
   const heroTotal = hero.stack + hero.bet;
   if (!(heroTotal > 0)) return decision;
   const shove =

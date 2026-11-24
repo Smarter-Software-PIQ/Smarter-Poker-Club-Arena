@@ -920,6 +920,13 @@ import {
   type HoldemClassRange,
   type PreflopRole,
 } from './HorseHoldemTournamentAllInCall.js';
+import {
+  clearHoldemRaiseDefencePending,
+  holdemRaiseDefenceOwns,
+  holdemRaiseDefenceReference,
+  holdemRaiseDefenceReversal,
+} from './HorseHoldemTournamentRaiseDefenceWiring.js';
+import { solvedJamRange } from './HorseHoldemTournamentRaiseDefenceSolved.js';
 import { hashSeed } from './equity/SeededRandom.js';
 import {
   callLargeRiverBoatWager,
@@ -4993,6 +5000,14 @@ export interface HorseDecideOpts {
    *  becomes a call and a call below it by more than 5 points a fold, with the equity the engine already
    *  computed. Default OFF: only explicit true turns it on; unset or false decides exactly as before. */
   holdemTournamentAllInCallIsPriced?: boolean;
+  /** HOLD'EM TOURNAMENT RAISE DEFENCE IS PRICED (2026-11-24, HorseHoldemTournamentRaiseDefence.ts; three options,
+   *  default OFF, only explicit true turns one on): preflop, facing one non-all-in raise in a heads-up pot, the fold,
+   *  the call or the shove with the highest expected value against the raiser's measured range. Heads-up big blind
+   *  (<= 25bb), a blind facing a steal three or more dealt (<= 25bb), and a re-raise after the Horse's own raise
+   *  (<= 40bb) or any raise that commits the Horse. */
+  holdemTournamentHeadsUpBigBlindDefenceIsPriced?: boolean;
+  holdemTournamentBlindDefenceIsPriced?: boolean;
+  holdemTournamentCommittedRaiseIsPriced?: boolean;
   /** NASH PUSH/FOLD ICM (2026-11-07, HorseNashPushFoldV2): in a tournament,
    *  the V71 folded-to jam and the nashCallVsJam call read hero's best
    *  response at hero's own bubble factor (IcmModel bubbleFactor from the
@@ -9755,6 +9770,8 @@ export function holdemPremiumAggression(
   opts: HorseDecideOpts = {}
 ): HorseDecision {
   if (opts.holdemPremiumAggression === false) return input;
+  // Hold'em tournament raise defence (default OFF): its priced answer is not re-ruled here.
+  if (holdemRaiseDefenceOwns(input, telemetryOn(opts))) return input;
   const decision = commitUnderPotCall(input, player, gs, opts);
   let verdict: HoldemPremiumVerdict<HorseDecision> | null;
   try {
@@ -16685,6 +16702,45 @@ function priceHoldemTournamentPreflopAllInCall(
             : THREE_BET_WIDTH
           : FOUR_BET_WIDTH
     );
+  // With a raise-defence option on (default OFF), a jam over the open, over a 3-bet or over a 4-bet is read from the
+  // solved tables the raise-defence options play (HorseHoldemTournamentRaiseDefenceSolved.solvedJamRange): the range
+  // a Horse re-jams is the range this price assumes. Off, null: the widths above, unchanged.
+  const solvedJamOn =
+    opts.holdemTournamentHeadsUpBigBlindDefenceIsPriced === true ||
+    opts.holdemTournamentBlindDefenceIsPriced === true ||
+    opts.holdemTournamentCommittedRaiseIsPriced === true;
+  const solvedJam = (raiseIndex: number, p: SeatPlayer): HoldemClassRange | null => {
+    if (!solvedJamOn) return null;
+    let openerSeat = -1;
+    let threeBettorSeat = -1;
+    let openTo = 0;
+    for (const [seat, r] of roles) {
+      if (!('raiseIndex' in r)) continue;
+      if (r.raiseIndex === 1) openerSeat = seat;
+      if (r.raiseIndex === 2) threeBettorSeat = seat;
+    }
+    const lvl = bb;
+    for (const a of history)
+      if (
+        (a.action === 'raise' || a.action === 'bet' || a.action === 'all_in') &&
+        a.amount > lvl + 1e-9
+      ) {
+        openTo = a.amount;
+        break;
+      }
+    if (openerSeat < 0 || !(openTo > 0)) return null;
+    const defenderSeat = raiseIndex === 2 ? p.seat : threeBettorSeat;
+    const blindSeats = gs.blindSeats as { bigBlind?: number } | undefined;
+    return solvedJamRange({
+      dealt,
+      raiseIndex,
+      openerBehind: Math.max(1, preflopPlayersBehind(openerSeat, gs, v13) ?? 1),
+      defender: defenderSeat === blindSeats?.bigBlind ? 'bb' : 'sb',
+      depthBB: depthOf(p),
+      openBB: openTo / bb,
+      anteBB: anteOrbitCostBB(gs.ante ?? 0, dealt, bb, gs.bigBlindAnte === true),
+    });
+  };
   const roleRange = (role: PreflopRole | undefined, p: SeatPlayer): HoldemClassRange => {
     const depth = depthOf(p);
     if (!role) return holdemTopRange(CALLER_WIDTH_CAP);
@@ -16696,9 +16752,9 @@ function priceHoldemTournamentPreflopAllInCall(
           anteFor(p.seat)
         );
       case 'rejam':
-        return holdemTopRange(rejamWidth(depth));
+        return solvedJam(role.raiseIndex, p) ?? holdemTopRange(rejamWidth(depth));
       case 'jam_over_three_bet':
-        return holdemTopRange(overThreeBetJamWidth(depth));
+        return solvedJam(role.raiseIndex, p) ?? holdemTopRange(overThreeBetJamWidth(depth));
       case 'raise':
         return raiseRange(role.raiseIndex, p.seat);
       case 'caller':
@@ -17528,6 +17584,7 @@ export class HorseLogic {
     omahaProposedReceipts = [];
     horsePlayStylePending = 'current';
     holdemAllInCallVerdictPending = null;
+    clearHoldemRaiseDefencePending();
     // omahaVpipFloorByLimp's pending fold is per decision: a decision that
     // threw between setting and reading it must not hand it to the next one.
     vpipFloorLimpFoldPending = false;
@@ -17920,6 +17977,24 @@ export class HorseLogic {
       decision = fixedLimitRiverStrongHandLead(decision, player, gs, vi, opts);
       // holdemTournamentAllInCallIsPriced (default OFF): the priced call or fold is the reference's answer.
       decision = holdemAllInCallReference(decision, player, gs, vi, opts, tele);
+      // Hold'em tournament raise defence (three options, default OFF; HorseHoldemTournamentRaiseDefenceWiring).
+      decision = holdemRaiseDefenceReference(decision, player, gs, opts, tele, {
+        inScope: holdemAllInCallScope(player, gs, vi),
+        dealt: dealtHorseTableSize(gs, player.seat),
+        playersBehind: (seat) => preflopPlayersBehind(seat, gs, opts.v13 !== false),
+        bubbleFactor: (risk) =>
+          payJumpBubbleFactor(gs, player.stack / gs.bigBlind, player.user_id, risk),
+        read: (userId) => HorseMind.opponentRead(userId),
+        phase6Ref: phase6Reference,
+        ownerRoute: (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop',
+        deadAnteBB: () =>
+          anteOrbitCostBB(
+            gs.ante ?? 0,
+            dealtHorseTableSize(gs, player.seat),
+            gs.bigBlind,
+            gs.bigBlindAnte === true
+          ),
+      });
       return { decision };
     }).decision;
 
@@ -18253,6 +18328,10 @@ export class HorseLogic {
                   )
                     noteFire('holdem_tournament_committed_stack_call_seen');
                 }
+              } else if (holdemRaiseDefenceReversal(decision, selected)) {
+                // Hold'em tournament raise defence (default OFF): the arbiter may not change the priced answer.
+                phase7Refusal = 'priced_raise_defence';
+                if (tele) noteFire('holdem_tournament_raise_defence_reversal_refused_seen');
               } else {
                 decision = { ...selected, tournamentUtility: result.ledger };
                 if (tele) {
@@ -18404,6 +18483,12 @@ export class HorseLogic {
           phase8.ledger.selection = 'none';
           phase8.ledger.reason = 'priced_all_in_call';
           if (tele) noteFire('holdem_tournament_all_in_call_phase8_reversal_refused_seen');
+        } else if (holdemRaiseDefenceReversal(decision, phase8.decision)) {
+          // Hold'em tournament raise defence (default OFF): Phase 8 may not change the priced answer either.
+          phase8.ledger.applied = false;
+          phase8.ledger.selection = 'none';
+          phase8.ledger.reason = 'priced_raise_defence';
+          if (tele) noteFire('holdem_tournament_raise_defence_reversal_refused_seen');
         } else decision = phase8.decision;
         decision = { ...decision, tournamentPostflop: phase8.ledger };
         if (tele) {

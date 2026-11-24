@@ -1,0 +1,18 @@
+{
+  "version": "holdem-tournament-flop-realisation-selfplay-v2",
+  "source": "self-play (HorseLeague.playHand), every card the engine's own simulated players'; no database read",
+  "formats": {
+    "hu_holdem_tournament_heads_up_big_blind_defence_is_priced_18bb": 7260,
+    "mtt6_holdem_tournament_blind_defence_is_priced_17bb": 10417,
+    "sng6_holdem_tournament_raise_defence_is_priced_17bb": 9854
+  },
+  "edges": [1.5, 3, 6, 12],
+  "sprCentres": [1.286, 2.364, 4.4, 8.444, 14.5],
+  "a": [-0.2607, -0.238, -0.3009, -0.2511, -0.2614],
+  "b": [1.5672, 1.4069, 1.3307, 1.3322, 1.3113],
+  "n": [686, 3085, 13271, 8840, 1649],
+  "seA": [0.1166, 0.0678, 0.0443, 0.0735, 0.2283],
+  "seB": [0.2152, 0.1337, 0.0916, 0.1493, 0.4339],
+  "realisedAtHalf": [1.0458, 0.9308, 0.729, 0.8299, 0.7886],
+  "hands": 27531
+}
