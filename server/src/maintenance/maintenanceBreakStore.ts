@@ -12,8 +12,6 @@ import { maintenanceSupabase, supabase } from '../services/supabase.js';
 import { bindToProcessRoot } from '../services/supabase/dataActorContext.js';
 import type { MaintenanceBreakStore, PersistedMaintenanceBreak } from './MaintenanceBreak.js';
 
-const TABLE = 'engine_maintenance_break';
-
 export function createSupabaseMaintenanceBreakStore(version?: string): MaintenanceBreakStore {
   return {
     loadReleaseBoundary: bindToProcessRoot(async (): Promise<number | null> => {
@@ -48,7 +46,7 @@ export function createSupabaseMaintenanceBreakStore(version?: string): Maintenan
       // all, and .single() throws PGRST116 on zero rows, which on this path
       // would make every ordinary boot log an error.
       const { data, error } = await supabase
-        .from(TABLE)
+        .from('engine_maintenance_break')
         .select('phase, announced_at, break_started_at, break_ends_at, reason, ownership_token')
         .eq('id', true)
         .maybeSingle();
