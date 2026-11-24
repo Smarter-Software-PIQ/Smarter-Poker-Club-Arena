@@ -3359,6 +3359,7 @@ const PLO_FACING_BET_PRICED_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDe
       omahaMultiwayValueBetIsPriced: true,
     },
   ],
+  ['m3', { omahaMultiwayValueBetIsPriced: true }],
 ];
 const PLO_FACING_BET_PRICED_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
   (variant) =>

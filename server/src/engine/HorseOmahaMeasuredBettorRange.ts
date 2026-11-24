@@ -61,6 +61,7 @@ interface Tables {
   fireSize: Record<string, { n: number; mean: number }>;
   flushDrawByBin: Record<string, RateCell>;
   minDefence?: Record<string, number>;
+  checker?: Record<string, HistCell>;
   later?: Record<
     string,
     { n: number; rate: number; sizes?: Record<string, { n: number; mean: number }> }
@@ -322,6 +323,17 @@ export function omahaMeasuredContinueRate(
       `${String(variant).toLowerCase()}|${street}|${omahaMeasuredBucketOf(potFrac)}|${into}`
     ];
   return c && c.n >= 30 && Number.isFinite(c.rate) ? c.rate : null;
+}
+
+/** A player who checked on a multiway street nobody wagered: his measured strength histogram (opponents '2' or '3+'). */
+export function omahaMeasuredCheckerHist(
+  variant: string,
+  street: OmahaMeasuredStreet,
+  opponents: number
+): number[] | null {
+  return normalised(
+    T.checker?.[`${String(variant).toLowerCase()}|${street}|${opponents >= 3 ? '3+' : '2'}`]?.hist
+  );
 }
 
 /** Every player a multiway first wager of this size went into folds, measured (opponents '2' or '3+'). */

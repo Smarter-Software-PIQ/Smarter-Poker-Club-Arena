@@ -1536,5 +1536,79 @@
     "plo4|turn|mid": 0.1652,
     "plo5|river|mid": 0.1688
   },
-  "minDefenceNote": "F6 calibration (scripts/ops/omaha-facing-bet-range-fit.mjs calibrate) over the PLO4/PLO5 cash league state set of plo-overfold/abl/states (heads-up first wagers under 0.7 pot; omahaFacingBetIndifferenceCalls on; rake 0; no record): the minimum share of air (weakest bin) at which the whole range folds at most mean s/(1+s) + 0.05; bets of 0.7 pot or more get no bound"
+  "minDefenceNote": "F6 calibration (scripts/ops/omaha-facing-bet-range-fit.mjs calibrate) over the PLO4/PLO5 cash league state set of plo-overfold/abl/states (heads-up first wagers under 0.7 pot; omahaFacingBetIndifferenceCalls on; rake 0; no record): the minimum share of air (weakest bin) at which the whole range folds at most mean s/(1+s) + 0.05; bets of 0.7 pot or more get no bound",
+  "checker": {
+    "plo4|flop|2": {
+      "hist": [0.00757, 0.01143, 0.01377, 0.00992, 0.04022, 0.27318, 0.23498, 0.40893],
+      "shown": 3072,
+      "checks": 15257,
+      "laterFold": 8796
+    },
+    "plo4|flop|3+": {
+      "hist": [0.00483, 0.00678, 0.00964, 0.00675, 0.02857, 0.24446, 0.22175, 0.47721],
+      "shown": 1020,
+      "checks": 5480,
+      "laterFold": 3701
+    },
+    "plo4|turn|2": {
+      "hist": [0.00276, 0.0015, 0.00402, 0.00804, 0.01938, 0.19597, 0.33111, 0.43722],
+      "shown": 2086,
+      "checks": 4799,
+      "laterFold": 2279
+    },
+    "plo4|turn|3+": {
+      "hist": [0.00007, 0.00004, 0.00167, 0.00438, 0.01926, 0.20816, 0.27102, 0.49541],
+      "shown": 753,
+      "checks": 2230,
+      "laterFold": 1332
+    },
+    "plo4|river|2": {
+      "hist": [0.0006, 0.0006, 0.00239, 0.01822, 0.02813, 0.1769, 0.34546, 0.42769],
+      "shown": 1962,
+      "checks": 3338,
+      "laterFold": 1376
+    },
+    "plo4|river|3+": {
+      "hist": [0.00002, 0.00071, 0.00147, 0.00682, 0.02245, 0.21162, 0.31175, 0.44516],
+      "shown": 667,
+      "checks": 1392,
+      "laterFold": 725
+    },
+    "plo5|flop|2": {
+      "hist": [0.00768, 0.00306, 0.02921, 0.01882, 0.01795, 0.27752, 0.2681, 0.37766],
+      "shown": 1342,
+      "checks": 7458,
+      "laterFold": 4365
+    },
+    "plo5|flop|3+": {
+      "hist": [0.00469, 0.00066, 0.01843, 0.01613, 0.01933, 0.18731, 0.23271, 0.52074],
+      "shown": 1909,
+      "checks": 10967,
+      "laterFold": 7594
+    },
+    "plo5|turn|2": {
+      "hist": [0.00734, 0.00056, 0.01076, 0.01951, 0.02367, 0.18457, 0.30161, 0.45198],
+      "shown": 892,
+      "checks": 2194,
+      "laterFold": 1070
+    },
+    "plo5|turn|3+": {
+      "hist": [0.0017, 0, 0.00391, 0.0185, 0.02921, 0.20083, 0.24746, 0.49839],
+      "shown": 1366,
+      "checks": 4475,
+      "laterFold": 2788
+    },
+    "plo5|river|2": {
+      "hist": [0.00065, 0.00132, 0.00459, 0.02046, 0.02972, 0.19646, 0.32298, 0.4238],
+      "shown": 878,
+      "checks": 1501,
+      "laterFold": 623
+    },
+    "plo5|river|3+": {
+      "hist": [0.00001, 0.00082, 0.00126, 0.0115, 0.01765, 0.26063, 0.28246, 0.42568],
+      "shown": 1155,
+      "checks": 2453,
+      "laterFold": 1298
+    }
+  }
 }

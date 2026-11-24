@@ -21,6 +21,7 @@
  *                                                  written into the tables as minDefence (a cell already within the
  *                                                  bound gets none). Priced with omahaFacingBetIndifferenceCalls on,
  *                                                  rake 0. Run from server/ with tsx.
+ *   fit-checker --in <dir> --tables <tables.json>   the checked multiway field (see fitChecker); writes only `checker`.
  *   fit  --in <dir> --out <tables.json> --version <label>
  *                                                  run from server/ with `node --import tsx`: it scores hands with
  *                                                  the engine's own evaluator (HorseEval.scoreOmahaHiPartial) and
@@ -750,10 +751,146 @@ async function calibrate() {
   writeFileSync(tablesPath, JSON.stringify(t, null, 1) + '\n');
 }
 
+/**
+ * fit-checker --in <dir> --tables <tables.json>: the CHECKED FIELD (the multiway value bet's check, item M3). Per game,
+ * street and field size (two opponents or three or more), the strength of a player who checked on a multiway street
+ * (three or more players in) that nobody wagered, from shown hands only, with the same showdown-bias correction as the
+ * bettor cells (a checker who later folds or mucks counts as a weak hand). Writes only the `checker` key.
+ */
+async function fitChecker() {
+  const { scoreOmahaHiPartial } = await import(resolve('src/engine/HorseEval.ts'));
+  const { PairSet, countHoldingsWithout } = await import(
+    resolve('src/engine/HorseOmahaFacingBetEv.ts')
+  );
+  const { omahaBetReadCard } = await import(resolve('src/engine/HorseOmahaBetRead.ts'));
+  const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'];
+  const DECK = [];
+  for (const s of SUITS) for (const r of '23456789TJQKA') DECK.push({ rank: r, suit: s });
+  const ck = (c) => `${c.rank}${c.suit}`;
+  const choose = (n, k) => {
+    let o = 1;
+    for (let i = 1; i <= k; i++) o = (o * (n - k + i)) / i;
+    return Math.round(o);
+  };
+  function strength(hole, board) {
+    const known = new Set([...hole, ...board].map(ck));
+    const unseen = DECK.filter((c) => !known.has(ck(c)));
+    const m = unseen.length;
+    const mine = scoreOmahaHiPartial(hole, board);
+    const bar = new PairSet(m);
+    const two = [unseen[0], unseen[0]];
+    for (let i = 0; i < m; i++) {
+      two[0] = unseen[i];
+      for (let j = i + 1; j < m; j++) {
+        two[1] = unseen[j];
+        if (scoreOmahaHiPartial(two, board) > mine) bar.add(i, j);
+      }
+    }
+    return 1 - countHoldingsWithout(m, hole.length, bar) / choose(m, hole.length);
+  }
+  const nbins = BIN_EDGES.length - 1;
+  const cells = new Map();
+  const dir = resolve(arg('in'));
+  for (const f of readdirSync(dir)
+    .filter((x) => x.endsWith('.json'))
+    .sort()) {
+    let rows;
+    try {
+      rows = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(rows)) continue;
+    for (const h of rows) {
+      if (h.bomb === true || h.cc2 || (Array.isArray(h.rit) && h.rit.length)) continue;
+      const board = (h.cc ?? []).map(omahaBetReadCard);
+      if (board.length < 3 || board.some((c) => !c)) continue;
+      const parsed = decisionsOf(h);
+      if (!parsed) continue;
+      const v = String(h.gv).toLowerCase();
+      const shown = new Map();
+      for (const [u, cs] of Object.entries(h.hc ?? {})) {
+        const cards = (Array.isArray(cs) ? cs : []).map(omahaBetReadCard);
+        if ((cards.length === 4 || cards.length === 5) && cards.every(Boolean)) shown.set(u, cards);
+      }
+      const { decisions } = parsed;
+      for (const st of ['flop', 'turn', 'river']) {
+        if (board.length < NB[st]) continue;
+        const sd = decisions.filter((d) => d.street === st);
+        if (!sd.length || sd.some((d) => d.raise) || sd[0].live < 3) continue;
+        const key = `${v}|${st}|${sd[0].live - 1 >= 3 ? '3+' : '2'}`;
+        let c = cells.get(key);
+        if (!c) cells.set(key, (c = { hist: new Array(nbins).fill(0), shown: 0, bets: 0, lf: 0 }));
+        for (const d of sd) {
+          if (d.act !== 'check') continue;
+          c.bets++;
+          const at = decisions.indexOf(d);
+          if (decisions.some((e, j) => e.u === d.u && e.act === 'fold' && j > at)) c.lf++;
+          else if (shown.size > 0 && !shown.has(d.u)) c.lf++;
+          const hole = shown.get(d.u);
+          if (hole && board.length === 5) {
+            c.hist[binOf(strength(hole, board.slice(0, NB[st])))]++;
+            c.shown++;
+          }
+        }
+      }
+    }
+  }
+  const norm = (h) => {
+    const s = h.reduce((a, b) => a + b, 0);
+    return s > 0 ? h.map((x) => x / s) : null;
+  };
+  const corrected = (c) => {
+    const base = norm(c.hist);
+    if (!base) return null;
+    const f = Math.max(0, Math.min(0.9, c.lf / Math.max(1, c.bets)));
+    const weak =
+      norm(base.map((x, i) => (BIN_EDGES[i] >= WEAK_EDGE ? x : 0))) ??
+      base.map((_, i) => (i === nbins - 1 ? 1 : 0));
+    return base.map((x, i) => (1 - f) * x + f * weak[i]);
+  };
+  const out = {};
+  for (const v of ['plo4', 'plo5'])
+    for (const st of ['flop', 'turn', 'river']) {
+      const parts = ['2', '3+'].map((o) => cells.get(`${v}|${st}|${o}`)).filter(Boolean);
+      const all = { hist: new Array(nbins).fill(0), shown: 0, bets: 0, lf: 0 };
+      for (const c of parts) {
+        c.hist.forEach((x, i) => (all.hist[i] += x));
+        all.shown += c.shown;
+        all.bets += c.bets;
+        all.lf += c.lf;
+      }
+      const parent = corrected(all);
+      for (const o of ['2', '3+']) {
+        const c = cells.get(`${v}|${st}|${o}`);
+        const own = c ? corrected(c) : null;
+        const n = c ? c.shown : 0;
+        const h = !own
+          ? parent
+          : !parent
+            ? own
+            : own.map((x, i) => (n * x + SHRINK_K * parent[i]) / (n + SHRINK_K));
+        if (h)
+          out[`${v}|${st}|${o}`] = {
+            hist: h.map((x) => Math.round(x * 1e5) / 1e5),
+            shown: n,
+            checks: c ? c.bets : 0,
+            laterFold: c ? c.lf : 0,
+          };
+      }
+    }
+  const tablesPath = resolve(arg('tables'));
+  const t = JSON.parse(readFileSync(tablesPath, 'utf8'));
+  t.checker = out;
+  writeFileSync(tablesPath, JSON.stringify(t, null, 1) + '\n');
+  console.log(JSON.stringify(out));
+}
+
 const cmd = process.argv[2];
 if (cmd === 'pull') await pull();
 else if (cmd === 'fit') await fit();
 else if (cmd === 'calibrate') await calibrate();
+else if (cmd === 'fit-checker') await fitChecker();
 else {
   console.error('usage: pull --from --to --out | fit --in --out --version');
   process.exit(2);

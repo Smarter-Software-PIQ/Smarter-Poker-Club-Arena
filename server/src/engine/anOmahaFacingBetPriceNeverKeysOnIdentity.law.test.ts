@@ -70,10 +70,50 @@ describe('the corrected facing-bet price never keys on person vs Horse', () => {
   }, 300_000);
 
   it('the multiway value bet prices the same whatever the field is marked as', () => {
-    const states = loadPricedStates().slice(0, 40);
+    // the committed states are heads-up: a second live opponent (a copy of the first at a free seat) makes each
+    // one a three-way spot the option prices
+    const states = loadPricedStates()
+      .map((s) => {
+        const opp = (s.gs.players ?? []).find(
+          (p) => p.seat !== s.player.seat && !p.is_folded && !p.is_all_in && !p.is_sitting_out
+        );
+        if (!opp) return null;
+        const used = new Set((s.gs.players ?? []).map((p) => p.seat));
+        let seat = 1;
+        while (used.has(seat)) seat++;
+        const players = [
+          ...(s.gs.players ?? []),
+          { ...opp, seat, user_id: `p${seat}`, username: `p${seat}` },
+        ];
+        return { ...s, gs: { ...s.gs, players } };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .slice(0, 40);
+    let priced = 0;
+    let bets = 0;
     for (const s of states) {
-      const gs = { ...s.gs, toCall: 0, currentBet: 0, legalActions: ['check', 'bet'] };
+      // every other seat in the hand has checked this street (the spot the option prices)
+      const street = s.gs.stage;
+      const checks = (s.gs.players ?? [])
+        .filter((p) => p.seat !== s.player.seat && !p.is_folded)
+        .map((p) => ({
+          stage: street,
+          seat: p.seat,
+          userId: p.user_id,
+          action: 'check',
+          amount: 0,
+        }));
+      const history = [...(s.gs.actionHistory ?? []).filter((a) => a.stage !== street), ...checks];
+      const gs = {
+        ...s.gs,
+        toCall: 0,
+        currentBet: 0,
+        legalActions: ['check', 'bet'],
+        actionHistory: history,
+      };
       const a = omahaMultiwayValueBetVerdict(s.player, gs as never, 0);
+      if (a) priced++;
+      if (a?.amount) bets++;
       const flipped = {
         ...gs,
         players: (gs.players ?? []).map((p) =>
@@ -83,5 +123,7 @@ describe('the corrected facing-bet price never keys on person vs Horse', () => {
       const b = omahaMultiwayValueBetVerdict(s.player, flipped as never, 0);
       expect(b?.amount ?? null, s.k).toBe(a?.amount ?? null);
     }
+    expect(priced).toBeGreaterThan(0);
+    expect(bets).toBeGreaterThan(0);
   }, 120_000);
 });
