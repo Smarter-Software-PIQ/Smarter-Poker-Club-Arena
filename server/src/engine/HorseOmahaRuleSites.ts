@@ -490,6 +490,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetEvShownField: priced(
     'a turn or river call with another player in the hand priced on the joint field (players behind continue on a measured rate, their calls in the pot), the measured turn realization and a close-call mix on a public-state draw (default OFF)'
   ),
+  omahaMultiwayFieldDrawsAreIndependent: priced(
+    'the joint field count of the flop and turn/river facing-bet verdicts draws each other player on his own seeded stream, independent of the bettor (a sampling fix inside those priced verdicts; default OFF; PLO lead-6 2026-11-24)'
+  ),
   omahaMultiwayCheckedToBetIsPriced: priced(
     'the multiway check with nothing to call priced against the candidate bets on the measured multiway response and the measured cost of the check (default OFF)'
   ),

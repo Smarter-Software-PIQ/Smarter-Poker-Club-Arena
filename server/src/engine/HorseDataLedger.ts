@@ -1382,6 +1382,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayFieldDrawsAreIndependent',
+    "PLO lead-6 2026-11-24 (defect found in the facing-bet pricing v2 build, BUILD.md item 3). PLO4/PLO5 cash (four or five cards, no tournament); default off (read === true); it switches no verdict on. The two joint multiway facing-bet samplers (the flop verdict omahaFlopFacingBetEv's field count, HorseOmahaFlopFacingBetEv.omahaFlopEvCounts, and omahaFacingBetEvShownField's turn/river count, HorseOmahaFacingBetEvShownField.omahaShownJoint) drew every other player's holding on a walk with the bettor's golden-ratio step, so within one decision the field's sampled position was a fixed function of the bettor's (turn/river: 2x + c; flop: the lattice 3x - 2y = c). With it on each player of the field (caller, earlier all-in, player still to act) draws from his own mulberry32 stream seeded from the decision's sample seed and his role/slot tag (HorseOmahaFieldDrawStreams); the bettor's walks and every heads-up count are unchanged. No hidden card is read and nothing keys on who a player is.",
+    'V94'
+  ),
+  flag(
     'omahaRiverBluffCatchIsPriced',
     "WooWoo audit RIVER-FACING (2026-11-18; live heads-up fold to a first river bet 80% at 0.40-0.60 pot and 83% at 0.85-1.10, n 30 each; owner: every decision from ranges, equity, price and EV, never blankets): inside omahaFacingBetEv only, PLO4/PLO5 cash (no tournament), one board, high only, a heads-up first river bet (not a raise). The call is a bluff-catch priced on the bettor's range: the measured strength percentile of heads-up river bettors' actual holdings (n 269, A/repairs/RIVER-FACING/raw/u-rows.jsonl sha256 5ef47bd3...) read at the bet's pot share by a Gaussian kernel (Silverman bandwidth), each strength bin reweighted by the Horse's blockers (share of the bin left given its cards over the bin's share of all holdings) and the holdings that lose to the median holding by the bettor's measured tendency (omahaEvBluffShare over the prior); no realization; EV carries a Dirichlet + sampling SE and a call within 2 SE of the margin is mixed on a public-state draw (HorseOmahaRiverBluffCatch.ts). No term is a size, class or position threshold. Default OFF (read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_river_bluff_catch_is_priced",
     'V94'
@@ -6237,6 +6242,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_river_raise_needs_nuts_by_price',
     'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
     'a raise the rule replaced was decided by the fallback price: fold at a third of the pot after the call or more, call under it',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_field_draws_independent',
+    'HorseOmahaFlopFacingBetEvRule (omahaFlopFacingBetEv) and HorseLogic wager_rules (omahaFacingBetEvShownField); omahaMultiwayFieldDrawsAreIndependent',
+    'PLO4/PLO5 cash, a multiway facing-bet verdict with another player in the hand (flop verdict, or the turn/river joint-field verdict) drew the field on one independent seeded stream per player, not on the walk locked to the bettor (counts how often the option reaches a decision)',
     'V94'
   ),
   receipt(
