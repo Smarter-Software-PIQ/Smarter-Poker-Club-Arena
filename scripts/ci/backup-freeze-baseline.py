@@ -42,6 +42,9 @@ This reader only READS (GitHub GETs) and prints for the plan job:
                    and can never pass select-daily-engine.py; plan as before
   state=served     baseline=<sha> is already contained in the serving engine
                    (O17); there is nothing to ship, so plan as before
+  state=refused    baseline=<sha> was claimed tonight and its own claim run
+                   refused it on a copy restored after the freeze began
+                   (O22); certifying it again cannot pass, so plan as before
 
 ONE CERTIFICATION PER BASELINE (incident 076ff467, 2026-11-20). `done` used
 to be the only answer that stopped a re-certification, so every push merged
@@ -81,6 +84,56 @@ ahead), and answers `served` before reading any certificate. An unreadable
 health or compare answer is not `served`: it plans exactly as before
 (CLAUDE.md 10.86).
 
+A MIGRATION INSTALLED BEFORE THE FREEZE DOES NOT STOP THE ADVANCE (O22,
+2026-11-24). Tonight's freeze began 05:45Z. The newest server commit before
+freeze start - SETTLE was 329332c24c32 (01:09Z), and the O6 advance stopped
+at the very next commit, 7ac45e4bb09f (01:36Z), because it carried a
+migration. Six migration commits followed before the freeze (7ac45e4bb09f,
+8315292e32f4, f3691fbe6097, bf145233e093, 18a4e2476f40, d749a61e4c94) and
+every one of their files was INSTALLED in production before 05:45Z (the last,
+20261124041800, APPLIED at 05:25:58Z by Apply Merged Migration 45333181931).
+So the reader answered due for 329332c24c32: a 20-hour-old build that the
+Backup had already refused at 02:07Z (hand_gap_unintended_delay_exceeded, run
+45302827099) and that lacks 74d10c32eb6a (05:29:48Z), the hand-gap fix for
+incident 1e532243 every Backup soak since 23:34Z had failed without. Backup
+45336597819 claimed it and would have spent about an hour of the one Backup
+host on it; the lane owner cancelled it by hand. The right baseline was
+74d10c32eb6a.
+
+What makes a migration commit unshippable is a migration production does not
+hold when the freeze begins, not the migration itself. The advance now
+crosses a commit whose every migration file it ADDED is proven installed
+before the freeze start, and stops, exactly as before, at the first commit
+with any migration that is not proven (a modified, removed or renamed file,
+an unreadable or truncated run list, no proof, or a proof that completed at
+or after the freeze start; CLAUDE.md 10.86). The proof is one GitHub GET: the
+successful Apply Merged Migration runs (.github/workflows/apply-merged-
+migration.yml) created between the first crossed commit and the freeze start.
+A file is proven installed by a run whose display title names exactly that
+file and an intent nonce, sent by the merge dispatcher (repository_dispatch
+from github-actions[bot], attempt 1: its intent proof step requires
+dry_run=false, scripts/ci/dispatch-intent.mjs), created no earlier than the
+commit that added the file, and completed success (APPLIED or
+ALREADY-APPLIED, the applier's code 0) before the freeze start. A listing of
+more runs than one page holds proves nothing. Commit reads are bounded at
+MAX_ADVANCE_COMMIT_READS; past the bound the advance keeps what it has.
+
+SETTLE still names the starting point (a server commit merged in the last
+minutes before the freeze is not relied on unchecked); the advance then
+proves each later migration installed directly, so a migration merged too
+recently to have installed still stops it, because its run completed after
+the freeze start or not at all.
+
+A REFUSED BASELINE IS NOT CLAIMED AGAIN (O22). A failure written after the
+freeze began read as `due`, so every later push claimed the same baseline
+again and spent another soak on a build the frozen copy had just refused.
+When the newest status written after the freeze began is a `failure` that
+names its refusal reasons and comes from the very run that wrote tonight's
+claim (the claim run forces a refresh, so its copy was restored after the
+freeze began), the answer is `refused`. A refusal made before the freeze
+began (an older copy), an `error` (no verdict, no Backup turn), a cancelled
+claim, or a failure with no named reasons stays `due`, as before.
+
 The certification window is [freeze start, selection - one worst Backup run):
 a run started inside it finishes before the selection reads (the freeze start
 from the dispatcher's own source, the 03:30 cutoff from select-daily-engine.py
@@ -111,6 +164,14 @@ MIGRATIONS_PREFIX = 'supabase/migrations/'
 SERVER_PREFIX = 'server/'
 COMPARE_MAX_COMMITS = 250
 COMPARE_MAX_FILES = 300
+# O22: crossing a migration needs proof it was installed before the freeze.
+INSTALL_WORKFLOW = 'apply-merged-migration.yml'
+INSTALL_RUNS_MAX = 100
+INSTALLER_BOT = 'github-actions[bot]'
+MAX_ADVANCE_COMMIT_READS = 60
+MIGRATION_FILE_RE = re.compile(r'supabase/migrations/(\d{14}_[A-Za-z0-9_-]+\.sql)')
+CLAIM_RE = re.compile(r"Backup Engine claimed tonight's freeze baseline \(run (\d+)\)")
+REFUSED_PREFIX = 'Backup Engine refused: '
 # One Backup run (refresh + certify), measured over the 29 most recent
 # successful backup-engine.yml runs on 2026-11-19: min 43.2, p50 62.0,
 # p90 67.3, max 68.7 minutes.
@@ -205,11 +266,82 @@ def _file_paths_of(files):
     return paths
 
 
-def find_zero_migration_advance(pre_freeze, compare_doc, commit_files_reader, control_spec):
+def _instant(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        at = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
+
+
+def migration_install_proven(runs, filename, not_before, freeze_start):
+    """O22: True when one of runs (apply-merged-migration.yml workflow runs)
+    proves filename was installed before freeze_start: the merge dispatcher's
+    run for exactly that file (repository_dispatch from github-actions[bot],
+    attempt 1, title 'Apply Merged Migration <file> <nonce>'), created no
+    earlier than not_before (the commit that added the file) and completed
+    success before freeze_start. False when no run proves it; None when runs
+    is unreadable (CLAUDE.md 10.86)."""
+    if not isinstance(runs, list) or not_before is None or freeze_start is None:
+        return None
+    title = re.compile(r'Apply Merged Migration ' + re.escape(filename) + r' [0-9a-f]{32}')
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        if (run.get('event') != 'repository_dispatch' or run.get('status') != 'completed'
+                or run.get('conclusion') != 'success' or run.get('run_attempt') != 1):
+            continue
+        actor = run.get('actor') if isinstance(run.get('actor'), dict) else {}
+        trigger = run.get('triggering_actor') if isinstance(run.get('triggering_actor'), dict) else {}
+        if actor.get('login') != INSTALLER_BOT or trigger.get('login') != INSTALLER_BOT:
+            continue
+        shown = run.get('display_title')
+        if not isinstance(shown, str) or not title.fullmatch(shown):
+            continue
+        created, completed = _instant(run.get('created_at')), _instant(run.get('updated_at'))
+        if created is None or completed is None:
+            continue
+        if created >= not_before and completed < freeze_start:
+            return True
+    return False
+
+
+def _migrations_installed(files, commit, migration_installed):
+    """O22: True only when every supabase/migrations/ entry of this commit is
+    an ADDED migration file proven installed before the freeze began."""
+    inner = commit.get('commit') if isinstance(commit, dict) else None
+    committer = inner.get('committer') if isinstance(inner, dict) else None
+    committed = _instant(committer.get('date')) if isinstance(committer, dict) else None
+    if committed is None:
+        return False
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        paths = [entry.get(k) for k in ('filename', 'previous_filename') if isinstance(entry.get(k), str)]
+        if not any(p.startswith(MIGRATIONS_PREFIX) for p in paths):
+            continue
+        name = MIGRATION_FILE_RE.fullmatch(entry.get('filename') or '')
+        if entry.get('status') != 'added' or entry.get('previous_filename') or not name:
+            return False
+        if migration_installed(name[1], committed) is not True:
+            return False
+    return True
+
+
+def find_zero_migration_advance(pre_freeze, compare_doc, commit_files_reader, control_spec,
+                                migration_installed=None):
     """Return the newest first-parent commit after pre_freeze, strictly before
     the first commit touching supabase/migrations/, that touched server/ or any
     non-test CONTROL_INPUTS path. Fail-open to pre_freeze when truncated or
-    unreadable (CLAUDE.md 10.86)."""
+    unreadable (CLAUDE.md 10.86).
+
+    O22: with migration_installed(filename, not_before) -> True/False/None,
+    a commit whose every migration file it added is proven installed before
+    the freeze start is crossed; the first one that is not proven stops the
+    advance exactly as before. At most MAX_ADVANCE_COMMIT_READS commits are
+    read."""
     if not isinstance(compare_doc, dict) or not control_spec:
         return pre_freeze
     status = compare_doc.get('status')
@@ -245,13 +377,16 @@ def find_zero_migration_advance(pre_freeze, compare_doc, commit_files_reader, co
             return pre_freeze
         cur = parent_sha
     best = pre_freeze
-    for sha in reversed(chain_rev):
+    for reads, sha in enumerate(reversed(chain_rev)):
+        if reads >= MAX_ADVANCE_COMMIT_READS:
+            break
         files = commit_files_reader(sha)
         if not isinstance(files, list) or len(files) >= COMPARE_MAX_FILES:
             break
         paths = _file_paths_of(files)
         if any(p.startswith(MIGRATIONS_PREFIX) for p in paths):
-            break
+            if migration_installed is None or not _migrations_installed(files, by_sha[sha], migration_installed):
+                break
         if any(p.startswith(SERVER_PREFIX) or is_non_test_control_path(p, control_spec) for p in paths):
             best = sha
     return best
@@ -332,7 +467,7 @@ def decide(now_utc, clock, baseline_reader, certified_after,
     done = certified_after(baseline, start)
     if done is None:
         return {'state': 'unknown', 'why': 'certificate unreadable', 'baseline': baseline}
-    state = done if done in ('done', 'claimed', 'due') else ('done' if done else 'due')
+    state = done if done in ('done', 'claimed', 'due', 'refused') else ('done' if done else 'due')
     return {'state': state, 'baseline': baseline,
             'freezeStart': start.strftime('%Y-%m-%dT%H:%M:%SZ')}
 
@@ -340,13 +475,20 @@ def decide(now_utc, clock, baseline_reader, certified_after,
 ACTIVE_RUN = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
 
 
+def _run_of(row):
+    m = re.search(r'/actions/runs/(\d+)$', row.get('target_url') or '')
+    return m[1] if m else None
+
+
 def certification_state(rows, start, run_status):
-    """'done', 'claimed' or 'due' for one commit's statuses (newest first, as
-    GitHub returns them). A success written after the freeze began is done.
-    Otherwise the newest status written after the freeze began decides: a
-    pending one whose run is still active is a claim; anything else (no
-    status, a failure, an error, a pending left by a run that ended) is due.
-    run_status(run_id) -> the run's status, or None if unreadable."""
+    """'done', 'claimed', 'refused' or 'due' for one commit's statuses (newest
+    first, as GitHub returns them). A success written after the freeze began is
+    done. Otherwise the newest status written after the freeze began decides: a
+    pending one whose run is still active is a claim; a failure naming its
+    refusal reasons, written by the run that claimed tonight's baseline (its
+    copy was restored after the freeze began), is refused (O22); anything else
+    (no status, another failure, an error, a pending left by a run that ended)
+    is due. run_status(run_id) -> the run's status, or None if unreadable."""
     after = []
     for r in rows:
         if r.get('context') != CONTEXT:
@@ -356,6 +498,15 @@ def certification_state(rows, start, run_status):
             after.append(r)
     if any(r.get('state') == 'success' for r in after):
         return 'done'
+    if after and after[0].get('state') == 'failure':
+        refusing = _run_of(after[0])
+        reasons = after[0].get('description') or ''
+        named = reasons[len(REFUSED_PREFIX):].strip() if reasons.startswith(REFUSED_PREFIX) else ''
+        if refusing and named and named != 'see run':
+            for r in after[1:]:
+                claim = CLAIM_RE.fullmatch(r.get('description') or '')
+                if r.get('state') == 'pending' and claim and claim[1] == refusing and _run_of(r) == refusing:
+                    return 'refused'
     if after and after[0].get('state') == 'pending':
         m = re.search(r'/actions/runs/(\d+)', after[0].get('target_url') or '')
         if m:
@@ -414,6 +565,7 @@ def main():
     try:
         raw = lambda path: gh('-H', 'Accept: application/vnd.github.raw', f'repos/{a.repo}/contents/{path}?ref=main')
         clock = clock_of(raw(FREEZE_SOURCE), raw(SELECTOR_SOURCE))
+        freeze_start, _inside = window(now, *clock)
 
         def baseline_reader(until):
             out = gh(f'repos/{a.repo}/commits?sha=main&path=server&per_page=1&until='
@@ -458,12 +610,38 @@ def main():
             except Exception:  # noqa: BLE001 - unreadable commit fails open (CLAUDE.md 10.86)
                 return None
 
+        runs_cache = {}
+
+        def install_runs(not_before):
+            # O22: one GET, the first time a migration commit is met; a list
+            # longer than one page, or unreadable, proves nothing.
+            if 'runs' not in runs_cache:
+                runs_cache['runs'] = None
+                try:
+                    stamp = lambda t: t.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    doc = json.loads(gh(
+                        f'repos/{a.repo}/actions/workflows/{INSTALL_WORKFLOW}/runs?event=repository_dispatch'
+                        f'&status=success&exclude_pull_requests=true&per_page={INSTALL_RUNS_MAX}'
+                        f'&created={stamp(not_before)}..{stamp(freeze_start)}'))
+                    runs, total = doc.get('workflow_runs'), doc.get('total_count')
+                    if isinstance(runs, list) and isinstance(total, int) and total == len(runs):
+                        runs_cache['runs'] = runs
+                except Exception:  # noqa: BLE001 - unreadable proves nothing (CLAUDE.md 10.86)
+                    runs_cache['runs'] = None
+            return runs_cache['runs']
+
+        def migration_installed(filename, not_before):
+            if freeze_start is None:
+                return None
+            return migration_install_proven(install_runs(not_before), filename, not_before, freeze_start)
+
         def advance_zero_migration(pre_freeze):
             control_spec = get_control_spec()
             if control_spec is None:
                 return pre_freeze
             return find_zero_migration_advance(
-                pre_freeze, compare_to_main(pre_freeze), commit_files, control_spec
+                pre_freeze, compare_to_main(pre_freeze), commit_files, control_spec,
+                migration_installed=migration_installed,
             )
 
         def control_selectable(sha):
