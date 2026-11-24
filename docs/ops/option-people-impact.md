@@ -10,12 +10,14 @@ people's results in the window before each change with the window after it. It c
 ## Which report to use
 
 There are two people-against-Horses reports. They answer different questions and share no code.
+A third report, `horse-exploit-report.mjs`, judges the Horses' own decisions against break-even.
 
-| Question                                                            | Report                                                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| What changed lately, and did any change move people's results?      | `option-people-impact.mjs` (this page): one row per change, no arguments needed            |
-| Is one game better or worse for people than before a known instant? | `person-vs-horse-results.mjs` with `--split-at`, see `docs/ops/person-vs-horse-results.md` |
-| May a switch runbook proceed?                                       | `person-vs-horse-results.mjs --gate`: it is the only one with an exit-code gate            |
+| Question                                                            | Report                                                                                                                                            |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What changed lately, and did any change move people's results?      | `option-people-impact.mjs` (this page): one row per change, no arguments needed                                                                   |
+| Is one game better or worse for people than before a known instant? | `person-vs-horse-results.mjs` with `--split-at`, see `docs/ops/person-vs-horse-results.md`                                                        |
+| May a switch runbook proceed?                                       | `person-vs-horse-results.mjs --gate`: the gate on people's results                                                                                |
+| Did a switch change or cutover open a hole in the Horses' play?     | `horse-exploit-report.mjs --split-at <time> --gate` at +3 h, see `docs/ops/horse-exploit-report.md`; a new EXPLOITABLE cell is a rollback trigger |
 
 Run this report first to find the change worth a closer look, then run
 `person-vs-horse-results.mjs` on that game and instant. The second report is the stricter one:

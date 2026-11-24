@@ -6,6 +6,11 @@ Horses, per game, and is the difference bigger than luck?**
 `scripts/ops/person-vs-horse-results.mjs` is a read-only report. Run it before any Horse rule is
 switched on or off, and again after, with the switch instant as `--split-at`. It changes nothing.
 
+After any Horse switch change or engine cutover, also run `scripts/ops/horse-exploit-report.mjs
+--split-at <time> --gate` at +3 h (`docs/ops/horse-exploit-report.md`). It judges the Horses' own
+fold, call and bluff rates against break-even, which has thousands of decisions an hour while this
+report waits days for person-hands. A new EXPLOITABLE cell (exit 1) is a rollback trigger.
+
 For a list of every recent switch or settings change with people's results before and after each
 one, run `scripts/ops/option-people-impact.mjs` first (`docs/ops/option-people-impact.md`); it finds
 the change worth a closer look, and this report then judges it.

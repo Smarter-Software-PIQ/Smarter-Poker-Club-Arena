@@ -58,6 +58,8 @@ export function parseCliArgs(argv) {
   let supabaseWorkdir = null;
   let json = false;
   let strictLatency = false;
+  let exploitSplitAt = null;
+  let strictExploit = false;
   let help = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -68,6 +70,15 @@ export function parseCliArgs(argv) {
       json = true;
     } else if (arg === '--strict-latency') {
       strictLatency = true;
+    } else if (arg === '--strict-exploit') {
+      strictExploit = true;
+    } else if (arg === '--exploit-split-at') {
+      const next = args[++i];
+      if (!next)
+        throw new Error('--exploit-split-at requires an ISO instant such as 2026-11-24T04:00:00Z');
+      exploitSplitAt = validateExploitSplitAt(next);
+    } else if (arg.startsWith('--exploit-split-at=')) {
+      exploitSplitAt = validateExploitSplitAt(arg.slice('--exploit-split-at='.length));
     } else if (arg === '--expect-sha') {
       const next = args[++i];
       if (!next) throw new Error('--expect-sha requires a commit SHA argument');
@@ -117,8 +128,60 @@ export function parseCliArgs(argv) {
     supabaseWorkdir,
     json,
     strictLatency,
+    exploitSplitAt,
+    strictExploit,
     help,
   };
+}
+
+/** Hours of hands before the split that the optional Horse exploit report compares against. */
+export const EXPLOIT_BEFORE_HOURS = 24;
+
+/** An ISO instant with an explicit zone (the exploit report refuses anything else). */
+export function validateExploitSplitAt(raw) {
+  const text = String(raw ?? '').trim();
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})$/.test(text) ||
+    !Number.isFinite(Date.parse(text))
+  ) {
+    throw new Error(
+      '--exploit-split-at must be an ISO instant with a zone, such as 2026-11-24T04:00:00Z'
+    );
+  }
+  return text;
+}
+
+/**
+ * Optional step 7: scripts/ops/horse-exploit-report.mjs --split-at <cutover> --gate, read-only.
+ * Non-blocking by default: a finding (exit 1) is a warning, too few hands (exit 2) and a failed
+ * read are `unknown`. With --strict-exploit a finding or a failed read fails the audit; too few
+ * hands stays `unknown` (it is no answer either way).
+ */
+export function evaluateExploitReport(result, { strict = false, splitAt, since, until } = {}) {
+  const exitCode = result?.exitCode ?? null;
+  const gateLine = result?.gateLine ?? null;
+  const details = { splitAt, since, until, exitCode, gateLine, findings: result?.findings ?? [] };
+  const base = { name: 'horse_exploit_report', failures: [], warnings: [], details };
+  if (exitCode === 0) return { ...base, status: 'pass' };
+  if (exitCode === 1) {
+    const msg = `a Horse cell became or grew EXPLOITABLE after ${splitAt}: rollback trigger (${gateLine ?? 'see the report'})`;
+    return strict
+      ? { ...base, status: 'fail', failures: [msg] }
+      : { ...base, status: 'warn', warnings: [msg] };
+  }
+  if (exitCode === 2) {
+    return {
+      ...base,
+      status: 'unknown',
+      warnings: [
+        `too few Horse decisions after ${splitAt} to judge yet (${gateLine ?? 'exit 2'}); run again at +3 h`,
+      ],
+    };
+  }
+  const msg = `horse-exploit-report did not answer (exit ${exitCode ?? 'none'}${result?.error ? `: ${result.error}` : ''})`;
+  return strict
+    ? { ...base, status: 'fail', failures: [msg] }
+    : { ...base, status: 'unknown', warnings: [msg] };
 }
 
 export function resolveLinkedSupabaseWorkdir({
@@ -740,6 +803,8 @@ export async function runPostCutoverAudit(options, deps) {
     healthUrl = DEFAULT_HEALTH_URL,
     maxRegistryAgeSec = DEFAULT_MAX_REGISTRY_AGE_SEC,
     strictLatency = false,
+    exploitSplitAt = null,
+    strictExploit = false,
   } = options;
   validateCompareHours(compareHours);
   const validatedExpectShas = expectShas.map((s) => validateHexSha(s, 'expectSha'));
@@ -892,6 +957,30 @@ export async function runPostCutoverAudit(options, deps) {
     ancestryCheck,
     latencyCheck,
   ];
+
+  // 7. Optional: Horse exploit report across the cutover (read-only, non-blocking unless strict)
+  if (exploitSplitAt) {
+    const splitMs = Date.parse(validateExploitSplitAt(exploitSplitAt));
+    const nowMs = deps.now ? deps.now() : Date.now();
+    const window = {
+      splitAt: new Date(splitMs).toISOString(),
+      since: new Date(splitMs - EXPLOIT_BEFORE_HOURS * 3_600_000).toISOString(),
+      until: new Date(nowMs).toISOString(),
+    };
+    let result;
+    if (!(nowMs > splitMs)) {
+      result = { exitCode: null, error: 'the split instant is not in the past' };
+    } else if (typeof deps.runExploitReport !== 'function') {
+      result = { exitCode: null, error: 'no exploit report runner' };
+    } else {
+      try {
+        result = await deps.runExploitReport(window);
+      } catch (err) {
+        result = { exitCode: null, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    checks.push(evaluateExploitReport(result, { strict: strictExploit, ...window }));
+  }
   const failedChecks = checks.filter((c) => c.status === 'fail');
   const overallStatus = failedChecks.length === 0 ? 'PASS' : 'FAIL';
 
@@ -961,6 +1050,12 @@ export function formatAuditReportText(report) {
           );
         }
       }
+    } else if (check.name === 'horse_exploit_report' && check.details) {
+      const d = check.details;
+      lines.push(
+        `          split=${d.splitAt} window=${d.since}..${d.until} exit=${d.exitCode ?? 'none'}${d.gateLine ? ` ${d.gateLine}` : ''}`
+      );
+      for (const f of (d.findings ?? []).slice(0, 3)) lines.push(`          - ${f}`);
     } else if (check.name === 'latency_summary' && check.details) {
       const d = check.details;
       if (check.status === 'unknown') {

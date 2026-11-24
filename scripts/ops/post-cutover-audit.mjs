@@ -10,6 +10,8 @@
  *   4. Zero option_switch_config_% alarms in public.horse_brain_telemetry
  *   5. Git ancestry proof for any --expect-sha commits against live releaseSha
  *   6. Recent decision latency summary (gracefully degrades to explicit `unknown`)
+ *   7. Optional (--exploit-split-at): horse-exploit-report.mjs --split-at <cutover> --gate, its verdict
+ *      printed; non-blocking unless --strict-exploit
  *
  * Security invariants:
  *   - Read-only SELECT/WITH queries only via `supabase db query --linked -o json --agent=no`.
@@ -44,6 +46,9 @@ Options:
   --health-url <url>            Engine /health endpoint (default: ${DEFAULT_HEALTH_URL})
   --max-registry-age-sec <sec>  Max serving registry age in seconds (default: ${DEFAULT_MAX_REGISTRY_AGE_SEC})
   --strict-latency              Fail overall verdict if >100ms starvation alert fires
+  --exploit-split-at <ISO>      Also run horse-exploit-report --split-at <ISO> --gate over the 24 h
+                                before it to now, and print its verdict (a warning unless strict)
+  --strict-exploit              Fail overall verdict on an exploit-report finding or failed read
   --supabase-workdir <dir>      Override auto-resolved linked Supabase workdir
   --json                        Emit machine-readable JSON output
   -h, --help                    Show this help text
@@ -102,6 +107,51 @@ export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir } = {}) {
         throw new Error(detail);
       }
       return parseSupabaseJsonOutput(res.stdout);
+    },
+
+    /** Run the read-only Horse exploit report as a child process and read its gate. */
+    runExploitReport({ splitAt, since, until }) {
+      const res = spawnSync(
+        process.execPath,
+        [
+          path.join(REPO_ROOT, 'scripts/ops/horse-exploit-report.mjs'),
+          '--since',
+          since,
+          '--until',
+          until,
+          '--split-at',
+          splitAt,
+          '--gate',
+          '--json',
+          ...(supabaseWorkdir ? ['--supabase-workdir', supabaseWorkdir] : []),
+        ],
+        {
+          cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 900_000,
+          maxBuffer: 256 * 1024 * 1024,
+        }
+      );
+      if (res.error) return { exitCode: null, error: res.error.message };
+      let gateLine = null;
+      let findings = [];
+      try {
+        const report = JSON.parse(res.stdout);
+        gateLine = report.gate?.line ?? null;
+        findings = (report.findings ?? []).slice(0, 3).map((f) => f.text);
+      } catch {
+        // exit 64 / 70 print no JSON; the exit code alone is the answer
+      }
+      return {
+        exitCode: res.status,
+        gateLine,
+        findings,
+        error:
+          res.status === 0 || res.status === 1 || res.status === 2
+            ? null
+            : (res.stderr || '').trim().slice(0, 300),
+      };
     },
 
     isGitAncestor(ancestorSha, descendantSha) {
