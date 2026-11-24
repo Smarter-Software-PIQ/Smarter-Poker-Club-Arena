@@ -51,7 +51,7 @@ Local native re-runs of #11186, #11192 and #11197: `pg_ctl` could not start a pr
 
 **Backfill (Nov 18-24, 26 cycles, from the archived `daily-engine-selection-*` artifacts).** It would have failed at 11-22 01:00 and 04:00 CST on `backup-lacks-installed-migration`. Other gates seen: `backup-lacks-candidate-migration` (11-19), `no-certified-candidate` (11-20, 11-22 10:00: newer merges, none Backup-certified), `prequalification-unavailable` (11-21), `serving-rollback-rehearsal-unavailable` (11-21 16:00, 11-22 22:00, 11-23 22:00, 11-24 13:00), `backup-holds-migration-production-lacks` (11-23). The selection labels any candidate whose Backup evidence lacks the rehearsal fields as `serving rollback rehearsal unavailable`, including the 11-24 13:00 hand-gap refusal; the record keeps the selection's own label.
 
-**Proof.** `scripts/ci/test-cutover-outcome-ledger.py` (18 cases: two identical refusals fail; newer merges with no certified candidate is a refusal; a seal, a selection, a different gate or nothing-to-ship resets; a receiver that did not seal twice fails one cycle late; the same cycle counts once; unreadable inputs exit 2; the real refusal strings classify; the seed is the backfill; the job's wiring). It runs in the required `Incident class proofs` check.
+**Proof.** `scripts/ci/test-cutover-outcome-ledger.py` (17 cases: two identical refusals fail; newer merges with no certified candidate is a refusal; a seal, a selection, a different gate or nothing-to-ship resets; a receiver that did not seal twice fails one cycle late; the same cycle counts once; unreadable inputs exit 2; the real refusal strings classify; the seed is the backfill; the job's wiring). It runs in the required `Incident class proofs` check.
 
 ## Open, not done here
 
