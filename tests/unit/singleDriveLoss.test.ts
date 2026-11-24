@@ -364,7 +364,13 @@ describe('a coordination post has one canonical inbox and one mirror', () => {
       '\n## 2026-11-24T06:00:00Z FROM Lane A (s1) TO ALL LANES - SUBJECT: TEST\n1. body\nGATE END\n'
     );
     expect(() =>
-      formatInboxPost({ from: 'a', to: 'b', subject: 'c', body: 'café', nowIso: 'x' })
+      formatInboxPost({
+        from: 'a',
+        to: 'b',
+        subject: 'c',
+        body: `caf${String.fromCharCode(233)}`,
+        nowIso: 'x',
+      })
     ).toThrow(/non-ASCII/);
     expect(() =>
       formatInboxPost({ from: 'a', to: 'b', subject: '', body: 'x', nowIso: 'x' })
