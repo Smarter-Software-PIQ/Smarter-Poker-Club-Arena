@@ -14,7 +14,9 @@
  * with P(all fold) the measured share of multiway first wagers of this size to which every player folded, and the
  * players who call independent at the per-player rate that gives it. Sizes tried: a third, a half and three
  * quarters of the pot (within the legal range and the stack). The best bet replaces the check when it is worth more
- * than the check by the margin of the facing-bet verdicts (2% of the pot). Raises over the Horse's bet and later
+ * than the check by the margin of the facing-bet verdicts (2% of the pot), and only as a VALUE bet: the hand's
+ * showdown share against one caller's measured calling range is at least one half (a bet that wins only by folds is
+ * a bluff, which this option never makes; multiway bluffs are item M7, not built). Raises over the Horse's bet and later
  * streets are not priced (both sides of the comparison see the same later streets; a raise over a value bet is
  * answered by the facing-bet price). It never turns a bet into a check and never touches a hand facing a wager.
  * Identity-free: the field is the measured pooled range; nobody is keyed.
@@ -27,6 +29,7 @@ import {
   OMAHA_MEASURED_BIN_EDGES,
   OMAHA_MEASURED_BINS,
   omahaMeasuredCallerHist,
+  omahaMeasuredBucketOf,
   omahaMeasuredFieldAllFold,
   omahaMeasuredWeakShare,
   type OmahaMeasuredStreet,
@@ -54,7 +57,12 @@ export interface OmahaMultiwayValueBetVerdict {
   evCheck: number;
   evBet: number;
   size: number | null;
+  /** the hand's showdown share against one caller's measured calling range at the chosen size */
+  valueShare: number | null;
 }
+
+/** A value bet: the hand wins at least this share against one caller's range when called. */
+export const OMAHA_MULTIWAY_VALUE_BET_AHEAD = 0.5;
 
 /** The priced bet against the check, or null outside the spot or with nothing to price. */
 export function omahaMultiwayValueBetVerdict(
@@ -85,22 +93,34 @@ export function omahaMultiwayValueBetVerdict(
   const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
   if (!(pot > 0) || !(stack > 0)) return null;
   const keep = 1 - Math.max(0, Math.min(0.2, Number.isFinite(rake) ? rake : 0));
-  // the check: the whole field shows down its whole range
-  const all = omahaPricedJointRows(hole, board, dead, UNIFORM, {
-    always: Array.from({ length: k - 1 }, () => UNIFORM),
-    behind: 0,
-    continueRate: 0,
-    behindHist: null,
-  });
-  if (!all) return null;
-  const wU = omahaMeasuredWeakShare(UNIFORM);
-  const evCheck = ((1 - wU) * all.value + wU * all.weak) * pot * keep;
+  const shareMemo = new Map<string, number | null>();
+  /** the hand's pot share against j callers of a wager of this size (memoised per size bucket) */
+  const shareAgainst = (frac: number, callers: readonly number[], j: number): number | null => {
+    const mk = `${omahaMeasuredBucketOf(frac)}|${j}`;
+    if (shareMemo.has(mk)) return shareMemo.get(mk) as number | null;
+    const rows = omahaPricedJointRows(hole, board, dead, callers, {
+      always: Array.from({ length: j - 1 }, () => callers),
+      behind: 0,
+      continueRate: 0,
+      behindHist: null,
+    });
+    const w = omahaMeasuredWeakShare(callers);
+    const out = rows ? (1 - w) * rows.value + w * rows.weak : null;
+    shareMemo.set(mk, out);
+    return out;
+  };
+  let evCheck: number | null = null;
   const lo = Number.isFinite(gs.minRaiseTo)
     ? Math.max(0, gs.minRaiseTo as number)
     : Math.max(0, gs.bigBlind ?? 0);
   const hi = Math.min(stack, Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : pot);
-  let best: OmahaMultiwayValueBetVerdict = { amount: null, evCheck, evBet: -Infinity, size: null };
-  const shareMemo = new Map<string, number>();
+  let best: OmahaMultiwayValueBetVerdict = {
+    amount: null,
+    evCheck: 0,
+    evBet: -Infinity,
+    size: null,
+    valueShare: null,
+  };
   for (const size of OMAHA_MULTIWAY_VALUE_BET_SIZES) {
     const amount = Math.round(Math.max(lo, Math.min(hi, size * pot)) * 100) / 100;
     if (!(amount > 0) || amount > stack + 1e-9 || amount < lo - 1e-9) continue;
@@ -108,29 +128,33 @@ export function omahaMultiwayValueBetVerdict(
     const allFold = omahaMeasuredFieldAllFold(variant, street, frac, k);
     const callers = omahaMeasuredCallerHist(variant, street, frac, 'mw');
     if (allFold === null || !callers) continue;
+    // a value bet only: ahead of one caller's range when called (checked first: most hands stop here)
+    const one = shareAgainst(frac, callers, 1);
+    if (one === null || one < OMAHA_MULTIWAY_VALUE_BET_AHEAD) continue;
+    if (evCheck === null) {
+      // the check: the whole field shows down its whole range
+      const all = omahaPricedJointRows(hole, board, dead, UNIFORM, {
+        always: Array.from({ length: k - 1 }, () => UNIFORM),
+        behind: 0,
+        continueRate: 0,
+        behindHist: null,
+      });
+      if (!all) return null;
+      const wU = omahaMeasuredWeakShare(UNIFORM);
+      evCheck = ((1 - wU) * all.value + wU * all.weak) * pot * keep;
+    }
     const c = 1 - Math.pow(Math.max(1e-6, Math.min(1, allFold)), 1 / k);
     let ev = allFold * pot;
     for (let j = 1; j <= k; j++) {
       const pj = binomial(k, j) * Math.pow(c, j) * Math.pow(1 - c, k - j);
       if (!(pj > 0)) continue;
-      const mk = `${Math.round(frac * 100)}|${j}`;
-      let share = shareMemo.get(mk);
-      if (share === undefined) {
-        const rows = omahaPricedJointRows(hole, board, dead, callers, {
-          always: Array.from({ length: j - 1 }, () => callers),
-          behind: 0,
-          continueRate: 0,
-          behindHist: null,
-        });
-        if (!rows) return null;
-        const wC = omahaMeasuredWeakShare(callers);
-        share = (1 - wC) * rows.value + wC * rows.weak;
-        shareMemo.set(mk, share);
-      }
+      const share = shareAgainst(frac, callers, j);
+      if (share === null) return null;
       ev += pj * (share * (pot + (j + 1) * amount) * keep - amount);
     }
-    if (ev > best.evBet) best = { amount, evCheck, evBet: ev, size: frac };
+    if (ev > best.evBet) best = { amount, evCheck, evBet: ev, size: frac, valueShare: one };
   }
+  if (evCheck === null) return { ...best, evCheck: 0, amount: null };
   if (best.amount === null || !(best.evBet > evCheck + OMAHA_MULTIWAY_VALUE_BET_MARGIN * pot))
     return { ...best, amount: null };
   return best;

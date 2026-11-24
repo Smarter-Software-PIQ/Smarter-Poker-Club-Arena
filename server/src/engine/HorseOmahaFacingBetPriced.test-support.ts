@@ -42,7 +42,8 @@ function inPosition(player: SeatPlayer, gs: HorseGameStateV2): boolean {
     .filter((p) => !p.is_folded && !p.is_sitting_out)
     .map((p) => p.seat)
     .sort((a, b) => a - b);
-  const i = live.findIndex((x) => x > gs.dealerSeat);
+  const dealer = gs.dealerSeat ?? -1;
+  const i = live.findIndex((x) => x > dealer);
   const at = i < 0 ? 0 : i;
   const rot = [...live.slice(at), ...live.slice(0, at)];
   return rot.indexOf(player.seat) === rot.length - 1;

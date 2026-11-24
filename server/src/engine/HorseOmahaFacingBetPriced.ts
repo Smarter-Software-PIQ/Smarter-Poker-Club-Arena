@@ -9,8 +9,8 @@
  *     line, size and pot type (HorseOmahaMeasuredBettorRange), his own shown record shrunk toward it where he has
  *     one. The value share narrowed by 0.8 / 0.9 per earlier street and the fixed 13-19% river bluff share are not
  *     used. The Horse's share against each strength bin is an exact count (omahaEvHandCounts: river top shares,
- *     turn value regions over every river card), so the price is exact. The field, when there is one and M1 is
- *     off, is today's verdict's field factor; the turn realization is today's verdict's (its 0.85 / 0.92 and caps).
+ *     turn value regions over every river card), so the price is exact; the turn realization is today's verdict's
+ *     (its 0.85 / 0.92 and caps). Heads-up only: a multiway spot is M1's (with M1 off it keeps today's verdict).
  *  F2 omahaFacingBetIndifferenceCalls. The call is made at EV >= the estimate's own error: 0 for an exact count
  *     (today's verdict and F1), the sampling error for the joint sample (M1). Exact indifference calls.
  *  F6 omahaFacingBetMinimumDefencePrior. With no record, the prior's weak share is at least the cell's
@@ -226,8 +226,9 @@ export function omahaPricedFacingVerdict(
     }
   }
 
-  // F1: the measured range, exact.
-  if (o.range) {
+  // F1: the measured range, exact, heads-up (a multiway spot is M1's: the stated field factors on top of a measured
+  // multiway range would count the field twice; with M1 off a multiway spot keeps today's verdict).
+  if (o.range && !multi) {
     const range = rangeOf();
     const bins = range ? omahaPricedBinShares(hole, board, dead) : null;
     if (range && bins) {

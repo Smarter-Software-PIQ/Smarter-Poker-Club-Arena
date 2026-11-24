@@ -14,7 +14,8 @@
  * - four RIGHT labels were close at the check's fixed realization and the tree or the exact count calls:
  *   121058 and 110927 (flop, showdown share 0.33 / 0.39 against price 0.23 / 0.25; the two-street tree prices the
  *   later streets instead of a fixed 0.75), 210970 (turn, EV +0.03 pot), 122164 (river, pWin 0.214 against 0.206).
- * With no record and F6 on (an unknown bettor), 220817 also calls; the raises still fold (F6 never bounds a raise).
+ * With no record and F6 on (an unknown bettor) the six still call; 220817 stays a fold (it sits at the margin of the
+ * PLO5 river air floor) and the raises still fold (F6 never bounds a raise).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -88,15 +89,10 @@ describe('the 20 re-priced folds of the over-fold report', () => {
     expect(wrongCalled).toBe(6);
   }, 120_000);
 
-  it('against an unknown bettor (F6 on) every first-wager WRONG fold calls; the raises still fold', () => {
+  it('against an unknown bettor (F6 on) the six still call and the four still fold', () => {
     for (const s of FIXTURE.spots.filter((x) => x.label === 'wrong_fold')) {
       const o = pricedOutcome({ k: s.k, legacy: 'fold', gs: s.gs, player: s.player }, 'on', true);
-      const raise = [
-        'plo4_cash_345:130426:7',
-        'plo4_cash_6max:110595:10',
-        'plo4_cash_hu:121333:7',
-      ].includes(s.k);
-      expect(o?.call ? 'call' : 'fold', s.k).toBe(raise ? 'fold' : 'call');
+      expect(o?.call ? 'call' : 'fold', s.k).toBe(KNOWN_BETTOR[s.k]);
     }
   }, 120_000);
 });

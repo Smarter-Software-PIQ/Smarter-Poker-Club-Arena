@@ -14,12 +14,13 @@
  *                                                  not mucked: no unshown card leaves the database.
  *   calibrate --states <state set dir> --decisions <replay dir> --tables <tables.json>
  *                                                  F6 (omahaFacingBetMinimumDefencePrior): per game, street and size
- *                                                  bucket, the weakest no-record weak share under which the Horse's
- *                                                  whole range over the state set (heads-up, facing a first wager or
- *                                                  raise; a raise the replay made stays a raise) folds no more than the
- *                                                  mean of s / (1 + s) + 0.05; written into the tables as minDefence
- *                                                  (a cell already within the bound gets none). Priced with
- *                                                  omahaFacingBetIndifferenceCalls on. Run from server/ with tsx.
+ *                                                  bucket under 0.7 pot, the smallest share of AIR (his weakest bin)
+ *                                                  in a no-record prior under which the Horse's whole heads-up range
+ *                                                  over the state set (facing a first wager; a raise the replay made
+ *                                                  stays a raise) folds no more than the mean of s / (1 + s) + 0.05;
+ *                                                  written into the tables as minDefence (a cell already within the
+ *                                                  bound gets none). Priced with omahaFacingBetIndifferenceCalls on,
+ *                                                  rake 0. Run from server/ with tsx.
  *   fit  --in <dir> --out <tables.json> --version <label>
  *                                                  run from server/ with `node --import tsx`: it scores hands with
  *                                                  the engine's own evaluator (HorseEval.scoreOmahaHiPartial) and
@@ -29,10 +30,9 @@
  * him) that beat his hand on the board of that street: 0 is the nuts. It is the same scale the engine's exact
  * counts use (omahaEvHandCounts.top), so a table bin [a, b) is "the strongest b of holdings less the strongest a".
  *
- * SHOWDOWN BIAS (flop and turn): a bettor who later folds is never shown. Each flop / turn cell records how many of
- * its first wagers ended with the bettor folding later in the hand; that share is added to the cell as weak hands
- * (the cell's own shown hands at strength >= WEAK_EDGE, by their shape). River bets that are called are always shown
- * (all 6,999 in the week of Nov 17-24), so the river needs no correction.
+ * SHOWDOWN BIAS: a bettor who later folds, or who reaches the showdown and mucks a losing hand, is never shown. Each
+ * cell records how many of its first wagers ended either way (laterFold); that share is added to the cell as weak
+ * hands (the cell's own shown hands at strength >= WEAK_EDGE, by their shape), on every street.
  *
  * Identity-free: no user is keyed. Every cell pools every player who made that action.
  */
@@ -301,6 +301,9 @@ async function fit() {
           (d, j) => d.u === bet.u && d.act === 'fold' && decisions.indexOf(bet) < j
         );
         if (laterFold) bc.laterFold++;
+        // a showdown happened (somebody's cards are shown), he did not fold and his cards are not shown: he mucked a
+        // losing hand, which the shown sample never sees
+        else if (shown.size > 0 && !shown.has(bet.u)) bc.laterFold++;
         const hole = shown.get(bet.u);
         if (hole && board.length === 5) {
           const p = strength(hole, sb);
@@ -368,6 +371,7 @@ async function fit() {
             )
           )
             rc.laterFold++;
+          else if (shown.size > 0 && !shown.has(raiser.u)) rc.laterFold++;
         }
         // the two-street tree: a heads-up first wager called by one player, no raise; does he fire the next streets
         if (st !== 'river' && into === 'hu' && !raiser && cont === 1) {
@@ -414,7 +418,7 @@ async function fit() {
   const corrected = (street, s) => {
     let base = norm(s.h);
     if (!base) return null;
-    if (street === 'river' || s.bets <= 0) return base;
+    if (s.bets <= 0) return base;
     const f = Math.max(0, Math.min(0.9, s.lf / s.bets));
     const weak = base.map((x, i) => (BIN_EDGES[i] >= WEAK_EDGE ? x : 0));
     const wn = norm(weak) ?? base.map((_, i) => (i === nbins - 1 ? 1 : 0));
