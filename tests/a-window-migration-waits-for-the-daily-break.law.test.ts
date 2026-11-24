@@ -443,7 +443,9 @@ describe('the route runs on the daily schedule that already exists', () => {
     // Unknown/failed selection is a failure, never an empty passing corpus.
     const selection = nativeMigrationSelection('@install-window', 'supabase/migrations', {
       cwd: root,
-      timeout: 25_000,
+      // 24 s standalone on the shared Mac on 2026-11-24 (7,200 files on the
+      // external volume); 25 s killed it inside the pre-push hook twice.
+      timeout: 90_000,
     });
     expect(selection.error).toBeUndefined();
     expect([0, 1]).toContain(selection.status);
@@ -456,7 +458,7 @@ describe('the route runs on the daily schedule that already exists', () => {
       if (!/@install-window/.test(sql)) continue;
       expect(() => validateWindowMigration(f, sql, { preamble: [] }), f).not.toThrow();
     }
-  });
+  }, 120_000);
 });
 
 describe('a later explicit owner exception preserves freeze and transaction safeguards', () => {
@@ -742,10 +744,11 @@ describe('one explicit database-only certified maintenance operation', () => {
       ['-B', 'tests/operations/database-maintenance-reservation.test.py'],
       // The complete 38-case Git/seal suite measured 67.3s on the owner Mac.
       // Keep every refusal/replay assertion and bounded process/test headroom.
-      { encoding: 'utf8', timeout: 120000 }
+      // It ran past 120 s inside the pre-push hook on 2026-11-24 under shared load.
+      { encoding: 'utf8', timeout: 300000 }
     );
     expect(r.status, r.stdout + r.stderr).toBe(0);
-  }, 130000);
+  }, 310000);
   it('retains the original lock, loopback request and thaw instead of replacing the engine', () => {
     const code = read('scripts/ci/database-maintenance-window.py');
     expect(code).toContain('/var/lock/club-arena-engine-up.lock');
