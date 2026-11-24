@@ -5921,6 +5921,10 @@ export interface HorseDecideOpts {
   /** holdemLateStreetIsPriced in NLH tournaments too (default OFF): only once its chip EVs go through the Phase 7
    * tournament utility; until then tournaments keep the existing decision. */
   holdemLateStreetIsPricedInTournaments?: boolean;
+  /** plo-lead6 2026-11-24 (BUILD-II step 2): the same priced chooser on the NLH flop, cash and Lightning only (bet /
+   * size / check; call / fold; value raises; in position a combo-draw raise when its EV wins, never a draw raise out
+   * of position), with the computed two-street realization. Default OFF (read `=== true`). */
+  holdemFlopIsPriced?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's

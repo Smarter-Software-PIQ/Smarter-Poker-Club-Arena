@@ -154,6 +154,8 @@ export interface HoldemOpponentRange {
   opp: SeatPlayer;
   range: HoldemPricedRange;
   foldAtReference: number;
+  /** his bet share when checked to (the same statRead posterior the line narrowing uses) */
+  betWhenCheckedTo: number;
 }
 
 /**
@@ -168,7 +170,10 @@ export function holdemOpponentLineRange(
   opp: SeatPlayer,
   mind: boolean,
   liveCount: number,
-  fillEquities = true
+  fillEquities = true,
+  /** holdemLateStreetIsPriced / holdemFlopIsPriced only: the share of his range he bets with his first wager of a
+   * street (the fitted bet share for his line and position, his record moving it); null keeps the reads below. */
+  betShareOf?: (stage: 'flop' | 'turn' | 'river', index: number) => number | null
 ): HoldemOpponentRange | null {
   const board = (gs.communityCards ?? []) as Card[];
   const street = gs.stage as 'flop' | 'turn' | 'river';
@@ -291,9 +296,16 @@ export function holdemOpponentLineRange(
           st === 'river'
             ? callToFace / Math.max(1e-9, runningPot + added + callToFace)
             : posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
-        const betShare = oppNarrowedPostflop
-          ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
-          : betWhenCheckedTo;
+        const fitted =
+          betShareOf && facingTo <= 0
+            ? betShareOf(st as 'flop' | 'turn' | 'river', history.indexOf(x))
+            : null;
+        const betShare =
+          fitted !== null && fitted !== undefined
+            ? fitted
+            : oppNarrowedPostflop
+              ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+              : betWhenCheckedTo;
         const half = facingTo > 0 ? 0.5 : 1;
         line.push({
           board: sb,
@@ -311,7 +323,7 @@ export function holdemOpponentLineRange(
   if (range.total <= 0) return null;
   if (fillEquities)
     holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
-  return { opp, range, foldAtReference };
+  return { opp, range, foldAtReference, betWhenCheckedTo };
 }
 
 /** Whether the Horse acts after every live opponent on this street (the dealer button order). */

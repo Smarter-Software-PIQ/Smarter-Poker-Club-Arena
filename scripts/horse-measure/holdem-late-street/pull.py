@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Pull the rows of responses.sql in 30-minute windows (Supabase Management API read-only query endpoint; the token is
-read from SUPABASE_ACCESS_TOKEN and never printed). Usage: pull.py <project_ref> <from ISO> <to ISO> <out.ndjson>"""
+read from SUPABASE_ACCESS_TOKEN and never printed). Usage: pull.py <project_ref> <from ISO> <to ISO> <out.ndjson> [sql file, default responses.sql]"""
 import datetime, json, os, sys, time, urllib.request
 ref, start, end, out = sys.argv[1:5]
-sql_t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'responses.sql')).read()
+sql_t = open(sys.argv[5] if len(sys.argv) > 5 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'responses.sql')).read()
 def q(sql):
     req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{ref}/database/query',
         data=json.dumps({'query': sql, 'read_only': True}).encode(),

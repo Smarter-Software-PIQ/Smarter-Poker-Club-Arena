@@ -2473,15 +2473,16 @@ export function holdemLateStreetIsPricedGate(
   switchConfig: unknown,
   previousSwitchConfig?: unknown
 ): boolean {
-  if (requestOpts?.holdemLateStreetIsPriced === true) return true;
+  // the flop chooser (holdemFlopIsPriced) is the same chooser: its passive answers are admitted under either option
+  if (requestOpts?.holdemLateStreetIsPriced === true || requestOpts?.holdemFlopIsPriced === true)
+    return true;
   const on = (config: unknown): boolean => {
     try {
       const parsed = parseOptionSwitchConfig(config);
-      return (
-        parsed.ok &&
-        (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)
-          .holdemLateStreetIsPriced === true
-      );
+      const o = parsed.ok
+        ? (optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>)
+        : null;
+      return o !== null && (o.holdemLateStreetIsPriced === true || o.holdemFlopIsPriced === true);
     } catch {
       return false;
     }

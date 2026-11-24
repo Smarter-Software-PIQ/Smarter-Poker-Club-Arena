@@ -168,9 +168,9 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':
       "the default-off hold'em value and calls priced (HORSE DECISIONS lane 2026-11-19, holdemValueAndCallsArePriced): NLH cash heads-up postflop, the value raise, the made-hand bet or check, the facing-bet call and the river bet priced against the bettor's line range and measured response; off returns the decision unchanged",
     'src/engine/HorseHoldemLateStreetIsPriced.ts':
-      "the default-off deterministic priced Hold'em late-street chooser (plo-lead6 2026-11-24, holdemLateStreetIsPriced and holdemLateStreetBluffRaiseIsPriced): NLH turn and river, bet / size / check and call / fold by EV against his fold curve, bluff share, blockers and nut advantage; off returns the decision untouched",
+      "the default-off deterministic priced Hold'em late-street chooser (plo-lead6 2026-11-24, holdemLateStreetIsPriced and holdemLateStreetBluffRaiseIsPriced): NLH turn and river (and the flop under holdemFlopIsPriced, cash and Lightning), bet / size / check and call / fold by EV against his fold curve, bluff share, blockers and nut advantage with a computed two-street realization; off returns the decision untouched",
     'src/engine/HorseHoldemLateStreetPriors.ts':
-      'the generated population priors of holdemLateStreetIsPriced (fold to a turn/river bet by line and size, fold to a raise), refit with scripts/horse-measure/holdem-late-street/fit.py',
+      'the generated population priors of holdemLateStreetIsPriced and holdemFlopIsPriced (fold to a flop/turn/river bet by line and size, fold to a raise), refit with scripts/horse-measure/holdem-late-street/fit.py',
     'src/engine/HorseHoldemTurnRiverRaiseNeedsValue.ts':
       "the default-off hold'em turn and river raise needs value (plo-lead6 late-street audit 2026-11-24, holdemTurnRiverRaiseNeedsValue): NLH cash, Lightning and tournaments, turn and river facing a wager; a raise by a hand below the value bar against the opponents' continuing line ranges becomes the priced call or fold; off returns the decision untouched",
     'src/engine/HorseHoldemCommittedPricing.ts':

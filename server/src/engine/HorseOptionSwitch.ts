@@ -360,6 +360,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemLateStreetIsPriced',
   'holdemLateStreetBluffRaiseIsPriced',
   'holdemLateStreetIsPricedInTournaments',
+  // 2026-11-24 plo-lead6 BUILD-II step 2: the same chooser on the NLH flop (ships dark)
+  'holdemFlopIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1061,6 +1063,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH tournaments, turn and river, with holdemLateStreetIsPriced on',
     'extends the priced late-street chooser to tournaments (chip EV; Phase 7 utility not yet applied)',
+  ],
+  holdemFlopIsPriced: [
+    HOLDEM,
+    'NLH cash and Lightning, flop, heads-up and multiway',
+    'the priced chooser on the flop: bet / size / check and call / fold by EV with a computed two-street realization; value raises; a combo-draw raise only in position',
   ],
   holdemLateStreetBluffRaiseIsPriced: [
     HOLDEM,

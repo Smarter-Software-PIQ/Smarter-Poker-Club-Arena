@@ -2628,6 +2628,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemFlopIsPriced',
+    'plo-lead6 2026-11-24 (BUILD-II step 2; owner 2026-11-24: no random plays, the best play by math). NLH cash and Lightning flop, heads-up and multiway (at most 5 opponents); default off (read === true); tournaments untouched. The holdemLateStreetIsPriced chooser on the flop, the outermost answer of wager_rules: opening, bet sizes against check jointly over the field with his fold by his preflop line (fitted on NLH cash, flop-responses.sql); facing a bet, call against fold with his bluff share; value raises at every legal size; a non-value raise only heads-up, in position, with a combo draw, when its EV beats call and fold (never a draw raise out of position). Draw equity is credited by a computed two-street realization (holdemLateRealization), never a constant. Deterministic, no random draw. HorseHoldemLateStreetIsPriced.ts',
+    'V94'
+  ),
+  flag(
     'holdemLateStreetBluffRaiseIsPriced',
     'plo-lead6 2026-11-24, pending the owner ruling on river bluff-raises: with holdemLateStreetIsPriced on, a turn or river raise by a non-value hand facing one bettor is made when its EV (his fold to a raise, blockers, nut advantage) beats call and fold. Default off (read === true).',
     'V94'
@@ -9581,6 +9586,126 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_late_priced_nut_advantage_decided',
     'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
     'the nut-advantage term changed the best action of the chooser',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_check',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser checked (check had the highest EV)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_bet_value',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser bet with showdown equity at least 0.5',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_bet_bluff',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser bet with showdown equity below 0.5 (a priced semi-bluff or bluff)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_call',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'facing a flop bet the chooser called (EV of the call with the computed realization at least 0)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_fold',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'facing a flop bet the chooser folded (EV of the call below 0)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_raise_value',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser raised for value (ahead of the continuing part of every live range)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_draw_raise',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser raised a combo draw in position (its EV beat call and fold)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_unpriced',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the flop chooser could not build a range; the decision was kept',
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_range_defend',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    "range-level minimum defence: the hand is inside the strongest (1 - alpha) of the Horse's own line range, so a per-hand fold became the call",
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_range_value',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    "range-level plan: a value hand bets the node's one size",
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_range_bluff',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    'range-level plan: a selected bluff (balanced share s/(1+2s) of the bets at the node size, ranked draw, air, blockers) bets',
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_range_check',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    'range-level plan: the hand checks (not value at the node size and not a selected bluff, or the node checks)',
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_mix_defend',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    'the boundary class of the minimum defence called or folded by the model-requested residual frequency (holdemLateMixDraw, seeded by the spot)',
+    'V94'
+  ),
+  receipt(
+    'holdem_late_priced_mix_bet',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemLateStreetIsPriced)',
+    'the boundary class of the bluff selection bet or checked by the model-requested residual frequency (holdemLateMixDraw, seeded by the spot)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_range_defend',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    "range-level minimum defence: the hand is inside the strongest (1 - alpha) of the Horse's own line range, so a per-hand fold became the call",
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_range_value',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    "range-level plan: a value hand bets the node's one size",
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_range_bluff',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'range-level plan: a selected bluff (balanced share s/(1+2s) of the bets at the node size, ranked draw, air, blockers) bets',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_range_check',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'range-level plan: the hand checks (not value at the node size and not a selected bluff, or the node checks)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_mix_defend',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the boundary class of the minimum defence called or folded by the model-requested residual frequency (holdemLateMixDraw, seeded by the spot)',
+    'V94'
+  ),
+  receipt(
+    'holdem_flop_priced_mix_bet',
+    'HorseHoldemLateStreetIsPriced (HorseLogic wager_rules; holdemFlopIsPriced)',
+    'the boundary class of the bluff selection bet or checked by the model-requested residual frequency (holdemLateMixDraw, seeded by the spot)',
     'V94'
   ),
   receipt(

@@ -115,6 +115,8 @@ describe('LAW: the chooser is the math, never a roll', () => {
       'persona',
     ])
       expect(src.includes(w), w).toBe(false);
+    // its generators: the seeded runouts of the realization and the residual-frequency draw, nothing else
+    expect(src.match(/runoutGenerator\(/g)?.length).toBe(3);
   });
 
   it('in its spot the final action and size are the same whatever the random streams were seeded with', () => {
@@ -144,7 +146,8 @@ describe('LAW: the chooser is the math, never a roll', () => {
       if (v.best.kind === 'bet') {
         bets++;
         const check = v.options.find((o) => o.kind === 'check')!;
-        expect(v.best.ev).toBeGreaterThanOrEqual(check.ev);
+        // a bet below the check is only a bluff the range-level plan selected (balanced share at the node size)
+        if (v.range?.kind !== 'bluff') expect(v.best.ev, s.k).toBeGreaterThanOrEqual(check.ev);
       }
       if (v.best.kind === 'fold') {
         folds++;
