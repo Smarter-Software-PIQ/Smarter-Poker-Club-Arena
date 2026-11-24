@@ -237,6 +237,38 @@ describe('migration pre-image MD5 freshness check', () => {
     expect(findPreimageCollisions(migrations)).toEqual([]);
   });
 
+  it('preserves collision tracking on sibling overloads when a different overload is redefined unpinned', () => {
+    const migrations = [
+      {
+        file: 'supabase/migrations/20261119100000_pinned_overload_1.sql',
+        sql: `-- @live-proof: md5(pg_get_functiondef('public.fn_overloaded(uuid)'::regprocedure)) = '${MD5_B}'`,
+      },
+      {
+        file: 'supabase/migrations/20261119173316_unpinned_overload_2.sql',
+        sql: `CREATE OR REPLACE FUNCTION public.fn_overloaded(p_id uuid, p_note text DEFAULT 'a,b', OUT o_ok boolean) RETURNS boolean LANGUAGE plpgsql AS $$ BEGIN o_ok := true; END; $$;`,
+      },
+      {
+        file: 'supabase/migrations/20261124152017_stale_overload_1.sql',
+        sql: `
+          DO $pins$
+          BEGIN
+            IF md5(pg_get_functiondef('public.fn_overloaded(uuid)'::regprocedure)) IS DISTINCT FROM '${MD5_A}' THEN
+              RAISE EXCEPTION 'pre-image drifted';
+            END IF;
+          END $pins$;
+        `,
+      },
+    ];
+
+    const collisions = findPreimageCollisions(migrations);
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0]).toMatchObject({
+      signature: 'public.fn_overloaded(uuid)',
+      expectedPreMd5: MD5_A,
+      earlierPostMd5: MD5_B,
+    });
+  });
+
   it('all existing migrations >= 20261120000000 in supabase/migrations have zero pre-image collisions', () => {
     const { checkedCount, collisions } = checkMigrationsDir(MIGRATIONS_DIR);
     expect(checkedCount).toBeGreaterThan(0);
