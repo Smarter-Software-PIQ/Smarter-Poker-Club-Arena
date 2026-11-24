@@ -102,6 +102,22 @@ export const WALLET_MOVE_TYPES = new Set<string>([
 ]);
 
 /**
+ * Single authoritative predicate for rows that count toward the unified agent
+ * promo allowance (50 chips / 7 days per downline, 250 chips / 24 hours per
+ * agent): promo_wallet_send OR non-self agent_wallet_send / peer_transfer whose
+ * destination is a promo wallet.
+ */
+export function isAgentPromoSendTransaction(row: ChipTransactionLike): boolean {
+  const type = String(row.transaction_type ?? '');
+  if (type === 'promo_wallet_send') return true;
+  if (type !== 'agent_wallet_send' && type !== 'peer_transfer') return false;
+  const dest = row.metadata?.destination;
+  if (dest !== 'promo_wallet' && dest !== 'cashier_promo_wallet') return false;
+  if (row.from_user_id && row.to_user_id && row.from_user_id === row.to_user_id) return false;
+  return true;
+}
+
+/**
  * THE CASH-OUT LEGS (Dan, 2026-10-24: "WHO EVER APPROVES THE CASH OUT, THOSE
  * CHIPS ARE CREDITED TO THAT PERSONS AGENT WALLET ... AND IT SHOULD BE APART
  * OF THE CASHIER TRANSACTION REPORT").

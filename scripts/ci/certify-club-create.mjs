@@ -429,6 +429,7 @@ async function certifyWelcomeResetInsideRollback({
 
 async function cleanupResidualDirectCertificates() {
   const residual = [];
+  let retainedOwners = 0;
   for (let page = 1; ; page += 1) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) throw new Error(`Legacy Certificate Inventory Failed: ${error.message}`);
@@ -444,11 +445,27 @@ async function cleanupResidualDirectCertificates() {
   }
 
   for (const fixture of residual) {
-    const { data: ownedClubs, error: clubError } = await admin
+    const { data: fixtureClubs, error: clubError } = await admin
       .from('clubs')
-      .select('id')
+      .select('id, lifecycle_status')
       .eq('owner_id', fixture.id);
     if (clubError) throw new Error(`Residual Certificate Club Check Failed: ${clubError.message}`);
+
+    // A RETIRED FIXTURE THAT KEEPS ITS HISTORY IS FINISHED, AND NO DOOR IS
+    // ASKED ABOUT IT (2026-11-24). lifecycle_status 'retired' is the terminal
+    // state the history door writes: chips retired, tables closed, the row and
+    // its settled history kept, and its owner kept as the owner of record.
+    // The stale sweep has read it so since 2026-11-08. This recovery did not:
+    // from 2026-11-21 01:54Z one retired Crest Cert fixture (aa090f23) was
+    // sent to the post-reset welcome door on every run, the door refused its
+    // empty treasury (POST_RESET_CERTIFICATION_CLUB_STATE_REFUSED), and the
+    // certificate stopped before it created a club, on every publication for
+    // three days. A club that is not retired is still recovered below, and
+    // still has to retire exactly 100,000 chips and leave nothing owned.
+    const retainedRetiredClubs = (fixtureClubs || [])
+      .filter((club) => club.lifecycle_status === 'retired')
+      .map((club) => String(club.id));
+    const ownedClubs = (fixtureClubs || []).filter((club) => club.lifecycle_status !== 'retired');
 
     // Use the same guarded, direct-database retirement path as the UI fixture
     // cleanup. The service-role HTTP role is capped at eight seconds and can
@@ -471,13 +488,30 @@ async function cleanupResidualDirectCertificates() {
 
     const { data: remainingClubs, error: remainingClubError } = await admin
       .from('clubs')
-      .select('id')
+      .select('id, lifecycle_status')
       .eq('owner_id', fixture.id);
-    if (remainingClubError || remainingClubs?.length) {
+    if (
+      remainingClubError ||
+      (remainingClubs || []).some((club) => club.lifecycle_status !== 'retired')
+    ) {
       throw (
         remainingClubError ||
         new Error(`Residual Certificate ${fixture.id} Still Owns A Club After Recovery.`)
       );
+    }
+    if (retainedRetiredClubs.length) {
+      // The owner of record of retained history is not removed: deleting it
+      // would delete the club row its immutable history hangs from.
+      retainedOwners += 1;
+      console.log(
+        `[certify-club-create] ${JSON.stringify({
+          disposition: 'retained_terminal_fixture_owner',
+          user_id: fixture.id,
+          club_ids: retainedRetiredClubs,
+          auth_deleted: false,
+        })}`
+      );
+      continue;
     }
 
     const folder = `club-logos/${fixture.id}`;
@@ -524,9 +558,14 @@ async function cleanupResidualDirectCertificates() {
     });
   }
 
-  if (residual.length) {
+  if (residual.length - retainedOwners) {
     console.log(
-      `Removed And Verified ${residual.length} Residual Create Club Certificate Account(s).`
+      `Removed And Verified ${residual.length - retainedOwners} Residual Create Club Certificate Account(s).`
+    );
+  }
+  if (retainedOwners) {
+    console.log(
+      `Kept ${retainedOwners} Residual Certificate Owner(s) Of Record Of Retired Fixture Clubs.`
     );
   }
 }

@@ -314,6 +314,7 @@ import {
   optionShadowStaged,
   OptionShadowStageGuard,
   optionShadowStageInScope,
+  optionShadowStageWallOnlySlow,
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import {
@@ -477,6 +478,12 @@ export interface HorseDecisionWorkerDependencies {
   noteDecision(scope: string, ms: number): void;
   noteFeature(feature: string): void;
   now(): number;
+  /**
+   * SHADOW STAGE BREAKER (2026-11-23): this worker thread's own CPU time in ms (process.threadCpuUsage, the calling
+   * thread only), read around a staged re-decision so the breaker charges the time it ran
+   * (optionShadowStageChargedMs). NaN when it cannot be read. Absent in an injected test runtime: wall time only.
+   */
+  threadCpuMs?(): number;
   /**
    * Admit the committed protected-release Phase 8 selection. Absent in an
    * injected test runtime means no selection: every decision stays shadow.
@@ -804,6 +811,19 @@ export function learnCompletedHandInPersistedMemory(
   else persistedMemoryMirror.learn(request, observeCompletedHandInMind);
 }
 
+/** See HorseDecisionWorkerDependencies.threadCpuMs. Never throws: NaN when the runtime cannot read it. */
+export function liveThreadCpuMs(): number {
+  try {
+    const read = (process as unknown as { threadCpuUsage?: () => { user: number; system: number } })
+      .threadCpuUsage;
+    if (typeof read !== 'function') return Number.NaN;
+    const u = read.call(process);
+    return (u.user + u.system) / 1000;
+  } catch {
+    return Number.NaN;
+  }
+}
+
 export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependencies = {
   journalEnabled: horseDecisionJournalConfigured,
   journalDecision: journalHorseDecision,
@@ -876,6 +896,7 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   noteDecision: noteDecisionMs,
   noteFeature: noteFire,
   now: () => performance.now(),
+  threadCpuMs: liveThreadCpuMs,
 };
 
 /** SHADOW STAGE (2026-11-20): staged receipts held for the next journaled decision record, at most this many. */
@@ -3940,7 +3961,7 @@ export class HorseDecisionWorkerRuntime {
     committedScale: number,
     stage: OptionShadowStageTable | null = null,
     sink: ((receipt: OptionShadowReceipt) => void) | null = null
-  ): number | null {
+  ): { wallMs: number; threadCpuMs: number } | null {
     const flippedTo = optionSwitchShadowFlip(
       option,
       base as Readonly<Record<string, unknown>>,
@@ -3948,8 +3969,12 @@ export class HorseDecisionWorkerRuntime {
     );
     if (flippedTo === null) return null;
     const saved = this.deps.saveRng();
+    // SHADOW STAGE BREAKER (2026-11-23): a staged re-decision is also timed on this thread's CPU (read only when
+    // staged, so the inline option shadow is unchanged)
+    const c0 = stage ? this.readThreadCpuMs() : Number.NaN;
     const t0 = performance.now();
     let redecideMs = 0;
+    let threadCpuMs = Number.NaN;
     let would: HorseDecision | null = null;
     try {
       this.deps.restoreRng(rngBefore);
@@ -3991,6 +4016,7 @@ export class HorseDecisionWorkerRuntime {
       clearStyleShadowEngaged();
       takeStyleReadMs();
       redecideMs = performance.now() - t0;
+      if (stage) threadCpuMs = this.readThreadCpuMs() - c0;
       this.deps.noteDecision('option_shadow_redecide', redecideMs);
     }
     try {
@@ -4015,7 +4041,17 @@ export class HorseDecisionWorkerRuntime {
     } catch {
       this.deps.noteFeature('option_shadow_unencodable_seen');
     }
-    return redecideMs;
+    return { wallMs: redecideMs, threadCpuMs };
+  }
+
+  /** This thread's CPU time in ms, NaN when the dependency is absent or cannot read it (never throws). */
+  private readThreadCpuMs(): number {
+    try {
+      const ms = this.deps.threadCpuMs?.();
+      return typeof ms === 'number' ? ms : Number.NaN;
+    } catch {
+      return Number.NaN;
+    }
   }
 
   /**
@@ -4101,7 +4137,7 @@ export class HorseDecisionWorkerRuntime {
       // deferred staged re-decisions never drift against ambient HorseMind state.
       installDecisionHud(task.request.opponentHud);
       installOmahaTurn4bHudProviders();
-      const redecideMs = this.observerReads.runReadOnly(task.request, () =>
+      const timed = this.observerReads.runReadOnly(task.request, () =>
         this.optionShadowReceipt(
           task.request,
           task.player,
@@ -4129,9 +4165,15 @@ export class HorseDecisionWorkerRuntime {
           }
         )
       );
-      if (redecideMs !== null) {
-        this.deps.noteDecision('option_shadow_stage_redecide', redecideMs);
-        if (this.optionShadowStageGuard.note(task.option, redecideMs))
+      if (timed !== null) {
+        this.deps.noteDecision('option_shadow_stage_redecide', timed.wallMs);
+        // SHADOW STAGE BREAKER (2026-11-23): the thread CPU it used, and a re-decision whose wall time alone would
+        // have been slow but whose charged time is not (a pause it did not cause), are counted apart
+        if (Number.isFinite(timed.threadCpuMs) && timed.threadCpuMs >= 0)
+          this.deps.noteDecision('option_shadow_stage_redecide_cpu', timed.threadCpuMs);
+        if (optionShadowStageWallOnlySlow(timed.wallMs, timed.threadCpuMs))
+          this.deps.noteFeature('option_shadow_stage_wall_only_slow_seen');
+        if (this.optionShadowStageGuard.note(task.option, timed.wallMs, timed.threadCpuMs))
           this.deps.noteFeature('option_shadow_stage_self_disabled_seen');
       }
     }

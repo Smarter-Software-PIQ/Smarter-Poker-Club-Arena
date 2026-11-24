@@ -9,6 +9,7 @@ import {
   MIN_HANDS_PER_WINDOW,
   MODES,
   Z_THRESHOLD,
+  assertSourceComplete,
   buildReport,
   buildResultsSql,
   clusterStats,
@@ -79,6 +80,7 @@ function fixtureRows() {
           { w: 1, g: 'nlh', c: true, d: null, h: 60 },
         ],
         left_out: { deleted_accounts: 12, unusable: 1, no_horse: 7 },
+        source: { table: 'ca_hand_facts', expected: 4920, found: 4920 },
       },
     },
   ];
@@ -216,7 +218,7 @@ describe('people vs Horses results', () => {
 
   describe('the query', () => {
     const TIME_BOUND =
-      /s\.created_at >= TIMESTAMPTZ '2026-11-20T00:00:00Z' AND s\.created_at < TIMESTAMPTZ '2026-11-23T00:00:00Z'/g;
+      /h\.created_at >= TIMESTAMPTZ '2026-11-20T00:00:00Z' AND h\.created_at < TIMESTAMPTZ '2026-11-23T00:00:00Z'/g;
     const plans = [];
     for (const mode of MODES) {
       for (const by of [null, ...BY_DIMENSIONS]) {
@@ -228,7 +230,7 @@ describe('people vs Horses results', () => {
       }
     }
 
-    it('every SQL string is one SELECT with a time bound on the stat table', () => {
+    it('every SQL string is one SELECT with a time bound on hand_history', () => {
       expect(plans.length).toBe(162);
       for (const plan of plans) {
         const sql = buildResultsSql(plan);
@@ -240,8 +242,11 @@ describe('people vs Horses results', () => {
         // The only tables read, each exactly once, the big one only under the time bound.
         expect(sql.match(/public\.[a-z_]+/g)).toEqual([
           'public.profiles',
-          'public.ca_hand_player_stat',
+          'public.hand_history',
+          'public.ca_hand_facts',
         ]);
+        // Only hands with a person in them, through the has_human partial index.
+        expect(sql).toContain('WHERE h.has_human\n');
         expect(sql).toContain('is_horse IS NOT TRUE');
         expect(sql).toContain("status IS DISTINCT FROM 'deleted'");
       }
@@ -256,8 +261,8 @@ describe('people vs Horses results', () => {
         games: ['plo5', 'plo6'],
         by: 'day',
       });
-      expect(sql).toContain('AND s.is_cash = true');
-      expect(sql).toContain("AND s.game_variant IN ('plo5', 'plo6')");
+      expect(sql).toContain('AND h.tournament_id IS NULL');
+      expect(sql).toContain("AND lower(coalesce(h.game_variant, 'nlh')) IN ('plo5', 'plo6')");
       expect(sql).toContain("m.created_at >= TIMESTAMPTZ '2026-11-22T03:13:56Z'");
       expect(sql).toContain("interval '30 minutes'");
       expect(
@@ -269,7 +274,26 @@ describe('people vs Horses results', () => {
           games: null,
           by: null,
         })
-      ).toContain('AND s.is_cash = false');
+      ).toContain('AND h.tournament_id IS NOT NULL');
+    });
+
+    it("reads every hand: never the stat table that keeps only each player's newest 1,000", () => {
+      // ca_hand_player_stat is pruned to the newest ~1,000 rows per player, so a past window shrank
+      // as people kept playing (2026-11-24). ca_hand_player_facts leaves out bomb-pot antes. The
+      // result must come from ca_hand_facts, looked up per seated person by its primary key.
+      for (const plan of plans) {
+        const sql = buildResultsSql(plan);
+        expect(sql).not.toContain('ca_hand_player_stat');
+        expect(sql).not.toContain('ca_hand_player_facts');
+        expect(sql).toContain('CROSS JOIN LATERAL jsonb_array_elements(d.players) e');
+        expect(sql).toMatch(
+          /LEFT JOIN LATERAL \(\s*SELECT x\.hand_id, x\.net, x\.went_to_showdown\s*FROM public\.ca_hand_facts x\s*WHERE x\.hand_id = s\.hand_id AND x\.user_id = s\.user_id\s*LIMIT 1\s*\) f ON true/
+        );
+        expect(sql).toContain('f.net AS profit');
+        // The person-hands hand_history expects and the person-hands the source holds.
+        expect(sql).toContain("'expected', count(*)");
+        expect(sql).toContain("'found', count(*) FILTER (WHERE in_source)");
+      }
     });
 
     it('refuses an unbounded or over-long range and anything that is not a plain game name', () => {
@@ -479,7 +503,9 @@ describe('people vs Horses results', () => {
       });
       expect(small.exitCode).toBe(2);
       expect(small.out).toContain('GATE 2: too few hands to judge (nlh cash at');
-      const empty = run([...FIXTURE_ARGS, '--gate'], () => [{ report: { cells: [], hands: [] } }]);
+      const empty = run([...FIXTURE_ARGS, '--gate'], () => [
+        { report: { cells: [], hands: [], source: { expected: 0, found: 0 } } },
+      ]);
       expect(empty.exitCode).toBe(2);
       expect(empty.out).toContain('No person-hands against Horses in this range.');
     });
@@ -515,6 +541,59 @@ describe('people vs Horses results', () => {
       expect(failed.err).toContain('statement timeout');
       expect([0, 1, 2]).not.toContain(EXIT_USAGE);
       expect([0, 1, 2]).not.toContain(EXIT_FAILED);
+    });
+
+    it('a source holding fewer person-hands than hand_history fails loudly, never a verdict', () => {
+      // The 2026-11-24 failure: the source had lost the oldest hands of the busiest person, and the
+      // report still printed totals and a gate answer for the shrunken window.
+      for (const [found, missing] of [
+        [4919, '1 missing'],
+        [1845, '3,075 missing'],
+        [0, '4,920 missing'],
+      ]) {
+        const short = run([...FIXTURE_ARGS, '--gate'], () => {
+          const rows = fixtureRows();
+          rows[0].report.source.found = found;
+          return rows;
+        });
+        expect(short.exitCode).toBe(EXIT_FAILED);
+        expect(short.out).toBe('');
+        expect(short.err).toContain(
+          `of the 4,920 person-hands hand_history has for this range (${missing})`
+        );
+        expect(short.err).not.toContain('GATE');
+      }
+      // Output without the counts (a file saved by the old report, say) is refused too.
+      const noCounts = run([...FIXTURE_ARGS, '--gate'], () => {
+        const rows = fixtureRows();
+        delete rows[0].report.source;
+        return rows;
+      });
+      expect(noCounts.exitCode).toBe(EXIT_FAILED);
+      expect(noCounts.err).toContain('no source count');
+      expect(run([...FIXTURE_ARGS, '--json']).exitCode).toBe(0);
+    });
+
+    it('the source guard on its own', () => {
+      expect(
+        assertSourceComplete({ source: { table: 'ca_hand_facts', expected: 833, found: 833 } })
+      ).toEqual({
+        table: 'ca_hand_facts',
+        expected: 833,
+        found: 833,
+      });
+      expect(assertSourceComplete({ source: { expected: '0', found: '0' } }).expected).toBe(0);
+      expect(() => assertSourceComplete({ source: { expected: 833, found: 242 } })).toThrow(
+        /holds 242 of the 833 person-hands .* \(591 missing\)/
+      );
+      for (const bad of [
+        {},
+        { source: null },
+        { source: { expected: 5 } },
+        { source: { expected: -1, found: 0 } },
+      ]) {
+        expect(() => assertSourceComplete(bad)).toThrow(/no source count/);
+      }
     });
 
     it('--sql prints the query and reads nothing', () => {
