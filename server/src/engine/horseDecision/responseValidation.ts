@@ -99,6 +99,7 @@ import {
 } from '../HorseOmahaFacingBetEquity.js';
 import { omahaRiverCurrentNutsCallFloorAdmitsCall } from '../HorseOmahaRiverCurrentNutsCallFloor.js';
 import { omahaFourBetFoldPricedCallAdmitsCall } from '../HorseOmahaFourBetFoldPricedCall.js';
+import { oopReraiseAdmitsCall } from '../HorseOopReraiseRangeHolds.js';
 import {
   OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
   omahaMultiwayWeakHandSpot,
@@ -1055,6 +1056,13 @@ export interface HorseDecisionReceiptContext {
    */
   omahaMathCore?: boolean;
   /**
+   * PLO-LEAD-6 2026-11-24: true when the worker may have run this decision with omahaOopReraiseRangeHoldsVsReraise or
+   * holdemOopReraiseRangeHoldsVsReraise on (oopReraiseRangeHoldsGate). Only then is an out-of-position 3-bet that
+   * became the call admitted (the price reads the opponent memory, which the request does not carry). Absent or
+   * false, the validator is exactly as before.
+   */
+  oopReraiseRangeHolds?: boolean;
+  /**
    * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
    * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
    * option). Absent or false, the validator is exactly as before.
@@ -1951,6 +1959,21 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // PLO-LEAD-6 2026-11-24 (HorseOopReraiseRangeHolds, options omahaOopReraiseRangeHoldsVsReraise and
+    // holdemOopReraiseRangeHoldsVsReraise): in PLO4/PLO5/NLH cash an out-of-position 3-bet facing one open becomes the
+    // call where it is priced below the call the calling rule admits, or is a planned fold. The price reads the
+    // opponent memory, which the request does not carry, so raise -> call is admitted only under the decision's own
+    // option (context.oopReraiseRangeHolds), only in the spot re-derived from the request, and only for the exact chips
+    // of the call. (Its raise -> fold is the fold admission above: PLO4/PLO5 and NLH.)
+    const oopReraiseRangeCalled =
+      context?.oopReraiseRangeHolds === true &&
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5' || variant === 'nlh') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      oopReraiseAdmitsCall(context.player, context.gameState as never, transition.after.amount);
     // EMERG lane RUNDOWNS 2026-11-20 (HorseOmahaRundownReraiseMeasured, option
     // omahaRundownReraiseRangeIsMeasured): in PLO4/PLO5 cash preflop a re-raise
     // in a measured cell where the call earned more real chips (the squeeze
@@ -2070,6 +2093,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !oopReraiseRangeCalled &&
       !omahaRundownMeasuredCalled &&
       !omahaPreflopReraiseDefenceCalled &&
       !(
@@ -2417,6 +2441,32 @@ export function omahaMathCoreGate(
     try {
       const parsed = parseOptionSwitchConfig(config);
       return parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaMathCore === true;
+    } catch {
+      return false;
+    }
+  };
+  return on(switchConfig) || (previousSwitchConfig !== undefined && on(previousSwitchConfig));
+}
+
+/**
+ * PLO-LEAD-6 2026-11-24: whether the worker may have run this decision with omahaOopReraiseRangeHoldsVsReraise or
+ * holdemOopReraiseRangeHoldsVsReraise on, read exactly as omahaMathCoreGate reads omahaMathCore: the request's own
+ * options, the switch row this client last delivered, or the configuration before the last change while it still
+ * counts. Any of them on admits the rule's raise -> call (still only in its own spot, for the exact chips of the call).
+ */
+export function oopReraiseRangeHoldsGate(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean {
+  const names = ['omahaOopReraiseRangeHoldsVsReraise', 'holdemOopReraiseRangeHoldsVsReraise'];
+  if (names.some((n) => requestOpts?.[n] === true)) return true;
+  const on = (config: unknown): boolean => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      if (!parsed.ok) return false;
+      const opts = optionSwitchDecisionOpts(parsed.states) as Record<string, unknown>;
+      return names.some((n) => opts[n] === true);
     } catch {
       return false;
     }

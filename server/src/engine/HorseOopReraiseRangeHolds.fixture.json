@@ -1,0 +1,1621 @@
+{
+ "_about": "PLO-LEAD-6 2026-11-24 fixture for HorseOopReraiseRangeHolds tests. opts: the production decision options of 2026-11-24 about 07:10Z (fn_ca_horse_option_switch_effective() rows mapped by the build's own HorseOptionSwitch/HorseStyleSwitch code plus runtime settings v13; trace OOP-3BET-FOLD-TRACE.md scripts/opts.ts). openerRows: the durable public counters of the opener of hand a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778 (horse_exact_profiles, PLO4/PLO5 cash rows, read 06:37:18Z), identity removed (the test imports them under a neutral fixture id). Public actions only; no hole cards.",
+ "openerRows": [
+  {
+   "counters": {
+    "betCheckedTo": 7.00455256821344,
+    "betCheckedToOpp": 22.9408109323082,
+    "fBetCheckedTo": 3.8546698074523,
+    "fBetCheckedToOpp": 9.8673882207364,
+    "fFoldToBet": 2.7647807840148,
+    "fFoldToBetOpp": 3.14882497492632,
+    "fHands": 11.6381769745267,
+    "fPfr": 6.98772548038,
+    "fRfi": 3.70958402233582,
+    "fRfiOpp": 5.7705408042244,
+    "fRiverCall": 0,
+    "fRiverCallOpp": 0.422715428695821,
+    "fThreeBet": 3.08536510486819,
+    "fThreeBetOpp": 5.72680711077436,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 1.97715996843425,
+    "foldToBet": 9.03236378732604,
+    "foldToBetOpp": 12.397071804072,
+    "hands": 26.0014440046714,
+    "pfr": 12.5885287371819,
+    "rfi": 9.22448542820904,
+    "rfiOpp": 14.8969165666002,
+    "riverCall": 0,
+    "riverCallOpp": 1.97715996843425,
+    "threeBet": 4.61660081646909,
+    "threeBetOpp": 15.5566705219866,
+    "vpip": 17.4695362577293
+   },
+   "flop_shown": null,
+   "initialized": true,
+   "long_counters": null,
+   "mode": "cash",
+   "observed_hands": 39,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "lightning",
+    "version": 1
+   },
+   "reraise_response": null,
+   "shown_river": null,
+   "size": "full",
+   "street_counters": null,
+   "street_counters_price": null,
+   "variant": "plo4"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 0,
+    "betCheckedToOpp": 0,
+    "fBetCheckedTo": 0,
+    "fBetCheckedToOpp": 0,
+    "fFoldToBet": 0,
+    "fFoldToBetOpp": 0,
+    "fHands": 1.91700404320467,
+    "fPfr": 0.917004043204671,
+    "fRfi": 0.917004043204671,
+    "fRfiOpp": 1.91700404320467,
+    "fRiverCall": 0,
+    "fRiverCallOpp": 0,
+    "fThreeBet": 0,
+    "fThreeBetOpp": 0,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 0,
+    "foldToBet": 0,
+    "foldToBetOpp": 0,
+    "hands": 1.97715996843425,
+    "pfr": 0.977159968434246,
+    "rfi": 0.977159968434246,
+    "rfiOpp": 1.97715996843425,
+    "riverCall": 0,
+    "riverCallOpp": 0,
+    "threeBet": 0,
+    "threeBetOpp": 0,
+    "vpip": 0.977159968434246
+   },
+   "flop_shown": null,
+   "initialized": true,
+   "long_counters": null,
+   "mode": "cash",
+   "observed_hands": 2,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "lightning",
+    "version": 1
+   },
+   "reraise_response": null,
+   "shown_river": null,
+   "size": "short",
+   "street_counters": null,
+   "street_counters_price": null,
+   "variant": "plo4"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 3.67014764730158,
+    "betCheckedToOpp": 8.49304793778657,
+    "fBetCheckedTo": 2.40863213761575,
+    "fBetCheckedToOpp": 6.29064342046535,
+    "fFoldToBet": 2.67834866608525,
+    "fFoldToBetOpp": 3.59535270928992,
+    "fHands": 8.14244617968285,
+    "fPfr": 4.07602366042082,
+    "fRfi": 3.72247026982754,
+    "fRfiOpp": 6.14047301176407,
+    "fRiverCall": 0,
+    "fRiverCallOpp": 0,
+    "fThreeBet": 0,
+    "fThreeBetOpp": 1.6484197773255,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 0,
+    "foldToBet": 3.86503456388148,
+    "foldToBetOpp": 4.86503456388148,
+    "hands": 11.3594949774822,
+    "pfr": 6.01144875699366,
+    "rfi": 5.45687192248236,
+    "rfiOpp": 9.03236378732604,
+    "riverCall": 0,
+    "riverCallOpp": 0,
+    "threeBet": 0,
+    "threeBetOpp": 1.97715996843425,
+    "vpip": 7.69604800111812
+   },
+   "flop_shown": null,
+   "initialized": true,
+   "long_counters": {
+    "lHands": 12.5601052520299,
+    "lPfr": 6.73492638262538,
+    "lVpip": 8.65033263646068
+   },
+   "mode": "cash",
+   "observed_hands": 13,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "table",
+    "version": 1
+   },
+   "reraise_response": null,
+   "shown_river": null,
+   "size": "short",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 2.71530604339115,
+      "opp": 6.53820633387616
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 0.977159968434246,
+      "opp": 1.97715996843425
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 0
+     },
+     "paired": {
+      "hit": 0.977159968434246,
+      "opp": 1.97715996843425
+     },
+     "rainbow": {
+      "hit": 0,
+      "opp": 1
+     },
+     "twoTone": {
+      "hit": 0.977159968434246,
+      "opp": 1.97715996843425
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 0
+     },
+     "paired": {
+      "hit": 0.954841603910417,
+      "opp": 2.93200157234467
+     },
+     "rainbow": {
+      "hit": 0,
+      "opp": 1
+     },
+     "twoTone": {
+      "hit": 1.95484160391042,
+      "opp": 2.93200157234467
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 1.93200157234467,
+      "opp": 2.93200157234467
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 1.97715996843425,
+      "opp": 1.97715996843425
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 0,
+      "opp": 0
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 0,
+      "opp": 0
+     }
+    }
+   },
+   "street_counters_price": null,
+   "variant": "plo4"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 18.9775910958869,
+    "betCheckedToOpp": 49.0513729233575,
+    "fBetCheckedTo": 2.51430425526407,
+    "fBetCheckedToOpp": 10.0145579477149,
+    "fFoldToBet": 1.47968132360285,
+    "fFoldToBetOpp": 4.27843852219627,
+    "fHands": 12.0487797070162,
+    "fPfr": 7.42849568159104,
+    "fRfi": 4.81327709967365,
+    "fRfiOpp": 6.62508382993585,
+    "fRiverCall": 0.00786876294954638,
+    "fRiverCallOpp": 0.0715598068261831,
+    "fThreeBet": 2.61509648750266,
+    "fThreeBetOpp": 5.34909664809087,
+    "foldTo3Bet": 4.87242667454003e-05,
+    "foldTo3BetOpp": 14.951968617682,
+    "foldToBet": 12.0362079200763,
+    "foldToBetOpp": 33.0688503742131,
+    "hands": 43.7827766183707,
+    "pfr": 26.2228357591901,
+    "rfi": 19.2265949295394,
+    "rfiOpp": 26.00237895866,
+    "riverCall": 1.63950325250722,
+    "riverCallOpp": 8.24357714064739,
+    "threeBet": 14.0004611932953,
+    "threeBetOpp": 26.6079220414953,
+    "vpip": 31.6355307435462
+   },
+   "flop_shown": {
+    "bet": [
+     0,
+     2712,
+     2931,
+     0,
+     889,
+     954,
+     1789,
+     5266,
+     1800,
+     0,
+     0,
+     2599,
+     4979,
+     2691,
+     1805,
+     0,
+     1977,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     977,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "call": [
+     6533,
+     34263,
+     89213,
+     7,
+     8212,
+     57231,
+     20066,
+     9,
+     2931,
+     8367,
+     38330,
+     3,
+     1977,
+     12786,
+     31013,
+     2,
+     15742,
+     36437,
+     12320,
+     19,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "initialized": true,
+   "long_counters": {
+    "lHands": 173.621553119098,
+    "lPfr": 108.305561203451,
+    "lVpip": 138.497578422285
+   },
+   "mode": "cash",
+   "observed_hands": 1942,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "lightning",
+    "version": 1
+   },
+   "reraise_response": {
+    "fourBetFacesFiveBet": {
+     "call": 2.93200157234467,
+     "fold": 0,
+     "opp": 2.93200157234467,
+     "raise": 0
+    },
+    "threeBetFacesFourBet": {
+     "call": 19.6681848885986,
+     "fold": 0,
+     "opp": 34.2539964064248,
+     "raise": 14.5858115178262
+    }
+   },
+   "shown_river": {
+    "buckets": {
+     "large": {
+      "bets": 46.8324622790855,
+      "shown": 7.7856286492967,
+      "strong": 7.24037478296407
+     },
+     "medium": {
+      "bets": 27.9362021162272,
+      "shown": 9.52126894950065,
+      "strong": 8.58823595796384
+     },
+     "overbet": {
+      "bets": 16.7390248619748,
+      "shown": 3.2611580425759,
+      "strong": 2.73447752459851
+     },
+     "small": {
+      "bets": 15.6265944407856,
+      "shown": 8.02782735505425,
+      "strong": 6.26996907179903
+     }
+    },
+    "since": 1794985659804
+   },
+   "size": "full",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 15.9451519601881,
+      "opp": 43.7827766182344
+     },
+     "river": {
+      "hit": 15.2831442812057,
+      "opp": 43.7472356973538
+     },
+     "turn": {
+      "hit": 22.3854804447297,
+      "opp": 43.7827286550365
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 8.36954502200544,
+      "opp": 24.7252161944765
+     },
+     "paired": {
+      "hit": 26.4984278660598,
+      "opp": 40.2545133563244
+     },
+     "rainbow": {
+      "hit": 21.9981410687086,
+      "opp": 43.504943296284
+     },
+     "twoTone": {
+      "hit": 24.1747459062408,
+      "opp": 43.7637307103816
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 8.30297138291457,
+      "opp": 31.2094757486909
+     },
+     "paired": {
+      "hit": 17.1753375458398,
+      "opp": 43.2008302076778
+     },
+     "rainbow": {
+      "hit": 15.5270592289478,
+      "opp": 43.7746757541336
+     },
+     "twoTone": {
+      "hit": 17.8217221821422,
+      "opp": 43.7825802806678
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 9.88565560619303,
+      "opp": 43.7809301833471
+     },
+     "river": {
+      "hit": 29.1244066190412,
+      "opp": 42.5638385069376
+     },
+     "turn": {
+      "hit": 18.7253481235258,
+      "opp": 43.7715819297417
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 15.37158450977,
+      "opp": 31.4966503374402
+     },
+     "river": {
+      "hit": 1.97715996843425,
+      "opp": 1.97715996843425
+     },
+     "turn": {
+      "hit": 9.12062254440733,
+      "opp": 19.7717550806624
+     }
+    }
+   },
+   "street_counters_price": {
+    "foldToRaise": {
+     "flop": {
+      "opp": 11.3594949774822,
+      "sum": 4.27054993087567
+     },
+     "river": {
+      "opp": 1.97715996843425,
+      "sum": 0.850422089480281
+     },
+     "turn": {
+      "opp": 7.38887349482702,
+      "sum": 2.74867932195885
+     }
+    }
+   },
+   "variant": "plo5"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 10.4469902632503,
+    "betCheckedToOpp": 36.5915241217735,
+    "fBetCheckedTo": 3.22136100271731,
+    "fBetCheckedToOpp": 13.7303218346434,
+    "fFoldToBet": 3.68188373085843,
+    "fFoldToBetOpp": 9.0284067640798,
+    "fHands": 12.0487797070162,
+    "fPfr": 8.08507111442442,
+    "fRfi": 4.04827852982038,
+    "fRfiOpp": 5.36321941882382,
+    "fRiverCall": 0.286955121343212,
+    "fRiverCallOpp": 1.50067839681277,
+    "fThreeBet": 4.03679257833878,
+    "fThreeBetOpp": 6.36008506886646,
+    "foldTo3Bet": 0.0191471640375112,
+    "foldTo3BetOpp": 10.3080180669987,
+    "foldToBet": 11.292932209061,
+    "foldToBetOpp": 25.5792857210856,
+    "hands": 43.7827766183707,
+    "pfr": 26.8192956932288,
+    "rfi": 12.6581476701181,
+    "rfiOpp": 17.4407250881337,
+    "riverCall": 0.908433516733036,
+    "riverCallOpp": 4.63928451932576,
+    "threeBet": 8.9837353328497,
+    "threeBetOpp": 16.8292200164494,
+    "vpip": 32.6908279958643
+   },
+   "flop_shown": {
+    "bet": [
+     0,
+     1000,
+     4556,
+     0,
+     977,
+     1781,
+     1659,
+     7649,
+     954,
+     1456,
+     1563,
+     7456,
+     4422,
+     2708,
+     1842,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1977,
+     954,
+     0,
+     0,
+     1000,
+     977,
+     0,
+     0,
+     0,
+     0,
+     5481,
+     2528,
+     1800,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "call": [
+     13511,
+     48522,
+     91727,
+     16,
+     9815,
+     116243,
+     90699,
+     11,
+     9023,
+     39232,
+     130119,
+     10,
+     5664,
+     62288,
+     101032,
+     6,
+     40619,
+     90891,
+     -88632,
+     82,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "initialized": true,
+   "long_counters": {
+    "lHands": 173.62388537506,
+    "lPfr": 100.118636962084,
+    "lVpip": 128.662909263789
+   },
+   "mode": "cash",
+   "observed_hands": 4140,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "table",
+    "version": 1
+   },
+   "reraise_response": {
+    "fourBetFacesFiveBet": {
+     "call": 1.97715996843425,
+     "fold": 0,
+     "opp": 1.97715996843425,
+     "raise": 0
+    },
+    "threeBetFacesFourBet": {
+     "call": 28.985204386199,
+     "fold": 0,
+     "opp": 36.2197787521627,
+     "raise": 7.23457436596375
+    }
+   },
+   "shown_river": {
+    "buckets": {
+     "large": {
+      "bets": 78.6021797915739,
+      "shown": 17.0380069126143,
+      "strong": 14.7525612404221
+     },
+     "medium": {
+      "bets": 43.8304883803518,
+      "shown": 15.1961596300901,
+      "strong": 10.4565646770554
+     },
+     "overbet": {
+      "bets": 5.9497122778232,
+      "shown": 1.23252934373048,
+      "strong": 0.757858283255198
+     },
+     "small": {
+      "bets": 14.9875753012528,
+      "shown": 9.14576859867436,
+      "strong": 8.4508094887532
+     }
+    },
+    "since": 1794848018574
+   },
+   "size": "full",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 12.6359562903256,
+      "opp": 43.7827765579796
+     },
+     "river": {
+      "hit": 16.1871997358479,
+      "opp": 43.7011250233536
+     },
+     "turn": {
+      "hit": 15.4884553396182,
+      "opp": 43.781764010343
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 2.56047948995376,
+      "opp": 16.2013556762064
+     },
+     "paired": {
+      "hit": 19.9634335776226,
+      "opp": 36.8874213828312
+     },
+     "rainbow": {
+      "hit": 22.124380855465,
+      "opp": 42.0983103422966
+     },
+     "twoTone": {
+      "hit": 20.3619015632316,
+      "opp": 43.5994749851865
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 2.60762331384178,
+      "opp": 27.5711357979275
+     },
+     "paired": {
+      "hit": 12.7940048626728,
+      "opp": 42.8589942738463
+     },
+     "rainbow": {
+      "hit": 16.6700461119835,
+      "opp": 43.6438599573284
+     },
+     "twoTone": {
+      "hit": 13.1166767692727,
+      "opp": 43.7782301620394
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 20.9248535146593,
+      "opp": 43.7776733936843
+     },
+     "river": {
+      "hit": 31.1516145438863,
+      "opp": 36.7262500942763
+     },
+     "turn": {
+      "hit": 18.3629436805341,
+      "opp": 43.7511132573954
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 7.8531679268656,
+      "opp": 25.5858250566
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 9.96622259520173,
+      "opp": 15.5566705219866
+     }
+    }
+   },
+   "street_counters_price": {
+    "foldToRaise": {
+     "flop": {
+      "opp": 23.8239055911272,
+      "sum": 9.44866477301565
+     },
+     "river": {
+      "opp": 0,
+      "sum": 0
+     },
+     "turn": {
+      "opp": 14.2217415935161,
+      "sum": 5.43222127006328
+     }
+    }
+   },
+   "variant": "plo5"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 20.3748180716892,
+    "betCheckedToOpp": 48.3067508406337,
+    "fBetCheckedTo": 6.9072340099425,
+    "fBetCheckedToOpp": 18.1010232274504,
+    "fFoldToBet": 3.23339784201284,
+    "fFoldToBetOpp": 8.23776223736042,
+    "fHands": 12.0272000591517,
+    "fPfr": 8.33812350118902,
+    "fRfi": 5.98215964168144,
+    "fRfiOpp": 7.04487560550968,
+    "fRiverCall": 0.013733597331706,
+    "fRiverCallOpp": 0.691337120525856,
+    "fThreeBet": 2.35596385950757,
+    "fThreeBetOpp": 4.97516035955432,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 1.97715996843425,
+    "foldToBet": 15.2627534094864,
+    "foldToBetOpp": 29.2771642959065,
+    "hands": 35.6769562081503,
+    "pfr": 24.523161489268,
+    "rfi": 22.5037710155078,
+    "rfiOpp": 29.6697235701797,
+    "riverCall": 1.80262120669856,
+    "riverCallOpp": 7.38887349482702,
+    "threeBet": 10.2061770343091,
+    "threeBetOpp": 18.0484009258674,
+    "vpip": 29.831274041862
+   },
+   "flop_shown": {
+    "bet": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "call": [
+     1000,
+     700,
+     1485,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     4774,
+     4099,
+     -8200,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "initialized": true,
+   "long_counters": {
+    "lHands": 55.7182973052852,
+    "lPfr": 38.3824975292137,
+    "lVpip": 46.7443110637544
+   },
+   "mode": "cash",
+   "observed_hands": 73,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "table",
+    "version": 1
+   },
+   "reraise_response": {
+    "fourBetFacesFiveBet": {
+     "call": 0,
+     "fold": 0,
+     "opp": 0,
+     "raise": 0
+    },
+    "threeBetFacesFourBet": {
+     "call": 1,
+     "fold": 0,
+     "opp": 1,
+     "raise": 0
+    }
+   },
+   "shown_river": {
+    "buckets": {
+     "large": {
+      "bets": 4,
+      "shown": 0,
+      "strong": 0
+     },
+     "medium": {
+      "bets": 1,
+      "shown": 0,
+      "strong": 0
+     },
+     "overbet": {
+      "bets": 2,
+      "shown": 1,
+      "strong": 1
+     },
+     "small": {
+      "bets": 1,
+      "shown": 0,
+      "strong": 0
+     }
+    },
+    "since": 1795023321027
+   },
+   "size": "hu",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 8.06280115275456,
+      "opp": 24.2797668354063
+     },
+     "river": {
+      "hit": 6.29730607920544,
+      "opp": 10.601636694227
+     },
+     "turn": {
+      "hit": 5.89297507237198,
+      "opp": 14.2217415935161
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 1.97715996843425
+     },
+     "paired": {
+      "hit": 1.88787459544723,
+      "opp": 3.86503456388148
+     },
+     "rainbow": {
+      "hit": 1.93200157234467,
+      "opp": 3.86503456388148
+     },
+     "twoTone": {
+      "hit": 6.20453665794093,
+      "opp": 9.82606431331014
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 1.97715996843425
+     },
+     "paired": {
+      "hit": 1.86656409246864,
+      "opp": 6.53820633387616
+     },
+     "rainbow": {
+      "hit": 2.79959708400545,
+      "opp": 7.38887349482702
+     },
+     "twoTone": {
+      "hit": 5.67049188977159,
+      "opp": 14.8969165666002
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 8.29599302671757,
+      "opp": 14.2217415935161
+     },
+     "river": {
+      "hit": 3.86503456388148,
+      "opp": 4.7767570524397
+     },
+     "turn": {
+      "hit": 1.82539216720655,
+      "opp": 9.03236378732604
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 0,
+      "opp": 1
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 0,
+      "opp": 0
+     }
+    }
+   },
+   "street_counters_price": null,
+   "variant": "plo5"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 20.9132236641967,
+    "betCheckedToOpp": 47.2636556762761,
+    "fBetCheckedTo": 4.44660817652882,
+    "fBetCheckedToOpp": 9.2478321599105,
+    "fFoldToBet": 2.69377660484841,
+    "fFoldToBetOpp": 3.9180732006489,
+    "fHands": 12.0487797070162,
+    "fPfr": 7.97209117082232,
+    "fRfi": 2.79291696664769,
+    "fRfiOpp": 4.38528609572809,
+    "fRiverCall": 0.061103613556315,
+    "fRiverCallOpp": 0.413084775894823,
+    "fThreeBet": 4.15069636354196,
+    "fThreeBetOpp": 6.6350071519229,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 9.39201639358657,
+    "foldToBet": 13.7786306574311,
+    "foldToBetOpp": 28.1261889825865,
+    "hands": 43.782774547087,
+    "pfr": 30.7830925280671,
+    "rfi": 16.4230859175834,
+    "rfiOpp": 21.3935989845052,
+    "riverCall": 1.86802586234556,
+    "riverCallOpp": 6.14790543215646,
+    "threeBet": 17.5547763021226,
+    "threeBetOpp": 27.8625125059183,
+    "vpip": 35.9151614313917
+   },
+   "flop_shown": {
+    "bet": [
+     0,
+     977,
+     1000,
+     0,
+     0,
+     0,
+     2732,
+     1931,
+     1000,
+     868,
+     954,
+     3186,
+     3732,
+     3466,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "call": [
+     4774,
+     44938,
+     88041,
+     5,
+     4774,
+     34176,
+     142877,
+     5,
+     2931,
+     13170,
+     25700,
+     3,
+     5664,
+     45968,
+     41988,
+     6,
+     10589,
+     21210,
+     25405,
+     12,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "initialized": true,
+   "long_counters": {
+    "lHands": 171.063274910061,
+    "lPfr": 117.169630637958,
+    "lVpip": 142.71260889556
+   },
+   "mode": "cash",
+   "observed_hands": 730,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "lightning",
+    "version": 1
+   },
+   "reraise_response": {
+    "fourBetFacesFiveBet": {
+     "call": 0,
+     "fold": 0,
+     "opp": 0,
+     "raise": 0
+    },
+    "threeBetFacesFourBet": {
+     "call": 14.1635885803658,
+     "fold": 0,
+     "opp": 21.8913883091865,
+     "raise": 7.72779972882075
+    }
+   },
+   "shown_river": {
+    "buckets": {
+     "large": {
+      "bets": 19.0084417015985,
+      "shown": 1.82153135460744,
+      "strong": 0.965936328924845
+     },
+     "medium": {
+      "bets": 7.47603540839505,
+      "shown": 2.73689672745131,
+      "strong": 1.81989268424664
+     },
+     "overbet": {
+      "bets": 5.84888658161887,
+      "shown": 1.93303299153681,
+      "strong": 1.93303299153681
+     },
+     "small": {
+      "bets": 5.62543360594104,
+      "shown": 2.76983858025844,
+      "strong": 2.76983858025844
+     }
+    },
+    "since": 1794988115032
+   },
+   "size": "short",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 21.3203077342193,
+      "opp": 43.7766373113077
+     },
+     "river": {
+      "hit": 10.9926645638296,
+      "opp": 40.3350990006019
+     },
+     "turn": {
+      "hit": 21.1108391898195,
+      "opp": 43.3616600493539
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 0.933032991536808,
+      "opp": 14.2217415935161
+     },
+     "paired": {
+      "hit": 16.7950172620291,
+      "opp": 27.1922066562999
+     },
+     "rainbow": {
+      "hit": 21.7870053296172,
+      "opp": 37.0449115140681
+     },
+     "twoTone": {
+      "hit": 23.6973373118937,
+      "opp": 41.4005815653856
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 0.911722488558217,
+      "opp": 17.4468884078263
+     },
+     "paired": {
+      "hit": 14.1641609645899,
+      "opp": 32.0514720944412
+     },
+     "rainbow": {
+      "hit": 18.7530278775965,
+      "opp": 41.508157673151
+     },
+     "twoTone": {
+      "hit": 19.5147537508587,
+      "opp": 43.0495700856273
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 17.5408939479597,
+      "opp": 42.9208572139304
+     },
+     "river": {
+      "hit": 18.6629558711231,
+      "opp": 26.8044204658415
+     },
+     "turn": {
+      "hit": 18.7838258705347,
+      "opp": 40.0012776852676
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 3.13376416667689,
+      "opp": 12.8236783723457
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 1.91172248855822,
+      "opp": 4.7767570524397
+     }
+    }
+   },
+   "street_counters_price": {
+    "foldToRaise": {
+     "flop": {
+      "opp": 5.66765577058004,
+      "sum": 2.20684747155461
+     },
+     "river": {
+      "opp": 0,
+      "sum": 0
+     },
+     "turn": {
+      "opp": 1.97715996843425,
+      "sum": 0.876232715119067
+     }
+    }
+   },
+   "variant": "plo5"
+  },
+  {
+   "counters": {
+    "betCheckedTo": 13.2792085528375,
+    "betCheckedToOpp": 40.0854330175732,
+    "fBetCheckedTo": 5.43293200728454,
+    "fBetCheckedToOpp": 16.9790029053031,
+    "fFoldToBet": 3.57919951175173,
+    "fFoldToBetOpp": 7.73426196502961,
+    "fHands": 12.0487797070162,
+    "fPfr": 8.74585860683619,
+    "fRfi": 6.19458362241536,
+    "fRfiOpp": 7.56164510419741,
+    "fRiverCall": 1.09529120387547,
+    "fRiverCallOpp": 1.59589365140717,
+    "fThreeBet": 2.00570450686879,
+    "fThreeBetOpp": 3.53756725613854,
+    "foldTo3Bet": 0,
+    "foldTo3BetOpp": 9.68715877952467,
+    "foldToBet": 11.1324450276519,
+    "foldToBetOpp": 24.9999404734596,
+    "hands": 43.7827766145102,
+    "pfr": 27.9690920286507,
+    "rfi": 16.7650372487219,
+    "rfiOpp": 21.0176459574067,
+    "riverCall": 2.2514567090285,
+    "riverCallOpp": 5.00775173178875,
+    "threeBet": 5.58671043663054,
+    "threeBetOpp": 12.9080664925725,
+    "vpip": 35.1437168325708
+   },
+   "flop_shown": {
+    "bet": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     954,
+     2909,
+     0,
+     0,
+     1000,
+     2842,
+     932,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     977,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1000,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "call": [
+     1977,
+     1778,
+     25908,
+     2,
+     2931,
+     14002,
+     -4913,
+     3,
+     1000,
+     12150,
+     33805,
+     1,
+     1977,
+     12109,
+     -33744,
+     2,
+     13511,
+     37351,
+     15492,
+     16,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "initialized": true,
+   "long_counters": {
+    "lHands": 170.682516214746,
+    "lPfr": 106.762874272488,
+    "lVpip": 136.88385426117
+   },
+   "mode": "cash",
+   "observed_hands": 1002,
+   "public_memory_domain": {
+    "ante": "big_blind",
+    "speed": "table",
+    "version": 1
+   },
+   "reraise_response": {
+    "fourBetFacesFiveBet": {
+     "call": 0,
+     "fold": 0,
+     "opp": 0,
+     "raise": 0
+    },
+    "threeBetFacesFourBet": {
+     "call": 11.075653141559,
+     "fold": 0,
+     "opp": 14.2217415935161,
+     "raise": 3.14608845195711
+    }
+   },
+   "shown_river": {
+    "buckets": {
+     "large": {
+      "bets": 33.1947393796287,
+      "shown": 8.95173752799429,
+      "strong": 8.11084111274056
+     },
+     "medium": {
+      "bets": 7.1602935721556,
+      "shown": 2.73334102536685,
+      "strong": 2.73334102536685
+     },
+     "overbet": {
+      "bets": 4.56052927866873,
+      "shown": 0.82645031815421,
+      "strong": 0.82645031815421
+     },
+     "small": {
+      "bets": 4.28453627639729,
+      "shown": 0.812252396356234,
+      "strong": 0.812252396356234
+     }
+    },
+    "since": 1794848673971
+   },
+   "size": "short",
+   "street_counters": {
+    "bet": {
+     "flop": {
+      "hit": 15.0998126096892,
+      "opp": 43.7133182878507
+     },
+     "river": {
+      "hit": 13.4812858501097,
+      "opp": 37.6397134779065
+     },
+     "turn": {
+      "hit": 12.006697681103,
+      "opp": 42.2470108332563
+     }
+    },
+    "cbet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 3.86503456388148
+     },
+     "paired": {
+      "hit": 7.72964835057029,
+      "opp": 18.0484009258674
+     },
+     "rainbow": {
+      "hit": 20.9465068705639,
+      "opp": 33.5700828568659
+     },
+     "twoTone": {
+      "hit": 17.0662788530651,
+      "opp": 35.8620934021861
+     }
+    },
+    "flopBet": {
+     "monotone": {
+      "hit": 0,
+      "opp": 7.38887349482702
+     },
+     "paired": {
+      "hit": 6.82313031191795,
+      "opp": 29.9920661472896
+     },
+     "rainbow": {
+      "hit": 19.2710999841067,
+      "opp": 38.3099295410762
+     },
+     "twoTone": {
+      "hit": 16.1484305618061,
+      "opp": 41.4549909755916
+     }
+    },
+    "foldToBet": {
+     "flop": {
+      "hit": 12.6586754067648,
+      "opp": 40.5659796568095
+     },
+     "river": {
+      "hit": 15.6570929108189,
+      "opp": 22.8799682934036
+     },
+     "turn": {
+      "hit": 18.8832555646196,
+      "opp": 38.6764297376193
+     }
+    },
+    "foldToRaise": {
+     "flop": {
+      "hit": 5.13846323151899,
+      "opp": 12.1000437536255
+     },
+     "river": {
+      "hit": 0,
+      "opp": 0
+     },
+     "turn": {
+      "hit": 2.80262120669856,
+      "opp": 5.66765577058004
+     }
+    }
+   },
+   "street_counters_price": {
+    "foldToRaise": {
+     "flop": {
+      "opp": 9.03236378732604,
+      "sum": 3.59736007594424
+     },
+     "river": {
+      "opp": 0,
+      "sum": 0
+     },
+     "turn": {
+      "opp": 5.66765577058004,
+      "sum": 2.11420275096275
+     }
+    }
+   },
+   "variant": "plo5"
+  }
+ ],
+ "opts": {
+  "holdemCallDownExcludesCurrentHand": true,
+  "holdemCallDownNeedsStyleEvidence": true,
+  "holdemGearShiftReach": true,
+  "holdemManiacSampleGate": true,
+  "holdemManiacShortHandedReach": true,
+  "holdemPersonaPostflop": true,
+  "holdemPersonaReRaiseMix": false,
+  "holdemProfileCompletenessCap": true,
+  "holdemRiverFullHouseValue": true,
+  "holdemRiverFullHouseValueIsPriced": true,
+  "holdemTournamentAllInCallIsPriced": true,
+  "horseActionTimeIsPublicOnly": true,
+  "huBbDefendsUnreadToPrice": true,
+  "icmBustPaysPlace": true,
+  "lightningVpipFloorLimpOnly": false,
+  "omahaBareOverpairOopFlopCheck": true,
+  "omahaBigBetIsPotShare": true,
+  "omahaBigDrawAggression": true,
+  "omahaBlanketRowsOffInPlo45Cash": true,
+  "omahaBluffCatcherFoldVsValueLeader": false,
+  "omahaBluffShareFromBetRate": false,
+  "omahaCardImpact": true,
+  "omahaEliteContinuesVsMeasuredWideThreeBettor": true,
+  "omahaEvFoldModelHeadsUp": false,
+  "omahaFacingBetEv": true,
+  "omahaFlopFacingBetEv": true,
+  "omahaMadeHandDefenseVsValueLeader": true,
+  "omahaManiacReRaiseWidthMeasured": true,
+  "omahaMathCorePlo5Flop": false,
+  "omahaNoCallColdFourBetWithoutPremium": true,
+  "omahaNoDrawRaiseOutOfPosition": true,
+  "omahaOopReraisedPotStrongRange": true,
+  "omahaOopTurnCheckAfterFlopCall": false,
+  "omahaOverpairNoOopBarrelVsValueLeader": true,
+  "omahaPairedBoardFoldRespectsPrice": true,
+  "omahaPairedRiverNoThinLeadVsValueLeader": true,
+  "omahaPairedTurnNoBarrelWithoutBoatVsValueLeader": true,
+  "omahaPreflopReraiseDefencePricedInPosition": true,
+  "omahaPressureNeedsPostflopAggression": false,
+  "omahaReraiseRangeEarlyPosition": true,
+  "omahaReraiseRangeOutOfPosition": false,
+  "omahaReraisedPotFlopContinueNeedsEquityShape": false,
+  "omahaRiverCurrentNutsCallFloor": true,
+  "omahaRiverMediumBetStrongHandCalls": true,
+  "omahaRiverNutBlockerBluffReachable": false,
+  "omahaSmallBetIsPriced": false,
+  "omahaStabDefenceIsPriced": false,
+  "omahaStrategyInTournaments": true,
+  "omahaStreetPlan": false,
+  "omahaStrongHandSlowplayMix": false,
+  "omahaStrongHandValue": true,
+  "omahaTurnBetNeedsRiverPlan": false,
+  "omahaTurnRiverRaiseIsPriced": true,
+  "omahaTurnRiverRaiseNeedsNuts": true,
+  "omahaUnderpairNoMultiwayFlopContinue": false,
+  "omahaValueSizeIsUnreadable": true,
+  "omahaVpipFloorByLimp": true,
+  "styleBigBetHonesty": true,
+  "styleFoldBluff": true,
+  "styleFoldRatePreRepair": true,
+  "styleLongShownMemory": true,
+  "styleRaiseRespect": true,
+  "styleTightMultiSignal": true,
+  "styleTightPlayerExploit": true,
+  "styleTightReRaiserRespect": true,
+  "styleValueBettorNotManiac": true,
+  "styleValueExtraction": true,
+  "tournamentUtilityStackScaledMargin": true,
+  "v46ShortDeck": false,
+  "vpipFloorLimpOnly": true
+ }
+}

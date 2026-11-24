@@ -194,6 +194,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'tournamentFlatBump',
         'v65TurnShadeCapOverride',
         'v68AirShadeScaleOverride',
+        'reraiseFoldShareCap',
         'styleShadow',
         'styleCarryOverWeight',
         'horsePlayStyleForce',
@@ -376,6 +377,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverCurrentNutsCallFloor',
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
   'omahaFourBetFoldPricedCall',
+  // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
+  // NLH cash (ships dark)
+  'omahaOopReraiseRangeHoldsVsReraise',
+  'holdemOopReraiseRangeHoldsVsReraise',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
@@ -1040,6 +1045,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
     'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
+  ],
+  holdemOopReraiseRangeHoldsVsReraise: [
+    HOLDEM,
+    'NLH cash tables, out of position facing one open (no caller)',
+    "an out-of-position 3-bet stands only when priced at or above the call the brain's call bar admits and the Horse's own 4-bet answer is not a planned fold",
   ],
   holdemValueAndCallsArePriced: [
     HOLDEM,

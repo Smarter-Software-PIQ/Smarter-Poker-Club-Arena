@@ -125,6 +125,14 @@ export function seedHorseTimingRandom(seed: number): void {
   timingState = (h ^ (h >>> 16)) >>> 0 || 1;
 }
 
+/** The timing stream's position, and putting it back (a side ask that must not move the decision's own draws). */
+export function saveHorseTimingRandom(): number {
+  return timingState;
+}
+export function restoreHorseTimingRandom(state: number): void {
+  timingState = state >>> 0 || 1;
+}
+
 export function horseTimingRandom(): number {
   timingState ^= timingState << 13;
   timingState ^= timingState >>> 17;
