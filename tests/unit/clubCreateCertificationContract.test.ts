@@ -9,10 +9,17 @@ const root = resolve(__dirname, '../..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
 describe('Create Club production certification contract', () => {
-  it('exercises Send Link and retains the default and sharing screens', () => {
+  it('exercises the invite button and retains the default and sharing screens', () => {
     const spec = read('tests/e2e/production-create-club.spec.ts');
     const workflow = read('.github/workflows/club-create-certification.yml');
-    expect(spec).toContain("name: 'Send Link', exact: true }).click()");
+    // Desktop Chromium has no Web Share sheet: the button reads Copy Link there (#10982).
+    expect(spec).toContain(
+      "expect(await page.evaluate(() => typeof navigator.share)).toBe('undefined')"
+    );
+    expect(spec).toContain("name: 'Copy Link', exact: true }).click()");
+    expect(read('src/components/club/ShareInviteSheet.tsx')).toContain(
+      "hasShareSheet() ? 'Send Link' : 'Copy Link'"
+    );
     expect(spec).toContain('navigator.clipboard.readText()');
     expect(spec).toContain('expect(copiedInvite).toContain(shortUrl)');
     expect(spec).toContain("name: 'Link Copied', exact: true }");
@@ -251,7 +258,7 @@ describe('Create Club production certification contract', () => {
   it('certifies default setup without another wizard or unconfirmed allocation', () => {
     const spec = read('tests/e2e/production-create-club.spec.ts');
     expect(spec).toContain("name: 'Your Club Is Created'");
-    expect(spec).toContain("name: 'Send Link'");
+    expect(spec).toContain("name: 'Copy Link'");
     expect(spec).toContain('p_promo_budget: 0');
     expect(spec).toContain('p_leaderboard_prize_budget: 0');
     expect(spec).toContain('Number(openingReceipt.club_bank_after)).toBe(99700)');
@@ -348,7 +355,9 @@ describe('Create Club production certification contract', () => {
   it('fails closed around independent reset preimages and exact residue cleanup', () => {
     const script = read('scripts/ci/certify-club-create.mjs');
 
-    const globalLane = script.indexOf('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
+    const globalLane = script.indexOf(
+      'SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)'
+    );
     const serviceRole = script.indexOf('SET LOCAL ROLE service_role', globalLane);
     const clubLock = script.indexOf('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE');
     const packageItemLocks = script.indexOf('ORDER BY slot_key FOR UPDATE');
@@ -482,7 +491,7 @@ describe('a Create Club fixture another run left behind is retired by the next r
     const sweep = read('.github/workflows/cert-residue-sweep.yml');
     // The certification stays the one reader: the sweep workflow is dispatch-only
     // and the certification embeds the same recovery in its always-run cleanup.
-    expect(sweep).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    expect(sweep).toMatch(/^on:\n {2}workflow_dispatch:\n/m);
     expect(sweep).not.toMatch(/^\s+schedule:/m);
     expect(sweep).toContain('run: node scripts/ci/production-e2e-account.mjs sweep-stale-residue');
     expect(account).toContain('export const STALE_RESIDUE_SWEEP_HINT =');
@@ -526,5 +535,44 @@ describe('a Create Club fixture another run left behind is retired by the next r
       ...read('.github/workflows/post-deploy-e2e.yml').matchAll(/^ {4}timeout-minutes: (.+)$/gm),
     ].flatMap((match) => Object.values(timeoutBudgetMinutes(match[1])));
     expect(cutoff).toBeGreaterThan(Math.max(...ceilings) + 5);
+  });
+});
+
+describe('a retired fixture club is finished, and the residual recovery asks no door about it (2026-11-24)', () => {
+  const script = read('scripts/ci/certify-club-create.mjs');
+  const start = script.indexOf('async function cleanupResidualDirectCertificates()');
+  const end = script.indexOf('await cleanupResidualDirectCertificates();');
+  const recovery = script.slice(start, end);
+
+  it('reads the lifecycle state and sends only clubs that are not retired to the retirement door', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(recovery).toContain(".select('id, lifecycle_status')");
+    expect(recovery).toMatch(
+      /const ownedClubs = \(fixtureClubs \|\| \[\]\)\.filter\(\(club\) => club\.lifecycle_status !== 'retired'\)/
+    );
+    // The door is asked inside the loop over ownedClubs and nowhere else.
+    expect(recovery.match(/retireCertificationClubWithRetry\(/g)).toHaveLength(1);
+    expect(recovery.indexOf('for (const ownedClub of ownedClubs')).toBeLessThan(
+      recovery.indexOf('retireCertificationClubWithRetry(')
+    );
+  });
+
+  it('still fails when a club that is not retired is left owned, and still demands exactly 100,000 chips', () => {
+    expect(recovery).toMatch(
+      /\(remainingClubs \|\| \[\]\)\.some\(\(club\) => club\.lifecycle_status !== 'retired'\)/
+    );
+    expect(recovery).toContain('Still Owns A Club After Recovery.');
+    expect(recovery).toContain('Number(retired?.chips_retired) !== 100000');
+  });
+
+  it('keeps the owner of record of retained history: the account door is not asked to delete it', () => {
+    const retained = recovery.indexOf('if (retainedRetiredClubs.length) {');
+    const accountDoor = recovery.indexOf('await cleanupProductionE2EAccount(');
+    expect(retained).toBeGreaterThan(-1);
+    expect(accountDoor).toBeGreaterThan(retained);
+    expect(recovery.slice(retained, accountDoor)).toContain('continue;');
+    expect(recovery).toContain("disposition: 'retained_terminal_fixture_owner'");
+    expect(recovery).toContain('auth_deleted: false');
   });
 });
