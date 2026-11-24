@@ -354,6 +354,14 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  // 2026-11-24 plo-lead6 Hold'em late-street audit: a turn/river raise facing a wager needs a value hand (ships dark)
+  'holdemTurnRiverRaiseNeedsValue',
+  // 2026-11-24 plo-lead6: the deterministic priced late-street chooser and its bluff-raise (ship dark)
+  'holdemLateStreetIsPriced',
+  'holdemLateStreetBluffRaiseIsPriced',
+  'holdemLateStreetIsPricedInTournaments',
+  // 2026-11-24 plo-lead6 BUILD-II step 2: the same chooser on the NLH flop (ships dark)
+  'holdemFlopIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1050,6 +1058,31 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up postflop',
     "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemLateStreetIsPriced: [
+    HOLDEM,
+    'NLH cash, Lightning and tournaments, heads-up and multiway, turn and river',
+    'one deterministic priced chooser: bet / size / check against his fold curve, blockers and nut advantage; call / fold against his bluff share',
+  ],
+  holdemLateStreetIsPricedInTournaments: [
+    HOLDEM,
+    'NLH tournaments, turn and river, with holdemLateStreetIsPriced on',
+    'extends the priced late-street chooser to tournaments (chip EV; Phase 7 utility not yet applied)',
+  ],
+  holdemFlopIsPriced: [
+    HOLDEM,
+    'NLH cash and Lightning, flop, heads-up and multiway',
+    'the priced chooser on the flop: bet / size / check and call / fold by EV, computed two-street realization; value raises; combo-draw raises in position only',
+  ],
+  holdemLateStreetBluffRaiseIsPriced: [
+    HOLDEM,
+    'NLH turn and river facing a bet, heads-up, with holdemLateStreetIsPriced on',
+    'a non-value raise made only when its EV beats call and fold (pending the owner ruling)',
+  ],
+  holdemTurnRiverRaiseNeedsValue: [
+    HOLDEM,
+    'NLH cash, Lightning and tournaments, heads-up and multiway, turn and river facing a wager',
+    "a turn or river raise stands only for a value hand (equity above 0.5 against each opponent's continuing range); any other raise becomes the priced call or fold",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

@@ -167,6 +167,14 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off R4 Omaha checked-to flop/turn big-draw bet pricing on lifetime HUD response (PLO-OWNER lane REPLACEMENTS-5 2026-11-21, omahaBigDrawBetIsPricedOnHisResponse): PLO4/PLO5 cash checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet uncertainty bar and no categorical OOP bar; off returns null',
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':
       "the default-off hold'em value and calls priced (HORSE DECISIONS lane 2026-11-19, holdemValueAndCallsArePriced): NLH cash heads-up postflop, the value raise, the made-hand bet or check, the facing-bet call and the river bet priced against the bettor's line range and measured response; off returns the decision unchanged",
+    'src/engine/HorseHoldemLateStreetIsPriced.ts':
+      "the default-off deterministic priced Hold'em late-street chooser (plo-lead6 2026-11-24, holdemLateStreetIsPriced and holdemLateStreetBluffRaiseIsPriced): NLH turn and river (and the flop under holdemFlopIsPriced, cash and Lightning), bet / size / check and call / fold by EV against his fold curve, bluff share, blockers and nut advantage with a computed two-street realization; off returns the decision untouched",
+    'src/engine/HorseHoldemOwnPreflopRange.ts':
+      "the default-off priced Hold'em chooser's model of the Horse's own preflop range (plo-lead6 2026-11-24, holdemLateStreetIsPriced / holdemFlopIsPriced): the Horse's own preflop policy asked, sandboxed, with every hand class on each preflop frame it acted on; off never runs",
+    'src/engine/HorseHoldemLateStreetPriors.ts':
+      'the generated population priors of holdemLateStreetIsPriced and holdemFlopIsPriced (fold to a flop/turn/river bet by line and size, fold to a raise), refit with scripts/horse-measure/holdem-late-street/fit.py',
+    'src/engine/HorseHoldemTurnRiverRaiseNeedsValue.ts':
+      "the default-off hold'em turn and river raise needs value (plo-lead6 late-street audit 2026-11-24, holdemTurnRiverRaiseNeedsValue): NLH cash, Lightning and tournaments, turn and river facing a wager; a raise by a hand below the value bar against the opponents' continuing line ranges becomes the priced call or fold; off returns the decision untouched",
     'src/engine/HorseHoldemCommittedPricing.ts':
       "the default-off hold'em committed no-pair EV verdict and four-flush / four-straight danger-board bettor-range equity (Hold'em Strategy lane 2026-11-20, holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced): reached only behind strict === true gates in NLH cash heads-up facing-bet decisions; off never enters and returns the decision unchanged",
     'src/engine/HorsePlo6ValueShare.ts':

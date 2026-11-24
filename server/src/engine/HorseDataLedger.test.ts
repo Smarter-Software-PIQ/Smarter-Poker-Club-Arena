@@ -102,6 +102,10 @@ const BRAIN_FILES = [
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
   // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
   'engine/HorseOmahaBigDrawBetPriced.ts',
+  // plo-lead6 2026-11-24 (default off): the Hold'em raise-needs-value rule and the priced flop/turn/river chooser
+  // read their own options and fire their own receipts where they answer (HorseLogic hands them wager_rules).
+  'engine/HorseHoldemTurnRiverRaiseNeedsValue.ts',
+  'engine/HorseHoldemLateStreetIsPriced.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit

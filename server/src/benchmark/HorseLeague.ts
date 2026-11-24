@@ -3540,6 +3540,97 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemValueAndCallsArePriced: true },
     b: {},
   },
+  // 2026-11-24 plo-lead6 Hold'em late-street audit (holdemTurnRiverRaiseNeedsValue, default OFF, unevaluated): a
+  // withholds every turn/river raise facing a wager that is not a value hand (the priced call or fold instead); b is
+  // today. Declared, not run.
+  {
+    name: 'nlh_holdem_turn_river_raise_needs_value',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnRiverRaiseNeedsValue: true },
+    b: {},
+  },
+  {
+    name: 'nlh9_holdem_turn_river_raise_needs_value',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTurnRiverRaiseNeedsValue: true },
+    b: {},
+  },
+  // 2026-11-24 plo-lead6 BUILD-II (holdemLateStreetIsPriced, holdemFlopIsPriced, holdemLateStreetBluffRaiseIsPriced,
+  // holdemLateStreetIsPricedInTournaments; all default OFF, unevaluated by the nightly card): a is the priced
+  // flop/turn/river chooser (with option i, which it builds on), b is today. The round-5 mirror and exploit probes
+  // are recorded in docs/horse-option-authority.d/<option>.md. Declared, not run.
+  {
+    name: 'nlh_holdem_late_street_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnRiverRaiseNeedsValue: true, holdemLateStreetIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_holdem_flop_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {
+      holdemTurnRiverRaiseNeedsValue: true,
+      holdemLateStreetIsPriced: true,
+      holdemFlopIsPriced: true,
+    },
+    b: {},
+  },
+  {
+    name: 'nlh9_holdem_flop_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {
+      holdemTurnRiverRaiseNeedsValue: true,
+      holdemLateStreetIsPriced: true,
+      holdemFlopIsPriced: true,
+    },
+    b: {},
+  },
+  {
+    name: 'nlh_holdem_late_street_bluff_raise',
+    variant: 'nlh',
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {
+      holdemTurnRiverRaiseNeedsValue: true,
+      holdemLateStreetIsPriced: true,
+      holdemFlopIsPriced: true,
+      holdemLateStreetBluffRaiseIsPriced: true,
+    },
+    b: {
+      holdemTurnRiverRaiseNeedsValue: true,
+      holdemLateStreetIsPriced: true,
+      holdemFlopIsPriced: true,
+    },
+  },
+  // The tournament extension stays off until the chooser's chip EVs go through the Phase 7 utility (BUILD-II
+  // round 5 step 5); the card is declared so the nightly can grade it then.
+  {
+    name: 'mtt6_holdem_late_street_priced_in_tournaments',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 3000,
+    context: bigBlindAnteMttContext(6, 40),
+    a: {
+      holdemTurnRiverRaiseNeedsValue: true,
+      holdemLateStreetIsPriced: true,
+      holdemLateStreetIsPricedInTournaments: true,
+    },
+    b: { holdemTurnRiverRaiseNeedsValue: true, holdemLateStreetIsPriced: true },
+  },
   // 2026-11-20 Hold'em Strategy lane (holdemCommittedNoPairIsPriced and holdemDangerBoardEquityIsPriced, default OFF,
   // unevaluated): the priced rebuilds of the Antigravity ace-high jam gate and board discipline. a prices, b is the
   // live line. Declared, not run; a Horse field is not the people the measured constants describe.

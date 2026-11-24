@@ -1052,6 +1052,9 @@ import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
+import { holdemTurnRiverRaiseNeedsValueRule } from './HorseHoldemTurnRiverRaiseNeedsValue.js';
+import { holdemLateStreetIsPricedRule } from './HorseHoldemLateStreetIsPriced.js';
+import { holdemOwnPreflopPrime, holdemOwnPreflopWanted } from './HorseHoldemOwnPreflopRange.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
   OMAHA_STRATEGY_PLO45,
@@ -5918,6 +5921,27 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** Hold'em late-street audit (plo-lead6 2026-11-24; owner 2026-11-15 12:52 / 12:53: on the turn and river facing
+   * a bet a hand that is not a value hand folds or at best calls, never raises). No-Limit Hold'em cash, Lightning and
+   * tournaments, heads-up and multiway, turn and river facing a wager: a raise stands only when the Horse's equity
+   * against the continuing part of every live opponent's line range is above 0.5; any other raise becomes the
+   * priced call or fold (HorseHoldemTurnRiverRaiseNeedsValue.ts). Never creates a wager. Default OFF (read `=== true`). */
+  holdemTurnRiverRaiseNeedsValue?: boolean;
+  /** Hold'em late-street audit (plo-lead6 2026-11-24; owner 2026-11-24 12:30 AM CST: no random plays, the best play by
+   * math). NLH cash, Lightning and tournaments, turn and river, heads-up and multiway: one deterministic priced chooser
+   * (bet / size / check; call / fold) is the outermost answer of wager_rules (HorseHoldemLateStreetIsPriced.ts).
+   * Default OFF (read `=== true`). */
+  holdemLateStreetIsPriced?: boolean;
+  /** With holdemLateStreetIsPriced on: a turn/river raise by a non-value hand is made when its EV (his fold to a raise,
+   * blockers by card removal, nut advantage) beats call and fold. Pending the owner's ruling. Default OFF. */
+  holdemLateStreetBluffRaiseIsPriced?: boolean;
+  /** holdemLateStreetIsPriced in NLH tournaments too (default OFF): only once its chip EVs go through the Phase 7
+   * tournament utility; until then tournaments keep the existing decision. */
+  holdemLateStreetIsPricedInTournaments?: boolean;
+  /** plo-lead6 2026-11-24 (BUILD-II step 2): the same priced chooser on the NLH flop, cash and Lightning only (bet /
+   * size / check; call / fold; value raises; in position a combo-draw raise when its EV wins, never a draw raise out
+   * of position), with the computed two-street realization. Default OFF (read `=== true`). */
+  holdemFlopIsPriced?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
@@ -17103,6 +17127,53 @@ export class HorseLogic {
     // categorical rule's option is off for this decision; off or out of scope the same opts object runs.
     if (opts.omahaNoCategoricalRules === true)
       opts = withoutOmahaCategoricalRules(opts, player, gameState);
+    // THE HORSE'S OWN PREFLOP RANGE (holdemLateStreetIsPriced / holdemFlopIsPriced only, default OFF;
+    // HorseHoldemOwnPreflopRange.ts): before anything else in this decision, the priced postflop chooser's own range
+    // is primed from the Horse's REAL preflop policy: this same decide, asked on each preflop frame the Horse acted
+    // on with every hand class, sandboxed (RNG put back, telemetry suspended, deep-dive capture detached, style
+    // records kept, mind writes discarded, never observed). Off: nothing runs.
+    if (
+      (opts.holdemLateStreetIsPriced === true || opts.holdemFlopIsPriced === true) &&
+      (!isTournamentMode(gameState) || opts.holdemLateStreetIsPricedInTournaments === true) &&
+      holdemOwnPreflopWanted(player, gameState)
+    ) {
+      const askOpts: HorseDecideOpts = { ...opts, telemetry: false, observeMind: false };
+      holdemOwnPreflopPrime(
+        player,
+        gameState,
+        // the policy reads every option row except the per-decision fields and these options themselves (none of
+        // which reaches a preflop decision): the rows are part of the key; the hour's mood is not (the first hand on
+        // a line fixes it for the cache's life)
+        (() => {
+          const {
+            decisionTimeMs: _t,
+            telemetry: _te,
+            observeMind: _o,
+            holdemLateStreetIsPriced: _l,
+            holdemFlopIsPriced: _f,
+            holdemLateStreetBluffRaiseIsPriced: _b,
+            holdemLateStreetIsPricedInTournaments: _n,
+            holdemTurnRiverRaiseNeedsValue: _r,
+            ...rows
+          } = opts;
+          try {
+            return `${style}|${JSON.stringify(mods)}|${JSON.stringify(rows)}`;
+          } catch {
+            return `${style}|unkeyed`;
+          }
+        })(),
+        (p, g) =>
+          withStyleRecordsKept(() =>
+            withBrainTelemetrySuspended(() =>
+              withHorseDeepDiveCapture(undefined, false, () =>
+                HorseMind.discardDecisionEffects(() =>
+                  HorseLogic.decide(p, g, style, mods, askOpts)
+                )
+              )
+            )
+          )
+      );
+    }
     // LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
     // HorseLightningFoldThrough.ts): the decision is asked as before; only a
     // fold with live seats still to act before the Horse is asked once more,
@@ -19427,6 +19498,21 @@ export class HorseLogic {
     };
     decision = graph.run('wager_rules', decision, () => {
       const ruled = riverNoBlocker(wagerRulesNode());
+      // holdemTurnRiverRaiseNeedsValue (default OFF; HorseHoldemTurnRiverRaiseNeedsValue.ts): in No-Limit Hold'em a
+      // turn or river raise facing a wager by a hand that is not a value hand becomes the priced call or fold.
+      // holdemLateStreetIsPriced / holdemFlopIsPriced (default OFF; HorseHoldemLateStreetIsPriced.ts): the priced
+      // chooser is the answer in its spot; no earlier rule can veto it. Both act only in No-Limit Hold'em and the
+      // math core below only in PLO4/PLO5, so their order changes nothing; off, each returns the decision itself
+      // (the same object).
+      ruled.decision = holdemLateStreetIsPricedRule(
+        holdemTurnRiverRaiseNeedsValueRule(ruled.decision, player, gs, opts, (d) =>
+          this.legalize(d, player, gs, vi)
+        ),
+        player,
+        gs,
+        opts,
+        (d) => this.legalize(d, player, gs, vi)
+      );
       return {
         // omahaMathCore (default OFF, lane MATHCORE 2026-11-19): the math-first
         // PLO4/PLO5 cash core is the outermost owner of this node. Every owner
