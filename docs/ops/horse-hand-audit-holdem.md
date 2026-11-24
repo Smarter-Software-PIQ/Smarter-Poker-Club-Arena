@@ -90,6 +90,32 @@ For each decision of a Horse whose cards were shown:
    A correct decision's gain = EV(taken) - EV(fold or check), when positive.
 5. Hindsight (labelled, never mixed in): the same pricing against the opponents' SHOWN cards (exact enumeration).
 
+### Tournament jams (equilibrium push/fold, 2026-11-24 correction)
+
+A tournament preflop jam at 25 bb or less is read with the anchor the engine's own priced call
+(holdemTournamentAllInCallIsPriced) uses, not with measured raise shares:
+
+- an open-jam keeps the Nash V2 push range for the jammer's players behind, his effective depth (his chips,
+  capped by the deepest other stack dealt in) and the dead ante; a re-jam keeps the top 18% (8 bb or less) to
+  6% (25 bb) of hands, a jam over two raises the top 5% to 3.5%, in the engine's strength order;
+- a call of a jam is priced with no realisation discount (nobody bets again between the jammer and the caller);
+- a player still to act behind the jam overcalls with the top half of his Nash first-caller range (capped at 25%
+  of hands; the re-jam width for a jam over a raise), with that width as his probability, as the switch does.
+
+The tables are `scripts/ops/horse-hand-audit-holdem-nash.json`, generated from
+`server/src/engine/HorseNashPushFoldV2.data.ts` by `npx tsx scripts/ops/horse-hand-audit-holdem-nash-gen.ts`; a unit
+test fails when they and the engine disagree. A second test reads 1,800 Horse open-jams shown at showdown
+(standard tables, 2026-11-20 to 24, mucked cards never read) and checks that their mean rank divided by the Nash
+width is 0.5 in every depth band (measured 0.51, 0.52 and 0.49 below 6, 6-10 and 10-15 bb): real jams sit at the
+Nash width, so the anchor is the field's own width as well as equilibrium.
+
+Why: before this correction the audit graded 308 shown jam calls as mistakes (813 bb). Traced through the
+switch's own price, 143 of 159 rebuilt spots were priced as calls by the engine and the rest lay inside its
+5-point lock; on strictly heads-up calls the engine's equity matched the equity realised against the jammer's
+shown cards (n 85, gap -0.03, SE 0.03). The audit's error came from a 0.80 realisation factor on calls of a jam,
+from players behind modelled as calling at their measured fold rate with a wide range, and from the jammer's range
+taken from measured raise shares. With the correction 177 of those grades turn correct.
+
 ### B. Range tier (cards not shown)
 
 Every Horse decision is counted in its node: format class x street x node x line x position x size bucket x
