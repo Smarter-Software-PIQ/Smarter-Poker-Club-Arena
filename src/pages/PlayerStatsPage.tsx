@@ -833,6 +833,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     const path = `/hub/personal-assistant/leaks?source=club-arena-stats${formatQuery}`;
     if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
       masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
+      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
     } else {
       openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
     }
