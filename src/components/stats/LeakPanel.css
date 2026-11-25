@@ -162,7 +162,6 @@
   cursor: pointer;
 }
 
-.leak-assistant-btn:hover,
 .leak-assistant-btn:focus-visible {
   border-color: #45adff;
   border-top-color: #93d6ff;
