@@ -57,43 +57,44 @@ const LiveNowStrip = memo(function LiveNowStrip({
         {downline && <span className="members-live-now__scope">My Downline</span>}
         <span className="members-live-now__count">{players.length.toLocaleString()}</span>
       </h2>
-      <div className="members-live-now__chips">
+      <ul className="members-live-now__chips" role="list">
         {players.map((seat) => {
           const name = seat.alias || seat.username || 'Player';
           const table = withStakes(titleCase(seat.name), titleCase(seat.stakes));
           return (
-            <button
-              key={seat.user_id}
-              type="button"
-              className="members-live-now__chip"
-              onClick={() => onWatch(seat, { userId: seat.user_id, name })}
-              aria-label={`Watch ${name} At Table, ${titleCase(seat.name)}`}
-              title="Watch At Table"
-            >
-              <span className="members-live-now__avatar" aria-hidden="true">
-                {seat.avatar_url ? (
-                  <img
-                    src={sizedStorageUrl(seat.avatar_url, 48)}
-                    alt=""
-                    loading="lazy"
-                    onError={(event) => {
-                      const image = event.currentTarget;
-                      image.onerror = null;
-                      image.src = generateAvatarSvg(seat.user_id, name);
-                    }}
-                  />
-                ) : (
-                  <span>{name[0]?.toUpperCase() ?? '?'}</span>
-                )}
-              </span>
-              <span className="members-live-now__text">
-                <span className="members-live-now__name">{name}</span>
-                <span className="members-live-now__table">{table}</span>
-              </span>
-            </button>
+            <li key={seat.user_id}>
+              <button
+                type="button"
+                className="members-live-now__chip"
+                onClick={() => onWatch(seat, { userId: seat.user_id, name })}
+                aria-label={`Watch ${name} At Table, ${titleCase(seat.name)}`}
+                title="Watch At Table"
+              >
+                <span className="members-live-now__avatar" aria-hidden="true">
+                  {seat.avatar_url ? (
+                    <img
+                      src={sizedStorageUrl(seat.avatar_url, 48)}
+                      alt=""
+                      loading="lazy"
+                      onError={(event) => {
+                        const image = event.currentTarget;
+                        image.onerror = null;
+                        image.src = generateAvatarSvg(seat.user_id, name);
+                      }}
+                    />
+                  ) : (
+                    <span>{name[0]?.toUpperCase() ?? '?'}</span>
+                  )}
+                </span>
+                <span className="members-live-now__text">
+                  <span className="members-live-now__name">{name}</span>
+                  <span className="members-live-now__table">{table}</span>
+                </span>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </section>
   );
 });

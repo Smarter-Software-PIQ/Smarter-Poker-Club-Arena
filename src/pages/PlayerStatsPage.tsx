@@ -1,4 +1,3 @@
-import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  *  PLAYER STATS PAGE — Premium Glassmorphism Design
@@ -26,7 +25,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { tabTransition, instant } from '../components/stats/statsMotion';
 import { statsGameMode, type StatsGameMode } from '../services/statsGameMode';
-import StatsGameModeControl from './stats/StatsGameModeControl';
+import StatsWorkspaceHeader from './stats/StatsWorkspaceHeader';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { findClubByParam, readClubContextParam } from '../utils/clubScopedPath';
 import { supabase } from '../lib/supabase';
@@ -160,21 +159,6 @@ const STATS_TOUR: TutorialStep[] = [
     target: '.stats-pill-tabs',
   },
 ];
-
-function renderStatsMast(context: string) {
-  return (
-    <>
-      <ArenaWorkspaceHeader
-        area="stats"
-        title="Player Stats"
-        context={context}
-        subtitle="Player Intelligence"
-        id="stats-page-title"
-      />
-      <StatsGameModeControl />
-    </>
-  );
-}
 
 export default function PlayerStatsPage() {
   const [params] = useSearchParams();
@@ -1552,20 +1536,20 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
-  const mast = renderStatsMast(clubLabel);
+  const mast = <StatsWorkspaceHeader context={clubLabel} />;
   if (!isOwnProfile) {
     return (
       <div className="stats-page arena-workspace">
         <Suspense
           fallback={
             <>
-              {renderStatsMast('Shared Club')}
+              <StatsWorkspaceHeader context="Shared Club" />
               <PageSkeleton variant="stats" />
             </>
           }
         >
           <SharedClubStatsView
-            renderMast={renderStatsMast}
+            renderMast={(context) => <StatsWorkspaceHeader context={context} />}
             targetUserId={targetUserId!}
             asset={statsScope}
             gameMode={gameMode}

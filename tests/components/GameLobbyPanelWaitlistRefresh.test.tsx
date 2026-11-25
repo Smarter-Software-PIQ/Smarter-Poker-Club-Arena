@@ -267,6 +267,15 @@ it('withdraws staff tick information when the next selected game cannot be read'
   );
   await waitFor(() => expect(mocks.tick).toHaveBeenCalledTimes(2));
   expect(screen.queryByTestId('glp-staff-tick')).toBeNull();
+  mocks.tick.mockResolvedValueOnce({
+    data: { last_tick_at: new Date().toISOString(), last_tick_actions: null },
+    error: null,
+  });
+  view.rerender(drawer(false, false, cluster, true));
+  await screen.findByTestId('glp-staff-tick');
+  view.rerender(drawer(false, false, cluster, false));
+  expect(screen.queryByTestId('glp-staff-tick')).toBeNull();
+  expect(mocks.tick).toHaveBeenCalledTimes(3);
 });
 
 it('reconciles a same-size queue and occupied seat when returning to the open drawer', async () => {
