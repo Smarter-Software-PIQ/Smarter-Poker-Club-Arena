@@ -191,25 +191,31 @@
   gap: 12px;
   margin: 0 16px 8px;
   padding: 8px 12px;
-  border: 1px solid rgba(214, 173, 82, 0.4);
-  border-radius: 4px;
-  background: rgba(214, 173, 82, 0.08);
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #13253a 0%, #060e18 100%);
   font-family: var(--hha-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--hha-brass);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #f1f5fc;
 }
 
 .hh-stats-drilldown button {
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(214, 173, 82, 0.5);
-  background: transparent;
-  color: var(--hha-brass);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #56d8ff;
+  border-top-color: #b3eaff;
+  background: linear-gradient(180deg, #087cfa 0%, #0044ac 55%, #002b68 100%);
+  color: #ffffff;
   font-family: var(--hha-display);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
 }

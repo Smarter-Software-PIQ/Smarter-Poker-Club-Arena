@@ -66,10 +66,18 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression
     expect(pageSource).toContain(
       "masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });"
     );
+    expect(pageSource).toContain('Opening Leak Finder (Live Detection Locked While Seated)');
     expect(pageSource).toContain('onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}');
     expect(pageSource).toContain('onOpenLeakFinder={openLeakFinder}');
     expect(tabSource).toContain('onOpenLeakFinder={onOpenLeakFinder}');
     expect(workspaceSource).toContain('onOpenLeakFinder={onOpenLeakFinder}');
+
+    const leakPanelCss = read('src/components/stats/LeakPanel.css');
+    const handHistoryCss = read('src/pages/HandHistoryPage.css');
+    expect(leakPanelCss).toContain('min-height: 44px;');
+    expect(leakPanelCss).toContain('#688299');
+    expect(handHistoryCss).toContain('min-height: 44px;');
+    expect(handHistoryCss).toContain('font-size: 12px;');
   });
 
   it('MultiTablePage OPEN_HUB_TAB guards native Capacitor builds and updates existing tab URLs for new hands', () => {
