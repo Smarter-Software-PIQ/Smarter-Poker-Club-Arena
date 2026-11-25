@@ -255,7 +255,89 @@ BEGIN
     RAISE EXCEPTION 'Day 30 Grand Chest claim failed: %', r;
   END IF;
 
-  -- 8. Private ACLs remain locked
+  -- 8. Expired same-day Mission Boost must NOT strip today's Mission Boost; live boost MUST substitute cleanly
+  uid := gen_random_uuid();
+  INSERT INTO auth.users(id) VALUES (uid);
+  INSERT INTO public.profiles(id, diamonds, is_vip) VALUES (uid, 0, false);
+  -- Expired boost (ended 1ms ago, still > yesterday midnight and > today midnight except at exact 00:00:00.000)
+  INSERT INTO public.player_boosts(user_id, kind, factor, starts_at, ends_at, source)
+  VALUES (uid, 'mission_diamonds', 2.00, now() - interval '25 hours', now() - interval '1 millisecond', 'daily_bonus');
+  FOREACH s IN ARRAY ARRAY[7, 15, 27, 37] LOOP
+    picked := public.fn_ca_daily_bonus_pick_tiles(uid, today, s, '[]'::jsonb);
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(picked) t WHERE t->>'kind' = 'boost') THEN
+      RAISE EXCEPTION 'Expired same-day boost falsely stripped Mission Boost on streak %: %', s, picked;
+    END IF;
+    -- Also deterministic across midnight via p_date = today - 1 where ends_at > (today - 1) 00:00 but ends_at < now()
+    picked := public.fn_ca_daily_bonus_pick_tiles(uid, today - 1, s, '[]'::jsonb);
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(picked) t WHERE t->>'kind' = 'boost') THEN
+      RAISE EXCEPTION 'Expired boost falsely stripped Mission Boost for past date on streak %: %', s, picked;
+    END IF;
+  END LOOP;
+  -- Now add a genuinely LIVE boost (ends 4h in the future): must substitute cleanly with zero neighbor repeats
+  INSERT INTO public.player_boosts(user_id, kind, factor, starts_at, ends_at, source)
+  VALUES (uid, 'mission_diamonds', 2.00, now() - interval '1 hour', now() + interval '4 hours', 'daily_bonus');
+  FOREACH s IN ARRAY ARRAY[7, 15, 27, 37] LOOP
+    picked := public.fn_ca_daily_bonus_pick_tiles(uid, today, s, '[]'::jsonb);
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(picked) t WHERE t->>'kind' = 'boost') THEN
+      RAISE EXCEPTION 'Live boost was not substituted on streak %: %', s, picked;
+    END IF;
+    -- Verify substituted day stays disjoint from both s-1 and s+1
+    IF EXISTS (
+      SELECT 1 FROM jsonb_array_elements(picked) cur
+      JOIN jsonb_array_elements(public.fn_ca_daily_bonus_pick_tiles(uid, today - 1, s - 1, '[]'::jsonb)) prev
+        ON cur->>'kind' = prev->>'kind'
+    ) OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements(picked) cur
+      JOIN jsonb_array_elements(public.fn_ca_daily_bonus_pick_tiles(uid, today + 1, s + 1, picked)) nxt
+        ON cur->>'kind' = nxt->>'kind'
+    ) THEN
+      RAISE EXCEPTION 'Substituted boost tile collided with neighbor on streak %: %', s, picked;
+    END IF;
+  END LOOP;
+
+  -- 9. Week strip historical fidelity: past days in the current week read saved ca_daily_bonus_days.tiles
+  --    (e.g., Day 16 while Day 15's Mission Boost is still live keeps Day 15 as 'boost', NOT 'rabbit_hunts')
+  uid := gen_random_uuid();
+  INSERT INTO auth.users(id) VALUES (uid);
+  INSERT INTO public.profiles(id, diamonds, is_vip) VALUES (uid, 0, false);
+  INSERT INTO public.ca_daily_bonus_days(user_id, bonus_date, streak, cycle_day, tiles, first_claimed_at)
+  VALUES (uid, today - 1, 15, 1, '[{"slot":1,"kind":"boost","label":"Mission Boost","vip_only":false,"quantity":24,"base_diamonds":0,"diamonds":0}]'::jsonb, now() - interval '2 hours');
+  INSERT INTO public.player_boosts(user_id, kind, factor, starts_at, ends_at, source)
+  VALUES (uid, 'mission_diamonds', 2.00, now() - interval '2 hours', now() + interval '22 hours', 'daily_bonus');
+  PERFORM set_config('test.user', uid::text, true);
+  r := public.fn_ca_daily_bonus_status();
+  IF (r->'week'->0->>'primary_kind') <> 'boost' OR (r->'week'->0->>'state') <> 'done' THEN
+    RAISE EXCEPTION 'Week strip rewrote saved Day 15 boost history on Day 16: %', r->'week'->0;
+  END IF;
+
+  -- 10. Streak Shield recovery path (missed 1 day: last claimed today - 2) + unclaimed yesterday reset rotation
+  uid := gen_random_uuid();
+  INSERT INTO auth.users(id) VALUES (uid);
+  INSERT INTO public.profiles(id, diamonds, is_vip) VALUES (uid, 0, false);
+  INSERT INTO public.ca_daily_bonus_days(user_id, bonus_date, streak, cycle_day, tiles, first_claimed_at)
+  VALUES (uid, today - 2, 13, 6, '[{"slot":1,"kind":"mystery"}]'::jsonb, now() - interval '2 days');
+  INSERT INTO public.feature_purchases(user_id, feature, cost, usage_type, uses_remaining, expires_at, source)
+  VALUES (uid, 'streak_shield', 0, 'per_use', 1, now() + interval '25 days', 'daily_bonus');
+  PERFORM set_config('test.user', uid::text, true);
+  r := public.fn_ca_daily_bonus_status();
+  IF (r->>'streak')::int <> 14 OR (r->>'streak_protected') <> 'true'
+     OR (r->>'streak_day')::int <> 14 OR (r->'shield'->>'held')::int <> 0 THEN
+    RAISE EXCEPTION 'Streak Shield failed to protect Day 14 after 1 missed day: %', r;
+  END IF;
+
+  -- Unclaimed opened Day 1 yesterday resets to Day 1 and rotates to Time Bank (+40s) so it never repeats
+  uid := gen_random_uuid();
+  INSERT INTO auth.users(id) VALUES (uid);
+  INSERT INTO public.profiles(id, diamonds, is_vip) VALUES (uid, 0, false);
+  INSERT INTO public.ca_daily_bonus_days(user_id, bonus_date, streak, cycle_day, tiles, first_claimed_at)
+  VALUES (uid, today - 1, 1, 1, '[{"slot":1,"kind":"diamonds","diamonds":10}]'::jsonb, NULL);
+  PERFORM set_config('test.user', uid::text, true);
+  r := public.fn_ca_daily_bonus_status();
+  IF (r->>'streak')::int <> 1 OR (r->'tiles'->0->>'kind') <> 'time_bank' OR (r->'tiles'->0->>'quantity')::int <> 2 THEN
+    RAISE EXCEPTION 'Unclaimed yesterday diamonds did not rotate Day 1 to Time Bank: %', r;
+  END IF;
+
+  -- 11. Private ACLs remain locked
   IF has_function_privilege('anon', 'public.fn_ca_daily_bonus_status()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_ca_daily_bonus_pick_tiles(uuid,date,integer,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_ca_daily_bonus_open_day(uuid,date)', 'EXECUTE')
@@ -263,7 +345,7 @@ BEGIN
     RAISE EXCEPTION 'Private Daily Bonus door exposed';
   END IF;
 
-  RAISE NOTICE 'PASS Daily Bonus progressive ladder: 100 consecutive days + 400 reset dates zero repeats, strict weekly/perk/chest progression, Mystery Vault 1x-5x reveal, Day 3 VIP gate, Day 30 150-diamond + shield + spin chest, private ACLs';
+  RAISE NOTICE 'PASS Daily Bonus progressive ladder: 100 consecutive days + 400 reset dates zero repeats, strict weekly/perk/chest progression, Mystery Vault 1x-5x reveal, Day 3 VIP gate, Day 30 150-diamond + shield + spin chest, boost window + week history + shield recovery + unclaimed reset, private ACLs';
 END $$;
 
 ROLLBACK;
