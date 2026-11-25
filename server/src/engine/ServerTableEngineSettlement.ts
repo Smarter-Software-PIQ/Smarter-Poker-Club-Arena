@@ -4723,6 +4723,10 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
   /** Horses whose bank-the-win exit waits for the completion hold (see above). */
   protected deferredBankTheWin: Map<string, SeatedPlayer> = new Map();
 
+  protected override hasDeferredBankTheWin(): boolean {
+    return this.deferredBankTheWin.size > 0;
+  }
+
   /** One bankroll-management exit through the ordinary voluntary door. */
   protected async bankTheWinExit(horse: SeatedPlayer): Promise<'stop' | 'left' | void> {
     // CHIP CONTINUITY / HORSES ARE PLAYERS (CLAUDE.md 10.5): a horse

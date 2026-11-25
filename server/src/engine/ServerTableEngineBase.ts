@@ -1063,11 +1063,37 @@ export abstract class ServerTableEngineBase {
   private operatorFloorHoldRead = false;
   protected readonly operatorClosureOnlyId: string | null;
   private operatorFloorReadSequence = 0;
+  private preparedOperatorFloor: Promise<void> | null = null;
   protected operatorCloseRequest: {
     operation_id: string;
     actor_id: string;
     reason: string;
   } | null = null;
+
+  /**
+   * Overlap the pure read-only `fn_ca_operator_floor_state` RPC with
+   * `prepareNextHand()` so it never adds a serial PostgREST round trip to
+   * every hand (incident 1e532243). Consumed once by
+   * `passOperatorFloorBoundary()`.
+   */
+  protected startPreparedOperatorFloor(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    const raw = this.refreshOperatorFloor();
+    const work = wrap ? wrap(raw) : raw;
+    // Observed by passOperatorFloorBoundary(); prevent unhandled rejection if
+    // an earlier guard exits the iteration before the boundary is reached.
+    work.catch(() => undefined);
+    this.preparedOperatorFloor = work;
+  }
+
+  protected clearPreparedOperatorFloor(): void {
+    this.preparedOperatorFloor = null;
+  }
+
+  protected consumePreparedOperatorFloor(): Promise<void> | null {
+    const prepared = this.preparedOperatorFloor;
+    this.preparedOperatorFloor = null;
+    return prepared;
+  }
 
   /** Called by this table's existing boundary, never a second floor sweeper. */
   public async refreshOperatorFloor(): Promise<void> {
@@ -1102,7 +1128,8 @@ export abstract class ServerTableEngineBase {
   }
 
   protected async passOperatorFloorBoundary(): Promise<boolean> {
-    await this.refreshOperatorFloor();
+    const prepared = this.consumePreparedOperatorFloor();
+    await (prepared ?? this.refreshOperatorFloor());
     if (!this.operatorFloorPaused) return false;
     this.markProgress();
     if (
@@ -5924,7 +5951,37 @@ export abstract class ServerTableEngineBase {
    * line keeps main's contract, everything below it keeps this lane's
    * invariant.
    */
-  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+  private preparedPendingSeatMoves: {
+    tableGen: number;
+    gameGen: number;
+    planGen: number;
+    promise: Promise<PendingSeatMove[] | null>;
+  } | null = null;
+
+  /**
+   * Overlap the read-only `pendingSeatMoves` query with `prepareNextHand()`
+   * on clustered cash tables (incident 1e532243). `announcePendingSeatMoves()`
+   * consumes this result only when all three move-plan generations are still
+   * unchanged; any plan committed in the meantime forces a fresh inline read.
+   */
+  protected startPreparedPendingSeatMoves(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    this.preparedPendingSeatMoves = null;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id || !this.lifecycleCanMutate())
+      return;
+    const tableGen = tableMovesPlannedGeneration(this.tableId);
+    const gameGen = gameWideMovesPlannedGeneration(this.tableInfo.cluster_id);
+    const planGen = movesPlannedGeneration(this.tableInfo.cluster_id);
+    const raw = this.fetchPendingSeatMoves();
+    const promise = wrap ? wrap(raw) : raw;
+    promise.catch(() => undefined);
+    this.preparedPendingSeatMoves = { tableGen, gameGen, planGen, promise };
+  }
+
+  protected clearPreparedPendingSeatMoves(): void {
+    this.preparedPendingSeatMoves = null;
+  }
+
+  private async fetchPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
     try {
       return await pendingSeatMoves(this.tableId);
     } catch (err) {
@@ -5933,9 +5990,29 @@ export abstract class ServerTableEngineBase {
     }
   }
 
+  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+    const prepared = this.preparedPendingSeatMoves;
+    this.preparedPendingSeatMoves = null;
+    if (
+      prepared &&
+      this.seatMoveTablePlanGenerationAtRead === prepared.tableGen &&
+      this.seatMoveGamePlanGenerationAtRead === prepared.gameGen &&
+      this.seatMovePlanGenerationAtRead === prepared.planGen
+    ) {
+      return prepared.promise;
+    }
+    return this.fetchPendingSeatMoves();
+  }
+
   protected async announcePendingSeatMoves(): Promise<boolean> {
-    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) return true;
-    if (!this.lifecycleCanMutate()) return false;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) {
+      this.clearPreparedPendingSeatMoves();
+      return true;
+    }
+    if (!this.lifecycleCanMutate()) {
+      this.clearPreparedPendingSeatMoves();
+      return false;
+    }
     // Captured BEFORE the read: a plan committed after this instant reaches
     // the synchronous check before dealHand even if this read missed it.
     this.seatMoveTablePlanGenerationAtRead = tableMovesPlannedGeneration(this.tableId);

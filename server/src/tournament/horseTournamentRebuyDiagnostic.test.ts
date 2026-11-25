@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   horseRebuyFailureClass,
   reportHorseRebuyDecision,
+  shouldEmitHorseRebuyDiagnostic,
 } from './horseTournamentRebuyDiagnostic.js';
 afterEach(() => vi.restoreAllMocks());
 describe('original Horse rebuy input diagnostics', () => {
@@ -56,5 +57,29 @@ describe('original Horse rebuy input diagnostics', () => {
         promptUntilMs: null,
       })
     ).not.toThrow();
+  });
+
+  it('deduplicates repeated polling phases per (userId, handNumber, phase) while preserving active purchase transitions and bounded memory (1e532243)', () => {
+    const seen = new Set<string>();
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'choice')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'choice')).toBe(false);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'deferred')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'deferred')).toBe(false);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_pending')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_pending')).toBe(false);
+    // Next hand for the same horse emits again.
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 101, 'choice')).toBe(true);
+    // Active purchase attempts and outcomes are never suppressed.
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_started')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_started')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchased')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_unproven')).toBe(true);
+    expect(shouldEmitHorseRebuyDiagnostic(seen, 'u1', 100, 'purchase_unproven')).toBe(true);
+    // Bounded eviction caps memory at maxEntries.
+    const small = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      expect(shouldEmitHorseRebuyDiagnostic(small, `u${i}`, i, 'deferred', 4)).toBe(true);
+    }
+    expect(small.size).toBe(4);
   });
 });

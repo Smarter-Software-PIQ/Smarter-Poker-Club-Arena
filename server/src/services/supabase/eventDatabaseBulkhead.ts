@@ -133,6 +133,7 @@ interface EventState {
   goodSinceIncrease: number;
   lastDecreaseAt: number;
   congestedStreak: number;
+  slowStreak: number;
   lastLoggedAt: number;
   readonly queue: Waiter[];
   readonly coolingTimers: Set<ReturnType<typeof setTimeout>>;
@@ -225,6 +226,7 @@ export class EventDatabaseBulkhead {
         goodSinceIncrease: 0,
         lastDecreaseAt: Number.NEGATIVE_INFINITY,
         congestedStreak: 0,
+        slowStreak: 0,
         lastLoggedAt: Number.NEGATIVE_INFINITY,
         queue: [],
         coolingTimers: new Set(),
@@ -283,6 +285,7 @@ export class EventDatabaseBulkhead {
 
     if (outcome === 'ok') {
       state.congestedStreak = 0;
+      state.slowStreak = 0;
       if (state.limit < this.maxPerEvent && ++state.goodSinceIncrease >= state.limit) {
         state.goodSinceIncrease = 0;
         state.limit++;
@@ -293,15 +296,19 @@ export class EventDatabaseBulkhead {
       }
     } else if (outcome === 'slow' || outcome === 'congested') {
       if (outcome === 'congested') state.congestedStreak++;
+      else state.slowStreak++;
       // An isolated serialization retry (e.g. a single 40001 on a quiet event
       // at inFlight=0) cools one slot without cutting the event's bound in
-      // half for the next ~210 calls. Halve immediately on slow answers, on
-      // sustained congestion (streak >= 2), or when concurrency is already
-      // active (inFlight + cooling >= minPerEvent).
+      // half for the next ~210 calls. Likewise, an isolated slow outlier (e.g.
+      // a single 2s rebuy or vacuum tick on a healthy 40-table tournament)
+      // must not halve the bound for ~210 calls (incident 1e532243): require
+      // sustained slowness (slowStreak >= 2, or prior congestion) to halve on
+      // `slow`, while preserving immediate halving on `congested` when
+      // streak >= 2 or concurrency is already active (inFlight + cooling >= minPerEvent).
       const shouldHalve =
-        outcome === 'slow' ||
-        state.congestedStreak >= 2 ||
-        state.inFlight + state.cooling >= this.minPerEvent;
+        outcome === 'slow'
+          ? state.slowStreak >= 2 || state.congestedStreak >= 1
+          : state.congestedStreak >= 2 || state.inFlight + state.cooling >= this.minPerEvent;
       const at = this.now();
       if (shouldHalve && at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
         state.lastDecreaseAt = at;
@@ -406,7 +413,8 @@ export class EventDatabaseBulkhead {
       state.inFlight === 0 &&
       state.cooling === 0 &&
       state.queue.length === 0 &&
-      state.limit === this.maxPerEvent
+      state.limit === this.maxPerEvent &&
+      state.slowStreak === 0
     )
       this.events.delete(key);
   }
