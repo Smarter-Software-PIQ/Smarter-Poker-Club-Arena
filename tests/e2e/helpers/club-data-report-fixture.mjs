@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 export async function clubDataReportFixture() {
   const stubs = {
     useAuthUser: `export const useAuthUser=()=>({user:{id:'fixture-owner'},isHydrating:false});`,
-    usePlayerPreference: `import {useState} from 'react';export function usePlayerPreference(name,initial){const [value,set]=useState(()=>name.endsWith(':advanced')?false:typeof initial==='function'?initial():initial);return [value,set];}`,
+    usePlayerPreference: `import {useState} from 'react';export function usePlayerPreference(name,initial){const [value,set]=useState(()=>window.fixturePreferences?.[name]??(name.endsWith(':advanced')?false:typeof initial==='function'?initial():initial));return [value,set];}`,
     useClubGameHost: `export const useClubGameHost=()=>'';`,
     usePageTitle: `export const usePageTitle=()=>{};`,
     useMasterBusChannel: `export const useMasterBusChannel=()=>{};`,

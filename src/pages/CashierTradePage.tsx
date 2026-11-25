@@ -89,7 +89,7 @@ import {
   useRef,
 } from 'react';
 import { roleLabel, roleRank, type ClubRole } from '../types/clubRoles';
-import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
@@ -621,15 +621,28 @@ export default function CashierTradePage() {
 function CashierTradeWorkspace() {
   const { clubId: clubParam } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const walletToolsOpen = searchParams.get('walletTools') === 'open';
+  const location = useLocation();
+  const walletPanel = useRef<HTMLElement>(null);
+  const walletToolsOpen = new URLSearchParams(location.search).get('walletTools') === 'open';
   const setWalletToolsOpen = (open: boolean) => {
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      if (open) next.set('walletTools', 'open');
-      else next.delete('walletTools');
-      return next;
-    });
+    const next = new URLSearchParams(location.search);
+    if (open) next.set('walletTools', 'open');
+    else next.delete('walletTools');
+    navigate(
+      { pathname: location.pathname, search: next.toString(), hash: location.hash },
+      {
+        state: location.state,
+      }
+    );
+  };
+  const openSend = () => {
+    if (!walletToolsOpen) {
+      setWalletToolsOpen(true);
+      return;
+    }
+    const sendTab = walletPanel.current?.querySelector<HTMLButtonElement>('#cashier-tab-send');
+    sendTab?.click();
+    sendTab?.focus();
   };
   const { user, isHydrating } = useAuthUser();
   const toast = useToast();
@@ -4572,11 +4585,7 @@ function CashierTradeWorkspace() {
           {roleResolved && (
             <div className="arena-switch" role="group" aria-label="Wallet Actions">
               {canHoldAgentWallet(myRole) && (
-                <button
-                  type="button"
-                  aria-expanded={walletToolsOpen}
-                  onClick={() => setWalletToolsOpen(true)}
-                >
+                <button type="button" aria-controls="cashier-wallet-operations" onClick={openSend}>
                   Send
                 </button>
               )}
@@ -4634,6 +4643,7 @@ function CashierTradeWorkspace() {
               </button>
               {walletToolsOpen && (
                 <section
+                  ref={walletPanel}
                   id="cashier-wallet-operations"
                   className="arena-case"
                   aria-label="Wallet Operations"

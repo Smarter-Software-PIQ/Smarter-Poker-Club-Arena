@@ -153,6 +153,29 @@ describe('one mounted club cashier', () => {
       expect(await screen.findByRole('tabpanel', { name: 'Mint' })).toBeVisible();
     }
   );
+  it('returns to Send from another open wallet tab without losing the table return link', async () => {
+    mount('/clubs/' + fixture.club + '/cashier?table=77&origin=menu#seat');
+    const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
+    const send = within(actions).getByRole('button', { name: 'Send' });
+    fireEvent.click(send);
+    const tabs = await screen.findByRole('tablist', { name: 'Wallet Operations' });
+    fireEvent.click(await within(tabs).findByRole('tab', { name: 'Mint' }));
+    expect(await screen.findByRole('tabpanel', { name: 'Mint' })).toBeVisible();
+    fireEvent.click(send);
+    expect(within(tabs).getByRole('tab', { name: 'Send' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('tabpanel', { name: 'Send' })).toBeVisible();
+    expect(screen.getByLabelText('Current Address').textContent).toBe(
+      '/clubs/' + fixture.club + '/cashier?table=77&origin=menu&walletTools=open#seat'
+    );
+    fireEvent.click(within(actions).getByRole('button', { name: 'History' }));
+    expect(screen.getByLabelText('Current Address').textContent).toBe(
+      '/clubs/' + fixture.club + '/cashier?table=77&origin=menu#seat'
+    );
+  });
+
   it('keeps player wallet permissions after opening the embedded controls from the normal desk', async () => {
     fixture.role = 'player';
     mount('/clubs/' + fixture.club + '/cashier?origin=directory');

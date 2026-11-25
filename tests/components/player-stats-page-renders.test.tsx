@@ -474,6 +474,63 @@ describe('PlayerStatsPage mounts', () => {
     );
   });
 
+  it('labels the shared profile mast with the authorized club that is actually displayed', async () => {
+    routeUserId = 'user-2';
+    const clubs = [
+      { id: 'club-a', name: 'Alpha Club' },
+      { id: 'club-b', name: 'Bravo Club' },
+    ];
+    statsRouteState.search = '?statsClub=club-b';
+    const scope = { target_user_id: routeUserId, visibility: 'shared_club', asset: 'chips' };
+    rpcMock.mockImplementation(async (fn: string, args) => {
+      if (fn === 'ca_player_stats_shared_clubs') {
+        return { data: { contract_version: 2, scope, clubs }, error: null };
+      }
+      if (fn !== 'ca_player_stats_shared_separated') return { data: null, error: null };
+      const hands = args.p_club_id === 'club-b' ? 75 : 40;
+      return {
+        data: {
+          contract_version: 2,
+          scope: {
+            ...scope,
+            club_id: args.p_club_id,
+            game_mode: 'cash',
+            range_days: args.p_days,
+            range_tz: args.p_tz,
+          },
+          overview: {
+            hands,
+            cash_hands: hands,
+            tournament_hands: 0,
+            hands_won: 8,
+            vpip: 0.25,
+            pfr: 0.15,
+            bb_per_100: 1.2,
+            last_played_at: null,
+          },
+          tournaments: { entries: 0, cashes: 0, wins: 0 },
+          generated_at: '2026-11-25T06:00:00Z',
+        },
+        error: null,
+      };
+    });
+    const view = render(<PlayerStatsPage />);
+    expect(await screen.findByRole('heading', { name: 'Bravo Club' })).toBeVisible();
+    const mast = screen.getByRole('heading', { name: 'Player Stats' }).closest('header');
+    expect(mast).toHaveTextContent('Bravo Club');
+    expect(await screen.findByRole('cell', { name: '75' })).toBeVisible();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    statsRouteState.search = '?statsClub=club-a';
+    view.rerender(<PlayerStatsPage />);
+    expect(await screen.findByRole('heading', { name: 'Alpha Club' })).toBeVisible();
+    expect(mast).toHaveTextContent('Alpha Club');
+    expect(await screen.findByRole('cell', { name: '40' })).toBeVisible();
+    expect(rpcMock).not.toHaveBeenCalledWith(
+      'ca_player_stats_overview_separated',
+      expect.anything()
+    );
+  });
+
   it('renders for an account with NO hands without hitting the error boundary', async () => {
     // This is the exact shape smarterpoker returns in production, and the
     // state the page was crashing in.
