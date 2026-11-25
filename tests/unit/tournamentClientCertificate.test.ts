@@ -116,21 +116,26 @@ describe('closed tournament acceptance selection', () => {
       ready: string,
       account: string,
       mode: string,
-      outcome = 'skipped'
+      outcome = 'skipped',
+      staff = 'success',
+      runCancelled = false
     ) =>
       new Function(
         'needs',
         'steps',
         'always',
+        'cancelled',
         `return (${condition.replaceAll('publication-gate', 'publicationGate')});`
       )(
         { publicationGate: { outputs: { tournament_only: mode } } },
         {
           live: { outputs: { ready } },
           account: { outcome: account },
+          staff_access: { outcome: staff },
           bounty_guarantee: { outcome },
         },
-        () => true
+        () => true,
+        () => runCancelled
       );
     for (const mode of ['', 'false', 'true']) {
       for (const ready of ['true', 'false']) {
@@ -141,6 +146,8 @@ describe('closed tournament acceptance selection', () => {
         }
       }
     }
+    expect(evaluate(bounty.if, 'true', 'success', 'false', 'skipped', 'failure')).toBe(false);
+    expect(evaluate(bounty.if, 'true', 'success', 'false', 'skipped', 'success', true)).toBe(false);
     for (const outcome of ['success', 'failure', 'cancelled', 'skipped']) {
       expect(evaluate(retain.if, 'true', 'success', 'true', outcome)).toBe(outcome !== 'skipped');
     }
