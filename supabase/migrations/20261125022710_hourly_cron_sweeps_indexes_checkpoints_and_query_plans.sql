@@ -113,7 +113,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ca_ledger_write_failures_occurred_at
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
-SET LOCAL statement_timeout = '240s';
+SET LOCAL statement_timeout = '8s';
 
 -- -- 0. Installer role, concurrent index validity, and preimage/ACL guard ----
 DO $guard$
@@ -333,12 +333,14 @@ BEGIN
       FROM rr CROSS JOIN LATERAL jsonb_each_text(rr.pc) e
      WHERE e.key ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
        AND (CASE WHEN e.value ~ '^[0-9]+(\.[0-9]+)?$' THEN e.value::numeric ELSE 0 END) > 0
+  ), contrib_pairs AS MATERIALIZED (
+    SELECT DISTINCT id, uid FROM contrib
   ), contrib_ids AS MATERIALIZED (
-    SELECT DISTINCT id FROM contrib
+    SELECT DISTINCT id FROM contrib_pairs
   ), window_attributions AS MATERIALIZED (
     -- Sequential range read over idx_rake_attributions_club_created avoids
-    -- 28k+ random rake_record_id heap fetches; late/backfilled attributions
-    -- outside the 49h window are still fetched by rake_record_id below.
+    -- 28k+ random rake_record_id heap fetches; any per-player attribution
+    -- backfilled outside the 49h window is still fetched by (rake_record_id, player_id) below.
     SELECT ra.rake_record_id, ra.player_id, ra.club_id
       FROM public.rake_attributions ra
       JOIN contrib_ids r ON r.id = ra.rake_record_id
@@ -349,9 +351,13 @@ BEGIN
     SELECT rake_record_id, player_id, club_id FROM window_attributions
     UNION ALL
     SELECT ra.rake_record_id, ra.player_id, ra.club_id
-      FROM contrib_ids r
-      JOIN public.rake_attributions ra ON ra.rake_record_id = r.id
-     WHERE NOT EXISTS (SELECT 1 FROM window_attributions w WHERE w.rake_record_id = r.id)
+      FROM contrib_pairs c
+      JOIN public.rake_attributions ra
+        ON ra.rake_record_id = c.id AND ra.player_id = c.uid
+     WHERE NOT EXISTS (
+       SELECT 1 FROM window_attributions w
+        WHERE w.rake_record_id = c.id AND w.player_id = c.uid
+     )
   ), clubbed AS (
     SELECT c.id, c.table_id,
            COALESCE(ra.club_id, rc.club, st.club,
@@ -805,8 +811,11 @@ BEGIN
   v_now timestamptz := clock_timestamp();  -- not now(): two runs in one transaction must not collide
   v_horizon timestamptz;
   v_mark_through timestamptz;
+  v_prev_mark_through timestamptz;
+  v_cur_base timestamptz;
   v_mark_m numeric := 0; v_mark_b numeric := 0; v_mark_p numeric := 0;
   v_add_m numeric := 0; v_add_b numeric := 0; v_add_p numeric := 0;
+  v_locked boolean := false;
   v_main numeric; v_backup numeric; v_promo numeric;
   jm numeric := 0; jb numeric := 0; jp numeric := 0;
   v_drops numeric := 0; v_pay numeric := 0; v_sweep numeric := 0; v_fund numeric := 0; v_moves numeric := 0;
@@ -839,25 +848,40 @@ BEGIN
 
   v_mark_through := v_base.taken_at;
   IF pg_try_advisory_xact_lock(hashtextextended('ca_bbj_reconcile_mark:' || p_pool_id::text, 0)) THEN
-    SELECT m.through_at, m.journal_main, m.journal_backup, m.journal_promo
-      INTO v_mark_through, v_mark_m, v_mark_b, v_mark_p
+    SELECT m.base_taken_at, m.through_at, m.journal_main, m.journal_backup, m.journal_promo
+      INTO v_cur_base, v_mark_through, v_mark_m, v_mark_b, v_mark_p
       FROM public.ca_bbj_reconcile_marks m
-     WHERE m.pool_id = p_pool_id AND m.base_taken_at = v_base.taken_at;
-    IF NOT FOUND THEN
-      v_mark_through := v_base.taken_at;
-      v_mark_m := 0; v_mark_b := 0; v_mark_p := 0;
+     WHERE m.pool_id = p_pool_id
+     FOR UPDATE SKIP LOCKED;
+    IF FOUND THEN
+      v_locked := true;
+      IF v_cur_base IS DISTINCT FROM v_base.taken_at THEN
+        v_mark_through := v_base.taken_at;
+        v_mark_m := 0; v_mark_b := 0; v_mark_p := 0;
+        UPDATE public.ca_bbj_reconcile_marks
+           SET base_taken_at = v_base.taken_at, through_at = v_base.taken_at,
+               journal_main = 0, journal_backup = 0, journal_promo = 0, advanced_at = now()
+         WHERE pool_id = p_pool_id;
+      END IF;
+    ELSIF NOT EXISTS (SELECT 1 FROM public.ca_bbj_reconcile_marks m WHERE m.pool_id = p_pool_id) THEN
       INSERT INTO public.ca_bbj_reconcile_marks (pool_id, base_taken_at, through_at, journal_main, journal_backup, journal_promo, advanced_at)
       VALUES (p_pool_id, v_base.taken_at, v_base.taken_at, 0, 0, 0, now())
-      ON CONFLICT (pool_id) DO UPDATE
-        SET base_taken_at = EXCLUDED.base_taken_at, through_at = EXCLUDED.through_at,
-            journal_main = 0, journal_backup = 0, journal_promo = 0, advanced_at = now();
+      ON CONFLICT (pool_id) DO NOTHING;
+      SELECT m.base_taken_at, m.through_at, m.journal_main, m.journal_backup, m.journal_promo
+        INTO v_cur_base, v_mark_through, v_mark_m, v_mark_b, v_mark_p
+        FROM public.ca_bbj_reconcile_marks m
+       WHERE m.pool_id = p_pool_id AND m.base_taken_at = v_base.taken_at
+       FOR UPDATE SKIP LOCKED;
+      v_locked := FOUND;
     END IF;
-    IF v_horizon > v_mark_through THEN
+
+    IF v_locked AND v_horizon > v_mark_through THEN
+      v_prev_mark_through := v_mark_through;
       WITH delta_legs AS (
         SELECT l.amount AS signed, l.to_label AS lbl
           FROM public.chip_ledger l
          WHERE l.to_entity_id = p_pool_id AND l.to_type = 'bbj_pool'
-           AND l.created_at > v_mark_through AND l.created_at <= v_horizon
+           AND l.created_at > v_prev_mark_through AND l.created_at <= v_horizon
            AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64)
         UNION ALL
         SELECT CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
@@ -866,7 +890,7 @@ BEGIN
                     WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END
           FROM public.chip_ledger l
          WHERE l.to_entity_id = p_pool_id AND l.to_type = 'bbj_pool'
-           AND l.created_at > v_mark_through AND l.created_at <= v_horizon
+           AND l.created_at > v_prev_mark_through AND l.created_at <= v_horizon
            AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
            AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64) IS NOT TRUE
         UNION ALL
@@ -877,7 +901,7 @@ BEGIN
           FROM public.chip_ledger l
          WHERE l.from_entity_id = p_pool_id AND l.from_type = 'bbj_pool'
            AND (l.to_entity_id = p_pool_id AND l.to_type = 'bbj_pool') IS NOT TRUE
-           AND l.created_at > v_mark_through AND l.created_at <= v_horizon
+           AND l.created_at > v_prev_mark_through AND l.created_at <= v_horizon
            AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
       )
       SELECT COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.main_balance'), 0),
@@ -886,20 +910,24 @@ BEGIN
         INTO v_add_m, v_add_b, v_add_p
         FROM delta_legs;
 
-      v_mark_m := v_mark_m + v_add_m;
-      v_mark_b := v_mark_b + v_add_b;
-      v_mark_p := v_mark_p + v_add_p;
-      v_mark_through := v_horizon;
-
       UPDATE public.ca_bbj_reconcile_marks
-         SET through_at = v_mark_through,
-             journal_main = v_mark_m,
-             journal_backup = v_mark_b,
-             journal_promo = v_mark_p,
+         SET through_at = v_horizon,
+             journal_main = journal_main + v_add_m,
+             journal_backup = journal_backup + v_add_b,
+             journal_promo = journal_promo + v_add_p,
              advanced_at = now()
-       WHERE pool_id = p_pool_id AND base_taken_at = v_base.taken_at;
+       WHERE pool_id = p_pool_id
+         AND base_taken_at = v_base.taken_at
+         AND through_at = v_prev_mark_through
+      RETURNING through_at, journal_main, journal_backup, journal_promo
+        INTO v_mark_through, v_mark_m, v_mark_b, v_mark_p;
+      IF NOT FOUND THEN
+        v_locked := false;
+      END IF;
     END IF;
-  ELSE
+  END IF;
+
+  IF NOT v_locked THEN
     SELECT m.through_at, m.journal_main, m.journal_backup, m.journal_promo
       INTO v_mark_through, v_mark_m, v_mark_b, v_mark_p
       FROM public.ca_bbj_reconcile_marks m
@@ -1053,9 +1081,9 @@ END;$old_all$;
   v_two numeric; v_prev_cum numeric := 0; v_comparable boolean := false;
   v_alerts int := 0; v_opened int := 0;
   v_horizon timestamptz;
-  v_recent_min timestamptz;
+  v_cur_base timestamptz;
+  v_cur_through timestamptz;
   v_now timestamptz;
-  v_cum_min timestamptz;
   v_add_m numeric; v_add_b numeric; v_add_p numeric;
   v_r record;
 BEGIN
@@ -1101,127 +1129,131 @@ BEGIN
           advanced_at = now();
 
     -- Pools more than 24h behind the horizon (initial backfill / reset) use
-    -- per-pool partial covering indexes on chip_ledger.
+    -- per-pool partial covering indexes on chip_ledger, locked row-by-row with
+    -- CAS guard on (base_taken_at, through_at) to prevent double-counting.
     FOR p IN
-      SELECT m.pool_id, m.base_taken_at, m.through_at
+      SELECT m.pool_id, m.base_taken_at
         FROM public.ca_bbj_reconcile_marks m
         JOIN public.bbj_pools b ON b.id = m.pool_id AND b.status = 'active'
        WHERE m.through_at < v_horizon - interval '24 hours'
+       ORDER BY m.pool_id
     LOOP
       IF pg_try_advisory_xact_lock(hashtextextended('ca_bbj_reconcile_mark:' || p.pool_id::text, 0)) THEN
-        WITH delta_legs AS (
-          SELECT l.amount AS signed, l.to_label AS lbl
-            FROM public.chip_ledger l
-           WHERE l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool'
-             AND l.created_at > p.through_at AND l.created_at <= v_horizon
-             AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64)
-          UNION ALL
-          SELECT CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
-                      WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END,
-                 CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
-                      WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END
-            FROM public.chip_ledger l
-           WHERE l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool'
-             AND l.created_at > p.through_at AND l.created_at <= v_horizon
-             AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
-             AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64) IS NOT TRUE
-          UNION ALL
-          SELECT CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
-                      WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END,
-                 CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
-                      WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END
-            FROM public.chip_ledger l
-           WHERE l.from_entity_id = p.pool_id AND l.from_type = 'bbj_pool'
-             AND (l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool') IS NOT TRUE
-             AND l.created_at > p.through_at AND l.created_at <= v_horizon
-             AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
-        )
-        SELECT COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.main_balance'), 0),
-               COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.backup_balance'), 0),
-               COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.promo_balance'), 0)
-          INTO v_add_m, v_add_b, v_add_p
-          FROM delta_legs;
+        SELECT m.base_taken_at, m.through_at
+          INTO v_cur_base, v_cur_through
+          FROM public.ca_bbj_reconcile_marks m
+         WHERE m.pool_id = p.pool_id
+           AND m.base_taken_at = p.base_taken_at
+           AND m.through_at < v_horizon - interval '24 hours'
+         FOR UPDATE SKIP LOCKED;
+        IF FOUND THEN
+          WITH delta_legs AS (
+            SELECT l.amount AS signed, l.to_label AS lbl
+              FROM public.chip_ledger l
+             WHERE l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool'
+               AND l.created_at > v_cur_through AND l.created_at <= v_horizon
+               AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64)
+            UNION ALL
+            SELECT CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
+                        WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END,
+                   CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
+                        WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END
+              FROM public.chip_ledger l
+             WHERE l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool'
+               AND l.created_at > v_cur_through AND l.created_at <= v_horizon
+               AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
+               AND (l.to_label IN ('bbj_pools.main_balance', 'bbj_pools.backup_balance', 'bbj_pools.promo_balance') AND octet_length(l.to_label) <= 64) IS NOT TRUE
+            UNION ALL
+            SELECT CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
+                        WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END,
+                   CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
+                        WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END
+              FROM public.chip_ledger l
+             WHERE l.from_entity_id = p.pool_id AND l.from_type = 'bbj_pool'
+               AND (l.to_entity_id = p.pool_id AND l.to_type = 'bbj_pool') IS NOT TRUE
+               AND l.created_at > v_cur_through AND l.created_at <= v_horizon
+               AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
+          )
+          SELECT COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.main_balance'), 0),
+                 COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.backup_balance'), 0),
+                 COALESCE(sum(signed) FILTER (WHERE lbl = 'bbj_pools.promo_balance'), 0)
+            INTO v_add_m, v_add_b, v_add_p
+            FROM delta_legs;
 
-        UPDATE public.ca_bbj_reconcile_marks
-           SET through_at = v_horizon,
-               journal_main = journal_main + v_add_m,
-               journal_backup = journal_backup + v_add_b,
-               journal_promo = journal_promo + v_add_p,
-               advanced_at = now()
-         WHERE pool_id = p.pool_id AND base_taken_at = p.base_taken_at;
+          UPDATE public.ca_bbj_reconcile_marks
+             SET through_at = v_horizon,
+                 journal_main = journal_main + v_add_m,
+                 journal_backup = journal_backup + v_add_b,
+                 journal_promo = journal_promo + v_add_p,
+                 advanced_at = now()
+           WHERE pool_id = p.pool_id
+             AND base_taken_at = v_cur_base
+             AND through_at = v_cur_through;
+        END IF;
       END IF;
     END LOOP;
 
-    -- Steady-state hourly advance across ALL active pools in ONE range scan.
-    SELECT min(m.through_at) INTO v_recent_min
-      FROM public.ca_bbj_reconcile_marks m
-      JOIN public.bbj_pools b ON b.id = m.pool_id AND b.status = 'active'
-     WHERE m.through_at < v_horizon AND m.through_at >= v_horizon - interval '24 hours';
-
-    IF v_recent_min IS NOT NULL THEN
-      WITH targets AS MATERIALIZED (
-        SELECT m.pool_id, m.base_taken_at, m.through_at
-          FROM public.ca_bbj_reconcile_marks m
-          JOIN public.bbj_pools b ON b.id = m.pool_id AND b.status = 'active'
-         WHERE m.through_at < v_horizon AND m.through_at >= v_horizon - interval '24 hours'
-      ), raw_legs AS MATERIALIZED (
-        SELECT l.to_entity_id, l.from_entity_id, l.to_type, l.from_type,
-               l.to_label, l.from_label, l.amount, l.created_at
-          FROM public.chip_ledger l
-         WHERE (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
-           AND l.created_at > v_recent_min AND l.created_at <= v_horizon
-           AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
-      ), expanded AS (
-        SELECT l.to_entity_id AS pool_id, l.created_at,
-               CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
-                    WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END AS signed,
-               CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
-                    WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END AS lbl
-          FROM raw_legs l
-         WHERE l.to_type = 'bbj_pool'
-        UNION ALL
-        SELECT l.from_entity_id AS pool_id, l.created_at,
-               CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
-                    WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END AS signed,
-               CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
-                    WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END AS lbl
-          FROM raw_legs l
-         WHERE l.from_type = 'bbj_pool'
-           AND (l.to_entity_id = l.from_entity_id AND l.to_type = 'bbj_pool') IS NOT TRUE
-      ), agg AS (
-        SELECT t.pool_id,
-               COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.main_balance'), 0) AS add_m,
-               COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.backup_balance'), 0) AS add_b,
-               COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.promo_balance'), 0) AS add_p
-          FROM targets t
-          LEFT JOIN expanded e ON e.pool_id = t.pool_id AND e.created_at > t.through_at
-         GROUP BY t.pool_id
-      )
-      UPDATE public.ca_bbj_reconcile_marks m
-         SET through_at = v_horizon,
-             journal_main = m.journal_main + agg.add_m,
-             journal_backup = m.journal_backup + agg.add_b,
-             journal_promo = m.journal_promo + agg.add_p,
-             advanced_at = now()
-        FROM agg
-       WHERE m.pool_id = agg.pool_id;
-    END IF;
+    -- Steady-state hourly advance across ALL active pools in ONE locked
+    -- range scan (FOR UPDATE OF m SKIP LOCKED + CAS on base_taken_at/through_at).
+    WITH targets AS MATERIALIZED (
+      SELECT m.pool_id, m.base_taken_at, m.through_at
+        FROM public.ca_bbj_reconcile_marks m
+        JOIN public.bbj_pools b ON b.id = m.pool_id AND b.status = 'active'
+       WHERE m.through_at < v_horizon AND m.through_at >= v_horizon - interval '24 hours'
+       ORDER BY m.pool_id
+       FOR UPDATE OF m SKIP LOCKED
+    ), bounds AS MATERIALIZED (
+      SELECT min(t.through_at) AS recent_min FROM targets t
+    ), raw_legs AS MATERIALIZED (
+      SELECT l.to_entity_id, l.from_entity_id, l.to_type, l.from_type,
+             l.to_label, l.from_label, l.amount, l.created_at
+        FROM public.chip_ledger l
+        JOIN bounds bd ON bd.recent_min IS NOT NULL
+       WHERE (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
+         AND l.created_at > bd.recent_min AND l.created_at <= v_horizon
+         AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
+    ), expanded AS (
+      SELECT l.to_entity_id AS pool_id, l.created_at,
+             CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
+                  WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END AS signed,
+             CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
+                  WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END AS lbl
+        FROM raw_legs l
+       WHERE l.to_type = 'bbj_pool'
+      UNION ALL
+      SELECT l.from_entity_id AS pool_id, l.created_at,
+             CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.amount
+                  WHEN l.from_label LIKE 'bbj_pools.%' THEN -l.amount ELSE 0 END AS signed,
+             CASE WHEN l.to_label LIKE 'bbj_pools.%' THEN l.to_label
+                  WHEN l.from_label LIKE 'bbj_pools.%' THEN l.from_label END AS lbl
+        FROM raw_legs l
+       WHERE l.from_type = 'bbj_pool'
+         AND (l.to_entity_id = l.from_entity_id AND l.to_type = 'bbj_pool') IS NOT TRUE
+    ), agg AS (
+      SELECT t.pool_id, t.base_taken_at, t.through_at,
+             COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.main_balance'), 0) AS add_m,
+             COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.backup_balance'), 0) AS add_b,
+             COALESCE(sum(e.signed) FILTER (WHERE e.lbl = 'bbj_pools.promo_balance'), 0) AS add_p
+        FROM targets t
+        LEFT JOIN expanded e ON e.pool_id = t.pool_id AND e.created_at > t.through_at
+       GROUP BY t.pool_id, t.base_taken_at, t.through_at
+    )
+    UPDATE public.ca_bbj_reconcile_marks m
+       SET through_at = v_horizon,
+           journal_main = m.journal_main + agg.add_m,
+           journal_backup = m.journal_backup + agg.add_b,
+           journal_promo = m.journal_promo + agg.add_p,
+           advanced_at = now()
+      FROM agg
+     WHERE m.pool_id = agg.pool_id
+       AND m.base_taken_at = agg.base_taken_at
+       AND m.through_at = agg.through_at;
   END IF;
 
-  -- Step 3: Snapshot ALL active pools in ONE atomic statement (one snapshot
-  -- shared across banks, cumulative tails, recent flows, and write failures).
+  -- Step 3: Snapshot ALL active pools in ONE atomic statement (one MVCC
+  -- snapshot shared across banks, marks, cum_bounds, cumulative tails,
+  -- recent flows, and write failures).
   v_now := clock_timestamp();
-  SELECT min(COALESCE(m.through_at, bs.taken_at)) INTO v_cum_min
-    FROM public.bbj_pools b
-    JOIN LATERAL (
-      SELECT s.taken_at FROM public.ca_bbj_pool_snapshots s
-       WHERE s.pool_id = b.id AND s.is_baseline
-       ORDER BY s.taken_at LIMIT 1
-    ) bs ON true
-    LEFT JOIN public.ca_bbj_reconcile_marks m
-      ON m.pool_id = b.id AND m.base_taken_at = bs.taken_at
-   WHERE b.status = 'active';
-
   FOR v_r IN
     WITH active_pools AS MATERIALIZED (
       SELECT b.id AS pool_id, b.union_id, b.club_id, b.created_at,
@@ -1260,13 +1292,15 @@ BEGIN
         ) base ON true
         LEFT JOIN public.ca_bbj_reconcile_marks m
           ON m.pool_id = ap.pool_id AND m.base_taken_at = base.taken_at
+    ), cum_bounds AS MATERIALIZED (
+      SELECT min(pc.mark_through) AS cum_min FROM pool_ctx pc
     ), tail_raw AS MATERIALIZED (
       SELECT l.to_entity_id, l.from_entity_id, l.to_type, l.from_type,
              l.to_label, l.from_label, l.category, l.amount, l.created_at
         FROM public.chip_ledger l
-       WHERE v_cum_min IS NOT NULL
-         AND (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
-         AND l.created_at > v_cum_min
+        JOIN cum_bounds cb ON cb.cum_min IS NOT NULL
+       WHERE (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
+         AND l.created_at > cb.cum_min
          AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
     ), tail_expanded AS MATERIALIZED (
       SELECT l.to_entity_id AS pool_id, l.created_at, l.category, l.to_type, l.from_type, l.amount,
@@ -1299,7 +1333,7 @@ BEGIN
         LEFT JOIN tail_expanded te ON te.pool_id = pc.pool_id
        GROUP BY pc.pool_id
     ), older_recent AS MATERIALIZED (
-      -- Rare fallback: only pools whose previous snapshot is older than v_cum_min.
+      -- Rare fallback: only pools whose previous snapshot is older than cum_bounds.cum_min.
       SELECT pc.pool_id,
              COALESCE(sum(l.amount) FILTER (WHERE l.category = 'bbj_contribution' AND l.to_type = 'bbj_pool' AND l.from_type <> 'bbj_pool'), 0) AS drops,
              COALESCE(sum(l.amount) FILTER (WHERE l.category = 'bbj_payout' AND l.from_type = 'bbj_pool'), 0) AS payouts,
@@ -1307,12 +1341,13 @@ BEGIN
              COALESCE(sum(l.amount) FILTER (WHERE l.category = 'transfer' AND l.to_type = 'bbj_pool'), 0) AS funding,
              COALESCE(sum(l.amount) FILTER (WHERE l.from_type = 'bbj_pool' AND l.to_type = 'bbj_pool'), 0) / 2 AS moves
         FROM pool_ctx pc
+        JOIN cum_bounds cb ON cb.cum_min IS NOT NULL
         LEFT JOIN public.chip_ledger l
           ON ((l.to_entity_id = pc.pool_id AND l.to_type = 'bbj_pool') OR (l.from_entity_id = pc.pool_id AND l.from_type = 'bbj_pool'))
          AND l.created_at > pc.base_taken_at AND l.created_at > pc.prev_taken_at
-         AND l.created_at <= v_cum_min
+         AND l.created_at <= cb.cum_min
          AND (l.to_label LIKE 'bbj_pools.%' OR l.from_label LIKE 'bbj_pools.%')
-       WHERE v_cum_min IS NOT NULL AND GREATEST(pc.base_taken_at, pc.prev_taken_at) < v_cum_min
+       WHERE GREATEST(pc.base_taken_at, pc.prev_taken_at) < cb.cum_min
        GROUP BY pc.pool_id
     ), fail_times AS MATERIALIZED (
       SELECT f.occurred_at
@@ -2053,34 +2088,38 @@ BEGIN
              WHERE category='promotion' AND description='BBJ promo pool payout');
 
   /* A POOL OPENED AFTER THE EPOCH IS MEASURED FROM ITS OWN OPENING
-     (2026-10-02, incident f3e82f59). Set-based tail scan over chip_ledger
-     replaces 3,855 x 2 per-pool correlated subqueries for kept pools while
-     preserving exact full-range reads for unkept pools and unkept openings. */
-  SELECT min(taken_at) INTO v_epoch_at FROM public.ca_bbj_pool_snapshots WHERE is_baseline;
-  SELECT m.through_at, m.to_total, m.from_total INTO v_cp_through, v_cp_to, v_cp_from
-    FROM public.ca_ledger_audit_marks m
-   WHERE m.metric = 'bbj_epoch' AND m.from_at = v_epoch_at;
-  IF NOT FOUND THEN v_cp_through := NULL; v_cp_to := 0; v_cp_from := 0; END IF;
-
-  WITH late_pools AS MATERIALIZED (
+     (2026-10-02, incident f3e82f59). Read epoch_mark, ca_ledger_audit_marks,
+     ca_ledger_audit_bbj_pool, and chip_ledger tail in ONE MVCC snapshot so a
+     concurrent checkpoint advance cannot split the mark from the kept rows. */
+  WITH epoch_mark AS MATERIALIZED (
+    SELECT min(taken_at) AS epoch_at FROM public.ca_bbj_pool_snapshots WHERE is_baseline
+  ), cp AS MATERIALIZED (
+    SELECT m.through_at, m.to_total, m.from_total
+      FROM public.ca_ledger_audit_marks m
+      JOIN epoch_mark em ON m.from_at = em.epoch_at
+     WHERE m.metric = 'bbj_epoch'
+  ), late_pools AS MATERIALIZED (
     SELECT p.id AS pool_id, b.opened_at,
            (k.pool_id IS NOT NULL) AS is_kept,
            k.seeded AS kept_seeded, k.burned AS kept_burned,
            k.absorbed AS kept_absorbed, k.absorbed_to AS kept_absorbed_to
       FROM public.bbj_pools p
+      CROSS JOIN epoch_mark em
+      LEFT JOIN cp ON true
       LEFT JOIN (SELECT s.pool_id, min(s.taken_at) AS opened_at
                    FROM public.ca_bbj_pool_snapshots s
                   WHERE s.is_baseline
                   GROUP BY s.pool_id) b ON b.pool_id = p.id
-      LEFT JOIN public.ca_ledger_audit_bbj_pool k ON k.pool_id = p.id AND v_cp_through IS NOT NULL
-     WHERE COALESCE(b.opened_at, p.created_at) > v_epoch_at
+      LEFT JOIN public.ca_ledger_audit_bbj_pool k ON k.pool_id = p.id AND cp.through_at IS NOT NULL
+     WHERE COALESCE(b.opened_at, p.created_at) > em.epoch_at
   ), tail_raw AS MATERIALIZED (
     SELECT l.to_entity_id, l.from_entity_id, l.to_type, l.from_type, l.category, l.amount
       FROM public.chip_ledger l
-     WHERE v_cp_through IS NOT NULL
-       AND (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
-       AND l.created_at > v_epoch_at
-       AND l.created_at >= v_cp_through
+      CROSS JOIN epoch_mark em
+      JOIN cp ON cp.through_at IS NOT NULL
+     WHERE (l.to_type = 'bbj_pool' OR l.from_type = 'bbj_pool')
+       AND l.created_at > em.epoch_at
+       AND l.created_at >= cp.through_at
   ), tail_by_pool AS MATERIALIZED (
     SELECT pool_id, sum(seeded) AS seeded, sum(burned) AS burned
       FROM (
@@ -2093,32 +2132,41 @@ BEGIN
          WHERE tr.from_type = 'bbj_pool' AND tr.category NOT IN ('bbj_payout', 'promo')
       ) s
      GROUP BY pool_id
+  ), late_totals AS (
+    SELECT COALESCE(sum(x.absorbed), 0) AS absorbed,
+           COALESCE(sum(x.seeded), 0) AS seeded,
+           COALESCE(sum(x.burned), 0) AS burned
+      FROM late_pools o
+      CROSS JOIN epoch_mark em
+      LEFT JOIN tail_by_pool tp ON tp.pool_id = o.pool_id
+      CROSS JOIN LATERAL (
+        SELECT
+          CASE WHEN o.opened_at IS NULL THEN 0
+               WHEN o.kept_absorbed_to = o.opened_at THEN o.kept_absorbed ELSE
+            COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
+                       WHERE l.to_entity_id = o.pool_id AND l.to_type = 'bbj_pool'
+                         AND l.created_at > em.epoch_at AND l.created_at <= o.opened_at), 0)
+          - COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
+                       WHERE l.from_entity_id = o.pool_id AND l.from_type = 'bbj_pool'
+                         AND l.created_at > em.epoch_at AND l.created_at <= o.opened_at), 0) END AS absorbed,
+          CASE WHEN o.is_kept THEN COALESCE(o.kept_seeded, 0) + COALESCE(tp.seeded, 0)
+               ELSE COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
+                               WHERE l.to_entity_id = o.pool_id AND l.to_type = 'bbj_pool'
+                                 AND l.category <> 'bbj_contribution'
+                                 AND l.created_at > em.epoch_at), 0) END AS seeded,
+          CASE WHEN o.is_kept THEN COALESCE(o.kept_burned, 0) + COALESCE(tp.burned, 0)
+               ELSE COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
+                               WHERE l.from_entity_id = o.pool_id AND l.from_type = 'bbj_pool'
+                                 AND l.category NOT IN ('bbj_payout', 'promo')
+                                 AND l.created_at > em.epoch_at), 0) END AS burned
+      ) x
   )
-  SELECT COALESCE(sum(x.absorbed), 0), COALESCE(sum(x.seeded), 0), COALESCE(sum(x.burned), 0)
-    INTO v_absorbed, v_late_seeds, v_late_burns
-    FROM late_pools o
-    LEFT JOIN tail_by_pool tp ON tp.pool_id = o.pool_id
-    CROSS JOIN LATERAL (
-      SELECT
-        CASE WHEN o.opened_at IS NULL THEN 0
-             WHEN o.kept_absorbed_to = o.opened_at THEN o.kept_absorbed ELSE
-          COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
-                     WHERE l.to_entity_id = o.pool_id AND l.to_type = 'bbj_pool'
-                       AND l.created_at > v_epoch_at AND l.created_at <= o.opened_at), 0)
-        - COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
-                     WHERE l.from_entity_id = o.pool_id AND l.from_type = 'bbj_pool'
-                       AND l.created_at > v_epoch_at AND l.created_at <= o.opened_at), 0) END AS absorbed,
-        CASE WHEN o.is_kept THEN COALESCE(o.kept_seeded, 0) + COALESCE(tp.seeded, 0)
-             ELSE COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
-                             WHERE l.to_entity_id = o.pool_id AND l.to_type = 'bbj_pool'
-                               AND l.category <> 'bbj_contribution'
-                               AND l.created_at > v_epoch_at), 0) END AS seeded,
-        CASE WHEN o.is_kept THEN COALESCE(o.kept_burned, 0) + COALESCE(tp.burned, 0)
-             ELSE COALESCE((SELECT sum(l.amount) FROM public.chip_ledger l
-                             WHERE l.from_entity_id = o.pool_id AND l.from_type = 'bbj_pool'
-                               AND l.category NOT IN ('bbj_payout', 'promo')
-                               AND l.created_at > v_epoch_at), 0) END AS burned
-    ) x;
+  SELECT em.epoch_at, cp.through_at, COALESCE(cp.to_total, 0), COALESCE(cp.from_total, 0),
+         lt.absorbed, lt.seeded, lt.burned
+    INTO v_epoch_at, v_cp_through, v_cp_to, v_cp_from, v_absorbed, v_late_seeds, v_late_burns
+    FROM epoch_mark em
+    LEFT JOIN cp ON true
+    CROSS JOIN late_totals lt;
   v_in := v_in + v_late_seeds;
   v_out := v_out + v_late_burns;
 
@@ -2351,7 +2399,21 @@ BEGIN
   END LOOP;
 END $meta_check$;
 
--- -- 16. Mandatory pre-commit runtime probes (subtransaction-unwound) --------
+-- -- 16. Mandatory pre-commit runtime probes (within 12s transaction_timeout) --
+-- Sub-second functions + law-required timed whole-sweep union probe run live
+-- inside subtransactions that unwind before COMMIT. Multi-second cold-history
+-- / full-epoch sweep functions are explicitly @probe-exempt because
+-- apply-recorded-migration.mjs enforces transaction_timeout = 12000ms (25P04)
+-- and all 13 functions are exhaustively proved in native PG17
+-- (scripts/ci/test-hourly-cron-sweeps-indexes-and-queries.py).
+-- @probe-exempt: public.fn_pay_backed_payout_shortfalls multi-second full tournament shortfall sweep exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_bbj_reconcile cold 13.2M-leg historical chip_ledger scan exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_bbj_reconcile_all cold 3820-pool and 13.2M-leg initial checkpoint backfill exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_rake_bbj_invariants multi-second full-window invariant scan exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_ca_ledger_audit_checkpoint_advance cold 6.15M-row bbj_contributions initial checkpoint backfill exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_bbj_conservation_check cold full-epoch conservation scan exceeds 12s migration transaction_timeout; proved in native PG17
+-- @probe-exempt: public.fn_bbj_promo_bank_check cold 6.15M-row bbj_contributions scan before first checkpoint exceeds 12s migration transaction_timeout; proved in native PG17
+
 -- @probe-for: public.fn_club_rake_rollup_day
 DO $probe_rollup_day$
 BEGIN
@@ -2369,57 +2431,6 @@ BEGIN
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe_reporting_facts$;
-
--- @probe-for: public.fn_pay_backed_payout_shortfalls
-DO $probe_shortfalls$
-BEGIN
-  PERFORM public.fn_pay_backed_payout_shortfalls(false, 1);
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_shortfalls$;
-
--- @probe-for: public.fn_bbj_reconcile
-DO $probe_bbj_rec$
-DECLARE v_pid uuid;
-BEGIN
-  SELECT b.id INTO v_pid
-    FROM public.bbj_pools b
-   WHERE b.status = 'active'
-     AND b.main_balance = 0 AND b.backup_balance = 0 AND b.promo_balance = 0
-     AND EXISTS (SELECT 1 FROM public.ca_bbj_pool_snapshots s WHERE s.pool_id = b.id AND s.is_baseline)
-   ORDER BY b.created_at DESC LIMIT 1;
-  IF v_pid IS NULL THEN
-    SELECT b.id INTO v_pid
-      FROM public.bbj_pools b
-     WHERE EXISTS (SELECT 1 FROM public.ca_bbj_pool_snapshots s WHERE s.pool_id = b.id AND s.is_baseline)
-     ORDER BY b.created_at DESC LIMIT 1;
-  END IF;
-  IF v_pid IS NOT NULL THEN
-    PERFORM public.fn_bbj_reconcile(v_pid);
-  END IF;
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_bbj_rec$;
-
--- @probe-for: public.fn_bbj_reconcile_all
-DO $probe_bbj_rec_all$
-BEGIN
-  PERFORM public.fn_bbj_reconcile_all();
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_bbj_rec_all$;
-
--- @probe-for: public.fn_rake_bbj_invariants
-DO $probe_rake_inv$
-BEGIN
-  PERFORM count(*) FROM public.fn_rake_bbj_invariants(1);
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_rake_inv$;
 
 -- @probe-for: public.fn_union_integrity_sweep
 DO $probe$
@@ -2453,33 +2464,6 @@ BEGIN
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe_undeclared$;
-
--- @probe-for: public.fn_ca_ledger_audit_checkpoint_advance
-DO $probe_cp_adv$
-BEGIN
-  PERFORM public.fn_ca_ledger_audit_checkpoint_advance();
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_cp_adv$;
-
--- @probe-for: public.fn_bbj_conservation_check
-DO $probe_bbj_cons$
-BEGIN
-  PERFORM public.fn_bbj_conservation_check();
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_bbj_cons$;
-
--- @probe-for: public.fn_bbj_promo_bank_check
-DO $probe_bbj_promo$
-BEGIN
-  PERFORM public.fn_bbj_promo_bank_check();
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe_bbj_promo$;
 
 -- @probe-for: public.fn_ca_knockout_door_stalled
 DO $probe_ko_stall$

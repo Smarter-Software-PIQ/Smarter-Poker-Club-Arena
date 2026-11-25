@@ -454,12 +454,17 @@ DECLARE
   v_r2 uuid := 'cccc0000-0000-0000-0000-000000000002';
   v_r3 uuid := 'cccc0000-0000-0000-0000-000000000003';
   v_r4 uuid := 'cccc0000-0000-0000-0000-000000000004';
+  v_r5 uuid := 'cccc0000-0000-0000-0000-000000000005';
 BEGIN
   INSERT INTO public.rake_records (id, table_id, club_id, is_tournament, source, rake_amount, player_contributions, created_at) VALUES
     (v_r1, 'bbbb0000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', false, 'atomic_distribute_rake', 5.00,
      '{"aaaa0000-0000-0000-0000-000000000001": 50, "aaaa0000-0000-0000-0000-000000000002": 50}'::jsonb, v_lo + interval '2 hours'),
     (v_r2, 'bbbb0000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', false, 'atomic_distribute_rake', 4.00,
      '{"aaaa0000-0000-0000-0000-000000000001": 40}'::jsonb, v_lo + interval '5 hours'),
+    -- Split-player late-backfill hand: player 1 attribution is inside 49h window (Club 1),
+    -- player 2 attribution on the SAME rake_record_id is backfilled 10 days later (Club 2, after 12:00 cutoff).
+    (v_r5, 'bbbb0000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', false, 'atomic_distribute_rake', 4.00,
+     '{"aaaa0000-0000-0000-0000-000000000001": 50, "aaaa0000-0000-0000-0000-000000000002": 50}'::jsonb, v_lo + interval '15 hours'),
     -- ClubWithCutoff: v_r3 is BEFORE cutoff (06:00), v_r4 is AFTER cutoff (14:00)
     (v_r3, 'bbbb0000-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222', false, 'atomic_distribute_rake', 3.00,
      '{"aaaa0000-0000-0000-0000-000000000002": 30}'::jsonb, v_lo + interval '6 hours'),
@@ -471,12 +476,16 @@ BEGIN
     (v_r1, '11111111-1111-1111-1111-111111111111', 'aaaa0000-0000-0000-0000-000000000002', 2.50, 2.50, v_lo + interval '2 hours'),
     -- Late-backfilled attribution created 5 days later (tests window + fallback in fn_ca_reporting_rollups_from_facts!)
     (v_r2, '11111111-1111-1111-1111-111111111111', 'aaaa0000-0000-0000-0000-000000000001', 4.00, 4.00, v_lo + interval '5 days'),
+    -- Split-player late-backfill: player 1 in-window (Club 1), player 2 out-of-window (Club 2)
+    (v_r5, '11111111-1111-1111-1111-111111111111', 'aaaa0000-0000-0000-0000-000000000001', 2.00, 2.00, v_lo + interval '15 hours'),
+    (v_r5, '22222222-2222-2222-2222-222222222222', 'aaaa0000-0000-0000-0000-000000000002', 2.00, 2.00, v_lo + interval '10 days'),
     (v_r3, '22222222-2222-2222-2222-222222222222', 'aaaa0000-0000-0000-0000-000000000002', 3.00, 3.00, v_lo + interval '6 hours'),
     (v_r4, '22222222-2222-2222-2222-222222222222', 'aaaa0000-0000-0000-0000-000000000002', 6.00, 6.00, v_lo + interval '14 hours');
 
   INSERT INTO public.ca_club_data_fact (club_id, stat_date, game_id, kind, user_id, fee, buyins, cashouts, winnings) VALUES
-    ('11111111-1111-1111-1111-111111111111', v_y, 'bbbb0000-0000-0000-0000-000000000001', 'CASH', 'aaaa0000-0000-0000-0000-000000000001', 6.50, 100, 120, 20),
+    ('11111111-1111-1111-1111-111111111111', v_y, 'bbbb0000-0000-0000-0000-000000000001', 'CASH', 'aaaa0000-0000-0000-0000-000000000001', 8.50, 100, 120, 20),
     ('11111111-1111-1111-1111-111111111111', v_y, 'bbbb0000-0000-0000-0000-000000000001', 'CASH', 'aaaa0000-0000-0000-0000-000000000002', 2.50, 100, 71, -29),
+    ('22222222-2222-2222-2222-222222222222', v_y, 'bbbb0000-0000-0000-0000-000000000001', 'CASH', 'aaaa0000-0000-0000-0000-000000000002', 2.00, 50, 48, -2),
     ('22222222-2222-2222-2222-222222222222', v_y, 'bbbb0000-0000-0000-0000-000000000002', 'CASH', 'aaaa0000-0000-0000-0000-000000000002', 6.00, 80, 74, -6);
 END $$;
 
@@ -563,6 +572,22 @@ INSERT INTO public.tournament_knockout_candidates (tournament_id, created_at, re
 """
 
 
+def resolve_tmp_base():
+    if os.environ.get('SSD_TMPDIR'):
+        p = pathlib.Path(os.environ['SSD_TMPDIR'])
+        p.mkdir(parents=True, exist_ok=True)
+        return str(p)
+    if sys.platform == 'darwin':
+        for cand in [
+            '/Volumes/SmarterWork/agent-work/extreme-capacity',
+            '/Volumes/SmarterWork/agent-work',
+        ]:
+            if os.path.isdir(cand) and os.access(cand, os.W_OK):
+                return cand
+        raise RuntimeError('macOS runs must use an external SSD work volume (set SSD_TMPDIR), never /tmp')
+    return tempfile.gettempdir()
+
+
 def reserve_loopback_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(('127.0.0.1', 0))
@@ -581,7 +606,7 @@ def main():
     preamble_stmts, body_sql = split_migration(mig_sql)
     live_proof = extract_live_proof(mig_sql)
 
-    tmp_base = os.environ.get('SSD_TMPDIR') or tempfile.gettempdir()
+    tmp_base = resolve_tmp_base()
     cluster = pathlib.Path(tempfile.mkdtemp(prefix='pg17-cron-perf-', dir=tmp_base))
     data = cluster / 'data'
     pg_log = cluster / 'pg.log'
@@ -777,9 +802,9 @@ def main():
         psql((FIX / 'fn_ca_completed_without_a_champion.sql').read_text().strip() + ';')
         psql('REVOKE ALL ON FUNCTION public.fn_ca_completed_without_a_champion() FROM PUBLIC, anon, authenticated; GRANT EXECUTE ON FUNCTION public.fn_ca_completed_without_a_champion() TO service_role;')
 
-        # 4. Apply migration body verbatim (including all 13 @probe-for blocks!)
-        psql(body_sql)
-        rec('migration_applied_verbatim', True)
+        # 4. Apply migration body verbatim under apply-recorded-migration.mjs's 12s transaction_timeout!
+        psql("SET transaction_timeout = '12000ms';\n" + body_sql)
+        rec('migration_applied_verbatim_within_12s_tx_timeout', True)
 
         # 5. Live proof assertion
         lp_res = psql(f'SELECT ({live_proof})::text;').stdout.strip()
@@ -831,6 +856,51 @@ def main():
         rec_with_mark = json.loads(psql("BEGIN; SELECT jsonb_build_object('jm', journal_main, 'jb', journal_backup, 'jp', journal_promo, 'um', unexplained_main) FROM public.fn_bbj_reconcile('eeee0000-0000-0000-0000-000000000001'); ROLLBACK;").stdout.strip())
         rec_raw = json.loads(psql("BEGIN; DELETE FROM public.ca_bbj_reconcile_marks; SELECT jsonb_build_object('jm', journal_main, 'jb', journal_backup, 'jp', journal_promo, 'um', unexplained_main) FROM public.fn_bbj_reconcile('eeee0000-0000-0000-0000-000000000001'); ROLLBACK;").stdout.strip())
         rec('bbj_reconcile_checkpoint_equals_raw_after_tail_insert', rec_with_mark == rec_raw, f'{rec_with_mark}')
+
+        # Verify split-player late-backfill attribution on v_r5 credited Club 2 on Table 1!
+        club2_t1_hands = [
+            row['hands'] for row in after_behavior['job128_reporting_facts']['tables']
+            if row['club'] == '22222222-2222-2222-2222-222222222222'
+            and row['table'] == 'bbbb0000-0000-0000-0000-000000000001'
+        ]
+        rec('split_player_late_attribution_preserved', club2_t1_hands == [1], f'club2_t1_hands={club2_t1_hands}')
+
+        # Verify concurrent fn_bbj_reconcile(uuid) + fn_bbj_reconcile_all() NEVER double-counts ca_bbj_reconcile_marks!
+        psql("""
+        UPDATE public.ca_bbj_reconcile_marks
+           SET through_at = now() - interval '14 hours',
+               journal_main = 0, journal_backup = 0, journal_promo = 0
+         WHERE pool_id = 'eeee0000-0000-0000-0000-000000000001';
+        """)
+        p1_cmd = [str(pg_bin / 'psql'), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', port, '-U', 'postgres', '-d', 'postgres']
+        p1_sql = """
+        BEGIN;
+        SELECT pool_id FROM public.ca_bbj_reconcile_marks
+         WHERE pool_id = 'eeee0000-0000-0000-0000-000000000001' FOR UPDATE;
+        SELECT pg_sleep(0.35);
+        SELECT public.fn_bbj_reconcile('eeee0000-0000-0000-0000-000000000001');
+        COMMIT;
+        """
+        p2_sql = "SELECT pg_sleep(0.10); SELECT public.fn_bbj_reconcile_all();"
+        proc1 = subprocess.Popen(p1_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        proc2 = subprocess.Popen(p1_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        proc1.stdin.write(p1_sql)
+        proc1.stdin.close()
+        proc2.stdin.write(p2_sql)
+        proc2.stdin.close()
+        out1, err1 = proc1.communicate(timeout=30)
+        out2, err2 = proc2.communicate(timeout=30)
+        mark_after_race = json.loads(psql(
+            "SELECT jsonb_build_object('jm', journal_main, 'jb', journal_backup, 'jp', journal_promo) "
+            "FROM public.ca_bbj_reconcile_marks WHERE pool_id = 'eeee0000-0000-0000-0000-000000000001';"
+        ).stdout.strip())
+        # Pool 1 legs in (-14h, -6h]: +40 main, -10 main, +10 backup, +15 promo => (30, 10, 15).
+        # Double-counting would produce (60, 20, 30)!
+        rec(
+            'bbj_reconcile_concurrent_advance_no_double_count',
+            proc1.returncode == 0 and proc2.returncode == 0 and mark_after_race == {'jm': 30.0, 'jb': 10.0, 'jp': 15.0},
+            f'rc=({proc1.returncode},{proc2.returncode}) mark={mark_after_race} err1={err1.strip()} err2={err2.strip()}'
+        )
 
         # 9. EXPLAIN index-usage verification for all 11 new indexes (enable_seqscan=off proves every index matches its target query predicate!)
         psql('ANALYZE;')

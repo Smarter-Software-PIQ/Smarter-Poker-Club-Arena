@@ -79,6 +79,7 @@ describe('hourly pg_cron sweeps use bounded indexed reads and safe-horizon check
     }
     expect(missingProbes(SQL)).toEqual([]);
     expect(SQL).toMatch(/^SET LOCAL lock_timeout = '3s';$/m);
+    expect(SQL).toMatch(/^SET LOCAL statement_timeout = '8s';$/m);
     expect(SQL).toMatch(/^-- @live-proof: /m);
   });
 
@@ -106,12 +107,12 @@ describe('hourly pg_cron sweeps use bounded indexed reads and safe-horizon check
     expect(
       functionBody(latestDeclaring('fn_club_rake_rollup_day').sql, 'fn_club_rake_rollup_day')
     ).toContain("v_cutoff := public.fn_ca_launch_accounting_cutoff('club', p_club_id);");
-    expect(
-      functionBody(
-        latestDeclaring('fn_ca_reporting_rollups_from_facts').sql,
-        'fn_ca_reporting_rollups_from_facts'
-      )
-    ).toContain('window_attributions AS MATERIALIZED');
+    const repFacts = functionBody(
+      latestDeclaring('fn_ca_reporting_rollups_from_facts').sql,
+      'fn_ca_reporting_rollups_from_facts'
+    );
+    expect(repFacts).toContain('window_attributions AS MATERIALIZED');
+    expect(repFacts).toContain('w.rake_record_id = c.id AND w.player_id = c.uid');
 
     // Job 231
     expect(
@@ -125,6 +126,9 @@ describe('hourly pg_cron sweeps use bounded indexed reads and safe-horizon check
     expect(SQL).toContain("pg_get_functiondef('public.fn_bbj_reconcile(uuid)'::regprocedure)");
     expect(SQL).toContain("pg_get_functiondef('public.fn_bbj_reconcile_all()'::regprocedure)");
     expect(SQL).toContain('public.ca_bbj_reconcile_marks');
+    expect(SQL).toContain('FOR UPDATE OF m SKIP LOCKED');
+    expect(SQL).toContain('AND m.through_at = agg.through_at');
+    expect(SQL).toContain('cum_bounds AS MATERIALIZED');
     expect(SQL).toContain('array_append(v_out_arr,');
     expect(
       functionBody(latestDeclaring('fn_rake_bbj_invariants').sql, 'fn_rake_bbj_invariants')
@@ -158,9 +162,12 @@ describe('hourly pg_cron sweeps use bounded indexed reads and safe-horizon check
         'fn_ca_ledger_audit_checkpoint_advance'
       )
     ).toContain('public.ca_bbj_promo_audit_mark');
-    expect(
-      functionBody(latestDeclaring('fn_bbj_conservation_check').sql, 'fn_bbj_conservation_check')
-    ).toContain('tail_by_pool AS MATERIALIZED');
+    const bbjCons = functionBody(
+      latestDeclaring('fn_bbj_conservation_check').sql,
+      'fn_bbj_conservation_check'
+    );
+    expect(bbjCons).toContain('WITH epoch_mark AS MATERIALIZED');
+    expect(bbjCons).toContain('tail_by_pool AS MATERIALIZED');
     expect(
       functionBody(latestDeclaring('fn_bbj_promo_bank_check').sql, 'fn_bbj_promo_bank_check')
     ).toContain('public.ca_bbj_promo_audit_mark');
