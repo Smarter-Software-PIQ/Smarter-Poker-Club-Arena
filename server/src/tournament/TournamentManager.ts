@@ -4650,7 +4650,8 @@ export class TournamentManager extends TournamentManagerEliminations {
     const engine = this.tableEngines.get(tableId);
     if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return false;
     return (
-      engine.awaitsTournamentMoveClaim() || this.gapBalanceClaimedSources.get(tableId) === engine
+      engine.awaitsTournamentMoveClaim?.() === true ||
+      this.gapBalanceClaimedSources.get(tableId) === engine
     );
   }
 
@@ -4676,7 +4677,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.gapBalanceClaimedSources.delete(tableId);
       if (allowedTableIds && !allowedTableIds.has(tableId)) continue;
       if (
-        engine.awaitsTournamentMoveClaim() ||
+        engine.awaitsTournamentMoveClaim?.() === true ||
         this.gapBalanceClaimedSources.get(tableId) === engine
       ) {
         target.set(tableId, engine);

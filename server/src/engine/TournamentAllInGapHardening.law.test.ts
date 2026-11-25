@@ -209,22 +209,27 @@ describe('Root Cause 2: new-arrival time-bank reads ride under the rest for tour
       f.engine.timeBankEngine.setAutoActivate(f.engine.tableId, incumbent.user_id, true);
     }
 
-    const fetchExtras = vi.fn(async (ids: string[]) => {
-      await new Promise((r) => setTimeout(r, 80));
-      return new Map(ids.map((id) => [id, { extraSeconds: 40, unlimitedActivations: false }]));
-    });
+    let resolveExtras!: (
+      value: Map<string, { extraSeconds: number; unlimitedActivations: boolean }>
+    ) => void;
+    const fetchExtras = vi.fn(
+      (ids: string[]) =>
+        new Promise<Map<string, { extraSeconds: number; unlimitedActivations: boolean }>>(
+          (resolve) => {
+            resolveExtras = resolve;
+            void ids;
+          }
+        )
+    );
     f.engine.fetchTimeBankExtras = fetchExtras;
 
     f.engine.prepareTimeBankReads(f.engine.seatedPlayers);
     expect(fetchExtras).toHaveBeenCalledTimes(1);
     expect(fetchExtras).toHaveBeenCalledWith(['u-moved-1']);
 
-    // Wait for the prefetched read to complete under the rest, then take it in dealHand.
-    await new Promise((r) => setTimeout(r, 110));
-    const t0 = Date.now();
+    // The prefetched read resolves under the rest before dealHand consumes it.
+    resolveExtras(new Map([['u-moved-1', { extraSeconds: 40, unlimitedActivations: false }]]));
     const extras = await f.engine.takePreparedTimeBankExtras(['u-moved-1']);
-    const elapsed = Date.now() - t0;
-    expect(elapsed).toBeLessThan(30);
     expect(fetchExtras).toHaveBeenCalledTimes(1);
     expect(extras.get('u-moved-1')?.extraSeconds).toBe(40);
   });

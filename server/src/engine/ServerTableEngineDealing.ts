@@ -2970,7 +2970,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected prepareTimeBankReads(players: readonly SeatedPlayer[]): void {
     this.preparedTimeBankExtras = null;
     this.preparedAutoTimeBankPreferences = null;
-    if (!this.timeBankEngine || players.length === 0) return;
+    if (
+      !this.timeBankEngine ||
+      typeof this.timeBankEngine.getPlayerBank !== 'function' ||
+      typeof this.timeBankEngine.hasAutoActivatePreference !== 'function' ||
+      this.isNextHandPaused() ||
+      players.length === 0
+    )
+      return;
     const tbNewIds: string[] = [];
     const prefIds: string[] = [];
     for (const p of players) {
