@@ -102,22 +102,17 @@ test('filtered Report keeps one question through real navigation and breakdown a
   await page.addScriptTag({ content: fixture.javascript });
   await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
   await expect(page).toHaveURL(/dataGame=OMAHA&dataStakes=HIGH&dataSearch=River/);
-  await expect(page.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await expect(report.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
     'Nov 9, 2026 Through Nov 15, 2026 Pacific Calendar Dates'
   );
-  await page
-    .getByRole('region', { name: 'Club Report', exact: true })
-    .getByRole('button', { name: 'View Contributing Games', exact: true })
-    .click();
+  await report.getByRole('button', { name: 'View Contributing Games', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Games', exact: true })).toHaveAttribute(
     'aria-selected',
     'true'
   );
   await expect(page).toHaveURL(/dataTab=games/);
-  await page
-    .getByRole('region', { name: 'Club Report', exact: true })
-    .getByRole('button', { name: 'Cross Day Cash', exact: true })
-    .click();
+  await report.getByRole('button', { name: 'Cross Day Cash', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Contributing Game Source' })).toContainText(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   );
