@@ -98,22 +98,23 @@ describe("a Spin's payment proof nets prior pre-start unregistrations", () => {
     expect(existsSync(resolve(ROOT, 'scripts/ci/test-spin-entry-net-paid-postgres.py'))).toBe(true);
   });
 
-  it('fn_spin_book_entry and fn_spin_draw_and_settle net refunds and reject non-rostered net balances', () => {
+  it('fn_spin_book_entry and fn_spin_draw_and_settle enforce net_count, case-insensitive refund netting, and v_net_irregular', () => {
     for (const fn of ['public.fn_spin_book_entry', 'public.fn_spin_draw_and_settle']) {
       const latest = effectiveMigrationBlock(fn, fixVersion);
-      // Must net refund/tournament_refund credits against tournament_buyin debits
       expect(latest.snippet, `${fn} in ${latest.file}`).toContain(
         "IN ('refund','tournament_refund')"
       );
-      expect(latest.snippet, `${fn} in ${latest.file}`).toContain('ELSE -w.amount END');
+      expect(latest.snippet, `${fn} in ${latest.file}`).toContain(
+        "lower(w.category) = 'tournament_buyin'"
+      );
       // Must verify net entry count per rostered user (= 1)
       expect(latest.snippet, `${fn} in ${latest.file}`).toMatch(
         /count\(\*\)\s+FILTER\s*\(WHERE w\.type = 'debit' AND lower\(w\.category\) = 'tournament_buyin'\)\s*-\s*count\(\*\)\s+FILTER\s*\(WHERE w\.type = 'credit' AND lower\(w\.category\) IN \('refund','tournament_refund'\)\)\)\s*=\s*1/
       );
-      // Must fail closed if any non-rostered user retains non-zero net amount or count
-      expect(latest.snippet, `${fn} in ${latest.file}`).toMatch(
-        /AND NOT EXISTS \(\s*SELECT 1 FROM public\.tournament_players tp[\s\S]*?HAVING round\(COALESCE\(sum\(CASE[\s\S]*?<> 0/
-      );
+      // Must enforce board-wide net_count alongside v_net_irregular (rejects split debits & count mismatches)
+      expect(latest.snippet, `${fn} in ${latest.file}`).toContain('AS net_count');
+      expect(latest.snippet, `${fn} in ${latest.file}`).toContain('n.net <> 0 OR n.net_count <> 0');
+      expect(latest.snippet, `${fn} in ${latest.file}`).toContain('OR n.net_count <> 1');
     }
   });
 
@@ -143,28 +144,43 @@ describe("a Spin's payment proof nets prior pre-start unregistrations", () => {
     expect(rb.snippet, rb.file).toContain("jsonb_build_object('last_error', v_res->>'error')");
   });
 
-  it('no subsequent migration re-introduces raw un-netted Spin buyin debit counting', () => {
+  it('class-wide guard: no future Spin SQL function counts raw wallet_transactions buyin debits without netting refunds', () => {
+    const spinCreateRe =
+      /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public|smarter_private)\.\w*spin\w*\s*\(/gi;
+    const scanSql = (name: string, sql: string): string[] => {
+      const found: string[] = [];
+      const heads = [...sql.matchAll(spinCreateRe)];
+      heads.forEach((head, idx) => {
+        const end = idx + 1 < heads.length ? heads[idx + 1].index! : sql.length;
+        const body = sql.slice(head.index!, end);
+        const context = sql.slice(Math.max(0, head.index! - 200), end);
+        if (
+          /wallet_transactions/i.test(body) &&
+          /tournament_buyin/i.test(body) &&
+          !/tournament_refund/i.test(body) &&
+          !/--\s*@gross-buyin-audit:/i.test(context)
+        ) {
+          found.push(
+            `${name}: ${head[0].trim()} reads wallet_transactions tournament_buyin without netting tournament_refund`
+          );
+        }
+      });
+      return found;
+    };
+
+    // Self-check: scanner catches a brand-new differently named Spin function counting gross debits
+    const syntheticBad =
+      "CREATE OR REPLACE FUNCTION public.fn_spin_future_gate(uuid) RETURNS int AS $$ SELECT count(*) FROM public.wallet_transactions WHERE category = 'tournament_buyin'; $$ LANGUAGE sql;";
+    expect(scanSql('synthetic.sql', syntheticBad)).toHaveLength(1);
+    expect(scanSql('synthetic.sql', `-- @gross-buyin-audit: intentional\n${syntheticBad}`)).toEqual(
+      []
+    );
+
     const offenders: string[] = [];
     for (const m of migrationCorpus()) {
       const ver = m.name.slice(0, 14);
       if (ver <= fixVersion) continue;
-      if (
-        !/fn_spin_book_entry|fn_spin_draw_and_settle|fn_prove_played_spin_launch_recovery/.test(
-          m.sql
-        )
-      ) {
-        continue;
-      }
-      // Strip single-quoted v_old anchor strings? No: any new CREATE OR REPLACE FUNCTION
-      // redefining one of these three must retain refund netting.
-      if (
-        /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.(?:fn_spin_book_entry|fn_spin_draw_and_settle)\s*\(/i.test(
-          m.sql
-        ) &&
-        !m.sql.includes('tournament_refund')
-      ) {
-        offenders.push(`${m.name}: redefines Spin entry/draw without netting tournament_refund`);
-      }
+      offenders.push(...scanSql(m.name, m.sql));
       if (
         /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.fn_prove_played_spin_launch_recovery\s*\(/i.test(
           m.sql
@@ -177,6 +193,12 @@ describe("a Spin's payment proof nets prior pre-start unregistrations", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('wires the native PostgreSQL 17 proof into the required Incident class proofs workflow', () => {
+    const wf = readFileSync(resolve(ROOT, '.github/workflows/incident-class-proofs.yml'), 'utf8');
+    expect(wf).toContain('scripts/ci/test-spin-entry-net-paid-postgres.py');
+    expect(wf).toContain('python3 -B scripts/ci/test-spin-entry-net-paid-postgres.py');
   });
 
   it('preserves strict ACLs on all five functions in post-install verification', () => {

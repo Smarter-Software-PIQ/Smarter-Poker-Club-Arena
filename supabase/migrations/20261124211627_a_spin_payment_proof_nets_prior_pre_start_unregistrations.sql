@@ -42,15 +42,19 @@
 -- non-rostered user with a non-zero net paid amount or net entry count, and
 -- record last_error in reliability_runbook_spin_seat_first_fill when present.
 --
--- @live-proof: (SELECT position('tournament_refund' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) > 0 AND position('tournament_refund' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) > 0 AND position('tournament_refund_tranches' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('rf.kind = ''refund''' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) > 0)
+-- 45: live-proof checks all 5 functions (including net_count tightening on top of 20261124172844)
+-- @live-proof: (SELECT position('AS net_count' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) > 0 AND position('AS net_count' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) > 0 AND position('tournament_refund_tranches' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('rf.kind = ''refund''' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) > 0)
 
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
 
--- 1. public.fn_spin_book_entry(uuid): net prior pre-start refunds and refuse
---    any non-rostered user with an unrefunded debit or unbalanced net count.
+-- 1. public.fn_spin_book_entry(uuid): tighten post-20261124172844 net-paid
+--    proof with per-user net entry count (= 1 for rostered players, = 0 for
+--    departed players) and case-insensitive category matching, rejecting split
+--    partial debits (e.g. 2 x 2.50 on a 5.00 Spin) while preserving every
+--    v_net_irregular / 20261124172844 live-proof invariant.
 DO $fix_spin_book_entry$
 DECLARE
   v_oid oid := 'public.fn_spin_book_entry(uuid)'::regprocedure;
@@ -62,41 +66,31 @@ DECLARE
         JOIN public.wallet_transactions w
           ON w.related_entity_id = tp.tournament_id
          AND w.user_id = tp.user_id
-         AND w.type = 'debit'
-         AND w.category = 'tournament_buyin'
+         AND ((w.type = 'debit' AND w.category = 'tournament_buyin')
+              OR (w.type = 'credit' AND w.category IN ('refund','tournament_refund')))
        WHERE tp.tournament_id = p_tournament_id
        GROUP BY tp.user_id
-      HAVING round(sum(w.amount),2) = round(v_t.buy_in_amount,2)
+      HAVING round(sum(CASE WHEN w.type = 'debit' THEN w.amount ELSE -w.amount END),2)
+             = round(v_t.buy_in_amount,2)
     ) paid;
-  SELECT count(*), round(COALESCE(sum(w.amount),0),2)
-    INTO v_buyin_debits,v_buyin_total
-    FROM public.wallet_transactions w
-   WHERE w.related_entity_id = p_tournament_id
-     AND w.type = 'debit'
-     AND w.category = 'tournament_buyin';
-  SELECT EXISTS (
-    SELECT 1 FROM public.spin_reserve_ledger r
-     WHERE r.tournament_id = p_tournament_id AND r.kind = 'contribution'
-  ) INTO v_entry_existed;
-
-  -- The live-seat distribution is an admission proof, not an immutable
-  -- receipt proof. The third-seat transaction must begin with three exact
-  -- starting stacks. Once its contribution exists, hands may redistribute or
-  -- vacate those stacks; replay proves the three paid identities and the
-  -- immutable contribution+journal below without demanding pre-hand state.
-  IF (NOT v_entry_existed AND (
-       v_table_id IS NULL OR v_live_seats <> 3 OR v_seat_users <> 3
-       OR v_exact_seat_stacks <> 3
-       OR EXISTS (
-         SELECT 1 FROM public.tournament_players tp
-          WHERE tp.tournament_id = p_tournament_id
-            AND NOT EXISTS (
-              SELECT 1 FROM public.table_seats s
-               WHERE s.table_id = v_table_id AND s.left_at IS NULL
-                 AND s.user_id = tp.user_id))))
-     OR v_roster_users <> 3 OR v_paid_users <> 3
-     OR v_buyin_debits <> 3
-     OR v_buyin_total <> round(v_t.buy_in_amount * 3,2) THEN$old$;
+  -- Board-wide: exactly three identities still hold one exact buy-in, every
+  -- other identity (a player who left) nets to zero, and nobody nets to any
+  -- other amount (a double charge, a refund larger than the charge).
+  SELECT count(*) FILTER (WHERE n.net <> 0),
+         round(COALESCE(sum(n.net),0),2),
+         count(*) FILTER (WHERE n.net <> 0
+                            AND n.net <> round(v_t.buy_in_amount,2))
+    INTO v_buyin_debits,v_buyin_total,v_net_irregular
+    FROM (
+      SELECT w.user_id,
+             round(sum(CASE WHEN w.type = 'debit' THEN w.amount
+                            ELSE -w.amount END),2) AS net
+        FROM public.wallet_transactions w
+       WHERE w.related_entity_id = p_tournament_id
+         AND ((w.type = 'debit' AND w.category = 'tournament_buyin')
+              OR (w.type = 'credit' AND w.category IN ('refund','tournament_refund')))
+       GROUP BY w.user_id
+    ) n;$old$;
   v_new text := $new$  SELECT count(*) INTO v_paid_users
     FROM (
       SELECT tp.user_id
@@ -105,67 +99,37 @@ DECLARE
           ON w.related_entity_id = tp.tournament_id
          AND w.user_id = tp.user_id
          AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-              OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')))
+              OR (w.type = 'credit' AND (w.category IN ('refund','tournament_refund') OR lower(w.category) IN ('refund','tournament_refund'))))
        WHERE tp.tournament_id = p_tournament_id
        GROUP BY tp.user_id
-      HAVING round(COALESCE(sum(CASE
-               WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-               ELSE -w.amount END),0),2) = round(v_t.buy_in_amount,2)
+      HAVING round(sum(CASE WHEN w.type = 'debit' THEN w.amount ELSE -w.amount END),2)
+             = round(v_t.buy_in_amount,2)
          AND (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
               - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) = 1
     ) paid;
-  SELECT (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-          - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))),
-         round(COALESCE(sum(CASE
-           WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-           ELSE -w.amount END),0),2)
-    INTO v_buyin_debits,v_buyin_total
-    FROM public.wallet_transactions w
-   WHERE w.related_entity_id = p_tournament_id
-     AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-          OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')));
-  SELECT EXISTS (
-    SELECT 1 FROM public.spin_reserve_ledger r
-     WHERE r.tournament_id = p_tournament_id AND r.kind = 'contribution'
-  ) INTO v_entry_existed;
-
-  -- The live-seat distribution is an admission proof, not an immutable
-  -- receipt proof. The third-seat transaction must begin with three exact
-  -- starting stacks. Once its contribution exists, hands may redistribute or
-  -- vacate those stacks; replay proves the three paid identities and the
-  -- immutable contribution+journal below without demanding pre-hand state.
-  IF (NOT v_entry_existed AND (
-       v_table_id IS NULL OR v_live_seats <> 3 OR v_seat_users <> 3
-       OR v_exact_seat_stacks <> 3
-       OR EXISTS (
-         SELECT 1 FROM public.tournament_players tp
-          WHERE tp.tournament_id = p_tournament_id
-            AND NOT EXISTS (
-              SELECT 1 FROM public.table_seats s
-               WHERE s.table_id = v_table_id AND s.left_at IS NULL
-                 AND s.user_id = tp.user_id))))
-     OR v_roster_users <> 3 OR v_paid_users <> 3
-     OR v_buyin_debits <> 3
-     OR v_buyin_total <> round(v_t.buy_in_amount * 3,2)
-     OR EXISTS (
-       SELECT 1
-         FROM public.wallet_transactions w
-        WHERE w.related_entity_id = p_tournament_id
-          AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-               OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')))
-          AND NOT EXISTS (
-            SELECT 1 FROM public.tournament_players tp
-             WHERE tp.tournament_id = p_tournament_id
-               AND tp.user_id = w.user_id)
-        GROUP BY w.user_id
-       HAVING round(COALESCE(sum(CASE
-                WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-                ELSE -w.amount END),0),2) <> 0
-           OR (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-               - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) <> 0) THEN$new$;
+  -- Board-wide: exactly three identities still hold one exact buy-in and
+  -- net entry count 1, every other identity (a player who left) nets to zero
+  -- amount and zero count, and nobody holds split/malformed entries.
+  SELECT count(*) FILTER (WHERE n.net <> 0 OR n.net_count <> 0),
+         round(COALESCE(sum(n.net),0),2),
+         count(*) FILTER (WHERE (n.net <> 0 OR n.net_count <> 0)
+                            AND (n.net <> round(v_t.buy_in_amount,2) OR n.net_count <> 1))
+    INTO v_buyin_debits,v_buyin_total,v_net_irregular
+    FROM (
+      SELECT w.user_id,
+             round(sum(CASE WHEN w.type = 'debit' THEN w.amount
+                            ELSE -w.amount END),2) AS net,
+             (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
+              - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) AS net_count
+        FROM public.wallet_transactions w
+       WHERE w.related_entity_id = p_tournament_id
+         AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
+              OR (w.type = 'credit' AND (w.category IN ('refund','tournament_refund') OR lower(w.category) IN ('refund','tournament_refund'))))
+       GROUP BY w.user_id
+    ) n;$new$;
 BEGIN
   IF position(v_new IN v_def) > 0 THEN
-    RAISE EXCEPTION 'fn_spin_book_entry already nets prior pre-start refunds';
+    RAISE EXCEPTION 'fn_spin_book_entry already enforces net_count and case-insensitive refund netting';
   END IF;
   IF (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old) <> 1 THEN
     RAISE EXCEPTION 'fn_spin_book_entry payment-proof anchor expected exactly once';
@@ -174,7 +138,8 @@ BEGIN
 END
 $fix_spin_book_entry$;
 
--- 2. public.fn_spin_draw_and_settle(uuid, jsonb): same net-paid proof.
+-- 2. public.fn_spin_draw_and_settle(uuid, jsonb): same post-20261124172844
+--    net_count and case-insensitive refund tightening.
 DO $fix_spin_draw_and_settle$
 DECLARE
   v_oid oid := 'public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure;
@@ -186,22 +151,31 @@ DECLARE
         JOIN public.wallet_transactions w
           ON w.related_entity_id = tp.tournament_id
          AND w.user_id = tp.user_id
-         AND w.type = 'debit'
-         AND w.category = 'tournament_buyin'
+         AND ((w.type = 'debit' AND w.category = 'tournament_buyin')
+              OR (w.type = 'credit' AND w.category IN ('refund','tournament_refund')))
        WHERE tp.tournament_id = p_tournament_id
        GROUP BY tp.user_id
-      HAVING round(sum(w.amount),2) = round(v_t.buy_in_amount,2)
+      HAVING round(sum(CASE WHEN w.type = 'debit' THEN w.amount ELSE -w.amount END),2)
+             = round(v_t.buy_in_amount,2)
     ) paid;
-  SELECT count(*), round(COALESCE(sum(w.amount),0),2)
-    INTO v_buyin_debits,v_buyin_total
-    FROM public.wallet_transactions w
-   WHERE w.related_entity_id = p_tournament_id
-     AND w.type = 'debit'
-     AND w.category = 'tournament_buyin';
-  IF v_roster_users <> 3
-     OR v_paid_users <> 3
-     OR v_buyin_debits <> 3
-     OR v_buyin_total <> round(v_t.buy_in_amount * 3,2) THEN$old$;
+  -- Board-wide: exactly three identities still hold one exact buy-in, every
+  -- other identity (a player who left) nets to zero, and nobody nets to any
+  -- other amount (a double charge, a refund larger than the charge).
+  SELECT count(*) FILTER (WHERE n.net <> 0),
+         round(COALESCE(sum(n.net),0),2),
+         count(*) FILTER (WHERE n.net <> 0
+                            AND n.net <> round(v_t.buy_in_amount,2))
+    INTO v_buyin_debits,v_buyin_total,v_net_irregular
+    FROM (
+      SELECT w.user_id,
+             round(sum(CASE WHEN w.type = 'debit' THEN w.amount
+                            ELSE -w.amount END),2) AS net
+        FROM public.wallet_transactions w
+       WHERE w.related_entity_id = p_tournament_id
+         AND ((w.type = 'debit' AND w.category = 'tournament_buyin')
+              OR (w.type = 'credit' AND w.category IN ('refund','tournament_refund')))
+       GROUP BY w.user_id
+    ) n;$old$;
   v_new text := $new$  SELECT count(*) INTO v_paid_users
     FROM (
       SELECT tp.user_id
@@ -210,48 +184,37 @@ DECLARE
           ON w.related_entity_id = tp.tournament_id
          AND w.user_id = tp.user_id
          AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-              OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')))
+              OR (w.type = 'credit' AND (w.category IN ('refund','tournament_refund') OR lower(w.category) IN ('refund','tournament_refund'))))
        WHERE tp.tournament_id = p_tournament_id
        GROUP BY tp.user_id
-      HAVING round(COALESCE(sum(CASE
-               WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-               ELSE -w.amount END),0),2) = round(v_t.buy_in_amount,2)
+      HAVING round(sum(CASE WHEN w.type = 'debit' THEN w.amount ELSE -w.amount END),2)
+             = round(v_t.buy_in_amount,2)
          AND (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
               - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) = 1
     ) paid;
-  SELECT (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-          - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))),
-         round(COALESCE(sum(CASE
-           WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-           ELSE -w.amount END),0),2)
-    INTO v_buyin_debits,v_buyin_total
-    FROM public.wallet_transactions w
-   WHERE w.related_entity_id = p_tournament_id
-     AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-          OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')));
-  IF v_roster_users <> 3
-     OR v_paid_users <> 3
-     OR v_buyin_debits <> 3
-     OR v_buyin_total <> round(v_t.buy_in_amount * 3,2)
-     OR EXISTS (
-       SELECT 1
-         FROM public.wallet_transactions w
-        WHERE w.related_entity_id = p_tournament_id
-          AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-               OR (w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund')))
-          AND NOT EXISTS (
-            SELECT 1 FROM public.tournament_players tp
-             WHERE tp.tournament_id = p_tournament_id
-               AND tp.user_id = w.user_id)
-        GROUP BY w.user_id
-       HAVING round(COALESCE(sum(CASE
-                WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
-                ELSE -w.amount END),0),2) <> 0
-           OR (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
-               - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) <> 0) THEN$new$;
+  -- Board-wide: exactly three identities still hold one exact buy-in and
+  -- net entry count 1, every other identity (a player who left) nets to zero
+  -- amount and zero count, and nobody holds split/malformed entries.
+  SELECT count(*) FILTER (WHERE n.net <> 0 OR n.net_count <> 0),
+         round(COALESCE(sum(n.net),0),2),
+         count(*) FILTER (WHERE (n.net <> 0 OR n.net_count <> 0)
+                            AND (n.net <> round(v_t.buy_in_amount,2) OR n.net_count <> 1))
+    INTO v_buyin_debits,v_buyin_total,v_net_irregular
+    FROM (
+      SELECT w.user_id,
+             round(sum(CASE WHEN w.type = 'debit' THEN w.amount
+                            ELSE -w.amount END),2) AS net,
+             (count(*) FILTER (WHERE w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
+              - count(*) FILTER (WHERE w.type = 'credit' AND lower(w.category) IN ('refund','tournament_refund'))) AS net_count
+        FROM public.wallet_transactions w
+       WHERE w.related_entity_id = p_tournament_id
+         AND ((w.type = 'debit' AND lower(w.category) = 'tournament_buyin')
+              OR (w.type = 'credit' AND (w.category IN ('refund','tournament_refund') OR lower(w.category) IN ('refund','tournament_refund'))))
+       GROUP BY w.user_id
+    ) n;$new$;
 BEGIN
   IF position(v_new IN v_def) > 0 THEN
-    RAISE EXCEPTION 'fn_spin_draw_and_settle already nets prior pre-start refunds';
+    RAISE EXCEPTION 'fn_spin_draw_and_settle already enforces net_count and case-insensitive refund netting';
   END IF;
   IF (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old) <> 1 THEN
     RAISE EXCEPTION 'fn_spin_draw_and_settle payment-proof anchor expected exactly once';
@@ -732,8 +695,12 @@ END $probe_spin_fill_runbook$;
 -- Post-install ACL and content verification (fails closed).
 DO $verify_all$
 BEGIN
-  IF position('tournament_refund' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) = 0
-     OR position('tournament_refund' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
+  IF position('AS net_count' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) = 0
+     OR position('OR v_net_irregular <> 0' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) = 0
+     OR position('w.category IN (''refund'',''tournament_refund'')' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) = 0
+     OR position('AS net_count' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
+     OR position('OR v_net_irregular <> 0' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
+     OR position('w.category IN (''refund'',''tournament_refund'')' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
      OR position('tournament_refund_tranches' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
      OR position('rf.kind = ''refund''' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
      OR position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) = 0 THEN

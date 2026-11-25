@@ -42,6 +42,7 @@ jobs:
             supabase/migrations/**
             scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
             scripts/ci/test-stuck-tournament-notices-resolve.py
+            scripts/ci/test-spin-entry-net-paid-postgres.py
             scripts/ci/test-window-queue-rehearsal.sh
             scripts/ci/window-queue-rehearsal.mjs
             scripts/ci/rehearse-window-queue.sh
@@ -87,6 +88,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-stuck-tournament-notices-resolve.py
+      - name: Spin payment proofs net prior pre-start refunds and preserve runbook last_error (#11966)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-spin-entry-net-paid-postgres.py
       - name: Use the production Node major
         if: steps.relevant.outputs.run == 'true'
         uses: actions/setup-node@v4

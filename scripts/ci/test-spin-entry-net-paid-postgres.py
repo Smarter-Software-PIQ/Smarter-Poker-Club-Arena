@@ -72,6 +72,15 @@ def extract_function_from_file(path: pathlib.Path, start_marker: str, end_marker
     return txt[s:e]
 
 
+def pg_exe(name: str) -> str:
+    pg_bin = os.environ.get("PG_BIN", "").strip()
+    if pg_bin:
+        cand = pathlib.Path(pg_bin) / name
+        if cand.exists():
+            return str(cand)
+    return name
+
+
 def main():
     mig_sql_path = find_migration()
     owned_tmp = False
@@ -90,22 +99,22 @@ def main():
     pgdata.mkdir(parents=True)
 
     run([
-        "initdb", "-D", str(pgdata), "-A", "trust", "-U", "postgres",
+        pg_exe("initdb"), "-D", str(pgdata), "-A", "trust", "-U", "postgres",
         "--encoding=UTF8", "--locale=C", "--no-sync",
     ])
     run([
-        "pg_ctl", "-D", str(pgdata), "-l", str(pglog),
+        pg_exe("pg_ctl"), "-D", str(pgdata), "-l", str(pglog),
         "-o",
         f"-c listen_addresses=127.0.0.1 -c unix_socket_directories= -c fsync=off -c synchronous_commit=off -p {port}",
         "start",
     ])
     try:
         psql = lambda sql: run(
-            ["psql", "-h", "127.0.0.1", "-p", str(port), "-U", "postgres", "-d", "postgres",
+            [pg_exe("psql"), "-h", "127.0.0.1", "-p", str(port), "-U", "postgres", "-d", "postgres",
              "-v", "ON_ERROR_STOP=1", "-tA", "-c", sql]
         ).strip()
         psql_file = lambda p: run(
-            ["psql", "-h", "127.0.0.1", "-p", str(port), "-U", "postgres", "-d", "postgres",
+            [pg_exe("psql"), "-h", "127.0.0.1", "-p", str(port), "-U", "postgres", "-d", "postgres",
              "-v", "ON_ERROR_STOP=1", "-f", str(p)]
         )
 
@@ -416,26 +425,15 @@ def main():
         $$;
         """)
 
-        # Exact production pre-images
-        fns_json = json.loads((REPO / "tests/fixtures/full-weekly-accounting/functions.json").read_text())
-        book_entry_def = next(f["definition"] for f in fns_json if (f.get("proname") or f.get("name")) == "fn_spin_book_entry")
-        psql(book_entry_def)
+        # Exact production pre-images (post-20261124172844 for fn_spin_book_entry
+        # and fn_spin_draw_and_settle; live production pre-images for the other 3)
+        mig_172844 = REPO / "supabase/migrations/20261124172844_a_spin_seat_counts_a_refunded_entry_as_refunded.sql"
+        psql(extract_function_from_file(mig_172844, "CREATE OR REPLACE FUNCTION public.fn_spin_book_entry(", "$function$;"))
         psql("REVOKE ALL ON FUNCTION public.fn_spin_book_entry(uuid) FROM PUBLIC, anon, authenticated;")
         psql("GRANT EXECUTE ON FUNCTION public.fn_spin_book_entry(uuid) TO service_role;")
-
-        mig_0909 = REPO / "supabase/migrations/20260909014433_spin_reserve_settlement_commits_its_journal_or_nothing.sql"
-        psql(extract_function_from_file(mig_0909, "CREATE OR REPLACE FUNCTION public.fn_spin_draw_and_settle(", "$spin_authority$;"))
-        psql("""
-        DO $$
-        DECLARE v_def text := pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure);
-                v_old text := E'  IF p_tournament_id IS NULL THEN\\n    RAISE EXCEPTION ''Spin draw-and-settle requires a tournament''\\n      USING ERRCODE = ''22023'';\\n  END IF;\\n';
-                v_new text := E'  IF p_tournament_id IS NULL THEN\\n    RAISE EXCEPTION ''Spin draw-and-settle requires a tournament''\\n      USING ERRCODE = ''22023'';\\n  END IF;\\n  -- DIAMOND PHASE 9: a Diamond Spin is drawn by its own arm of\\n  -- fn_spin_draw_and_settle_atomic, the one Spin draw authority; never here.\\n  IF public.fn_poker_diamond_tournament(p_tournament_id) THEN\\n    RAISE EXCEPTION ''diamond_spin_is_drawn_by_its_own_authority'' USING ERRCODE = ''55000'';\\n  END IF;\\n';
-        BEGIN
-          EXECUTE replace(v_def, v_old, v_new);
-        END $$;
-        REVOKE ALL ON FUNCTION public.fn_spin_draw_and_settle(uuid,jsonb) FROM PUBLIC, anon, authenticated;
-        GRANT EXECUTE ON FUNCTION public.fn_spin_draw_and_settle(uuid,jsonb) TO service_role;
-        """)
+        psql(extract_function_from_file(mig_172844, "CREATE OR REPLACE FUNCTION public.fn_spin_draw_and_settle(", "$function$;"))
+        psql("REVOKE ALL ON FUNCTION public.fn_spin_draw_and_settle(uuid,jsonb) FROM PUBLIC, anon, authenticated;")
+        psql("GRANT EXECUTE ON FUNCTION public.fn_spin_draw_and_settle(uuid,jsonb) TO service_role;")
 
         mig_0929 = REPO / "supabase/migrations/20260929181500_a_diamond_spin_recovers_and_shows_its_top_prize.sql"
         psql(extract_function_from_file(mig_0929, "CREATE OR REPLACE FUNCTION public.fn_poker_diamond_prove_played_spin_launch_recovery(p_tournament_id uuid)", "$function$;"))
@@ -459,9 +457,6 @@ def main():
         psql(extract_function_from_file(mig_1119, "CREATE OR REPLACE FUNCTION smarter_private.reliability_horse_active_now(", "$function$;"))
         psql(extract_function_from_file(mig_1119, "CREATE OR REPLACE FUNCTION smarter_private.reliability_runbook_spin_seat_first_fill(", "$function$;"))
         psql("REVOKE ALL ON FUNCTION smarter_private.reliability_runbook_spin_seat_first_fill(uuid, boolean, jsonb, timestamptz) FROM PUBLIC, anon, authenticated;")
-
-        book_md5 = psql("SELECT md5(pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure));")
-        assert book_md5 == "3e861cfde0bda50d16bc836a665bf4ab", f"pre-image md5 mismatch: {book_md5}"
 
         def seed_chip_spin(tid, club_id, buyin, rostered_users, wallet_rows):
             table_id = f"00000000-0000-4000-8000-{tid[-12:]}"
@@ -646,51 +641,51 @@ def main():
         END $$;
         """)
 
-        # FAIL-BEFORE assertions
-        r_935 = json.loads(psql(f"SELECT public.fn_spin_book_entry('{T_935}');"))
-        assert r_935["ok"] is False and r_935["reason"] == "three_paid_seats_required" and r_935["buyin_debits"] == 4, r_935
-        r_re = json.loads(psql(f"SELECT public.fn_spin_book_entry('{T_3B4_REENTRY}');"))
-        assert r_re["ok"] is False and r_re["paid_users"] == 2 and r_re["buyin_debits"] == 4, r_re
-        r_tw = json.loads(psql(f"SELECT public.fn_spin_book_entry('{T_3B4_TWICE}');"))
-        assert r_tw["ok"] is False and r_tw["paid_users"] == 3 and r_tw["buyin_debits"] == 5, r_tw
+        # Seed split-debit (2 x 2.50 on a 5.00 Spin) and mixed-case refund category cases
+        T_SPLIT_BEFORE = "80000000-0000-4000-8000-000000000101"
+        seed_chip_spin(T_SPLIT_BEFORE, CLUB, 5.00, [U1, U2, U3], [
+            (U1, "debit", "tournament_buyin", 2.50),
+            (U1, "debit", "tournament_buyin", 2.50),
+            (U2, "debit", "tournament_buyin", 5.00),
+            (U3, "debit", "tournament_buyin", 5.00),
+        ])
+        T_CASE_REFUND = "80000000-0000-4000-8000-000000000102"
+        seed_chip_spin(T_CASE_REFUND, CLUB, 5.00, [U1, U2, U3], [
+            (U4, "debit", "tournament_buyin", 5.00),
+            (U4, "credit", "Tournament_Refund", 5.00),
+            (U1, "debit", "tournament_buyin", 5.00),
+            (U2, "debit", "tournament_buyin", 5.00),
+            (U3, "debit", "tournament_buyin", 5.00),
+        ])
 
-        ds_err = psql(f"""
-        DO $$
-        BEGIN
-          PERFORM public.fn_spin_draw_and_settle('{T_935}', '[
-            {{"multiplier":2,"freq":4809776,"reserveThresholdX":0}},
-            {{"multiplier":3,"freq":3930716,"reserveThresholdX":0}},
-            {{"multiplier":4,"freq":900000,"reserveThresholdX":0}},
-            {{"multiplier":5,"freq":250000,"reserveThresholdX":0}},
-            {{"multiplier":10,"freq":100000,"reserveThresholdX":0}},
-            {{"multiplier":25,"freq":7500,"reserveThresholdX":0}},
-            {{"multiplier":50,"freq":1000,"reserveThresholdX":0}},
-            {{"multiplier":100,"freq":1008,"reserveThresholdX":1.5}}
-          ]'::jsonb);
-          RAISE EXCEPTION 'unexpected_pass';
-        EXCEPTION WHEN OTHERS THEN
-          IF SQLERRM NOT LIKE '%does not have exactly three immutable paid identities%' THEN RAISE; END IF;
-        END $$; SELECT 'FAILED_AS_EXPECTED';
-        """)
-        assert "FAILED_AS_EXPECTED" in ds_err, repr(ds_err)
-
+        # FAIL-BEFORE assertions against live post-20261124172844 state
+        # 1. Pre-fix fn_spin_book_entry wrongly accepts split partial debits (2 x 2.50 = 5.00)
+        r_split_before = json.loads(psql(f"SELECT public.fn_spin_book_entry('{T_SPLIT_BEFORE}');"))
+        assert r_split_before["ok"] is True, r_split_before
+        # 2. Pre-fix fn_spin_book_entry wrongly refuses mixed-case Tournament_Refund credit
+        r_case_before = json.loads(psql(f"SELECT public.fn_spin_book_entry('{T_CASE_REFUND}');"))
+        assert r_case_before["ok"] is False and r_case_before["reason"] == "three_paid_seats_required", r_case_before
+        # 3. Pre-fix chip & Diamond played-Spin recovery proofs refuse after pre-start unregister
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_CHIP}');"))["ok"] is False
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is False
+        # 4. Pre-fix spin_seat_first_fill runbook drops SQLERRM on door_refused
         rb_before = json.loads(psql("SELECT smarter_private.reliability_runbook_spin_seat_first_fill(gen_random_uuid(), false, '{}'::jsonb, now());"))
         assert rb_before["outcome"] == "refused" and "last_error" not in rb_before["boards"][0], rb_before
 
         # APPLY MIGRATION
         psql_file(mig_sql_path)
 
-        live_proof_line = next(
-            l.split("-- @live-proof:", 1)[1].strip()
-            for l in mig_sql_path.read_text().splitlines()
-            if l.startswith("-- @live-proof:")
-        )
-        assert psql(f"SELECT {live_proof_line};") == "t"
+        # Verify BOTH 20261124211627 and 20261124172844 @live-proof assertions return true
+        for p in (mig_sql_path, mig_172844):
+            live_proof_line = next(
+                l.split("-- @live-proof:", 1)[1].strip()
+                for l in p.read_text().splitlines()
+                if l.startswith("-- @live-proof:")
+            )
+            assert psql(f"SELECT {live_proof_line};") == "t", f"@live-proof failed for {p.name}"
 
-        # PASS-AFTER assertions
-        for tid in (T_935, T_3B4_REENTRY, T_3B4_TWICE):
+        # PASS-AFTER assertions (all valid unregister, re-entry, mixed-case, replay flows)
+        for tid in (T_935, T_3B4_REENTRY, T_3B4_TWICE, T_CASE_REFUND):
             r = json.loads(psql(f"SELECT public.fn_spin_book_entry('{tid}');"))
             assert r["ok"] is True and r["reason"] == "booked" and r["seats"] == 3 and r["paid_users"] == 3, r
             r2 = json.loads(psql(f"SELECT public.fn_spin_book_entry('{tid}');"))
@@ -699,7 +694,7 @@ def main():
         T_DS = "77777777-7777-4777-8777-777777777777"
         seed_chip_spin(T_DS, CLUB, 5.00, [U1, U2, U3], [
             (U1, "debit", "tournament_buyin", 5.00),
-            (U1, "credit", "tournament_refund", 5.00),
+            (U1, "credit", "Tournament_Refund", 5.00),
             (U1, "debit", "tournament_buyin", 5.00),
             (U4, "debit", "tournament_buyin", 5.00),
             (U4, "credit", "tournament_refund", 5.00),
@@ -733,7 +728,7 @@ def main():
         rb_after = json.loads(psql("SELECT smarter_private.reliability_runbook_spin_seat_first_fill(gen_random_uuid(), false, '{}'::jsonb, now());"))
         assert rb_after["outcome"] == "refused" and "three_paid_seats_required" in rb_after["boards"][0].get("last_error", ""), rb_after
 
-        # FAIL-CLOSED negative assertions
+        # FAIL-CLOSED negative assertions (including split partial debits & zero-sum count mismatch)
         for tid, rows in [
             ("81000000-0000-4000-8000-000000000001", [
                 (U4, "debit", "tournament_buyin", 5.00),
@@ -760,9 +755,23 @@ def main():
                 (U2, "debit", "tournament_buyin", 5.00),
                 (U3, "debit", "tournament_buyin", 5.00),
             ]),
+            ("81000000-0000-4000-8000-000000000005", [
+                (U1, "debit", "tournament_buyin", 2.50),
+                (U1, "debit", "tournament_buyin", 2.50),
+                (U2, "debit", "tournament_buyin", 5.00),
+                (U3, "debit", "tournament_buyin", 5.00),
+            ]),
+            ("81000000-0000-4000-8000-000000000006", [
+                (U4, "debit", "tournament_buyin", 5.00),
+                (U4, "debit", "tournament_buyin", 5.00),
+                (U4, "credit", "tournament_refund", 10.00),
+                (U1, "debit", "tournament_buyin", 5.00),
+                (U2, "debit", "tournament_buyin", 5.00),
+                (U3, "debit", "tournament_buyin", 5.00),
+            ]),
         ]:
             seed_chip_spin(tid, CLUB, 5.00, [U1, U2, U3], rows)
-            assert json.loads(psql(f"SELECT public.fn_spin_book_entry('{tid}');"))["ok"] is False
+            assert json.loads(psql(f"SELECT public.fn_spin_book_entry('{tid}');"))["ok"] is False, tid
 
         psql(f"DELETE FROM public.poker_diamond_tournament_ledger WHERE tournament_id = '{T_PLAYED_DIA}' AND kind = 'refund';")
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is False
@@ -772,7 +781,7 @@ def main():
 
         print("OK: all fail-before, pass-after, and fail-closed PostgreSQL 17 proofs passed.")
     finally:
-        subprocess.run(["pg_ctl", "-D", str(pgdata), "-m", "immediate", "stop"], capture_output=True)
+        subprocess.run([pg_exe("pg_ctl"), "-D", str(pgdata), "-m", "immediate", "stop"], capture_output=True)
         if owned_tmp:
             shutil.rmtree(scratch, ignore_errors=True)
         else:
