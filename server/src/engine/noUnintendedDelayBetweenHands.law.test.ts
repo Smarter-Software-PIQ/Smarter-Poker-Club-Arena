@@ -300,8 +300,8 @@ describe('every wait between the hold and the deal is named', () => {
       'this.retainOriginalBatch', // the prepared deck made durable, under the rest
       'this.awaitNextHandRest', // stops SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest
     ]);
-    expect(DEALING).toContain('static readonly F06_RESERVE_LEAD_MS = 1250;');
-    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 650;');
+    expect(DEALING).toContain('static readonly F06_RESERVE_LEAD_MS = 1500;');
+    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 900;');
     expect(DEALING).toContain('finishRestBeforeFirstDispatch');
     // After the rest: no round trip on the path that deals. A saved hand the
     // last look (or a later hold) refuses is released in dealHand's finally,

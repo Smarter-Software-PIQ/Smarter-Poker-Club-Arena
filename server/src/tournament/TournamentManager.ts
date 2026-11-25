@@ -4468,6 +4468,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         const moves = this.tableBalancer.calculateMoves(freshTables);
         this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
         if (moves.length === 0) {
+          seedBalancedBoardForParkedSources(freshTables);
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
         }
         if (moves.length > 0) {
@@ -4483,11 +4484,13 @@ export class TournamentManager extends TournamentManagerEliminations {
           // A slow fresh board must not be discarded before it can act.
           // The existing source-boundary owner rereads the board and moves it;
           // fence only one source (preferring one already parked at the gate),
-          // then yield the spent admission.
+          // seed the freshly read board for the boundary drain so it does not
+          // pay a duplicate 5-query read (~950 ms), then yield the spent admission.
           if (this.balancePreparationOpen && this.eliminationWorkBudgetExpired()) {
             const preferred =
               sourceTables.find((t) => this.isParkedGapBalanceSource(t)) ?? sourceTables[0];
             this.fenceGapBalanceSource(preferred);
+            seedBalancedBoardForParkedSources(freshTables);
             this.balancePreparationOpen = false;
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
             return;
@@ -4510,6 +4513,14 @@ export class TournamentManager extends TournamentManagerEliminations {
               `[Tournament:${this.tournamentId.slice(0, 8)}] Deferring ${moves.length - safeMoves.length} rebalance move(s) - source table(s) still in-hand`
             );
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+          }
+          if (safeMoves.length === 0) {
+            // Every needed source was still mid-hand, so zero seats moved and
+            // freshTables is still valid at freshBoardEpoch. Hand it to any
+            // already-parked (e.g. unneeded) fenced source so
+            // onEliminationSweepSettled releases it without a duplicate 5-query
+            // Supabase board read (~950 ms).
+            seedBalancedBoardForParkedSources(freshTables);
           }
           if (safeMoves.length > 0) {
             const movedCount = await this.executePlayerMoves(safeMoves);
@@ -4653,7 +4664,8 @@ export class TournamentManager extends TournamentManagerEliminations {
     const engine = this.tableEngines.get(tableId);
     if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return false;
     return (
-      engine.awaitsTournamentMoveClaim() || this.gapBalanceClaimedSources.get(tableId) === engine
+      engine.awaitsTournamentMoveClaim?.() === true ||
+      this.gapBalanceClaimedSources.get(tableId) === engine
     );
   }
 
@@ -4679,7 +4691,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.gapBalanceClaimedSources.delete(tableId);
       if (allowedTableIds && !allowedTableIds.has(tableId)) continue;
       if (
-        engine.awaitsTournamentMoveClaim() ||
+        engine.awaitsTournamentMoveClaim?.() === true ||
         this.gapBalanceClaimedSources.get(tableId) === engine
       ) {
         target.set(tableId, engine);
