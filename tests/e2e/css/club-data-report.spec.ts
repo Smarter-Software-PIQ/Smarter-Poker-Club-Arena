@@ -22,35 +22,59 @@ for (const entry of ['Advanced', 'union slug bookmark', 'union UUID bookmark']) 
     await page.goto(`http://club-data.fixture${path}?${dates}#reconciliation`);
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    if (entry === 'Advanced')
-      await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    if (entry === 'Advanced') {
+      const openReport = page.getByRole('button', { name: 'Open Club Report', exact: true });
+      await expect(openReport).toBeVisible();
+      await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
+      for (const width of [375, 1280]) {
+        await page.setViewportSize({ width, height: 850 });
+        const edges = await page.locator('.arena-workspace').evaluate((workspace) => {
+          const shell = workspace.parentElement!.getBoundingClientRect();
+          const mast = workspace.querySelector('.arena-workspace-mast')!.getBoundingClientRect();
+          const cases = [...workspace.querySelectorAll('.arena-case')].map((section) =>
+            section.getBoundingClientRect()
+          );
+          return {
+            available: shell.width,
+            used: workspace.getBoundingClientRect().width,
+            cases: cases.map((r) =>
+              Math.max(Math.abs(r.left - mast.left), Math.abs(r.right - mast.right))
+            ),
+          };
+        });
+        expect(Math.abs(edges.available - edges.used)).toBeLessThanOrEqual(1);
+        expect(edges.cases).toHaveLength(3);
+        for (const error of edges.cases) expect(error).toBeLessThanOrEqual(1);
+      }
+      await openReport.click();
+    }
     await expect(page).toHaveURL(
       new RegExp(
         `/clubs/fixture-union/data/advanced\\?${dates}${entry === 'Advanced' ? '&dataGame=ALL&dataStakes=ALL&dataSearch=' : ''}&view=advanced${entry === 'Advanced' ? '$' : '#reconciliation$'}`
       )
     );
     await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'advanced'
+      'data-report-tools',
+      'open'
     );
-    await expect(page.getByRole('button', { name: 'Advanced', exact: true })).toHaveAttribute(
-      'aria-pressed',
+    await expect(page.getByRole('button', { name: 'Report Tools', exact: true })).toHaveAttribute(
+      'aria-expanded',
       'true'
     );
     await expect(page.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
     await expect(page.getByRole('region', { name: 'Financial Reconciliation' })).toContainText(
       '639.04'
     );
-    await page.getByRole('button', { name: 'Simple', exact: true }).click();
+    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
     await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
       'data-club-data-mode',
       'simple'
     );
     await expect(page).toHaveURL(/dataStart=2026-11-09&dataEnd=2026-11-15.*view=simple/);
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
     await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'advanced'
+      'data-report-tools',
+      'open'
     );
     const reads = await page.evaluate(() =>
       (window as any).fixtureReads.filter((r: any) => r.fn === 'ca_club_data_snapshot_v2')
@@ -77,7 +101,7 @@ test('filtered Report keeps one question through real navigation and breakdown a
   );
   await page.addStyleTag({ content: fixture.css });
   await page.addScriptTag({ content: fixture.javascript });
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+  await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
   await expect(page).toHaveURL(/dataGame=OMAHA&dataStakes=HIGH&dataSearch=River/);
   await expect(page.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
     'Nov 9, 2026 Through Nov 15, 2026 Pacific Calendar Dates'

@@ -548,7 +548,7 @@
   max-width: 1380px;
 }
 .page > div {
-  max-width: 1380px;
+  max-width: 100%;
 }
 .page .panelTitle {
   font-size: 24px;

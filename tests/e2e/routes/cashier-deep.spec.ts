@@ -20,7 +20,8 @@ async function openTradeCashier(page: Page) {
   await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
   await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible();
-  await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+  await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/ }).click();
   const tablist = page.getByRole('tablist', { name: 'Cashier Actions' });
   await expect(tablist).toBeVisible();
   await expect(tablist).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
@@ -35,6 +36,17 @@ test.describe('Cashier Trade — deep authenticated UX', () => {
     page,
   }) => {
     const tablist = await openTradeCashier(page);
+    const trade = tablist.getByRole('tab', { name: 'Trade', exact: true });
+    if (await trade.count()) {
+      await expect(page.getByRole('combobox', { name: 'Filter By Role' })).toBeVisible();
+    }
+    await expect(page.getByRole('region', { name: 'Reconciliation Console' })).toBeVisible();
+    const mast = await page.locator('.arena-workspace-mast').boundingBox();
+    const wallets = await page.getByRole('region', { name: 'My Wallets' }).boundingBox();
+    expect(mast).not.toBeNull();
+    expect(wallets).not.toBeNull();
+    expect(Math.abs(wallets!.x - mast!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(wallets!.width - mast!.width)).toBeLessThanOrEqual(1);
     const tabs = tablist.getByRole('tab');
     expect(await tabs.count()).toBeGreaterThanOrEqual(3);
     await expect(tabs.first()).toHaveText('Trade');
@@ -99,7 +111,7 @@ test.describe('Cashier Trade — deep authenticated UX', () => {
     });
     await openTradeCashier(page);
     const reconciliation = page.locator('[data-cashier-recovery="true"]');
-    const cashierStatus = page.getByRole('region', { name: 'Wallet Command' }).getByRole('status');
+    const cashierStatus = page.getByRole('region', { name: 'Club Cashier' }).getByRole('status');
     await expect(cashierStatus).toHaveText(
       /^(Balances Synchronized|Cashier Ready; Loading The Rest Of The Roster After [\d,]+ Members)$/,
       { timeout: 30_000 }

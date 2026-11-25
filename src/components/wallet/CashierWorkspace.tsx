@@ -13,6 +13,7 @@ import './CashierWorkspace.css';
  */
 export function CashierWorkspace({
   compact = false,
+  hasVisibleTitle = false,
   title,
   summary,
   context,
@@ -22,6 +23,7 @@ export function CashierWorkspace({
   children,
 }: {
   compact?: boolean;
+  hasVisibleTitle?: boolean;
   title: string;
   /** What this desk is for. Shown behind the "?", never on the page. */
   summary: string;
@@ -39,7 +41,13 @@ export function CashierWorkspace({
       className={`cashier-workspace ${compact ? 'cashier-workspace--compact' : ''} ${className || ''}`}
       data-cashier-layout="directory"
     >
-      <PageBar title={title} summary={summary} status={status} statusTone={pillTone} />
+      <PageBar
+        titleAs={hasVisibleTitle ? false : 'h1'}
+        title={title}
+        summary={summary}
+        status={status}
+        statusTone={pillTone}
+      />
       <div className="cashier-workspace__content">{children}</div>
     </div>
   );

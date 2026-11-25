@@ -3,7 +3,7 @@
 .arena-workspace.arena-workspace {
   box-sizing: border-box;
   width: 100%;
-  max-width: 600px;
+  max-width: 100%;
   margin-inline: auto;
   padding: 7px 6px max(18px, env(safe-area-inset-bottom));
   background: #050d17;
@@ -465,52 +465,6 @@
   background: #084397;
   color: white;
 }
-.club-members-page[data-row-density='compact'] .member-row {
-  height: 52px;
-  min-height: 0;
-  box-sizing: border-box;
-  margin: 0 0 4px;
-}
-.club-members-page[data-row-density='compact'] .member-row__open {
-  grid-template-columns: 29px minmax(0, 1fr) 10px;
-  gap: 6px;
-  padding: 0 4px;
-  min-height: 0;
-}
-.club-members-page[data-row-density='compact'] .member-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: center;
-  gap: 2px;
-}
-.club-members-page[data-row-density='compact'] .member-identity,
-.club-members-page[data-row-density='compact'] .member-subline {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-size: 10px;
-  flex-wrap: nowrap;
-}
-.club-members-page[data-row-density='compact'] .member-subline .member-seated,
-.club-members-page[data-row-density='compact'] .member-subline .member-online,
-.club-members-page[data-row-density='compact'] .member-subline .member-seen {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-}
-.club-members-page[data-row-density='compact'] .member-row__open {
-  padding-right: 72px;
-}
-.club-members-page[data-row-density='compact'] .member-username,
-.club-members-page[data-row-density='compact'] .member-club,
-.club-members-page[data-row-density='compact'] .member-upline,
-.club-members-page[data-row-density='compact'] .member-metrics,
-.club-members-page[data-row-density='compact'] .member-simple-balance {
-  display: none;
-}
 .arena-workspace .stats-secondary {
   margin-top: 6px;
 }
@@ -564,4 +518,419 @@
   border-image-source: var(--arena-active);
   background: #084397;
   color: white;
+}
+
+/* The page mast owns its help affordance. Keep the first screen for the directory and ledger. */
+.arena-workspace {
+  position: relative;
+}
+.arena-workspace .ca-page-bar > .ca-page-help {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  margin: 0;
+}
+.arena-workspace .ca-page-bar {
+  position: static;
+}
+.arena-workspace .ca-page-bar:not(:has(.ca-page-bar__live)) {
+  height: 0;
+  min-height: 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__live {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+}
+.arena-workspace .members-mode-toggle {
+  margin: 5px 0 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__metric {
+  min-height: 54px;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.arena-workspace.club-members-page .members-console {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 11px;
+}
+.arena-workspace.club-members-page .members-console__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-console__heading h2 {
+  flex: 1;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-result-count {
+  color: #9fbacc;
+  white-space: nowrap;
+  max-width: none;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+}
+.arena-workspace.club-members-page .members-search {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 8px;
+  margin: 0;
+  background: #040d17;
+  border: 1px solid #476079;
+}
+.arena-workspace.club-members-page .members-search > span {
+  display: none;
+}
+.arena-workspace.club-members-page .members-search input {
+  font:
+    13px/1.25 Arial,
+    sans-serif;
+  margin: 0;
+  min-height: 38px;
+  padding: 2px;
+  background: none;
+  border: 0;
+}
+.arena-workspace.club-members-page .members-simple-tabs {
+  order: 0;
+  display: flex;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-count[aria-label='Roster Operations'] {
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-list {
+  margin-top: 3px;
+  padding: 7px;
+}
+.arena-workspace.club-members-page .arena-roster-tools {
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-export {
+  margin: 0;
+  min-height: 35px;
+}
+.arena-workspace.stats-page .stats-command-deck {
+  padding: 10px;
+}
+.arena-workspace.stats-page .stats-command-copy,
+.arena-workspace.stats-page .stats-range-control,
+.arena-workspace.stats-page .stats-hero {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-range-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.arena-workspace.stats-page .stats-range-row {
+  width: 100%;
+  margin: 3px 0;
+}
+.arena-workspace.stats-page .stats-range-label,
+.arena-workspace.stats-page .stats-last-updated {
+  font-size: 10px;
+  min-height: 0;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-hero .hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 2px;
+  min-height: 58px;
+}
+.arena-workspace.stats-page .hero-stat::before {
+  content: none;
+}
+.arena-workspace.stats-page .hero-stat .hero-stat-value {
+  font:
+    700 21px/1.12 Arial,
+    sans-serif;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-notice {
+  padding: 3px 4px;
+  margin: 3px 0;
+  font:
+    11px/1.25 Arial,
+    sans-serif;
+}
+.arena-workspace.stats-page .stats-notice-deck {
+  margin: 0;
+  gap: 0;
+}
+.arena-workspace.stats-page .stats-secondary > summary {
+  padding: 3px 4px;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0 3px 5px;
+  min-height: 44px;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__icon {
+  display: none;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy strong {
+  color: #eff8ff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.arena-trade .cashier-my-wallets .dw .dw__rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  gap: 4px;
+}
+.arena-trade .cashier-my-wallets .dw .dw__row {
+  display: flex;
+  flex-direction: column;
+  min-height: 50px;
+  height: auto;
+  width: auto;
+  aspect-ratio: auto;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 6px 3px;
+  overflow: visible;
+}
+.arena-trade .cashier-my-wallets .dw [data-wallet-key='player_wallet'] {
+  min-height: 77px;
+}
+.arena-trade .cashier-my-wallets .dw [data-wallet-key='diamonds'] {
+  min-height: 44px;
+  flex-direction: row;
+  padding-inline: 10px;
+}
+.arena-trade .cashier-my-wallets .dw .dw__row-label,
+.arena-trade .cashier-my-wallets .dw .dw__row-value {
+  position: static;
+  inset: auto;
+  transform: none;
+  max-width: 100%;
+  height: auto;
+}
+.arena-trade .arena-ledger-tools > summary {
+  min-height: 44px;
+  align-content: center;
+  color: #a8ccdf;
+  font-size: 12px;
+}
+.arena-trade .arena-cashier-tools-link {
+  position: absolute;
+  right: 15px;
+  top: 64px;
+  z-index: 2;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  color: #b3e2ff;
+  font:
+    700 11px/1.1 Arial,
+    sans-serif;
+  text-shadow: 0 1px 3px #000;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger {
+  aspect-ratio: auto;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy {
+  position: static;
+  width: 100%;
+  justify-content: space-between;
+  padding-right: 20px;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong,
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  position: static;
+  inset: auto;
+  clip: auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  text-transform: none;
+  transform: none;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  color: #bdd1df;
+  font:
+    11px/1.4 Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron {
+  right: 6px;
+  left: auto;
+  width: 7px;
+  height: 7px;
+}
+
+/* Every directory surface uses its shell's inner width. Keep content inside the chrome. */
+.arena-workspace.club-members-page {
+  --members-content: 100%;
+}
+.arena-workspace.club-members-page .members-console,
+.arena-workspace.club-members-page .members-list,
+.arena-workspace.club-members-page .members-live-now {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+}
+.arena-workspace.club-members-page .members-console {
+  padding: 14px;
+  top: auto;
+}
+.arena-workspace.club-members-page .members-console__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  border-bottom: 1px solid #253e57;
+  padding-bottom: 4px;
+}
+.arena-workspace.club-members-page .members-console__heading h2 {
+  flex: 0 1 auto;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+}
+.arena-workspace.club-members-page .members-live-now {
+  margin-block: 7px;
+}
+.arena-workspace.club-members-page .member-row {
+  box-sizing: border-box;
+  height: calc(var(--member-row-pitch, 151px) - 7px);
+  margin: 0 0 7px;
+  padding: 3px;
+}
+.arena-workspace.club-members-page .member-row__open {
+  box-sizing: border-box;
+  grid-template-columns: auto minmax(0, 1fr) 10px;
+  gap: clamp(5px, 1vw, 12px);
+  min-height: 0;
+  padding: 3px clamp(3px, 1vw, 10px);
+}
+.arena-workspace.club-members-page .member-avatar {
+  box-sizing: border-box;
+  width: clamp(32px, 6vw, 46px);
+  height: auto;
+  aspect-ratio: 1;
+}
+.arena-workspace.club-members-page .member-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  align-content: center;
+}
+.arena-workspace.club-members-page .member-simple-balance {
+  max-width: none;
+  gap: 2px;
+  line-height: 1.12;
+  align-self: center;
+}
+.arena-workspace.club-members-page .member-seated {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arena-workspace.club-members-page .members-tools-trigger,
+.arena-workspace.club-members-page .members-history-action {
+  width: 100%;
+  min-height: 44px;
+  padding: 5px 12px;
+  box-sizing: border-box;
+  cursor: pointer;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  color: #ecf6ff;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.arena-workspace.club-members-page .members-history-action {
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+  border-image-source: var(--arena-active);
+}
+.arena-workspace.club-members-page .members-history-action[aria-expanded='true'] {
+  filter: brightness(1.16);
+}
+.arena-workspace.club-members-page .members-history-action:active {
+  filter: brightness(0.86);
+}
+.arena-workspace.club-members-page .members-history-action:focus-visible,
+.arena-workspace.club-members-page .members-tools-trigger:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .arena-workspace.club-members-page .member-simple-balance {
+    max-width: 105px;
+  }
+  .arena-workspace.club-members-page .member-simple-balance > span {
+    line-height: 1.12;
+  }
+  .arena-workspace.club-members-page .member-subline {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 400px) {
+  .arena-workspace.club-members-page .member-main {
+    column-gap: 4px;
+  }
+  .arena-workspace.club-members-page .member-simple-balance {
+    max-width: 62px;
+  }
+  .arena-workspace.club-members-page .member-alias {
+    font-size: 13px;
+  }
+  .arena-workspace.club-members-page .member-row__open {
+    gap: 4px;
+  }
+}
+
+/* Select a record below its avatar without taking space from the name or ledger. */
+.arena-workspace.club-members-page .member-select {
+  position: absolute;
+  inset: auto auto 2px 5px;
+  width: 44px;
+  height: 44px;
+  border: 0;
 }

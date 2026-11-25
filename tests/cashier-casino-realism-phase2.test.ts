@@ -60,12 +60,12 @@ describe('cashier phase 2 completes keyboard and structural semantics', () => {
       expect(PAGE).toContain(`id="cashier-panel-${key}"`);
       if (key === 'trade')
         expect(PAGE).toContain(
-          "aria-labelledby={advanced ? 'cashier-tab-trade' : 'trade-workspace-title'}"
+          "aria-labelledby={cashierToolsOpen ? 'cashier-tab-trade' : 'trade-workspace-title'}"
         );
       else expect(PAGE).toContain(`aria-labelledby="cashier-tab-${key}"`);
     }
     expect(PAGE.match(/role="tabpanel"/g)).toHaveLength(4);
-    expect(PAGE).toContain("role={advanced ? 'tabpanel' : 'region'}");
+    expect(PAGE).toContain("role={cashierToolsOpen ? 'tabpanel' : 'region'}");
   });
 
   it('traps dialog focus and restores it to the opening control', () => {

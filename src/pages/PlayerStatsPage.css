@@ -1630,7 +1630,7 @@
       .stats-content,
       .stats-loading-details
     ) {
-    width: min(100%, 1160px);
+    width: 100%;
     margin-left: auto;
     margin-right: auto;
   }

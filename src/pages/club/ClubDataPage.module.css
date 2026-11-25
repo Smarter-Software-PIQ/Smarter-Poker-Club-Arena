@@ -564,7 +564,7 @@
   }
 }
 
-/* Simple mode keeps the verified ledger, with extended tools in Advanced. */
+/* The ledger stays in place while the operator opens reporting tools. */
 .advancedOnly {
   display: contents;
 }
@@ -587,17 +587,6 @@
 .simpleHeader .word,
 .simpleStatus .word {
   color: #45adff;
-}
-.modeSwitch {
-  display: flex;
-  gap: 4px;
-}
-.modeSwitch button {
-  color: #9aa5b3;
-}
-.modeSwitch button[aria-pressed='true'] {
-  color: #45adff;
-  border-bottom: 2px solid #45adff;
 }
 .simpleStatus {
   display: flex;
@@ -644,8 +633,8 @@
 .simple .console > :global(.club-page-body) {
   padding: 0;
 }
-.simple .blockLabel,
-.simple .figureMeta {
+.simple[data-report-tools='closed'] .blockLabel,
+.simple[data-report-tools='closed'] .figureMeta {
   display: none;
 }
 .simple .rows[aria-label='Club Performance Summary'] {
@@ -682,7 +671,7 @@
   gap: 4px;
 }
 .simple .rangeBar {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .simple .searchInput {
@@ -691,10 +680,13 @@
 .simple :global(.club-page-section) {
   border: 0;
 }
-:global(body:has([data-club-data-mode='simple']) nav[aria-label='Club Operations Sections']) {
+:global(
+  body:has([data-club-data-mode='simple']):not(:has([data-report-tools='open']))
+    nav[aria-label='Club Operations Sections']
+) {
   display: none;
 }
-.page:global(.arena-workspace) .modeSwitch {
+.simpleHeader > :global(.arena-switch) {
   flex: 1;
 }
 .page:global(.arena-workspace) .console {

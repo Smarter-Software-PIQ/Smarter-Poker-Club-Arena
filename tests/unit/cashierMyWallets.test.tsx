@@ -40,10 +40,15 @@ vi.mock('../../src/services/HapticService', () => ({
 }));
 import CashierMyWallets from '../../src/components/wallet/CashierMyWallets';
 
-function mount() {
+function mount(consoleLayout = false) {
   return render(
     <MemoryRouter>
-      <CashierMyWallets userId="viewer" clubId="selected-club" role="owner" />
+      <CashierMyWallets
+        userId="viewer"
+        clubId="selected-club"
+        role="owner"
+        consoleLayout={consoleLayout}
+      />
     </MemoryRouter>
   );
 }
@@ -60,6 +65,15 @@ describe('the relocated Cashier wallet directory', () => {
     fireEvent.click(trigger);
     expect(screen.queryByRole('button', { name: 'Open Player Wallet' })).toBeNull();
     expect(trigger.textContent).toContain('5 Balances');
+  });
+  it('opens the routed console with the selected club’s authorized balances visible', () => {
+    mount(true);
+    expect(screen.getByRole('button', { name: 'Wallet Balances 5 Balances' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Open Player Wallet' })).toBeVisible();
+    expect(screen.getByTestId('directory')).toHaveAttribute('data-club', 'selected-club');
   });
   it.each([
     ['Club Bank', 'club_bank'],
