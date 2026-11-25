@@ -8,9 +8,10 @@ served anything.
 ## What it means
 
 ```
-SpinUnfilledBacklog            poker_spin_unfilled_past_window > 5        for: 20m  warning
-SpinHumanWaitingForOpponents   poker_spin_human_oldest_wait_seconds > 60  for: 1m   critical
-(both: unless on () max_over_time(poker_maintenance_break_active[6m]) == 1)
+SpinUnfilledBacklog                     poker_spin_unfilled_past_window > 5                                                for: 20m  warning
+SpinHumanWaitingForOpponents            poker_spin_human_oldest_wait_seconds > 60                                          for: 1m   critical
+SpinSeatFirstBookingRefusedRepeatedly   sum by (reason) (increase(poker_spin_seat_first_booking_refused_total[5m])) >= 3   for: 2m   critical
+(all three: unless on () max_over_time(poker_maintenance_break_active[6m]) == 1)
 ```
 
 Changed 2026-10-03. The rule used to read `poker_spin_unfilled_waits > 5`, the
@@ -30,6 +31,19 @@ started and none needed a refund).
   window (`start_time`) closed over 120 s ago. The last horse normally
   arrives a median 11 s after the window; boards past it mean the fleet is
   not filling (pool exhausted, four-table cap, seat-RPC lock timeouts).
+- **SpinSeatFirstBookingRefusedRepeatedly**: `fn_seat_horse_in_seat_first_game`
+  raised an unexpected Spin booking refusal (excluding ordinary horse
+  four-table-cap refusals filtered by `isExpectedSeatRefusal`) at least three
+  times in five minutes for two minutes (`poker_spin_seat_first_booking_refused_total{reason}`).
+  Bounded `reason` labels: `three_paid_seats_required`, `invalid_spin_contract`,
+  `not_a_spin`, `spin_reserve_unproven`, `other`. Added after incident
+  `3c817b04-bc3a-4bc5-aa43-b2eee257584d` so a broken Spin booking door pages in
+  two minutes instead of waiting for the 8400 s `SpinFleetProducingNothing`
+  ladder envelope. Check engine logs for
+  `TournamentRecurring.seat_first_seat_rpc_failed` and
+  `TournamentRecurring.opening_seat_rpc_failed`, and inspect
+  `fn_spin_book_entry` / `fn_sync_seat_first_player_count` for the named
+  `reason`.
 
 `poker_spin_unfilled_waits` is still emitted and is the population, not an
 alarm. `poker_spin_unfilled_oldest_wait_seconds` is the oldest live seat on

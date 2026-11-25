@@ -5733,7 +5733,7 @@ export class TournamentRecurringService {
   }
 
   private async seedOpenSeatTable(
-    tournament: { id: string; club_id?: string | null; name: string },
+    tournament: { id: string; club_id?: string | null; name: string; variant?: string | null },
     seats: number,
     tableId: string,
     reopening = false
@@ -5813,6 +5813,13 @@ export class TournamentRecurringService {
                 ),
                 'TournamentRecurring.opening_seat_rpc_failed'
               );
+              if (
+                String(tournament.variant ?? '').toLowerCase() === 'spin' ||
+                (tournament.variant == null && seats === SPIN_SEATS) ||
+                /could not book Spin\b/i.test(seatRpcErr.message)
+              ) {
+                recordSpinSeatFirstBookingRefusal(seatRpcErr.message);
+              }
             }
             continue;
           }

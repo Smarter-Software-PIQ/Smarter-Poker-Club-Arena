@@ -87,15 +87,37 @@ describe('Spin seat-first booking refusal observability', () => {
     expect(rendered).not.toContain('91f388d4');
   });
 
-  it('wires recordSpinSeatFirstBookingRefusal inside TournamentRecurringService unexpected refusal branch', () => {
+  it('wires recordSpinSeatFirstBookingRefusal at every fn_seat_horse_in_seat_first_game call site inside the unexpected refusal branch', () => {
     const src = readFileSync(join(__dirname, 'TournamentRecurringService.ts'), 'utf8');
-    const rpcFailedIdx = src.indexOf('TournamentRecurring.seat_first_seat_rpc_failed');
-    expect(rpcFailedIdx).toBeGreaterThan(-1);
-    const windowSrc = src.slice(rpcFailedIdx - 700, rpcFailedIdx + 100);
-    expect(windowSrc).toContain('if (!isExpectedSeatRefusal(seatRpcErr.message))');
-    expect(windowSrc).toContain('recordSpinSeatFirstBookingRefusal(seatRpcErr.message)');
-    expect(windowSrc.indexOf('if (!isExpectedSeatRefusal(seatRpcErr.message))')).toBeLessThan(
-      windowSrc.indexOf('recordSpinSeatFirstBookingRefusal(seatRpcErr.message)')
+    const rpcCallMatches = [
+      ...src.matchAll(/supabase\.rpc\(\s*'fn_seat_horse_in_seat_first_game'/g),
+    ];
+    expect(rpcCallMatches.length).toBeGreaterThanOrEqual(2);
+    for (const match of rpcCallMatches) {
+      const windowSrc = src.slice(match.index!, match.index! + 1600);
+      expect(windowSrc).toContain('if (!isExpectedSeatRefusal(seatRpcErr.message))');
+      expect(windowSrc).toContain('recordSpinSeatFirstBookingRefusal(seatRpcErr.message)');
+      expect(windowSrc.indexOf('if (!isExpectedSeatRefusal(seatRpcErr.message))')).toBeLessThan(
+        windowSrc.indexOf('recordSpinSeatFirstBookingRefusal(seatRpcErr.message)')
+      );
+    }
+    for (const tag of [
+      'TournamentRecurring.opening_seat_rpc_failed',
+      'TournamentRecurring.seat_first_seat_rpc_failed',
+    ]) {
+      expect(src).toContain(tag);
+    }
+  });
+
+  it('documents SpinSeatFirstBookingRefusedRepeatedly and its metric in the Spin unfilled backlog runbook', () => {
+    const runbook = readFileSync(
+      join(__dirname, '..', '..', '..', 'docs', 'runbooks', 'spin-unfilled-backlog.md'),
+      'utf8'
     );
+    expect(runbook).toContain('SpinSeatFirstBookingRefusedRepeatedly');
+    expect(runbook).toContain('poker_spin_seat_first_booking_refused_total');
+    for (const reason of SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS) {
+      expect(runbook).toContain(reason);
+    }
   });
 });
