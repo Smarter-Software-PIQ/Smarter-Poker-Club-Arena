@@ -66,18 +66,29 @@ export default function PreActionBar({
       window.setTimeout(() => {
         suppressNextClickRef.current = false;
       }, 0);
-      const currentIdx = preAction ? visibleOrder.indexOf(preAction) : -1;
+      /* A SWIPE NEVER ARMS CALL ANY (Dan 2026-11-24, CoachTim68).
+         Call Any is the one uncapped pre-action: it can put the whole stack
+         in. A finger that slid while pressing Fold on a phone used to arm it
+         (a rightward drag with nothing selected landed on the right edge),
+         and the player saw a fold become an all in. Call Any now arms only
+         from a tap on its own button; a swipe steps among the others. */
+      const swipeable: PreActionType[] = visibleOrder.filter((a) => a !== 'callAny');
+      if (swipeable.length === 0) return;
+      const currentIdx = preAction ? swipeable.indexOf(preAction) : -1;
       // Swipe left (negative dx) → step right in the row; swipe right → step left.
       const direction = dx < 0 ? 1 : -1;
       let nextIdx: number;
       if (currentIdx === -1) {
-        // No selection yet — start at left edge for swipe-left, right edge for swipe-right.
-        nextIdx = direction > 0 ? 0 : visibleOrder.length - 1;
+        // No selection yet (or Call Any, which a swipe never moves to or
+        // from): start at the left edge for swipe-left, right edge for
+        // swipe-right, of the swipeable choices.
+        if (preAction === 'callAny') return;
+        nextIdx = direction > 0 ? 0 : swipeable.length - 1;
       } else {
         nextIdx = currentIdx + direction;
-        if (nextIdx < 0 || nextIdx >= visibleOrder.length) return; // edge stop
+        if (nextIdx < 0 || nextIdx >= swipeable.length) return; // edge stop
       }
-      onPreActionChange(visibleOrder[nextIdx]);
+      onPreActionChange(swipeable[nextIdx]);
     },
     [preAction, visibleOrder, onPreActionChange]
   );

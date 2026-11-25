@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  SCRATCH_POSTGRES_PORT,
+  scratchPostgresListenOptions,
+  scratchPostgresSocket,
+  showServerLogWhenStartFails,
+} from '../helpers/scratchPostgres';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -47,13 +53,13 @@ it('stores a refused attempt and its retry as two rows, and times the retry from
   const cache = resolve(root, 'node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   const scratch = mkdtempSync(resolve(cache, 'lightning-join-retry-'));
-  const port = 20000 + Math.floor(Math.random() * 30000);
+  const socket = scratchPostgresSocket();
   const data = resolve(scratch, 'data');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     LC_ALL: process.env.LC_ALL || 'C',
-    PGHOST: '127.0.0.1',
-    PGPORT: String(port),
+    PGHOST: socket,
+    PGPORT: SCRATCH_POSTGRES_PORT,
     PGDATABASE: 'postgres',
     PGUSER: process.env.USER || 'runner',
     PGSSLMODE: 'disable',
@@ -88,16 +94,18 @@ it('stores a refused attempt and its retry as two rows, and times the retry from
   let started = false;
   try {
     run('initdb', ['-D', data, '-A', 'trust']);
-    run('pg_ctl', [
-      '-D',
-      data,
-      '-l',
-      resolve(scratch, 'postgres.log'),
-      '-o',
-      `-p ${port} -h 127.0.0.1 -k ''`,
-      '-w',
-      'start',
-    ]);
+    showServerLogWhenStartFails(resolve(scratch, 'postgres.log'), () =>
+      run('pg_ctl', [
+        '-D',
+        data,
+        '-l',
+        resolve(scratch, 'postgres.log'),
+        '-o',
+        scratchPostgresListenOptions(socket),
+        '-w',
+        'start',
+      ])
+    );
     started = true;
     sql(STUB);
     for (const m of MIGRATIONS) sql(readFileSync(resolve(root, m), 'utf8'));
@@ -172,5 +180,6 @@ it('stores a refused attempt and its retry as two rows, and times the retry from
       }
     }
     rmSync(scratch, { recursive: true, force: true });
+    rmSync(socket, { recursive: true, force: true });
   }
 }, 120_000);

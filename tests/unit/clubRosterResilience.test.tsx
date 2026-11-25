@@ -406,7 +406,7 @@ describe('Player Command resilience wiring', () => {
     expect(PAGE).toMatch(
       /metrics=\{[\s\S]*label: 'Total Members', value: stat\(summary\.counts\.total\)/
     );
-    expect(PAGE).toContain('status={simpleMode ? undefined : (summaryStatusMessage ?? undefined)}');
+    expect(PAGE).toContain('status={toolsOpen ? (summaryStatusMessage ?? undefined) : undefined}');
     expect(PAGE).toContain("summaryFreshness === 'failed'");
   });
 

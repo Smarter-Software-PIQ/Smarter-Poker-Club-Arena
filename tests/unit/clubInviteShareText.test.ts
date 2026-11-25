@@ -66,7 +66,9 @@ describe('copied club invitation', () => {
 
   it('the Kings Club card uses the adjusted totals and shows only the three stats', () => {
     const home = readFileSync(resolve(ROOT, 'src/pages/HomePage.tsx'), 'utf8');
-    expect(home).toContain("rpc('fn_kings_club_display_totals')");
+    expect(home).toContain('readKingsClubDisplayTotals()');
+    const join = readFileSync(resolve(ROOT, 'src/services/ClubJoinService.ts'), 'utf8');
+    expect(join).toContain('readKingsClubDisplayTotals()');
     const props = {
       totalMembers: 152,
       clubLevel: 19,

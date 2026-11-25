@@ -330,6 +330,227 @@ exit 0
     expect(sameImageReset.prewarmCalled).toBe(true);
   });
 
+  it('incident 67714b80: prepare step rebases stale prestage ROLLBACK_IMAGE only to a live sealed, running, Backup-rehearsed protected ancestor', () => {
+    const stepStart = DEPLOY_WF.indexOf(
+      '- name: Prepare the scheduled immutable image without entering release intake'
+    );
+    const remoteStart = DEPLOY_WF.indexOf("<<'REMOTE'", stepStart);
+    const remoteBodyStart = DEPLOY_WF.indexOf('\n', remoteStart) + 1;
+    const remoteEnd = DEPLOY_WF.indexOf('\n          REMOTE\n', remoteBodyStart);
+    expect(stepStart).toBeGreaterThan(0);
+    expect(remoteStart).toBeGreaterThan(stepStart);
+    expect(remoteEnd).toBeGreaterThan(remoteBodyStart);
+    const rawRemote = DEPLOY_WF.slice(remoteBodyStart, remoteEnd)
+      .split('\n')
+      .map((line) => (line.startsWith('          ') ? line.slice(10) : line))
+      .join('\n');
+
+    const targetSha = 'b7948ca90719d0d5e3e4ce9d00d1ca9e4e6812ff';
+    const controlSha = '989a07dcf924429ca3f030b716a241d82f1efd15';
+    const intermediateSha = 'd07cd7d7feec0165fa07008aa46338f57946d2f0';
+    const preparedImage = 'sha256:a3361fdacc4d50855dff37ba0e570fff430e60ac08e1751b340c52aad9035b0e';
+    const prunedRollbackImage =
+      'sha256:a1ebb01921f806c332f8e0cada4bd7b61612d63bb6565274973c2d113e2eeae6';
+    const liveSealedImage =
+      'sha256:922d953a98dfd2fc194ca9bcbc90f8ee0efe3642218687f91ba96b1b19399470';
+
+    const runRebaseCase = (opts: {
+      desiredSha: string;
+      desiredImage: string;
+      runningImage: string;
+      selectedServingSha: string;
+      desiredImagePresent: boolean;
+      desiredIsAncestorOfTarget: boolean;
+      desiredArch?: string;
+    }) => {
+      const dir = mkdtempSync(join(tmpdir(), 'ca-prepare-67714b80-'));
+      try {
+        const bin = join(dir, 'bin');
+        const stageRoot = join(dir, 'control-staging');
+        const runKey = '45586146101-1';
+        const stage = join(stageRoot, runKey);
+        mkdirSync(bin, { recursive: true });
+        mkdirSync(join(stage, 'server/scripts'), { recursive: true });
+        const prewarmMarker = join(dir, 'prewarm-called');
+
+        const sealStub = join(bin, 'engine-release-seal.py');
+        writeFileSync(
+          sealStub,
+          `#!/usr/bin/env bash
+if [ "$1" = get ] && [ "$2" = desired-sha ]; then echo '${opts.desiredSha}'; exit 0; fi
+if [ "$1" = get ] && [ "$2" = desired-image-id ]; then echo '${opts.desiredImage}'; exit 0; fi
+exit 1
+`
+        );
+        chmodSync(sealStub, 0o755);
+
+        const dockerStub = join(bin, 'docker');
+        writeFileSync(
+          dockerStub,
+          `#!/usr/bin/env bash
+if [ "$1" = image ] && [ "$2" = inspect ] && [ "$3" = -f ]; then
+  if [ "$4" = '{{.Id}}' ]; then
+    if [ "$5" = "club-arena-engine:${targetSha}" ]; then echo '${preparedImage}'; exit 0; fi
+    if [ "$5" = "${opts.desiredImage}" ] && [ "${opts.desiredImagePresent ? '1' : '0'}" = 1 ]; then echo '${opts.desiredImage}'; exit 0; fi
+    echo "Error response from daemon: No such image: $5" >&2
+    exit 1
+  fi
+  if [ "$4" = '{{.Os}}/{{.Architecture}}' ]; then
+    if [ "$5" = "club-arena-engine:${targetSha}" ]; then echo 'linux/amd64'; exit 0; fi
+    if [ "$5" = "${opts.desiredImage}" ]; then echo '${opts.desiredArch ?? 'linux/amd64'}'; exit 0; fi
+    exit 1
+  fi
+fi
+if [ "$1" = container ] && [ "$2" = inspect ]; then
+  echo '${opts.runningImage}'
+  exit 0
+fi
+if [ "$1" = image ] && [ "$2" = inspect ] && [ "$3" = "club-arena-engine:${targetSha}" ]; then
+  printf '[{"Id":"%s","Config":{"Labels":{"org.opencontainers.image.revision":"%s","com.smarterpoker.engine.source-tree":"%s","com.smarterpoker.engine.build-contract":"clean-server-archive-v1"}}}]\\n' '${preparedImage}' '${targetSha}' 'tree-sha-1'
+  exit 0
+fi
+exit 1
+`
+        );
+        chmodSync(dockerStub, 0o755);
+
+        writeFileSync(
+          join(bin, 'git'),
+          `#!/usr/bin/env bash
+if [ "$3" = merge-base ] && [ "$4" = --is-ancestor ]; then
+  if [ "$5" = "${opts.desiredSha}" ] && [ "$6" = "${targetSha}" ] && [ "${opts.desiredIsAncestorOfTarget ? '1' : '0'}" = 1 ]; then
+    exit 0
+  fi
+  exit 1
+fi
+if [ "$3" = rev-parse ]; then echo 'tree-sha-1'; exit 0; fi
+if [ "$3" = show ]; then echo 'asset-body'; exit 0; fi
+exit 0
+`
+        );
+        chmodSync(join(bin, 'git'), 0o755);
+
+        writeFileSync(join(bin, 'cmp'), '#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n');
+        chmodSync(join(bin, 'cmp'), 0o755);
+
+        writeFileSync(
+          join(stage, 'server/scripts/engine-release-activation-floor.py'),
+          'print("{}")\n'
+        );
+        writeFileSync(
+          join(stage, 'server/scripts/prewarm-engine-image.sh'),
+          `#!/usr/bin/env bash\ntouch '${prewarmMarker}'\n`
+        );
+        chmodSync(join(stage, 'server/scripts/prewarm-engine-image.sh'), 0o755);
+
+        const rewritten = rawRemote
+          .replaceAll('/var/lib/club-arena/control-staging', stageRoot)
+          .replaceAll('/usr/local/lib/club-arena/engine-control/engine-release-seal.py', sealStub)
+          .replaceAll('sync -f "$STAGE/prepared-image"', 'true');
+
+        const res = spawnSync('bash', ['-se'], {
+          input: rewritten,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            PREPARED_IMAGE: preparedImage,
+            ROLLBACK_IMAGE: prunedRollbackImage,
+            SELECTED_SERVING_SHA: opts.selectedServingSha,
+            TARGET_SHA: targetSha,
+            CONTROL_SHA: controlSha,
+            RUN_KEY: runKey,
+            NOT_AFTER_EPOCH: '1795610637',
+            REPO_DIR: dir,
+          },
+        });
+        const preparedFile = join(stage, 'prepared-image');
+        return {
+          status: res.status,
+          stdout: res.stdout,
+          stderr: res.stderr,
+          preparedContent: existsSync(preparedFile) ? readFileSync(preparedFile, 'utf8') : null,
+          prewarmCalled: existsSync(prewarmMarker),
+        };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    // Regression (run 45586146101): intermediate d07cd7d7 sealed after b7948ca9 prestage and pruned a1ebb019.
+    const rebased = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: liveSealedImage,
+      selectedServingSha: intermediateSha,
+      desiredImagePresent: true,
+      desiredIsAncestorOfTarget: true,
+    });
+    expect(rebased.status, rebased.stderr).toBe(0);
+    expect(rebased.stdout).toContain('rebasing rollback image from');
+    expect(rebased.preparedContent).toBe(
+      `${targetSha}\n${controlSha}\n${preparedImage}\n${liveSealedImage}\n`
+    );
+    expect(rebased.prewarmCalled).toBe(true);
+
+    // Fail-closed: host desired SHA differs from Backup-rehearsed SELECTED_SERVING_SHA.
+    const wrongServing = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: liveSealedImage,
+      selectedServingSha: '1111111111111111111111111111111111111111',
+      desiredImagePresent: true,
+      desiredIsAncestorOfTarget: true,
+    });
+    expect(wrongServing.status).not.toBe(0);
+    expect(wrongServing.prewarmCalled).toBe(false);
+
+    // Fail-closed: host desired SHA is NOT an ancestor of TARGET_SHA.
+    const nonAncestor = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: liveSealedImage,
+      selectedServingSha: intermediateSha,
+      desiredImagePresent: true,
+      desiredIsAncestorOfTarget: false,
+    });
+    expect(nonAncestor.status).not.toBe(0);
+
+    // Fail-closed: live sealed image is absent from Docker.
+    const absentDesiredImage = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: liveSealedImage,
+      selectedServingSha: intermediateSha,
+      desiredImagePresent: false,
+      desiredIsAncestorOfTarget: true,
+    });
+    expect(absentDesiredImage.status).not.toBe(0);
+
+    // Fail-closed: running container does not match DESIRED_IMAGE.
+    const runningDrift = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: prunedRollbackImage,
+      selectedServingSha: intermediateSha,
+      desiredImagePresent: true,
+      desiredIsAncestorOfTarget: true,
+    });
+    expect(runningDrift.status).not.toBe(0);
+
+    // Fail-closed: architecture mismatch between target and live sealed image.
+    const archMismatch = runRebaseCase({
+      desiredSha: intermediateSha,
+      desiredImage: liveSealedImage,
+      runningImage: liveSealedImage,
+      selectedServingSha: intermediateSha,
+      desiredImagePresent: true,
+      desiredIsAncestorOfTarget: true,
+      desiredArch: 'linux/arm64',
+    });
+    expect(archMismatch.status).not.toBe(0);
+  });
+
   it('incident 484c4cee: engine-release-transaction checks already-released before rejecting a post-seal rollback-image mismatch', () => {
     const readPrepared = TRANSACTION.indexOf('  read_prepared_image\n');
     const alreadyReleased = TRANSACTION.indexOf(

@@ -39,6 +39,7 @@ describe('financial totals keep source qualification separate from billing final
     expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
     expect(screen.getByText(/Nov 16, 2026 12:00 AM Pacific Time/)).toBeInTheDocument();
     expect(screen.queryByText('Billing Finalized')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Reconciliation Drilldowns' })).toBeNull();
     expect(screen.getByText(/A Game Played On Multiple Days Counts Once/)).toBeInTheDocument();
   });
   it('opens real drilldowns and identifies snapshot evidence without inventing revisions', () => {
@@ -56,8 +57,9 @@ describe('financial totals keep source qualification separate from billing final
         onHistory={history}
       />
     );
-    fireEvent.click(screen.getByText('View Contributing Games'));
-    fireEvent.click(screen.getByText('View Player Totals'));
+    const drilldowns = within(screen.getByRole('group', { name: 'Reconciliation Drilldowns' }));
+    fireEvent.click(drilldowns.getByRole('button', { name: 'View Contributing Games' }));
+    fireEvent.click(drilldowns.getByRole('button', { name: 'View Player Totals' }));
     fireEvent.click(screen.getByText('View Issued Invoices'));
     expect(games).toHaveBeenCalledOnce();
     expect(players).toHaveBeenCalledOnce();

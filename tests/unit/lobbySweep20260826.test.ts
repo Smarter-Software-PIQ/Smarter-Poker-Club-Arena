@@ -328,8 +328,7 @@ describe('the grid keeps its rows, and the panel keeps its tags', () => {
   });
 
   it('does not report "Waiting 0" from a failed waitlist read', () => {
-    expect(PANEL).toContain('waitlistError');
-    expect(PANEL).toContain("{waitlistError ? '-' : waitlist.length}");
+    expect(PANEL).toContain("queue?.count ?? '-'");
   });
 
   it('records the average-pot failure instead of swallowing it', () => {

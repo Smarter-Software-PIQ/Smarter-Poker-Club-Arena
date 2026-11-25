@@ -159,7 +159,7 @@
 }
 
 .tc-ante-value {
-  color: #eab308;
+  color: #92dfff;
 }
 
 .tc-blind-separator {
@@ -185,7 +185,7 @@
 }
 
 .tc-timer--warning .tc-timer-value {
-  color: #eab308;
+  color: #92dfff;
   text-shadow: 0 0 30px rgba(234, 179, 8, 0.3);
 }
 
@@ -264,14 +264,14 @@
   font-size: 32px;
   font-weight: 900;
   letter-spacing: 6px;
-  color: #eab308;
+  color: #92dfff;
   text-shadow: 0 0 30px rgba(234, 179, 8, 0.3);
 }
 
 .tc-break-timer {
   font-size: 48px;
   font-weight: 900;
-  color: #eab308;
+  color: #92dfff;
   font-variant-numeric: tabular-nums;
 }
 

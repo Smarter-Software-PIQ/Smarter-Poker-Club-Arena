@@ -307,3 +307,34 @@ it('a grant made on this turn keeps its rule: expired, a heartbeat buys no fresh
   expect(resolve).toHaveBeenCalledWith(SEAT, true, 'reconnect_protection_expired');
   engine.preciseTimer.dispose();
 });
+
+it('armRemainingReconnectProtection emits DISCONNECT_TIMER_STARTED exactly once when protectExpiredTurn triggers mid-turn disconnect', () => {
+  const engine = harness();
+  engine.disconnectEngine.registerPlayer(TABLE, 'u1');
+  // Spy on DisconnectEngine.onEvent to count DISCONNECT_TIMER_STARTED emissions.
+  const emitted: string[] = [];
+  const origOnEvent = engine.disconnectEngine.onEvent;
+  engine.disconnectEngine.onEvent = (ev: any) => {
+    emitted.push(ev.type);
+    origOnEvent?.(ev);
+  };
+  const onPlayerTurnSpy = vi.spyOn(engine.disconnectEngine, 'onPlayerTurn');
+  engine.startTurnTimer('u1', SEAT, 15);
+  // Simulate silent heartbeat past UNANSWERED_TURN_SILENCE_MS (12s) so
+  // protectExpiredTurn() calls markDisconnected() -> synchronously emits
+  // PLAYER_DISCONNECTED -> re-enters handlePlayerDisconnectedMidTurn() ->
+  // armRemainingReconnectProtection().
+  engine.disconnectEngine.getState(TABLE, 'u1').lastHeartbeat = Date.now() - 15_000;
+
+  try {
+    expect(engine.armRemainingReconnectProtection('u1')).toBe(true);
+    expect(emitted.filter((t) => t === 'PLAYER_DISCONNECTED')).toHaveLength(1);
+    expect(emitted.filter((t) => t === 'DISCONNECT_TIMER_STARTED')).toHaveLength(1);
+    expect(onPlayerTurnSpy).toHaveBeenCalledTimes(1);
+    const expected = engine.disconnectEngine.getFsmState(TABLE, 'u1').graceDeadlineMs;
+    expect(engine.disconnectEngine.armedAutoActionDeadlineMs(TABLE, 'u1')).toBe(expected);
+    expect(engine.timeBankSuppressedThisTurn).toBe(true);
+  } finally {
+    engine.preciseTimer.dispose();
+  }
+});

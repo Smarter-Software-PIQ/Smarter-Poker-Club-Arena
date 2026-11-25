@@ -1097,7 +1097,7 @@ export default function RakeSnapshotPanel({
       {reportRange && (
         <button
           type="button"
-          className={styles.period}
+          className={`${styles.period} ${wordInk(followsReport)}`}
           aria-pressed={followsReport}
           onClick={() => setDetachedRangeKey(null)}
         >

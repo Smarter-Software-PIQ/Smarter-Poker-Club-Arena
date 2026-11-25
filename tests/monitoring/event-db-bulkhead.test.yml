@@ -1,0 +1,119 @@
+# EventDbBulkheadSaturated / EventDbBulkheadOpen.
+# Proves: healthy zero traffic stays quiet, park timeouts fire as warning and
+# resolve after quiet window, full-queue refusals fire as warning, brief open
+# during shutdown stays quiet, and sustained open == 1 fires after 5m.
+rule_files:
+  - ../../infra/monitoring/alert-rules.yml
+evaluation_interval: 15s
+tests:
+  - name: healthy zero bulkhead counters and brief shutdown open never fire
+    interval: 15s
+    input_series:
+      - series: 'poker_event_db_bulkhead_park_timeouts_total{job="engine_game_server"}'
+        values: '0+0x60'
+      - series: 'poker_event_db_bulkhead_refused_full_total{job="engine_game_server"}'
+        values: '0+0x60'
+      - series: 'poker_event_db_bulkhead_open{job="engine_game_server"}'
+        values: '0x20 1x8 0x32'
+    alert_rule_test:
+      - alertname: EventDbBulkheadSaturated
+        eval_time: 10m
+        exp_alerts: []
+      - alertname: EventDbBulkheadOpen
+        eval_time: 7m
+        exp_alerts: []
+      - alertname: EventDbBulkheadOpen
+        eval_time: 10m
+        exp_alerts: []
+
+  - name: park timeouts fire EventDbBulkheadSaturated and resolve after quiet window
+    interval: 15s
+    input_series:
+      - series: 'poker_event_db_bulkhead_park_timeouts_total{job="engine_game_server"}'
+        values: '0x8 1x80'
+      - series: 'poker_event_db_bulkhead_refused_full_total{job="engine_game_server"}'
+        values: '0x88'
+      - series: 'poker_event_db_bulkhead_open{job="engine_game_server"}'
+        values: '0x88'
+    alert_rule_test:
+      - alertname: EventDbBulkheadSaturated
+        eval_time: 2m
+        exp_alerts: []
+      - alertname: EventDbBulkheadSaturated
+        eval_time: 3m15s
+        exp_alerts:
+          - exp_labels:
+              job: engine_game_server
+              severity: warning
+              component: database
+            exp_annotations:
+              summary: 'Event database bulkhead is dropping tournament DB calls (park timeouts or full queue)'
+              description: |
+                One or more event-scoped database calls either timed out while
+                parked in EventDatabaseBulkhead or were refused because the wait
+                queue was full. Check poker_event_db_bulkhead_throttled_events,
+                poker_event_db_bulkhead_parked_current, poker_event_db_bulkhead_in_flight,
+                and /health eventDbBulkhead.events to identify the congested tournament.
+              runbook: 'docs/runbooks/event-db-bulkhead.md'
+      - alertname: EventDbBulkheadSaturated
+        eval_time: 18m
+        exp_alerts: []
+
+  - name: refused full queue fires EventDbBulkheadSaturated
+    interval: 15s
+    input_series:
+      - series: 'poker_event_db_bulkhead_park_timeouts_total{job="engine_game_server"}'
+        values: '0x40'
+      - series: 'poker_event_db_bulkhead_refused_full_total{job="engine_game_server"}'
+        values: '0x8 2x32'
+      - series: 'poker_event_db_bulkhead_open{job="engine_game_server"}'
+        values: '0x40'
+    alert_rule_test:
+      - alertname: EventDbBulkheadSaturated
+        eval_time: 3m15s
+        exp_alerts:
+          - exp_labels:
+              job: engine_game_server
+              severity: warning
+              component: database
+            exp_annotations:
+              summary: 'Event database bulkhead is dropping tournament DB calls (park timeouts or full queue)'
+              description: |
+                One or more event-scoped database calls either timed out while
+                parked in EventDatabaseBulkhead or were refused because the wait
+                queue was full. Check poker_event_db_bulkhead_throttled_events,
+                poker_event_db_bulkhead_parked_current, poker_event_db_bulkhead_in_flight,
+                and /health eventDbBulkhead.events to identify the congested tournament.
+              runbook: 'docs/runbooks/event-db-bulkhead.md'
+
+  - name: sustained open == 1 fires EventDbBulkheadOpen after 5m
+    interval: 15s
+    input_series:
+      - series: 'poker_event_db_bulkhead_park_timeouts_total{job="engine_game_server"}'
+        values: '0x60'
+      - series: 'poker_event_db_bulkhead_refused_full_total{job="engine_game_server"}'
+        values: '0x60'
+      - series: 'poker_event_db_bulkhead_open{job="engine_game_server"}'
+        values: '0x4 1x28 0x28'
+    alert_rule_test:
+      - alertname: EventDbBulkheadOpen
+        eval_time: 5m
+        exp_alerts: []
+      - alertname: EventDbBulkheadOpen
+        eval_time: 6m15s
+        exp_alerts:
+          - exp_labels:
+              job: engine_game_server
+              severity: warning
+              component: database
+            exp_annotations:
+              summary: 'Event database bulkhead has been open (bypassed) for over 5 minutes'
+              description: |
+                EventDatabaseBulkhead.openForShutdown() is only expected during a
+                short graceful shutdown. A running engine reporting
+                poker_event_db_bulkhead_open == 1 for over 5 minutes is operating
+                without per-event database concurrency bounds.
+              runbook: 'docs/runbooks/event-db-bulkhead.md'
+      - alertname: EventDbBulkheadOpen
+        eval_time: 14m
+        exp_alerts: []

@@ -48,6 +48,7 @@
 import { supabase } from './supabase.js';
 import { reportError } from './errorReporter.js';
 import { HUMAN_ARRIVAL_MAX_MS, SPIN_LADDER } from '../config/seatFirstLadder.js';
+import { spinSeatFirstBookingRefusalPrometheusLines } from './seatFirstPrecheckMetrics.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -483,6 +484,8 @@ export class SpinMetrics {
       'Age of the spin snapshot. A failed read keeps the last good values, so THIS is what proves the gauges above are current.',
       staleSeconds
     );
+
+    out.push(...spinSeatFirstBookingRefusalPrometheusLines());
 
     return out;
   }

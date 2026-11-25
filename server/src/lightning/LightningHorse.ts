@@ -25,6 +25,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  * the time-bank burn for a "tank" decision when the horse's bank is usable.
  */
 import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
+import { horseOptionsOn, recordHorseError } from '../services/HorseErrorLog.js';
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
 import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
@@ -313,6 +314,28 @@ export async function decideLightningHorse(
       noteLightningHorseFallback(turn, fallbackReason);
     } catch {
       /* metrics must never affect gameplay */
+    }
+    // THE HORSE ERROR LOG (2026-11-24): a turn decision that fell back is a durable public-context row
+    // (services/HorseErrorLog.ts). An early look acts for no seat and is only counted above.
+    if (!turn.earlyLook) {
+      let street: string | null = null;
+      try {
+        street = String(turn.hc.getState().stage);
+      } catch {
+        street = null;
+      }
+      recordHorseError({
+        type: 'lightning_fallback',
+        reason: fallbackReason,
+        error: err,
+        horseId: turn.userId,
+        tableId: turn.handJournalCoordinate?.tableId ?? null,
+        handNumber: turn.handJournalCoordinate?.handNumber ?? null,
+        variant: turn.variant,
+        mode: 'cash',
+        street,
+        optionsOn: horseOptionsOn((asked as { opts?: unknown } | null)?.opts),
+      });
     }
     onWorkerFailure?.(err);
     // COREGUARD (owner 2026-11-19 8:48 PM): a PLO4/PLO5 decision the core owns

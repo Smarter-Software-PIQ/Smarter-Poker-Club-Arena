@@ -156,6 +156,8 @@ interface DynamicWalletProps {
    * file cited.
    */
   showBBJ?: boolean;
+  /** Painted wallet faces and jackpot plaque. Cashier supplies its own frames. */
+  showArtwork?: boolean;
   /**
    * Compact Club Arena header treatment. It keeps the same live data and
    * click handlers, but limits the visible tiles to the role-specific lobby
@@ -479,6 +481,7 @@ export default function DynamicWallet({
   role = 'player',
   roleReady = true,
   showBBJ = true,
+  showArtwork = true,
   compactLobby = false,
   showAllLobbyWallets = false,
   onVisibleWalletCountChange,
@@ -1394,7 +1397,7 @@ export default function DynamicWallet({
              the label announced something that was never true. */
           aria-label={`Bad Beat Jackpot: ${data.bbjPool === 0 ? 'No Pool' : formatBalance(data.bbjPool)}`}
         >
-          <ClubBBJShell />
+          {showArtwork && <ClubBBJShell />}
           <span className="dw__bbj-label">BAD BEAT JACKPOT</span>
           <span className="dw__bbj-amount">
             {data.bbjPool === 0 ? '-' : formatBalance(animBBJ)}
@@ -1437,7 +1440,7 @@ export default function DynamicWallet({
           tabIndex={compactLobby && onBuyDiamonds ? 0 : undefined}
           aria-label={compactLobby && onBuyDiamonds ? 'Open Diamond Wallet' : undefined}
         >
-          <ClubWalletShell kind="diamonds" />
+          {showArtwork && <ClubWalletShell kind="diamonds" />}
           <span className="dw__row-icon" aria-hidden="true">
             <WalletIcon name="diamond" />
           </span>
@@ -1488,7 +1491,7 @@ export default function DynamicWallet({
             tabIndex={row.onOpen ? 0 : undefined}
             aria-label={row.onOpen ? `Open ${row.label}` : undefined}
           >
-            <ClubWalletShell kind={row.key as ClubWalletArtworkKind} />
+            {showArtwork && <ClubWalletShell kind={row.key as ClubWalletArtworkKind} />}
             <span className="dw__row-icon" aria-hidden="true">
               <WalletIcon name={row.icon} />
             </span>
@@ -1529,7 +1532,7 @@ export default function DynamicWallet({
             className="dw__row dw__row--backup-bbj dw__row--wallet-art"
             data-wallet-key="backup_bbj"
           >
-            <ClubWalletShell kind="backup_bbj" />
+            {showArtwork && <ClubWalletShell kind="backup_bbj" />}
             <span className="dw__row-icon" aria-hidden="true">
               <WalletIcon name="reserve" />
             </span>

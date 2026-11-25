@@ -125,7 +125,7 @@ function Rules({
   );
 }
 
-function Actions({ actions }: { actions: ArenaGameCardActions }) {
+export function GameCardActions({ actions }: { actions: ArenaGameCardActions }) {
   const inferredTone = actions.primaryLabel.toLowerCase().includes('registered')
     ? 'green'
     : actions.primaryTone || 'blue';
@@ -271,7 +271,7 @@ function MttMachine({ data, actions }: ArenaGameCardProps) {
         <strong>{zoneText('currentLevel', data.currentLevel)}</strong>
         {data.currentBlinds && <small>{data.currentBlinds}</small>}
       </div>
-      <Actions actions={actions} />
+      <GameCardActions actions={actions} />
     </div>
   );
 }
@@ -300,7 +300,7 @@ function NlhMachine({ data, actions }: ArenaGameCardProps) {
         zone="buyIn"
         icon="buy-in"
       />
-      <Actions actions={actions} />
+      <GameCardActions actions={actions} />
     </div>
   );
 }
@@ -332,7 +332,7 @@ function PloMachine({ data, actions }: ArenaGameCardProps) {
         zone="buyIn"
         icon="buy-in"
       />
-      <Actions actions={actions} />
+      <GameCardActions actions={actions} />
     </div>
   );
 }
@@ -394,7 +394,7 @@ function SpinMachine({ data, actions }: ArenaGameCardProps) {
         zone="blindLevels"
       />
       <LiveValue className="agc-premium-value--format" value={data.format} zone="format" />
-      <Actions actions={actions} />
+      <GameCardActions actions={actions} />
     </div>
   );
 }
@@ -431,7 +431,7 @@ function HeadsUpMachine({ data, actions }: ArenaGameCardProps) {
         value={data.format || 'Standard'}
         zone="format"
       />
-      <Actions actions={actions} />
+      <GameCardActions actions={actions} />
     </div>
   );
 }

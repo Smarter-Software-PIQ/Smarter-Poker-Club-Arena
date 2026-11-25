@@ -52,18 +52,32 @@ export const migrationNames = (): string[] =>
  * snapshot, omitted file, shifted assertion budget or swallowed I/O failure.
  */
 export const migrationCorpus = (): MigrationFile[] =>
-  (corpusCache ??= JSON.parse(
+  (corpusCache ??= readConcurrently(migrationNames()));
+
+/**
+ * Only the named migrations, through the same bounded concurrent reader
+ * (2026-11-24). aMigrationFitsTheInstallBudget opened its 659 cost-checked
+ * files one at a time: 9.9 s of a 21.4 s test on the loaded SSD, all of it
+ * waiting on per-file latency (the checks themselves took 149 ms). A law that
+ * reads a known subset reads exactly that subset, every byte, in one pass.
+ */
+export const migrationFiles = (names: readonly string[]): MigrationFile[] =>
+  corpusCache ? names.map((name) => ({ name, sql: migrationText(name) })) : readConcurrently(names);
+
+function readConcurrently(names: readonly string[]): MigrationFile[] {
+  return JSON.parse(
     execFileSync(
       process.execPath,
       [resolve(__dirname, '../../scripts/ci/read-migration-corpus.mjs'), MIGRATIONS_DIR],
       {
-        input: JSON.stringify(migrationNames()),
+        input: JSON.stringify(names),
         encoding: 'utf8',
         maxBuffer: 256 * 1024 * 1024,
         env: { ...process.env, UV_THREADPOOL_SIZE: '16' },
       }
     )
-  ));
+  );
+}
 
 /** Every migration whose text contains `needle`, in version order. */
 export const migrationsMentioning = (needle: string): MigrationFile[] =>

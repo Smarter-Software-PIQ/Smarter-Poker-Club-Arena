@@ -230,6 +230,7 @@ export const QUERY_LIMITS = {
 
 /** Shark Club — the platform's featured/demo club displayed on the home carousel */
 export const SHARK_CLUB_ID = 25450;
+export const KINGS_CLUB_UUID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
 export const DIAMOND_ARENA_CLUB_ID = '002c2d27-9584-4e52-835a-bb2be148fc81';
 export const DIAMOND_ARENA_SLUG = 'diamond-arena';
