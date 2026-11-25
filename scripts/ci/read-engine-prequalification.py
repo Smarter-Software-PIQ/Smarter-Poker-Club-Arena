@@ -277,6 +277,10 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
             and receipt["stageSha"] == stage and receipt["controlSha"] == qualification["controlSha"]
             and receipt["cutoffEpoch"] == cutoff and receipt["qualification"] == qualification,
             "stage selection and immutable qualification differ")
+    serving = receipt.get("servingSha")
+    if serving is not None:
+        protected(serving)
+    return serving
 
 
 def read(args):
@@ -354,7 +358,9 @@ if __name__ == "__main__":
         result = read(args)
         if args.receiver_control:
             require(args.selection_run_id, "receiver requires an immutable selection run")
-            verify_selection(args.repo, args.selection_run_id, args.cutoff, result, args.owner_window)
+            selected_serving = verify_selection(args.repo, args.selection_run_id, args.cutoff, result, args.owner_window)
+            if selected_serving:
+                result["servingSha"] = selected_serving
         print(json.dumps(result))
     except Unqualified as error:
         print(error, file=sys.stderr)
