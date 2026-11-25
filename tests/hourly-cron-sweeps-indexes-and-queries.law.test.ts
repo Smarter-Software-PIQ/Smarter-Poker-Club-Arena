@@ -130,13 +130,12 @@ describe('hourly pg_cron sweeps use bounded indexed reads and safe-horizon check
       functionBody(latestDeclaring('fn_rake_bbj_invariants').sql, 'fn_rake_bbj_invariants')
     ).toContain('WITH scope AS MATERIALIZED');
 
-    // Job 123
-    const sweep = functionBody(
-      latestDeclaring('fn_union_integrity_sweep').sql,
-      'fn_union_integrity_sweep'
+    // Job 123 (fn_union_integrity_sweep uses anchored live-source edits)
+    expect(SQL).toContain(
+      "pg_get_functiondef('public.fn_union_integrity_sweep(uuid,integer)'::regprocedure)"
     );
-    expect(sweep).toContain('ct.club_id = ANY (v_scope_clubs)');
-    expect(sweep).toContain('fn_union_transfer_counts_as_dump(ct)');
+    expect(SQL).toContain('ct.club_id = ANY (v_scope_clubs)');
+    expect(SQL).toContain('fn_union_transfer_counts_as_dump(ct)');
 
     // Job 214
     expect(
