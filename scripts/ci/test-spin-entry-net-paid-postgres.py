@@ -309,6 +309,20 @@ def main():
           wallet_journal_id uuid
         );
 
+        CREATE TABLE smarter_private.reliability_alert_classes (
+          id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          priority integer NOT NULL,
+          source_pattern text NOT NULL DEFAULT '%',
+          alertname_pattern text NOT NULL DEFAULT '%',
+          severity_pattern text NOT NULL DEFAULT '%',
+          incident_class text NOT NULL,
+          default_severity text NOT NULL DEFAULT 'warning',
+          escalate_immediately boolean NOT NULL DEFAULT false,
+          is_incident boolean NOT NULL DEFAULT true,
+          note text,
+          UNIQUE (source_pattern, alertname_pattern, severity_pattern)
+        );
+
         CREATE TABLE public.diamond_transactions (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id uuid,
@@ -725,6 +739,36 @@ def main():
 
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_CHIP}');"))["ok"] is True
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is True
+        # Diamond unregister + SAME-USER re-entry (U1 old refunded custody + U1 active custody) must also pass
+        psql(f"""
+        DO $$
+        DECLARE c_old uuid := gen_random_uuid(); j_old uuid := gen_random_uuid();
+        BEGIN
+          INSERT INTO public.diamond_transactions(id, user_id, amount) VALUES (j_old, '{U1}', -10);
+          INSERT INTO public.poker_diamond_custody(id, user_id, purpose, target_id, state, balance, entry_key)
+          VALUES (c_old, '{U1}', 'tournament_entry', '{T_PLAYED_DIA}', 'released', 0, 'entry:old-u1-reentry');
+          INSERT INTO public.poker_diamond_movements(custody_id, action, user_id, source_account, amount, wallet_journal_id)
+          VALUES (c_old, 'reserve', '{U1}', 'player:' || '{U1}', 10, j_old);
+          INSERT INTO public.poker_diamond_tournament_ledger(tournament_id, custody_id, user_id, registration_id, kind, amount, prize_part, bounty_part, fee_part, wallet_journal_id) VALUES
+            ('{T_PLAYED_DIA}', c_old, '{U1}', NULL, 'entry', 10, 10, 0, 0, j_old),
+            ('{T_PLAYED_DIA}', c_old, '{U1}', NULL, 'refund', 10, 10, 0, 0, NULL);
+        END $$;
+        """)
+        assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is True
+
+        # Priority-100 classification row registered for SpinSeatFirstBookingRefusedRepeatedly
+        assert psql("""
+        SELECT count(*) FROM smarter_private.reliability_alert_classes
+         WHERE priority = 100
+           AND source_pattern = '%'
+           AND alertname_pattern = 'SpinSeatFirstBookingRefusedRepeatedly'
+           AND severity_pattern = '%'
+           AND incident_class = 'spin_lifecycle'
+           AND default_severity = 'critical'
+           AND NOT escalate_immediately
+           AND is_incident;
+        """) == "1"
+
         rb_after = json.loads(psql("SELECT smarter_private.reliability_runbook_spin_seat_first_fill(gen_random_uuid(), false, '{}'::jsonb, now());"))
         assert rb_after["outcome"] == "refused" and "three_paid_seats_required" in rb_after["boards"][0].get("last_error", ""), rb_after
 
@@ -773,10 +817,36 @@ def main():
             seed_chip_spin(tid, CLUB, 5.00, [U1, U2, U3], rows)
             assert json.loads(psql(f"SELECT public.fn_spin_book_entry('{tid}');"))["ok"] is False, tid
 
+        # Fail-closed: Diamond partial refund (rf.amount < entry amount) must be refused
+        psql(f"UPDATE public.poker_diamond_tournament_ledger SET amount = 2 WHERE tournament_id = '{T_PLAYED_DIA}' AND kind = 'refund' AND user_id = '{U4}';")
+        assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is False
+        # Restore U4 refund then test unrefunded released custody fail-closed
+        psql(f"UPDATE public.poker_diamond_tournament_ledger SET amount = 10 WHERE tournament_id = '{T_PLAYED_DIA}' AND kind = 'refund' AND user_id = '{U4}';")
+        assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is True
         psql(f"DELETE FROM public.poker_diamond_tournament_ledger WHERE tournament_id = '{T_PLAYED_DIA}' AND kind = 'refund';")
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_DIA}');"))["ok"] is False
 
-        psql(f"INSERT INTO public.wallet_transactions(related_entity_id, user_id, type, category, amount) VALUES ('{T_PLAYED_CHIP}', '{U5}', 'debit', 'tournament_buyin', 5.00);")
+        # Fail-closed: Chip played-Spin offset-cancellation (U1 net_count=2 [2x2.50], U2 net_count=0 [10-5], U3 net_count=1 [5])
+        psql(f"""
+        DELETE FROM public.wallet_transactions WHERE related_entity_id = '{T_PLAYED_CHIP}';
+        INSERT INTO public.wallet_transactions(related_entity_id, user_id, type, category, amount) VALUES
+          ('{T_PLAYED_CHIP}', '{U1}', 'debit', 'tournament_buyin', 2.50),
+          ('{T_PLAYED_CHIP}', '{U1}', 'debit', 'tournament_buyin', 2.50),
+          ('{T_PLAYED_CHIP}', '{U2}', 'debit', 'tournament_buyin', 10.00),
+          ('{T_PLAYED_CHIP}', '{U2}', 'credit', 'tournament_refund', 5.00),
+          ('{T_PLAYED_CHIP}', '{U3}', 'debit', 'tournament_buyin', 5.00);
+        """)
+        assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_CHIP}');"))["ok"] is False
+
+        # Restore clean chip wallet rows, verify pass, then test extra unrefunded debit fail-closed
+        psql(f"""
+        DELETE FROM public.wallet_transactions WHERE related_entity_id = '{T_PLAYED_CHIP}';
+        INSERT INTO public.wallet_transactions(related_entity_id, user_id, type, category, amount) VALUES
+          ('{T_PLAYED_CHIP}', '{U1}', 'debit', 'tournament_buyin', 5.00),
+          ('{T_PLAYED_CHIP}', '{U2}', 'debit', 'tournament_buyin', 5.00),
+          ('{T_PLAYED_CHIP}', '{U3}', 'debit', 'tournament_buyin', 5.00),
+          ('{T_PLAYED_CHIP}', '{U5}', 'debit', 'tournament_buyin', 5.00);
+        """)
         assert json.loads(psql(f"SELECT public.fn_prove_played_spin_launch_recovery('{T_PLAYED_CHIP}');"))["ok"] is False
 
         print("OK: all fail-before, pass-after, and fail-closed PostgreSQL 17 proofs passed.")

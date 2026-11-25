@@ -118,11 +118,12 @@ describe("a Spin's payment proof nets prior pre-start unregistrations", () => {
     }
   });
 
-  it('both chip and Diamond played-Spin recovery proofs exclude refunded pre-start entries', () => {
+  it('both chip and Diamond played-Spin recovery proofs exclude refunded pre-start entries without partial/offset holes', () => {
     const chip = effectiveMigrationBlock('public.fn_prove_played_spin_launch_recovery', fixVersion);
     expect(chip.snippet, chip.file).toContain('public.tournament_refund_tranches tr');
     expect(chip.snippet, chip.file).toContain('public.tournament_tickets tk');
     expect(chip.snippet, chip.file).toContain('payments_by_user AS (');
+    expect(chip.snippet, chip.file).toContain('FILTER (WHERE p.net_count = 1) AS payment_count');
     expect(chip.snippet, chip.file).toContain("IN ('refund', 'tournament_refund')");
 
     const diamond = effectiveMigrationBlock(
@@ -130,9 +131,18 @@ describe("a Spin's payment proof nets prior pre-start unregistrations", () => {
       fixVersion
     );
     expect(diamond.snippet, diamond.file).toContain("AND rf.kind = 'refund'");
-    // Only custodies that were released WITH a recorded refund row may be excluded
+    expect(diamond.snippet, diamond.file).toContain('AND rf.user_id = l.user_id');
+    expect(diamond.snippet, diamond.file).toContain('AND rf.amount = l.amount');
+    // Only custodies released to zero balance WITH a full same-user refund row may be excluded
     expect(diamond.snippet, diamond.file).toMatch(
-      /AND NOT \(\s*c\.state = 'released'\s*AND EXISTS \([\s\S]*?rf\.kind = 'refund'/
+      /AND NOT \(\s*c\.state = 'released'\s*AND c\.balance = 0\s*AND EXISTS \([\s\S]*?rf\.amount = m\.amount\s*AND rf\.kind = 'refund'/
+    );
+  });
+
+  it('registers SpinSeatFirstBookingRefusedRepeatedly at priority 100 as spin_lifecycle / critical', () => {
+    expect(fix.sql).toContain("'SpinSeatFirstBookingRefusedRepeatedly'");
+    expect(fix.sql).toMatch(
+      /SELECT\s+100,\s*'%',\s*'SpinSeatFirstBookingRefusedRepeatedly',\s*'%',\s*'spin_lifecycle',\s*'critical',\s*false,\s*true/
     );
   });
 

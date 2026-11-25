@@ -42,8 +42,8 @@
 -- non-rostered user with a non-zero net paid amount or net entry count, and
 -- record last_error in reliability_runbook_spin_seat_first_fill when present.
 --
--- 45: live-proof checks all 5 functions (including net_count tightening on top of 20261124172844)
--- @live-proof: (SELECT position('AS net_count' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) > 0 AND position('AS net_count' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) > 0 AND position('tournament_refund_tranches' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('rf.kind = ''refund''' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) > 0)
+-- 45: live-proof checks all 5 functions (including net_count tightening on top of 20261124172844) and priority-100 alert classification
+-- @live-proof: (SELECT position('AS net_count' IN pg_get_functiondef('public.fn_spin_book_entry(uuid)'::regprocedure)) > 0 AND position('AS net_count' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) > 0 AND position('FILTER (WHERE p.net_count = 1) AS payment_count' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('rf.amount = l.amount' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) > 0 AND position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) > 0 AND EXISTS (SELECT 1 FROM smarter_private.reliability_alert_classes WHERE priority = 100 AND source_pattern = '%' AND alertname_pattern = 'SpinSeatFirstBookingRefusedRepeatedly' AND severity_pattern = '%' AND incident_class = 'spin_lifecycle' AND default_severity = 'critical' AND is_incident))
 
 BEGIN;
 
@@ -327,7 +327,7 @@ DECLARE
            WHEN w.type = 'debit' AND lower(w.category) = 'tournament_buyin' THEN w.amount
            ELSE -w.amount END), 0), 2) <> 0
 ), payments AS (
-  SELECT COALESCE(sum(p.net_count), 0) AS payment_count,
+  SELECT count(*) FILTER (WHERE p.net_count = 1) AS payment_count,
          count(*) AS paid_users,
          count(*) FILTER (
            WHERE EXISTS (
@@ -498,13 +498,16 @@ DECLARE
          FROM public.poker_diamond_tournament_ledger rf
         WHERE rf.tournament_id = l.tournament_id
           AND rf.custody_id = l.custody_id
+          AND rf.user_id = l.user_id
+          AND rf.amount = l.amount
           AND rf.kind = 'refund'
      )
 ), payments AS (
   -- A Diamond entry is paid by the player's own reserve movement from the
   -- wallet into the event's custody, where a chip entry is paid by its wallet
-  -- debit. Only custodies that were released by a recorded refund are excluded;
-  -- an unrefunded released custody still fails the proof.
+  -- debit. Only custodies that were released to zero balance by a full,
+  -- same-user recorded refund are excluded; an unrefunded or partial released
+  -- custody still fails the proof.
   SELECT count(m.request_id) AS payment_count,
          count(DISTINCT m.user_id) AS paid_users,
          count(DISTINCT m.user_id) FILTER (
@@ -527,11 +530,14 @@ DECLARE
      AND c.target_id = p_tournament_id
      AND NOT (
        c.state = 'released'
+       AND c.balance = 0
        AND EXISTS (
          SELECT 1
            FROM public.poker_diamond_tournament_ledger rf
           WHERE rf.tournament_id = p_tournament_id
             AND rf.custody_id = c.id
+            AND rf.user_id = c.user_id
+            AND rf.amount = m.amount
             AND rf.kind = 'refund'
        )
      )
@@ -584,6 +590,8 @@ DECLARE
          FROM public.poker_diamond_tournament_ledger rf
         WHERE rf.tournament_id = l.tournament_id
           AND rf.custody_id = l.custody_id
+          AND rf.user_id = l.user_id
+          AND rf.amount = l.amount
           AND rf.kind = 'refund'
      )
 ), draw_evidence AS ($new$;
@@ -692,6 +700,27 @@ EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe_spin_fill_runbook$;
 
+-- 6. smarter_private.reliability_alert_classes: classify
+--    SpinSeatFirstBookingRefusedRepeatedly at priority 100 as spin_lifecycle /
+--    critical (matching every other rule in infra/monitoring/spin-rules.yml)
+--    so it does not fall through to the priority-300 Spin% warning fallback.
+DO $register_spin_refusal_alert_class$
+BEGIN
+  IF to_regclass('smarter_private.reliability_alert_classes') IS NOT NULL THEN
+    INSERT INTO smarter_private.reliability_alert_classes
+      (priority, source_pattern, alertname_pattern, severity_pattern, incident_class, default_severity, escalate_immediately, is_incident, note)
+    SELECT 100, '%', 'SpinSeatFirstBookingRefusedRepeatedly', '%', 'spin_lifecycle', 'critical', false, true,
+           'infra/monitoring/spin-rules.yml fast-fail Spin seat-first booking refusal alert (incident 3c817b04, 20261124211627)'
+     WHERE NOT EXISTS (
+       SELECT 1 FROM smarter_private.reliability_alert_classes
+        WHERE source_pattern = '%'
+          AND alertname_pattern = 'SpinSeatFirstBookingRefusedRepeatedly'
+          AND severity_pattern = '%'
+     );
+  END IF;
+END
+$register_spin_refusal_alert_class$;
+
 -- Post-install ACL and content verification (fails closed).
 DO $verify_all$
 BEGIN
@@ -701,10 +730,24 @@ BEGIN
      OR position('AS net_count' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
      OR position('OR v_net_irregular <> 0' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
      OR position('w.category IN (''refund'',''tournament_refund'')' IN pg_get_functiondef('public.fn_spin_draw_and_settle(uuid,jsonb)'::regprocedure)) = 0
-     OR position('tournament_refund_tranches' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
-     OR position('rf.kind = ''refund''' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
+     OR position('FILTER (WHERE p.net_count = 1) AS payment_count' IN pg_get_functiondef('public.fn_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
+     OR position('rf.amount = l.amount' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
+     OR position('c.balance = 0' IN pg_get_functiondef('public.fn_poker_diamond_prove_played_spin_launch_recovery(uuid)'::regprocedure)) = 0
      OR position('''last_error''' IN pg_get_functiondef('smarter_private.reliability_runbook_spin_seat_first_fill(uuid,boolean,jsonb,timestamptz)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'spin_net_paid_postimage_verification_failed';
+  END IF;
+  IF to_regclass('smarter_private.reliability_alert_classes') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM smarter_private.reliability_alert_classes
+        WHERE priority = 100
+          AND source_pattern = '%'
+          AND alertname_pattern = 'SpinSeatFirstBookingRefusedRepeatedly'
+          AND severity_pattern = '%'
+          AND incident_class = 'spin_lifecycle'
+          AND default_severity = 'critical'
+          AND is_incident
+     ) THEN
+    RAISE EXCEPTION 'spin_refusal_alert_class_registration_failed';
   END IF;
   IF has_function_privilege('anon', 'public.fn_spin_book_entry(uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_spin_book_entry(uuid)', 'EXECUTE')
