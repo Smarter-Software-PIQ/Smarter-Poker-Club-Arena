@@ -19,7 +19,23 @@ it('daily selection excludes yesterday type and the original claim owns every aw
   expect(read('scripts/dev/test-accounting-delivery.sh')).toContain(
     'run_game_probe daily-bonus-one-claim'
   );
+  expect(read('scripts/dev/test-accounting-delivery.sh')).toContain(
+    'run_game_probe daily-bonus-progressive-ladder'
+  );
   expect(read('.github/workflows/ci.yml')).toContain(
     'bash scripts/dev/test-accounting-delivery.sh'
   );
+});
+
+it('progressive daily bonus ladder escalates across weeks, never repeats adjacent kinds, and restores Mystery Vault', () => {
+  const sql = read(
+    'supabase/migrations/20261125075751_daily_bonus_progressive_nonrepeating_ladder.sql'
+  );
+  expect(sql).toContain('public.fn_ca_daily_bonus_roll_mystery()');
+  expect(sql).toContain('Prestige Jackpot');
+  expect(sql).toContain('Thirty-Day Chest');
+  expect(sql).toContain('primary_kind');
+  expect(sql).not.toContain('atomic_credit_wallet_and_log');
+  expect(sql).not.toContain('credit_player_wallet');
+  expect(sql).not.toContain('fn_ca_mint');
 });

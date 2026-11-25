@@ -472,3 +472,8 @@ bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture" diamo
 # Earned Mines starts above its own wheel guarantee; every safe pick increases it.
 "${diamond_psql[@]}" -f "$root/supabase/migrations/20261111055645_mines_prizes_grow_from_the_earned_wheel_guarantee.sql" \
   -f "$root/tests/sql/diamond-mines-earned-progression.sql"
+
+# Daily Bonus progressive non-repeating ladder: installs on exact Oct 10 preimages.
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261125075751_daily_bonus_progressive_nonrepeating_ladder.sql"
+"${diamond_psql[@]}" -At -f "$diamond/snapshot.sql" > "$fixture/diamond-before.jsonl"
+run_game_probe daily-bonus-progressive-ladder 'NOTICE:  PASS Daily Bonus progressive ladder: 100 consecutive days + 400 reset dates zero repeats, strict weekly/perk/chest progression, Mystery Vault 1x-5x reveal, Day 3 VIP gate, Day 30 150-diamond + shield + spin chest, private ACLs'

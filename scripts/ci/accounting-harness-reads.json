@@ -1794,6 +1794,7 @@
     "supabase/migrations/20261120025753_the_horse_stats_basis_drops_the_horse_hole_cards_key.sql",
     "supabase/migrations/20261124004000_promo_wallet_sends_follow_promo_chip_rules.sql",
     "supabase/migrations/20261124042000_harden_promo_wallet_invariants.sql",
+    "supabase/migrations/20261125075751_daily_bonus_progressive_nonrepeating_ladder.sql",
     "supabase/tests/fixed_limit_buyin_policy.sql",
     "tests/fixtures/accounting-agreement-history/bootstrap.sql",
     "tests/fixtures/accounting-agreement-history/eco-bootstrap.sql",
