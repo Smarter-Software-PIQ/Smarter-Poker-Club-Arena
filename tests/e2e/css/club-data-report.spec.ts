@@ -135,3 +135,90 @@ test('filtered Report keeps one question through real navigation and breakdown a
       p_search: 'River',
     });
 });
+
+test('daily and inline report share rolling presets and saved filters through reload', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
+  );
+  await page.addInitScript(() => {
+    (window as any).fixturePreferences = {
+      'club/ClubDataSimplePage:game': 'OMAHA',
+      'club/ClubDataPage:game': 'HOLDEM',
+    };
+  });
+  await page.goto('http://club-data.fixture/clubs/fixture-union/data/advanced');
+  const mount = async () => {
+    await page.addStyleTag({ content: fixture.css });
+    await page.addScriptTag({ content: fixture.javascript });
+  };
+  const windows = () =>
+    page.evaluate(() => {
+      const reads = (window as any).fixtureReads ?? [];
+      return ['ca_club_data_screen', 'ca_club_data_snapshot_v2'].map((fn) => {
+        const a = reads.filter((r: any) => r.fn === fn).at(-1)?.args;
+        return a ? [1 + (Date.parse(a.p_end) - Date.parse(a.p_start)) / 86400000, a.p_game] : null;
+      });
+    });
+  await mount();
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await report.getByRole('button', { name: '30 Days', exact: true }).click();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+  const daily = page
+    .locator('section.arena-case')
+    .filter({ has: page.getByRole('group', { name: 'Date Range', exact: true }) })
+    .last();
+  await daily.getByRole('button', { name: '7 Days', exact: true }).click();
+  await expect.poll(windows).toEqual([
+    [7, 'OMAHA'],
+    [7, 'OMAHA'],
+  ]);
+  await page.goBack();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+  await page.reload();
+  await mount();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+});
+
+test('opening the report keeps Today live while dated bookmarks stay pinned at Pacific midnight', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
+  );
+  const lastEnds = () =>
+    page.evaluate(() =>
+      ['ca_club_data_screen', 'ca_club_data_snapshot_v2'].map(
+        (fn) => (window as any).fixtureReads?.filter((r: any) => r.fn === fn).at(-1)?.args.p_end
+      )
+    );
+  for (const pinned of [false, true]) {
+    await page.clock.setFixedTime(new Date('2026-11-24T18:00:00Z'));
+    await page.goto(
+      'http://club-data.fixture/clubs/fixture-union/data' + (pinned ? '?dataEnd=2026-11-24' : '')
+    );
+    await page.addStyleTag({ content: fixture.css });
+    await page.addScriptTag({ content: fixture.javascript });
+    await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
+    await expect.poll(lastEnds).toEqual(['2026-11-24', '2026-11-24']);
+    await page.clock.setFixedTime(new Date('2026-11-25T08:00:01Z'));
+    await page.evaluate(() => {
+      (window as any).fixtureReads = [];
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const end = pinned ? '2026-11-24' : '2026-11-25';
+    await expect.poll(lastEnds).toEqual([end, end]);
+  }
+});

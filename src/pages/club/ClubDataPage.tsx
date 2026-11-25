@@ -119,7 +119,13 @@ import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
-import { clubDataRangeDays, readClubDataRange } from '../../lib/clubDataRange';
+import {
+  CLUB_DATA_PRESETS,
+  clubDataRangeDays,
+  readClubDataPreset,
+  readClubDataRange,
+  writeClubDataRange,
+} from '../../lib/clubDataRange';
 import {
   CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
   isClubDataPacificIncomplete,
@@ -129,14 +135,6 @@ import {
   clubDataReadFailure,
 } from './clubDataReadOutcome';
 
-/**
- * The ledger presets. 90 is the ceiling because ca_club_data_snapshot clamps
- * its own window at 93 days - it materialises one row per game, and a year of
- * those does not finish inside the statement timeout. Longer periods are the
- * rake snapshot's job: it reads the daily rollups only and answers for a year.
- */
-type PresetId = 1 | 7 | 14 | 30 | 90;
-const PRESETS: PresetId[] = [1, 7, 14, 30, 90];
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 type GameSort = 'recent' | 'fee' | 'winnings' | 'hands';
@@ -1043,7 +1041,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
-  const [preset, setPreset] = useState<PresetId>(1);
+  const preset = readClubDataPreset(searchParams);
   // Every Data report begins on the Pacific calendar day; verified answers
   // retain their distinct accounting or net-flow financial basis.
   const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
@@ -1055,26 +1053,27 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
   const [customStart, setCustomStart] = useState<string | null>(
     () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.start ?? null
   );
-  const customStartRef = useRef(customStart);
-  customStartRef.current = customStart;
+  const endPinnedRef = useRef(false);
+  endPinnedRef.current = searchParams.has('dataEnd') || searchParams.has('dataUntil');
   const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
   const routeDatesKey = searchParams.toString();
   const handledRouteDates = useRef(routeDatesKey);
   const selectReportDates = useCallback(
-    (first: string | null, last: string) => {
+    (first: string | null, last: string, days = preset) => {
       setCustomStart(first);
       setEndDate(last);
-      const next = new URLSearchParams(searchParams);
-      next.delete('dataUntil');
-      if (first !== null) next.set('dataStart', first);
-      else next.delete('dataStart');
-      if (first !== null || last !== clubDataDayOn(dayBasisRef.current)) next.set('dataEnd', last);
-      else next.delete('dataEnd');
+      const next = writeClubDataRange(
+        searchParams,
+        first,
+        last,
+        clubDataDayOn(dayBasisRef.current),
+        days
+      );
       handledRouteDates.current = next.toString();
       setSearchParams(next);
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams, preset]
   );
   useEffect(() => {
     if (handledRouteDates.current === routeDatesKey) return;
@@ -1104,7 +1103,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
   );
   const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
   const { game, setGame, stakes, setStakes, searchInput, setSearchInput, clearFilters } =
-    useClubDataFilters('club/ClubDataPage');
+    useClubDataFilters(inline ? 'club/ClubDataSimplePage' : 'club/ClubDataPage');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
     'club/ClubDataPage:gameSort',
     'recent'
@@ -1325,12 +1324,10 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
     const cur = endDateRef.current;
-    const moves = cur > today || (customStartRef.current === null && cur === previousToday);
+    const moves = cur > today || (!endPinnedRef.current && cur === previousToday);
     if (cur > today) setCustomStart(null);
     setEndDate((current) =>
-      current > today || (customStartRef.current === null && current === previousToday)
-        ? today
-        : current
+      current > today || (!endPinnedRef.current && current === previousToday) ? today : current
     );
     // A clamped answer kept the skeleton up for the re-read the move causes.
     // If 02:00 passed in between, the end does not move: read again here so
@@ -1354,9 +1351,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
     setEndDate((current) =>
-      current > today || (customStartRef.current === null && current === previousToday)
-        ? today
-        : current
+      current > today || (!endPinnedRef.current && current === previousToday) ? today : current
     );
   });
 
@@ -2703,7 +2698,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
       const previousToday = observedUtcDayRef.current;
       observedUtcDayRef.current = today;
       setEndDate((cur) =>
-        cur > today || (customStartRef.current === null && cur === previousToday) ? today : cur
+        cur > today || (!endPinnedRef.current && cur === previousToday) ? today : cur
       );
     };
     const id = setInterval(() => {
@@ -3703,22 +3698,22 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
           which is impossible for a tab and leaves a tablist with nothing
           selected. A screen reader was told "tab 3 of 6" for a filter. */}
           <div className={styles.words} role="group" aria-label="Date Range">
-            {(reportToolsOpen ? PRESETS : PRESETS.filter((p) => p <= 14 || p === preset)).map(
-              (p) => (
-                <button
-                  key={p}
-                  type="button"
-                  aria-pressed={customStart === null && preset === p}
-                  className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
-                  onClick={() => {
-                    selectReportDates(null, clubDataDayOn(dayBasisRef.current));
-                    setPreset(p);
-                  }}
-                >
-                  {p === 1 ? '1 Day' : `${p} Days`}
-                </button>
-              )
-            )}
+            {(reportToolsOpen
+              ? CLUB_DATA_PRESETS
+              : CLUB_DATA_PRESETS.filter((p) => p <= 14 || p === preset)
+            ).map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={customStart === null && preset === p}
+                className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                onClick={() => {
+                  selectReportDates(null, clubDataDayOn(dayBasisRef.current), p);
+                }}
+              >
+                {p === 1 ? '1 Day' : `${p} Days`}
+              </button>
+            ))}
           </div>
         </section>
 

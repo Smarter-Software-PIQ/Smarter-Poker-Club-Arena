@@ -371,6 +371,38 @@ describe('5. an empty Tables tab says why it is empty', () => {
     expect(text).toContain('This Event Has Finished And Its Tables Are Closed');
   });
 
+  it.each(['spin-v1', 'sng-v1', 'seat-first-satellite-v1'])(
+    'shows the fill condition instead of a timestamp on %s',
+    (format_contract) => {
+      render(
+        <TablesTab
+          {...props({
+            tables: [],
+            row: { status: 'REGISTERING', format_contract, start_time: '2099-01-01T00:00:00Z' },
+          })}
+        />
+      );
+      expect(screen.queryByText(/Event Starts In/i)).toBeNull();
+      expect(screen.getByText('Starts When Full')).toBeVisible();
+    }
+  );
+
+  it('only starts a scheduled MTT countdown before play begins', () => {
+    const row = { format_contract: 'mtt-v1', start_time: '2099-01-01T00:00:00Z' };
+    const { rerender } = render(
+      <TablesTab {...props({ tables: [], row: { ...row, status: 'REGISTERING' } })} />
+    );
+    expect(screen.getByText(/Event Starts In/i)).toBeVisible();
+    rerender(<TablesTab {...props({ tables: [], row: { ...row, status: 'RUNNING' } })} />);
+    expect(screen.queryByText(/Event Starts In/i)).toBeNull();
+  });
+
+  it('explains the closed tables through settlement and legacy terminal states', () => {
+    expect(emptyFor('COMPLETING')).toContain('Results Are Being Finalized');
+    expect(emptyFor('FINISHED')).toContain('This Event Has Finished And Its Tables Are Closed');
+    expect(emptyFor('ABORTED')).toContain('This Event Was Cancelled');
+  });
+
   it('has a true sentence for every other state too', () => {
     expect(emptyFor('CANCELLED')).toContain('This Event Was Cancelled');
     expect(emptyFor('RUNNING')).toContain('Seating Is Being Drawn Now');
@@ -428,6 +460,15 @@ describe('7. no field is more than entirely paid', () => {
 });
 
 describe('8. a cancelled event is not about to start', () => {
+  it.each([
+    ['COMPLETING', 'Results Are Being Finalized'],
+    ['ABORTED', 'This Event Was Cancelled'],
+    ['FINISHED', 'Final Results'],
+  ])('keeps the overview from announcing a start during %s', (status, title) => {
+    const { container } = render(<DetailOverviewTab {...props({ tables: [], row: { status } })} />);
+    expect(container.textContent).not.toContain('Starts In');
+    expect(container.textContent).toContain(title);
+  });
   it('prints no countdown and no live tiles', () => {
     const { container } = render(
       <DetailOverviewTab

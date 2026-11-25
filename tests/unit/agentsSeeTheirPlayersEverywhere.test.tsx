@@ -252,6 +252,18 @@ describe('MyPlayersCard', () => {
     expect(watch).not.toHaveBeenCalled();
   });
 
+  it('shows finishing positions when the last player busts after the agent collapsed the live list', () => {
+    const mine = new Set(['danimal']);
+    const { rerender } = render(
+      <MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, mine)} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Players' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Players' }));
+    const out = [e('danimal', 0, 'eliminated', { position: 17 })];
+    rerender(<MyPlayersCard summary={deriveMyPlayers(T, out, TABLES, mine)} />);
+    expect(screen.getByText('Finished 17th')).toBeVisible();
+  });
+
   it('opens the finishing list by itself once nobody is remaining', () => {
     render(<MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['zoe', 'bust']))} />);
     expect(screen.getByText('None Of Your Players Are Remaining')).toBeTruthy();

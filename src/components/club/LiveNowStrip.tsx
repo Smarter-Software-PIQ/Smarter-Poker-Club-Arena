@@ -57,7 +57,7 @@ const LiveNowStrip = memo(function LiveNowStrip({
         {downline && <span className="members-live-now__scope">My Downline</span>}
         <span className="members-live-now__count">{players.length.toLocaleString()}</span>
       </h2>
-      <div className="members-live-now__chips" role="list">
+      <div className="members-live-now__chips">
         {players.map((seat) => {
           const name = seat.alias || seat.username || 'Player';
           const table = withStakes(titleCase(seat.name), titleCase(seat.stakes));
@@ -65,7 +65,6 @@ const LiveNowStrip = memo(function LiveNowStrip({
             <button
               key={seat.user_id}
               type="button"
-              role="listitem"
               className="members-live-now__chip"
               onClick={() => onWatch(seat, { userId: seat.user_id, name })}
               aria-label={`Watch ${name} At Table, ${titleCase(seat.name)}`}

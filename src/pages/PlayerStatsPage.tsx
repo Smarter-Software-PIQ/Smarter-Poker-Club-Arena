@@ -161,6 +161,21 @@ const STATS_TOUR: TutorialStep[] = [
   },
 ];
 
+function renderStatsMast(context: string) {
+  return (
+    <>
+      <ArenaWorkspaceHeader
+        area="stats"
+        title="Player Stats"
+        context={context}
+        subtitle="Player Intelligence"
+        id="stats-page-title"
+      />
+      <StatsGameModeControl />
+    </>
+  );
+}
+
 export default function PlayerStatsPage() {
   const [params] = useSearchParams();
   const mode = statsGameMode(params.get('gameMode'));
@@ -1537,24 +1552,20 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
-  const mast = (
-    <>
-      <ArenaWorkspaceHeader
-        area="stats"
-        title="Player Stats"
-        context={clubLabel}
-        subtitle="Player Intelligence"
-        id="stats-page-title"
-      />
-      <StatsGameModeControl />
-    </>
-  );
+  const mast = renderStatsMast(clubLabel);
   if (!isOwnProfile) {
     return (
       <div className="stats-page arena-workspace">
-        {mast}
-        <Suspense fallback={<PageSkeleton variant="stats" />}>
+        <Suspense
+          fallback={
+            <>
+              {renderStatsMast('Shared Club')}
+              <PageSkeleton variant="stats" />
+            </>
+          }
+        >
           <SharedClubStatsView
+            renderMast={renderStatsMast}
             targetUserId={targetUserId!}
             asset={statsScope}
             gameMode={gameMode}

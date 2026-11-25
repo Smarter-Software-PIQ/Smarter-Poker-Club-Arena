@@ -25,7 +25,9 @@ vi.mock('../../src/services/ClubRosterService', () => ({
   default: { getRosterPage: f.page, getSummary: f.summary, getMembersWinLoss: f.period },
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => f.actor }));
-vi.mock('../../src/hooks/useMasterBusSubscription', () => ({ useMasterBusSubscriptions: () => {} }));
+vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
+  useMasterBusSubscriptions: () => {},
+}));
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: () => {} }));
 vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
   useMasterBusBroadcastChannel: () => {},
@@ -176,13 +178,32 @@ it('re-ranks the loaded roster when a player sits down or comes online, with no 
   expect(f.page).toHaveBeenCalledTimes(1);
 
   const strip = screen.getByRole('region', { name: 'Live Now' });
-  expect(within(strip).getByRole('listitem')).toHaveAccessibleName(
+  expect(within(strip).getByRole('button')).toHaveAccessibleName(
     'Watch Bob At Table, Midnight Cash'
   );
   expect(screen.getByRole('button', { name: 'Open Bob, Player, At A Table' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Watch At Table, Midnight Cash' })).toHaveTextContent(
     'Midnight Cash · 1/2'
   );
+});
+
+it('keeps the Live Now strip and seat updates when a roster search matches nobody', async () => {
+  await open();
+  const bob = seat('u-bob', 'Bob', 'Midnight Cash');
+  act(() => f.seatListener?.(new Map([[bob.user_id, [bob]]]), [bob]));
+  expect(screen.getByRole('region', { name: 'Live Now' })).toBeVisible();
+
+  f.page.mockResolvedValue({ items: [], next_cursor: null, has_more: false, filtered_total: 0 });
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Nobody Matches' } });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(screen.getByText('No Results Found')).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Live Now' })).toBeVisible();
+
+  const amy = seat('u-amy', 'Amy', 'Morning Cash');
+  act(() => f.seatListener?.(new Map([[amy.user_id, [amy]]]), [amy]));
+  expect(screen.getByRole('button', { name: 'Watch Amy At Table, Morning Cash' })).toBeVisible();
 });
 
 it('opens the observer view from the row chip after revalidating access, and reports a seat that is gone', async () => {
@@ -202,7 +223,7 @@ it('opens the observer view from the row chip after revalidating access, and rep
 
   f.watchAccess.mockResolvedValueOnce({ can_watch: false, found: false });
   await act(async () => {
-    fireEvent.click(screen.getByRole('listitem', { name: 'Watch Bob At Table, Midnight Cash' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Watch Bob At Table, Midnight Cash' }));
   });
   expect(f.toast.error).toHaveBeenCalledWith('This Player Has Left The Table.');
   expect(f.navigate).toHaveBeenCalledTimes(1);
