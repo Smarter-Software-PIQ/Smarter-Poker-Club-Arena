@@ -20,6 +20,7 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -562,6 +563,12 @@ INSERT INTO public.tournament_knockout_candidates (tournament_id, created_at, re
 """
 
 
+def reserve_loopback_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return str(s.getsockname()[1])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--migration', default=None)
@@ -576,10 +583,9 @@ def main():
 
     tmp_base = os.environ.get('SSD_TMPDIR') or tempfile.gettempdir()
     cluster = pathlib.Path(tempfile.mkdtemp(prefix='pg17-cron-perf-', dir=tmp_base))
-    sock = cluster / 'sock'
     data = cluster / 'data'
-    sock.mkdir(mode=0o700)
-    port = str(os.environ.get('CRON_PERF_PG_PORT', '55891'))
+    pg_log = cluster / 'pg.log'
+    port = os.environ.get('CRON_PERF_PG_PORT') or reserve_loopback_port()
     env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
     env['LC_ALL'] = 'C'
 
@@ -588,7 +594,10 @@ def main():
     def run_cmd(cmd, sql=None, check=True):
         r = subprocess.run([str(c) for c in cmd], input=sql, text=True, capture_output=True, env=env, timeout=120)
         if check and r.returncode != 0:
-            raise RuntimeError(f'Command failed ({r.returncode}): {cmd}\nSTDOUT:\n{r.stdout[-3000:]}\nSTDERR:\n{r.stderr[-3000:]}')
+            log_tail = pg_log.read_text()[-2000:] if pg_log.exists() else ''
+            raise RuntimeError(
+                f'Command failed ({r.returncode}): {cmd}\nSTDOUT:\n{r.stdout[-3000:]}\nSTDERR:\n{r.stderr[-3000:]}\nPG_LOG:\n{log_tail}'
+            )
         return r
 
     def psql(sql, user='postgres', check=True):
@@ -607,7 +616,7 @@ def main():
     try:
         run_cmd([pg_bin / 'initdb', '-D', data, '-U', 'postgres', '--auth=trust', '--no-sync', '-E', 'UTF8'])
         run_cmd([
-            pg_bin / 'pg_ctl', '-D', data, '-l', cluster / 'pg.log',
+            pg_bin / 'pg_ctl', '-D', data, '-l', pg_log,
             '-o', f'-h 127.0.0.1 -p {port} -c unix_socket_directories="" -c timezone=UTC -c fsync=off -c synchronous_commit=off',
             'start'
         ])
