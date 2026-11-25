@@ -1,3 +1,4 @@
+import { tournamentClockSpeed } from '../../utils/tournamentFilters';
 import { titleCase } from '../../utils/titleCase';
 import type { CSSProperties } from 'react';
 import './ArenaLobbyConsole.css';
@@ -68,6 +69,8 @@ type Format = {
   is_pko?: boolean | null;
   is_bounty?: boolean | null;
   free_buy?: boolean | null;
+  blind_structure?: unknown;
+  starting_chips?: number | null;
   blind_speed?: string | null;
   is_turbo?: boolean | null;
   is_rebuy?: boolean | null;
@@ -98,10 +101,11 @@ export function lobbyArtwork(format: Format = {}, kind = '') {
   if (format.all_in_or_fold) return 'allin';
   if (format.free_buy || matches('free_buy', 'mtt_free_buy')) return 'freebuy';
   if (matches('freeroll') || format.buy_in_amount === 0) return 'freeroll';
+  const speed = tournamentClockSpeed(format) ?? format.blind_speed?.toLowerCase();
   if (
     format.is_turbo ||
     matches('turbo', 'hyper', 'hyper_turbo') ||
-    ['turbo', 'hyper', 'hyper_turbo'].includes((format.blind_speed || '').toLowerCase())
+    ['turbo', 'hyper', 'hyper_turbo'].includes(speed ?? '')
   )
     return 'turbo';
   if (format.is_rebuy || matches('rebuy', 'mtt_rebuy')) return 'rebuy';
@@ -146,7 +150,7 @@ export function ArenaLobbyTitle({
       </span>
     );
   }
-  if (name.trim().toLowerCase() === 'nightly 20k') {
+  if (art === 'mtt' && name.trim().toLowerCase() === 'nightly 20k') {
     return (
       <span className="nightly-plaque">
         <small>Tournament</small>

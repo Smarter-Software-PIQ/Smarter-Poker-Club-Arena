@@ -2343,6 +2343,8 @@ export default function TournamentDetails({
        label ran out of it and off the screen. It prints on the same plate
        Register does, in the header and in the footer, so the two states are
        the same control with a different word. */
+    // Standard pre-start registration has one primary control in the shared footer.
+    if (!footer) return null;
     if (isRegistered) {
       return (
         <RegisterButton

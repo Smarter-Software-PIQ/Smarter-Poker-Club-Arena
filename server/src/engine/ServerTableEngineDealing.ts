@@ -2269,15 +2269,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       });
     }
     // Cash next-hand start (Dan 2026-11-05): the clock keeps running through
-    // dealHand's own awaits and stops at the controller start. Recomputed on
-    // every pass, so a loop that goes round again leaves no stale anchor.
-    this.cashDealGapAnchorMs =
-      this.lastCompletionAtMs !== null &&
-      !this.gapSawIdle &&
-      !this.gapHadRebuyPause &&
-      !this.isTournamentTable()
-        ? this.lastCompletionAtMs
-        : null;
+    // dealHand's own awaits and stops at the controller start. Preserve the
+    // anchor across a re-prepare pass (e.g. seatBoundaryChangedUnderRest) that
+    // did not idle or rebuy-pause, so a second dealing pass still records its
+    // true total gap on /health instead of dropping the sample.
+    if (this.lastCompletionAtMs !== null) {
+      this.cashDealGapAnchorMs =
+        !this.gapSawIdle && !this.gapHadRebuyPause && !this.isTournamentTable()
+          ? this.lastCompletionAtMs
+          : null;
+    } else if (this.gapSawIdle || this.gapHadRebuyPause || this.isTournamentTable()) {
+      this.cashDealGapAnchorMs = null;
+    }
     // The breach span: from here to the controller start is the deal itself.
     if (this.cashBreachSpan) {
       this.cashBreachSpan.restEnded = true;
@@ -2355,6 +2358,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * A wait the metric contract excludes says so in `excluded`.
    */
   private settleCashBreachSpan(outcome: 'aborted', reason: string): void {
+    this.cashDealGapAnchorMs = null;
     const span = this.cashBreachSpan;
     if (!span) return;
     this.cashBreachSpan = null;

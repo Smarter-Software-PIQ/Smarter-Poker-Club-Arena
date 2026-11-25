@@ -82,6 +82,37 @@ test('Tournament Price Stays Centered Between Unequal Header Controls', async ({
   }
 });
 
+test('The Shared Lobby Matches The Approved Canvas Inside The Club Chrome', async ({ page }) => {
+  const styles = [
+    'src/components/layouts/AppLayout.module.css',
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+    'src/components/lobby/GameLobbyPanel.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const width of [393, 616, 971]) {
+    await page.setViewportSize({ width, height: 1014 });
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+      <style>*{box-sizing:border-box}body{margin:0;line-height:1.6;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
+      ${styles}</style>
+      <main class="main casinoStage"><section class="tournament-details console-lobby"><header class="details-header">
+      <div class="mtt-meta"><div class="mtt-price"><p class="tournament-buyin">35 Chips</p></div></div></header></section></main>
+      <div class="glp-backdrop"><aside class="glp"></aside></div>`);
+    const interior = await page.locator('.console-lobby').boundingBox();
+    expect(interior!.y).toBe(0);
+    expect(interior!.width).toBe(Math.min(width, 600));
+    expect(interior!.x + interior!.width / 2).toBeCloseTo(width / 2);
+    await expect(page.locator('.tournament-buyin')).toHaveCSS('color', 'rgb(86, 216, 255)');
+    await expect(page.locator('.console-lobby')).toHaveCSS('line-height', 'normal');
+    const sheet = await page.locator('.glp-backdrop').boundingBox();
+    expect(sheet!.y).toBe(63);
+    expect(sheet!.y + sheet!.height).toBe(1014 - 72);
+  }
+});
+
 test('The Tournament Title And Guarantee Fit Above The Buy-In', async ({ page }) => {
   const styles = [
     'src/pages/tournament/TournamentDetails.css',

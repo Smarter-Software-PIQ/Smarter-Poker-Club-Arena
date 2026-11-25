@@ -66,6 +66,14 @@ with `started_at` NULL and between one live seat and `max_players - 1`:
    FILL ... (a human is waiting)") names the board and the seats the top-up
    could not fill; the matching `seat-first-precheck` and "seat-first fill
    added nobody" lines say why (four-table cap refusals, lock timeouts).
+   `seat_first_seat_rpc_failed ... three_paid_seats_required` with
+   `rpc_refused` equal to the horses offered means the seat transaction itself
+   refused the third seat: `fn_spin_book_entry` could not prove three paid
+   entries. Read its `net_paid_entries`, `net_buyin_total` and `net_irregular`
+   against the board's `wallet_transactions`. Since 20261124 the proof is net
+   of refunds (incident 7e8dce13: a re-registered player read as unpaid under
+   the old gross count); `net_irregular > 0` is a genuine double charge or
+   orphan refund and is a money fault to investigate, not a fill fault.
 3. A human's ask draws on the events lanes, then active cash-lane horses, and
    is not held to the cash-room floor; every other claim leaves the seats the
    human needs free (`humanSeatsOwed`). If even that pool is empty the fleet

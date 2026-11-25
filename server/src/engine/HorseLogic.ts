@@ -243,6 +243,7 @@ import {
 } from './HorseOmahaNoCategoricalRules.js';
 import {
   withOmahaOptionGameScope,
+  omahaOptionGameOf,
   type OmahaOptionGameScope,
 } from './HorseOmahaOptionGameScope.js';
 import { withBlanketRowsOffInPlo45Cash } from './HorseOmahaBlanketRowsOffInPlo45Cash.js';
@@ -421,6 +422,14 @@ import {
 
 import { horseCallDeductionFraction, horseWholeDeductionOfTheCall } from './HorseCallDeductions.js';
 import {
+  oopReraiseRangeHoldsDecide,
+  oopReraiseRangeHoldsOn,
+  oopReraiseRangeHoldsRouting,
+  oopReraiseRangeHoldsScoped,
+  oopReraiseRangeHoldsStage,
+  type OopReraiseContext,
+} from './HorseOopReraiseRangeHoldsWiring.js';
+import {
   classifyFreerollFlopTexture,
   priceMultiBoardFreerollFacingBet,
   priceMultiBoardFreerollOpen,
@@ -460,6 +469,7 @@ import {
   SUITS,
   validateAction,
   calculateBettingState,
+  calculateRake,
   HEADS_UP_RAKE_PERCENT,
 } from './PokerEngine.js';
 // V3 (2026-07-23): real-time opponent intelligence — live stats, range reading,
@@ -4617,6 +4627,23 @@ export interface HorseDecideOpts {
    * evaluation passes; league cards plo4/plo5
    * _omaha_reraise_range_out_of_position. */
   omahaReraiseRangeOutOfPosition?: boolean;
+  /** PLO-LEAD-6 2026-11-24 (hand a6f9206d; owner: calling 3-bets and 4-bets out of position is a losing play, out of
+   * position needs a much stronger range). PLO4/PLO5 cash tables (horse.omahaGameScope.<option> confines it to one),
+   * out of position facing one open: a 3-bet the brain chose stands only when EV(3-bet), priced with the opener's
+   * measured answer to a 3-bet and the Horse's OWN answer to the 4-bet at the real depth, is at least the priced call
+   * the existing calling rule admits (or 0), and that answer is not a fold, unless the hand holds an ace and the seeded
+   * keep frequency that holds the range's fold-to-4-bet share at or under horse.reraiseFoldShareCap admits it. A
+   * rejected 3-bet becomes that call or a fold, never a call the calling rule refuses (HorseOopReraiseRangeHolds.ts,
+   * HorseOopReraiseRangeHoldsWiring.ts). Never PLO6, a tournament, Lightning, hi-lo, a bomb pot or more than one
+   * board. Default OFF (read `=== true`). */
+  omahaOopReraiseRangeHoldsVsReraise?: boolean;
+  /** The same rule for no-limit hold'em cash tables (live NLH: 75% of the out-of-position 3-bets that were 4-bet
+   * folded against a 61% break-even). The rejected 3-bet calls only where the brain's own call bar for the spot admits
+   * the call and it is priced at or above 0. Never a tournament, Short Deck or Lightning. Default OFF. */
+  holdemOopReraiseRangeHoldsVsReraise?: boolean;
+  /** horse.reraiseFoldShareCap (runtime setting, default 0.45): the most of the out-of-position 3-bet range the two
+   *  options above let fold to a 4-bet; never above the 4-bettor's pure-bluff break-even for the size. */
+  reraiseFoldShareCap?: number;
   /** As omahaReraiseRangeOutOfPosition, for the EARLY-POSITION spots: the
    * Horse sits under the gun or under the gun plus one (the first two seats
    * left of the big blind) at a table of six or more dealt in, with a live
@@ -9930,7 +9957,8 @@ function cashThreeBetSizingSpot(
   };
 }
 
-/** The outer safety net for the hold'em premium rule (#8122), as below. */
+/** The outer safety net for the hold'em premium rule (#8122), as below; then the out-of-position re-raise range
+ *  stage in the same slot as inside wager_rules (it returns its input outside a routed decision). */
 function holdemPremiumAggressionOutsideGraph(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -9938,8 +9966,63 @@ function holdemPremiumAggressionOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? holdemPremiumAggression(decision, player, gs, opts)
+    ? oopReraiseRangeHoldsRule(
+        holdemPremiumAggression(decision, player, gs, opts),
+        player,
+        gs,
+        opts
+      )
     : decision;
+}
+
+/** What the out-of-position re-raise range rule reads of a decision through the engine's own helpers. */
+function oopReraiseContext(player: SeatPlayer, gs: HorseGameStateV2): OopReraiseContext {
+  const tournament = isTournamentMode(gs);
+  return {
+    exclusions: {
+      tournament,
+      lightning: gs.publicMemoryDomain?.speed === 'lightning',
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      allInOrFold: gs.allInOrFold === true,
+    },
+    // the whole deduction of a pot of `pot` chips that sees a flop (the rake to its cap and the jackpot drop), as a
+    // share of it: each branch of the price is raked on its own pot
+    rakeOfPot: (pot) => {
+      if (tournament || !(pot > 0)) return 0;
+      try {
+        const dealt = dealtHorseTableSize(gs, player.seat);
+        const bb = gs.bigBlind || 1;
+        const r = gs.rakeConfig;
+        if (!r) {
+          const capChips = Math.max(bb * 2.5, 3);
+          return Math.min(pot * RAKE_PCT, capChips) / pot;
+        }
+        const rake = r.timedRake ? 0 : calculateRake(pot, true, r, dealt);
+        const b = gs.bbjConfig;
+        const bbj =
+          b?.enabled && dealt >= b.minPlayersDealt ? Math.round(bb * b.feeBB * 100) / 100 : 0;
+        const total = rake + Math.min(Math.max(0, pot - rake), bbj);
+        return Number.isFinite(total) && total >= 0 ? Math.min(1, total / pot) : 0;
+      } catch {
+        return 0;
+      }
+    },
+  };
+}
+
+/** The out-of-position re-raise range stage (HorseOopReraiseRangeHoldsWiring); its input outside a routed decision. */
+function oopReraiseRangeHoldsRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (!oopReraiseRangeHoldsRouting()) return decision;
+  return oopReraiseRangeHoldsStage(decision, player, gs, opts, oopReraiseContext(player, gs));
 }
 
 /** The outer safety net for the short all-in floor: only an unsigned decision. */
@@ -17075,6 +17158,35 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise (default OFF): an out-of-position
+    // decision facing one open is asked through the rule's route (HorseOopReraiseRangeHoldsWiring); off, or out of
+    // its spot, nothing here runs and the decision below is the one asked.
+    if (oopReraiseRangeHoldsOn(opts) && !oopReraiseRangeHoldsRouting()) {
+      // the game scope of the omaha option, read the way withOmahaOptionGameScope reads it (that one read site
+      // stays below, inside the decision this route asks)
+      const scoped = oopReraiseRangeHoldsScoped(
+        opts,
+        opts.omahaOptionGameScope ? omahaOptionGameOf(player, gameState) : null
+      );
+      const routed = oopReraiseRangeHoldsDecide(
+        player,
+        gameState,
+        scoped,
+        oopReraiseContext(player, gameState),
+        (p, g, o, first) =>
+          HorseLogic.decide(
+            p,
+            g as HorseGameStateV2,
+            style,
+            mods,
+            o === scoped ? opts : { ...opts, ...o },
+            first ? rangeCapture : undefined,
+            first ? planReadCapture : undefined,
+            first ? deepDiveCapture : undefined
+          )
+      );
+      if (routed) return routed;
+    }
     // THE GAME SCOPE OF THE OMAHA OPTIONS (lane PLO4-FIX 2026-11-20, HorseOmahaOptionGameScope.ts; absent at the
     // compiled defaults): the ONE read site. In a PLO4/PLO5 cash decision an option scoped to the other game is
     // off for this decision, before any rule (omahaNoCategoricalRules included) reads it; the receipt names the
@@ -18957,10 +19069,17 @@ export class HorseLogic {
       const ruled = wagerStage('holdem_premium_aggression', prePremium, () =>
         holdemPremiumAggression(prePremium, player, gs, opts)
       );
-      const shortFloored = wagerStage('short_all_in_call_floor', ruled, () =>
-        shortAllInCallFloor(ruled, player, gs, () => shortAllInDeadCheckEquity(player, gs, vi))
+      // omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise (default OFF): the route's stage;
+      // outside a routed decision it returns its input.
+      const oopReraiseHeld = wagerStage('oop_reraise_range_holds', ruled, () =>
+        oopReraiseRangeHoldsRule(ruled, player, gs, opts)
       );
-      if (shortFloored !== ruled && tele) noteFire('short_all_in_call_floor');
+      const shortFloored = wagerStage('short_all_in_call_floor', oopReraiseHeld, () =>
+        shortAllInCallFloor(oopReraiseHeld, player, gs, () =>
+          shortAllInDeadCheckEquity(player, gs, vi)
+        )
+      );
+      if (shortFloored !== oopReraiseHeld && tele) noteFire('short_all_in_call_floor');
       // Plain bug fix 2026-11-19 (auditor F): the V11 guard's crumbs line, after the class gate and the
       // Omaha layers that own those folds (HorseTournamentCrumbsCallFloor.ts).
       const floored = tournamentCrumbsCallFloor(shortFloored, player, gs);

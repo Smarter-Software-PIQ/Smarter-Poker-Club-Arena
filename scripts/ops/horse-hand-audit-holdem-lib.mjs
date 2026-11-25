@@ -19,6 +19,7 @@ import {
   COMBO_CLASS,
   NC,
   NO_SHOWDOWN,
+  className,
   ONE_PAIR,
   comboIndex,
   drawInfo,
@@ -376,6 +377,7 @@ function replay(H, acts) {
     if (FORCED.has(action) || origin === 'forced') {
       if (seat === null || !S) continue;
       H.invested.set(seat, (H.invested.get(seat) || 0) + amount);
+      if (action === 'ante') H.anteTotal = (H.anteTotal || 0) + amount;
       if (action !== 'ante' && action !== 'dead') S.streetBet += amount;
       if (action === 'sb') sbSeat = seat;
       if (action === 'bb') bbSeat = seat;
@@ -498,6 +500,17 @@ function replay(H, acts) {
   H.sbSeat = sbSeat;
   H.bbSeat = bbSeat;
   H.final = st;
+}
+
+/** Players still to act behind a seat that opens preflop (the engine's count: SB 1, BB 0, UTG at n-handed n-1). */
+export function playersBehind(H, seat) {
+  const order = [...H.seats.keys()].sort((x, y) => posKey(x, H.btn) - posKey(y, H.btn));
+  const n = order.length;
+  const idx = order.indexOf(seat);
+  if (n === 2) return seat === H.btn ? 1 : 0;
+  if (idx === 0) return 1;
+  if (idx === 1) return 0;
+  return n - 1 - idx + 2;
 }
 
 /** Position group preflop: SB, BB, BTN, CO, HJ, then EP. */
@@ -756,8 +769,137 @@ export function bluffShareOf(B, { tour, who, street, line, s }) {
 // Range model (per hand, public actions only) and exact-tier grading
 // ---------------------------------------------------------------------------------------------------
 /** Context of the preflop matrix and strength (shared by every hand). */
-export function makeModel({ matrix, freqs, bluffs = null }) {
-  return { M: matrix, preS: preflopStrength(matrix), F: freqs, B: bluffs };
+export function makeModel({ matrix, freqs, bluffs = null, nash = null }) {
+  return {
+    M: matrix,
+    preS: preflopStrength(matrix),
+    F: freqs,
+    B: bluffs,
+    N: nash ? nashTables(nash) : null,
+  };
+}
+
+/**
+ * Tournament jams are read against equilibrium push/fold (the anchor holdemTournamentAllInCallIsPriced uses):
+ * the Nash V2 open-jam range by players behind, depth and dead ante (horse-hand-audit-holdem-nash.json, generated
+ * from server/src/engine/HorseNashPushFoldV2.data.ts and checked against it by the unit test), a re-jam the top
+ * 18% (8 bb or less) to 6% (25 bb) and a jam over two raises the top 5% to 3.5%, in the engine's strength order.
+ * Measured raise shares are NOT used for a jam: at short stacks they mix min-raises with jams and gave a jam range
+ * about 0.6 of the width real jams show at showdown (trace of 2026-11-24).
+ */
+export const REJAM_WIDTH = [0.18, 0.06];
+export const OVER_THREE_BET_JAM_WIDTH = [0.05, 0.035];
+const lerpW = (x, x0, x1, y0, y1) =>
+  x <= x0 ? y0 : x >= x1 ? y1 : y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+function nashTables(N) {
+  const mine = new Map();
+  for (let k = 0; k < 169; k++) mine.set(className(k), k);
+  const toMine = N.classes.map((c) => mine.get(c));
+  if (toMine.some((x) => x === undefined)) throw new Error('nash table class names do not match');
+  const orderMine = N.strengthOrder.map((i) => toMine[i]);
+  const comboOf = new Array(169).fill(0);
+  for (let k = 0; k < NC; k++) comboOf[COMBO_CLASS[k]]++;
+  const clsToCombo = (cls) => {
+    const out = new Float64Array(NC);
+    for (let k = 0; k < NC; k++) out[k] = cls[COMBO_CLASS[k]];
+    return out;
+  };
+  const fromUpTo = (key, depth, ante) => {
+    const a = Math.max(0, Math.min(2, ante));
+    const a0 = Math.floor(a) === 2 ? 1 : Math.floor(a);
+    const w = a - a0;
+    const t0 = key(a0);
+    const t1 = key(a0 + 1);
+    const dep = Math.max(1.5, Math.min(25, depth));
+    const cls = new Float64Array(169);
+    N.classes.forEach((_, i) => {
+      const up = t0[i] * (1 - w) + t1[i] * w;
+      cls[toMine[i]] =
+        up >= N.gridMax ? 1 : Math.max(0, Math.min(1, (up + N.gridStep - dep) / N.gridStep));
+    });
+    return clsToCombo(cls);
+  };
+  const jamRange = (behind, depth, ante) => {
+    const b = Math.max(1, Math.min(9, Math.round(behind)));
+    return fromUpTo((a) => N.upTo[`${b}|${a}`], depth, ante);
+  };
+  /** The Nash first-caller range against an open-jam, capped at 25% of hands (the engine's CALLER_WIDTH_CAP). */
+  const callRange = (jammerBehind, kind, depth, ante) => {
+    const b = Math.max(1, Math.min(9, Math.round(jammerBehind)));
+    const k = b === 1 ? 'bb' : b === 2 && kind === 'open' ? 'sb' : kind;
+    const r = fromUpTo((a) => N.callUpTo[`${b}|${k}|${a}`], depth, ante);
+    let w = 0;
+    for (let c = 0; c < NC; c++) w += r[c];
+    return w / NC > 0.25 ? topWidth(0.25) : r;
+  };
+  const topWidth = (width) => {
+    const cls = new Float64Array(169);
+    let left = Math.max(0, Math.min(1, width)) * NC;
+    for (const k of orderMine) {
+      if (left <= 0) break;
+      cls[k] = Math.min(1, left / comboOf[k]);
+      left -= comboOf[k];
+    }
+    return clsToCombo(cls);
+  };
+  return { jamRange, callRange, topWidth };
+}
+/**
+ * Facing a tournament preflop jam, a player still to act behind continues (overcalls) with the top half of the range he
+ * would call the jam with (Nash first-caller range for an open-jam, the re-jam width otherwise), as the engine's priced
+ * call does. Returns { width, range } or null outside that spot.
+ */
+export function tournamentOvercall(model, H, d, o) {
+  if (!model.N || !H.tour || d.street !== 'preflop' || d.aggr === null) return null;
+  const jam = H.decisions.find(
+    (x) =>
+      x.seat === d.aggr &&
+      x.street === 'preflop' &&
+      x.allInAfter &&
+      (x.kind === 'raise' || x.kind === 'bet') &&
+      x.i < d.i
+  );
+  if (!jam) return null;
+  const depth =
+    Math.min(jam.stack + jam.streetBet, Math.max(0, ...jam.opp.map((q) => q.stack + q.streetBet))) /
+    H.bb;
+  if (depth > 25) return null;
+  let base;
+  if (jam.raisesBefore === 0) {
+    const ob = playersBehind(H, o.seat);
+    base = model.N.callRange(
+      playersBehind(H, jam.seat),
+      ob === 0 ? 'bb' : ob === 1 ? 'sb' : 'open',
+      depth,
+      (H.anteTotal || 0) / H.bb
+    );
+  } else base = model.N.topWidth(lerpW(depth, 8, 25, REJAM_WIDTH[0], REJAM_WIDTH[1]));
+  const w = rangeWeight(base) / NC;
+  return { width: w * 0.5, range: model.N.topWidth(w * 0.5) };
+}
+/** True when the bet the decision faces is a jam (the last aggressor is all in). */
+const facingJam = (d) => d.aggr !== null && d.opp.some((o) => o.seat === d.aggr && o.allIn);
+
+/** The equilibrium range of a tournament preflop jam, or null when the decision is not one (or no table). */
+export function tournamentJamRange(model, H, d) {
+  if (
+    !model.N ||
+    !H.tour ||
+    d.street !== 'preflop' ||
+    !d.allInAfter ||
+    !(d.kind === 'raise' || d.kind === 'bet')
+  )
+    return null;
+  const others = d.opp.map((o) => o.stack + o.streetBet);
+  const depth = Math.min(d.stack + d.streetBet, Math.max(0, ...others)) / H.bb;
+  if (depth > 25) return null;
+  if (d.raisesBefore === 0)
+    return model.N.jamRange(playersBehind(H, d.seat), depth, (H.anteTotal || 0) / H.bb);
+  if (d.raisesBefore === 1)
+    return model.N.topWidth(lerpW(depth, 8, 25, REJAM_WIDTH[0], REJAM_WIDTH[1]));
+  return model.N.topWidth(
+    lerpW(depth, 12, 25, OVER_THREE_BET_JAM_WIDTH[0], OVER_THREE_BET_JAM_WIDTH[1])
+  );
 }
 const bettorBluff = (model, H, d, seat, s, kind) =>
   bluffShareOf(model.B, {
@@ -791,6 +933,12 @@ export function narrow(model, H, d, range, S) {
     const sh = nodeShares(model.F, H, d);
     const r = Math.max(0.005, sh.raise);
     const c = Math.max(0.005, d.C > 0 ? sh.call : sh.check);
+    const jam = tournamentJamRange(model, H, d);
+    if (jam) {
+      const out = new Float64Array(NC);
+      for (let c = 0; c < NC; c++) out[c] = range[c] * jam[c];
+      return out;
+    }
     if (k === 'raise' || k === 'bet') return keepTop(range, S, r);
     if (k === 'call') return keepBands(range, S, [[Math.min(r, 0.9), Math.min(1, r + c)]]);
     return keepBands(range, S, [[Math.min(r, 0.95), 1]]);
@@ -878,6 +1026,8 @@ export function priceDecision(model, H, d, ctx) {
   const levelNode = d.street === 'preflop' ? d.node : d.raisesBefore >= 2 ? 'vsRaise' : 'vsBet';
   const fixed = opps.filter((o) => !pending(o)).map((o) => eqOf(o));
   const pend = opps.filter(pending).map((o) => {
+    const oc = tournamentOvercall(model, H, d, o);
+    if (oc && ctx.eqVsRange) return { f: 1 - oc.width, e: ctx.eqVsRange(oc.range) };
     const base = levelNode.replace('-cold', '');
     const ln = base + ((base === 'vs3bet' || base === 'vs4bet+') && !o.vol ? '-cold' : '');
     const f = Math.min(
@@ -911,7 +1061,13 @@ export function priceDecision(model, H, d, ctx) {
     for (const o of opps) excess += Math.max(0, o.streetBet - heroTo);
     const heroAllIn = callInc >= d.stack - 1e-9;
     const othersToAct = opps.some((o) => !o.allIn && o.toAct && o.seat !== d.aggr);
-    const R = heroAllIn || (allOppAllIn && !othersToAct) ? 1 : R0;
+    // facing a jam nobody bets again between the jammer and the caller: no realisation discount
+    const R =
+      heroAllIn ||
+      (allOppAllIn && !othersToAct) ||
+      (d.street === 'preflop' && H.tour && facingJam(d))
+        ? 1
+        : R0;
     options.push({ a: 'call', ev: R * eqVsField * (d.P - excess + callInc) - callInc });
   }
   // wager sizes ("raise to" street totals)
@@ -1171,7 +1327,11 @@ export function gradeExactHand(model, H) {
         const e = equityVsRange(E, keepTop(rOf(o), S, Math.max(0.02, q)));
         return Number.isFinite(e) ? e : eqOf(o);
       };
-      const priced = priceDecision(model, H, d, { eqOf, eqTopOf });
+      const eqVsRange = (r) => {
+        const e = equityVsRange(E, removeDead(r, dead));
+        return Number.isFinite(e) ? e : 0.5;
+      };
+      const priced = priceDecision(model, H, d, { eqOf, eqTopOf, eqVsRange });
       // hindsight: the opponents' shown cards, exact enumeration on the current board
       let hind = null;
       const oppShown = d.opp.map((o) => H.shown.get(H.seats.get(o.seat).uid));
@@ -1483,12 +1643,17 @@ export function preflopFoldBandValue(model, H, d, f) {
   const wDef = rangeWeight(def);
   if (wDef <= 0) return null;
   const callInc = Math.min(d.C, d.stack);
-  const R2 = callInc >= d.stack - 1e-9 ? 1 : R;
+  const R2 = callInc >= d.stack - 1e-9 || (H.tour && facingJam(d)) ? 1 : R;
   // players still to act behind who have not matched the bet: only the share of cases where every one of them folds is
   // counted (a lower bound: when anyone behind enters, the call is valued at 0)
   let behindFold = 1;
   for (const o of d.opp) {
     if (o.allIn || !o.toAct || o.streetBet >= d.CB - 1e-9 || o.seat === d.aggr) continue;
+    const oc = tournamentOvercall(model, H, d, o);
+    if (oc) {
+      behindFold *= 1 - oc.width;
+      continue;
+    }
     const base = d.node.replace('-cold', '');
     const fake = {
       ...d,
