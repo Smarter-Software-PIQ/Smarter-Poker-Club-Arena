@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  *  PLAYER STATS PAGE — Premium Glassmorphism Design
@@ -165,7 +166,6 @@ export default function PlayerStatsPage() {
   const mode = statsGameMode(params.get('gameMode'));
   return (
     <>
-      <StatsGameModeControl />
       <SeparatedPlayerStatsPage key={mode} gameMode={mode} />
     </>
   );
@@ -1535,27 +1535,42 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
+  const mast = (
+    <>
+      <ArenaWorkspaceHeader
+        area="stats"
+        title="Player Stats"
+        context={clubLabel}
+        subtitle="Player Intelligence"
+        id="stats-page-title"
+      />
+      <StatsGameModeControl />
+    </>
+  );
   if (!isOwnProfile) {
     return (
-      <Suspense fallback={<PageSkeleton variant="stats" />}>
-        <SharedClubStatsView
-          targetUserId={targetUserId!}
-          asset={statsScope}
-          gameMode={gameMode}
-          timezone={statsTimezone}
-          rangeKey={rangeKey}
-          windowDays={windowDays}
-          initialClubId={searchParams.get('statsClub')}
-          onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
-          onRangeChange={changeRange}
-        />
-      </Suspense>
+      <div className="stats-page arena-workspace">
+        {mast}
+        <Suspense fallback={<PageSkeleton variant="stats" />}>
+          <SharedClubStatsView
+            targetUserId={targetUserId!}
+            asset={statsScope}
+            gameMode={gameMode}
+            timezone={statsTimezone}
+            rangeKey={rangeKey}
+            windowDays={windowDays}
+            initialClubId={searchParams.get('statsClub')}
+            onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
+            onRangeChange={changeRange}
+          />
+        </Suspense>
+      </div>
     );
   }
   if (loading) {
     return (
-      <div className="stats-page stats-page-loading" aria-busy="true">
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace stats-page-loading" aria-busy="true">
+        {mast}
         <p className="stats-state-line" role="status">
           Opening Your Performance Dossier...
         </p>
@@ -1570,7 +1585,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   // that they had never played.
   if (loadError && !full) {
     return (
-      <div className="stats-page">
+      <div className="stats-page arena-workspace">
+        {mast}
         <div className="stats-empty-state">
           <span className="empty-status">Readout Unavailable</span>
           <span className="empty-title">Couldn't Load Your Stats</span>
@@ -1594,8 +1610,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   if (isOwnProfile && preferencesState !== 'ready') {
     const failed = preferencesState === 'error';
     return (
-      <div className="stats-page" aria-busy={failed ? undefined : true}>
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
+        {mast}
+        {mast}
         <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
           <span className="empty-description">
             {failed
@@ -1628,7 +1645,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     </div>
   );
   return (
-    <div className={`stats-page${privacyPresentationMode ? ' stats-page--presentation' : ''}`}>
+    <div
+      className={`stats-page arena-workspace${privacyPresentationMode ? ' stats-page--presentation' : ''}`}
+    >
       <StatsLiveRecords
         userId={targetUserId}
         clubIds={[
@@ -1638,9 +1657,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         enabled={isOwnProfile && !clubsLoading}
         onChange={scheduleRefresh}
       />
+      {mast}
+
       <PageBar
+        titleAs={false}
         title="Player Intelligence"
-        titleId="stats-page-title"
         summary="Your Recorded Analysis Sample, Distilled Into Patterns You Can Use At The Next Table."
         status={statsScope === DIAMOND_STATS ? 'Figures In Diamonds' : undefined}
         steps={STATS_TOUR}
@@ -1650,26 +1671,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ? 'Cash Games Only. Tournament Hands And Stacks Are Excluded.'
           : 'Tournament Hands And Results Only. Tournament Stacks Are Not Cash Profit.'}
       </div>
-      <ClubScopeConsole
-        gameMode={gameMode}
-        statsScope={statsScope}
-        clubLabel={clubLabel}
-        selectedClub={selectedClub}
-        selectedClubId={selectedClubId}
-        changeClub={changeClub}
-        clubs={clubs}
-        clubsLoading={clubsLoading}
-        clubsError={clubsError}
-        onRetryClubs={() => setClubsReload((value) => value + 1)}
-        comparisonOpen={comparisonOpen}
-        setComparisonOpen={setComparisonOpen}
-        onRetryComparison={() => void loadClubComparison()}
-        comparisonSort={effectiveComparisonSort}
-        changeComparisonSort={changeComparisonSort}
-        comparisonLoading={comparisonLoading}
-        comparisonError={comparisonError}
-        sortedComparisonRows={sortedComparisonRows}
-      />
       {gameMode === 'cash' && (
         <StatsHeadlineDeck
           refreshing={refreshing}
@@ -1687,36 +1688,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           selectedClubId={selectedClubId}
           servingCache={servingCache}
         />
-      )}
-      {hasData && gameMode === 'cash' && (
-        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
-          <div className="stats-brief-head">
-            <div>
-              <h2 id="stats-brief-title">Evidence At A Glance</h2>
-            </div>
-          </div>
-          <div className="stats-brief-grid">
-            {intelligenceBrief.map((item, index) => (
-              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
-                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
-                <span className="stats-brief-label">{item.label}</span>
-                <strong>{item.value}</strong>
-                <p>{item.detail}</p>
-              </article>
-            ))}
-          </div>
-          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
-            <button type="button" onClick={() => selectSection('analysis', true)}>
-              Open Deep Analysis
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
-            >
-              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
-            </button>
-          </div>
-        </section>
       )}
       {gameMode === 'tournament' && (
         <div className="stats-range-row" role="group" aria-label="Tournament Analysis Range">
@@ -1979,6 +1950,56 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </Suspense>
         </motion.div>
       </AnimatePresence>
+      <ClubScopeConsole
+        gameMode={gameMode}
+        statsScope={statsScope}
+        clubLabel={clubLabel}
+        selectedClub={selectedClub}
+        selectedClubId={selectedClubId}
+        changeClub={changeClub}
+        clubs={clubs}
+        clubsLoading={clubsLoading}
+        clubsError={clubsError}
+        onRetryClubs={() => setClubsReload((value) => value + 1)}
+        comparisonOpen={comparisonOpen}
+        setComparisonOpen={setComparisonOpen}
+        onRetryComparison={() => void loadClubComparison()}
+        comparisonSort={effectiveComparisonSort}
+        changeComparisonSort={changeComparisonSort}
+        comparisonLoading={comparisonLoading}
+        comparisonError={comparisonError}
+        sortedComparisonRows={sortedComparisonRows}
+      />
+      {hasData && gameMode === 'cash' && (
+        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
+          <div className="stats-brief-head">
+            <div>
+              <h2 id="stats-brief-title">Evidence At A Glance</h2>
+            </div>
+          </div>
+          <div className="stats-brief-grid">
+            {intelligenceBrief.map((item, index) => (
+              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
+                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="stats-brief-label">{item.label}</span>
+                <strong>{item.value}</strong>
+                <p>{item.detail}</p>
+              </article>
+            ))}
+          </div>
+          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
+            <button type="button" onClick={() => selectSection('analysis', true)}>
+              Open Deep Analysis
+            </button>
+            <button
+              type="button"
+              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
+            >
+              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

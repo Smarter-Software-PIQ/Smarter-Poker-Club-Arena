@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
 import ClubDataSourceDetails, {
   type ClubDataSourceRow,
@@ -3495,7 +3496,7 @@ export default function ClubDataPage() {
 
   return (
     <div
-      className={`${styles.page} ${advanced ? '' : styles.simple}`}
+      className={`${styles.page} arena-workspace ${advanced ? '' : styles.simple}`}
       data-page="club-data"
       data-club-data-mode={advanced ? 'advanced' : 'simple'}
     >
@@ -3508,6 +3509,12 @@ export default function ClubDataPage() {
           onClose={() => setSourceRow(null)}
         />
       )}
+      <ArenaWorkspaceHeader
+        area="data"
+        title="Club Data"
+        context={clubLabel}
+        subtitle="Club Reporting"
+      />
       <header className={styles.simpleHeader}>
         <button
           type="button"
@@ -3517,8 +3524,12 @@ export default function ClubDataPage() {
         >
           Back
         </button>
-        <h1>Club Data</h1>
-        <div className={styles.modeSwitch} role="group" aria-label="Club Data Mode">
+
+        <div
+          className={`${styles.modeSwitch} arena-switch`}
+          role="group"
+          aria-label="Club Data Mode"
+        >
           <button
             type="button"
             className={styles.word}
@@ -3581,165 +3592,6 @@ export default function ClubDataPage() {
               : '')}
       </div>
 
-      <div className={styles.advancedOnly} hidden={!advanced}>
-        {/* ── The ledger head: status, the two page actions, the export notes ── */}
-        <SpadeConsole
-          eyebrow={clubLabel || 'Club Intelligence'}
-          title="Read The Room"
-          titleId="club-data-title"
-          subtitle="Own The Numbers"
-          pill={statusWord}
-          pillInk={statusInk}
-          crest="spade"
-          family="spade"
-          className={styles.console}
-          aria-labelledby="club-data-title"
-          plates={{
-            secondary: {
-              label: manualRefreshing ? 'Refreshing' : 'Refresh',
-              onClick: () => void refreshAll(),
-              disabled: manualRefreshing || !clubUuid || isHydrating,
-              'aria-label': 'Refresh Club Ledger',
-            },
-            primary: {
-              label: exporting ? 'Cancel Export' : 'Export CSV',
-              ink: exporting ? 'red' : 'white',
-              onClick: () => {
-                if (exporting) cancelExport();
-                else void exportCsv();
-              },
-              disabled:
-                !exporting &&
-                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
-              'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
-              title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
-            },
-          }}
-        >
-          <div className={styles.headRow}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--muted`}
-              onClick={() => navigate(-1)}
-              aria-label="Go Back"
-            >
-              Back
-            </button>
-            <span className={`${styles.statusLine} sc-ink--${statusInk}`} aria-live="polite">
-              <span className={styles.statusLight} aria-hidden="true" />
-              <span>{statusLine}</span>
-            </span>
-          </div>
-          <div className={styles.rows}>
-            <div className={styles.dataRow}>
-              <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Cash Updated</span>
-              <span className={`sc-ink--silver ${styles.dataValue}`}>
-                {snapshot?.data_updated_at
-                  ? zonedTime(snapshot.data_updated_at)
-                  : loading
-                    ? 'Loading Live Records'
-                    : 'Live Records Ready'}
-              </span>
-            </div>
-          </div>
-          {(ledgerSource === 'cached' || ledgerSource === 'degraded') && snapshot && (
-            <p className={`sc-copy ${styles.note}`} role="status">
-              {ledgerSource === 'cached'
-                ? 'Showing A Recent Verified Snapshot While Live Numbers Refresh.'
-                : 'Live Refresh Is Delayed. Showing The Last Verified Snapshot And Retrying Automatically.'}
-            </p>
-          )}
-          {exportNote && (
-            <p className={`sc-copy ${styles.note}`} role="status">
-              {exportNote}
-            </p>
-          )}
-          {exportProgress && (
-            <p className={`sc-copy ${styles.note}`} role="status" aria-live="polite">
-              {exportProgress.stage === 'preparing'
-                ? 'Preparing An Exact Snapshot For Export...'
-                : `Downloading ${compactInt(exportProgress.loaded)} Of ${compactInt(exportProgress.total)} Rows...`}
-            </p>
-          )}
-        </SpadeConsole>
-
-        {/* Rake production and invoice results retain their own financial
-          definitions, while this Data panel shares the Pacific date window. */}
-        {clubUuid && unionBasis && (
-          <DataHelpTip label="About Agent Rake Production">
-            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
-          </DataHelpTip>
-        )}
-        {clubUuid && !reportRangeError && (
-          <RakeSnapshotPanel
-            reportBasis="pacific"
-            reportRange={{ start: startDate, end: endDate }}
-            unframed
-            clubId={clubUuid}
-            userId={userId}
-            scopes={rakeScopes}
-            active={advanced && !reportRangeError}
-            refreshToken={rakeRefreshKey}
-          />
-        )}
-
-        {clubUuid && <ClubRakebackVerifiedSoFar clubId={clubUuid} />}
-
-        {/* ── Data integrity ─────────────────────────────────────────────── */}
-        <SpadeConsole
-          eyebrow="Operator Trust Layer"
-          title="Data Integrity"
-          titleId="club-data-integrity-title"
-          pill={!snapshot ? 'Checking' : integrityNeedsAttention ? 'Recovery Active' : 'Verified'}
-          pillInk={!snapshot ? 'muted' : integrityNeedsAttention ? 'red' : 'green'}
-          crest="flat"
-          family="spade"
-          foot="foot"
-          className={`${styles.console} ${integrityNeedsAttention ? styles.integrityAttention : ''}`}
-          aria-labelledby="club-data-integrity-title"
-        >
-          <dl className={styles.rows}>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Payload Checks</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {integrity ? `${integrity.passed} / ${integrity.checks}` : NO_VALUE}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Live Feeds</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {realtimeEnabled ? `${liveFeedCount} / 4` : 'Standby'}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Last Verified</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {lastVerifiedAt ? formatClubDataAge(telemetryClock - lastVerifiedAt) : 'Checking'}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Ledger Read</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {lastRequestMs === null ? 'Checking' : `${lastRequestMs.toLocaleString()}ms`}
-              </dd>
-            </div>
-          </dl>
-          <p className={`sc-copy ${styles.note}`}>
-            {integrity?.issues.length
-              ? `${integrity.issues.length} Integrity Check${integrity.issues.length === 1 ? '' : 's'} Need Review. Verified Rows Stay Visible While Recovery Runs.`
-              : liveFeedCount < 4 && realtimeEnabled
-                ? 'The 60-Second Verified Poll Remains Active While Live Feeds Reconnect.'
-                : 'Internal Totals Reconcile. Live Invalidations And The 60-Second Verified Poll Are Active.'}
-          </p>
-          {integrity?.issues.length ? (
-            <ul className={`sc-copy ${styles.issues}`}>
-              {integrity.issues.map((issue) => (
-                <li key={issue}>{titleCase(issue)}</li>
-              ))}
-            </ul>
-          ) : null}
-        </SpadeConsole>
-      </div>
       {/* ── Club pulse: the reporting window and the headline figures ──── */}
       <SpadeConsole
         eyebrow="Performance Ledger"
@@ -4229,6 +4081,164 @@ export default function ClubDataPage() {
         {/* ── The ledger: games and players ──────────────────────────────── */}
       </div>
       {/* HIT AND RUN (owner 2026-11-06): members owing hands before leaving. */}
+      <div className={styles.advancedOnly} hidden={!advanced}>
+        {/* ── The ledger head: status, the two page actions, the export notes ── */}
+        <SpadeConsole
+          eyebrow={clubLabel || 'Club Intelligence'}
+          title="Report Status"
+          titleId="club-data-title"
+          pill={statusWord}
+          pillInk={statusInk}
+          crest="spade"
+          family="spade"
+          className={styles.console}
+          aria-labelledby="club-data-title"
+          plates={{
+            secondary: {
+              label: manualRefreshing ? 'Refreshing' : 'Refresh',
+              onClick: () => void refreshAll(),
+              disabled: manualRefreshing || !clubUuid || isHydrating,
+              'aria-label': 'Refresh Club Ledger',
+            },
+            primary: {
+              label: exporting ? 'Cancel Export' : 'Export CSV',
+              ink: exporting ? 'red' : 'white',
+              onClick: () => {
+                if (exporting) cancelExport();
+                else void exportCsv();
+              },
+              disabled:
+                !exporting &&
+                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
+              'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
+              title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
+            },
+          }}
+        >
+          <div className={styles.headRow}>
+            <button
+              type="button"
+              className={`${styles.word} sc-ink--muted`}
+              onClick={() => navigate(-1)}
+              aria-label="Go Back"
+            >
+              Back
+            </button>
+            <span className={`${styles.statusLine} sc-ink--${statusInk}`} aria-live="polite">
+              <span className={styles.statusLight} aria-hidden="true" />
+              <span>{statusLine}</span>
+            </span>
+          </div>
+          <div className={styles.rows}>
+            <div className={styles.dataRow}>
+              <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Cash Updated</span>
+              <span className={`sc-ink--silver ${styles.dataValue}`}>
+                {snapshot?.data_updated_at
+                  ? zonedTime(snapshot.data_updated_at)
+                  : loading
+                    ? 'Loading Live Records'
+                    : 'Live Records Ready'}
+              </span>
+            </div>
+          </div>
+          {(ledgerSource === 'cached' || ledgerSource === 'degraded') && snapshot && (
+            <p className={`sc-copy ${styles.note}`} role="status">
+              {ledgerSource === 'cached'
+                ? 'Showing A Recent Verified Snapshot While Live Numbers Refresh.'
+                : 'Live Refresh Is Delayed. Showing The Last Verified Snapshot And Retrying Automatically.'}
+            </p>
+          )}
+          {exportNote && (
+            <p className={`sc-copy ${styles.note}`} role="status">
+              {exportNote}
+            </p>
+          )}
+          {exportProgress && (
+            <p className={`sc-copy ${styles.note}`} role="status" aria-live="polite">
+              {exportProgress.stage === 'preparing'
+                ? 'Preparing An Exact Snapshot For Export...'
+                : `Downloading ${compactInt(exportProgress.loaded)} Of ${compactInt(exportProgress.total)} Rows...`}
+            </p>
+          )}
+        </SpadeConsole>
+
+        {/* Rake production and invoice results retain their own financial
+          definitions, while this Data panel shares the Pacific date window. */}
+        {clubUuid && unionBasis && (
+          <DataHelpTip label="About Agent Rake Production">
+            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
+          </DataHelpTip>
+        )}
+        {clubUuid && !reportRangeError && (
+          <RakeSnapshotPanel
+            reportBasis="pacific"
+            reportRange={{ start: startDate, end: endDate }}
+            unframed
+            clubId={clubUuid}
+            userId={userId}
+            scopes={rakeScopes}
+            active={advanced && !reportRangeError}
+            refreshToken={rakeRefreshKey}
+          />
+        )}
+
+        {clubUuid && <ClubRakebackVerifiedSoFar clubId={clubUuid} />}
+
+        {/* ── Data integrity ─────────────────────────────────────────────── */}
+        <SpadeConsole
+          eyebrow="Operator Trust Layer"
+          title="Data Integrity"
+          titleId="club-data-integrity-title"
+          pill={!snapshot ? 'Checking' : integrityNeedsAttention ? 'Recovery Active' : 'Verified'}
+          pillInk={!snapshot ? 'muted' : integrityNeedsAttention ? 'red' : 'green'}
+          crest="flat"
+          family="spade"
+          foot="foot"
+          className={`${styles.console} ${integrityNeedsAttention ? styles.integrityAttention : ''}`}
+          aria-labelledby="club-data-integrity-title"
+        >
+          <dl className={styles.rows}>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Payload Checks</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {integrity ? `${integrity.passed} / ${integrity.checks}` : NO_VALUE}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Live Feeds</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {realtimeEnabled ? `${liveFeedCount} / 4` : 'Standby'}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Last Verified</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {lastVerifiedAt ? formatClubDataAge(telemetryClock - lastVerifiedAt) : 'Checking'}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Ledger Read</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {lastRequestMs === null ? 'Checking' : `${lastRequestMs.toLocaleString()}ms`}
+              </dd>
+            </div>
+          </dl>
+          <p className={`sc-copy ${styles.note}`}>
+            {integrity?.issues.length
+              ? `${integrity.issues.length} Integrity Check${integrity.issues.length === 1 ? '' : 's'} Need Review. Verified Rows Stay Visible While Recovery Runs.`
+              : liveFeedCount < 4 && realtimeEnabled
+                ? 'The 60-Second Verified Poll Remains Active While Live Feeds Reconnect.'
+                : 'Internal Totals Reconcile. Live Invalidations And The 60-Second Verified Poll Are Active.'}
+          </p>
+          {integrity?.issues.length ? (
+            <ul className={`sc-copy ${styles.issues}`}>
+              {integrity.issues.map((issue) => (
+                <li key={issue}>{titleCase(issue)}</li>
+              ))}
+            </ul>
+          ) : null}
+        </SpadeConsole>
+      </div>
       <ClubHitRunPanel clubId={clubUuid} className={styles.console} />
       <SpadeConsole
         eyebrow="Games And Players"

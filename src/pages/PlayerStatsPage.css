@@ -715,7 +715,7 @@
 .tournament-item-rank {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #f59e0b;
+  color: #92dfff;
 }
 
 .tournament-item-net {
@@ -753,7 +753,7 @@
 .stats-notice-warn {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(245, 158, 11, 0.09);
-  color: #fbbf24;
+  color: #92dfff;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -816,7 +816,7 @@
 .hand-mode-row button.active {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.45);
-  color: #f59e0b;
+  color: #92dfff;
 }
 
 .hand-list {
@@ -1543,7 +1543,7 @@
 }
 
 .panel-boundary-fallback strong {
-  color: #fbbf24;
+  color: #92dfff;
   font-size: 0.82rem;
 }
 
@@ -1555,7 +1555,7 @@
   border: 1px solid rgba(245, 158, 11, 0.45);
   border-radius: 8px;
   background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
+  color: #92dfff;
   font-size: 0.72rem;
   font-weight: 700;
   cursor: pointer;
@@ -2082,7 +2082,7 @@
 
   .stats-notice-warn {
     border-color: rgba(208, 159, 69, 0.34);
-    color: #d9bb7a;
+    color: #92dfff;
     box-shadow: inset 2px 0 0 #c88b31;
   }
 

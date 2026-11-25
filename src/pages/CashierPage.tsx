@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import {
@@ -306,7 +307,7 @@ function CashierContent() {
   const { diamondsPerChip: mintRate, failed: mintRateFailed } = useBridgeRate();
   const toast = useToast();
 
-  const [action, setActionState] = useState<CashierAction>('send');
+  const [action, setActionState] = useState<CashierAction>('history');
   const tableRouteOnly = !!tableId && (action === 'buyin' || action === 'cashout');
   const [amount, setAmountState] = useState('');
   const [cashoutNote, setCashoutNoteState] = useState('');
@@ -595,7 +596,7 @@ function CashierContent() {
   // ── CRITICAL: Reset per-club state when navigating between clubs ──
   // Prevents financial state (userRole, pending cashouts) from carrying over.
   useEffect(() => {
-    setAction('send');
+    setAction('history');
     setAmount('');
     setCashoutNote('');
     setIsProcessing(false);
@@ -2388,10 +2389,25 @@ function CashierContent() {
   }
 
   return (
-    <StandardContentLayout className={styles.page}>
+    <StandardContentLayout className={`${styles.page} arena-workspace arena-cashier`}>
+      <ArenaWorkspaceHeader
+        area="cashier"
+        title="Cashier"
+        context={clubName}
+        subtitle={
+          roleUnknown
+            ? 'Club Wallets'
+            : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
+              ? 'Agent Wallets'
+              : 'Club Wallets'
+        }
+      />
       {/* ── Wallet Display: compact live balances using the cashier directory layout. ── */}
       {user?.id && clubId && (
-        <div className={styles.walletHeader}>
+        <section className={`${styles.walletHeader} arena-case`} aria-label="Wallet Balances">
+          <h2 className="arena-section-title">
+            Wallet Balances <small>Chips</small>
+          </h2>
           <DynamicWallet
             actionClassName={styles.wordAction}
             refreshKey={walletRevision}
@@ -2435,7 +2451,7 @@ function CashierContent() {
               returns 410 and the underlying RPCs have EXECUTE revoked from
               every application role, so this was the last of three layers.
               Do not reinstate without an explicit product decision. */}
-        </div>
+        </section>
       )}
 
       {/* Club Bank Cashier — the same modal the lobby opens. Role-gated inside,
@@ -2492,7 +2508,7 @@ function CashierContent() {
           {!contextError && (
             <nav
               ref={tabNavRef}
-              className={styles.tabNav}
+              className={`${styles.tabNav} arena-switch`}
               role="tablist"
               aria-label="Cashier Actions"
               aria-busy={roleUnknown || undefined}
@@ -2586,7 +2602,7 @@ function CashierContent() {
             panel with a permanently empty recipient dropdown. */}
           {action === 'send' && canSend && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-send"
               role="tabpanel"
               aria-labelledby="cashier-tab-send"
@@ -2851,7 +2867,7 @@ function CashierContent() {
           {/* ═══ DISTRIBUTE CHIPS ═══ */}
           {action === 'distribute' && canDistribute && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-distribute"
               role="tabpanel"
               aria-labelledby="cashier-tab-distribute"
@@ -3182,7 +3198,7 @@ function CashierContent() {
           {/* ═══ BUY-IN / CASH-OUT / MINT ═══ */}
           {(action === 'buyin' || action === 'cashout' || action === 'mint') && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id={`cashier-panel-${action}`}
               role="tabpanel"
               aria-labelledby={`cashier-tab-${action}`}
@@ -3453,7 +3469,7 @@ function CashierContent() {
           {/* ═══ TRANSACTION HISTORY ═══ */}
           {action === 'history' && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-history"
               role="tabpanel"
               aria-labelledby="cashier-tab-history"

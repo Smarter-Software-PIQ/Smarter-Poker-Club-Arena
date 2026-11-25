@@ -421,7 +421,7 @@
   min-width: 44px;
   min-height: 44px;
   padding: 0 min(1cqw, 5px);
-  color: var(--ink-gold);
+  color: #92dfff;
   text-shadow: var(--ink-gold-glow);
 }
 
@@ -512,7 +512,7 @@
 
 .tabBadge {
   margin-left: min(1.2cqw, 6px);
-  color: var(--ink-gold);
+  color: #92dfff;
   text-shadow: var(--ink-gold-glow);
 }
 
@@ -785,7 +785,7 @@ arrow says the direction in force. */
 
 .rowYou {
   margin-left: min(1.6cqw, 8px);
-  color: var(--ink-gold);
+  color: #92dfff;
   font-size: min(2.6cqw, 13px);
   letter-spacing: 0.14em;
   text-shadow: var(--ink-gold-glow);
@@ -967,7 +967,7 @@ arrow says the direction in force. */
 
 /* "Waiting 2h 5m" on a cash-out request nobody has decided yet. */
 .waitTag {
-  color: var(--ink-gold, #e8c46a);
+  color: #92dfff;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1774,7 +1774,7 @@ arrow says the direction in force. */
 
 .console .playerCardBalance strong,
 .console .walletRowValue {
-  color: var(--ink-gold);
+  color: #92dfff;
   font:
     800 6.4cqw/1.1 'Roboto Condensed',
     Inter,

@@ -1029,7 +1029,7 @@
   margin: 0.35rem 0 0.85rem;
   font-size: 0.8rem;
   line-height: 1.45;
-  color: #c8b98a;
+  color: #92dfff;
 }
 
 /* A range is loading: the figures on screen belong to the previous one. */
@@ -1174,7 +1174,7 @@
 
 .mm-eyebrow,
 .mm-section-heading span {
-  color: var(--ca-gold);
+  color: #92dfff;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.72rem;
   font-weight: 700;
@@ -1273,7 +1273,7 @@
   border-radius: 2px;
   border-color: rgba(255, 201, 60, 0.52);
   background: rgba(20, 14, 4, 0.72);
-  color: #ffe29b;
+  color: #92dfff;
   font-size: 0.8rem;
 }
 
@@ -1337,7 +1337,7 @@
 
 .mm-card__title {
   margin-bottom: 12px;
-  color: var(--ca-gold);
+  color: #92dfff;
   font-size: 0.82rem;
 }
 

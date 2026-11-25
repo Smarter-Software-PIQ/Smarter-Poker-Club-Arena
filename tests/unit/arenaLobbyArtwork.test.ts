@@ -55,10 +55,14 @@ describe('guarantee in the event title', () => {
     ).toContain('1,500.5 Guaranteed');
   });
 
-  it('shows the rebuy artwork, tournament name and guarantee for Nightly 20K', () => {
+  it('uses the approved Nightly badge inside the rebuy event and retains its guarantee', () => {
     const header = title('Nightly 20K', { is_rebuy: true, guaranteed_prize: 20000 });
     expect(header).toContain('data-format="rebuy"');
-    expect(header).toContain('>Nightly 20K<');
+    expect(header).toContain('alt="Nightly 20K"');
+    expect(header).toContain('arena-nightly-badge');
+    expect(title('Satellite Into Nightly 20K', { type: 'satellite' })).not.toContain(
+      'arena-nightly-badge'
+    );
     expect(header).toContain('20,000 Guaranteed');
   });
 

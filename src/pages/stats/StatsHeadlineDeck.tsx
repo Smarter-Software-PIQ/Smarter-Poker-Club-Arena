@@ -113,50 +113,69 @@ export default function StatsHeadlineDeck(props: Props) {
           </div>
         </div>
 
-        <div className="stats-hero" role="group" aria-label="Headline Performance">
-          <HandsWonGauge handsWonPct={overall.total_hands > 0 ? handsWonPct : null} />
-          <div className="hero-stats">
-            <div className="hero-stat">
-              {/* max() prints the ALL-TIME count when it is larger, on a range-scoped
+        {!privacyPresentationMode && (
+          <>
+            <div className="stats-hero" role="group" aria-label="Headline Performance">
+              <div className="hero-stats">
+                <div className="hero-stat">
+                  {/* max() prints the ALL-TIME count when it is larger, on a range-scoped
               page: say so (2026-09-20). */}
-              <span className="hero-stat-label">
-                {lifetime.hands > overall.total_hands ? 'Recorded Cash Hands' : 'Cash Hands'}
-              </span>
-              <span className="hero-stat-value cyan">
-                {Math.max(lifetime.hands, overall.total_hands).toLocaleString()}
-              </span>
-              {lifetime.hands > overall.total_hands && (
-                <span className="hero-stat-sub">
-                  {overall.total_hands.toLocaleString()} Analysed
+                  <span className="hero-stat-label">
+                    {lifetime.hands > overall.total_hands ? 'Recorded Cash Hands' : 'Cash Hands'}
+                  </span>
+                  <span className="hero-stat-value cyan">
+                    {Math.max(lifetime.hands, overall.total_hands).toLocaleString()}
+                  </span>
+                  {lifetime.hands > overall.total_hands && (
+                    <span className="hero-stat-sub">
+                      {overall.total_hands.toLocaleString()} Analysed
+                    </span>
+                  )}
+                </div>
+                <div className="hero-stat">
+                  <span className="hero-stat-label">BB/100</span>
+                  <span
+                    className={
+                      'hero-stat-value' +
+                      (!overall.cash_hands
+                        ? ''
+                        : overall.bb_per_100 >= 0
+                          ? ' positive'
+                          : ' negative')
+                    }
+                  >
+                    {ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
+                  </span>
+                </div>
+                <div className="hero-stat">
+                  <span className="hero-stat-label">Hours Played</span>
+                  <span className="hero-stat-value">
+                    {statsContract.quality.metric_availability.hours_played === false
+                      ? 'Not Yet Measured'
+                      : overall.hours_played.toFixed(1) + 'h'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <details className="stats-secondary">
+              <summary>More Performance Figures</summary>
+              <HandsWonGauge handsWonPct={overall.total_hands > 0 ? handsWonPct : null} />
+              <div className="hero-stat">
+                <span className="hero-stat-label">
+                  {rangeKey === 'all' && !overall.hands_capped
+                    ? 'Cash Profit'
+                    : 'Analysis Cash Result'}
                 </span>
-              )}
-            </div>
-            <div className="hero-stat">
-              <span className="hero-stat-label">
-                {rangeKey === 'all' && !overall.hands_capped
-                  ? 'Cash Profit'
-                  : 'Analysis Cash Result'}
-              </span>
-              <span
-                className={`hero-stat-value ${overall.total_profit >= 0 ? 'positive' : 'negative'}`}
-              >
-                {overall.total_profit >= 0 ? '+' : ''}
-                {compactChips(overall.total_profit)}
-              </span>
-            </div>
-            <div className="hero-stat">
-              <span className="hero-stat-label">BB/100</span>
-              <span
-                className={
-                  'hero-stat-value' +
-                  (!overall.cash_hands ? '' : overall.bb_per_100 >= 0 ? ' positive' : ' negative')
-                }
-              >
-                {ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
-              </span>
-            </div>
-          </div>
-        </div>
+                <span
+                  className={`hero-stat-value ${overall.total_profit >= 0 ? 'positive' : 'negative'}`}
+                >
+                  {overall.total_profit >= 0 ? '+' : ''}
+                  {compactChips(overall.total_profit)}
+                </span>
+              </div>
+            </details>
+          </>
+        )}
       </section>
 
       {privacyPresentationMode && category !== 'workspace' && (
