@@ -888,7 +888,6 @@
   background: linear-gradient(#1678ec, #064da9 52%, #082d60);
   border-image-source: var(--arena-active);
 }
-.arena-workspace.club-members-page .members-history-action:hover,
 .arena-workspace.club-members-page .members-history-action[aria-expanded='true'] {
   filter: brightness(1.16);
 }
