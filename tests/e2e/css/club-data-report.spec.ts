@@ -232,10 +232,36 @@ test('populated Club Pulse comparisons and reporting dates fit the report down t
   await page.goto(`http://club-data.fixture/clubs/fixture-union/data?report=open&${dates}`);
   await page.addStyleTag({ content: readFileSync('src/styles/globals.css', 'utf8') });
   await page.addStyleTag({ content: fixture.css });
+  await page.evaluate(() => {
+    Object.assign(window, {
+      fixtureInvoices: [
+        {
+          invoice_id: 'fixture-invoice',
+          status: 'generated',
+          overdue: false,
+          paid_total: 0,
+          outstanding: 250.25,
+          amount: 250.25,
+          direction: 'club_owes_union',
+          message_sent: false,
+          breakdown: null,
+          issued_at: '2026-11-23T08:00:00Z',
+          due_at: '2026-11-27T02:00:00Z',
+          period_start: '2026-11-16T08:00:00Z',
+          period_end: '2026-11-23T08:00:00Z',
+        },
+      ],
+    });
+  });
   await page.addScriptTag({ content: fixture.javascript });
   const report = page.locator('[data-page="club-data"]');
   const summary = report.locator('[aria-label="Club Performance Summary"]');
   await expect(summary.getByText('-415.25 Vs Prev 7 Days')).toBeVisible();
+  const statement = report.getByRole('region', { name: 'Union Statement' });
+  const period = statement.getByText('Nov 16, 2026 2:00 AM To Nov 23, 2026 2:00 AM Chicago Time', {
+    exact: true,
+  });
+  await expect(period).toBeVisible();
   for (const [width, size] of [
     [1280, 100],
     [768, 100],
@@ -249,6 +275,15 @@ test('populated Club Pulse comparisons and reporting dates fit the report down t
     }, size);
     const excess = await report.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(excess, `report at ${width}px and ${size}%`).toBeLessThanOrEqual(1);
+    const dateFits = await period.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const row = element.parentElement!.getBoundingClientRect();
+      return Array.from(range.getClientRects()).every(
+        (line) => line.left >= row.left - 1 && line.right <= row.right + 1
+      );
+    });
+    expect(dateFits, `statement period at ${width}px and ${size}%`).toBe(true);
     const overhang = await summary.evaluate((grid) =>
       Math.max(
         ...[...grid.children].flatMap((tile) => {

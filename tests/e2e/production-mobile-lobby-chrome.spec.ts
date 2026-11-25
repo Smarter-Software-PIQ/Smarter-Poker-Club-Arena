@@ -97,7 +97,19 @@ test.afterEach(async ({ page }, testInfo) => {
 // Production has no retries. Preserve the first failed action's trace rather
 // than relying on on-first-retry, which never records these failures.
 // Host-pin day boundaries below are explicitly certified in the Chicago timezone.
-test.use({ ...devices['iPhone 13'], timezoneId: 'America/Chicago', trace: 'retain-on-failure' });
+// The phone supplies the screen and input settings. Each project supplies
+// its own engine so both Chromium and WebKit exercise the mobile journey.
+const { viewport, screen, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['iPhone 13'];
+test.use({
+  viewport,
+  screen,
+  userAgent,
+  deviceScaleFactor,
+  isMobile,
+  hasTouch,
+  timezoneId: 'America/Chicago',
+  trace: 'retain-on-failure',
+});
 
 async function openLobby(page: Page, openSection = true) {
   // The Diamond Spins offer opens on the answer to this read. Listen before
@@ -431,6 +443,9 @@ test.describe('the mobile lobby chrome on production', () => {
   test('View Game opens four spectator games while preserving the lobby page', async ({
     page,
   }, testInfo) => {
+    expect(page.context().browser()?.browserType().name()).toBe(
+      testInfo.project.use.defaultBrowserType
+    );
     expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
       true
     );
@@ -473,6 +488,8 @@ test.describe('the mobile lobby chrome on production', () => {
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
       const row = lobby.locator(`tr[data-id="${ids[i]}"]:visible`);
       const details = row.getByRole('button', { name: /^Details:/ });
+      // Bring this card into the readable area between the pinned controls.
+      await details.evaluate((button) => button.scrollIntoView({ block: 'center' }));
       await details.click();
       await expect(details).toHaveAttribute('aria-expanded', 'true');
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });

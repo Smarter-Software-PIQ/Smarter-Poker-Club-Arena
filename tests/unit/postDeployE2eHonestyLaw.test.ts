@@ -535,6 +535,28 @@ describe('the workflow cannot go back to reporting success dishonestly', () => {
     expect(step(WORKFLOW, 'Did the suite actually verify production?')).toContain('if: always()');
   });
 
+  it('runs Club Data once and retains its result before the shared browser sweep', () => {
+    const data = step(WORKFLOW, 'Certify the authenticated Club Data workspace');
+    const retained = step(WORKFLOW, 'Retain the Club Data result');
+    const sweep = step(WORKFLOW, 'Run the specs that need a deployed page');
+    const spec = 'tests/e2e/club-data-deep.spec.ts';
+    expect(data).toContain(spec);
+    expect(data).toContain("E2E_REQUIRE_AUTH: '1'");
+    expect(data).toContain('--workers=1 --retries=0');
+    expect(sweep).not.toContain(spec);
+    expect(WORKFLOW.indexOf(data)).toBeLessThan(WORKFLOW.indexOf(retained));
+    expect(WORKFLOW.indexOf(retained)).toBeLessThan(WORKFLOW.indexOf(sweep));
+    expect(retained).toContain('if: always()');
+    expect(retained).toContain('post-deploy-club-data-result');
+    for (const name of [
+      'Name every skipped mobile check and its exact reason',
+      'Name every failed test as an annotation',
+      'Did the suite actually verify production?',
+    ]) {
+      expect(step(WORKFLOW, name)).toContain('e2e-report/club-data.json');
+    }
+  });
+
   it('preserves the production report when GitHub cancels at the job timeout', () => {
     const upload = step(WORKFLOW, 'Upload the report when something is wrong on production');
     expect(upload).toContain('if: always()');
