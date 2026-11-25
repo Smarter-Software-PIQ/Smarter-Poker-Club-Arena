@@ -361,10 +361,54 @@
   background: #0084ff;
   color: #fff;
 }
+.dock-message-bubble.dock-media-bubble,
+.dock-own .dock-message-bubble.dock-media-bubble {
+  padding: 0;
+  background: transparent;
+  color: #050505;
+  border: 1px solid #e4e6eb;
+  border-radius: 14px;
+  overflow: hidden;
+  white-space: normal;
+}
+.dock-media-bubble > a {
+  display: block;
+}
+.dock-media-bubble img,
+.dock-media-bubble video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 0;
+}
+.dock-media-bubble video {
+  background: #000;
+}
+.dock-media-forwarded {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-style: italic;
+  color: #0084ff;
+  background: #fff;
+  border-bottom: 1px solid #e4e6eb;
+}
+.dock-media-caption {
+  padding: 8px 12px;
+  background: #e4e6eb;
+  color: #050505;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dock-own .dock-media-caption {
+  background: #0084ff;
+  color: #fff;
+}
 .dock-message-bubble img,
 .dock-message-bubble video {
   max-width: 100%;
-  border-radius: 9px;
   display: block;
 }
 .dock-message-bubble audio {
@@ -518,6 +562,24 @@
   }
   .dock-own .dock-message-bubble {
     background: #0084ff;
+  }
+  .dock-message-bubble.dock-media-bubble,
+  .dock-own .dock-message-bubble.dock-media-bubble {
+    background: transparent;
+    color: #e4e6eb;
+    border-color: #3e4042;
+  }
+  .dock-media-forwarded {
+    background: #242526;
+    border-bottom-color: #3e4042;
+  }
+  .dock-media-caption {
+    background: #3a3b3c;
+    color: #e4e6eb;
+  }
+  .dock-own .dock-media-caption {
+    background: #0084ff;
+    color: #fff;
   }
   .dock-composer textarea {
     background: #3a3b3c;

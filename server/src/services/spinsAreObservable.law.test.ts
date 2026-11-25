@@ -288,6 +288,8 @@ describe('the spin alert rules are wired and reference only real gauges', () => 
       'SpinUnfilledBacklog',
       // A paying player waiting for opponents (2026-10-03).
       'SpinHumanWaitingForOpponents',
+      // Fast-fail on deterministic Spin seat-first booking refusals (2026-11-24, incident 3c817b04).
+      'SpinSeatFirstBookingRefusedRepeatedly',
     ]) {
       expect(src, `${alert} exists`).toContain(`alert: ${alert}`);
     }

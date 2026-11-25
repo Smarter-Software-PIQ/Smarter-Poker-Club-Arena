@@ -89,4 +89,16 @@ describe('native Messenger dock', () => {
     expect(read('src/App.tsx')).toContain('<MessengerDockHost />');
     expect(read('src/components/messenger/MessengerDockHost.tsx')).toContain('OPEN_HUB_TAB');
   });
+  it('renders uploaded images and videos uncropped with a 1px thin frame and zero thick bubble padding', () => {
+    const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
+    const panel = read('src/components/messenger/dock/MessengerChat.jsx');
+    const css = read('src/components/messenger/dock/MessengerDock.css');
+    expect(panel).toContain('dock-media-bubble');
+    expect(panel).toContain('resolveUploadMedia');
+    expect(panel).toContain('videoPreviewUrl');
+    expect(css).toMatch(
+      /\.dock-message-bubble\.dock-media-bubble[\s\S]*padding:\s*0;[\s\S]*border:\s*1px solid/
+    );
+    expect(css).toMatch(/\.dock-media-bubble img,[\s\S]*object-fit:\s*contain;/);
+  });
 });

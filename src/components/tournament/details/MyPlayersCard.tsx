@@ -64,7 +64,7 @@ export default function MyPlayersCard({
   const defaultOpen = summary.mode === 'finished';
   const [toggled, setToggled] = useState<boolean | null>(null);
   if (summary.mode === 'none') return null;
-  const open = hasList && (toggled ?? defaultOpen);
+  const open = hasList && (defaultOpen || toggled === true);
   const { line, sub } = headline(summary);
 
   return (

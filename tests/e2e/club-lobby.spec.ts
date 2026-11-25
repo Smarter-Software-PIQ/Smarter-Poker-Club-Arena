@@ -19,7 +19,7 @@ import { openLobbyGameSection } from './support/lobbyGameSections';
  * SIGNED OUT this file skips, exactly like the other authenticated specs:
  * expectRoute() calls test.skip() the moment it lands on /auth.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 import { expectRoute } from './routes/utils';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 import { diamondEntryRead, settleDiamondSpinsOffer } from './support/diamondInvitationOffer';
@@ -360,6 +360,29 @@ for (const width of [393, 1440]) {
       if (money.has(name)) moneyCalls.push(name);
     });
     const memberClub = process.env.E2E_LIGHTNING_CLUB_ID || '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3';
+    // Keep earlier and refreshed reads. The fast club-home response and the
+    // enriched table query run independently, and either may paint the board.
+    const catalogues: Response[] = [];
+    page.on('response', (response) => {
+      if (!response.ok()) return;
+      const url = new URL(response.url());
+      if (url.pathname.endsWith('/rest/v1/rpc/get_club_home')) {
+        catalogues.push(response);
+        return;
+      }
+      const query = url.searchParams;
+      const clubs = (query.get('club_id') || '').split(/[(),".]/);
+      const fromClub =
+        clubs.includes(memberClub) || (query.get('or') || '').includes(`club_id.eq.${memberClub},`);
+      if (
+        fromClub &&
+        url.pathname.endsWith('/rest/v1/tables') &&
+        query.get('tournament_id') === 'is.null' &&
+        (query.get('select') || '').split(',').includes('maintain_percent_min')
+      ) {
+        catalogues.push(response);
+      }
+    });
     const offer = diamondEntryRead(page);
     await page.goto(`clubs/${memberClub}`, { waitUntil: 'domcontentloaded' });
     await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/);
@@ -369,7 +392,7 @@ for (const width of [393, 1440]) {
     await expect(all).toBeVisible({ timeout: 45_000 });
     await settleDiamondSpinsOffer(page, offer);
     await all.click();
-    const row = page
+    const visibleMatch = page
       .locator(
         '[data-testid="lobby-game-row"][data-kind="cash"]:visible, .club-home__games .lt-row[data-kind="cash"]:visible'
       )
@@ -378,11 +401,61 @@ for (const width of [393, 1440]) {
       .filter({ hasText: /Madness/ })
       .filter({ hasNotText: /Lightning/ })
       .first();
-    await expect(row, 'the member lobby must expose the running ordinary Madness game').toBeVisible(
-      { timeout: 45000 }
-    );
+    await expect(
+      visibleMatch,
+      'the member lobby must expose the running ordinary Madness game'
+    ).toBeVisible({ timeout: 45000 });
+    const id = (await visibleMatch.getAttribute('data-id')) || '';
+    expect(id, 'the visible Madness game must have a table id').toMatch(/^[a-f0-9-]{36}$/i);
+    const row = page.locator(`.club-home__games tr[data-kind="cash"][data-id="${id}"]:visible`);
+    type RuleRow = {
+      id: string;
+      maintain_percent_min: number;
+      nit_game: boolean;
+      big_blind_ante_enabled: boolean;
+      bomb_pot_enabled: boolean;
+    };
+    let floor = Number.NaN;
+    await expect
+      .poll(
+        async () => {
+          for (const response of catalogues.splice(0).reverse()) {
+            const body = await response.json();
+            const home = new URL(response.url()).pathname.endsWith('/rpc/get_club_home');
+            if (home && body?.club?.id !== memberClub) continue;
+            const records = home ? body.tables : body;
+            if (!Array.isArray(records)) continue;
+            const found = records.find(
+              (record: Partial<RuleRow> | null) =>
+                record?.id === id &&
+                record?.maintain_percent_min != null &&
+                typeof record.nit_game === 'boolean' &&
+                typeof record.big_blind_ante_enabled === 'boolean' &&
+                typeof record.bomb_pot_enabled === 'boolean'
+            );
+            if (found) {
+              floor = Number(found.maintain_percent_min);
+              return found;
+            }
+          }
+          return null;
+        },
+        {
+          timeout: 45_000,
+          message: 'The selected table must have an observed rule set in this club',
+        }
+      )
+      .toMatchObject({
+        id,
+        big_blind_ante_enabled: true,
+        nit_game: true,
+        bomb_pot_enabled: true,
+      });
+    expect(floor).toBeGreaterThan(0);
+    expect(floor).toBeLessThanOrEqual(100);
+    const fullRule = `${floor}% Minimum VPIP`;
     // The compact row abbreviates Minimum; its title retains the full rule.
-    await expect(row.getByTitle('50% Minimum VPIP', { exact: true })).toHaveText('50% Min VPIP');
+    await expect(row.getByTitle(fullRule, { exact: true })).toHaveText(`${floor}% Min VPIP`);
     await expect(row).toContainText('Big Blind Ante');
     const details = row.getByRole('button', { name: /^Details:/ });
     if (await details.count()) await details.click();
@@ -393,10 +466,10 @@ for (const width of [393, 1440]) {
       .first();
     await expect(panel).toBeVisible();
     await expect(panel).toContainText('Madness');
-    await expect(panel).toContainText('50% Minimum VPIP');
+    await expect(panel).toContainText(fullRule);
     await expect(panel.getByRole('button', { name: 'Join Lightning', exact: true })).toHaveCount(0);
     const selected = new URL(page.url()).searchParams.get('game');
-    expect(selected, 'the selected game must survive refresh').toBeTruthy();
+    expect(selected, 'the opened game must be the selected table').toBe(id);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await prepareCashLobbyActions(page);
     await expect(panel).toBeVisible({ timeout: 45000 });

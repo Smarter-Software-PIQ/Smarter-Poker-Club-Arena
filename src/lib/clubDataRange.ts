@@ -2,6 +2,32 @@ import { addCalendarDays, isCalendarDate } from './clubDataDay';
 
 /** The reporting RPC accepts the past 90 inclusive reporting dates. */
 export const CLUB_DATA_MAX_DAYS = 90;
+export const CLUB_DATA_PRESETS = [1, 7, 14, 30, 90] as const;
+export type ClubDataPreset = (typeof CLUB_DATA_PRESETS)[number];
+
+export function readClubDataPreset(params: URLSearchParams): ClubDataPreset {
+  return CLUB_DATA_PRESETS.find((days) => String(days) === params.get('dataDays')) ?? 1;
+}
+
+/** Rolling periods follow Pacific midnight unless a historical end date is pinned. */
+export function writeClubDataRange(
+  params: URLSearchParams,
+  start: string | null,
+  end: string,
+  today: string,
+  days: ClubDataPreset
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.delete('dataUntil');
+  if (start !== null) next.set('dataStart', start);
+  else next.delete('dataStart');
+  if (start !== null || end !== today) next.set('dataEnd', end);
+  else next.delete('dataEnd');
+  if (start === null && days !== 1) next.set('dataDays', String(days));
+  else next.delete('dataDays');
+  return next;
+}
+
 export function clubDataRangeError(
   start: string,
   end: string,
@@ -54,5 +80,8 @@ export function clubDataRequestedRangeError(params: URLSearchParams, today: stri
   const until = params.get('dataUntil');
   if (until !== null && !isCalendarDate(until)) return 'Choose A Start And End Date.';
   const end = until !== null ? addCalendarDays(until, -1) : (params.get('dataEnd') ?? '');
-  return clubDataRangeError(params.get('dataStart') ?? end, end, today);
+  const start =
+    params.get('dataStart') ??
+    (isCalendarDate(end) ? addCalendarDays(end, 1 - readClubDataPreset(params)) : end);
+  return clubDataRangeError(start, end, today);
 }

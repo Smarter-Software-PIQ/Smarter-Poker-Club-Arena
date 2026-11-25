@@ -1,4 +1,8 @@
 {
+  "cashierStatementToolEntry20261124": {
+    "reason": "The club cashier now has one view. Both weekly statement checks open Requests, Tickets And Tools when collapsed and then select the existing Settlement Record tab.",
+    "verification": "Reviewed both changed selectors. The authorized weekly funding, club payments, retained chips, failed reads and club-switch isolation assertions are preserved. The focused Cashier checks passed."
+  },
   "noticeCashoutClientAudit20261117": {
     "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
     "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
@@ -359,7 +363,7 @@
     "tests/fixtures/correction-document-authority/captured-references.json": "60b794f91a5d726c9302856a220b193eae52fbd95dc1e15ad4b95b312b092479",
     "tests/fixtures/correction-document-authority/captured-union-party.json": "9bc97fef36c4e3e3ec2766cb3596764513bb20fd8bce78e5fa1ee87337bb86f7",
     "tests/fixtures/correction-document-authority/regression.sql": "f70b287534ee6024469629a18fd38cb4074f528e906808c5bf6ebdb1464091f1",
-    "tests/cashier-weekly-statements.test.tsx": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a",
+    "tests/cashier-weekly-statements.test.tsx": "c387275458e342eaac86fe3395997fe3641d27cf1fccb5dd7f0998aec83f2217",
     "tests/helpers/clubWeeklyStatement.ts": "7061277bbc67933e1aba5bcd76ebd3cd4fec241ffe9545c39e0b0f10806b2d21",
     "tests/unit/ClubWeeklyAccountingReader.test.ts": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063",
     "tests/unit/FinancialExportService.test.ts": "a3870a8c151e21c7917687b6953dcd3d51cf82cc03071c655674111ad9556c16",
@@ -623,7 +627,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "7fba257c28c4ed4da6f5fb3e9a959c6c5c27981a34441434e1f778e940eff62e",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "30263a656f6e9dcd71ce5a725ad307e11ad2ec6c2e21d40b32edf95928860a81",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -641,7 +645,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "22bbf548f666f0aca51dc2471efb2ccc9be6f40a21afb9416baa49dfd1f75664",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "c36496f2d7d19253ce887cdbb6e4a1824eca708d067e184b6231e5cba3fe4dc3",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -681,7 +685,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "668584568748bf1d54d6328361f9cfe98ed1555a48599e59cdfa8f5c11fb40ed",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "1a66a489faca4f4fa98ee74b3e8a245908021660c1761d548f2745113f994c2a",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -694,7 +698,7 @@
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
     "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
+    "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -8796,5 +8800,36 @@
         "why": "Reviewed complete 18-line regression diff for the scoped lazy promo-summary dependency fix: retires the original view between observing the definitive guard response and resuming the lazy detail reader, asserting no stale summary read, no bus emission, one original RPC and retained unknown outcome. Existing exact hint and money receipt assertions are unchanged. Cashout lane reports 188 focused tests passed; current source identity only."
       }
     ]
+  },
+  "spinBooksNetOfRefundsAccountingShard4_20261124": {
+    "reason": "Required accounting shard 4 gains one additive step (and its evidence upload) that runs the throwaway PostgreSQL 17 proof that a Spin's third paid seat is proven net of refunds (scripts/ci/test-spin-books-net-of-refunds.py, incident 7e8dce13, migration 20261124172844). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab",
+        "current": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "668584568748bf1d54d6328361f9cfe98ed1555a48599e59cdfa8f5c11fb40ed",
+        "current": "1a66a489faca4f4fa98ee74b3e8a245908021660c1761d548f2745113f994c2a"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "kind": "sha256",
+        "previous": "7fba257c28c4ed4da6f5fb3e9a959c6c5c27981a34441434e1f778e940eff62e",
+        "current": "30263a656f6e9dcd71ce5a725ad307e11ad2ec6c2e21d40b32edf95928860a81"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "22bbf548f666f0aca51dc2471efb2ccc9be6f40a21afb9416baa49dfd1f75664",
+        "current": "c36496f2d7d19253ce887cdbb6e4a1824eca708d067e184b6231e5cba3fe4dc3"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
   }
 }

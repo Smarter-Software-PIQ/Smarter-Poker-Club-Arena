@@ -1,3 +1,4 @@
+import { clubDataReportPath } from '../../utils/clubDataReportPath';
 import { Link, useSearchParams, useParams } from 'react-router-dom';
 import { readClubDataRange } from '../../lib/clubDataRange';
 import { accountingDay, clubDataCalendarLabel } from '../../lib/clubDataDay';
@@ -18,19 +19,19 @@ export default function ClubDataReturnLink() {
     'dataGame',
     'dataStakes',
     'dataSearch',
-    'view',
+    'report',
     'dataTab',
   ]) {
     const value = params.get(key);
     if (value !== null) query.set(key, value);
   }
   const returnPath =
-    params.get('view') === 'advanced'
-      ? `/clubs/${encodeURIComponent(source)}/data/advanced`
-      : `/clubs/${encodeURIComponent(source)}/data`;
+    params.get('view') === 'advanced' || params.get('report') === 'open'
+      ? clubDataReportPath(source, query)
+      : `/clubs/${encodeURIComponent(source)}/data?${query}`;
   return (
     <p className={styles.note}>
-      <Link className={styles.action} to={`${returnPath}?${query}`}>
+      <Link className={styles.action} to={returnPath}>
         Return To Club Data
       </Link>{' '}
       {clubDataCalendarLabel(range.start, range.end, 'pacific')}. Member Ledger Figures Retain Their

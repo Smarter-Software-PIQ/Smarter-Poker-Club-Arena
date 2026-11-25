@@ -84,6 +84,7 @@ test('Tournament Price Stays Centered Between Unequal Header Controls', async ({
 
 test('The Shared Lobby Matches The Approved Canvas Inside The Club Chrome', async ({ page }) => {
   const styles = [
+    'src/components/layouts/AppLayout.module.css',
     'src/pages/tournament/TournamentDetails.css',
     'src/components/lobby/ArenaLobbyConsole.css',
     'src/components/lobby/MttConsole.css',
@@ -92,15 +93,16 @@ test('The Shared Lobby Matches The Approved Canvas Inside The Club Chrome', asyn
   ]
     .map(css)
     .join('\n');
-  for (const width of [393, 971]) {
+  for (const width of [393, 616, 971]) {
     await page.setViewportSize({ width, height: 1014 });
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-      <style>body{margin:0;line-height:1.6;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
+      <style>*{box-sizing:border-box}body{margin:0;line-height:1.6;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--ca-global-header-height:63px;--ca-bottom-chrome-h:72px}
       ${styles}</style>
-      <section class="tournament-details console-lobby"><header class="details-header">
-      <div class="mtt-meta"><div class="mtt-price"><p class="tournament-buyin">35 Chips</p></div></div></header></section>
+      <main class="main casinoStage"><section class="tournament-details console-lobby"><header class="details-header">
+      <div class="mtt-meta"><div class="mtt-price"><p class="tournament-buyin">35 Chips</p></div></div></header></section></main>
       <div class="glp-backdrop"><aside class="glp"></aside></div>`);
     const interior = await page.locator('.console-lobby').boundingBox();
+    expect(interior!.y).toBe(0);
     expect(interior!.width).toBe(Math.min(width, 600));
     expect(interior!.x + interior!.width / 2).toBeCloseTo(width / 2);
     await expect(page.locator('.tournament-buyin')).toHaveCSS('color', 'rgb(86, 216, 255)');
@@ -1103,6 +1105,59 @@ test.describe('mobile lobby chrome', () => {
     await page.setContent(lobby({ countText: '', publishControlsHeight: true }));
     const empty = await measureCountLine(page);
     expect(empty.text.trim()).toBe('');
+  });
+
+  test('Cashier keeps its count centered under the live Wallet Balances title at mobile and desktop widths', async ({
+    page,
+  }) => {
+    await page.setContent(lobby({ countText: '4 Balances', publishControlsHeight: false }));
+    await page.addStyleTag({ content: css('src/components/lobby/ArenaWorkspace.css') });
+    await page.evaluate(() => {
+      const card = document.querySelector('.cashier-my-wallets')!;
+      card.classList.add('arena-case');
+      card.querySelector('strong')!.textContent = 'Wallet Balances';
+      const cashier = document.createElement('main');
+      cashier.className = 'arena-workspace arena-trade';
+      cashier.append(card);
+      document.body.replaceChildren(cashier);
+    });
+    const trigger = page.locator('.lobby-wallets-trigger');
+    for (const [width, count] of [
+      [320, 4],
+      [393, 6],
+      [1024, 12],
+    ]) {
+      await page.setViewportSize({ width, height: 850 });
+      await trigger.locator('small').evaluate((line, n) => {
+        line.textContent = n + ' Balances';
+      }, count);
+      const g = await trigger.evaluate((button) => {
+        const frame = button.getBoundingClientRect();
+        const range = document.createRange();
+        const textBox = (selector: string) => {
+          range.selectNodeContents(button.querySelector(selector)!);
+          return range.getBoundingClientRect();
+        };
+        const title = textBox('strong'),
+          count = textBox('small');
+        return {
+          titleOffset: Math.abs(title.left + title.width / 2 - frame.left - frame.width / 2),
+          countOffset: Math.abs(count.left + count.width / 2 - title.left - title.width / 2),
+          clipped:
+            count.left < frame.left ||
+            count.right > frame.right ||
+            count.top < frame.top ||
+            count.bottom > frame.bottom,
+          under: count.top >= title.bottom,
+          background: getComputedStyle(button).backgroundImage,
+        };
+      });
+      expect(g.titleOffset).toBeLessThan(1);
+      expect(g.countOffset).toBeLessThan(1);
+      expect(g.under).toBe(true);
+      expect(g.clipped).toBe(false);
+      expect(g.background).toBe('none');
+    }
   });
 
   test('compact game rows fit the phone and keep touch targets', async ({ page }) => {

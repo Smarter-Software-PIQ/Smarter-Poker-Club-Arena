@@ -6,10 +6,12 @@ export default function TournamentPlayingStats({
   overall,
   full,
   onOpenHands,
+  onOpenLeakFinder,
 }: {
   overall: OverallStats;
   full: FullStats | null;
   onOpenHands?: () => void;
+  onOpenLeakFinder?: () => void;
 }) {
   return (
     <>
@@ -17,11 +19,18 @@ export default function TournamentPlayingStats({
         <div className="stats-section-header">
           <h3>Tournament Playing Statistics</h3>
         </div>
-        {onOpenHands && (
+        {(onOpenHands || onOpenLeakFinder) && (
           <div className="stats-club-actions">
-            <button type="button" onClick={onOpenHands}>
-              Review Tournament Hands
-            </button>
+            {onOpenHands && (
+              <button type="button" onClick={onOpenHands}>
+                Review Tournament Hands
+              </button>
+            )}
+            {onOpenLeakFinder && (
+              <button type="button" onClick={onOpenLeakFinder}>
+                Analyze Tournament Leaks
+              </button>
+            )}
           </div>
         )}
         <div className="stats-grid">

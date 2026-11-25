@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  SCRATCH_POSTGRES_PORT,
+  scratchPostgresListenOptions,
+  scratchPostgresSocket,
+  showServerLogWhenStartFails,
+} from '../helpers/scratchPostgres';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { cashGameCreateServerMessage } from '../../src/config/cashGames';
@@ -61,12 +67,12 @@ it('runs the old rejection and repaired stake matrix in isolated PostgreSQL', ()
   const scratch = mkdtempSync(resolve(cache, 'midway-stake-'));
   // Unix socket paths are length limited; pg_ctl uses TCP on a random port
   // chosen by the OS for this test's short-lived private server.
-  const port = 20000 + Math.floor(Math.random() * 30000);
+  const socket = scratchPostgresSocket();
   const data = resolve(scratch, 'data');
   const env = {
     ...process.env,
-    PGHOST: '127.0.0.1',
-    PGPORT: String(port),
+    PGHOST: socket,
+    PGPORT: SCRATCH_POSTGRES_PORT,
     PGDATABASE: 'postgres',
     PGUSER: process.env.USER || 'runner',
     PGSSLMODE: 'disable',
@@ -89,16 +95,18 @@ it('runs the old rejection and repaired stake matrix in isolated PostgreSQL', ()
   let started = false;
   try {
     run('initdb', ['-D', data, '-A', 'trust']);
-    run('pg_ctl', [
-      '-D',
-      data,
-      '-l',
-      resolve(scratch, 'postgres.log'),
-      '-o',
-      `-p ${port} -h 127.0.0.1 -k ''`,
-      '-w',
-      'start',
-    ]);
+    showServerLogWhenStartFails(resolve(scratch, 'postgres.log'), () =>
+      run('pg_ctl', [
+        '-D',
+        data,
+        '-l',
+        resolve(scratch, 'postgres.log'),
+        '-o',
+        scratchPostgresListenOptions(socket),
+        '-w',
+        'start',
+      ])
+    );
     started = true;
     run(
       'psql',
@@ -160,5 +168,6 @@ LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;`
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'fast', '-w', 'stop']);
     rmSync(scratch, { recursive: true, force: true });
+    rmSync(socket, { recursive: true, force: true });
   }
 });

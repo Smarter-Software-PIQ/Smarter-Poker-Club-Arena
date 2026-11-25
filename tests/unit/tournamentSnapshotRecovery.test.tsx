@@ -165,6 +165,7 @@ vi.mock('../../src/components/tournament/details/DetailOverviewTab', async (impo
             })),
             tables: tables.map((t: any) => t.id),
             isRegistered,
+            viewerLinkClub: props.viewerLinkClub,
           })}
         </output>
       );
@@ -283,6 +284,48 @@ afterEach(() => {
 });
 
 describe('Tournament details snapshot recovery', () => {
+  it.each([
+    ['mtt-v1', 'COMPLETING'],
+    ['spin-v1', 'COMPLETING'],
+    ['mtt-v1', 'ABORTED'],
+    ['spin-v1', 'FINISHED'],
+    ['mtt-v1', 'COMPLETED'],
+    ['spin-v1', 'CANCELLED'],
+  ])(
+    'keeps the registered entrant in the %s lobby without admission actions during %s',
+    async (format_contract, status) => {
+      fixture.getTournament.mockResolvedValue(
+        tournament('a', { status, format_contract, max_players: 3 })
+      );
+      rows('tournament_players_public', {
+        data: [entry('a', { status: 'registered' })],
+        error: null,
+      });
+      render(<Page embedded={false} />);
+      await flush();
+      expect(snapshot().isRegistered).toBe(true);
+      expect(
+        screen.queryByRole('button', { name: /unregister|register|take (a )?seat/i })
+      ).toBeNull();
+      expect(screen.queryByRole('link', { name: /take (a )?seat/i })).toBeNull();
+      expect(fixture.navigate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('passes the embedded tournament link club to its roster independently of the host table address', async () => {
+    render(
+      <MemoryRouter initialEntries={['/table/host?club=table-club']}>
+        <TournamentDetails
+          tournamentIdOverride="a"
+          searchOverride="?club=tournament-club"
+          suppressAutoOpenTable
+        />
+      </MemoryRouter>
+    );
+    await flush();
+    expect(snapshot().viewerLinkClub).toBe('tournament-club');
+  });
+
   it('publishes completed snapshots while every read receives another standings event', async () => {
     const reads = Array.from({ length: 4 }, () => deferred<any>());
     for (const read of reads) fixture.getTournament.mockReturnValueOnce(read.promise);

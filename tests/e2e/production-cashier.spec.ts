@@ -105,6 +105,10 @@ test.describe('Production Cashier Certification', () => {
     await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
     await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible();
+    await expect(
+      page.locator('.arena-workspace-mast').getByRole('heading', { name: 'Cashier' })
+    ).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Wallet Balances', exact: true })).toBeVisible();
     await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).not.toBeVisible();
     await expect(page.getByRole('button', { name: 'Claim Back', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send Ticket', exact: true })).toBeVisible();
@@ -133,10 +137,12 @@ test.describe('Production Cashier Certification', () => {
       }
       await attachCashierScreenshot(page, testInfo, `simple-cashier-${width}`);
     }
-    await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+    await page
+      .getByRole('button', { name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/ })
+      .click();
     // 2026-10-17: the "Wallet Command" title and its paragraph are gone; the
     // desk is still named for assistive technology, and the "?" explains it.
-    await expect(page.getByRole('region', { name: 'Wallet Command' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Club Cashier' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Page Help', exact: true })).toBeVisible();
 
     const tablist = page.getByRole('tablist', { name: 'Cashier Actions' });
@@ -177,7 +183,7 @@ test.describe('Production Cashier Certification', () => {
     // verified timestamp. Scoping this assertion to the console looked for a
     // node that cannot exist and made a healthy production cashier fail its
     // canary after hydration completed.
-    const cashierStatus = page.getByRole('region', { name: 'Wallet Command' }).getByRole('status');
+    const cashierStatus = page.getByRole('region', { name: 'Club Cashier' }).getByRole('status');
     // A first roster page is usable before the remaining pages have been
     // verified. Both witnesses must agree within the existing hydration budget;
     // a continuation warning or refused read must still fail certification.
@@ -286,9 +292,6 @@ test.describe('Production Cashier Certification', () => {
     const roleFilter = page.getByRole('combobox', { name: 'Filter Roster By Role' });
     await roleFilter.selectOption('player');
     await expect(roleFilter).toHaveValue('player');
-    await page.getByRole('button', { name: 'Clear Filters', exact: true }).click();
-    await expect(roleFilter).toHaveValue('all');
-    await expect(rosterSearch).toBeFocused();
     // Dan 2026-10-15: one tap anywhere on a row checks it; Send Out opens the
     // dialog on the selection.
     const nativeSelect = surface.getByRole('checkbox', { name: /^Include / }).first();
@@ -315,7 +318,13 @@ test.describe('Production Cashier Certification', () => {
     });
     await expect(selectedPlayer).toBeVisible();
     await expect(selectedPlayer).toContainText('ID');
-    await expect(selectedPlayer).toContainText('Player Wallet');
+    const recipientWallet = selectedPlayer.getByRole('combobox', {
+      name: /^Recipient Wallet For /,
+    });
+    await expect(recipientWallet).toHaveValue('player_wallet');
+    await expect(recipientWallet.getByRole('option', { selected: true })).toHaveText(
+      /^Player Wallet: /
+    );
     await expect(
       transferDialog.getByRole('region', { name: 'From Your Agent Wallet' })
     ).toBeVisible();
@@ -329,6 +338,9 @@ test.describe('Production Cashier Certification', () => {
     await transferDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(sendOutAction).toBeFocused();
     await expect(transferDialog).toHaveCount(0);
+    await page.getByRole('button', { name: 'Clear Filters', exact: true }).click();
+    await expect(roleFilter).toHaveValue('all');
+    await expect(rosterSearch).toBeFocused();
     // Preview only: certify the published individual-amount wiring without
     // spending real chips or issuing tickets against production players.
     const recipients = surface.locator('input[type="checkbox"][aria-label^="Include "]:enabled');
@@ -436,10 +448,50 @@ test.describe('Production Cashier Certification', () => {
         await route.abort('blockedbyclient');
       }
     );
-    const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
-    await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: 'Request Cash Out', exact: true }).click();
+    const request = page.getByRole('button', { name: 'Request Cash Out', exact: true });
+    const expectedStaffRole = process.env.E2E_CASHIER_STAFF_ROLE;
+    const inspectClub = async (clubId: string, expectedRole?: string) => {
+      await page.goto(`clubs/${clubId}/cashier`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+      await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
+      const access = page.getByLabel('Current Cashier Balances').locator('strong').last();
+      await expect(access).toHaveText(
+        expectedRole || new RegExp(`^(${[...CASHIER_ROLES, 'Player'].join('|')})$`),
+        { timeout: 30_000 }
+      );
+      const role = (await access.innerText()).trim();
+      if (role === 'Admin') {
+        await expect(request).toHaveCount(0);
+        await expect(
+          page
+            .getByRole('group', { name: 'Wallet Actions' })
+            .getByRole('button', { name: 'Cash-Out', exact: true })
+        ).toHaveCount(0);
+      }
+      return role;
+    };
+
+    const staffClub = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    if ((await inspectClub(staffClub, expectedStaffRole)) === 'Admin') {
+      const templateClub = process.env.E2E_TEMPLATE_CLUB_ID;
+      if (!templateClub || templateClub === staffClub) {
+        throw new Error(
+          'Cashout note verification requires a club where this viewer holds a Player Wallet. The staff club verified Admin access; no separate template club is configured.'
+        );
+      }
+      const role = await inspectClub(templateClub);
+      expect(
+        role,
+        'Cashout note verification requires a Player Wallet. The template club also verified Admin access.'
+      ).not.toBe('Admin');
+      if (expectedStaffRole)
+        expect(role, 'The reserved positive cashout fixture is owned by this viewer.').toBe(
+          'Owner'
+        );
+    }
+    await request.click();
     const note = page.getByLabel('Note For Agent (Optional)', { exact: true });
     await expect(note).toBeVisible();
     await expect(note).toHaveAttribute('maxlength', '2000');
@@ -479,23 +531,33 @@ test.describe('Production Cashier Certification', () => {
     }
   });
 
-  test('certifies the Advanced Cashier and an open wallet without moving money', async ({
+  test('opens the legacy bookmark in the single Cashier and exercises its wallet forms without moving money', async ({
     page,
   }, testInfo) => {
     test.setTimeout(150_000);
     const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    const obsoleteWalletFaces: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (/\/assets\/club-buttons\/wallets\/(?:desktop|mobile)\/wallet-[^/]+\.webp$/.test(path)) {
+        obsoleteWalletFaces.push(path);
+      }
+    });
     await page.setViewportSize({ width: 393, height: 852 });
     await page.goto(`clubs/${clubId}/cashier-classic`, {
       waitUntil: 'domcontentloaded',
       timeout: 60_000,
     });
     await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
-    const console = page
-      .locator('main [data-cashier-layout="directory"]')
-      .filter({ has: page.getByRole('heading', { name: 'Cashier', exact: true }) });
-    await expect(console).toHaveCount(1);
-    await expect(console).toBeVisible({ timeout: 60_000 });
-    const agentWallet = page.getByRole('button', { name: /Agent Wallet/ }).first();
+    await expect(page).toHaveURL(/\/cashier\?walletTools=open(?:&|$)/);
+    const console = page.locator('[data-cashier-surface="trade"]');
+    await expect(console.getByRole('heading', { name: 'Cashier', exact: true })).toHaveCount(1);
+    const operations = console.getByRole('region', { name: 'Wallet Operations', exact: true });
+    await expect(operations).toBeVisible({ timeout: 60_000 });
+    const balances = console
+      .getByRole('region', { name: 'My Wallets', exact: true })
+      .getByRole('region', { name: 'Wallet Balances', exact: true });
+    const agentWallet = balances.getByRole('button', { name: 'Open Agent Wallet', exact: true });
     // The painted console precedes authoritative role and wallet hydration.
     // Inspect the loaded surface, retaining the existing thirty-second bound.
     await expect
@@ -510,8 +572,8 @@ test.describe('Production Cashier Certification', () => {
         { timeout: 30_000 }
       )
       .toEqual({ loading: 0, walletVisible: true, walletVerified: true });
-    const advancedWalletRows = page.locator(
-      'main [data-wallet-key]:not([data-wallet-key="diamonds"]):not([data-wallet-key="backup_bbj"])'
+    const advancedWalletRows = balances.locator(
+      '[data-wallet-key]:not([data-wallet-key="diamonds"]):not([data-wallet-key="backup_bbj"])'
     );
     const advancedWalletCount = await advancedWalletRows.count();
     expect(advancedWalletCount, 'Advanced Cashier must expose wallet balances').toBeGreaterThan(0);
@@ -530,21 +592,26 @@ test.describe('Production Cashier Certification', () => {
       await expectCashierWalletBalance(value, `Advanced ${key} Wallet`);
     }
     await expectCashierWalletBalance(
-      page.locator('main [data-wallet-key="diamonds"] .dw__row-value'),
+      balances.locator('[data-wallet-key="diamonds"] .dw__row-value'),
       'Advanced Diamond Wallet',
       'diamonds'
     );
-    const presets = console.locator('[class*="presetBtn"]');
-    expectCashierAmountPresets(await presets.allInnerTexts());
+    const advancedTabs = operations.getByRole('tablist', { name: 'Wallet Operations' });
+    await advancedTabs.getByRole('tab', { name: 'Send', exact: true }).click();
+    const presets = operations
+      .getByRole('tabpanel', { name: 'Send', exact: true })
+      .getByRole('group', { name: 'Send Amount Presets' });
+    await expect(presets.getByRole('button', { name: 'Max', exact: true })).toBeVisible();
+    expectCashierAmountPresets(await presets.getByRole('button').allInnerTexts());
     await expectCashierAxeClean(page, testInfo, 'main', 'advanced-cashier');
-    await expect(page.locator('main .dw__row-picture').first()).not.toBeVisible();
-    await expect(page.locator('main .dw__row-label').first()).toBeVisible();
-    await expect(page.locator('main .dw__bbj-shell')).not.toBeVisible();
+    await expect(balances.locator('.dw__row-picture')).toHaveCount(0);
+    expect(obsoleteWalletFaces, 'Cashier must not request the replaced wallet faces').toEqual([]);
+    await expect(balances.getByText('Diamond Wallet', { exact: true })).toBeVisible();
+    await expect(balances.locator('.dw__bbj-shell')).toHaveCount(0);
     await attachCashierScreenshot(page, testInfo, 'advanced-cashier');
 
     // Exercise every amount rail this real identity may use, without submitting.
     // Mounted tests cover all four actions even when production rights differ.
-    const advancedTabs = page.getByRole('tablist', { name: 'Cashier Actions' });
     const observedAmountRails: string[] = [];
     for (const width of [375, 393]) {
       await page.setViewportSize({ width, height: 852 });
@@ -552,7 +619,8 @@ test.describe('Production Cashier Certification', () => {
         const tab = advancedTabs.getByRole('tab', { name: rail, exact: true });
         if ((await tab.count()) === 0) continue;
         await tab.click();
-        const field = console.getByRole('textbox', {
+        const panel = operations.getByRole('tabpanel', { name: rail, exact: true });
+        const field = panel.getByRole('textbox', {
           name: rail === 'Mint' ? 'Chips To Mint' : 'Amount',
           exact: true,
         });
@@ -565,7 +633,7 @@ test.describe('Production Cashier Certification', () => {
         await expect(field).toHaveAccessibleDescription(
           rail === 'Mint' ? 'Mint Whole Chips Only' : 'Chips Go To Two Decimal Places'
         );
-        const feedback = console.locator('#cashier-amount-validation');
+        const feedback = panel.locator('#cashier-amount-validation');
         await expect(feedback).toBeVisible();
         await expect(feedback).toHaveAttribute('role', 'status');
         await expect(feedback).not.toHaveAttribute('aria-label');
@@ -675,7 +743,9 @@ test.describe('Production Cashier Certification', () => {
     const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
     await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+    await page
+      .getByRole('button', { name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/ })
+      .click();
     const access = page.getByLabel('Current Cashier Balances').locator('strong').last();
     await expect(access).toBeVisible({ timeout: 60_000 });
     // The visible metric intentionally reads "Synchronizing" during
@@ -790,10 +860,10 @@ test.describe('Production Cashier Certification', () => {
       p_before_id: null,
     });
     expect(request).not.toHaveProperty('p_offset');
-    await expect(panel.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    const today = panel.getByRole('button', { name: 'Today', exact: true });
+    await expect(today).toBeHidden();
+    await panel.locator('summary', { hasText: /^Search And Filter History$/ }).click();
+    await expect(today).toHaveAttribute('aria-pressed', 'true');
     await expect(
       panel.getByRole('button', { name: 'Chip Movements', exact: true })
     ).toHaveAttribute('aria-pressed', 'true');

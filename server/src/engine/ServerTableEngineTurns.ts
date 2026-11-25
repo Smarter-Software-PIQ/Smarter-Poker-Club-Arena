@@ -1,3 +1,4 @@
+import { ownTurnArmRefusal } from './PreActionOnOwnTurn.js';
 import { confirmedHuman } from './HorseConfirmedSeatRole.js';
 import { opponentHudSnapshotField } from '../services/OpponentHudStore.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
@@ -2285,7 +2286,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   public setPreAction(
     userId: string,
     action: string,
-    maxCallAmount?: number
+    maxCallAmount?: number,
+    /** Lightning only (POST /preaction's `handId`); a table ignores it. */
+    _handId?: string,
+    /** The decision the browser was showing when the player armed this. */
+    seenActionContext?: string
   ): { success: boolean; error?: string; code?: string; armedToCall?: number } {
     if (this.isOriginalInputPending())
       return {
@@ -2370,6 +2375,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       return { success: false, error: `Invalid pre-action: ${action}` };
     }
 
+    /* Dan 2026-11-24 (CoachTim68): on the player's OWN turn an arm is an
+       action, and an action that can put chips in must have seen this
+       decision. See PreActionOnOwnTurn.ts. Refused before anything is armed,
+       so a stale Call Any is neither executed now nor left to run later. */
+    const armedOnOwnTurn =
+      player.seat === state.currentPlayerSeat &&
+      !player.is_folded &&
+      !player.is_all_in &&
+      !player.is_sitting_out;
+    if (armedOnOwnTurn) {
+      const stale = ownTurnArmRefusal(action, seenActionContext, this.getActionContext());
+      if (stale) return { ...stale };
+    }
+
     /**
      * Dan 2026-08-28 (CRITICAL): record the price the player is looking at
      * RIGHT NOW, computed by the engine from its own authoritative state —
@@ -2396,12 +2415,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // this player's turn and they can still act, resolve the pre-action now
     // and route it through the normal serialized action path
     // (handlePlayerAction: validation, lock, timer clear, broadcast).
-    if (
-      player.seat === state.currentPlayerSeat &&
-      !player.is_folded &&
-      !player.is_all_in &&
-      !player.is_sitting_out
-    ) {
+    if (armedOnOwnTurn) {
       const toCall = Math.max(0, state.currentBet - (player.bet ?? 0));
       const preResult = this.preActionEngine.executePreAction(
         this.tableId,
