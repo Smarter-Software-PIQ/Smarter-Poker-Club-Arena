@@ -2,8 +2,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { isDeepStrictEqual } from 'node:util';
 
-// Open the authorized report inline on the everyday Club Data route.
-const CLUB_DATA_PATH = 'clubs/shark-club/data?report=open';
+// A fresh browser still restores this account's saved tab. This bookmark opens
+// the Games report without changing what the account normally opens.
+export const CLUB_DATA_PATH = 'clubs/shark-club/data?report=open&dataTab=games';
 type ClubDataAccess = 'authorized' | 'restricted';
 
 function toolName(root: string) {
@@ -183,17 +184,16 @@ async function openClubData(page: Page, testInfo: TestInfo): Promise<ClubDataAcc
 
   await expect(workspace).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-page="club-data"]')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Club Report', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await expect(report).toBeVisible();
+  await expect(report.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
+  await expect(report.getByRole('tab', { name: 'Games', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
   await expect(
-    page
-      .getByRole('region', { name: 'Club Report', exact: true })
-      .getByRole('list', { name: 'Games' })
-      .getByRole('listitem')
-      .first()
-  ).toBeVisible({
-    timeout: 60_000,
-  });
+    report.getByRole('list', { name: 'Games', exact: true }).getByRole('listitem').first()
+  ).toBeVisible({ timeout: 60_000 });
   return 'authorized';
 }
 
