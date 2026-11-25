@@ -4019,6 +4019,14 @@ jobs:
         working-directory: .
         run: python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py
 
+      # A promo player's Lightning hand settles while their earlier fast-folded
+      # hand is still running (20261124162105): red on production's preimages,
+      # green after the migration, physical-table refusal unchanged.
+      - name: A promo player's Lightning hand settles
+        if: matrix.shard == 1
+        working-directory: .
+        run: python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py
+
       # BLOCKING. Named explicitly so it is obvious in the job log which
       # regressions are being defended, and so deleting them is a visible diff.
       # PHASE 2 (2026-09-02): the restart gate's pins ride the named regression
