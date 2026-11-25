@@ -290,8 +290,10 @@ describe('cash_bust hand-gap hardening', () => {
       'utf8'
     );
     const callIdx = dealingSrc.indexOf('await this.waitForRebuyDecisions(');
+    const callEnd = dealingSrc.indexOf('REBUY_PAUSE_MAX_MS', callIdx);
     expect(callIdx).toBeGreaterThan(-1);
-    const callSnippet = dealingSrc.slice(callIdx, callIdx + 240);
+    expect(callEnd).toBeGreaterThan(callIdx);
+    const callSnippet = dealingSrc.slice(callIdx, callEnd);
     expect(callSnippet).toContain('!this.wasBustedSeatReleasedThisHand(p)');
   });
 
