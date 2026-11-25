@@ -239,7 +239,7 @@
 
 @media (max-width: 700px) {
   :global(body:has(.arena-workspace)) .rail {
-    padding: 0 6px;
+    padding: 0 6px 8px;
   }
   :global(body:has(.arena-workspace)) .chassis {
     display: flex;

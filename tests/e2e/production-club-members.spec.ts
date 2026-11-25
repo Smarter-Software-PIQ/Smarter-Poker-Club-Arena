@@ -230,7 +230,7 @@ async function openMembers(page: Page, probe: MembersProbe): Promise<number> {
   const startedAt = Date.now();
   await page.goto(MEMBERS_PATH, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
-  await expect(page.locator('[data-players-mode]')).toBeVisible({ timeout: 45_000 });
+  await expect(page.locator('[data-players-mode="simple"]')).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Sort And Roster Tools' }).click();
   await expect(page.getByRole('button', { name: 'Sort And Roster Tools' })).toHaveAttribute(

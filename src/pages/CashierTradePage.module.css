@@ -375,7 +375,7 @@
   text-transform: uppercase;
 }
 
-.securityDotWarning {
+.simpleStatus.securityDotWarning {
   color: var(--ink-red);
   text-shadow: var(--ink-red-glow);
 }

@@ -3,30 +3,29 @@ import { describe, expect, it } from 'vitest';
 
 const source = readFileSync('tests/e2e/routes/club-operations-exhaustive.spec.ts', 'utf8');
 
-describe('Cashier route readiness before Advanced navigation certification', () => {
-  it('uses the existing route budget for the positive Cashier Simple marker only', () => {
-    expect(source).toContain("operation.id === 'cashier' ? { timeout: 30_000 } : {}");
-    expect(source).toContain("if (operation.id === 'cashier') test.setTimeout(120_000)");
-    const caseBudget = source.indexOf("if (operation.id === 'cashier') test.setTimeout(120_000)");
-    const ready = source.indexOf('const simpleReadyOptions');
-    expect(caseBudget).toBeLessThan(ready);
-    const simple = source.indexOf('toBeVisible(simpleReadyOptions)', ready);
-    const advancedClick = source.indexOf("name: 'Advanced', exact: true", simple);
-    const advancedMarker = source.indexOf('modeAttribute}="advanced"', advancedClick);
-    const originalNav = source.indexOf("name: 'Club Operations Sections'", advancedMarker);
+describe('Cashier route readiness before action navigation certification', () => {
+  const cashierStart = source.indexOf("} else if (operation.id === 'cashier') {");
+  const caseBudget = source.indexOf("if (operation.id === 'cashier') test.setTimeout(120_000)");
+  const end = source.indexOf('operation.marker', cashierStart);
+  const branch = source.slice(cashierStart, end);
+
+  it('waits for the positive Cashier surface before testing its tools and shared navigation', () => {
+    expect(caseBudget).toBeGreaterThan(-1);
+    expect(caseBudget).toBeLessThan(cashierStart);
+    const ready = branch.indexOf(
+      `await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 30_000 })`
+    );
+    const tools = branch.indexOf('name: /^Requests, Tickets And Tools/');
+    const tablist = branch.indexOf("getByRole('tablist', { name: 'Cashier Actions' })");
+    const navigation = branch.indexOf("name: 'Club Operations Sections'");
     expect(ready).toBeGreaterThan(-1);
-    expect(simple).toBeGreaterThan(ready);
-    expect(advancedClick).toBeGreaterThan(simple);
-    expect(advancedMarker).toBeGreaterThan(advancedClick);
-    expect(originalNav).toBeGreaterThan(advancedMarker);
+    expect(tools).toBeGreaterThan(ready);
+    expect(tablist).toBeGreaterThan(tools);
+    expect(navigation).toBeGreaterThan(tablist);
   });
 
-  it('still refuses a missing Simple marker and retains content and permission checks', () => {
-    const start = source.indexOf('if (modeAttribute)');
-    const end = source.indexOf('operation.marker', start);
-    const branch = source.slice(start, end);
+  it('still refuses a missing cashier marker and retains content and permission checks', () => {
     expect(branch).not.toMatch(/catch|test\.skip|waitForTimeout|isVisible\(/);
-    expect(branch).toContain('await expect(page.locator');
     expect(source).toContain('This Surface Could Not Load');
     expect(source).toContain('This Tool Is Restricted');
     expect(source).toContain('Club Operations Is Restricted');

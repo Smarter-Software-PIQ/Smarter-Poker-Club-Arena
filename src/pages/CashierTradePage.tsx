@@ -4510,19 +4510,17 @@ function CashierTradeWorkspace() {
                 </span>
               </button>
             )}
-            {
-              // Dan 2026-10-16: a healthy cashier prints no "Balances Synchronized"
-              // line. The status stays announced to assistive technology, and any
-              // other state (offline, reconciling, an error) is still shown.
-              <div
-                className={
-                  cashierSyncMessage === 'Balances Synchronized' ? 'sr-only' : styles.simpleStatus
-                }
-                role="status"
-              >
-                {cashierSyncMessage}
-              </div>
-            }
+            <div
+              className={[
+                cashierSyncMessage === 'Balances Synchronized' ? 'sr-only' : styles.simpleStatus,
+                cashierNeedsAttention && !loading && !isHydrating ? styles.securityDotWarning : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              role="status"
+            >
+              {cashierSyncMessage}
+            </div>
             <div className={styles.heroMetrics} aria-label="Current Cashier Balances">
               <div className={styles.heroMetric}>
                 <span className={styles.heroMetricLabel}>Club Chips</span>

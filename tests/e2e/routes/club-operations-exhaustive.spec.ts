@@ -102,6 +102,7 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
       if (operation.id === 'players') {
         await page.getByRole('button', { name: 'Sort And Roster Tools' }).click();
       } else if (operation.id === 'cashier') {
+        await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 30_000 });
         await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
         await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).toBeVisible();
       } else if (operation.id === 'data') {
