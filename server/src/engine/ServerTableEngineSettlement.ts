@@ -4216,6 +4216,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             ? { handId: v_handHistoryId, startedAt: snap.startedAt }
             : undefined;
         this.handCompleteCallback(this.tableId, finalStacks, acceptedHand);
+        this.handCompleteCallbackNotifiedHandNumber = snap.handNumber;
       } catch (err) {
         reportError(err, 'ServerTableEngine.handCompleteCallback_error', {
           tableId: this.tableId,

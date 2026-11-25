@@ -2606,6 +2606,8 @@ export abstract class ServerTableEngineBase {
         acceptedHand?: { handId: string; startedAt: number }
       ) => void)
     | null = null;
+  /** Hand number for which Settlement already invoked handCompleteCallback (prevents duplicate post-hold bust wake). */
+  protected handCompleteCallbackNotifiedHandNumber: number | null = null;
   /**
    * Exact hand-for-hand barrier signal. The tournament coordinator used to
    * rediscover this state by polling every table twice a second. Emitting at
@@ -2958,6 +2960,8 @@ export abstract class ServerTableEngineBase {
   private f06PermitFactory:
     | ((handNumber: string) => F06HandPermit | Promise<F06HandPermit>)
     | null = null;
+  private f06HandStatePrefetch: (() => Promise<void>) | null = null;
+  private f06HandStateClear: (() => void) | null = null;
   protected f06CurrentPermit: F06HandPermit | null = null;
   // Positive original-process acknowledgement, not a reconstructed no-start.
   // Captured with the banks only after stop has joined the dealing writer.
@@ -2969,6 +2973,36 @@ export abstract class ServerTableEngineBase {
     if (this.running || this.f06PermitFactory || this.f06MovementAdmission)
       throw new Error('f06_admission_install_too_late');
     this.f06PermitFactory = factory;
+  }
+  /**
+   * Optional pre-start F06 state prefetcher installed alongside `installF06HandAdmission`.
+   * Starts `fn_f06_hand_number_state` in parallel with `loadSeatedPlayers` inside
+   * `prepareNextHand()` so `reserveF06Hand()` does not pay an extra serial PostgREST
+   * round trip before `fn_f06_begin_hand`. Cleared on pause, abandon, allocator
+   * invalidation, or unstarted permit release.
+   */
+  installF06HandStatePrefetch(prefetch: () => Promise<void>, clear?: () => void): void {
+    if (this.running || this.f06MovementAdmission)
+      throw new Error('f06_admission_install_too_late');
+    this.f06HandStatePrefetch = prefetch;
+    this.f06HandStateClear = clear ?? null;
+  }
+  protected prefetchF06HandState(): void {
+    if (
+      !this.f06HandStatePrefetch ||
+      this.f06CurrentPermit ||
+      this.f06MovementAdmission ||
+      !this.running ||
+      this.isNextHandPaused() ||
+      this.isHandForHandReleaseBlocked() ||
+      this.dealHoldUntilMs > Date.now() ||
+      this.hasOpenBountyReveal()
+    )
+      return;
+    void this.f06HandStatePrefetch().catch(() => {});
+  }
+  protected clearPrefetchedF06HandState(): void {
+    this.f06HandStateClear?.();
   }
   /** This table reserves an F06 hand permit before every deal (tournament custody). */
   protected hasF06HandAdmission(): boolean {
@@ -3135,6 +3169,7 @@ export abstract class ServerTableEngineBase {
     }
     if (permit.recoveryState() !== 'reserved' && !permit.hasPreparedCancellation()) return false;
     await this.cancelF06PreparedHand();
+    this.clearPrefetchedF06HandState();
     return true;
   }
   /** The held F06 permit's local phase, or `none` (diagnostics only). */
@@ -9133,6 +9168,7 @@ export abstract class ServerTableEngineBase {
   /** Drop an unstarted controller without a table, seat, stack or wallet write. */
   protected discardPreparedHandForPause(): boolean {
     if (!this.isNextHandPaused()) return false;
+    this.f06HandStateClear?.();
     this.handController = null;
     this.currentHandDealtStacks.clear();
     if (this.handSpan) {

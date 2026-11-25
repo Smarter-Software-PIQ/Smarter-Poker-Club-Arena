@@ -135,19 +135,49 @@ describe('a stuck event', () => {
 
   it('gets its full bound back from good answers', async () => {
     const bulkhead = quiet();
-    let call = ask(bulkhead, STUCK);
-    bulkhead.release(call.permit!, 'slow');
-    await vi.advanceTimersByTimeAsync(1_000);
-    call = ask(bulkhead, STUCK);
-    bulkhead.release(call.permit!, 'slow');
+    // Three consecutive slow answers at low concurrency drop 24 -> 12 -> 6
+    // (the first isolated slow starts slowStreak=1 without halving; the 2nd
+    // and 3rd consecutive slow answers halve 24 -> 12 -> 6).
+    for (let i = 0; i < 3; i++) {
+      const slowCall = ask(bulkhead, STUCK);
+      bulkhead.release(slowCall.permit!, 'slow');
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
     expect(bulkhead.snapshot().events[0].limit).toBe(EVENT_DB_MIN_IN_FLIGHT);
     for (let i = 0; i < 400; i++) {
-      call = ask(bulkhead, STUCK);
+      const call = ask(bulkhead, STUCK);
       expect(call.sync).toBe(true);
       bulkhead.release(call.permit!, 'ok');
     }
     // Idle at the full bound again, so the event is forgotten.
     expect(bulkhead.snapshot().events).toHaveLength(0);
+  });
+
+  it('does not halve the bound on a single isolated slow answer at low concurrency, but halves on streak >= 2 or active load', async () => {
+    const bulkhead = quiet();
+    const lone = ask(bulkhead, 'quiet-slow');
+    bulkhead.release(lone.permit!, 'slow');
+    expect(bulkhead.snapshot().events[0]?.limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    // An ok answer resets slowStreak so the idle event is forgotten immediately.
+    const ok = ask(bulkhead, 'quiet-slow');
+    bulkhead.release(ok.permit!, 'ok');
+    expect(bulkhead.snapshot().events).toHaveLength(0);
+
+    // Two consecutive slow answers within 10s DO halve 24 -> 12.
+    const s1 = ask(bulkhead, 'slow-streak');
+    bulkhead.release(s1.permit!, 'slow');
+    await vi.advanceTimersByTimeAsync(1_000);
+    const s2 = ask(bulkhead, 'slow-streak');
+    bulkhead.release(s2.permit!, 'slow');
+    expect(bulkhead.snapshot().events[0].limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+
+    // Active concurrency (>= minPerEvent still in flight) halves on the first slow answer.
+    const active = Array.from({ length: EVENT_DB_MIN_IN_FLIGHT + 1 }, () =>
+      ask(bulkhead, 'busy-slow')
+    );
+    bulkhead.release(active[0].permit!, 'slow');
+    const busy = bulkhead.snapshot().events.find((e) => e.key === 'busy-slow')!;
+    expect(busy.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
   });
 
   it('does not halve the bound on a single isolated congested refusal at low concurrency, but halves on streak >= 2 or active load', async () => {
