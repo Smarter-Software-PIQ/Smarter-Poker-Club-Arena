@@ -167,5 +167,13 @@ describe('one mounted club cashier', () => {
     expect(await screen.findByRole('tabpanel', { name: 'History' })).toBeVisible();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByLabelText('Current Address')).toHaveTextContent('origin=directory');
+    const actions = screen.getByRole('tablist', { name: 'Cashier Actions' });
+    expect(within(actions).queryByRole('tab', { selected: true })).toBeNull();
+    const firstAction = within(actions).getAllByRole('tab')[0];
+    firstAction.focus();
+    fireEvent.keyDown(firstAction, { key: 'Home' });
+    expect(firstAction).toHaveFocus();
+    expect(firstAction).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tablist', { name: 'Wallet Operations' })).toBeNull();
   });
 });

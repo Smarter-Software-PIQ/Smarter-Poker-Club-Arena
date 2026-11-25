@@ -4771,7 +4771,7 @@ function CashierTradeWorkspace() {
                 key={key}
                 id={`cashier-tab-${key}`}
                 role="tab"
-                className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`}
+                className={`${styles.tab} ${!walletToolsOpen && tab === key ? styles.tabActive : ''}`}
                 aria-selected={!walletToolsOpen && tab === key}
                 aria-controls={`cashier-panel-${key}`}
                 tabIndex={tab === key ? 0 : -1}
