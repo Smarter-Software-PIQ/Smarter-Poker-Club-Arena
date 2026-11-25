@@ -1112,7 +1112,7 @@ test.describe('Production Kings Club Players', () => {
       .getByRole('list', { name: 'Club Member Directory' })
       .getByRole('listitem')
       .first()
-      .getByRole('button')
+      .getByRole('button', { name: /^Open / })
       .click();
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /Promo Vault Review/ }).click();

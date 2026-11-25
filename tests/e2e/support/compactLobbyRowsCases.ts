@@ -29,7 +29,21 @@ export function registerCompactLobbyRowsCases() {
     expect(geometry.width).toBeCloseTo(geometry.rowWidth, 0);
     expect(Math.abs(geometry.top)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.bottom)).toBeLessThanOrEqual(1);
-    await details.click();
+    const scroll = page.locator('.lobby-table-wrap');
+    await scroll.evaluate((element) => {
+      element.style.maxHeight = '160px';
+      element.style.overflowY = 'auto';
+    });
+    for (const id of ['third', 'second', 'first']) {
+      const entry = page.getByRole('button', { name: 'Details: ' + id, exact: true });
+      await entry.click();
+      await expect(page.locator('body')).toHaveAttribute('data-details', id);
+      await page.locator('body').evaluate((element) => element.removeAttribute('data-details'));
+      await entry.locator('.premium-cash-style').click();
+      await expect(page.locator('body')).toHaveAttribute('data-details', id);
+    }
+    await details.focus();
+    await page.keyboard.press('Enter');
     await expect(page.locator('body')).toHaveAttribute('data-details', 'third');
     await page.getByRole('button', { name: 'Favorite third', exact: true }).click();
     await expect(page.locator('body')).toHaveAttribute('data-favorite', 'third');

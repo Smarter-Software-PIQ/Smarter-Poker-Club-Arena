@@ -539,10 +539,12 @@ test.describe('Production Cashier Certification', () => {
     await expect(page).toHaveURL(/\/cashier\?walletTools=open(?:&|$)/);
     const console = page.locator('[data-cashier-surface="trade"]');
     await expect(console.getByRole('heading', { name: 'Cashier', exact: true })).toHaveCount(1);
-    await expect(console.getByRole('region', { name: 'Wallet Operations' })).toBeVisible({
-      timeout: 60_000,
-    });
-    const agentWallet = page.getByRole('button', { name: /Agent Wallet/ }).first();
+    const operations = console.getByRole('region', { name: 'Wallet Operations', exact: true });
+    await expect(operations).toBeVisible({ timeout: 60_000 });
+    const balances = console
+      .getByRole('region', { name: 'My Wallets', exact: true })
+      .getByRole('region', { name: 'Wallet Balances', exact: true });
+    const agentWallet = balances.getByRole('button', { name: 'Open Agent Wallet', exact: true });
     // The painted console precedes authoritative role and wallet hydration.
     // Inspect the loaded surface, retaining the existing thirty-second bound.
     await expect
@@ -557,8 +559,8 @@ test.describe('Production Cashier Certification', () => {
         { timeout: 30_000 }
       )
       .toEqual({ loading: 0, walletVisible: true, walletVerified: true });
-    const advancedWalletRows = page.locator(
-      'main [data-wallet-key]:not([data-wallet-key="diamonds"]):not([data-wallet-key="backup_bbj"])'
+    const advancedWalletRows = balances.locator(
+      '[data-wallet-key]:not([data-wallet-key="diamonds"]):not([data-wallet-key="backup_bbj"])'
     );
     const advancedWalletCount = await advancedWalletRows.count();
     expect(advancedWalletCount, 'Advanced Cashier must expose wallet balances').toBeGreaterThan(0);
@@ -577,21 +579,25 @@ test.describe('Production Cashier Certification', () => {
       await expectCashierWalletBalance(value, `Advanced ${key} Wallet`);
     }
     await expectCashierWalletBalance(
-      page.locator('main [data-wallet-key="diamonds"] .dw__row-value'),
+      balances.locator('[data-wallet-key="diamonds"] .dw__row-value'),
       'Advanced Diamond Wallet',
       'diamonds'
     );
-    const presets = console.locator('[class*="presetBtn"]');
-    expectCashierAmountPresets(await presets.allInnerTexts());
+    const advancedTabs = operations.getByRole('tablist', { name: 'Wallet Operations' });
+    await advancedTabs.getByRole('tab', { name: 'Send', exact: true }).click();
+    const presets = operations
+      .getByRole('tabpanel', { name: 'Send', exact: true })
+      .getByRole('group', { name: 'Send Amount Presets' });
+    await expect(presets.getByRole('button', { name: 'Max', exact: true })).toBeVisible();
+    expectCashierAmountPresets(await presets.getByRole('button').allInnerTexts());
     await expectCashierAxeClean(page, testInfo, 'main', 'advanced-cashier');
-    await expect(page.locator('main .dw__row-picture').first()).not.toBeVisible();
-    await expect(page.locator('main .dw__row-label').first()).toBeVisible();
-    await expect(page.locator('main .dw__bbj-shell')).not.toBeVisible();
+    await expect(balances.locator('.dw__row-picture:visible')).toHaveCount(0);
+    await expect(balances.getByText('Diamond Wallet', { exact: true })).toBeVisible();
+    await expect(balances.locator('.dw__bbj-shell')).toHaveCount(0);
     await attachCashierScreenshot(page, testInfo, 'advanced-cashier');
 
     // Exercise every amount rail this real identity may use, without submitting.
     // Mounted tests cover all four actions even when production rights differ.
-    const advancedTabs = page.getByRole('tablist', { name: 'Wallet Operations' });
     const observedAmountRails: string[] = [];
     for (const width of [375, 393]) {
       await page.setViewportSize({ width, height: 852 });
@@ -599,7 +605,8 @@ test.describe('Production Cashier Certification', () => {
         const tab = advancedTabs.getByRole('tab', { name: rail, exact: true });
         if ((await tab.count()) === 0) continue;
         await tab.click();
-        const field = console.getByRole('textbox', {
+        const panel = operations.getByRole('tabpanel', { name: rail, exact: true });
+        const field = panel.getByRole('textbox', {
           name: rail === 'Mint' ? 'Chips To Mint' : 'Amount',
           exact: true,
         });
@@ -612,7 +619,7 @@ test.describe('Production Cashier Certification', () => {
         await expect(field).toHaveAccessibleDescription(
           rail === 'Mint' ? 'Mint Whole Chips Only' : 'Chips Go To Two Decimal Places'
         );
-        const feedback = console.locator('#cashier-amount-validation');
+        const feedback = panel.locator('#cashier-amount-validation');
         await expect(feedback).toBeVisible();
         await expect(feedback).toHaveAttribute('role', 'status');
         await expect(feedback).not.toHaveAttribute('aria-label');
@@ -839,10 +846,10 @@ test.describe('Production Cashier Certification', () => {
       p_before_id: null,
     });
     expect(request).not.toHaveProperty('p_offset');
-    await expect(panel.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    const today = panel.getByRole('button', { name: 'Today', exact: true });
+    await expect(today).toBeHidden();
+    await panel.locator('summary', { hasText: /^Search And Filter History$/ }).click();
+    await expect(today).toHaveAttribute('aria-pressed', 'true');
     await expect(
       panel.getByRole('button', { name: 'Chip Movements', exact: true })
     ).toHaveAttribute('aria-pressed', 'true');

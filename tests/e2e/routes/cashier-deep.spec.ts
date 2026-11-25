@@ -36,10 +36,10 @@ test.describe('Cashier Trade — deep authenticated UX', () => {
     page,
   }) => {
     const tablist = await openTradeCashier(page);
-    const trade = tablist.getByRole('tab', { name: 'Trade', exact: true });
-    if (await trade.count()) {
-      await expect(page.getByRole('combobox', { name: 'Filter By Role' })).toBeVisible();
-    }
+    const tradePanel = page.getByRole('tabpanel', { name: 'Trade', exact: true });
+    await expect(
+      tradePanel.getByRole('combobox', { name: 'Filter Roster By Role', exact: true })
+    ).toBeVisible();
     await expect(page.getByRole('region', { name: 'Reconciliation Console' })).toBeVisible();
     const mast = await page.locator('.arena-workspace-mast').boundingBox();
     const wallets = await page.getByRole('region', { name: 'My Wallets' }).boundingBox();

@@ -667,6 +667,10 @@
 .simple .rangeChip {
   order: 0;
   flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
   font-size: 12px;
   gap: 4px;
 }
@@ -736,13 +740,23 @@
 }
 .page:global(.arena-workspace) .figureRow {
   display: flex;
-  flex-direction: column;
+  flex-flow: column nowrap;
+  min-width: 0;
   align-items: center;
   gap: 4px;
   text-align: center;
   background: var(--arena-tile);
   border: 5px solid transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
+}
+.page:global(.arena-workspace) .figureRow :is(.dataLabel, .figureMeta) {
+  flex: 0 1 auto;
+  max-width: 100%;
+  text-align: center;
+}
+.page:global(.arena-workspace) .figureRow .delta {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .page:global(.arena-workspace) .row {
   border: 4px solid transparent;
