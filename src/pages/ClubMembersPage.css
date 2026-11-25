@@ -279,13 +279,13 @@
   list-style: none;
 }
 
+.members-toolbar > .members-columns[open] {
+  grid-column: 1 / -1;
+}
+
 .members-columns__menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 5px);
-  right: 0;
   display: grid;
-  min-width: 190px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   gap: 9px;
   padding: 12px;
   border: 1px solid var(--members-steel);
@@ -959,11 +959,6 @@
   }
   .members-columns {
     grid-column: 1 / -1;
-    width: 100%;
-  }
-  .members-columns__menu {
-    right: auto;
-    left: 0;
     width: 100%;
   }
   .members-bulk {

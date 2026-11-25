@@ -246,9 +246,12 @@ describe('production roster mode readiness', () => {
     const noModeSelector = helper.indexOf(
       `getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0)`
     );
-    const openTools = helper.indexOf(
-      `getByRole('button', { name: 'Sort And Roster Tools' }).click()`
+    const openTools = helper.indexOf('await openRosterTools(page)');
+    expect(PRODUCTION_PLAYERS).toContain("name: 'Sort And Roster Tools', exact: true");
+    expect(PRODUCTION_PLAYERS).toContain(
+      "if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()"
     );
+    expect(PRODUCTION_PLAYERS).toContain('await openRosterTools(reader.page)');
     expect(pageReady).toBeGreaterThan(-1);
     expect(noModeSelector).toBeGreaterThan(pageReady);
     expect(openTools).toBeGreaterThan(noModeSelector);
