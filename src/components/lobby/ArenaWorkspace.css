@@ -82,17 +82,14 @@
   color: #c4cfdb;
   margin-top: 6px;
 }
-.arena-workspace
-  :is(
-    .arena-case,
-    .members-console,
-    .members-list,
-    .mm-card,
-    .stats-command-deck,
-    .stats-content,
-    .stats-club-command,
-    .stats-intelligence-brief
-  ) {
+.arena-workspace .arena-case,
+.arena-workspace .members-console,
+.arena-workspace .members-list,
+.arena-workspace .mm-card,
+.arena-workspace .stats-command-deck,
+.arena-workspace .stats-content,
+.arena-workspace .stats-club-command,
+.arena-workspace .stats-intelligence-brief {
   box-sizing: border-box;
   position: relative;
   background: var(--arena-panel);
@@ -102,17 +99,14 @@
   padding: 12px;
   margin: 7px 0;
 }
-.arena-workspace
-  :is(
-    .arena-case,
-    .members-console,
-    .members-list,
-    .mm-card,
-    .stats-command-deck,
-    .stats-content,
-    .stats-club-command,
-    .stats-intelligence-brief
-  )::before {
+.arena-workspace .arena-case::before,
+.arena-workspace .members-console::before,
+.arena-workspace .members-list::before,
+.arena-workspace .mm-card::before,
+.arena-workspace .stats-command-deck::before,
+.arena-workspace .stats-content::before,
+.arena-workspace .stats-club-command::before,
+.arena-workspace .stats-intelligence-brief::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -143,14 +137,11 @@
     sans-serif;
   color: #9aabba;
 }
-.arena-workspace
-  :is(
-    .arena-switch,
-    .members-mode-toggle,
-    .members-simple-tabs,
-    .stats-range-row,
-    .stats-pill-tabs
-  ) {
+.arena-workspace .arena-switch,
+.arena-workspace .members-mode-toggle,
+.arena-workspace .members-simple-tabs,
+.arena-workspace .stats-range-row,
+.arena-workspace .stats-pill-tabs {
   display: flex;
   align-items: stretch;
   gap: 4px;
@@ -160,9 +151,11 @@
   border: none;
   box-shadow: none;
 }
-.arena-workspace
-  :is(.arena-switch, .members-mode-toggle, .members-simple-tabs, .stats-range-row, .stats-pill-tabs)
-  > :is(button, a) {
+.arena-workspace .arena-switch > :is(button, a),
+.arena-workspace .members-mode-toggle > :is(button, a),
+.arena-workspace .members-simple-tabs > :is(button, a),
+.arena-workspace .stats-range-row > :is(button, a),
+.arena-workspace .stats-pill-tabs > :is(button, a) {
   flex: 1;
   min-width: 0;
   min-height: 44px;
@@ -181,27 +174,43 @@
     sans-serif;
   white-space: normal;
 }
-.arena-workspace
-  :is(.arena-switch, .members-mode-toggle, .members-simple-tabs, .stats-range-row, .stats-pill-tabs)
-  > :is(button, a)::after {
+.arena-workspace .arena-switch > :is(button, a)::after,
+.arena-workspace .members-mode-toggle > :is(button, a)::after,
+.arena-workspace .members-simple-tabs > :is(button, a)::after,
+.arena-workspace .stats-range-row > :is(button, a)::after,
+.arena-workspace .stats-pill-tabs > :is(button, a)::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-image: var(--arena-stat) 11 / 6px stretch;
 }
-.arena-workspace
-  :is(.arena-switch, .members-mode-toggle, .members-simple-tabs, .stats-range-row, .stats-pill-tabs)
-  > :is([aria-pressed='true'], [aria-selected='true'], .active) {
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-mode-toggle > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-simple-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-range-row > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-pill-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active) {
   color: white;
   background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
 }
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
 .arena-workspace
-  :is(.arena-switch, .members-mode-toggle, .members-simple-tabs, .stats-range-row, .stats-pill-tabs)
+  .members-mode-toggle
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .members-simple-tabs
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-range-row
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-pill-tabs
   > :is([aria-pressed='true'], [aria-selected='true'], .active)::after {
   border-image-source: var(--arena-active);
 }
-.arena-workspace :is(.arena-meter, .ca-page-bar__metric, .hero-stat) {
+.arena-workspace .arena-meter,
+.arena-workspace .ca-page-bar__metric,
+.arena-workspace .hero-stat {
   border: 5px solid transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
   background: var(--arena-tile);
@@ -211,7 +220,8 @@
   min-width: 0;
   padding: 5px 2px;
 }
-.arena-workspace :is(.arena-ledger-row, .member-row) {
+.arena-workspace .arena-ledger-row,
+.arena-workspace .member-row {
   border: 4px solid transparent;
   border-image: var(--arena-row) 13 / 6px stretch;
   background: linear-gradient(108deg, #13253a, #060e18 72%);
@@ -392,9 +402,11 @@
   height: 28px;
   transform: none;
 }
-.arena-cashier
-  .dw__row
-  :is(.dw__row-picture, .dw__row-shell, .dw__row-hint, .dw__row-icon, .dw__row-chevron) {
+.arena-cashier .dw__row .dw__row-picture,
+.arena-cashier .dw__row .dw__row-shell,
+.arena-cashier .dw__row .dw__row-hint,
+.arena-cashier .dw__row .dw__row-icon,
+.arena-cashier .dw__row .dw__row-chevron {
   display: none;
 }
 .arena-cashier .cashier-workspace,
@@ -480,9 +492,9 @@
   font-size: 10px;
   flex-wrap: nowrap;
 }
-.club-members-page[data-row-density='compact']
-  .member-subline
-  :is(.member-seated, .member-online, .member-seen) {
+.club-members-page[data-row-density='compact'] .member-subline .member-seated,
+.club-members-page[data-row-density='compact'] .member-subline .member-online,
+.club-members-page[data-row-density='compact'] .member-subline .member-seen {
   position: absolute;
   right: 16px;
   top: 50%;
@@ -492,8 +504,11 @@
 .club-members-page[data-row-density='compact'] .member-row__open {
   padding-right: 72px;
 }
-.club-members-page[data-row-density='compact']
-  :is(.member-username, .member-club, .member-upline, .member-metrics, .member-simple-balance) {
+.club-members-page[data-row-density='compact'] .member-username,
+.club-members-page[data-row-density='compact'] .member-club,
+.club-members-page[data-row-density='compact'] .member-upline,
+.club-members-page[data-row-density='compact'] .member-metrics,
+.club-members-page[data-row-density='compact'] .member-simple-balance {
   display: none;
 }
 .arena-workspace .stats-secondary {
