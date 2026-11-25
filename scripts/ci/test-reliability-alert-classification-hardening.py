@@ -32,8 +32,10 @@ is set; never touches production):
 """
 import glob
 import os
+import platform
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 from pathlib import Path
@@ -83,24 +85,44 @@ def prometheus_alerts() -> list[str]:
     return sorted(set(names))
 
 
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return int(s.getsockname()[1])
+
+
+def scratch_root() -> str | None:
+    for env_key in ('RUNNER_TEMP', 'SSD_TMPDIR', 'TMPDIR'):
+        val = os.environ.get(env_key)
+        if val and os.path.isdir(val):
+            return val
+    if platform.system() == 'Darwin':
+        for ssd in (
+            '/Volumes/SmarterWork/agent-work/extreme-capacity',
+            '/Volumes/SmarterWork/agent-work/shared-capacity',
+        ):
+            if os.path.isdir(ssd) and os.access(ssd, os.W_OK):
+                return ssd
+        raise SystemExit('MAC-STORAGE: refusing /tmp on macOS without a writable external SSD')
+    return None
+
+
 def main() -> None:
     os.environ.setdefault('LC_ALL', 'C')
     os.environ.setdefault('LANG', 'C')
-    scratch_parent = os.environ.get('RUNNER_TEMP') or os.environ.get('TMPDIR')
-    scratch = Path(tempfile.mkdtemp(prefix='pg17-alert-classes-', dir=scratch_parent))
+    scratch = Path(tempfile.mkdtemp(prefix='pg17-alert-classes-', dir=scratch_root()))
     data = scratch / 'data'
-    sock = Path(tempfile.mkdtemp(prefix='pgs', dir='/tmp'))
     subprocess.run(
         [pg_bin('initdb'), '-D', str(data), '-U', 'postgres', '-A', 'trust', '--no-locale', '-E', 'UTF8'],
         check=True,
         capture_output=True,
     )
-    port = str(55000 + os.getpid() % 5000)
+    port = str(free_port())
     subprocess.run(
         [
             pg_bin('pg_ctl'),
             '-D', str(data),
-            '-o', f"-k {sock} -p {port} -c listen_addresses=''",
+            '-o', f"-h 127.0.0.1 -p {port} -c unix_socket_directories=''",
             '-l', str(scratch / 'log'),
             '-w', 'start',
         ],
@@ -113,7 +135,7 @@ def main() -> None:
             return subprocess.run(
                 [
                     pg_bin('psql'),
-                    '-h', str(sock),
+                    '-h', '127.0.0.1',
                     '-p', port,
                     '-U', 'postgres',
                     '-d', 'postgres',
@@ -338,7 +360,6 @@ def main() -> None:
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)
         shutil.rmtree(scratch, ignore_errors=True)
-        shutil.rmtree(sock, ignore_errors=True)
 
 
 if __name__ == '__main__':

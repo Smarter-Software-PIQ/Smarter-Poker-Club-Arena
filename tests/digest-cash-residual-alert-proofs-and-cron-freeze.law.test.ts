@@ -26,11 +26,11 @@
  *      reliability_proved_source_resolution; and transitions proved stale_unverified
  *      rows solely through smarter_private.reliability_transition.
  *   4. 06:40Z 157.6s pg_cron launcher freeze & continuous pruner I/O storm:
- *      quiets fn_ca_ledger_replay(integer) (client_min_messages='warning'),
- *      wraps cron #286/#155/#117/#119 cleanly with client_min_messages='error'
- *      (or single-statement CALL for #117), staggers #286 (23 6 * * *) and
- *      #117 (30 seconds), and bounds sp_prune_hand_history (75 rows, 20s) and
- *      sp_prune_hand_state_snapshots (125-row page, 8s deadline, 20s).
+ *      quiets fn_ca_ledger_replay(integer) (client_min_messages='warning') and
+ *      bounds sp_prune_hand_history (75 rows, 20s) and
+ *      sp_prune_hand_state_snapshots (125-row page, 8s deadline, 20s), while
+ *      leaving cron.job schedule/command rewrites cleanly to the estate-wide
+ *      single-statement cron rewrite lane.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
