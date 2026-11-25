@@ -59,6 +59,14 @@ export interface MoveInstruction {
   toTableId: string;
   toSeat: number;
   reason: string;
+  /**
+   * 2026-11-25: where the player sat in the source table's blind cycle when
+   * the move was planned (see hopsToBigBlind), or null when that order was
+   * unknown. Carried so that a chair taken by someone else between the plan
+   * and the move can be re-chosen at the move by the same blind-position rule
+   * (chooseOpenSeat) instead of by seat number.
+   */
+  sourceHops?: number | null;
 }
 
 /**
@@ -69,7 +77,7 @@ export interface MoveInstruction {
  * blind on the very next hand" (no free hands); hops = n means "just posted it"
  * (a full orbit of free hands ahead). Smaller is sooner.
  */
-interface SeatChoice {
+export interface SeatChoice {
   seat: number;
   /** Hops-to-big-blind of the chosen seat, or null when the blind order is unknown. */
   hops: number | null;
@@ -209,6 +217,54 @@ export function hopsToBigBlind(ringSeats: readonly number[], bbSeat: number, sea
  * free chair rather than spreading (breakTable).
  */
 export const SHORT_TABLE_PLAYERS = 3;
+
+/**
+ * The chair a moving player takes at `table`, by blind position (see
+ * TableBalancer.findOpenSeat for the rule). A pure function of the table, so
+ * the planner and the move itself choose by exactly the same rule.
+ */
+export function chooseOpenSeat(
+  table: BalancerTable,
+  opts?: { bbSeat?: number | null; sourceHops?: number | null }
+): SeatChoice {
+  const sourceHops = opts?.sourceHops ?? null;
+  const occupiedSeats = new Set<number>([
+    ...table.players.map((p) => p.seat),
+    ...(table.reservedSeats ?? []),
+  ]);
+  const free: number[] = [];
+  for (let seat = 1; seat <= table.maxSeats; seat++) {
+    if (!occupiedSeats.has(seat)) free.push(seat);
+  }
+  if (free.length === 0) return { seat: -1, hops: null };
+
+  const ring = table.players.map((p) => p.seat);
+  // The big blind of the hand the destination has just DEALT. Passed in by
+  // the caller so it is computed once, off the real occupancy, and does not
+  // drift as this method fills seats with the players being moved in.
+  const bbSeat =
+    opts?.bbSeat !== undefined ? opts.bbSeat : currentBigBlindSeat(ring, table.buttonSeat);
+  if (bbSeat === null || !occupiedSeats.has(bbSeat)) return { seat: free[0], hops: null };
+
+  const scored = free
+    .map((seat) => ({ seat, hops: hopsToBigBlind(ring, bbSeat, seat) }))
+    .sort((a, b) => a.hops - b.hops || a.seat - b.seat);
+
+  // n counts the seat we are about to fill, matching hopsToBigBlind.
+  const n = new Set([...ring, scored[0].seat]).size;
+  // hops >= n - 1 is the button / small blind for the coming hand: the seats
+  // the big blind passed one and two hands ago.
+  const justPassedTheBlinds = (hops: number) => n >= 4 && hops >= n - 1;
+
+  const preferred = scored.filter((c) => !justPassedTheBlinds(c.hops));
+  const pool = preferred.length > 0 ? preferred : scored;
+
+  if (sourceHops != null) {
+    const sameOrEarlier = pool.filter((c) => c.hops <= sourceHops);
+    if (sameOrEarlier.length > 0) return sameOrEarlier[sameOrEarlier.length - 1];
+  }
+  return pool[0];
+}
 
 export class TableBalancer {
   private onEvent?: (event: TableBalancerEvent) => void;
@@ -353,6 +409,7 @@ export class TableBalancer {
             toTableId: under.tableId,
             toSeat,
             reason: `Balance: ${over.tableId.slice(0, 8)} (${over.playerCount}) → ${under.tableId.slice(0, 8)} (${under.playerCount})`,
+            sourceHops,
           });
 
           // Update counts for subsequent calculations
@@ -557,6 +614,7 @@ export class TableBalancer {
         toTableId: target.tableId,
         toSeat,
         reason: `Table break: ${table.tableId.slice(0, 8)} dissolved`,
+        sourceHops,
       });
 
       // Reflect the placement so the next player spreads + gets a distinct seat.
@@ -610,43 +668,7 @@ export class TableBalancer {
     table: BalancerTable,
     opts?: { bbSeat?: number | null; sourceHops?: number | null }
   ): SeatChoice {
-    const sourceHops = opts?.sourceHops ?? null;
-    const occupiedSeats = new Set<number>([
-      ...table.players.map((p) => p.seat),
-      ...(table.reservedSeats ?? []),
-    ]);
-    const free: number[] = [];
-    for (let seat = 1; seat <= table.maxSeats; seat++) {
-      if (!occupiedSeats.has(seat)) free.push(seat);
-    }
-    if (free.length === 0) return { seat: -1, hops: null };
-
-    const ring = table.players.map((p) => p.seat);
-    // The big blind of the hand the destination has just DEALT. Passed in by
-    // the caller so it is computed once, off the real occupancy, and does not
-    // drift as this method fills seats with the players being moved in.
-    const bbSeat =
-      opts?.bbSeat !== undefined ? opts.bbSeat : currentBigBlindSeat(ring, table.buttonSeat);
-    if (bbSeat === null || !occupiedSeats.has(bbSeat)) return { seat: free[0], hops: null };
-
-    const scored = free
-      .map((seat) => ({ seat, hops: hopsToBigBlind(ring, bbSeat, seat) }))
-      .sort((a, b) => a.hops - b.hops || a.seat - b.seat);
-
-    // n counts the seat we are about to fill, matching hopsToBigBlind.
-    const n = new Set([...ring, scored[0].seat]).size;
-    // hops >= n - 1 is the button / small blind for the coming hand: the seats
-    // the big blind passed one and two hands ago.
-    const justPassedTheBlinds = (hops: number) => n >= 4 && hops >= n - 1;
-
-    const preferred = scored.filter((c) => !justPassedTheBlinds(c.hops));
-    const pool = preferred.length > 0 ? preferred : scored;
-
-    if (sourceHops != null) {
-      const sameOrEarlier = pool.filter((c) => c.hops <= sourceHops);
-      if (sameOrEarlier.length > 0) return sameOrEarlier[sameOrEarlier.length - 1];
-    }
-    return pool[0];
+    return chooseOpenSeat(table, opts);
   }
 
   private emitEvent(event: TableBalancerEvent): void {
