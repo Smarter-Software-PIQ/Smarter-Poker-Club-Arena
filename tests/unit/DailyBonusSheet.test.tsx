@@ -532,7 +532,7 @@ it('requires a tenth-day bonus spin to be claimed before the club chooser appear
   render(<DailyBonusSheet mode="inline" />);
   await screen.findByText('100 Diamond Bonus Spin');
   expect(screen.queryByRole('button', { name: 'Use Bonus Spin' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Claim All' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Claim Reward' }));
   await screen.findByRole('button', { name: 'Use Bonus Spin' });
   expect(mocks.claimAll).toHaveBeenCalledWith('2026-09-08');
   expect(screen.getByText('100 Diamond Bonus Spin Claimed')).toBeTruthy();
@@ -582,8 +582,95 @@ it('reports a refused batch without saying rewards were collected when nothing n
     status: capped,
   });
   render(<DailyBonusSheet mode="inline" />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Claim All' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Claim Reward' }));
   await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith('Daily Diamond Cap Reached'));
   expect(mocks.toast.info).not.toHaveBeenCalled();
   expect(mocks.toast.success).not.toHaveBeenCalled();
+});
+
+it('renders the progressive 7-day strip with actual rewards, next multiplier hint, and single-reward CTA', async () => {
+  mocks.getStatus.mockResolvedValue({
+    ...status,
+    streak: 1,
+    cycle_day: 1,
+    multiplier: 1,
+    unclaimed: 1,
+    tiles: [tile({ slot: 1, base_diamonds: 10, diamonds: 10 })],
+    week: [
+      {
+        day: 1,
+        streak: 1,
+        diamonds: 10,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: null,
+        state: 'today',
+      },
+      {
+        day: 2,
+        streak: 2,
+        diamonds: null,
+        primary_kind: 'throwables',
+        primary_quantity: 3,
+        extras: 'Throwables',
+        state: 'upcoming',
+      },
+      {
+        day: 3,
+        streak: 3,
+        diamonds: 18,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: null,
+        state: 'upcoming',
+      },
+      {
+        day: 4,
+        streak: 4,
+        diamonds: null,
+        primary_kind: 'rabbit_hunts',
+        primary_quantity: 2,
+        extras: 'Rabbit Hunts',
+        state: 'upcoming',
+      },
+      {
+        day: 5,
+        streak: 5,
+        diamonds: null,
+        primary_kind: 'shield',
+        primary_quantity: 1,
+        extras: 'Streak Shield',
+        state: 'upcoming',
+      },
+      {
+        day: 6,
+        streak: 6,
+        diamonds: null,
+        primary_kind: 'mystery',
+        primary_quantity: 0,
+        extras: 'Mystery Vault',
+        state: 'upcoming',
+      },
+      {
+        day: 7,
+        streak: 7,
+        diamonds: 60,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: 'Mission Boost',
+        state: 'upcoming',
+      },
+    ],
+    tomorrow: [
+      { kind: 'throwables', label: 'Throwables', vip_only: false, quantity: 3, diamonds: 0 },
+    ],
+  });
+  render(<DailyBonusSheet mode="inline" />);
+  expect(await screen.findByRole('button', { name: 'Claim Reward' })).toBeTruthy();
+  expect(screen.getByText('×1.2 On Day 3')).toBeTruthy();
+  expect(screen.queryByText('New')).toBeNull();
+  expect(screen.getByText('+18')).toBeTruthy();
+  expect(screen.getByText('? 5×')).toBeTruthy();
+  expect(screen.getByText('+60')).toBeTruthy();
+  expect(screen.getByText('×3 Throwables')).toBeTruthy();
 });

@@ -5,7 +5,16 @@ per reward, one Claim All action, reset at midnight
 America/Chicago. Dan, updated 2026-10-10. Plan: the "Daily Club Arena Bonus" artifact
 in Dan's Claude gallery; rulings and live state below are the source of truth.
 
-## Current upgrade (Dan, 2026-10-10)
+## Current upgrade (Dan, 2026-11-25)
+
+Progressive 30-day + Prestige ladder (`20261125075751_daily_bonus_progressive_nonrepeating_ladder.sql`):
+
+- Standard days award one clean, focused hero reward instead of three cluttered gifts. Weekly finales (Days 7, 14, 21, 28), tenth-day Bonus Spin milestones (Days 10, 20, 30, 40...), and VIP milestone days add curated extras.
+- No reward kind repeats on consecutive days across Weeks 1–4, Prestige (Days 31+), or streak resets back to Day 1.
+- Both Diamonds (scaled by `fn_get_streak_multiplier`, capped inside 110 free / 150 VIP daily and 125 per claim) and table perks (Throwables, Rabbit Hunts, Time Bank) step up progressively week over week.
+- Mystery Vault (`fn_ca_daily_bonus_roll_mystery` + `fn_ca_daily_bonus_roll_lucky` 1×–5×) is active again, VIP bonuses are clean Diamond bonuses on milestone days (never VIP-locked consumables), and the 7-day strip displays every day's actual progressive reward instead of "New".
+
+## Prior upgrade (Dan, 2026-10-10)
 
 Claim once to accept all eligible rewards. No cash equivalent labels appear
 in the sheet. Diamonds use a blue faceted 3D render with subtle motion.

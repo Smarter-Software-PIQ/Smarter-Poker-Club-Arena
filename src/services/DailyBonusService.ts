@@ -121,7 +121,13 @@ export interface DailyBonusWeekDay {
   streak: number;
   diamonds: number | null;
   extras: string | null;
-  /** Today's entry on a chest day (streak 14, 30): the strip shows the chest, not the cycle row. */
+  /** Primary hero reward kind for this day on the progressive 7-day strip. */
+  primary_kind?: DailyBonusTileKind | null;
+  /** Primary hero reward quantity for non-diamond days on the 7-day strip. */
+  primary_quantity?: number | null;
+  /** Tenth-day milestone awarding a Mint-funded 100 Diamond Bonus Spin. */
+  has_spin?: boolean;
+  /** Milestone chest day (streak 14, 21, 30): the strip highlights the chest. */
   chest?: boolean;
   state: 'done' | 'today' | 'upcoming';
 }
