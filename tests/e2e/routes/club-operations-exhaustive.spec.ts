@@ -86,16 +86,14 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
       await expectDestination(page, `/${path}`);
 
       if (operation.id === 'data') {
-        // #6895: data is the PokerBros-style everyday screen; its Report action
+        // #6895: data is the PokerBros-style everyday screen; its Advanced action
         // opens the full operator report, which keeps the Simple/Advanced tool
         // and the Club Operations frame certified below. Dan 2026-10-17: the
         // everyday header names the club ("CLUB JAQK - CLUB DATA").
-        await expect(
-          page.getByRole('heading', { name: /^(?:.+ - )?Club Data$/i })
-        ).toBeVisible({
+        await expect(page.getByRole('heading', { name: /^(?:.+ - )?Club Data$/i })).toBeVisible({
           timeout: 30_000,
         });
-        await page.getByRole('button', { name: 'Report', exact: true }).click();
+        await page.getByRole('button', { name: 'Advanced', exact: true }).click();
         await expect(page).toHaveURL(/\/clubs\/[^/]+\/data\/advanced(?:[?#]|$)/, {
           timeout: 30_000,
         });

@@ -65,7 +65,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     await expect(page.getByRole('heading', { name: EVERYDAY_CLUB_DATA_HEADING })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole('button', { name: 'Report', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Advanced', exact: true })).toBeVisible();
     await expect(
       page.getByRole('list', { name: 'Games' }).or(page.getByText('No Data In This Period.'))
     ).toBeVisible({
@@ -75,7 +75,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     return;
   }
   if (route === `clubs/${CLUB}/data/advanced`) {
-    // #6895: the full Club Data report (Simple/Advanced, Read The Room) lives at
+    // #6895: the full Club Data report (Simple/Advanced, Report Status) lives at
     // data/advanced; data is the PokerBros-style everyday screen.
     // Club entry accepts an id, then deliberately canonicalizes it to the
     // public slug (for example, /clubs/shark-club/data). Require the exact
@@ -85,7 +85,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     await expect(page.locator('[data-page="club-data"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Club Data', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Read The Room', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
     const dataLink = page
       .getByRole('navigation', { name: 'Club Operations Sections' })
       .getByRole('link', { name: 'Club Data', exact: true });
@@ -100,13 +100,10 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     expect(new URL(page.url()).pathname.endsWith(`/${routePath}`)).toBe(true);
   }
   if (route === 'stats') {
-    await expect(
-      page.getByRole('heading', { name: 'Player Intelligence', exact: true })
-    ).toBeAttached({
+    await expect(page.getByRole('heading', { name: 'Player Stats', exact: true })).toBeVisible({
       timeout: 30_000,
     });
-    // The dossier heading is visually hidden (Dan 2026-10-17) and is also
-    // present during loading and privacy checks.
+    // The mast is present while the privacy and reporting data load.
     // Measure only once the real, accessible controls have actually arrived.
     await expect(page.locator('.stats-page')).not.toHaveAttribute('aria-busy', 'true', {
       timeout: 30_000,

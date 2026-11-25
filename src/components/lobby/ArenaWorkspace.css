@@ -271,6 +271,9 @@
 }
 .arena-roster-tools > summary,
 .arena-workspace details.stats-secondary > summary {
+  min-height: 44px;
+  box-sizing: border-box;
+  align-content: center;
   padding: 8px 4px;
   color: #b6c8d6;
   cursor: pointer;
