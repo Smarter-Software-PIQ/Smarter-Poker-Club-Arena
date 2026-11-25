@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateAssignmentBrowserIdentity, observeAssignmentPrivateChannel } from './qualify-agent-assignment-browser.mjs';
+import { validateAssignmentBrowserIdentity, observeAssignmentPrivateChannel, readBrowserSupport } from './qualify-agent-assignment-browser.mjs';
 const club='a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const account={id:'11111111-1111-4111-8111-111111111111',email:'ca-customization-cert-postdeploy-fixture@example.invalid'};
 const session={user:{id:account.id,email:account.email},access_token:'fixture-access',refresh_token:'fixture-refresh'};
@@ -14,6 +14,17 @@ test('browser proof refuses missing, cross-user or incomplete sessions before la
  assert.throws(()=>validateAssignmentBrowserIdentity(account,{...session,user:{...session.user,id:'another-user'}},club));
  assert.throws(()=>validateAssignmentBrowserIdentity(account,{...session,user:{...session.user,email:'someone@example.invalid'}},club));
  assert.throws(()=>validateAssignmentBrowserIdentity(account,{...session,refresh_token:null},club));
+});
+
+test('loads the actual maintained Terms gate and its legal revision import before browser setup', async () => {
+  const { ensureAcceptedTerms } = await readBrowserSupport('ensureAcceptedTerms');
+  const acceptedPage = {
+    locator: () => ({
+      waitFor: async () => {},
+      getAttribute: async () => 'accepted',
+    }),
+  };
+  assert.equal(await ensureAcceptedTerms(acceptedPage), false);
 });
 
 // The real maintained observer receives the same page/socket events as Playwright.

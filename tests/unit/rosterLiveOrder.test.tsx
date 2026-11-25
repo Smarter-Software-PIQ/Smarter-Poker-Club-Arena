@@ -3,7 +3,7 @@
  * re-ranked from the presence door and the club's live seats, seated first,
  * then online, then last active, without a roster re-read.
  */
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const seatRows: { rows: unknown[] } = { rows: [] };
@@ -225,7 +225,9 @@ describe('LiveNowStrip', () => {
         onWatch={onWatch}
       />
     );
-    const chips = screen.getAllByRole('listitem');
+    const chips = within(screen.getByRole('list'))
+      .getAllByRole('listitem')
+      .map((item) => within(item).getByRole('button'));
     expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual([
       'Watch Amy At Table, Table One',
       'Watch Zed At Table, Table Two',

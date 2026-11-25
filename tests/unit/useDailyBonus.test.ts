@@ -3,7 +3,11 @@
  * ledger said, and every other diamond tile re-reads the cap it now faces.
  */
 import { describe, expect, it } from 'vitest';
-import { applyClaim } from '../../src/components/daily-bonus/useDailyBonus';
+import {
+  applyClaim,
+  formatCountdown,
+  resolveBoostSecondsLeft,
+} from '../../src/components/daily-bonus/useDailyBonus';
 import type { DailyBonusStatus, DailyBonusTile } from '../../src/services/DailyBonusService';
 
 const tile = (over: Partial<DailyBonusTile>): DailyBonusTile => ({
@@ -193,5 +197,27 @@ describe('applyClaim', () => {
   it('is a no-op without a grant', () => {
     const prev = status();
     expect(applyClaim(prev, 1, { success: false, reason: 'daily_cap' })).toBe(prev);
+  });
+});
+
+describe('resolveBoostSecondsLeft & formatCountdown hardening', () => {
+  it('prefers server seconds_left over ends_at so client clock skew cannot corrupt the countdown', () => {
+    const skewedEndsAt = new Date(Date.now() + 9999 * 1000).toISOString();
+    expect(
+      resolveBoostSecondsLeft({
+        active: true,
+        seconds_left: 3600,
+        ends_at: skewedEndsAt,
+      })
+    ).toBe(3600);
+  });
+
+  it('safely falls back to 0 on inactive boost or malformed ends_at and never formats NaN', () => {
+    expect(resolveBoostSecondsLeft({ active: false, seconds_left: 500 })).toBe(0);
+    expect(resolveBoostSecondsLeft({ active: true, ends_at: 'not-a-timestamp' })).toBe(0);
+    expect(formatCountdown(Number.NaN)).toBe('00:00:00');
+    expect(formatCountdown(Number.POSITIVE_INFINITY)).toBe('00:00:00');
+    expect(formatCountdown(-15)).toBe('00:00:00');
+    expect(formatCountdown(3661)).toBe('01:01:01');
   });
 });

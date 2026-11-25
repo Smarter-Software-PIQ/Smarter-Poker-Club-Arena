@@ -482,6 +482,7 @@ function RankingTabForTournament({
   tables,
   blindLevels,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
   satelliteAwards: providedAwards,
 }: TournamentTabProps) {
@@ -791,7 +792,7 @@ function RankingTabForTournament({
      hook resolves it exactly as this tab always did and is shared with Details,
      Rewards and Tables (Dan 2026-11-08), so all four tabs count an agent's
      players one way. Fed the merged board so the card moves with the rows. */
-  const myPlayers = useMyPlayers(tournament, merged, tables, currentUserId);
+  const myPlayers = useMyPlayers(tournament, merged, tables, currentUserId, viewerLinkClub);
   const downlineIds = myPlayers.downlineIds;
 
   /* The previous stack for every player on the board, refreshed AFTER each

@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { BUY_IN_LADDER } from '../utils/buyIn';
 import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../components/legal/promoPlayThroughTerms';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -69,17 +70,26 @@ import {
  * The recipient list is fn_club_cashier_members - the SAME downline edge
  * fn_agent_wallet_send refuses on, so the list and the refusal cannot disagree.
  *
- * The classic cashier (buy-in / cash-out / mint / full history) remains at
- * ./cashier-classic and is linked from the bottom of the Trade tab.
+ * The role-gated wallet forms open inline on this club cashier. The old
+ * wallet bookmark redirects here and preserves its table context.
  */
 
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import CashoutRequestModal from '../components/wallet/CashoutRequestModal';
 import AgentCashoutPanel from '../components/agent/AgentCashoutPanel';
 import { useClubPendingCashouts } from '../hooks/useClubPendingCashouts';
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from 'react';
 import { roleLabel, roleRank, type ClubRole } from '../types/clubRoles';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
@@ -600,6 +610,7 @@ function historyTotalNumber(value: unknown): number {
 
 // Retire dialogs and read/write refs immediately when the account or route changes.
 // Pending durable requests keep their original account, club and request identity.
+const WalletOperations = lazyWithRetry(() => import('./CashierPage'));
 export default function CashierTradePage() {
   const { clubId } = useParams<{ clubId: string }>();
   const { user } = useAuthUser();
@@ -610,6 +621,29 @@ export default function CashierTradePage() {
 function CashierTradeWorkspace() {
   const { clubId: clubParam } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const walletPanel = useRef<HTMLElement>(null);
+  const walletToolsOpen = new URLSearchParams(location.search).get('walletTools') === 'open';
+  const setWalletToolsOpen = (open: boolean) => {
+    const next = new URLSearchParams(location.search);
+    if (open) next.set('walletTools', 'open');
+    else next.delete('walletTools');
+    navigate(
+      { pathname: location.pathname, search: next.toString(), hash: location.hash },
+      {
+        state: location.state,
+      }
+    );
+  };
+  const openSend = () => {
+    if (!walletToolsOpen) {
+      setWalletToolsOpen(true);
+      return;
+    }
+    const sendTab = walletPanel.current?.querySelector<HTMLButtonElement>('#cashier-tab-send');
+    sendTab?.click();
+    sendTab?.focus();
+  };
   const { user, isHydrating } = useAuthUser();
   const toast = useToast();
 
@@ -620,11 +654,15 @@ function CashierTradeWorkspace() {
   const [membershipsError, setMembershipsError] = useState<string | null>(null);
   const [membershipsReload, setMembershipsReload] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const clubPickerListboxId =
+    pickerOpen && !membershipsLoading && !membershipsError ? 'cashier-club-picker' : undefined;
   const [tab, setTab] = useState<TabKey>('trade');
-  const [advanced, setAdvanced] = useState(false);
+  const [cashierToolsOpen, setCashierToolsOpen] = useState(false);
 
   const [myRole, setMyRole] = useState<string>('player');
   const [roleResolved, setRoleResolved] = useState(false);
+  const walletOperationsRegionId =
+    roleResolved && clubUuid && walletToolsOpen ? 'cashier-wallet-operations' : undefined;
   const initialTabResolvedRef = useRef(false);
   const [myBalance, setMyBalance] = useState(0);
   /**
@@ -4402,36 +4440,25 @@ function CashierTradeWorkspace() {
   // determined separately for the selected player or agent wallet.
   const selfCanFundPlayerWallet = currentClub?.entityType === 'club' && canSeeClubBank(myRole);
 
-  const modeToggle = (
-    <button
-      type="button"
-      className={styles.modeToggle}
-      aria-pressed={advanced}
-      onClick={() => {
-        if (advanced) {
-          setTab('trade');
-          setRoleFilter('all');
-          setMineOnly(false);
-          setGroupByRole(false);
-        }
-        setAdvanced((value) => !value);
-      }}
-    >
-      {advanced ? 'Simple' : 'Advanced'}
-      {!advanced && pendingCount + heldTicketCount > 0
-        ? ` (${(pendingCount + heldTicketCount).toLocaleString()})`
-        : ''}
-    </button>
-  );
-
   return (
     <div
-      className={`${styles.page} ${!advanced ? styles.simple : ''}`}
+      className={`arena-workspace arena-cashier arena-trade ${styles.page} ${styles.simple}`}
       data-cashier-surface="trade"
-      data-cashier-mode={advanced ? 'advanced' : 'simple'}
+      data-cashier-mode="simple"
+      data-cashier-tools={cashierToolsOpen ? 'open' : 'closed'}
     >
+      <ArenaWorkspaceHeader
+        area="cashier"
+        title="Cashier"
+        context={currentClub?.name}
+        subtitle={roleResolved && canHoldAgentWallet(myRole) ? 'Agent Wallets' : 'Club Wallets'}
+      />
+      <a href="#cashier-account-tools" className="arena-cashier-tools-link">
+        Cashier Tools
+      </a>
       <CashierWorkspace
-        compact={!advanced}
+        hasVisibleTitle
+        compact
         title="Cashier"
         summary="Move Chips Between Your Club Wallets, Answer Chip Requests, Redeem Tickets And Check Every Ledger Entry."
         // Dan 2026-10-16: no "Live Ledger" pill. A locked cashier still says so.
@@ -4446,22 +4473,11 @@ function CashierTradeWorkspace() {
               userId={user.id}
               clubId={clubUuid}
               role={myRole}
+              consoleLayout
               variant={currentClub.entityType}
             />
           )}
-          {/* Dan 2026-10-16: the Simple view carries no "Simple Cashier" caption
-          and no toolbar row; its Advanced switch sits beside the club so the
-          club leads the glass. Advanced keeps its labelled toolbar. */}
-          {advanced && (
-            <div className={styles.modeToolbar}>
-              <span>Advanced Cashier</span>
-              {modeToggle}
-            </div>
-          )}
-          <section
-            className={styles.hero}
-            aria-label={advanced ? 'Wallet Command' : 'Club Cashier'}
-          >
+          <section id="cashier-account-tools" className={styles.hero} aria-label="Club Cashier">
             <div className={styles.header}>
               <button
                 ref={entityButtonRef}
@@ -4469,7 +4485,7 @@ function CashierTradeWorkspace() {
                 onClick={() => setPickerOpen((open) => !open)}
                 aria-expanded={pickerOpen}
                 aria-haspopup="listbox"
-                aria-controls="cashier-club-picker"
+                aria-controls={clubPickerListboxId}
                 aria-label={`Open Another Club Cashier. Current Club: ${currentClubLabel}`}
               >
                 {currentClub?.logoUrl ? (
@@ -4493,7 +4509,6 @@ function CashierTradeWorkspace() {
                   </span>
                 </span>
               </button>
-              {!advanced && modeToggle}
             </div>
 
             {holdsPlayerWallet(myRole) && roleResolved && (
@@ -4532,29 +4547,17 @@ function CashierTradeWorkspace() {
                 </span>
               </button>
             )}
-            {!advanced && (
-              // Dan 2026-10-16: a healthy cashier prints no "Balances Synchronized"
-              // line. The status stays announced to assistive technology, and any
-              // other state (offline, reconciling, an error) is still shown.
-              <div
-                className={
-                  cashierSyncMessage === 'Balances Synchronized' ? 'sr-only' : styles.simpleStatus
-                }
-                role="status"
-              >
-                {cashierSyncMessage}
-              </div>
-            )}
-            {advanced && (
-              <div className={styles.heroContent}>
-                <div
-                  className={`${styles.securityLine} ${cashierNeedsAttention && !loading && !isHydrating ? styles.securityDotWarning : ''}`}
-                  role="status"
-                >
-                  {cashierSyncMessage}
-                </div>
-              </div>
-            )}
+            <div
+              className={[
+                cashierSyncMessage === 'Balances Synchronized' ? 'sr-only' : styles.simpleStatus,
+                cashierNeedsAttention && !loading && !isHydrating ? styles.securityDotWarning : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              role="status"
+            >
+              {cashierSyncMessage}
+            </div>
             <div className={styles.heroMetrics} aria-label="Current Cashier Balances">
               <div className={styles.heroMetric}>
                 <span className={styles.heroMetricLabel}>Club Chips</span>
@@ -4583,6 +4586,79 @@ function CashierTradeWorkspace() {
             </div>
           </section>
 
+          {roleResolved && (
+            <div className="arena-switch" role="group" aria-label="Wallet Actions">
+              {canHoldAgentWallet(myRole) && (
+                <button type="button" aria-controls={walletOperationsRegionId} onClick={openSend}>
+                  Send
+                </button>
+              )}
+              {myRole !== 'player' && (
+                <button
+                  type="button"
+                  aria-pressed={!walletToolsOpen && tab === 'trade'}
+                  onClick={() => {
+                    if (walletToolsOpen) setWalletToolsOpen(false);
+                    setTab('trade');
+                  }}
+                >
+                  Distribute
+                </button>
+              )}
+              {holdsPlayerWallet(myRole) && (
+                <button type="button" onClick={() => setShowCashoutRequest(true)}>
+                  Cash-Out
+                </button>
+              )}
+              <button
+                type="button"
+                aria-pressed={!walletToolsOpen && tab === 'record'}
+                onClick={() => {
+                  if (walletToolsOpen) setWalletToolsOpen(false);
+                  setTab('record');
+                }}
+              >
+                History
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className={styles.toolsTrigger}
+            aria-expanded={cashierToolsOpen}
+            aria-controls="cashier-action-tabs"
+            onClick={() => setCashierToolsOpen((open) => !open)}
+          >
+            Requests, Tickets And Tools
+            {pendingCount + heldTicketCount > 0
+              ? ` (${(pendingCount + heldTicketCount).toLocaleString()})`
+              : ''}
+          </button>
+          {roleResolved && clubUuid && (cashierToolsOpen || walletToolsOpen) && (
+            <div className={styles.walletTools}>
+              <button
+                type="button"
+                className={styles.toolsTrigger}
+                aria-expanded={walletToolsOpen}
+                aria-controls={walletOperationsRegionId}
+                onClick={() => setWalletToolsOpen(!walletToolsOpen)}
+              >
+                Wallet Operations
+              </button>
+              {walletToolsOpen && (
+                <section
+                  ref={walletPanel}
+                  id={walletOperationsRegionId}
+                  className="arena-case"
+                  aria-label="Wallet Operations"
+                >
+                  <Suspense fallback={<p role="status">Loading Wallet Operations</p>}>
+                    <WalletOperations embeddedClubId={clubUuid} />
+                  </Suspense>
+                </section>
+              )}
+            </div>
+          )}
           {/* Entity picker */}
           {pickerOpen && (
             <div
@@ -4630,8 +4706,8 @@ function CashierTradeWorkspace() {
                   </button>
                 </div>
               )}
-              {!membershipsLoading && !membershipsError && (
-                <div id="cashier-club-picker" role="listbox" aria-label="Club Cashiers">
+              {clubPickerListboxId && (
+                <div id={clubPickerListboxId} role="listbox" aria-label="Club Cashiers">
                   {memberships.map((m) => (
                     <button
                       key={m.clubUuid}
@@ -4646,7 +4722,10 @@ function CashierTradeWorkspace() {
                             `/unions/${m.slug || unionRouteRef(m.clubUuid)}/operations?tab=wallet`
                           );
                         } else if (m.clubUuid !== clubUuid) {
-                          navigate(`/clubs/${m.clubCode ?? m.clubUuid}/cashier`);
+                          navigate({
+                            pathname: `/clubs/${m.clubCode ?? m.clubUuid}/cashier`,
+                            search: walletToolsOpen ? 'walletTools=open' : '',
+                          });
                         }
                       }}
                     >
@@ -4668,7 +4747,8 @@ function CashierTradeWorkspace() {
 
           {/* Tabs */}
           <nav
-            hidden={!advanced}
+            id="cashier-action-tabs"
+            hidden={!cashierToolsOpen}
             className={styles.tabs}
             role="tablist"
             aria-label="Cashier Actions"
@@ -4695,6 +4775,7 @@ function CashierTradeWorkspace() {
                       : (index - 1 + buttons.length) % buttons.length;
               const next = visibleTabs[nextIndex]?.[0];
               if (!next) return;
+              if (walletToolsOpen) setWalletToolsOpen(false);
               setTab(next);
               buttons[nextIndex]?.focus();
             }}
@@ -4704,11 +4785,14 @@ function CashierTradeWorkspace() {
                 key={key}
                 id={`cashier-tab-${key}`}
                 role="tab"
-                className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`}
-                aria-selected={tab === key}
-                aria-controls={`cashier-panel-${key}`}
+                className={`${styles.tab} ${!walletToolsOpen && tab === key ? styles.tabActive : ''}`}
+                aria-selected={!walletToolsOpen && tab === key}
+                aria-controls={!walletToolsOpen && tab === key ? `cashier-panel-${key}` : undefined}
                 tabIndex={tab === key ? 0 : -1}
-                onClick={() => setTab(key)}
+                onClick={() => {
+                  if (walletToolsOpen) setWalletToolsOpen(false);
+                  setTab(key);
+                }}
               >
                 {label}
                 {/* A player who has asked their agent for chips is a player who is
@@ -4757,7 +4841,7 @@ function CashierTradeWorkspace() {
 
           {batchReceipt && (
             <section
-              className={styles.sectionShell}
+              className={`arena-case ${styles.sectionShell}`}
               aria-label="Batch Transfer Receipt"
               aria-live="polite"
             >
@@ -4806,19 +4890,19 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'trade' && (
+          {!walletToolsOpen && tab === 'trade' && (
             <section
               id="cashier-panel-trade"
-              className={styles.sectionShell}
-              role={advanced ? 'tabpanel' : 'region'}
-              aria-labelledby={advanced ? 'cashier-tab-trade' : 'trade-workspace-title'}
+              className={`arena-case ${styles.sectionShell}`}
+              role={cashierToolsOpen ? 'tabpanel' : 'region'}
+              aria-labelledby={cashierToolsOpen ? 'cashier-tab-trade' : 'trade-workspace-title'}
               tabIndex={0}
             >
               <div className={styles.sectionHeading}>
                 <div>
                   <span className={styles.sectionEyebrow}>Distribution Desk</span>
                   <h2 className={styles.sectionTitle} id="trade-workspace-title">
-                    {advanced ? 'Select Recipients' : 'Players'}
+                    Players
                   </h2>
                 </div>
                 {/* Dan 2026-10-24: "INSTEAD OF IT SAYING 575 AVAILABLE - 0
@@ -5205,7 +5289,7 @@ function CashierTradeWorkspace() {
                           {pendingCashouts.playerIds.has(r.userId) && (
                             <span className={styles.rowCashoutRequested}>Cash Out Requested</span>
                           )}
-                          {advanced && (
+                          {cashierToolsOpen && (
                             <span className={styles.rowSub}>
                               {titleCase(roleLabel(r.role as ClubRole))}
                               {r.username ? ` · @${r.username}` : ''}
@@ -5244,13 +5328,6 @@ function CashierTradeWorkspace() {
                     Load More ({list.length - visibleCount} Hidden)
                   </button>
                 )}
-                <button
-                  hidden={!advanced}
-                  className={styles.classicLink}
-                  onClick={() => navigate(`/clubs/${clubParam}/cashier-classic`)}
-                >
-                  Advanced Cashier (Buy-In, Cash-Out, Mint, Full History)
-                </button>
               </div>
 
               {/* THE SELECTION, VISIBLE AND REVERSIBLE (Dan 2026-08-25).
@@ -5329,10 +5406,10 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'record' && (
+          {!walletToolsOpen && tab === 'record' && (
             <section
               id="cashier-panel-record"
-              className={`${styles.sectionShell} ${styles.historyPanel}`}
+              className={`arena-case ${styles.sectionShell} ${styles.historyPanel}`}
               role="tabpanel"
               aria-labelledby="cashier-tab-record"
               aria-busy={recordsLoading}
@@ -5354,7 +5431,7 @@ function CashierTradeWorkspace() {
                 {/* The Simple view has no tab strip, so the way in (the
                 heading of Players) is also the way back. A player has no
                 Players desk to return to. */}
-                {!advanced && myRole !== 'player' ? (
+                {myRole !== 'player' ? (
                   <button
                     type="button"
                     className={styles.historyLink}
@@ -5367,263 +5444,266 @@ function CashierTradeWorkspace() {
                 )}
               </div>
 
-              <form
-                className={styles.historySearchForm}
-                role="search"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  // Enter asks for this person's full book, not today's preview.
-                  setHistorySearch(recordQuery.trim());
-                  setHistoryRange('all');
-                  setHistoryKind('all');
-                  setRecordDirection('all');
-                  setHistoryPerson(null);
-                  setRecordsReload((value) => value + 1);
-                }}
-              >
-                <input
-                  className={styles.ledgerSearch}
-                  type="search"
-                  value={recordQuery}
-                  onChange={(event) => setRecordQuery(event.target.value)}
-                  placeholder="Name Or Invoice #"
-                  aria-label="Search Transaction History"
-                />
-                <button type="submit" className={styles.historySearchButton}>
-                  Search
-                </button>
-              </form>
+              <details className="arena-ledger-tools" open={cashierToolsOpen || undefined}>
+                <summary>Search And Filter History</summary>
+                <form
+                  className={styles.historySearchForm}
+                  role="search"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    // Enter asks for this person's full book, not today's preview.
+                    setHistorySearch(recordQuery.trim());
+                    setHistoryRange('all');
+                    setHistoryKind('all');
+                    setRecordDirection('all');
+                    setHistoryPerson(null);
+                    setRecordsReload((value) => value + 1);
+                  }}
+                >
+                  <input
+                    className={styles.ledgerSearch}
+                    type="search"
+                    value={recordQuery}
+                    onChange={(event) => setRecordQuery(event.target.value)}
+                    placeholder="Name Or Invoice #"
+                    aria-label="Search Transaction History"
+                  />
+                  <button type="submit" className={styles.historySearchButton}>
+                    Search
+                  </button>
+                </form>
 
-              {(() => {
-                // Which books this viewer may choose between. A player has one.
-                const books: ReadonlyArray<readonly [HistoryBook, string]> = !roleResolved
-                  ? []
-                  : isClubStaffRole(myRole)
-                    ? [
-                        ['club', 'Club Transactions'],
-                        ['mine', 'My Transactions'],
-                      ]
-                    : isAgentRole(myRole)
+                {(() => {
+                  // Which books this viewer may choose between. A player has one.
+                  const books: ReadonlyArray<readonly [HistoryBook, string]> = !roleResolved
+                    ? []
+                    : isClubStaffRole(myRole)
                       ? [
+                          ['club', 'Club Transactions'],
                           ['mine', 'My Transactions'],
-                          ['downline', 'My Downline'],
                         ]
-                      : [];
-                return books.length > 0 ? (
-                  <div
-                    className={styles.ledgerFilters}
-                    role="group"
-                    aria-label="Choose Which Transactions To Show"
-                  >
-                    {books.map(([scope, label]) => (
+                      : isAgentRole(myRole)
+                        ? [
+                            ['mine', 'My Transactions'],
+                            ['downline', 'My Downline'],
+                          ]
+                        : [];
+                  return books.length > 0 ? (
+                    <div
+                      className={styles.ledgerFilters}
+                      role="group"
+                      aria-label="Choose Which Transactions To Show"
+                    >
+                      {books.map(([scope, label]) => (
+                        <button
+                          key={scope}
+                          type="button"
+                          className={`${styles.ledgerFilter} ${historyBook === scope ? styles.ledgerFilterActive : ''}`}
+                          aria-pressed={historyBook === scope}
+                          aria-label={label}
+                          onClick={() => {
+                            if (scope === historyBook) return;
+                            setHistoryPerson(null);
+                            setHistoryScope(scope);
+                          }}
+                        >
+                          {chipFace(label)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+
+                <div className={styles.historyControls}>
+                  <div className={styles.ledgerFilters} role="group" aria-label="Filter By Type">
+                    {HISTORY_KINDS.map(([kind, label]) => (
                       <button
-                        key={scope}
+                        key={kind}
                         type="button"
-                        className={`${styles.ledgerFilter} ${historyBook === scope ? styles.ledgerFilterActive : ''}`}
-                        aria-pressed={historyBook === scope}
+                        className={`${styles.ledgerFilter} ${historyKind === kind ? styles.ledgerFilterActive : ''}`}
+                        aria-pressed={historyKind === kind}
                         aria-label={label}
                         onClick={() => {
-                          if (scope === historyBook) return;
-                          setHistoryPerson(null);
-                          setHistoryScope(scope);
+                          if (kind === historyKind) return;
+                          setHistoryKind(kind);
                         }}
                       >
                         {chipFace(label)}
                       </button>
                     ))}
                   </div>
-                ) : null;
-              })()}
-
-              <div className={styles.historyControls}>
-                <div className={styles.ledgerFilters} role="group" aria-label="Filter By Type">
-                  {HISTORY_KINDS.map(([kind, label]) => (
-                    <button
-                      key={kind}
-                      type="button"
-                      className={`${styles.ledgerFilter} ${historyKind === kind ? styles.ledgerFilterActive : ''}`}
-                      aria-pressed={historyKind === kind}
-                      aria-label={label}
-                      onClick={() => {
-                        if (kind === historyKind) return;
-                        setHistoryKind(kind);
-                      }}
-                    >
-                      {chipFace(label)}
-                    </button>
-                  ))}
+                  <div className={styles.ledgerFilters} role="group" aria-label="Filter By Date">
+                    {HISTORY_RANGES.map(([range, label]) => (
+                      <button
+                        key={range}
+                        type="button"
+                        className={`${styles.ledgerFilter} ${historyRange === range ? styles.ledgerFilterActive : ''}`}
+                        aria-pressed={historyRange === range}
+                        aria-label={label}
+                        onClick={() => {
+                          if (range === historyRange) return;
+                          setHistoryRange(range);
+                        }}
+                      >
+                        {chipFace(label)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className={styles.ledgerFilters} role="group" aria-label="Filter By Date">
-                  {HISTORY_RANGES.map(([range, label]) => (
-                    <button
-                      key={range}
-                      type="button"
-                      className={`${styles.ledgerFilter} ${historyRange === range ? styles.ledgerFilterActive : ''}`}
-                      aria-pressed={historyRange === range}
-                      aria-label={label}
-                      onClick={() => {
-                        if (range === historyRange) return;
-                        setHistoryRange(range);
-                      }}
-                    >
-                      {chipFace(label)}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              {/* ONE PLAYER INSIDE MY DOWNLINE (Dan 2026-10-24): an agent can
+                {/* ONE PLAYER INSIDE MY DOWNLINE (Dan 2026-10-24): an agent can
               narrow his downline book to one of his players, with that
               player's own totals. The server refuses anyone outside it. */}
-              {historyBook === 'downline' && downlinePeople.length > 0 ? (
-                <label className={styles.historyPerson}>
-                  <span className="sc-label sc-ink--blue">Player</span>
-                  <select
-                    className={styles.historyPersonSelect}
-                    value={historyPerson ?? ''}
-                    onChange={(event) => setHistoryPerson(event.target.value || null)}
-                    aria-label="Show One Player In My Downline"
-                  >
-                    <option value="">Whole Downline</option>
-                    {downlinePeople.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {person.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+                {historyBook === 'downline' && downlinePeople.length > 0 ? (
+                  <label className={styles.historyPerson}>
+                    <span className="sc-label sc-ink--blue">Player</span>
+                    <select
+                      className={styles.historyPersonSelect}
+                      value={historyPerson ?? ''}
+                      onChange={(event) => setHistoryPerson(event.target.value || null)}
+                      aria-label="Show One Player In My Downline"
+                    >
+                      <option value="">Whole Downline</option>
+                      {downlinePeople.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
-              {/* TRUE TOTALS from the server over the whole filtered book: one
+                {/* TRUE TOTALS from the server over the whole filtered book: one
               wallet, a downline as one group, or the whole club. Never the rows
               on screen, never a 0 that could not be read. */}
-              {(() => {
-                const ready =
-                  historyTotalsState === 'ready' &&
-                  historyTotals?.filterKey === historySummaryKey &&
-                  historyTotals;
-                if (historyBook === 'club') {
-                  const club = ready && historyTotals.mode === 'club' ? historyTotals : null;
+                {(() => {
+                  const ready =
+                    historyTotalsState === 'ready' &&
+                    historyTotals?.filterKey === historySummaryKey &&
+                    historyTotals;
+                  if (historyBook === 'club') {
+                    const club = ready && historyTotals.mode === 'club' ? historyTotals : null;
+                    return (
+                      <div
+                        className={styles.ledgerSummary}
+                        aria-label="Club Totals For These Filters"
+                      >
+                        <div className={styles.summaryCell}>
+                          <span className={styles.summaryLabel}>Entries</span>
+                          <strong className={styles.summaryValue}>
+                            {club ? club.entries.toLocaleString() : '--'}
+                          </strong>
+                        </div>
+                        <div className={styles.summaryCell}>
+                          <span className={styles.summaryLabel}>Chips Moved</span>
+                          <strong className={styles.summaryValue}>
+                            {club ? fmt(club.volume) : '--'}
+                          </strong>
+                        </div>
+                        <div className={styles.summaryCell}>
+                          <span className={styles.summaryLabel}>Cash-Outs Paid</span>
+                          <strong className={`${styles.summaryValue} ${styles.amtOut}`}>
+                            {club ? fmt(club.cashoutsPaid) : '--'}
+                          </strong>
+                        </div>
+                        {club && !club.complete ? (
+                          <span className={styles.summaryNote} role="status">
+                            Adding Up Earlier Days...
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  }
+                  const wallet = ready && historyTotals.mode !== 'club' ? historyTotals : null;
+                  const who = historyPersonName
+                    ? 'Player'
+                    : historyBook === 'downline'
+                      ? 'Downline'
+                      : 'My';
                   return (
                     <div
                       className={styles.ledgerSummary}
-                      aria-label="Club Totals For These Filters"
+                      aria-label={
+                        historyPersonName
+                          ? `${historyPersonName} Totals For These Filters`
+                          : historyBook === 'downline'
+                            ? 'My Downline Totals For These Filters'
+                            : 'My Wallet Totals For These Filters'
+                      }
                     >
                       <div className={styles.summaryCell}>
-                        <span className={styles.summaryLabel}>Entries</span>
-                        <strong className={styles.summaryValue}>
-                          {club ? club.entries.toLocaleString() : '--'}
+                        <span className={styles.summaryLabel}>{who} In</span>
+                        <strong className={`${styles.summaryValue} ${styles.amtIn}`}>
+                          {wallet ? `+${fmt(wallet.incoming)}` : '--'}
                         </strong>
                       </div>
                       <div className={styles.summaryCell}>
-                        <span className={styles.summaryLabel}>Chips Moved</span>
-                        <strong className={styles.summaryValue}>
-                          {club ? fmt(club.volume) : '--'}
-                        </strong>
-                      </div>
-                      <div className={styles.summaryCell}>
-                        <span className={styles.summaryLabel}>Cash-Outs Paid</span>
+                        <span className={styles.summaryLabel}>{who} Out</span>
                         <strong className={`${styles.summaryValue} ${styles.amtOut}`}>
-                          {club ? fmt(club.cashoutsPaid) : '--'}
+                          {wallet
+                            ? !totalIsZero(wallet.outgoing) && !totalIsNegative(wallet.outgoing)
+                              ? `-${fmt(wallet.outgoing)}`
+                              : fmt(0)
+                            : '--'}
                         </strong>
                       </div>
-                      {club && !club.complete ? (
-                        <span className={styles.summaryNote} role="status">
-                          Adding Up Earlier Days...
-                        </span>
-                      ) : null}
+                      <div className={styles.summaryCell}>
+                        <span className={styles.summaryLabel}>{who} Net</span>
+                        <strong
+                          className={`${styles.summaryValue} ${
+                            wallet
+                              ? !totalIsNegative(wallet.net)
+                                ? styles.amtIn
+                                : styles.amtOut
+                              : ''
+                          }`}
+                        >
+                          {wallet
+                            ? `${!totalIsNegative(wallet.net) ? '+' : '-'}${fmt(totalMagnitude(wallet.net))}`
+                            : '--'}
+                        </strong>
+                      </div>
                     </div>
                   );
-                }
-                const wallet = ready && historyTotals.mode !== 'club' ? historyTotals : null;
-                const who = historyPersonName
-                  ? 'Player'
-                  : historyBook === 'downline'
-                    ? 'Downline'
-                    : 'My';
-                return (
-                  <div
-                    className={styles.ledgerSummary}
-                    aria-label={
-                      historyPersonName
-                        ? `${historyPersonName} Totals For These Filters`
-                        : historyBook === 'downline'
-                          ? 'My Downline Totals For These Filters'
-                          : 'My Wallet Totals For These Filters'
-                    }
-                  >
-                    <div className={styles.summaryCell}>
-                      <span className={styles.summaryLabel}>{who} In</span>
-                      <strong className={`${styles.summaryValue} ${styles.amtIn}`}>
-                        {wallet ? `+${fmt(wallet.incoming)}` : '--'}
-                      </strong>
-                    </div>
-                    <div className={styles.summaryCell}>
-                      <span className={styles.summaryLabel}>{who} Out</span>
-                      <strong className={`${styles.summaryValue} ${styles.amtOut}`}>
-                        {wallet
-                          ? !totalIsZero(wallet.outgoing) && !totalIsNegative(wallet.outgoing)
-                            ? `-${fmt(wallet.outgoing)}`
-                            : fmt(0)
-                          : '--'}
-                      </strong>
-                    </div>
-                    <div className={styles.summaryCell}>
-                      <span className={styles.summaryLabel}>{who} Net</span>
-                      <strong
-                        className={`${styles.summaryValue} ${
-                          wallet
-                            ? !totalIsNegative(wallet.net)
-                              ? styles.amtIn
-                              : styles.amtOut
-                            : ''
-                        }`}
-                      >
-                        {wallet
-                          ? `${!totalIsNegative(wallet.net) ? '+' : '-'}${fmt(totalMagnitude(wallet.net))}`
-                          : '--'}
-                      </strong>
-                    </div>
-                  </div>
-                );
-              })()}
-              {historyTotalsState === 'unavailable' ? (
-                <div className={styles.empty} role="status">
-                  Totals Could Not Be Read.{' '}
-                  <button
-                    type="button"
-                    className={styles.retryBtn}
-                    onClick={() => setRecordsReload((value) => value + 1)}
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : null}
-
-              <div className={styles.ledgerToolbar}>
-                <div className={styles.ledgerFilters} aria-label="Filter Trade Direction">
-                  {(['all', 'in', 'out'] as const).map((direction) => (
+                })()}
+                {historyTotalsState === 'unavailable' ? (
+                  <div className={styles.empty} role="status">
+                    Totals Could Not Be Read.{' '}
                     <button
-                      key={direction}
                       type="button"
-                      className={`${styles.ledgerFilter} ${recordDirection === direction ? styles.ledgerFilterActive : ''}`}
-                      aria-pressed={recordDirection === direction}
-                      aria-label={
-                        direction === 'all'
-                          ? 'All Transactions'
-                          : direction === 'in'
-                            ? 'Incoming'
-                            : 'Outgoing'
-                      }
-                      onClick={() => setRecordDirection(direction)}
+                      className={styles.retryBtn}
+                      onClick={() => setRecordsReload((value) => value + 1)}
                     >
-                      {direction === 'all' ? 'All' : direction === 'in' ? 'In' : 'Out'}
+                      Retry
                     </button>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                ) : null}
 
-              <p className={styles.historyCaption}>Newest First · Chip Movements Only</p>
+                <div className={styles.ledgerToolbar}>
+                  <div className={styles.ledgerFilters} aria-label="Filter Trade Direction">
+                    {(['all', 'in', 'out'] as const).map((direction) => (
+                      <button
+                        key={direction}
+                        type="button"
+                        className={`${styles.ledgerFilter} ${recordDirection === direction ? styles.ledgerFilterActive : ''}`}
+                        aria-pressed={recordDirection === direction}
+                        aria-label={
+                          direction === 'all'
+                            ? 'All Transactions'
+                            : direction === 'in'
+                              ? 'Incoming'
+                              : 'Outgoing'
+                        }
+                        onClick={() => setRecordDirection(direction)}
+                      >
+                        {direction === 'all' ? 'All' : direction === 'in' ? 'In' : 'Out'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className={styles.historyCaption}>Newest First · Chip Movements Only</p>
+              </details>
               <div className={styles.list}>
                 {recordsLoading && !historyAuthorityUnverified && (
                   <div className={styles.empty}>Loading Transactions...</div>
@@ -5751,7 +5831,7 @@ function CashierTradeWorkspace() {
                     {recordsLoadingMore ? 'Loading Older Entries...' : 'Load 50 Older Entries'}
                   </button>
                 )}
-                <details className={styles.historyTools} open={advanced || undefined}>
+                <details className={styles.historyTools} open={cashierToolsOpen || undefined}>
                   <summary>Statement Tools</summary>
                   <button
                     type="button"
@@ -5774,10 +5854,10 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'leaderboard' && (
+          {!walletToolsOpen && tab === 'leaderboard' && (
             <section
               id="cashier-panel-leaderboard"
-              className={styles.sectionShell}
+              className={`arena-case ${styles.sectionShell}`}
               role="tabpanel"
               aria-labelledby="cashier-tab-leaderboard"
               aria-busy={invoicesLoading}
@@ -5846,10 +5926,10 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'request' && (
+          {!walletToolsOpen && tab === 'request' && (
             <section
               id="cashier-panel-request"
-              className={styles.sectionShell}
+              className={`arena-case ${styles.sectionShell}`}
               role="tabpanel"
               aria-labelledby="cashier-tab-request"
               aria-busy={requestsLoading}
@@ -5938,10 +6018,10 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'tickets' && (
+          {!walletToolsOpen && tab === 'tickets' && (
             <section
               id="cashier-panel-tickets"
-              className={styles.sectionShell}
+              className={`arena-case ${styles.sectionShell}`}
               role="tabpanel"
               aria-labelledby="cashier-tab-tickets"
               aria-busy={ticketsLoading}

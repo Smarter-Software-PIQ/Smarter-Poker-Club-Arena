@@ -385,6 +385,16 @@ EOV
       fi
     done
   fi
+  # VITEST WORKERS (2026-11-24). On the 28-core Mac Studio sharing an external
+  # USB SSD across concurrent pushes, uncapped Vitest spawns ~28 forks that
+  # saturate SSD I/O and time out unrelated subprocess tests (15+ min and
+  # 5 ETIMEDOUT failures on a ci.yml push; 10 min and 0 failures at 4 workers).
+  # Default to 4 workers on Darwin unless the caller already chose a cap;
+  # vitest.config.ts feeds VITEST_MAX_THREADS into clientVitestWorkerBudget.
+  if [ -z "${VITEST_MAX_THREADS:-}" ]; then
+    VITEST_MAX_THREADS=4
+    export VITEST_MAX_THREADS
+  fi
 
 fi
 

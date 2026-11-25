@@ -138,6 +138,11 @@
       "fn": "fn_ca_tournament_prize_funding(p_tournament_id uuid)",
       "reason": "public-read",
       "note": "Aggregate tournament prize funding reader for lobby/rewards display (collected, overlay, gross_coverage, house_required, house_posted, house_due). STABLE read-only SQL that enforces the same private-event club-membership check as tournaments_select_scoped via auth.role() and auth.uid(), returning zero rows for private events to non-members and exposing no player identities, wallets or bank details. Deliberately granted to anon in migration 20261102051957 (updated 20261105222502)."
+    },
+    {
+      "fn": "fn_club_tournament_leaderboard_folded(p_club_id uuid)",
+      "reason": "public-read",
+      "note": "Club tournament leaderboard read from the folded per-player totals table that a cron refresh maintains. STABLE read-only SQL returning, for one club, the same non-private per-player tournament totals (played, wins, final tables, ITM, prizes, buy-ins, biggest win, username) that anon already reads through fn_club_tournament_stats, which now calls it instead of re-aggregating every finished entry on each read. Private events are excluded at fold time; no wallets, balances or contact details. Deliberately granted to anon in migration 20261125022320."
     }
   ]
 }

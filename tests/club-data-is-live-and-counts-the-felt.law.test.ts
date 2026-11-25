@@ -150,9 +150,13 @@ describe('the everyday screen wears the Smarter.Poker look (Dan 2026-10-15)', ()
 });
 
 describe('the everyday screen reads live and stays simple', () => {
-  it('is the screen at clubs/:clubId/data, with the full report one tap away', () => {
-    expect(APP).toMatch(/path="clubs\/:clubId\/data"[\s\S]{0,300}<ClubDataSimplePage \/>/);
-    expect(APP).toMatch(/path="clubs\/:clubId\/data\/advanced"[\s\S]{0,300}<ClubDataPage \/>/);
+  it('is the screen at clubs/:clubId/data, with the authorized report inside it', () => {
+    expect(APP).toMatch(
+      /path="clubs\/:clubId\/data"[\s\S]{0,500}<ClubDataSimplePage authorizedScope=\{scope\} \/>/
+    );
+    expect(APP).toMatch(
+      /path="clubs\/:clubId\/data\/advanced"[\s\S]{0,420}<UnionReportRedirect \/>/
+    );
   });
 
   it('re-reads on a short clock and never paints zeros for a failed read', () => {

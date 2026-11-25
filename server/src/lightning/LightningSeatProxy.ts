@@ -53,7 +53,8 @@ export class LightningSeatProxy implements ActionEngine {
     userId: string,
     action: string,
     maxCallAmount?: number,
-    handId?: string
+    handId?: string,
+    seenActionContext?: string
   ): { success: boolean; error?: string; code?: string } {
     this.claim(userId);
     const host = this.registry.hostForRoom(this.roomId);
@@ -79,7 +80,7 @@ export class LightningSeatProxy implements ActionEngine {
       refuse('not_this_room', host.currentHandId);
       return { success: false, error: 'Player not found at this table' };
     }
-    return host.setPreAction(userId, action, maxCallAmount, handId);
+    return host.setPreAction(userId, action, maxCallAmount, handId, seenActionContext);
   }
 
   recordActionPerformance(_userId: string, _action: string, _processingMs: number): void {

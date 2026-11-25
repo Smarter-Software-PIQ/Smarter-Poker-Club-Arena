@@ -173,7 +173,10 @@ export default function HandHistoryPage() {
   const arenaAssetScope = arenaScoped ? ('diamonds' as const) : null;
   const hasStatsDrilldown = Object.keys(statsDrilldown).some((key) => key !== 'gameMode');
   const cameFromStats = searchParams.get('source') === 'stats';
-  const cameFromPersonalAssistant = searchParams.get('source') === 'personal-assistant';
+  const cameFromPaHome = searchParams.get('source') === 'personal-assistant-loop';
+  const cameFromPersonalAssistant =
+    searchParams.get('source') === 'personal-assistant' ||
+    (searchParams.get('source') || '').startsWith('personal-assistant-');
   const returnLeakId = searchParams.get('leak');
   /* DEEP LINK (Phase 1, 2026-09-05): `/hand-history?hand=<id>` opens ON that
      hand - expanded and scrolled to - fetching it by id when it is not on the
@@ -860,10 +863,18 @@ export default function HandHistoryPage() {
 
   const analyzeInPersonalAssistant = (hand: HandRecord) => {
     try {
-      const path = `/hub/personal-assistant/leaks?source=club-arena&hand=${encodeURIComponent(hand.id)}`;
-      const variantText = String(hand.replay?.gameVariant || hand.gameType || '').toLowerCase();
-      const isNonNlh =
-        Boolean(variantText) && !/(nlh|holdem|hold'em|texas|no.?limit)/i.test(variantText);
+      const formatParam = hand.tournamentId ? 'tournament' : 'cash';
+      const path = `/hub/personal-assistant/leaks?source=club-arena&hand=${encodeURIComponent(hand.id)}&format=${formatParam}`;
+      const variantText = String(hand.replay?.gameVariant || hand.gameType || '')
+        .trim()
+        .toLowerCase();
+      const isExplicitUnsupported =
+        /(short.?deck|6\+|plo|omaha|ofc|pineapple|stud|razz|badugi|draw|mixed|flh|flo8)/i.test(
+          variantText
+        );
+      const isSupportedHoldem =
+        variantText === 'nl' || /(nlh|holdem|hold'em|texas|no.?limit)/i.test(variantText);
+      const isNonNlh = Boolean(variantText) && (isExplicitUnsupported || !isSupportedHoldem);
       openPersonalAssistantPath(
         path,
         isNonNlh
@@ -878,9 +889,21 @@ export default function HandHistoryPage() {
 
   const returnToPersonalAssistant = () => {
     try {
-      const leakSuffix = returnLeakId ? `?leak=${encodeURIComponent(returnLeakId)}` : '';
+      const params = new URLSearchParams();
+      if (linkedHandId) {
+        params.set('hand', linkedHandId);
+        params.set('source', 'club-arena');
+      }
+      if (returnLeakId) {
+        params.set('leak', returnLeakId);
+      }
+      const query = params.toString();
+      const basePath =
+        cameFromPaHome && !linkedHandId && !returnLeakId
+          ? '/hub/personal-assistant'
+          : '/hub/personal-assistant/leaks';
       openPersonalAssistantPath(
-        `/hub/personal-assistant/leaks${leakSuffix}`,
+        `${basePath}${query ? `?${query}` : ''}`,
         'Returning To Personal Assistant'
       );
     } catch (err) {
@@ -1119,7 +1142,11 @@ export default function HandHistoryPage() {
           role="navigation"
           aria-label="Personal Assistant Return"
         >
-          <span>Opened From Personal Assistant Leak Finder</span>
+          <span>
+            {cameFromPaHome && !linkedHandId && !returnLeakId
+              ? 'Opened From Personal Assistant'
+              : 'Opened From Personal Assistant Leak Finder'}
+          </span>
           <button type="button" onClick={returnToPersonalAssistant}>
             Return To Personal Assistant
           </button>

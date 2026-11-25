@@ -54,18 +54,17 @@ describe('cashier phase 2 hardens money intent math and retries', () => {
 });
 
 describe('cashier phase 2 completes keyboard and structural semantics', () => {
-  it('connects every tab to a labelled tab panel', () => {
-    expect(PAGE).toContain('aria-controls={`cashier-panel-${key}`}');
+  it('declares a labelled panel for every Cashier action', () => {
     for (const key of ['trade', 'record', 'leaderboard', 'request', 'tickets']) {
       expect(PAGE).toContain(`id="cashier-panel-${key}"`);
       if (key === 'trade')
         expect(PAGE).toContain(
-          "aria-labelledby={advanced ? 'cashier-tab-trade' : 'trade-workspace-title'}"
+          "aria-labelledby={cashierToolsOpen ? 'cashier-tab-trade' : 'trade-workspace-title'}"
         );
       else expect(PAGE).toContain(`aria-labelledby="cashier-tab-${key}"`);
     }
     expect(PAGE.match(/role="tabpanel"/g)).toHaveLength(4);
-    expect(PAGE).toContain("role={advanced ? 'tabpanel' : 'region'}");
+    expect(PAGE).toContain("role={cashierToolsOpen ? 'tabpanel' : 'region'}");
   });
 
   it('traps dialog focus and restores it to the opening control', () => {

@@ -25,7 +25,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { tabTransition, instant } from '../components/stats/statsMotion';
 import { statsGameMode, type StatsGameMode } from '../services/statsGameMode';
-import StatsGameModeControl from './stats/StatsGameModeControl';
+import StatsWorkspaceHeader from './stats/StatsWorkspaceHeader';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { findClubByParam, readClubContextParam } from '../utils/clubScopedPath';
 import { supabase } from '../lib/supabase';
@@ -165,7 +165,6 @@ export default function PlayerStatsPage() {
   const mode = statsGameMode(params.get('gameMode'));
   return (
     <>
-      <StatsGameModeControl />
       <SeparatedPlayerStatsPage key={mode} gameMode={mode} />
     </>
   );
@@ -829,13 +828,16 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     [navigate, windowDays, selectedClubId, gameMode, statsScope]
   );
   const openLeakFinder = useCallback(() => {
-    const path = '/hub/personal-assistant/leaks?source=club-arena-stats';
+    const formatQuery =
+      gameMode === 'cash' || gameMode === 'tournament' ? `&format=${gameMode}` : '';
+    const path = `/hub/personal-assistant/leaks?source=club-arena-stats${formatQuery}`;
     if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
       masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
+      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
     } else {
       openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
     }
-  }, [user?.id, targetUserId]);
+  }, [user?.id, targetUserId, gameMode, toast]);
   // The index refresh is a WRITE. Un-throttled it fired on every bus refresh and
   // every tab-visibility change, i.e. repeatedly during active play.
   // ── Single RPC pulls everything from hand_history server-side ──
@@ -1535,27 +1537,38 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
+  const mast = <StatsWorkspaceHeader context={clubLabel} />;
   if (!isOwnProfile) {
     return (
-      <Suspense fallback={<PageSkeleton variant="stats" />}>
-        <SharedClubStatsView
-          targetUserId={targetUserId!}
-          asset={statsScope}
-          gameMode={gameMode}
-          timezone={statsTimezone}
-          rangeKey={rangeKey}
-          windowDays={windowDays}
-          initialClubId={searchParams.get('statsClub')}
-          onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
-          onRangeChange={changeRange}
-        />
-      </Suspense>
+      <div className="stats-page arena-workspace">
+        <Suspense
+          fallback={
+            <>
+              <StatsWorkspaceHeader context="Shared Club" />
+              <PageSkeleton variant="stats" />
+            </>
+          }
+        >
+          <SharedClubStatsView
+            renderMast={(context) => <StatsWorkspaceHeader context={context} />}
+            targetUserId={targetUserId!}
+            asset={statsScope}
+            gameMode={gameMode}
+            timezone={statsTimezone}
+            rangeKey={rangeKey}
+            windowDays={windowDays}
+            initialClubId={searchParams.get('statsClub')}
+            onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
+            onRangeChange={changeRange}
+          />
+        </Suspense>
+      </div>
     );
   }
   if (loading) {
     return (
-      <div className="stats-page stats-page-loading" aria-busy="true">
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace stats-page-loading" aria-busy="true">
+        {mast}
         <p className="stats-state-line" role="status">
           Opening Your Performance Dossier...
         </p>
@@ -1570,7 +1583,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   // that they had never played.
   if (loadError && !full) {
     return (
-      <div className="stats-page">
+      <div className="stats-page arena-workspace">
+        {mast}
         <div className="stats-empty-state">
           <span className="empty-status">Readout Unavailable</span>
           <span className="empty-title">Couldn't Load Your Stats</span>
@@ -1594,8 +1608,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   if (isOwnProfile && preferencesState !== 'ready') {
     const failed = preferencesState === 'error';
     return (
-      <div className="stats-page" aria-busy={failed ? undefined : true}>
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
+        {mast}
         <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
           <span className="empty-description">
             {failed
@@ -1628,7 +1642,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     </div>
   );
   return (
-    <div className={`stats-page${privacyPresentationMode ? ' stats-page--presentation' : ''}`}>
+    <div
+      className={`stats-page arena-workspace${privacyPresentationMode ? ' stats-page--presentation' : ''}`}
+    >
       <StatsLiveRecords
         userId={targetUserId}
         clubIds={[
@@ -1638,9 +1654,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         enabled={isOwnProfile && !clubsLoading}
         onChange={scheduleRefresh}
       />
+      {mast}
+
       <PageBar
+        titleAs={false}
         title="Player Intelligence"
-        titleId="stats-page-title"
         summary="Your Recorded Analysis Sample, Distilled Into Patterns You Can Use At The Next Table."
         status={statsScope === DIAMOND_STATS ? 'Figures In Diamonds' : undefined}
         steps={STATS_TOUR}
@@ -1650,26 +1668,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ? 'Cash Games Only. Tournament Hands And Stacks Are Excluded.'
           : 'Tournament Hands And Results Only. Tournament Stacks Are Not Cash Profit.'}
       </div>
-      <ClubScopeConsole
-        gameMode={gameMode}
-        statsScope={statsScope}
-        clubLabel={clubLabel}
-        selectedClub={selectedClub}
-        selectedClubId={selectedClubId}
-        changeClub={changeClub}
-        clubs={clubs}
-        clubsLoading={clubsLoading}
-        clubsError={clubsError}
-        onRetryClubs={() => setClubsReload((value) => value + 1)}
-        comparisonOpen={comparisonOpen}
-        setComparisonOpen={setComparisonOpen}
-        onRetryComparison={() => void loadClubComparison()}
-        comparisonSort={effectiveComparisonSort}
-        changeComparisonSort={changeComparisonSort}
-        comparisonLoading={comparisonLoading}
-        comparisonError={comparisonError}
-        sortedComparisonRows={sortedComparisonRows}
-      />
       {gameMode === 'cash' && (
         <StatsHeadlineDeck
           refreshing={refreshing}
@@ -1688,36 +1686,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           servingCache={servingCache}
         />
       )}
-      {hasData && gameMode === 'cash' && (
-        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
-          <div className="stats-brief-head">
-            <div>
-              <h2 id="stats-brief-title">Evidence At A Glance</h2>
-            </div>
-          </div>
-          <div className="stats-brief-grid">
-            {intelligenceBrief.map((item, index) => (
-              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
-                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
-                <span className="stats-brief-label">{item.label}</span>
-                <strong>{item.value}</strong>
-                <p>{item.detail}</p>
-              </article>
-            ))}
-          </div>
-          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
-            <button type="button" onClick={() => selectSection('analysis', true)}>
-              Open Deep Analysis
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
-            >
-              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
-            </button>
-          </div>
-        </section>
-      )}
       {gameMode === 'tournament' && (
         <div className="stats-range-row" role="group" aria-label="Tournament Analysis Range">
           {RANGES.map((range) => (
@@ -1733,11 +1701,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ))}
         </div>
       )}
-      {/* ── PILL TABS ── */}
-      {/* A real tablist. This was eight buttons whose active state lived only in
-          a CSS class, so a screen reader could not tell which view was open,
-          and the swipe gesture had no keyboard equivalent - Arrow keys now do
-          what the swipe does. Roving tabindex per the WAI-ARIA tab pattern. */}
       <div
         className="stats-pill-tabs"
         role="tablist"
@@ -1784,14 +1747,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </button>
         ))}
       </div>
-      {/* ── STATS CONTENT ──
-          AnimatePresence keyed on `category` cross-fades the tab bodies.
-          mode="wait" so the outgoing tab finishes before the incoming one
-          starts and the page height never lurches mid-swap.
-          The swipe handlers stay spread on THIS element rather than moving to
-          a new outer wrapper: useSwipeTabs attaches touch listeners here, and
-          nesting them under a wrapper would leave the gesture reading a node
-          that no longer moves with the content. */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={category}
@@ -1909,6 +1864,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                       overall={overall}
                       full={full}
                       onOpenHands={() => openHandEvidence()}
+                      onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}
                     />
                     <TournamentsTab
                       tourn={tourn}
@@ -1979,6 +1935,56 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </Suspense>
         </motion.div>
       </AnimatePresence>
+      <ClubScopeConsole
+        gameMode={gameMode}
+        statsScope={statsScope}
+        clubLabel={clubLabel}
+        selectedClub={selectedClub}
+        selectedClubId={selectedClubId}
+        changeClub={changeClub}
+        clubs={clubs}
+        clubsLoading={clubsLoading}
+        clubsError={clubsError}
+        onRetryClubs={() => setClubsReload((value) => value + 1)}
+        comparisonOpen={comparisonOpen}
+        setComparisonOpen={setComparisonOpen}
+        onRetryComparison={() => void loadClubComparison()}
+        comparisonSort={effectiveComparisonSort}
+        changeComparisonSort={changeComparisonSort}
+        comparisonLoading={comparisonLoading}
+        comparisonError={comparisonError}
+        sortedComparisonRows={sortedComparisonRows}
+      />
+      {hasData && gameMode === 'cash' && (
+        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
+          <div className="stats-brief-head">
+            <div>
+              <h2 id="stats-brief-title">Evidence At A Glance</h2>
+            </div>
+          </div>
+          <div className="stats-brief-grid">
+            {intelligenceBrief.map((item, index) => (
+              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
+                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="stats-brief-label">{item.label}</span>
+                <strong>{item.value}</strong>
+                <p>{item.detail}</p>
+              </article>
+            ))}
+          </div>
+          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
+            <button type="button" onClick={() => selectSection('analysis', true)}>
+              Open Deep Analysis
+            </button>
+            <button
+              type="button"
+              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
+            >
+              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
