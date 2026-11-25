@@ -334,6 +334,22 @@ describe('every wait between the hold and the deal is named', () => {
     expect(wait).toBeGreaterThan(start);
     expect(code(BASE.slice(start, wait))).toContain("this.setLoopPhase('parked_for_pause')");
   });
+
+  it('pre-deal operator floor and seat-move reads overlap prepareNextHand instead of serializing (1e532243)', () => {
+    const BASE = readFileSync(
+      fileURLToPath(new URL('./ServerTableEngineBase.ts', import.meta.url)),
+      'utf8'
+    );
+    const overlapAt = DEALING.indexOf('this.startPreDealReadOverlap();');
+    const prepareAt = DEALING.indexOf('const nextRoster = await this.prepareNextHand();');
+    expect(overlapAt).toBeGreaterThan(-1);
+    expect(prepareAt).toBeGreaterThan(overlapAt);
+    expect(prepareAt - overlapAt).toBeLessThan(120);
+    expect(DEALING).toContain("this.setLoopPhase('operator_floor_boundary');");
+    expect(DEALING).toContain("this.timeCashPrepareBranch('hourly_cash_boundary'");
+    expect(BASE).toContain('const prepared = this.consumePreparedOperatorFloor();');
+    expect(BASE).toContain('const prepared = this.preparedPendingSeatMoves;');
+  });
 });
 
 describe('the production grade reads the same numbers', () => {
