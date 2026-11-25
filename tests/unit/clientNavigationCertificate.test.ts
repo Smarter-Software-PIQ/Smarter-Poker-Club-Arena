@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   admitClientNavigation,
   admitCashObservation,
+  admitClubData,
+  assertClubDataReport,
   assertCashObservationReport,
   admitKeepGamePages,
   assertKeepGamePagesReport,
@@ -165,7 +167,7 @@ describe('closed client navigation recovery certificate', () => {
   });
   it('reuses the client fixture, provenance, serialization and unconditional cleanup', () => {
     expect(client.concurrency.group).toBe(
-      "${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+      "${{ needs.publication-gate.outputs.club_data == 'true' && 'post-deploy-e2e-club-data' || needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
     );
     expect(selected.if).toContain("steps.template_access.outcome == 'success'");
     expect(selected.env.E2E_REQUIRE_AUTH).toBe('1');
@@ -385,18 +387,26 @@ describe('closed cash observation certificate', () => {
       },
     ],
   });
-  it('admits only its literal fixed mode through the actual dispatch gate', () => {
-    expect(admitCashObservation({ cash_observation: true })).toBe(true);
+  it.each([
+    ['cash_observation', admitCashObservation],
+    ['club_data', admitClubData],
+  ] as const)('admits only literal %s through the actual dispatch gate', (mode, admit) => {
+    expect(admit({ [mode]: true })).toBe(true);
     const gate = workflow.jobs['publication-gate'].steps.find((s: any) => s.id === 'origin');
-    const dir = mkdtempSync(join(tmpdir(), 'cash-observation-'));
+    const dir = mkdtempSync(join(tmpdir(), mode + '-'));
     try {
       for (const [payload, action, code] of [
-        [{ cash_observation: true }, 'run-post-deploy-e2e', 0],
-        [{ cash_observation: true }, 'wrong', 1],
-        [{ cash_observation: 'true' }, 'run-post-deploy-e2e', 1],
-        [{ cash_observation: true, engine_sha: 'a'.repeat(40) }, 'run-post-deploy-e2e', 1],
-        [{ cash_observation: true, client_navigation: true }, 'run-post-deploy-e2e', 1],
-        [{ cash_observation: true, grep: '.*' }, 'run-post-deploy-e2e', 1],
+        [{ [mode]: true }, 'run-post-deploy-e2e', 0],
+        [{ [mode]: true }, 'wrong', 1],
+        [{ [mode]: 'true' }, 'run-post-deploy-e2e', 1],
+        [{ [mode]: true, engine_sha: 'a'.repeat(40) }, 'run-post-deploy-e2e', 1],
+        [{ [mode]: true, client_navigation: true }, 'run-post-deploy-e2e', 1],
+        [
+          { [mode]: true, [mode === 'club_data' ? 'cash_observation' : 'club_data']: true },
+          'run-post-deploy-e2e',
+          1,
+        ],
+        [{ [mode]: true, grep: '.*' }, 'run-post-deploy-e2e', 1],
       ] as const) {
         const result = spawnSync('bash', ['-c', gate.run], {
           cwd: resolve(__dirname, '../..'),
@@ -414,7 +424,7 @@ describe('closed cash observation certificate', () => {
         });
         expect(result.status, result.stderr).toBe(code);
       }
-      expect(readFileSync(join(dir, 'output'), 'utf8')).toContain('cash_observation=true');
+      expect(readFileSync(join(dir, 'output'), 'utf8')).toContain(mode + '=true');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -467,5 +477,56 @@ describe('closed cash observation certificate', () => {
         (s: any) => s.name === 'Require exact client navigation release and fixture cleanup'
       )
     ).toBeDefined();
+  });
+});
+
+describe('fixed Club Data certificate', () => {
+  it('requires each maintained Chromium case exactly once and rejects partial evidence', () => {
+    const file = 'club-data-deep.spec.ts';
+    const source = readFileSync(resolve(__dirname, '../../tests/e2e', file), 'utf8');
+    const cases = [...source.matchAll(/\btest\('([^']+)'/g)].map((match) =>
+      spec(file, match[1], 'chromium')
+    );
+    expect(cases).toHaveLength(8);
+    const report = (specs: typeof cases) => ({ errors: [], suites: [{ specs }] });
+    expect(assertClubDataReport(report(cases))).toBe(true);
+    expect(() => assertClubDataReport(report(cases.slice(1)))).toThrow();
+    expect(() => assertClubDataReport(report([...cases.slice(1), cases[1]]))).toThrow();
+    for (const outcome of [
+      { status: 'skipped', retry: 0 },
+      { status: 'failed', retry: 0 },
+      { status: 'passed', retry: 1 },
+    ]) {
+      const invalid = structuredClone(cases);
+      invalid[0].tests[0].results = [outcome];
+      expect(() => assertClubDataReport(report(invalid))).toThrow();
+    }
+  });
+  it('uses the isolated staff fixture and both origins, and requires the browser and cleanup verdicts', () => {
+    const step = client.steps.find((s: any) => s.id === 'club_data');
+    const final = client.steps.find(
+      (s: any) => s.name === 'Require exact client navigation release and fixture cleanup'
+    );
+    const closed = "outputs.club_data == 'true'";
+    expect(step.if).toContain(closed);
+    expect(step.if).toContain("steps.align.outcome == 'success'");
+    expect(step.if).toContain("steps.staff_access.outcome == 'success'");
+    expect(step.run).toContain('--project=chromium --reporter=line,json --workers=1 --retries=0');
+    expect(step.run).toContain('club-data-report e2e-report/club-data.json');
+    for (const check of [step, final]) {
+      expect(check.run).toContain('https://ca-static.smarter.poker/build-info.json');
+      expect(check.run).toContain('test "$STATIC_SHA" = \'${{ steps.live.outputs.sha }}\'');
+    }
+    expect(final.if).toContain('always()');
+    expect(final.run).toContain("test '${{ steps.club_data.outcome }}' = success");
+    expect(final.env.CLEANUP_OUTCOME).toBe('${{ steps.account_cleanup.outcome }}');
+    expect(final.env.RELEASE_CERTIFIED).toBe('${{ steps.release_window.outputs.certified }}');
+    for (const other of [
+      selected,
+      client.steps.find((s: any) => s.id === 'bounty_guarantee'),
+      client.steps.find((s: any) => s.id === 'template_access'),
+    ]) {
+      expect(other.if).toContain("outputs.club_data != 'true'");
+    }
   });
 });

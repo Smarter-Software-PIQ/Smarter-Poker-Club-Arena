@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadMorePlayerCount, playerPageUnion } from '../e2e/club-data-deep.spec';
+import { CLUB_DATA_PATH, loadMorePlayerCount, playerPageUnion } from '../e2e/club-data-deep.spec';
 
 // Import the actual production oracle without registering browser cases in
 // Vitest. The browser workflow still executes the original production spec.
@@ -15,6 +15,12 @@ vi.mock('@playwright/test', () => ({
 const page = (ids: string[]) => ({ rows: ids.map((user_id) => ({ user_id })), next_cursor: null });
 
 describe('production player-page identity evidence', () => {
+  it('opens the Games bookmark independently of the preceding account tab selection', () => {
+    const bookmark = new URL(CLUB_DATA_PATH, 'https://arena.example/');
+    expect(bookmark.searchParams.get('report')).toBe('open');
+    expect(bookmark.searchParams.get('dataTab')).toBe('games');
+  });
+
   it('runs independent Data checks in order after a failed check', () => {
     expect(suiteMode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'default' }));
   });

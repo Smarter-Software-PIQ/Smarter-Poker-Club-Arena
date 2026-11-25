@@ -36,6 +36,30 @@ export function admitCashObservation(payload) {
   return true;
 }
 
+export function admitClubData(payload) {
+  if (!payload || payload.club_data !== true || Object.keys(payload).length !== 1) {
+    throw new Error('club_data requires literal true and no other dispatch inputs');
+  }
+  return true;
+}
+
+export function assertClubDataReport(report) {
+  const titles = [
+    'renders the exact role-scoped Club Data decision',
+    'reflows without horizontal loss from desktop through 320px and 200% text',
+    'keeps every visible control touch-safe and every text input iOS-safe',
+    'supports the complete arrow-key tab flow with visible focus',
+    'operates sorting, pagination, players, and a verified manual refresh',
+    'keeps verified rows through the 60-second recovery heartbeat',
+    'passes axe and remains operable in forced colors with reduced motion',
+    'keeps Cashier, Players and Club Data realtime connected with tools open and closed at both viewport sizes',
+  ];
+  return assertExactReports(
+    [report],
+    titles.map((title) => ['club-data-deep.spec.ts', title, 'chromium'])
+  );
+}
+
 export function assertCashObservationReport(report) {
   const title = 'View Game opens four spectator games while preserving the lobby page';
   return assertExactReports(
@@ -109,9 +133,16 @@ function assertExactReports(reports, expected) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'admit') {
     const payload = JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || 'null');
-    if (payload && Object.hasOwn(payload, 'cash_observation')) admitCashObservation(payload);
+    if (payload && Object.hasOwn(payload, 'club_data')) admitClubData(payload);
+    else if (payload && Object.hasOwn(payload, 'cash_observation')) admitCashObservation(payload);
     else if (payload && Object.hasOwn(payload, 'keep_game_pages')) admitKeepGamePages(payload);
     else admitClientNavigation(payload);
+    for (const mode of ['keep_game_pages', 'cash_observation', 'club_data']) {
+      console.log(`${mode}=${payload[mode] === true}`);
+    }
+  } else if (process.argv[2] === 'club-data-report' && process.argv.length === 4) {
+    assertClubDataReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
+    console.log('All eight Club Data cases passed once without skips or retries.');
   } else if (process.argv[2] === 'cash-observation-reports' && process.argv.length === 4) {
     assertCashObservationReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
     console.log('Both cash observation browser cases passed once without skips or retries.');
