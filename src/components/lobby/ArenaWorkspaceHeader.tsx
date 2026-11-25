@@ -18,7 +18,11 @@ interface Props {
 export default function ArenaWorkspaceHeader({ area, title, context, subtitle, id }: Props) {
   return (
     <header className="arena-workspace-mast">
-      <img src={`${import.meta.env.BASE_URL}images/${artwork[area]}`} alt="" />
+      <i
+        aria-hidden="true"
+        className="arena-mast-art"
+        style={{ backgroundImage: `url(${import.meta.env.BASE_URL}images/${artwork[area]})` }}
+      />
       <span>{context || 'Club Arena'}</span>
       <h1 id={id}>{title}</h1>
       <small>{subtitle}</small>

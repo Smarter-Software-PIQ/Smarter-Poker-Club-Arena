@@ -39,14 +39,15 @@
   pointer-events: none;
   z-index: 1;
 }
-.arena-workspace-mast img {
+.arena-workspace-mast .arena-mast-art {
   position: absolute;
   right: 3px;
   top: 3px;
   height: calc(100% - 6px);
   width: 75%;
-  object-fit: cover;
-  object-position: right 53%;
+  background-size: auto 155%;
+  background-repeat: no-repeat;
+  background-position: right 53%;
   z-index: -2;
 }
 .arena-workspace-mast::after {

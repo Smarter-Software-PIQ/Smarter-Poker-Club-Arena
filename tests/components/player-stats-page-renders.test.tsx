@@ -323,7 +323,9 @@ describe('PlayerStatsPage mounts', () => {
       lifetime: { hands: 800, first_hand_at: null, last_hand_at: null, indexed_complete: false },
     };
     render(<PlayerStatsPage />);
-    expect(await screen.findByRole('tab', { name: 'Tournaments', exact: true }, { timeout: 6000 })).toBeVisible();
+    expect(
+      await screen.findByRole('tab', { name: 'Tournaments', exact: true }, { timeout: 6000 })
+    ).toBeVisible();
     expect(
       await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
     ).toBeVisible();
