@@ -7,7 +7,9 @@
  * 2. The club Tournament leaderboard aggregated a club's whole history per
  *    load (Midway Union: 2.6 million entries) and was cancelled 30 times.
  *    Migration 20261125022320 folds finished history every 30 minutes and
- *    reads only the unfolded tail live.
+ *    reads only the unfolded tail live. Migration 20261125053826 reads that
+ *    tail as two index ranges, because one OR against the fold boundary made
+ *    the function's generic plan walk Midway Union's 836,174 tournaments.
  *
  * Behaviour is proven on native PostgreSQL by
  * scripts/ci/test-slow-reads-stand-down-and-leaderboard-fold.py; this pins the
@@ -25,10 +27,14 @@ const strip = (sql: string) =>
     .filter((line) => !line.trimStart().startsWith('--'))
     .join('\n');
 
-const spawn = read('20261125022315_a_certification_spawn_stands_down_while_its_club_is_retired.sql');
+const spawn = read(
+  '20261125022315_a_certification_spawn_stands_down_while_its_club_is_retired.sql'
+);
 const board = read('20261125022320_the_club_tournament_leaderboard_reads_a_folded_total.sql');
 const spawnCode = strip(spawn);
 const boardCode = strip(board);
+const tail = read('20261125053826_the_leaderboard_reads_its_unfolded_tail_by_index.sql');
+const tailCode = strip(tail);
 
 describe('a certification spawn stands down while its club is retired', () => {
   it('is one pinned transaction with bounded locks and a live proof', () => {
@@ -56,7 +62,9 @@ describe('a certification spawn stands down while its club is retired', () => {
 
 describe('the club tournament leaderboard reads a folded total', () => {
   it('builds its index without blocking writes, then one pinned transaction', () => {
-    expect(boardCode.trimStart()).toMatch(/^CREATE INDEX CONCURRENTLY IF NOT EXISTS tournaments_leaderboard_club_unfolded/);
+    expect(boardCode.trimStart()).toMatch(
+      /^CREATE INDEX CONCURRENTLY IF NOT EXISTS tournaments_leaderboard_club_unfolded/
+    );
     expect(boardCode.match(/^BEGIN;$/gm)?.length).toBe(1);
     expect(boardCode.match(/^COMMIT;$/gm)?.length).toBe(1);
     expect(boardCode).toContain("<> '627eccb4daed89a26feeda113eab0118'");
@@ -64,7 +72,7 @@ describe('the club tournament leaderboard reads a folded total', () => {
   });
 
   it('folds and reads on the same boundary expression', () => {
-    const key = "(CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END)";
+    const key = '(CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END)';
     expect(boardCode).toContain(`${key} < v_before`);
     expect(boardCode).toContain(`${key} IS NULL`);
     expect(boardCode).toContain(`${key} >= (SELECT b.folded_before FROM boundary b)`);
@@ -86,10 +94,47 @@ describe('the club tournament leaderboard reads a folded total', () => {
   });
 
   it('writes only the rows whose figures changed, one fold at a time', () => {
-    expect(boardCode).toContain("pg_try_advisory_xact_lock(hashtextextended('club-tournament-leaderboard-fold', 0))");
+    expect(boardCode).toContain(
+      "pg_try_advisory_xact_lock(hashtextextended('club-tournament-leaderboard-fold', 0))"
+    );
     expect(boardCode).toMatch(/IS DISTINCT FROM\s+\(EXCLUDED\.tournaments_played/);
     expect(boardCode).toMatch(
       /cron\.schedule\('club-tournament-leaderboard-fold', '7,37 \* \* \* \*',\s+\$job\$SET statement_timeout = '120s'; SELECT smarter_private\.refresh_club_tournament_leaderboard_totals\(\);\$job\$\)/
     );
+  });
+});
+
+describe('the leaderboard reads its unfolded tail by index', () => {
+  const key = '(CASE WHEN u.is_private IS TRUE THEN NULL::timestamptz ELSE u.ended_at END)';
+
+  it('is one transaction pinned on the folded reader and on its own result', () => {
+    expect(tailCode.match(/^BEGIN;$/gm)?.length).toBe(1);
+    expect(tailCode.match(/^COMMIT;$/gm)?.length).toBe(1);
+    expect(tailCode).toContain("SET LOCAL lock_timeout='3s';");
+    expect(tailCode).toContain("<> '9159627c91761041d511d910fd94c923'");
+    expect(tailCode).toContain("<> '293e23383210c9ea4e7e4afe7bc8b1f1'");
+    expect(tail).toMatch(
+      /^-- @live-proof: md5\(pg_get_functiondef\(.*= '293e23383210c9ea4e7e4afe7bc8b1f1'$/m
+    );
+  });
+
+  it('reads the tail as two index ranges, never one OR against the boundary', () => {
+    const live = tailCode.slice(tailCode.indexOf('live AS ('), tailCode.indexOf('parts AS ('));
+    expect(live).toContain(`${key} IS NULL`);
+    expect(live).toMatch(/UNION ALL/);
+    expect(live).toMatch(
+      new RegExp(
+        `${key.replace(/[()*.?+|]/g, '\\$&')}\\s+>= \\(SELECT b\\.folded_before FROM boundary b\\)`
+      )
+    );
+    expect(live).not.toMatch(/\bOR\b/);
+    expect(live.match(/WHERE u\.club_id = p_club_id/g)?.length).toBe(2);
+  });
+
+  it('keeps the reader an invoker function with the same grants', () => {
+    expect(tailCode).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.fn_club_tournament_stats[\s\S]*?LANGUAGE sql\s+STABLE\s+SET search_path/
+    );
+    expect(tailCode).not.toMatch(/SECURITY DEFINER|GRANT |REVOKE /);
   });
 });

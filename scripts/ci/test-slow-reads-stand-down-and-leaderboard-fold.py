@@ -29,6 +29,17 @@ Leaderboard fold:
   - the folded totals are not readable by anon or authenticated, and the
     migration refuses a second run on its pre-image pin.
 
+Leaderboard tail by index (20261125053826):
+  - the folded reader installs as the exact body production runs, which the
+    follow-up pins;
+  - with statistics shaped like production (thousands of clubs), the
+    two-range tail reads only the unfolded tournaments of a club with 200,000
+    finished ones (on production the one-OR tail read all 836,174 of Midway
+    Union's under its generic plan; that walk depends on the plan, so it is
+    printed, not asserted);
+  - every club's answer equals the one-OR reader's, page by page;
+  - the follow-up refuses a second run on its pre-image pin.
+
 Usage: PG_BIN=/usr/lib/postgresql/17/bin python3 scripts/ci/test-slow-reads-stand-down-and-leaderboard-fold.py
 """
 import os
@@ -44,6 +55,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIX = ROOT / 'scripts/ci/fixtures/slow-reads'
 SPAWN_MIGRATION = ROOT / 'supabase/migrations/20261125022315_a_certification_spawn_stands_down_while_its_club_is_retired.sql'
 BOARD_MIGRATION = ROOT / 'supabase/migrations/20261125022320_the_club_tournament_leaderboard_reads_a_folded_total.sql'
+TAIL_MIGRATION = ROOT / 'supabase/migrations/20261125053826_the_leaderboard_reads_its_unfolded_tail_by_index.sql'
 PG_BIN = pathlib.Path(os.environ.get('PG_BIN', '/usr/lib/postgresql/17/bin'))
 
 CERT_OWNER = 'a1000000-0000-0000-0000-000000000001'
@@ -377,6 +389,75 @@ def board_proof(c):
     again = c.psql(BOARD_MIGRATION.read_text(), db)
     check('leaderboard migration refuses a second run on its pre-image pin',
           again.returncode != 0 and 'changed since 2026-11-25' in again.stderr, again.stderr.strip())
+
+    tail_proof(c, db, clubs + [big])
+
+
+def tournament_reads(c, db, call):
+    """Rows of public.tournaments one call reads: sequential tuples plus index tuples on every index."""
+    reads = ("SELECT (SELECT COALESCE(seq_tup_read,0) FROM pg_stat_user_tables WHERE relid='public.tournaments'::regclass)"
+             " + (SELECT COALESCE(sum(idx_tup_read),0) FROM pg_stat_user_indexes WHERE relid='public.tournaments'::regclass);")
+    out = c.ok(reads + '\n' + call + ';\nSELECT pg_stat_force_next_flush();\nSELECT pg_sleep(0.05);\n' + reads, db)
+    lines = [l for l in out.splitlines() if l.strip()]
+    return int(lines[-1]) - int(lines[0])
+
+
+def tail_proof(c, db, clubs):
+    big = clubs[-1]
+    interim = c.ok("SELECT md5(pg_get_functiondef('public.fn_club_tournament_stats(uuid,integer,integer)'::regprocedure));", db)
+    check('the folded reader installs as the exact body the follow-up pins', interim == '9159627c91761041d511d910fd94c923', interim)
+    c.ok(f"""INSERT INTO public.tournaments(id,club_id,ended_at,buy_in_amount)
+               SELECT gen_random_uuid(),'{big}',CASE WHEN g<=5 THEN NULL ELSE now() END,10 FROM generate_series(1,10) g;
+             INSERT INTO public.tournament_players(tournament_id,user_id,username,status,position,prize)
+               SELECT t.id,'f3000000-0000-0000-0000-000000000007','h','eliminated',2,3 FROM public.tournaments t
+                WHERE t.club_id='{big}' AND (t.ended_at IS NULL OR t.ended_at > now()-interval '1 minute');""", db)
+    # Production holds thousands of clubs, so a generic plan expects few rows per
+    # club; give the cluster the same shape before it plans the readers.
+    c.ok("""INSERT INTO public.tournaments(id,club_id,ended_at,buy_in_amount)
+               SELECT gen_random_uuid(),('e8000000-0000-0000-0000-'||lpad((g%2000)::text,12,'0'))::uuid,
+                      now()-(g||' minutes')::interval,10 FROM generate_series(1,200000) g;
+             ANALYZE;""", db)
+    # Keep the folded reader (one OR in its tail) to compare against after the follow-up.
+    c.ok(c.ok("SELECT pg_get_functiondef('public.fn_club_tournament_stats(uuid,integer,integer)'::regprocedure);", db)
+         .replace('public.fn_club_tournament_stats(', 'public.or_tail_club_tournament_stats(', 1) + ';', db)
+    call = f"SELECT count(*) FROM public.fn_club_tournament_stats('{big}',50,0)"
+    unfolded = int(c.ok(f"""SELECT count(*) FROM public.tournaments t, smarter_private.club_tournament_leaderboard_state b
+                             WHERE t.club_id='{big}' AND ((CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END) IS NULL
+                                OR (CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END) >= b.folded_before);""", db))
+    before = tournament_reads(c, db, call)
+    # Whether the one-OR tail walks the club depends on the plan the statistics
+    # produce; on production it did (Midway Union: 836,174 rows, 1.2 s, under a
+    # generic plan). It is printed, not asserted; what is asserted is that the
+    # two-range tail never reads more than the unfolded rows.
+    print(f'     200,000 finished tournaments, {unfolded} unfolded: the one-OR tail read {before} tournament rows')
+
+    r = c.psql(TAIL_MIGRATION.read_text(), db)
+    check('tail migration installs', r.returncode == 0, r.stderr.strip())
+    if r.returncode != 0:
+        return
+    after = tournament_reads(c, db, call)
+    print(f'     after: the tail reads {after} tournament rows per call')
+    check('AFTER: the tail reads only the unfolded tournaments', after <= unfolded + 10, f'{after} rows, {unfolded} unfolded')
+
+    for k in clubs:
+        for limit, offset in ((1000, 0), (7, 7)):
+            sql = "SELECT * FROM public.{fn}('{club}', %d, %d)" % (limit, offset)
+            a = board(c, db, sql.replace('{fn}', 'or_tail_club_tournament_stats'), k)
+            b = board(c, db, sql.replace('{fn}', 'fn_club_tournament_stats'), k)
+            if a != b:
+                check('AFTER: every club gives the same answer as the OR tail, page by page', False, f'club {k} page {limit},{offset}')
+                break
+        else:
+            continue
+        break
+    else:
+        check('AFTER: every club gives the same answer as the OR tail, page by page', True)
+
+    r = c.psql(f"SET ROLE anon; SELECT count(*) FROM public.fn_club_tournament_stats('{clubs[0]}',5,0);", db)
+    check('AFTER: anon still reads the leaderboard', r.returncode == 0, r.stderr.strip())
+    again = c.psql(TAIL_MIGRATION.read_text(), db)
+    check('tail migration refuses a second run on its pre-image pin',
+          again.returncode != 0 and 'changed since 20261125022320' in again.stderr, again.stderr.strip())
 
 
 def main():
