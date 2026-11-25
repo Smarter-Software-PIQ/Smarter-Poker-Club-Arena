@@ -126,4 +126,5 @@ BEGIN
   END IF;
 END $subs$;
 
+-- @probe-exempt: smarter_private.f06_source_guard trigger function (RETURNS trigger) cannot be called directly; scripts/ci/test-a-busted-players-stale-table-is-not-break-custody.py fires it natively for every admitted and refused shape
 COMMIT;
