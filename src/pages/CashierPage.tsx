@@ -2785,7 +2785,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
                 </div>
 
                 {/* Quick amounts */}
-                <div className={styles.presetGrid}>
+                <div className={styles.presetGrid} role="group" aria-label="Send Amount Presets">
                   {preset.map((val) => (
                     <button
                       key={val}

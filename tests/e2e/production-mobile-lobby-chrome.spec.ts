@@ -67,10 +67,6 @@ import {
  */
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-/** The MY WALLETS title's optical centre on the my-wallets-v1 master, as a
- *  percentage of the plate; the count line is centred on it. */
-const TITLE_CENTRE_PCT = 54.65;
-
 const preferenceDiagnostics = new WeakMap<Page, Map<Page, LobbyPreferenceProof>>();
 const diagnostics = new WeakMap<Page, ReturnType<typeof observeCashierFailure>>();
 test.beforeEach(async ({ page }) => {
@@ -274,36 +270,42 @@ test.describe('the mobile lobby chrome on production', () => {
       /^\d+ Balances?$/
     );
 
-    const m = await page.evaluate((titleCentrePct) => {
-      const btn = document.querySelector('.lobby-wallets-trigger')!;
-      const el = btn.querySelector('small')!;
+    const wallets = page.getByRole('region', { name: 'My Wallets', exact: true });
+    const trigger = wallets.getByRole('button', { name: /^Wallet Balances/i });
+    const m = await trigger.evaluate((button) => {
+      const title = button.querySelector('strong')!;
+      const count = button.querySelector('small')!;
       const range = document.createRange();
-      range.selectNodeContents(el);
-      const b = btn.getBoundingClientRect();
-      const z = el.getBoundingClientRect();
-      const t = range.getBoundingClientRect();
+      range.selectNodeContents(title);
+      const titleText = range.getBoundingClientRect();
+      range.selectNodeContents(count);
+      const countText = range.getBoundingClientRect();
+      const frame = button.getBoundingClientRect();
       return {
-        clipped: t.width > z.width + 0.5,
-        offCentreByPct: Math.abs(
-          ((t.left + t.width / 2 - b.left) / b.width) * 100 - titleCentrePct
+        clipped:
+          countText.left < frame.left ||
+          countText.right > frame.right ||
+          countText.top < frame.top ||
+          countText.bottom > frame.bottom ||
+          countText.width > count.getBoundingClientRect().width + 0.5,
+        titleOffset: Math.abs(titleText.left + titleText.width / 2 - frame.left - frame.width / 2),
+        countOffset: Math.abs(
+          countText.left + countText.width / 2 - titleText.left - titleText.width / 2
         ),
       };
-    }, TITLE_CENTRE_PCT);
-    expect(m.clipped, `${printed} is clipped at the plate's edge`).toBe(false);
-    expect(m.offCentreByPct, `${printed} is off the painted title's centre`).toBeLessThan(1);
-    const wallets = page.getByRole('region', { name: 'My Wallets', exact: true });
-    const trigger = wallets.getByRole('button', { name: /^My Wallets/i });
+    });
+    expect(m.clipped, `${printed} is clipped`).toBe(false);
+    expect(m.titleOffset, 'Wallet Balances title is off-centre in its frame').toBeLessThan(1);
+    expect(m.countOffset, `${printed} is off-centre under Wallet Balances`).toBeLessThan(1);
+    const balances = wallets.getByRole('region', { name: 'Wallet Balances', exact: true });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(balances).toBeVisible();
+    await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(balances).toBeHidden();
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(
-      wallets.getByRole('region', { name: 'Wallet Balances', exact: true })
-    ).toBeVisible();
-    await trigger.click();
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(
-      wallets.getByRole('region', { name: 'Wallet Balances', exact: true })
-    ).toBeHidden();
+    await expect(balances).toBeVisible();
   });
 
   test('Create, Find and Join lead the arena with no Play Poker plate', async ({ page }) => {
@@ -469,13 +471,10 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(lobby).toBeVisible();
       await openLobbyGameSection(lobby, 'ALL');
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
-      // Chromium's native scrolling of a grid-styled table row repeatedly
-      // moved this nested lobby and its auto-hiding footer in the live trace.
-      // Click the visible painted style text; its normal event reaches the
-      // same row onSelect(entry), without table-fragment scroll geometry.
-      const heading = lobby.locator(`tr[data-id="${ids[i]}"]:visible .premium-cash-style`);
-      await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-      await heading.click();
+      const row = lobby.locator(`tr[data-id="${ids[i]}"]:visible`);
+      const details = row.getByRole('button', { name: /^Details:/ });
+      await details.click();
+      await expect(details).toHaveAttribute('aria-expanded', 'true');
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
       await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
       await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(

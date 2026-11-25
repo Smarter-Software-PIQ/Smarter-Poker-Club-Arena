@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { clubDataReportFixture } from '../helpers/club-data-report-fixture.mjs';
 
@@ -215,5 +216,55 @@ test('opening the report keeps Today live while dated bookmarks stay pinned at P
     });
     const end = pinned ? '2026-11-24' : '2026-11-25';
     await expect.poll(lastEnds).toEqual([end, end]);
+  }
+});
+
+test('populated Club Pulse comparisons and reporting dates fit the report down to 320px and 200% text', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>',
+    })
+  );
+  await page.goto(`http://club-data.fixture/clubs/fixture-union/data?report=open&${dates}`);
+  await page.addStyleTag({ content: readFileSync('src/styles/globals.css', 'utf8') });
+  await page.addStyleTag({ content: fixture.css });
+  await page.addScriptTag({ content: fixture.javascript });
+  const report = page.locator('[data-page="club-data"]');
+  const summary = report.locator('[aria-label="Club Performance Summary"]');
+  await expect(summary.getByText('-415.25 Vs Prev 7 Days')).toBeVisible();
+  for (const [width, size] of [
+    [1280, 100],
+    [768, 100],
+    [393, 100],
+    [320, 100],
+    [320, 200],
+  ]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate((scale) => {
+      document.documentElement.style.fontSize = scale + '%';
+    }, size);
+    const excess = await report.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(excess, `report at ${width}px and ${size}%`).toBeLessThanOrEqual(1);
+    const overhang = await summary.evaluate((grid) =>
+      Math.max(
+        ...[...grid.children].flatMap((tile) => {
+          const bounds = tile.getBoundingClientRect();
+          return [...tile.querySelectorAll('dt, dd, dd span')].map((child) => {
+            const text = document.createRange();
+            text.selectNodeContents(child);
+            const r = text.getBoundingClientRect();
+            return Math.max(0, bounds.left - r.left, r.right - bounds.right);
+          });
+        })
+      )
+    );
+    expect(
+      overhang,
+      `figures inside their own tiles at ${width}px and ${size}%`
+    ).toBeLessThanOrEqual(1);
   }
 });

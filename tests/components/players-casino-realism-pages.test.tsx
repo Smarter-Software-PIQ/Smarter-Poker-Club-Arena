@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   } as Record<string, string>,
   viewerId: 'viewer-1',
   search: new URLSearchParams(),
+  location: { state: null as { rosterClub: string } | null },
   navigate: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
   getMemberDetail: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('react-router-dom', () => ({
   useParams: () => state.params,
   useSearchParams: () => [state.search, vi.fn()],
   useNavigate: () => state.navigate,
+  useLocation: () => state.location,
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -162,6 +164,7 @@ beforeEach(() => {
   };
   state.viewerId = 'viewer-1';
   state.search = new URLSearchParams();
+  state.location.state = null;
   state.navigate.mockReset();
   state.toast.success.mockReset();
   state.toast.error.mockReset();
@@ -193,6 +196,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('Players detail surfaces', () => {
+  it.each([null, 'another-club', 'shark-club'])(
+    'returns the player record to its directory when opened from %s',
+    async (rosterClub) => {
+      state.location.state = rosterClub ? { rosterClub } : null;
+      render(<MemberManagementPage />);
+      await screen.findByRole('heading', { name: memberDetail.identity.alias });
+      expect(screen.getByRole('heading', { level: 1, name: 'Player Record' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: /Directory$/ }));
+      if (rosterClub === 'shark-club') {
+        expect(state.navigate).toHaveBeenCalledWith(-1);
+      } else {
+        expect(state.navigate).toHaveBeenCalledWith('/clubs/shark-club/members', { replace: true });
+      }
+    }
+  );
+
   it('frames the current player role and opens individual rakeback editing without promotion', async () => {
     state.getMemberDetail.mockResolvedValue({
       ...memberDetail,

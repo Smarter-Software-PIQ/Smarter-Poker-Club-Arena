@@ -1473,7 +1473,7 @@ export default function ClubMembersPage() {
           windowTop: window.scrollY,
         });
       }
-      navigate(`/clubs/${routeClub}/members/${userId}`);
+      navigate(`/clubs/${routeClub}/members/${userId}`, { state: { rosterClub: routeClub } });
     },
     [
       columns,

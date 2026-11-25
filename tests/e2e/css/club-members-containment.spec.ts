@@ -417,6 +417,31 @@ const ARENA_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/lobby/ArenaWorkspace.css'),
   'utf8'
 );
+test('the open Columns menu keeps every checkbox inside the roster at desktop and phone widths', async ({
+  page,
+}) => {
+  await page.setContent(`<style>*{box-sizing:border-box}body{margin:0}${CSS}
+${ARENA_CSS}</style>
+    <main class="club-members-page members-simple arena-workspace"><section class="members-console">
+    <div class="arena-roster-tools"><div class="members-toolbar">
+    <button class="members-group-role">Group By Role</button>
+    <label class="members-sort members-winloss-period"><select><option>This Week</option></select></label>
+    <label class="members-sort"><select><option>Name</option></select></label>
+    <details class="members-columns"><summary>Columns</summary><div class="members-columns__menu">
+    ${['Fees', 'Downlines', 'Activity', 'Wallets'].map((name) => `<label><input type="checkbox" checked>${name}</label>`).join('')}
+    </div></details><button class="members-select-loaded">Select Loaded</button>
+    <button class="members-export">Export CSV</button></div></div></section></main>`);
+  for (const width of [1440, 768, 393, 320]) {
+    await page.setViewportSize({ width, height: 812 });
+    await page.getByText('Columns', { exact: true }).click();
+    for (const box of await page.getByRole('checkbox').all()) {
+      await expect(box).toBeInViewport({ ratio: 1 });
+      await box.uncheck({ timeout: 2000 });
+      await box.check({ timeout: 2000 });
+    }
+    await page.getByText('Columns', { exact: true }).click();
+  }
+});
 for (const rosterLoadsLast of [false, true]) {
   for (const width of [320, 360, 375, 393, 430, 568, 751, 1024, 1440]) {
     test(`every arena player row prints its name, upline, PlayerID and status in full at ${width}px (roster CSS ${rosterLoadsLast ? 'last' : 'first'})`, async ({

@@ -654,11 +654,15 @@ function CashierTradeWorkspace() {
   const [membershipsError, setMembershipsError] = useState<string | null>(null);
   const [membershipsReload, setMembershipsReload] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const clubPickerListboxId =
+    pickerOpen && !membershipsLoading && !membershipsError ? 'cashier-club-picker' : undefined;
   const [tab, setTab] = useState<TabKey>('trade');
   const [cashierToolsOpen, setCashierToolsOpen] = useState(false);
 
   const [myRole, setMyRole] = useState<string>('player');
   const [roleResolved, setRoleResolved] = useState(false);
+  const walletOperationsRegionId =
+    roleResolved && clubUuid && walletToolsOpen ? 'cashier-wallet-operations' : undefined;
   const initialTabResolvedRef = useRef(false);
   const [myBalance, setMyBalance] = useState(0);
   /**
@@ -4481,7 +4485,7 @@ function CashierTradeWorkspace() {
                 onClick={() => setPickerOpen((open) => !open)}
                 aria-expanded={pickerOpen}
                 aria-haspopup="listbox"
-                aria-controls="cashier-club-picker"
+                aria-controls={clubPickerListboxId}
                 aria-label={`Open Another Club Cashier. Current Club: ${currentClubLabel}`}
               >
                 {currentClub?.logoUrl ? (
@@ -4585,7 +4589,7 @@ function CashierTradeWorkspace() {
           {roleResolved && (
             <div className="arena-switch" role="group" aria-label="Wallet Actions">
               {canHoldAgentWallet(myRole) && (
-                <button type="button" aria-controls="cashier-wallet-operations" onClick={openSend}>
+                <button type="button" aria-controls={walletOperationsRegionId} onClick={openSend}>
                   Send
                 </button>
               )}
@@ -4636,7 +4640,7 @@ function CashierTradeWorkspace() {
                 type="button"
                 className={styles.toolsTrigger}
                 aria-expanded={walletToolsOpen}
-                aria-controls="cashier-wallet-operations"
+                aria-controls={walletOperationsRegionId}
                 onClick={() => setWalletToolsOpen(!walletToolsOpen)}
               >
                 Wallet Operations
@@ -4644,7 +4648,7 @@ function CashierTradeWorkspace() {
               {walletToolsOpen && (
                 <section
                   ref={walletPanel}
-                  id="cashier-wallet-operations"
+                  id={walletOperationsRegionId}
                   className="arena-case"
                   aria-label="Wallet Operations"
                 >
@@ -4702,8 +4706,8 @@ function CashierTradeWorkspace() {
                   </button>
                 </div>
               )}
-              {!membershipsLoading && !membershipsError && (
-                <div id="cashier-club-picker" role="listbox" aria-label="Club Cashiers">
+              {clubPickerListboxId && (
+                <div id={clubPickerListboxId} role="listbox" aria-label="Club Cashiers">
                   {memberships.map((m) => (
                     <button
                       key={m.clubUuid}
@@ -4783,7 +4787,7 @@ function CashierTradeWorkspace() {
                 role="tab"
                 className={`${styles.tab} ${!walletToolsOpen && tab === key ? styles.tabActive : ''}`}
                 aria-selected={!walletToolsOpen && tab === key}
-                aria-controls={`cashier-panel-${key}`}
+                aria-controls={!walletToolsOpen && tab === key ? `cashier-panel-${key}` : undefined}
                 tabIndex={tab === key ? 0 : -1}
                 onClick={() => {
                   if (walletToolsOpen) setWalletToolsOpen(false);

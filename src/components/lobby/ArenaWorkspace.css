@@ -945,30 +945,56 @@
   padding: 3px 4px;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: 48px;
+  aspect-ratio: auto;
+  padding: 3px 24px;
   background: none;
   box-shadow: none;
   border: 0;
-  border-radius: 0;
-  padding: 0 3px 5px;
-  min-height: 44px;
 }
-.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__icon {
-  display: none;
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy {
+  position: static;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
 }
-.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong,
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  position: static;
+  inset: auto;
+  clip: auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  white-space: normal;
+  text-transform: none;
 }
-.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy strong {
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong {
   color: #eff8ff;
   font:
     800 20px/1.1 'Arial Narrow',
     Arial,
     sans-serif;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  color: #bdd1df;
+  font:
+    11px/1.4 Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron {
+  right: 6px;
+  left: auto;
+  top: 50%;
+  width: 7px;
+  height: 7px;
 }
 .arena-trade .cashier-my-wallets .dw .dw__rows {
   display: grid;
@@ -1025,41 +1051,6 @@
     sans-serif;
   text-shadow: 0 1px 3px #000;
 }
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger {
-  aspect-ratio: auto;
-}
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy {
-  position: static;
-  width: 100%;
-  justify-content: space-between;
-  padding-right: 20px;
-}
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong,
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
-  position: static;
-  inset: auto;
-  clip: auto;
-  width: auto;
-  height: auto;
-  margin: 0;
-  overflow: visible;
-  text-transform: none;
-  transform: none;
-}
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
-  color: #bdd1df;
-  font:
-    11px/1.4 Arial,
-    sans-serif;
-  letter-spacing: 0;
-}
-.arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron {
-  right: 6px;
-  left: auto;
-  width: 7px;
-  height: 7px;
-}
-
 /* Every directory surface uses its shell's inner width. Keep content inside the chrome. */
 .arena-workspace.club-members-page {
   --members-content: 100%;

@@ -166,7 +166,15 @@ describe('one mounted club cashier', () => {
       'aria-selected',
       'true'
     );
-    expect(screen.getByRole('tabpanel', { name: 'Send' })).toBeVisible();
+    const sendPanel = screen.getByRole('tabpanel', { name: 'Send' });
+    const amounts = within(sendPanel).getByRole('group', { name: 'Send Amount Presets' });
+    expect(
+      within(amounts)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['100', '500', '1,000', '5,000', 'Max']);
+    fireEvent.click(within(amounts).getByRole('button', { name: 'Max' }));
+    expect(within(sendPanel).getByRole('textbox', { name: 'Amount' })).toHaveValue('500');
     expect(screen.getByLabelText('Current Address').textContent).toBe(
       '/clubs/' + fixture.club + '/cashier?table=77&origin=menu&walletTools=open#seat'
     );
@@ -192,11 +200,45 @@ describe('one mounted club cashier', () => {
     expect(screen.getByLabelText('Current Address')).toHaveTextContent('origin=directory');
     const actions = screen.getByRole('tablist', { name: 'Cashier Actions' });
     expect(within(actions).queryByRole('tab', { selected: true })).toBeNull();
+    for (const tab of within(actions).getAllByRole('tab')) {
+      expect(tab).not.toHaveAttribute('aria-controls');
+    }
     const firstAction = within(actions).getAllByRole('tab')[0];
     firstAction.focus();
     fireEvent.keyDown(firstAction, { key: 'Home' });
     expect(firstAction).toHaveFocus();
     expect(firstAction).toHaveAttribute('aria-selected', 'true');
+    const firstPanel = screen.getByRole('tabpanel', { name: 'Transaction History' });
+    expect(firstAction).toHaveAttribute('aria-controls', firstPanel.id);
+    expect(firstPanel).toHaveAttribute('aria-labelledby', firstAction.id);
+    for (const tab of within(actions).getAllByRole('tab', { selected: false })) {
+      expect(tab).not.toHaveAttribute('aria-controls');
+    }
     expect(screen.queryByRole('tablist', { name: 'Wallet Operations' })).toBeNull();
+  });
+  it('keeps Wallet Operations control references valid across opening and closing the panel', async () => {
+    mount('/clubs/' + fixture.club + '/cashier');
+    const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
+    const send = within(actions).getByRole('button', { name: 'Send' });
+    const panelId = 'cashier-wallet-operations';
+    const expectValidReferences = () => {
+      for (const button of document.querySelectorAll(`button[aria-controls="${panelId}"]`)) {
+        expect(document.getElementById(button.getAttribute('aria-controls')!)).not.toBeNull();
+      }
+    };
+    expectValidReferences();
+    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
+    const wallet = await screen.findByRole('button', { name: 'Wallet Operations' });
+    expect(wallet).toHaveAttribute('aria-expanded', 'false');
+    expectValidReferences();
+    fireEvent.click(send);
+    const panel = await screen.findByRole('region', { name: 'Wallet Operations' });
+    expect(panel.id).toBe(panelId);
+    expect(send).toHaveAttribute('aria-controls', panel.id);
+    expect(wallet).toHaveAttribute('aria-controls', panel.id);
+    expect(wallet).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(wallet);
+    expect(screen.queryByRole('region', { name: 'Wallet Operations' })).toBeNull();
+    expectValidReferences();
   });
 });

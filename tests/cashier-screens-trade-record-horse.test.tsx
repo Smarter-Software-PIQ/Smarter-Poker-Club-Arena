@@ -108,7 +108,7 @@ const humanRow = {
   to_name: 'Night Owl',
 };
 
-async function openRecord() {
+async function openRecord(entry: 'tools' | 'direct' = 'tools') {
   render(
     <MemoryRouter initialEntries={[`/clubs/${CLUB_ID}/cashier`]}>
       <Routes>
@@ -117,8 +117,12 @@ async function openRecord() {
     </MemoryRouter>
   );
   await waitFor(() => expect(screen.getByText('Balances Synchronized')).toBeInTheDocument());
-  fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
-  fireEvent.click(screen.getByRole('tab', { name: 'Transaction History' }));
+  if (entry === 'direct') {
+    fireEvent.click(screen.getByRole('button', { name: 'Transaction History', exact: true }));
+  } else {
+    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Transaction History' }));
+  }
 }
 
 describe('the Trade record prints a treasury-funded seat as a Club Bank send', () => {
@@ -206,7 +210,11 @@ describe('the Trade record prints a treasury-funded seat as a Club Bank send', (
   });
   it('opens Today and All Transactions with chip movements only', async () => {
     mockClub([]);
-    await openRecord();
+    await openRecord('direct');
+    const filters = screen.getByText('Search And Filter History', { exact: true });
+    expect(filters.closest('details')).not.toHaveAttribute('open');
+    fireEvent.click(filters);
+    expect(filters.closest('details')).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true'

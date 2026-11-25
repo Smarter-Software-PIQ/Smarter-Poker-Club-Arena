@@ -31,6 +31,7 @@ vi.mock('react-router-dom', () => ({
   useParams: () => state.params,
   useSearchParams: () => [new URLSearchParams(), vi.fn()],
   useNavigate: () => state.navigate,
+  useLocation: () => ({ state: null }),
 }));
 
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({

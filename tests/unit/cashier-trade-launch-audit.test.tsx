@@ -171,6 +171,7 @@ vi.mock('../../src/utils/clubIdResolver', async (importOriginal) => ({
 import { supabase } from '../../src/lib/supabase';
 import { engineChannelClient } from '../../src/services/EngineStateClient';
 import * as GameServerAPI from '../../src/services/GameServerAPI';
+import { UnionService } from '../../src/services/UnionService';
 import { useMasterBusChannel } from '../../src/hooks/useMasterBusChannel';
 import {
   restoreDurableCashierTransfers,
@@ -1059,15 +1060,30 @@ describe('P-04, P-12, P-15, L-03: the Trade page is reachable and truthful', () 
   });
 
   it("points the switcher's aria-controls at the listbox and prints its label in Title Case", async () => {
+    const directory = deferred<void>();
+    vi.mocked(UnionService.getOwnedUnions).mockImplementationOnce(async () => {
+      await directory.promise;
+      throw new Error('Roster directory unavailable');
+    });
     mountCashier();
     await synchronized();
     const trigger = screen.getByRole('button', { name: /Open Another Club Cashier/ });
     expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(trigger).not.toHaveAttribute('aria-controls');
     fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByRole('listbox', { name: 'Club Cashiers' })).toBeNull();
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    await act(async () => directory.resolve());
+    const failure = await screen.findByText('Could not load your club cashiers.');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
     const listbox = await screen.findByRole('listbox', { name: 'Club Cashiers' });
     expect(listbox.id).toBe(trigger.getAttribute('aria-controls'));
     expect(screen.getByText('Open Cashier For')).toBeInTheDocument();
     expect(TRADE).not.toContain('OPEN CASHIER FOR');
+    fireEvent.click(trigger);
+    expect(trigger).not.toHaveAttribute('aria-controls');
   });
 
   it('names the document', async () => {

@@ -41,7 +41,7 @@ import { lastDaysRange } from '../lib/clubDataDay';
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { sizedStorageUrl, generateAvatarSvg } from '../utils/avatarGenerator';
 import { masterBus } from '../core/MasterBus';
@@ -192,6 +192,14 @@ export default function MemberManagementPage() {
   const userId = routeUserId || undefined;
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnToDirectory = () => {
+    if (!clubId || location.state?.rosterClub === clubId) {
+      navigate(-1);
+    } else {
+      navigate(`/clubs/${encodeURIComponent(clubId)}/members`, { replace: true });
+    }
+  };
   const toast = useToast();
   const { user } = useAuthUser();
   const isMountedRef = useIsMounted();
@@ -858,7 +866,7 @@ export default function MemberManagementPage() {
   if (loading && !detail) {
     return (
       <div className="member-mgmt-page arena-workspace">
-        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
+        <PageHeader club={routeClubId} onBack={returnToDirectory} />
         <PageSkeleton variant="settings" />
       </div>
     );
@@ -867,7 +875,7 @@ export default function MemberManagementPage() {
   if (loadError) {
     return (
       <div className="member-mgmt-page arena-workspace">
-        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
+        <PageHeader club={routeClubId} onBack={returnToDirectory} />
         <div className="mm-empty" role="alert">
           <span className="mm-empty__mark" aria-hidden="true">
             ↻
@@ -902,7 +910,7 @@ export default function MemberManagementPage() {
   if (!found) {
     return (
       <div className="member-mgmt-page arena-workspace">
-        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
+        <PageHeader club={routeClubId} onBack={returnToDirectory} />
         <div className="mm-empty">
           <span className="mm-empty__mark" aria-hidden="true">
             ○
@@ -924,7 +932,7 @@ export default function MemberManagementPage() {
 
   return (
     <div className="member-mgmt-page arena-workspace">
-      <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
+      <PageHeader club={routeClubId} onBack={returnToDirectory} />
       <ClubDataReturnLink />
 
       {refreshFailed && (
@@ -1465,9 +1473,9 @@ function PageHeader({ onBack, club }: { onBack: () => void; club?: string }) {
     <>
       <ArenaWorkspaceHeader
         area="members"
-        title="Player Management"
+        title="Player Record"
         context={club && !/^[0-9a-f]{8}-/i.test(club) ? club.replace(/[-_]/g, ' ') : undefined}
-        subtitle="Member Directory"
+        subtitle="Player Management"
       />
       <nav className="arena-switch" aria-label="Member Navigation">
         <button type="button" onClick={onBack}>
