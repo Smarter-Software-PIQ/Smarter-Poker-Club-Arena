@@ -306,6 +306,7 @@ BEGIN
 END $$;
 
 -- Seed the exact production defects BEFORE migration:
+INSERT INTO cron.job (command) VALUES ('SELECT public.fn_ca_conservation_sweep();');
 INSERT INTO public.ca_drift_incidents (id, source, status)
 VALUES ('a1fb53c2-979a-4469-8aff-9d388e2ef252', 'fn_ca_orphaned_checks_watch', 'open');
 INSERT INTO public.financial_alerts (id, source, resolved)
@@ -477,7 +478,7 @@ def main() -> int:
         return 0
     finally:
         if started:
-            subprocess.run(["pg_ctl", "-D", str(pgdata), "-m", "immediate", "stop"], capture_output=True)
+            subprocess.run([pg_tool("pg_ctl"), "-D", str(pgdata), "-m", "immediate", "stop"], capture_output=True)
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(sock, ignore_errors=True)
 

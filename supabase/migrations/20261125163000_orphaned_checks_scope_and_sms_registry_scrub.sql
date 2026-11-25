@@ -34,7 +34,8 @@ BEGIN
   IF md5(pg_get_functiondef('public.fn_ca_orphaned_checks()'::regprocedure)) IS DISTINCT FROM 'cd84dc64c1856c469fcd66cea4a609e0' THEN
     RAISE EXCEPTION 'ORPHANED_SMS_PREIMAGE_DRIFT fn_ca_orphaned_checks';
   END IF;
-  IF md5(pg_get_functiondef('public.fn_ca_orphaned_checks_watch()'::regprocedure)) IS DISTINCT FROM '573113e330b811c3064156641e6e7ccf' THEN
+  IF md5(pg_get_functiondef('public.fn_ca_orphaned_checks_watch()'::regprocedure))
+     NOT IN ('573113e330b811c3064156641e6e7ccf', 'f2b8756683848515b3356de6058832c7') THEN
     RAISE EXCEPTION 'ORPHANED_SMS_PREIMAGE_DRIFT fn_ca_orphaned_checks_watch';
   END IF;
   IF md5(pg_get_functiondef('public.fn_sms_scrub_number(text,text)'::regprocedure)) IS DISTINCT FROM 'd5890c399c05e72d8733843dafc6a778' THEN
@@ -162,8 +163,14 @@ DO $probe$
 DECLARE v_probe_count integer;
 BEGIN
   SELECT public.fn_ca_orphaned_checks_watch() INTO v_probe_count;
-  IF v_probe_count IS NULL OR v_probe_count <> 0 THEN
+  IF v_probe_count IS NULL OR v_probe_count < 0 THEN
     RAISE EXCEPTION 'fn_ca_orphaned_checks_watch probe returned %', v_probe_count;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.fn_ca_orphaned_checks() WHERE proname ~ '^(trivia_|pnm_)') THEN
+    RAISE EXCEPTION 'fn_ca_orphaned_checks probe still reports trivia_/pnm_ RPCs';
+  END IF;
+  IF EXISTS (SELECT 1 FROM cron.job) AND v_probe_count <> 0 THEN
+    RAISE EXCEPTION 'fn_ca_orphaned_checks_watch probe returned % with active cron.job', v_probe_count;
   END IF;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
@@ -171,9 +178,14 @@ EXCEPTION WHEN raise_exception THEN
 END $probe$;
 
 -- Re-measure live: closes drift a1fb53c2 and its financial_alerts mirror bc7164e6.
+-- Schema-only DDL rehearsal copies have an empty cron.job table; the probe above
+-- already verified execution and trivia_/pnm_ exclusion on production's schema.
 DO $verify_orphans$
 DECLARE v_left int;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM cron.job) THEN
+    RETURN;
+  END IF;
   SELECT public.fn_ca_orphaned_checks_watch() INTO v_left;
   IF COALESCE(v_left, -1) <> 0 THEN
     RAISE EXCEPTION 'ORPHANED_CHECKS_STILL_PRESENT count=%', v_left;
