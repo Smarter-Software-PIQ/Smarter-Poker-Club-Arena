@@ -434,9 +434,19 @@ DECLARE
   v_uid   uuid := gen_random_uuid();
   v_tiles jsonb;
 BEGIN
-  v_tiles := public.fn_ca_daily_bonus_pick_tiles(v_uid, v_today, 15, '[]'::jsonb);
-  IF jsonb_typeof(v_tiles) <> 'array' OR (v_tiles->0->>'kind') <> 'boost' THEN
-    RAISE EXCEPTION 'pick_tiles probe expected boost on Day 15, got %', v_tiles;
+  -- Prestige Step 7 (streak 37) exercises the boost window path even on a
+  -- schema-only rehearsal database where ca_daily_bonus_calendar has no rows.
+  v_tiles := public.fn_ca_daily_bonus_pick_tiles(v_uid, v_today, 37, '[]'::jsonb);
+  IF jsonb_typeof(v_tiles) <> 'array'
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_tiles) t WHERE t->>'kind' = 'boost') THEN
+    RAISE EXCEPTION 'pick_tiles probe expected boost on Prestige Day 37, got %', v_tiles;
+  END IF;
+  -- On populated databases (production and full fixtures), also verify Day 15.
+  IF EXISTS (SELECT 1 FROM public.ca_daily_bonus_calendar WHERE active AND streak_day = 15) THEN
+    v_tiles := public.fn_ca_daily_bonus_pick_tiles(v_uid, v_today, 15, '[]'::jsonb);
+    IF jsonb_typeof(v_tiles) <> 'array' OR (v_tiles->0->>'kind') <> 'boost' THEN
+      RAISE EXCEPTION 'pick_tiles probe expected boost on Day 15, got %', v_tiles;
+    END IF;
   END IF;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
@@ -449,10 +459,12 @@ DECLARE
   v_uid uuid;
   v_st  jsonb;
 BEGIN
-  SELECT p.id INTO v_uid
-    FROM public.profiles p
-   WHERE public.fn_ca_daily_bonus_eligibility(p.id) = 'ok'
-   LIMIT 1;
+  IF EXISTS (SELECT 1 FROM public.ca_daily_bonus_calendar WHERE active AND cycle_day = 1) THEN
+    SELECT p.id INTO v_uid
+      FROM public.profiles p
+     WHERE public.fn_ca_daily_bonus_eligibility(p.id) = 'ok'
+     LIMIT 1;
+  END IF;
   IF v_uid IS NULL THEN
     v_uid := gen_random_uuid();
   END IF;
