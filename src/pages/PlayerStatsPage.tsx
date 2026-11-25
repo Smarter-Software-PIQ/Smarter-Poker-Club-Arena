@@ -1868,6 +1868,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                       overall={overall}
                       full={full}
                       onOpenHands={() => openHandEvidence()}
+                      onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}
                     />
                     <TournamentsTab
                       tourn={tourn}
