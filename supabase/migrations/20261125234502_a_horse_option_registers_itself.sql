@@ -1,4 +1,4 @@
--- 20261124223416_a_horse_option_registers_itself.sql
+-- 20261125234502_a_horse_option_registers_itself.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
@@ -83,7 +83,7 @@ ALTER TABLE public.ca_horse_option_whitelist ENABLE ROW LEVEL SECURITY;
 -- The seed: the installed whitelist, read from the installed constraint and the installed states function.
 DO $seed$
 DECLARE
-  v_me       constant text := '20261124223416_a_horse_option_registers_itself';
+  v_me       constant text := '20261125234502_a_horse_option_registers_itself';
   -- the lists of the last full-list migration, 20261124141237: md5 of 'option:kind:off-only(0|1):shadow level' joined by ','
   -- in byte order of the option. everyUpgradeHasALiveSwitch.law.test.ts computes it from that file.
   v_lists    constant text := '87f19956481790299450a5cbbb0e9381';
@@ -191,7 +191,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
-  -- registry-lists-version: 20261124223416
+  -- registry-lists-version: 20261125234502
   SELECT CASE
     WHEN w.kind = 'style' THEN ARRAY['off', 'shadow', 'canary', 'on']
     WHEN w.off_only THEN ARRAY['off']
@@ -574,8 +574,8 @@ $readback$;
 -- @probe-for: public.fn_ca_horse_option_whitelist_guard
 DO $probe$
 DECLARE
-  v_a      constant text := '20261124223416_probe_a';
-  v_b      constant text := '20261124223417_probe_b';
+  v_a      constant text := '20261125234502_probe_a';
+  v_b      constant text := '20261125234503_probe_b';
   v_note   constant text := 'authority: probeFixtureOption probe.md sha256 ' || repeat('0', 64);
   v_step   text;
   v_name   text;

@@ -1,6 +1,6 @@
 # A Horse option registers itself: the whitelist is rows, not a re-asserted list (2026-11-19)
 
-Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261124223416_a_horse_option_registers_itself.sql`.
+Owner: Horse Decisions lane (session 01TLQer7J). Migration `20261125234502_a_horse_option_registers_itself.sql`.
 
 ## The problem
 
@@ -97,7 +97,7 @@ since the shadow list (2026-11-18) and the on_shadow list (2026-11-19), and seve
   option would lose (shadow, on_shadow);
 - generator: `--register <file> [--allow-shadow] [option ...]`.
 
-## 2026-11-24: Re-Anchored On #11917 (47 Frozen Full-List Migrations), Re-Reserved As 20261124223416
+## 2026-11-24: Re-Anchored On #11917 (47 Frozen Full-List Migrations), Re-Reserved As 20261125234502
 
 Main merged PR #11917, whose full-list migration `20261124141237_horse_option_switch_oop_reraise_range_holds.sql`
 follows #11825, plus four ordinary migrations newer than the earlier reservation. After merging `origin/main`
@@ -107,7 +107,7 @@ follows #11825, plus four ordinary migrations newer than the earlier reservation
   204 shadow, 282 on_shadow), fingerprint `87f19956481790299450a5cbbb0e9381`, derived with
   `optionSwitchListsFingerprint` from the file; production's `fn_ca_horse_option_switch_states` carries the stamp
   `20261124141237` (read-only check), so the whitelist migration's seed check matches the installed lists;
-- the migration is re-reserved with `scripts/new-migration.mjs` as `20261124223416`, newer than every migration on
+- the migration is re-reserved with `scripts/new-migration.mjs` as `20261125234502`, newer than every migration on
   main; `v_me`, the `registry-lists-version` stamp, the probe names, the whitelist constant, the proof script, the
   schema manifest, `scripts/ci/accounting-harness-reads.json` and the docs moved with it;
 - the throwaway Postgres proof reads its frozen lists from the #11917 migration and its refusal and overwrite checks
@@ -188,3 +188,11 @@ Synced onto `origin/main` (`3f0a9967d5f4`):
   continue enforcing the frozen 43-migration full-list chain, accept commuting `--register` migrations without
   requiring a re-asserted full list, and refuse any stale branch adding a full-list migration once the whitelist
   migration is on main.
+
+## 2026-11-25: Re-Reserved As 20261125234502
+
+Nine ordinary migrations merged above the previous reservation while the pull request waited, and no new full
+switch list did: the anchor stays 20261124141237 (47 frozen full-list migrations, fingerprint unchanged). The
+migration is re-reserved with `scripts/new-migration.mjs` as `20261125234502` so it is again the newest on main; v_me,
+the registry-lists-version stamp, the probe names, OPTION_SWITCH_WHITELIST_MIGRATION, the proof script, the schema
+manifest and the regenerated accounting-harness-reads.json move with it.
