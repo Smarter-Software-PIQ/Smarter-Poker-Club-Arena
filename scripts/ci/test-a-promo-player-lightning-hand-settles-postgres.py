@@ -214,6 +214,46 @@ INSERT INTO public.lightning_hand_player VALUES('{H3}','{USER}','{SLOT}',50,NULL
 VALUES(pg_current_xact_id(),'{ANCHOR}','{USER}','{H3}');
 SELECT public.fn_ca_promo_position_stack_before('{USER}','{ANCHOR}',50); ROLLBACK;""").splitlines()[-1]
         check(got_h3 == '50', f'{phase}: H3 formed after H1 was voided does not double-count H1 ({got_h3})')
+        # Multi-hand fast-fold cascade (exact GRANDmasterFLUSH shape): H1 (-2) and H2 (-2)
+        # both running/unsettled while H3 is dealt from 46 and loses 2 -> 44. H3 settles first
+        # (base = 46 + 2 + 2 = 50, custody 50 -> 44), then H2 and H1 settle with custody staying 44.
+        q(SEED)
+        q(f"""INSERT INTO public.lightning_hand(hand_id,cluster_id,formed_at) VALUES('{H3}','{CLUSTER}',now()-interval '2 s');
+INSERT INTO public.lightning_hand_player VALUES('{H3}','{USER}','{SLOT}',46,now()-interval '1 s',2);""")
+        out_h3 = attempt(f"""BEGIN; INSERT INTO public.lightning_settlement_marker(txid,anchor_table_id,player_id,hand_id,host_table_id)
+VALUES(pg_current_xact_id(),'{ANCHOR}','{USER}','{H3}','{HOST}');
+SELECT public.fn_ca_promo_accept_cash_hand('{H3}','{HOST}','[{{"user_id":"{USER}","stack_before":46,"stack":44}}]',
+ '{{"contributions":{{"{USER}":2}}}}','{{"{USER}":"{ANCHOR}"}}');
+DELETE FROM public.lightning_settlement_marker WHERE txid=pg_current_xact_id(); COMMIT;""")
+        check(out_h3 is None, f'{phase}: 3-hand cascade H3 settles while H1 and H2 are both still running')
+        check(q(f"SELECT stack_before||','||principal_before FROM public.ca_promo_profit_cash_positions WHERE hand_id='{H3}'") == '50,50',
+              f'{phase}: 3-hand cascade H3 records ca_promo_profit_cash_positions with stack_before=50')
+        check(q('SELECT amount FROM public.ca_promo_principal_custody') == '44',
+              f'{phase}: 3-hand cascade H3 charges custody once (50 -> 44)')
+        for hid, sb, sa in [(H2, 48, 46), (H1, 50, 48)]:
+            q(f"""BEGIN; INSERT INTO public.lightning_settlement_marker(txid,anchor_table_id,player_id,hand_id,host_table_id)
+VALUES(pg_current_xact_id(),'{ANCHOR}','{USER}','{hid}','{HOST}');
+SELECT public.fn_ca_promo_accept_cash_hand('{hid}','{HOST}','[{{"user_id":"{USER}","stack_before":{sb},"stack":{sa}}}]',
+ '{{"contributions":{{"{USER}":2}}}}','{{"{USER}":"{ANCHOR}"}}'); COMMIT;""")
+        check(q('SELECT amount FROM public.ca_promo_principal_custody') == '44',
+              f'{phase}: 3-hand cascade H2 and H1 settling after H3 leave custody conserved at 44')
+
+
+def check_no_later_migration_regresses():
+    import re
+    mig_dir = ROOT / 'supabase/migrations'
+    for p in sorted(mig_dir.glob('*.sql')):
+        if p.name <= CANDIDATE.name:
+            continue
+        text = p.read_text(encoding='utf-8', errors='replace')
+        for fn in ('fn_ca_promo_profit_capture_cash', 'fn_ca_promo_accept_cash_hand'):
+            if re.search(rf'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.{fn}\b', text, re.I):
+                check('fn_ca_promo_position_stack_before' in text,
+                      f'later migration {p.name} redefining {fn} keeps fn_ca_promo_position_stack_before')
+        if re.search(r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.fn_ca_promo_position_stack_before\b', text, re.I):
+            check('lightning_settlement_marker' in text and 'voided_at' in text,
+                  f'later migration {p.name} redefining fn_ca_promo_position_stack_before keeps marker & voided_at guards')
+    check(True, 'no later migration drops fn_ca_promo_position_stack_before or its guards')
 
 
 try:
@@ -226,6 +266,7 @@ try:
     check('lightning_promo_capture_preimage_refused' in (attempt(CANDIDATE.read_text()) or ''),
           'the migration refuses a body that is not its exact preimage')
     scenarios(fixed=True)
+    check_no_later_migration_regresses()
     print(f'{len(passed)} checks passed')
 finally:
     subprocess.run([str(PG / 'pg_ctl'), '-D', str(w / 'd'), '-m', 'immediate', 'stop'], capture_output=True, env=env)
