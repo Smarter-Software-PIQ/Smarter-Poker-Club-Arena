@@ -20,6 +20,7 @@ import {
   certificateConclusion,
   firstErrorLine,
   readPrevious,
+  SUPERSEDED_STEP,
   // @ts-expect-error untyped CI module
 } from '../../scripts/ci/certification-failure-streak.mjs';
 
@@ -274,5 +275,114 @@ describe('the streak rules', () => {
       )
     ).toBe('Error: expect(locator).toBeVisible() failed');
     expect(firstErrorLine('##[error]Process completed with exit code 1.')).toBeNull();
+  });
+});
+
+/* 2026-11-25: Club Create Certification runs 45346014580 and 45499309914
+   waited ten minutes for a revision a later publish had already replaced, then
+   failed. Nothing was wrong with club creation, yet two such runs in a row
+   would open a false ProductionCertificationFailing episode. A superseded run
+   now stops on one named step before any fixture exists, its own verdict job
+   stands down, and the streak reader passes over it. */
+describe('a newer publish is not a failed certificate (2026-11-25)', () => {
+  const superseded = {
+    name: 'certify',
+    conclusion: 'failure',
+    steps: [
+      { name: 'Wait For This Exact Revision On Both Public Endpoints', conclusion: 'success' },
+      { name: SUPERSEDED_STEP, conclusion: 'failure' },
+      { name: 'Certify Authenticated Club Creation And Cleanup', conclusion: 'skipped' },
+    ],
+  };
+
+  it('a certificate job that failed on the superseded step certified nothing', () => {
+    expect(certificateConclusion({ jobs: [superseded] }, 'certify')).toBeNull();
+  });
+
+  it('every other failure is still a failure, whatever else was skipped', () => {
+    expect(
+      certificateConclusion(
+        {
+          jobs: [
+            {
+              name: 'certify',
+              conclusion: 'failure',
+              steps: [
+                {
+                  name: 'Wait For This Exact Revision On Both Public Endpoints',
+                  conclusion: 'failure',
+                },
+                { name: SUPERSEDED_STEP, conclusion: 'skipped' },
+              ],
+            },
+          ],
+        },
+        'certify'
+      )
+    ).toBe('failure');
+    expect(
+      certificateConclusion({ jobs: [{ name: 'certify', conclusion: 'failure' }] }, 'certify')
+    ).toBe('failure');
+  });
+
+  it('the streak reader passes over a superseded run and finds the real verdict behind it', async () => {
+    const runs = [3, 2].map((id) => ({
+      id,
+      created_at: new Date(Date.UTC(2026, 10, 25, 0, id)).toISOString(),
+      html_url: `u${id}`,
+    }));
+    const read = async (path: string) => {
+      if (path.includes('/workflows/')) return { workflow_runs: runs };
+      const id = Number(path.match(/runs\/(\d+)\/jobs/)?.[1]);
+      return { jobs: [id === 3 ? superseded : { name: 'certify', conclusion: 'failure' }] };
+    };
+    await expect(
+      readPrevious({
+        token: 't',
+        repo: 'o/r',
+        workflowFile: 'x.yml',
+        runId: '9',
+        jobName: 'certify',
+        read,
+      })
+    ).resolves.toEqual({ previous: 'failure', runId: 2, runUrl: 'u2' });
+    // Two real failures around a superseded run are still a streak.
+    expect(decide({ result: 'failure', previous: 'failure' }).record).toBe(true);
+  });
+
+  it('club-create-certification.yml stands down exactly that way', () => {
+    const wf = parse(
+      readFileSync(join(DIR, 'club-create-certification.yml'), 'utf8')
+    ) as Workflow & { jobs: Record<string, Job & { outputs?: Record<string, string> }> };
+    const certify = wf.jobs.certify;
+    const steps = certify.steps || [];
+    const names = steps.map((step) => step.name);
+    const wait = steps.find(
+      (step) => step.name === 'Wait For This Exact Revision On Both Public Endpoints'
+    ) as Step & { id?: string };
+    expect(wait.id).toBe('live');
+    // Superseded only when both endpoints agree on a main descendant of this revision.
+    expect(wait.run).toContain('"$origin_sha" == "$public_sha"');
+    expect(wait.run).toContain('git merge-base --is-ancestor "$expected" "$origin_sha"');
+    expect(wait.run).toContain(
+      'git merge-base --is-ancestor "$origin_sha" refs/remotes/origin/main'
+    );
+    expect(wait.run).toContain('echo "superseded=true" >> "$GITHUB_OUTPUT"');
+    // A revision that never arrives still fails the wait itself.
+    expect(wait.run).toContain('did not converge on exact revision');
+
+    const stop = steps.find((step) => step.name === SUPERSEDED_STEP) as Step;
+    expect(stop.if).toBe("steps.live.outputs.superseded == 'true'");
+    expect(stop.run).toContain('exit 1');
+    // It stops the run before the first fixture, account or club is created.
+    expect(names.indexOf(SUPERSEDED_STEP)).toBe(names.indexOf(wait.name) + 1);
+    expect(names.indexOf(SUPERSEDED_STEP)).toBeLessThan(
+      names.indexOf('Verify Opening Grant Capacity Before Creating Fixtures')
+    );
+
+    expect(certify.outputs?.superseded).toBe('${{ steps.live.outputs.superseded }}');
+    expect(wf.jobs['certification-verdict'].if).toContain(
+      "needs.certify.outputs.superseded != 'true'"
+    );
   });
 });
