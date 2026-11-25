@@ -3716,7 +3716,7 @@ function CashierContent() {
                   {myAgentWallet !== null && (
                     <div>
                       <dt>Available After Transfer</dt>
-                      <dd>{formatWalletChips(myAgentWallet - sendConfirm.value)}</dd>
+                      <dd>{formatWalletChips(chipCents(myAgentWallet - sendConfirm.value))}</dd>
                     </div>
                   )}
                 </dl>
