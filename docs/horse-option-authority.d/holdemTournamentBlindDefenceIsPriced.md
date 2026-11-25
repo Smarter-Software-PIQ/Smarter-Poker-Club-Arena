@@ -66,6 +66,17 @@ The heads-up and blind cards were declared at 12bb and were INERT there (the mir
 
 The options win chips back against the min-raiser and do not bleed to the correct caller. The probe seat is a field seat: the Horse's -24 against even a Horse in it is that seat's own asymmetry, the same in both arms. This league Horse already opens nearly every small blind, so the min-raiser gains no more than the control from the off Horse: the probe bounds the bleed better than it measures the farm (the live farm is NLH-TOURNAMENT-SWEEP L1/L2).
 
+## Prior anchor
+
+- Baseline: the no-record prior is the solved chip-EV equilibrium mix of the spot (`HorseHoldemTournamentRaiseDefenceSolved.data.ts`, CFR+ of open / defend / reply over 320 spots, worst best-response gain 0.0031bb per hand); with no record, no pay jump and no population move the answer is exactly the table mix (law: the prior plays the table mix).
+- Population weight: the measured population fold to the Horse's jam moves the prior with trust min(0.25, n / (n + 4000)), halved when the population folds more than Nash (the exploitable side of the baseline); the population width is not used.
+- Own record: the opponent's own record (fold to a 3-bet, first-in raise share, 3-bet share) moves his fold and raise width with weight n / (n + 20) decayed opportunities, so a real sample dominates the population and the table.
+- No unshown cards: no unshown hole card was read to fit any table; the population priors read shown actions and amounts only, and the flop realisation table was refit from engine self-play (`realisation-selfplay.ts`, every card the simulated players' own), law `ARaiseDefenceFitReadsNoUnshownHoleCard.law.test.ts`.
+
+## Replay
+
+- Replay: NOT RUN (the audited-decision scorer was not run for this option; its grades are the raise-defence grid replay, the duplicate league and the exploit probe above)
+
 ## Receipts
 
 `holdem_tournament_raise_defence_{hu_bb,blind_defence,committed_raise}_priced_seen`, `..._fold_seen`, `..._call_seen`, `..._shove_seen`, `..._reraise_seen` (v2: the solution's 3-bet / 4-bet), `..._mixed_seen` (a mixed class drew), `..._moved_seen` (a record, the population or the bubble moved the mix), `..._committed_seen`, `..._changed_seen`, `..._unpriced_seen`, `..._reversal_refused_seen`, `..._blanket_stood_aside_seen` (`HorseDataLedger.ts`).
