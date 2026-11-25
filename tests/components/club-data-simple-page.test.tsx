@@ -448,18 +448,20 @@ describe('ClubDataSimplePage', () => {
     expect(headerTitle(null)).toBe('Club Data');
     fireEvent.click(screen.getByRole('button', { name: 'Open Club Report' }));
     expect(navigateMock).toHaveBeenCalledWith(
-      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
+      `/clubs/${CLUB_ID}/data?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&report=open`
     );
   });
 
   it('an agent reads his own downline, and has no whole-club report door', async () => {
+    routeState.search = new URLSearchParams('report=open');
     rpcMock.mockResolvedValue({
       data: { ...live, club_name: 'Club JAQK', scope: 'downline' },
       error: null,
     });
-    render(<ClubDataSimplePage />);
+    render(<ClubDataSimplePage authorizedScope="downline" />);
     expect(await screen.findByText(/You And Your Downline/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Open Club Report' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Club Report', exact: true })).toBeNull();
   });
 });
 

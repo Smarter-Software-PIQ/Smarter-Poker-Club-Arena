@@ -6,16 +6,13 @@
  * function loses React Fast Refresh.
  */
 
-/**
- * Switching clubs keeps the viewer on the cashier surface they are on (launch
- * audit 2026-10-09, P-08). This always sent them to `/cashier`, the Trade
- * grid, so an owner on the classic cashier's Mint or History tab who picked
- * another club lost the classic page. The classic route is
- * `clubs/:clubId/cashier-classic` and the statements route
- * `clubs/:clubId/cashier/statements`; anything else is the Trade cashier.
- */
-export function cashierDestination(pathname: string): string {
-  if (/\/cashier-classic\/?$/.test(pathname)) return 'cashier-classic';
+/** Keep the selected tool when switching clubs; a table context belongs to its original club. */
+export function cashierDestination(pathname: string, search = ''): string {
   if (/\/cashier\/statements\/?$/.test(pathname)) return 'cashier/statements';
+  if (
+    /\/cashier-classic\/?$/.test(pathname) ||
+    new URLSearchParams(search).get('walletTools') === 'open'
+  )
+    return 'wallet-operations';
   return 'cashier';
 }

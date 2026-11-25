@@ -67,7 +67,7 @@ describe('the report question survives navigation', () => {
     );
     expect(screen.getByRole('link', { name: 'Return To Club Data' })).toHaveAttribute(
       'href',
-      '/clubs/midway-union/data/advanced?dataStart=2026-11-09&dataEnd=2026-11-15&dataGame=OMAHA&dataStakes=HIGH&dataSearch=River&view=advanced'
+      '/clubs/midway-union/data?dataStart=2026-11-09&dataEnd=2026-11-15&dataGame=OMAHA&dataStakes=HIGH&dataSearch=River&report=open'
     );
     expect(
       screen.getByText(/Member Ledger Figures Retain Their Stated Chicago Basis/)

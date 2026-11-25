@@ -35,7 +35,7 @@ import CashierPendingOperations from '../components/wallet/CashierPendingOperati
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isClubStaff, isAgentRole } from '../types/clubRoles';
 import { holdsPlayerWallet } from '../components/wallet/walletRows';
-import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import { withClubContext } from '../utils/clubScopedPath';
 import { masterBus } from '../core/MasterBus';
 import { useMasterBusChannel } from '../hooks/useMasterBusChannel';
@@ -263,24 +263,28 @@ import { useCashierHistory } from '../hooks/useCashierHistory';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { platformFrozenMessage } from '../utils/platformFrozen';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
-export default function CashierPage() {
+export default function CashierPage({ embeddedClubId }: { embeddedClubId?: string } = {}) {
   const { user } = useAuthUser();
   const [params] = useSearchParams();
   const { clubId } = useParams<{ clubId?: string }>();
-  const key = useCashoutScopeKey(user?.id, JSON.stringify([clubId, params.toString()]));
-  return <CashierContent key={key} />;
+  const key = useCashoutScopeKey(
+    user?.id,
+    JSON.stringify([embeddedClubId ?? clubId, params.toString()])
+  );
+  return <CashierContent key={key} embeddedClubId={embeddedClubId} />;
 }
 
-function CashierContent() {
+function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
   useEffect(() => {
     document.title = 'Cashier | Smarter Poker';
   }, []);
 
   const navigate = useNavigate();
+  const { hash } = useLocation();
   const [searchParams] = useSearchParams();
   const { clubId: routeClubId } = useParams<{ clubId?: string }>();
   const tableId = searchParams.get('table');
-  const clubId = routeClubId || searchParams.get('club');
+  const clubId = embeddedClubId || routeClubId || searchParams.get('club');
 
   const { user } = useAuthUser();
   const isCashoutCurrent = useCashoutScope(user?.id, JSON.stringify([clubId, tableId]));
@@ -425,13 +429,19 @@ function CashierContent() {
       let target = resolveTargetClub(readCachedQuickLinkClubs(user.id));
       if (!target) target = resolveTargetClub(await fetchQuickLinkClubs(user.id));
       if (!live) return;
-      if (target) navigate(`/clubs/${target.id}/cashier`, { replace: true });
-      else setHasNoClubs(true);
+      if (target) {
+        const query = new URLSearchParams(searchParams);
+        if (query.has('table')) query.set('walletTools', 'open');
+        navigate(
+          { pathname: `/clubs/${target.id}/cashier`, search: query.toString(), hash },
+          { replace: true }
+        );
+      } else setHasNoClubs(true);
     })();
     return () => {
       live = false;
     };
-  }, [clubId, user?.id, navigate]);
+  }, [clubId, user?.id, navigate, searchParams, hash]);
 
   // Auto-dismiss success/error messages after 8s
   useEffect(() => {
@@ -2388,22 +2398,29 @@ function CashierContent() {
     );
   }
 
+  const Layout = embeddedClubId ? 'div' : StandardContentLayout;
   return (
-    <StandardContentLayout className={`${styles.page} arena-workspace arena-cashier`}>
-      <ArenaWorkspaceHeader
-        area="cashier"
-        title="Cashier"
-        context={clubName}
-        subtitle={
-          roleUnknown
-            ? 'Club Wallets'
-            : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
-              ? 'Agent Wallets'
-              : 'Club Wallets'
-        }
-      />
+    <Layout
+      className={
+        embeddedClubId ? styles.inlineTools : `${styles.page} arena-workspace arena-cashier`
+      }
+    >
+      {!embeddedClubId && (
+        <ArenaWorkspaceHeader
+          area="cashier"
+          title="Cashier"
+          context={clubName}
+          subtitle={
+            roleUnknown
+              ? 'Club Wallets'
+              : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
+                ? 'Agent Wallets'
+                : 'Club Wallets'
+          }
+        />
+      )}
       {/* ── Wallet Display: compact live balances using the cashier directory layout. ── */}
-      {user?.id && clubId && (
+      {!embeddedClubId && user?.id && clubId && (
         <section className={`${styles.walletHeader} arena-case`} aria-label="Wallet Balances">
           <h2 className="arena-section-title">
             Wallet Balances <small>Chips</small>
@@ -2474,6 +2491,7 @@ function CashierContent() {
       )}
 
       <CashierWorkspace
+        inline={Boolean(embeddedClubId)}
         hasVisibleTitle
         title="Cashier"
         summary="Move Chips Between Your Club Wallets, Answer Chip Requests, Redeem Tickets And Check Every Ledger Entry."
@@ -2485,7 +2503,7 @@ function CashierContent() {
           {/* Loading context skeleton — shown INSIDE content area, NOT blocking tabs/nav */}
 
           {/* ── Club context bar — which club's cashier, with multi-club switcher ── */}
-          {clubId && <CashierClubSwitcher clubId={clubId} clubName={clubName} />}
+          {!embeddedClubId && clubId && <CashierClubSwitcher clubId={clubId} clubName={clubName} />}
           <CashierPendingOperations
             actionClassName={styles.wordAction}
             key={`${user?.id}:${clubId}`}
@@ -2511,7 +2529,7 @@ function CashierContent() {
               ref={tabNavRef}
               className={`${styles.tabNav} arena-switch`}
               role="tablist"
-              aria-label="Cashier Actions"
+              aria-label={embeddedClubId ? 'Wallet Operations' : 'Cashier Actions'}
               aria-busy={roleUnknown || undefined}
               onKeyDown={handleTabKeyDown}
             >
@@ -3736,6 +3754,6 @@ function CashierContent() {
           </div>
         </div>
       )}
-    </StandardContentLayout>
+    </Layout>
   );
 }

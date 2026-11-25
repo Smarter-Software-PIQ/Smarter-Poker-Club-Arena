@@ -84,7 +84,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     // remains exact below.
     await expect(page.locator('[data-page="club-data"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Club Data', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Club Report', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
     const dataLink = page
       .getByRole('navigation', { name: 'Club Operations Sections' })
@@ -93,7 +93,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     const canonicalHref = await dataLink.getAttribute('href');
     expect(canonicalHref).toMatch(/\/clubs\/[^/]+\/data\/?$/);
     // The nav names the everyday screen; this route is its full report.
-    const canonicalPath = `${new URL(canonicalHref!, page.url()).pathname.replace(/\/$/, '')}/advanced`;
+    const canonicalPath = new URL(canonicalHref!, page.url()).pathname.replace(/\/$/, '');
     await expect.poll(() => new URL(page.url()).pathname).toBe(canonicalPath);
     return;
   } else {

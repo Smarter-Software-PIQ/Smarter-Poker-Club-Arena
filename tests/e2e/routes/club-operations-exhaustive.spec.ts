@@ -86,15 +86,12 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
       await expectDestination(page, `/${path}`);
 
       if (operation.id === 'data') {
-        // #6895: data is the PokerBros-style everyday screen; its Advanced action
-        // opens the full operator report, which keeps the Simple/Advanced tool
-        // and the Club Operations frame certified below. Dan 2026-10-17: the
-        // everyday header names the club ("CLUB JAQK - CLUB DATA").
+        // The operator report opens inside the club's daily Data page.
         await expect(page.getByRole('heading', { name: /^(?:.+ - )?Club Data$/i })).toBeVisible({
           timeout: 30_000,
         });
         await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
-        await expect(page).toHaveURL(/\/clubs\/[^/]+\/data\/advanced(?:[?#]|$)/, {
+        await expect(page).toHaveURL(/\/clubs\/[^/]+\/data\?[^#]*report=open/, {
           timeout: 30_000,
         });
       }
@@ -106,7 +103,7 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
         await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
         await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).toBeVisible();
       } else if (operation.id === 'data') {
-        await expect(page.getByRole('button', { name: 'Report Tools' })).toHaveAttribute(
+        await expect(page.getByRole('button', { name: 'Close Club Report' })).toHaveAttribute(
           'aria-expanded',
           'true'
         );

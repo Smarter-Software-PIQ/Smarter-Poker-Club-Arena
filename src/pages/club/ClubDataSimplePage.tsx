@@ -42,10 +42,19 @@ import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDat
  * A fresh visit and every 1 Day preset start on today; explicit links retain their range.
  * Boundary timestamps on the page are Chicago time.
  * The full operator report (union statement, per-player breakdown, export)
- * lives one tap away at ./advanced.
+ * opens inside this page.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
@@ -91,6 +100,9 @@ import {
   isClubDataPacificIncomplete,
 } from './clubDataReadOutcome';
 import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
+
+import { clubDataReportPath } from '../../utils/clubDataReportPath';
+const ClubReport = lazy(() => import('./ClubDataPage'));
 
 type Preset = 1 | 7 | 14;
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
@@ -265,7 +277,9 @@ export function isSnapshot(value: unknown): value is Snapshot {
   );
 }
 
-export default function ClubDataSimplePage() {
+export default function ClubDataSimplePage({
+  authorizedScope,
+}: { authorizedScope?: 'club' | 'downline' } = {}) {
   usePageTitle('Club Data');
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
@@ -614,6 +628,32 @@ export default function ClubDataSimplePage() {
   // A route segment, never a `??` inside the template: the reachability law
   // reads everything after a `?` as a query string.
   const clubKey = clubUuid || clubParam;
+  const canOpenReport =
+    authorizedScope !== 'downline' &&
+    visibleSnapshot?.scope !== 'downline' &&
+    (authorizedScope === 'club' || visibleSnapshot?.scope === 'club');
+  const reportOpen = canOpenReport && searchParams.get('report') === 'open';
+  const openReport = (games = false) => {
+    const query = clubDataContextQuery(searchParams, {
+      start: startDate,
+      end: endDate,
+      game,
+      stakes,
+      search: searchInput,
+    });
+    if (games) query.set('dataTab', 'games');
+    navigate(
+      clubDataReportPath(clubParam || clubKey, query, games ? '#club-data-panel-games' : '')
+    );
+  };
+  const closeReport = () => {
+    const query = new URLSearchParams(searchParams);
+    query.delete('report');
+    query.delete('view');
+    query.delete('dataTab');
+    setSearchParams(query);
+  };
+
   const updatedLabel = updatedAt ? chicagoClock(updatedAt) : null;
 
   if (denied) {
@@ -644,16 +684,17 @@ export default function ClubDataSimplePage() {
       <Header
         clubName={clubName}
         /* The full report is the whole club's; an agent's view is his own. */
-        onReport={
-          visibleSnapshot?.scope === 'club'
-            ? () =>
-                navigate(
-                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced' })}`
-                )
-            : undefined
-        }
+        onReport={canOpenReport ? () => (reportOpen ? closeReport() : openReport()) : undefined}
+        reportOpen={reportOpen}
       />
 
+      {reportOpen && (
+        <section aria-label="Club Report" id="club-data-report">
+          <Suspense fallback={<p role="status">Loading Club Report</p>}>
+            <ClubReport inline />
+          </Suspense>
+        </section>
+      )}
       {visibleSnapshot?.reporting_scope === 'union' && (
         <div className={styles.agentScopeBanner}>All Member Clubs And Union Account</div>
       )}
@@ -837,11 +878,7 @@ export default function ClubDataSimplePage() {
             reconciliation={summary?.reconciliation}
             generatedAt={visibleSnapshot?.generated_at}
             onPlayers={() => setBreakdown('total_winnings')}
-            onGames={() =>
-              navigate(
-                `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
-              )
-            }
+            onGames={() => openReport(true)}
           />
         )}
         {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
@@ -1111,7 +1148,15 @@ export function headerTitle(clubName: string | null | undefined): string {
   return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';
 }
 
-function Header({ onReport, clubName }: { onReport?: () => void; clubName?: string | null }) {
+function Header({
+  onReport,
+  clubName,
+  reportOpen = false,
+}: {
+  onReport?: () => void;
+  clubName?: string | null;
+  reportOpen?: boolean;
+}) {
   return (
     <>
       <ArenaWorkspaceHeader
@@ -1122,8 +1167,13 @@ function Header({ onReport, clubName }: { onReport?: () => void; clubName?: stri
       />
       {onReport && (
         <nav className="arena-switch" aria-label="Club Reports">
-          <button type="button" onClick={onReport}>
-            Open Club Report
+          <button
+            type="button"
+            aria-expanded={reportOpen}
+            aria-controls="club-data-report"
+            onClick={onReport}
+          >
+            {reportOpen ? 'Close Club Report' : 'Open Club Report'}
           </button>
         </nav>
       )}

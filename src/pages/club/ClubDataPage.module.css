@@ -749,3 +749,9 @@
   border-image: var(--arena-row) 13 / 6px stretch;
   background: var(--arena-tile);
 }
+
+/* The daily Data page already owns the outer gutter and footer clearance. */
+.page:global(.arena-workspace)[data-inline-report] {
+  min-height: 0;
+  padding: 0;
+}

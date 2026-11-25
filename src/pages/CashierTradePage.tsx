@@ -70,17 +70,26 @@ import {
  * The recipient list is fn_club_cashier_members - the SAME downline edge
  * fn_agent_wallet_send refuses on, so the list and the refusal cannot disagree.
  *
- * The classic cashier (buy-in / cash-out / mint / full history) remains at
- * ./cashier-classic and is linked from the bottom of the Trade tab.
+ * The role-gated wallet forms open inline on this club cashier. The old
+ * wallet bookmark redirects here and preserves its table context.
  */
 
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import CashoutRequestModal from '../components/wallet/CashoutRequestModal';
 import AgentCashoutPanel from '../components/agent/AgentCashoutPanel';
 import { useClubPendingCashouts } from '../hooks/useClubPendingCashouts';
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from 'react';
 import { roleLabel, roleRank, type ClubRole } from '../types/clubRoles';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
@@ -601,6 +610,7 @@ function historyTotalNumber(value: unknown): number {
 
 // Retire dialogs and read/write refs immediately when the account or route changes.
 // Pending durable requests keep their original account, club and request identity.
+const WalletOperations = lazyWithRetry(() => import('./CashierPage'));
 export default function CashierTradePage() {
   const { clubId } = useParams<{ clubId: string }>();
   const { user } = useAuthUser();
@@ -611,6 +621,16 @@ export default function CashierTradePage() {
 function CashierTradeWorkspace() {
   const { clubId: clubParam } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const walletToolsOpen = searchParams.get('walletTools') === 'open';
+  const setWalletToolsOpen = (open: boolean) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (open) next.set('walletTools', 'open');
+      else next.delete('walletTools');
+      return next;
+    });
+  };
   const { user, isHydrating } = useAuthUser();
   const toast = useToast();
 
@@ -4554,7 +4574,8 @@ function CashierTradeWorkspace() {
               {canHoldAgentWallet(myRole) && (
                 <button
                   type="button"
-                  onClick={() => navigate(`/clubs/${clubParam}/cashier-classic`)}
+                  aria-expanded={walletToolsOpen}
+                  onClick={() => setWalletToolsOpen(true)}
                 >
                   Send
                 </button>
@@ -4562,8 +4583,11 @@ function CashierTradeWorkspace() {
               {myRole !== 'player' && (
                 <button
                   type="button"
-                  aria-pressed={tab === 'trade'}
-                  onClick={() => setTab('trade')}
+                  aria-pressed={!walletToolsOpen && tab === 'trade'}
+                  onClick={() => {
+                    if (walletToolsOpen) setWalletToolsOpen(false);
+                    setTab('trade');
+                  }}
                 >
                   Distribute
                 </button>
@@ -4575,8 +4599,11 @@ function CashierTradeWorkspace() {
               )}
               <button
                 type="button"
-                aria-pressed={tab === 'record'}
-                onClick={() => setTab('record')}
+                aria-pressed={!walletToolsOpen && tab === 'record'}
+                onClick={() => {
+                  if (walletToolsOpen) setWalletToolsOpen(false);
+                  setTab('record');
+                }}
               >
                 History
               </button>
@@ -4594,6 +4621,30 @@ function CashierTradeWorkspace() {
               ? ` (${(pendingCount + heldTicketCount).toLocaleString()})`
               : ''}
           </button>
+          {roleResolved && clubUuid && (cashierToolsOpen || walletToolsOpen) && (
+            <div className={styles.walletTools}>
+              <button
+                type="button"
+                className={styles.toolsTrigger}
+                aria-expanded={walletToolsOpen}
+                aria-controls="cashier-wallet-operations"
+                onClick={() => setWalletToolsOpen(!walletToolsOpen)}
+              >
+                Wallet Operations
+              </button>
+              {walletToolsOpen && (
+                <section
+                  id="cashier-wallet-operations"
+                  className="arena-case"
+                  aria-label="Wallet Operations"
+                >
+                  <Suspense fallback={<p role="status">Loading Wallet Operations</p>}>
+                    <WalletOperations embeddedClubId={clubUuid} />
+                  </Suspense>
+                </section>
+              )}
+            </div>
+          )}
           {/* Entity picker */}
           {pickerOpen && (
             <div
@@ -4657,7 +4708,10 @@ function CashierTradeWorkspace() {
                             `/unions/${m.slug || unionRouteRef(m.clubUuid)}/operations?tab=wallet`
                           );
                         } else if (m.clubUuid !== clubUuid) {
-                          navigate(`/clubs/${m.clubCode ?? m.clubUuid}/cashier`);
+                          navigate({
+                            pathname: `/clubs/${m.clubCode ?? m.clubUuid}/cashier`,
+                            search: walletToolsOpen ? 'walletTools=open' : '',
+                          });
                         }
                       }}
                     >
@@ -4707,6 +4761,7 @@ function CashierTradeWorkspace() {
                       : (index - 1 + buttons.length) % buttons.length;
               const next = visibleTabs[nextIndex]?.[0];
               if (!next) return;
+              if (walletToolsOpen) setWalletToolsOpen(false);
               setTab(next);
               buttons[nextIndex]?.focus();
             }}
@@ -4716,11 +4771,14 @@ function CashierTradeWorkspace() {
                 key={key}
                 id={`cashier-tab-${key}`}
                 role="tab"
-                className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`}
-                aria-selected={tab === key}
+                className={`${styles.tab} ${!walletToolsOpen && tab === key ? styles.tabActive : ''}`}
+                aria-selected={!walletToolsOpen && tab === key}
                 aria-controls={`cashier-panel-${key}`}
                 tabIndex={tab === key ? 0 : -1}
-                onClick={() => setTab(key)}
+                onClick={() => {
+                  if (walletToolsOpen) setWalletToolsOpen(false);
+                  setTab(key);
+                }}
               >
                 {label}
                 {/* A player who has asked their agent for chips is a player who is
@@ -4818,7 +4876,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'trade' && (
+          {!walletToolsOpen && tab === 'trade' && (
             <section
               id="cashier-panel-trade"
               className={`arena-case ${styles.sectionShell}`}
@@ -5256,13 +5314,6 @@ function CashierTradeWorkspace() {
                     Load More ({list.length - visibleCount} Hidden)
                   </button>
                 )}
-                <button
-                  hidden={!cashierToolsOpen}
-                  className={styles.classicLink}
-                  onClick={() => navigate(`/clubs/${clubParam}/cashier-classic`)}
-                >
-                  Buy-In, Cash-Out, Mint And Full History
-                </button>
               </div>
 
               {/* THE SELECTION, VISIBLE AND REVERSIBLE (Dan 2026-08-25).
@@ -5341,7 +5392,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'record' && (
+          {!walletToolsOpen && tab === 'record' && (
             <section
               id="cashier-panel-record"
               className={`arena-case ${styles.sectionShell} ${styles.historyPanel}`}
@@ -5789,7 +5840,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'leaderboard' && (
+          {!walletToolsOpen && tab === 'leaderboard' && (
             <section
               id="cashier-panel-leaderboard"
               className={`arena-case ${styles.sectionShell}`}
@@ -5861,7 +5912,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'request' && (
+          {!walletToolsOpen && tab === 'request' && (
             <section
               id="cashier-panel-request"
               className={`arena-case ${styles.sectionShell}`}
@@ -5953,7 +6004,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {tab === 'tickets' && (
+          {!walletToolsOpen && tab === 'tickets' && (
             <section
               id="cashier-panel-tickets"
               className={`arena-case ${styles.sectionShell}`}

@@ -1027,7 +1027,7 @@ function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
   return [head.join(','), ...lines].join('\n');
 }
 
-export default function ClubDataPage() {
+export default function ClubDataPage({ inline = false }: { inline?: boolean } = {}) {
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1131,7 +1131,7 @@ export default function ClubDataPage() {
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
   // Existing bookmarked report links open their tools directly. The everyday layout
   // always stays in place when a viewer expands the additional reporting controls.
-  const reportToolsOpen = searchParams.get('view') === 'advanced';
+  const reportToolsOpen = inline || searchParams.get('view') === 'advanced';
   const setReportToolsOpen = (open: boolean) => {
     const params = new URLSearchParams(searchParams);
     params.set('view', open ? 'advanced' : 'simple');
@@ -1161,7 +1161,8 @@ export default function ClubDataPage() {
     saveTab(next);
     const params = new URLSearchParams(searchParams);
     params.set('dataTab', next);
-    params.set('view', 'advanced');
+    if (inline) params.set('report', 'open');
+    else params.set('view', 'advanced');
     setSearchParams(params, { replace: true });
     requestAnimationFrame(() =>
       document.getElementById('club-data-tab-games')?.scrollIntoView({ block: 'start' })
@@ -3498,6 +3499,7 @@ export default function ClubDataPage() {
     <div
       className={`${styles.page} arena-workspace ${styles.simple}`}
       data-page="club-data"
+      data-inline-report={inline || undefined}
       data-club-data-mode="simple"
       data-report-tools={reportToolsOpen ? 'open' : 'closed'}
     >
@@ -3510,40 +3512,44 @@ export default function ClubDataPage() {
           onClose={() => setSourceRow(null)}
         />
       )}
-      <ArenaWorkspaceHeader
-        area="data"
-        title="Club Data"
-        context={clubLabel}
-        subtitle="Club Reporting"
-      />
-      <header className={styles.simpleHeader}>
-        <button
-          type="button"
-          className={styles.word}
-          onClick={() => navigate(-1)}
-          aria-label="Go Back To Club"
-        >
-          Back
-        </button>
+      {!inline && (
+        <>
+          <ArenaWorkspaceHeader
+            area="data"
+            title="Club Data"
+            context={clubLabel}
+            subtitle="Club Reporting"
+          />
+          <header className={styles.simpleHeader}>
+            <button
+              type="button"
+              className={styles.word}
+              onClick={() => navigate(-1)}
+              aria-label="Go Back To Club"
+            >
+              Back
+            </button>
 
-        <div className="arena-switch">
-          <button
-            type="button"
-            aria-controls="club-report-details club-report-ledger-tools"
-            aria-expanded={reportToolsOpen}
-            onClick={() => setReportToolsOpen(!reportToolsOpen)}
-          >
-            Report Tools
-          </button>
-        </div>
-        {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
+            <div className="arena-switch">
+              <button
+                type="button"
+                aria-controls="club-report-details club-report-ledger-tools"
+                aria-expanded={reportToolsOpen}
+                onClick={() => setReportToolsOpen(!reportToolsOpen)}
+              >
+                Report Tools
+              </button>
+            </div>
+            {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
             the painted "?", top right of the header. The header itself stays
             exactly as it reads. */}
-        <PageHelp
-          title="Club Data"
-          summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
-        />
-      </header>
+            <PageHelp
+              title="Club Data"
+              summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
+            />
+          </header>
+        </>
+      )}
       {!reportToolsOpen && (
         <div className={styles.simpleStatus}>
           <span role="status">{statusLine}</span>
@@ -3797,7 +3803,7 @@ export default function ClubDataPage() {
             onHistory={
               latestInvoice
                 ? () => {
-                    setReportToolsOpen(true);
+                    if (!inline) setReportToolsOpen(true);
                     setShowInvoiceDetail(true);
                     setShowInvoiceHistory(true);
                     requestAnimationFrame(() =>

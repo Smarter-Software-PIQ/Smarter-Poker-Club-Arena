@@ -228,10 +228,15 @@ describe('#ClubArenaConsole is the Cashier visual authority', () => {
     }
   });
 
-  it('keeps both routed Cashier pages behind the console authority', () => {
+  it('consolidates the old wallet entry under the authorized club Cashier', () => {
     const app = read('src/App.tsx');
     expect(app).toContain('path="clubs/:clubId/cashier"');
     expect(app).toContain('path="clubs/:clubId/cashier-classic"');
+    expect(app).toContain('<CashierEntrance legacy />');
+    expect(read('src/pages/CashierTradePage.tsx')).toContain(
+      '<WalletOperations embeddedClubId={clubUuid}'
+    );
+    expect(read('src/pages/CashierPage.tsx')).toContain('inline={Boolean(embeddedClubId)}');
     expect(app).toContain('path="clubs/:clubId/cashier/statements"');
     expect(read('src/pages/CashierTradePage.tsx')).toContain('title="Cashier"');
     expect(read('src/pages/CashierPage.tsx')).toContain('title="Cashier"');

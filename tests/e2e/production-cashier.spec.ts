@@ -485,7 +485,7 @@ test.describe('Production Cashier Certification', () => {
     }
   });
 
-  test('certifies the Advanced Cashier and an open wallet without moving money', async ({
+  test('opens the legacy bookmark in the single Cashier and exercises its wallet forms without moving money', async ({
     page,
   }, testInfo) => {
     test.setTimeout(150_000);
@@ -496,11 +496,12 @@ test.describe('Production Cashier Certification', () => {
       timeout: 60_000,
     });
     await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
-    const console = page
-      .locator('main [data-cashier-layout="directory"]')
-      .filter({ has: page.getByRole('heading', { name: 'Cashier', exact: true }) });
-    await expect(console).toHaveCount(1);
-    await expect(console).toBeVisible({ timeout: 60_000 });
+    await expect(page).toHaveURL(/\/cashier\?walletTools=open(?:&|$)/);
+    const console = page.locator('[data-cashier-surface="trade"]');
+    await expect(console.getByRole('heading', { name: 'Cashier', exact: true })).toHaveCount(1);
+    await expect(console.getByRole('region', { name: 'Wallet Operations' })).toBeVisible({
+      timeout: 60_000,
+    });
     const agentWallet = page.getByRole('button', { name: /Agent Wallet/ }).first();
     // The painted console precedes authoritative role and wallet hydration.
     // Inspect the loaded surface, retaining the existing thirty-second bound.
@@ -550,7 +551,7 @@ test.describe('Production Cashier Certification', () => {
 
     // Exercise every amount rail this real identity may use, without submitting.
     // Mounted tests cover all four actions even when production rights differ.
-    const advancedTabs = page.getByRole('tablist', { name: 'Cashier Actions' });
+    const advancedTabs = page.getByRole('tablist', { name: 'Wallet Operations' });
     const observedAmountRails: string[] = [];
     for (const width of [375, 393]) {
       await page.setViewportSize({ width, height: 852 });
