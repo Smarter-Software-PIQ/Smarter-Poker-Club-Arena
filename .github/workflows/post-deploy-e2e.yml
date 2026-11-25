@@ -1623,6 +1623,35 @@ jobs:
           npx playwright test tests/e2e/production-cashier-statements.spec.ts
           --project=chromium --reporter=line,json --workers=1 --retries=0
 
+      - name: Certify the authenticated Club Data workspace
+        id: club_data
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/club-data.json
+        run: |
+          status=0
+          npx playwright test tests/e2e/club-data-deep.spec.ts \
+            --project=chromium --reporter=line,json --workers=1 --retries=0 \
+            --output=test-results/club-data || status=$?
+          jq '{stats, cases: [.suites[] | recurse(.suites[]?) | .specs[]? |
+            {title, outcomes: [.tests[] | {projectName, status}]}]}' \
+            e2e-report/club-data.json > e2e-report/club-data-result.json
+          exit "$status"
+
+      - name: Retain the Club Data result
+        if: always() && (steps.club_data.outcome == 'success' || steps.club_data.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-club-data-result
+          path: e2e-report/club-data-result.json
+          if-no-files-found: error
+          retention-days: 3
+
       # `always()` is the point. Without it, a failed Cashier step skips this one
       # entirely - so a single money-surface red hid the whole production sweep,
       # which is the exact opposite of what the note above this job's Cashier
@@ -1859,7 +1888,6 @@ jobs:
           # Parallel documents can overwrite each other's durable preferences.
           run_suite sweep.json \
             tests/e2e/smoke.spec.ts \
-            tests/e2e/club-data-deep.spec.ts \
             tests/e2e/production-mobile-lobby-chrome.spec.ts \
             tests/e2e/production-row-channel-owners.spec.ts \
             tests/e2e/mobile-fit-audit.spec.ts \
@@ -1987,6 +2015,7 @@ jobs:
           e2e-report/mobile-skips.json
           e2e-report/first-run-iphone.json
           e2e-report/cashier.json
+          e2e-report/club-data.json
           e2e-report/lobby.json
           e2e-report/sweep.json
 
@@ -2010,6 +2039,7 @@ jobs:
           node scripts/ci/annotate-e2e-failures.mjs
           e2e-report/notifications.json
           e2e-report/cashier.json
+          e2e-report/club-data.json
           e2e-report/cashier-statements.json
           e2e-report/lightning-operator.json
           e2e-report/stats.json
@@ -2032,6 +2062,7 @@ jobs:
           node scripts/ci/assert-e2e-actually-ran.mjs
           e2e-report/notifications.json
           e2e-report/cashier.json
+          e2e-report/club-data.json
           e2e-report/cashier-statements.json
           e2e-report/lightning-operator.json
           e2e-report/stats.json

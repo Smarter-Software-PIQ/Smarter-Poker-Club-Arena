@@ -3,13 +3,22 @@ import { loadMorePlayerCount, playerPageUnion } from '../e2e/club-data-deep.spec
 
 // Import the actual production oracle without registering browser cases in
 // Vitest. The browser workflow still executes the original production spec.
+const suiteMode = vi.hoisted(() => vi.fn());
 vi.mock('@playwright/test', () => ({
-  test: Object.assign(() => undefined, { describe: () => undefined }),
+  test: Object.assign(() => undefined, {
+    describe: Object.assign((_name: string, register: () => void) => register(), {
+      configure: suiteMode,
+    }),
+  }),
 }));
 
 const page = (ids: string[]) => ({ rows: ids.map((user_id) => ({ user_id })), next_cursor: null });
 
 describe('production player-page identity evidence', () => {
+  it('runs independent Data checks in order after a failed check', () => {
+    expect(suiteMode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'default' }));
+  });
+
   it('qualifies each ranking separately when a live player crosses a page boundary', () => {
     const first = Array.from({ length: 100 }, (_, i) => `player-${i}`);
     const next = Array.from({ length: 100 }, (_, i) => `player-${i + 100}`);
