@@ -1,6 +1,8 @@
 # omahaPricedRaiseNeverMakesNonNutRaise: Authority For The Live Switch
 
-Built 2026-11-22 by PLO-OWNER lead-5 from the leak trace of real losing hands (b910fc9e, 89b5b740). Evidence NOT MET: stays OFF. The option is registered, default off (read `=== true`), and has replay counts only: no graded replay, no league card and no shadow measurement yet. This file does not authorize switching the option on.
+**State: LIVE ON** in production since `2026-11-24T18:09:58Z` (`audit #198`, after a clean live shadow from 16:31:46Z, audit #197; see "Live switch, 2026-11-24" at the end).
+
+Built 2026-11-22 by PLO-OWNER lead-5 from the leak trace of real losing hands (b910fc9e, 89b5b740). Default off in source (read `=== true`). Evidence NOT MET in the graded sense: it has replay counts and a live shadow measurement, but no graded replay and no league card. It was switched on under the owner's standing rulings below (a non-nut hand never raises the turn or river), recorded as an owner-forced write, not as met evidence.
 
 ## The Owner's Rulings It Enforces
 
@@ -30,3 +32,7 @@ Counts only, on decisions replayed with the production switch set of 2026-11-22 
 ## Replay
 
 - Replay: NOT RUN (built 2026-11-22; the audited-set scorer was not run; count-only replays of this option are recorded above)
+
+## Live switch, 2026-11-24
+
+2026-11-24: set to `shadow` at `2026-11-24T16:31:46Z` (audit #197, PLO-OWNER lead-6, watch-only on serving `7f6e30be571d`), then `on` at `2026-11-24T18:09:58Z` (audit #198, evidence id 81). The shadow read at the write: 774 shadow re-decisions, 2 changed (both withheld a non-nut raise), 0 breaker trips, 0 decision errors, 0 failed re-decisions, 0 over 100 ms. The +3 h exploit report split at the write (PLO4 and PLO5 cash, about 3,600 hands each side) showed no regression in any fold, call or raise cell. On 2026-11-25 (serving `d07cd7d7feec`) the receipt `omaha_priced_raise_non_nut_raise_not_made` fired 144 times by 23:37Z with `horse_error_log` empty and no worker-fallback fires that day. Run logs: `/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/nonnut-shadow.exec.log`, `nonnut-on.exec.log`. State line added 2026-11-25 by PLO-OWNER lead-7; the on row cites this file at an earlier revision (sha256 `00f8171b...`).
