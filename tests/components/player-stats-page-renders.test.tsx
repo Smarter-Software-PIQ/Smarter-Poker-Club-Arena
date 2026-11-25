@@ -123,7 +123,9 @@ vi.mock('../../src/lib/supabase', () => ({
     channel: () => ({ on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}) }),
     removeChannel: () => {},
   },
-  getAuthUser: async () => null,
+  // The page renders for a signed-in owner (useAuthUser below), so the session
+  // read agrees: owner-only workspace reads require a live session.
+  getAuthUser: async () => ({ data: { user: { id: authUserId } }, error: null }),
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
