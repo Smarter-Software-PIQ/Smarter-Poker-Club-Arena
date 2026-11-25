@@ -1,3 +1,5 @@
+import { KINGS_CLUB_UUID } from '../lib/constants';
+import { useKingsClubDisplayTotals } from '../hooks/useKingsClubDisplayTotals';
 import { unionEcoSettingsPatch } from '../utils/unionEco';
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
@@ -103,6 +105,9 @@ export default function UnionDetailPage() {
   const navigate = useNavigate();
   const [union, setUnion] = useState<Union | null>(null);
   const [clubs, setClubs] = useState<UnionClub[]>([]);
+  const kingsTotals = useKingsClubDisplayTotals(
+    clubs.some((club) => club.clubId === KINGS_CLUB_UUID)
+  );
   const [tableRows, setTables] = useState<PokerTable[]>([]);
   const tables = useMemo(
     () => tableRows.filter((row) => !isRetiredTournamentTable(row)),
@@ -1158,7 +1163,9 @@ export default function UnionDetailPage() {
                           >
                             Lv.{cLevel.level}
                           </span>
-                          {club.memberCount} {club.memberCount === 1 ? 'Member' : 'Members'}
+                          {club.clubId === KINGS_CLUB_UUID
+                            ? `${kingsTotals?.member_total?.toLocaleString() ?? '…'} Members`
+                            : `${club.memberCount} ${club.memberCount === 1 ? 'Member' : 'Members'}`}
                         </span>
                       </div>
                     </Link>
@@ -1279,7 +1286,9 @@ export default function UnionDetailPage() {
                       </h4>
                       <p>Owner: {club.ownerName || 'Unknown'}</p>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {club.memberCount} {club.memberCount === 1 ? 'Member' : 'Members'}
+                        {club.clubId === KINGS_CLUB_UUID
+                          ? `${kingsTotals?.member_total?.toLocaleString() ?? '…'} Members`
+                          : `${club.memberCount} ${club.memberCount === 1 ? 'Member' : 'Members'}`}
                         {activeTableCount > 0 && (
                           <span style={{ color: '#6ee7b7', fontSize: '0.7rem', fontWeight: 600 }}>
                             {activeTableCount} {activeTableCount === 1 ? 'Table' : 'Tables'}

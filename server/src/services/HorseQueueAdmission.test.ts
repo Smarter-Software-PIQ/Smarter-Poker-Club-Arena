@@ -71,6 +71,8 @@ describe('Classic queue admission without an immediate seat', () => {
       fleet.indexOf('const verdict = sitVerdictFor(horse.id, table, sitCtx)')
     );
     expect(fleet).toContain('const v = sitVerdictFor(h.id, table, sitCtx)');
-    expect(fleet).toContain('if (!queueOnly) clusterPools.push(clusterPool)');
+    expect(fleet).toContain(
+      'if (!queueOnly && !skipReservedMainPool) clusterPools.push(clusterPool)'
+    );
   });
 });

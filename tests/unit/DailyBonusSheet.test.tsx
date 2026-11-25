@@ -40,7 +40,11 @@ vi.mock('../../src/services/DailyBonusService', async () => {
 });
 
 import { applyClaim } from '../../src/components/daily-bonus/useDailyBonus';
-import DailyBonusSheet from '../../src/components/daily-bonus/DailyBonusSheet';
+import DailyBonusSheet, {
+  granted,
+  shouldAutoCloseAfterClaim,
+  weekDayDisplay,
+} from '../../src/components/daily-bonus/DailyBonusSheet';
 
 const tile = (over: Record<string, unknown>) => ({
   slot: 1,
@@ -532,7 +536,7 @@ it('requires a tenth-day bonus spin to be claimed before the club chooser appear
   render(<DailyBonusSheet mode="inline" />);
   await screen.findByText('100 Diamond Bonus Spin');
   expect(screen.queryByRole('button', { name: 'Use Bonus Spin' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Claim All' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Claim Reward' }));
   await screen.findByRole('button', { name: 'Use Bonus Spin' });
   expect(mocks.claimAll).toHaveBeenCalledWith('2026-09-08');
   expect(screen.getByText('100 Diamond Bonus Spin Claimed')).toBeTruthy();
@@ -582,8 +586,300 @@ it('reports a refused batch without saying rewards were collected when nothing n
     status: capped,
   });
   render(<DailyBonusSheet mode="inline" />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Claim All' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Claim Reward' }));
   await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith('Daily Diamond Cap Reached'));
   expect(mocks.toast.info).not.toHaveBeenCalled();
   expect(mocks.toast.success).not.toHaveBeenCalled();
+});
+
+it('renders the progressive 7-day strip with actual rewards, next multiplier hint, and single-reward CTA', async () => {
+  mocks.getStatus.mockResolvedValue({
+    ...status,
+    streak: 1,
+    cycle_day: 1,
+    multiplier: 1,
+    unclaimed: 1,
+    tiles: [tile({ slot: 1, base_diamonds: 10, diamonds: 10 })],
+    week: [
+      {
+        day: 1,
+        streak: 1,
+        diamonds: 10,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: null,
+        state: 'today',
+      },
+      {
+        day: 2,
+        streak: 2,
+        diamonds: null,
+        primary_kind: 'throwables',
+        primary_quantity: 3,
+        extras: 'Throwables',
+        state: 'upcoming',
+      },
+      {
+        day: 3,
+        streak: 3,
+        diamonds: 18,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: null,
+        state: 'upcoming',
+      },
+      {
+        day: 4,
+        streak: 4,
+        diamonds: null,
+        primary_kind: 'rabbit_hunts',
+        primary_quantity: 2,
+        extras: 'Rabbit Hunts',
+        state: 'upcoming',
+      },
+      {
+        day: 5,
+        streak: 5,
+        diamonds: null,
+        primary_kind: 'shield',
+        primary_quantity: 1,
+        extras: 'Streak Shield',
+        state: 'upcoming',
+      },
+      {
+        day: 6,
+        streak: 6,
+        diamonds: null,
+        primary_kind: 'mystery',
+        primary_quantity: 0,
+        extras: 'Mystery Vault',
+        state: 'upcoming',
+      },
+      {
+        day: 7,
+        streak: 7,
+        diamonds: 60,
+        primary_kind: 'diamonds',
+        primary_quantity: 0,
+        extras: 'Mission Boost',
+        state: 'upcoming',
+      },
+    ],
+    tomorrow: [
+      { kind: 'throwables', label: 'Throwables', vip_only: false, quantity: 3, diamonds: 0 },
+    ],
+  });
+  render(<DailyBonusSheet mode="inline" />);
+  expect(await screen.findByRole('button', { name: 'Claim Reward' })).toBeTruthy();
+  expect(screen.getByText('×1.2 On Day 3')).toBeTruthy();
+  expect(screen.queryByText('New')).toBeNull();
+  expect(screen.getByText('+18')).toBeTruthy();
+  expect(screen.getByText('? 5×')).toBeTruthy();
+  expect(screen.getByText('+60')).toBeTruthy();
+  expect(screen.getByText('×3 Throwables')).toBeTruthy();
+});
+
+it('never duplicates top/bottom labels on Chest or Spin cells and marks Prestige Jackpot by streak', () => {
+  const cases = [
+    {
+      input: {
+        day: 7,
+        streak: 7,
+        diamonds: 60,
+        primary_kind: 'diamonds' as const,
+        extras: 'Mission Boost',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Day 7', value: '+60', sub: 'Jackpot', highlightGold: false },
+    },
+    {
+      input: {
+        day: 3,
+        streak: 10,
+        diamonds: null,
+        primary_kind: 'throwables' as const,
+        primary_quantity: 5,
+        has_spin: true,
+        extras: 'Throwables, 100 Diamond Bonus Spin',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Spin', value: '×5', sub: 'Throws', highlightGold: true },
+    },
+    {
+      input: {
+        day: 7,
+        streak: 14,
+        diamonds: 81,
+        primary_kind: 'diamonds' as const,
+        chest: true,
+        extras: 'Streak Shield',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Chest', value: '+81', sub: 'Diamonds', highlightGold: true },
+    },
+    {
+      input: {
+        day: 2,
+        streak: 30,
+        diamonds: 110,
+        primary_kind: 'diamonds' as const,
+        chest: true,
+        has_spin: true,
+        extras: 'Streak Shield, 100 Diamond Bonus Spin',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Chest', value: '+110', sub: 'Spin+', highlightGold: true },
+    },
+    {
+      // Prestige Step 7 (Day 37) sits on cycle_day = 2, NOT day === 7!
+      input: {
+        day: 2,
+        streak: 37,
+        diamonds: 110,
+        primary_kind: 'diamonds' as const,
+        extras: 'Mission Boost',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Day 37', value: '+110', sub: 'Jackpot', highlightGold: false },
+    },
+    {
+      input: {
+        day: 5,
+        streak: 40,
+        diamonds: null,
+        primary_kind: 'rabbit_hunts' as const,
+        primary_quantity: 8,
+        has_spin: true,
+        extras: 'Rabbit Hunts, 100 Diamond Bonus Spin',
+        state: 'upcoming' as const,
+      },
+      expected: { label: 'Spin', value: '×8', sub: 'Rabbits', highlightGold: true },
+    },
+  ];
+  for (const c of cases) {
+    const cell = weekDayDisplay(c.input);
+    expect(cell).toEqual(c.expected);
+    expect(cell.label.toLowerCase()).not.toBe(cell.sub?.toLowerCase());
+  }
+});
+
+it('explicitly names Throwables, Rabbit Hunts, and Time Bank seconds when granted (including Mystery Vault reveals)', () => {
+  expect(granted({ kind: 'throwables', diamonds: 0, quantity: 10, balance_after: 500 })).toEqual({
+    figure: '×10',
+    sub: 'Throwables · 7 Days',
+  });
+  expect(granted({ kind: 'rabbit_hunts', diamonds: 0, quantity: 6, balance_after: 500 })).toEqual({
+    figure: '×6',
+    sub: 'Rabbit Hunts · 7 Days',
+  });
+  expect(granted({ kind: 'time_bank', diamonds: 0, quantity: 8, balance_after: 500 })).toEqual({
+    figure: '×8',
+    sub: '+160s In Your Bank',
+  });
+});
+
+it('keeps the modal open on Mystery Vault reveal and 100 Diamond Bonus Spin claims, and uses singular toast on 1-reward days', async () => {
+  expect(
+    shouldAutoCloseAfterClaim('modal', true, [
+      {
+        success: true,
+        granted: { kind: 'diamonds', diamonds: 10, quantity: 0, balance_after: 10 },
+      },
+    ])
+  ).toBe(true);
+  expect(
+    shouldAutoCloseAfterClaim('modal', true, [
+      {
+        success: true,
+        revealed: { kind: 'throwables', diamonds: 0, quantity: 10, lucky: 2 },
+        granted: { kind: 'throwables', diamonds: 0, quantity: 10, balance_after: 10, lucky: 2 },
+      },
+    ])
+  ).toBe(false);
+  expect(
+    shouldAutoCloseAfterClaim('modal', true, [
+      {
+        success: true,
+        granted: {
+          kind: 'free_spin',
+          diamonds: 0,
+          quantity: 1,
+          balance_after: 10,
+          ticket_id: 't1',
+        },
+      },
+    ])
+  ).toBe(false);
+  expect(
+    shouldAutoCloseAfterClaim('inline', true, [
+      {
+        success: true,
+        granted: { kind: 'diamonds', diamonds: 10, quantity: 0, balance_after: 10 },
+      },
+    ])
+  ).toBe(false);
+
+  const close = vi.fn();
+  const mysteryTile = tile({
+    slot: 1,
+    kind: 'mystery',
+    label: 'Mystery Vault',
+    base_diamonds: 0,
+    diamonds: 0,
+  });
+  mocks.getStatus.mockResolvedValue({ ...status, unclaimed: 1, tiles: [mysteryTile] });
+  mocks.claimAll.mockResolvedValue({
+    success: true,
+    results: [
+      {
+        success: true,
+        idempotent: false,
+        slot: 1,
+        revealed: { kind: 'throwables', diamonds: 0, quantity: 10, lucky: 2 },
+        granted: { kind: 'throwables', diamonds: 0, quantity: 10, balance_after: 500, lucky: 2 },
+      },
+    ],
+    status: {
+      ...status,
+      unclaimed: 0,
+      claimed_today: true,
+      tiles: [
+        {
+          ...mysteryTile,
+          claimed: true,
+          revealed: { kind: 'throwables', diamonds: 0, quantity: 10, lucky: 2 },
+          granted: { kind: 'throwables', diamonds: 0, quantity: 10, balance_after: 500, lucky: 2 },
+        },
+      ],
+    },
+  });
+  render(<DailyBonusSheet mode="modal" open onClose={close} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Claim Reward' }));
+  await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith('Reward Collected'));
+  expect(screen.getByText('Throwables · 7 Days')).toBeTruthy();
+  expect(screen.getByText('Lucky Roll ×2')).toBeTruthy();
+  await new Promise((r) => setTimeout(r, 1600));
+  expect(close).not.toHaveBeenCalled();
+});
+
+it('uses compact typography for 3-digit Time Bank packs (+120s / +160s) so the print render fits cleanly', async () => {
+  mocks.getStatus.mockResolvedValue({
+    ...status,
+    unclaimed: 1,
+    tiles: [
+      tile({
+        slot: 1,
+        kind: 'time_bank',
+        label: 'Time Bank',
+        quantity: 8,
+        base_diamonds: 0,
+        diamonds: 0,
+      }),
+    ],
+  });
+  const { container } = render(<DailyBonusSheet mode="inline" />);
+  await screen.findByText('×8');
+  const printEl = container.querySelector('.dbs-row__render--print');
+  expect(printEl?.className).toContain('dbs-row__render--compact');
+  expect(printEl?.textContent).toBe('+160Sec');
 });

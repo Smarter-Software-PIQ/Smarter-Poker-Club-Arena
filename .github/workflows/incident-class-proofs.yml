@@ -1,0 +1,118 @@
+name: Incident class proofs
+
+# Required, not advisory (2026-11-24, incident fix audit). The native proofs
+# behind the 2026-11-17 fixes ran only as path-filtered workflows that no
+# ruleset required, so a red run could not stop a merge: the install watch's
+# booked-pause hold (#11191), the stuck-tournament notices resolving at their
+# source (#11197) and the window-queue rehearsal (#11268). A path filter cannot
+# be required (an unmatched pull request would wait forever for the check), so
+# this workflow starts on every pull request and the job decides relevance
+# itself from the same path list, failing open to "run every proof" whenever
+# the diff cannot be read. Unrelated pull requests finish in seconds and still
+# report the check. Same shape as weekly-refusal-cover.yml. No timer.
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: incident-class-proofs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  incident-class-proofs:
+    name: Incident class proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Does this change touch an incident class proof input?
+        id: relevant
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          PROOF_PATHS: |
+            supabase/migrations/**
+            scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
+            scripts/ci/test-stuck-tournament-notices-resolve.py
+            scripts/ci/test-spin-entry-net-paid-postgres.py
+            scripts/ci/test-orphaned-checks-and-sms-registry-scrub-postgres.py
+            scripts/ci/test-window-queue-rehearsal.sh
+            scripts/ci/window-queue-rehearsal.mjs
+            scripts/ci/rehearse-window-queue.sh
+            scripts/ci/restore-schema-for-rehearsal.sh
+            scripts/ci/fixtures/window-queue-rehearsal/**
+            tests/fixtures/sp-critical-scan-preimage-20261117.sql
+            .github/workflows/incident-class-proofs.yml
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+            echo "No pull request diff: running every proof."
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! changed=$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" 2>/dev/null); then
+            echo "::notice::The diff could not be read; running every proof."
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          while IFS= read -r pattern; do
+            [ -n "$pattern" ] || continue
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              if [[ "$file" == $pattern ]]; then
+                echo "$file matches $pattern: running every proof."
+                echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            done <<< "$changed"
+          done <<< "$PROOF_PATHS"
+          echo "No incident class proof input changed; the proofs have nothing new to verify."
+          echo "run=false" >> "$GITHUB_OUTPUT"
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        if: steps.relevant.outputs.run == 'true'
+        uses: ./.github/actions/install-postgres-17
+      - name: The install watch holds its page while installs are switched off (#11191)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
+      - name: A stuck tournament notice resolves at its source (#11197)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-stuck-tournament-notices-resolve.py
+      - name: Spin payment proofs net prior pre-start refunds and preserve runbook last_error (#11966)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-spin-entry-net-paid-postgres.py
+      - name: Orphaned checks scope and complete SMS registry scrub (2026-11-25)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-orphaned-checks-and-sms-registry-scrub-postgres.py
+      - name: Use the production Node major
+        if: steps.relevant.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the Postgres client library
+        if: steps.relevant.outputs.run == 'true'
+        run: npm i pg@8 --no-save --no-audit --no-fund
+      - name: A window migration with a missing dependency fails the rehearsal (#11268)
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          REHEARSAL_WORK: ${{ runner.temp }}/pg-window-rehearsal
+          REHEARSAL_EVIDENCE: ${{ runner.temp }}/window-rehearsal-evidence
+        run: bash scripts/ci/test-window-queue-rehearsal.sh

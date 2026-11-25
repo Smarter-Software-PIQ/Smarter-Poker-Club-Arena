@@ -78,6 +78,10 @@ import {
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { bindToProcessRoot } from './services/supabase/dataActorContext.js';
 import {
+  eventDatabaseBulkhead,
+  eventDbBulkheadPrometheusLines,
+} from './services/supabase/eventDatabaseBulkhead.js';
+import {
   F06DrainedCustodyUnprovenError,
   f06CustodyRefusalKey,
   f06RecoveryDispositionOwner,
@@ -115,6 +119,7 @@ import { ServerTableEngine } from './engine/ServerTableEngine.js';
 import { TableRestartBackoff } from './engine/TableRestartBackoff.js';
 import { equityGovernor } from './engine/EquityLoadGovernor.js';
 import { stopBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { stopHorseErrorLog } from './services/HorseErrorLog.js';
 import { stopHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { HorseDecisionAbortedError } from './engine/horseDecision/client.js';
 import {
@@ -6051,6 +6056,11 @@ export class GameServer {
       // is not an ownership stop: unwritten evidence is reported, never a reason to hold the leases.
       stopHorseUpgradeEvidenceFlush(),
     ]);
+    // The Horse error log closes its open minutes AFTER the decision workers have drained, so a fallback
+    // taken during the drain is still a row, then waits at most 5,000 ms for the last writes (usually
+    // none in flight). It never rejects and owns no lease: an unwritten row is logged, never a reason to
+    // hold the leases.
+    await stopHorseErrorLog();
     if (horseDecisionStop.status === 'rejected') {
       const error = new AggregateError(
         [horseDecisionStop.reason],
@@ -6148,6 +6158,40 @@ export class GameServer {
     // shutdown; TableStateHub has no channels to close.
 
     console.log('[GameServer] Shutdown complete.');
+  }
+
+  /**
+   * Lightweight O(1)-ish liveness verdict for the loopback-only `/livez`
+   * Docker HEALTHCHECK listener (incidents b87d2b52 / 7bf7a01f). Uses the
+   * exact same `evaluateEngineLiveness` contract as `getStatus()` without
+   * building the 168 KB `/health` telemetry payload, cloning worker state, or
+   * reading `/proc`.
+   */
+  getLiveness(): { running: boolean; liveness: 'ok' | 'standby' | 'dead' } {
+    const now = Date.now();
+    const tables: Array<{ dealable: number; paused: boolean; msSinceProgress: number }> = [];
+    for (const engine of this.tableEngines.values()) {
+      tables.push({
+        dealable: engine.dealableCount(),
+        paused: engine.isPausedByDesign(),
+        msSinceProgress: engine.msSinceProgress(),
+      });
+    }
+    const livenessVerdict = evaluateEngineLiveness({
+      isLeader: isLeader(),
+      processUptimeMs: now - this.processStartedAt,
+      discoveryLoopStalledMs: now - this.lastDiscoveryAttemptAt,
+      discoveryStaleMs: now - this.lastDiscoveryOkAt,
+      dbConfirmedDead: this.dealRateVerifier.snapshot().dbConfirmedDead,
+      tables,
+      ...(this.handoffSuccessorPhase
+        ? { handoffSuccessorDealerReady: this.dealerPrerequisitesReady }
+        : {}),
+    });
+    return {
+      running: this.running,
+      liveness: livenessVerdict.status,
+    };
   }
 
   getStatus(livenessQuery?: PublicTableLivenessQuery) {
@@ -6556,6 +6600,7 @@ export class GameServer {
       // not fit inside the rest. See engine/NextHandGap.ts.
       nextHandGap: nextHandGap.snapshot(),
       cashNextHandStart: cashDealGap.snapshot(),
+      eventDbBulkhead: eventDatabaseBulkhead.snapshot(),
       // Deploy drain gate reads this. A restart voids in-flight hands, so a
       // routine server/ push waits (or is explicitly forced) while real people
       // are seated. Horses are excluded — they do not care.
@@ -6607,6 +6652,12 @@ export class GameServer {
          the private game only when the engine it plays on says so: a hold an
          older engine cannot see would be filled by its horses. */
       privateGameHolds: 1,
+      /* A SIT & GO HOLDS ITS FRIENDS' SEATS (2026-11-23). This engine's horse
+         fill registers no horse into a Sit & Go seat held for an invited
+         friend (registerHorses, privateGameHolds.ts). The client offers the
+         Sit & Go hold only when the engine serving the tables says so: an
+         engine that has only the Spin and Heads Up half would fill it. */
+      privateSitAndGoHolds: 1,
       // Public liveness comes from the worker-owned store. The main thread no
       // longer hydrates a second solver artifact whose status could look healthy
       // while the live action path was empty or failed.
@@ -7182,6 +7233,10 @@ export class GameServer {
       // DatabaseRepliesLost / DatabaseWriteRetriesExhausted. See
       // services/supabase/dbReplyMetrics.ts.
       ...dbReplyPrometheusLines(),
+      // ── EVENT DATABASE BULKHEAD ──────────────────────────────────────
+      // Per-event & fleet database concurrency protection (PR #11926). Read by
+      // EventDbBulkheadSaturated / EventDbBulkheadOpen in alert-rules.yml.
+      ...eventDbBulkheadPrometheusLines(),
       // ── REPLICATION OBSERVABILITY (2026-09-04) ───────────────────────
       // How far behind the realtime replication slot is, in bytes, per slot.
       // See services/ReplicationMetrics.ts.
@@ -14010,7 +14065,8 @@ export class GameServer {
          any seat count, for as long as the database says the hold is live
          (privateGameHolds.ts). Unreadable: wait for the next pass rather than
          seat a horse into a friend's seat - this board is retried in 12 s. */
-      const privateUntil = await this.tournamentRecurring.privateGameHolds.holdUntilMs(tournamentId);
+      const privateUntil =
+        await this.tournamentRecurring.privateGameHolds.holdUntilMs(tournamentId);
       if (privateUntil === null) return;
       const waitOverride =
         seats === 2

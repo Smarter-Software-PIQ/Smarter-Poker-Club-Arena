@@ -426,6 +426,43 @@ def main():
         assert a[-1]['detail']['cause'] == 'owed_build_carries_uninstalled_migrations' and a[-1]['detail']['uninstalled_migrations'] == ['20261119181143'], a
         ok('the cutover runbook attaches the precise cause, reads only GitHub GETs and requests nothing')
 
+        # 20261123151024: window_install and superseded_by migrations tracked in
+        # ca_merged_migration_watch are exempt from cutover_diagnosis uninstalled_migrations.
+        sql("""CREATE TABLE IF NOT EXISTS smarter_private.ca_merged_migration_watch (
+  version text PRIMARY KEY, file text NOT NULL, merge_sha text NOT NULL,
+  merged_at timestamptz NOT NULL, window_install boolean NOT NULL DEFAULT false,
+  first_seen_at timestamptz NOT NULL DEFAULT now(), retired_at timestamptz,
+  retired_by text, installed_seen_at timestamptz, alert_id bigint, superseded_by text
+);
+CREATE FUNCTION public.fn_ca_closed_arena_finding_is_intended()
+  RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN RETURN NEW; END $$;
+CREATE FUNCTION public.fn_ca_merged_migration_install_watch(p_at timestamptz DEFAULT clock_timestamp())
+  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $stub$
+DECLARE v_f jsonb; v_name text; c_file text := ''; c_superseded text := ''; v_text text; v_by text; c_window text := ''; v_read boolean; v_row record;
+BEGIN
+        IF v_f->>'status' = 'modified' AND v_name ~ c_file
+           AND EXISTS (SELECT 1 FROM smarter_private.ca_merged_migration_watch w
+                        WHERE w.version = substring(v_name FROM c_file) AND w.file = v_name
+                          AND w.installed_seen_at IS NULL AND w.retired_at IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations sm
+                            WHERE sm.version = substring(v_name FROM c_file)) THEN
+          NULL;
+        END IF;
+  -- 2. Installed, retired or superseded: close the page.
+  RETURN '{}'::jsonb;
+END $stub$;""")
+        sup_mig = ROOT / 'supabase/migrations/20261123151024_superseded_watch_cutover_diagnosis_and_closed_arena_revoke.sql'
+        r = psql(['-f', str(sup_mig)])
+        assert r.returncode == 0, f'{sup_mig}\n{r.stderr}'
+        sql("INSERT INTO smarter_private.ca_merged_migration_watch (version, file, merge_sha, merged_at, window_install, superseded_by) "
+            f"VALUES ('20261119181143', 'supabase/migrations/20261119181143_x.sql', '{OWED}', '2026-11-19T00:00:00Z', false, '20261119181200')")
+        d_sup = json.loads(sql(f"SELECT smarter_private.reliability_runbook_cutover_diagnosis('{rel}'::uuid, true, '{{}}'::jsonb, '{T0}'::timestamptz)"))
+        assert d_sup['cause'] == 'freeze_baseline_uncertified' and d_sup['uninstalled_migrations'] == [], d_sup
+        sql("UPDATE smarter_private.ca_merged_migration_watch SET superseded_by = NULL, window_install = true WHERE version = '20261119181143'")
+        d_win = json.loads(sql(f"SELECT smarter_private.reliability_runbook_cutover_diagnosis('{rel}'::uuid, true, '{{}}'::jsonb, '{T0}'::timestamptz)"))
+        assert d_win['cause'] == 'freeze_baseline_uncertified' and d_win['uninstalled_migrations'] == [], d_win
+        ok('cutover_diagnosis exempts superseded and daily-maintenance window migrations from uninstalled_migrations')
+
         # CutoverReadinessAtRisk classifies as release, rakeback_settler_read_horizon_held as money_integrity,
         # and cutover_diagnosis diagnoses CutoverReadinessAtRisk from ca_cutover_readiness_runs with zero dispatches.
         assert sql("SELECT (smarter_private.reliability_classify('cutover-readiness-watch', 'CutoverReadinessAtRisk', 'critical', false)).incident_class") == 'release'

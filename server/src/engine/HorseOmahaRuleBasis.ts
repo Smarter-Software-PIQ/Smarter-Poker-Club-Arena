@@ -150,6 +150,16 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaOopReraiseRangeHoldsVsReraise: {
+    kind: 'priced',
+    range:
+      "the opener's band (HorseMind.bandFor of his line) split by his answer to a 3-bet: his measured fold to a 3-bet shrunk to the fitted population answer (OPENER_ANSWERS_PRIOR, game x depth), 4-bet range on top, calling range below it",
+    equity:
+      'seeded sampled equity of the exact hand against each band (omahaReraisedEquity over omahaPreflopPercentile)',
+    realization:
+      "measured out-of-position realization by depth after the call and the call equity (omahaPreflopDefenceRealization); the 4-bet branch takes the Horse's own answer to the 4-bet, asked on the 4-bet frame",
+    price: 'EV(3-bet) against EV(call) admitted by the calling rule and against 0, after deduction',
+  },
   omahaOpponentLifetimeHudDecides: exempt(
     'input',
     'OPPONENT-HUD-9 consumer flag: reads lifetime public HUD counters shrunk n/(n+k) into HorseMind.opponentRead; decides nothing by itself'
@@ -576,6 +586,11 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'an input of a priced comparison, not a rule site'
   ),
   omahaTurnRiverRaiseIsPriced: PRICED_RAISE,
+  omahaPricedRaiseNeverMakesNonNutRaise: exempt(
+    'owner_game_rule',
+    'owner rulings 2026-11-15 12:52 / 12:53 (a non-nut hand facing a turn or river bet folds or at best calls, never raises) and 12:30 (a draw raises only in position with a combo draw), enforced inside omahaTurnRiverRaiseIsPriced: it only withholds a raise; the call or fold returned is the priced one (PRICED_RAISE verdict.callStands), and the nut rule reads the same spot in Lightning'
+  ),
+  omahaLateFlattenedCallIsPriced: FACING_BET_EV,
   omahaTurnRiverRaiseNeedsNuts: blanket(
     ['omahaNoCategoricalRules'],
     'the register classes it categorical; removal: switch-off with omahaNoCategoricalRules in PLO4/PLO5 cash, then delete'
@@ -687,6 +702,26 @@ export const OMAHA_SHARED_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>>
  * decides or shades a PLO4/PLO5 cash decision.
  */
 export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
+  omaha_oop_reraise_range_holds_kept: exempt(
+    'input',
+    'receipt that omahaOopReraiseRangeHoldsVsReraise priced an out-of-position 3-bet and it stands (EV at or above the alternative, the Horse continues against the 4-bet); decides nothing itself'
+  ),
+  omaha_oop_reraise_range_holds_blocker_kept: exempt(
+    'input',
+    'receipt that a blocker 3-bet whose 4-bet answer is a fold was kept by the seeded keep frequency the cap asks for; decides nothing itself'
+  ),
+  omaha_oop_reraise_range_holds_called: exempt(
+    'input',
+    "receipt that the priced out-of-position 3-bet became the call the existing calling rule admits; the decision is the option's priced verdict"
+  ),
+  omaha_oop_reraise_range_holds_folded: exempt(
+    'input',
+    "receipt that the priced out-of-position 3-bet became the fold; the decision is the option's priced verdict"
+  ),
+  omaha_oop_reraise_range_holds_unpriced: exempt(
+    'legality',
+    'fail-safe counter: the 3-bet could not be priced (no equity sample, or the stage was not reached) and stands as the brain made it'
+  ),
   omaha_blanket_rows_off_in_plo45_cash_applied: exempt(
     'scope',
     'counts a PLO4/PLO5 cash decision made with a listed blanket row passed off; it marks the scope, it decides nothing'
@@ -710,6 +745,16 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_cbet_raise_priced_branch: BET_EV,
   omaha_cbet_raise_priced_range: FACING_BET_EV,
   omaha_priced_big_bet_size_range_applied: FACING_BET_EV,
+  omaha_priced_raise_non_nut_raise_not_made: exempt(
+    'owner_game_rule',
+    'receipt that omahaPricedRaiseNeverMakesNonNutRaise withheld a raise the priced comparison chose for a hand that is not nut class (owner rulings 2026-11-15 12:52 / 12:53 and 12:30); the priced call or fold stands'
+  ),
+  omaha_priced_raise_non_nut_unpriced_called: exempt(
+    'owner_game_rule',
+    'receipt that a non-nut raise that could not be priced became the call under omahaPricedRaiseNeverMakesNonNutRaise (owner ruling 2026-11-15 12:52 / 12:53); no chips are added and nothing is folded on a failure to price'
+  ),
+  omaha_late_flattened_call_priced_kept: FACING_BET_EV,
+  omaha_late_flattened_call_priced_folded: FACING_BET_EV,
   omaha_priced_big_bet_size_resized: CARD_IMPACT,
   omaha_priced_big_bet_size_kept: CARD_IMPACT,
   omaha_big_draw_bet_on_his_response_bet: CARD_IMPACT,

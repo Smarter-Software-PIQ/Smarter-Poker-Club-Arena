@@ -227,6 +227,15 @@ describe('entry hold targets the occupancy observed at enqueue', () => {
     expect(f.warning).not.toHaveBeenCalled();
     expect(f.e.waitingForBB.has(id(4))).toBe(false);
   });
+  it('records an automatic entry agreement with the original seat hold in one write', async () => {
+    const f = fixture();
+    f.e.registerWaitForBB(id(4), true);
+    expect(f.e.waitingForBB.has(id(4))).toBe(true);
+    expect(f.e.postBBWhenClear.has(id(4))).toBe(true);
+    await f.tail();
+    expect(f.applied).toEqual([{ entry_hold: 'waiting', entry_post_agreed: true }]);
+  });
+
   it('actual register and post caller preserve state and queue original patch order', async () => {
     const f = fixture(),
       gate = barrier();

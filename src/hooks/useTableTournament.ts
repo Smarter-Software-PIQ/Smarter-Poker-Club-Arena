@@ -71,6 +71,7 @@ export interface AddOnPeriodState {
 }
 
 export interface RebuyData {
+  autoEligible?: boolean;
   cost: number;
   /** House fee charged on top of `cost`. See AddOnPeriodState.addOnFee. */
   fee: number;

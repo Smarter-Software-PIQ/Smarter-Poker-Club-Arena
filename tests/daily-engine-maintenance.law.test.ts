@@ -25,7 +25,12 @@ function admit(
   message: string,
   health: string,
   schedule = '30 * * * *',
-  createdAt = '2026-10-21T08:30:01Z',
+  // The run's own created_at: the admission's moment for every event. A push
+  // is judged by it too since 2026-11-23 (it used to read the push payload's
+  // pushed_at, which these cases left empty), so a push case here is a
+  // daytime push run: 14:00:01 CDT, outside every reservation. The hour
+  // argument feeds the runner's clock, which the admission never consults.
+  createdAt = event === 'push' ? '2026-10-21T19:00:01Z' : '2026-10-21T08:30:01Z',
   owner?: { windows: string; ancestor: boolean; served?: boolean; witness?: string; floor?: string }
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'daily-admission-'));

@@ -22,7 +22,11 @@
  *   3. the path: every await between the end of the hold and the deal is on a
  *      named list with the reason it is not an unintended delay. A new await
  *      there fails here until it is named, proved to run under the rest, or
- *      removed.
+ *      removed;
+ *   4. not before: a Node timer can wake 1-2 ms before Date.now() reads its
+ *      deadline (CI 2026-11-23 read the measured deal as 1499), so with every
+ *      sleep modelled waking that early the hold and the rest still end on
+ *      their deadlines, and a wall clock stepped back never stretches them.
  *
  * Production grading of the same rule, hand by hand:
  * scripts/sql/hand-gap-unintended-delay.sql.
@@ -51,9 +55,12 @@ vi.mock('../services/engineAlerts.js', () => ({
 import {
   ENGINE_BETWEEN_HANDS_BUDGET_MS,
   HAND_COMPLETION as H,
+  handCompletionHoldMs,
   owedBetweenHandsMs,
 } from '../config/handCompletionSpec.js';
 import { REBUY_PAUSE_MAX_MS, RIT_REVEAL_MAX_MS } from './handCadenceSpec.js';
+import { ServerTableEngineBase } from './ServerTableEngineBase.js';
+import { ServerTableEngineDealing } from './ServerTableEngineDealing.js';
 import { disposeEngines, fixture } from './f06RestDealFixture.test-support.js';
 
 afterEach(() => disposeEngines());
@@ -144,6 +151,94 @@ describe('a tournament deal pays nothing after the rest', () => {
     expect(f.startedAt[0] - armedAt).toBeGreaterThanOrEqual(REST);
     expect(f.startedAt[0] - armedAt).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
   }, 10_000);
+
+  it('absorbs peak-load 360 ms F06 RPCs (1,080 ms total across begin, seq-0, seq-1) under the rest (1e532243)', async () => {
+    // 2026-11-24 live production proof: peak-load dealing p90 = 1,355 ms and
+    // seq-1 up to 562 ms overshot the old 1,000 ms / 400 ms leads.
+    const f = fixture({ rpcLatencyMs: 360 });
+    const armedAt = Date.now();
+    f.engine.armNextHandRest(REST);
+    await f.engine.awaitNextHandRestLead();
+    await f.dealsTheNextHand();
+    const gap = f.startedAt[0] - armedAt;
+    expect(gap).toBeGreaterThanOrEqual(REST);
+    expect(gap).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
+  }, 10_000);
+});
+
+describe('a timer that wakes early does not shorten a beat', () => {
+  // Node counts a timer on libuv's millisecond loop clock, not on Date.now(),
+  // so `setTimeout(deadline - Date.now())` can wake while Date.now() still
+  // reads the deadline minus 1 or 2: on 2026-11-23 the measured deal above
+  // read `expected 1499 to be >= 1500` in CI. Model the worst such timer -
+  // every sleep moves the wall clock NODE_TIMER_EARLY_WAKE_MAX_MS less than it
+  // asked - and hold both beats to "not before".
+  const EARLY = ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS;
+  const REST = H.NEXT_HAND_REST_MS;
+  afterEach(() => vi.useRealTimers());
+  function sleepsWakingEarly(engine: any, early = EARLY): number[] {
+    vi.useFakeTimers();
+    const asked: number[] = [];
+    engine.sleep = async (ms: number) => {
+      asked.push(ms);
+      await vi.advanceTimersByTimeAsync(Math.max(0, ms - early));
+    };
+    return asked;
+  }
+
+  it('the rest ends on its deadline on the tournament path (seq-1 rides its last slice)', async () => {
+    const f = fixture();
+    sleepsWakingEarly(f.engine);
+    f.engine.armNextHandRest(REST);
+    const deadline: number = f.engine.nextHandNotBeforeMs;
+    f.engine.seq1RestStopShortMs = ServerTableEngineDealing.SEQ1_RETAIN_LEAD_MS;
+    await f.engine.awaitNextHandRest();
+    expect(Date.now()).toBeLessThan(deadline);
+    await f.engine.awaitNextHandRest();
+    expect(Date.now()).toBeGreaterThanOrEqual(deadline);
+    expect(Date.now() - deadline).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
+  });
+
+  it('the rest ends on its deadline on every other table', async () => {
+    const f = fixture();
+    sleepsWakingEarly(f.engine);
+    f.engine.armNextHandRest(REST);
+    const deadline: number = f.engine.nextHandNotBeforeMs;
+    await f.engine.awaitNextHandRest();
+    expect(Date.now()).toBeGreaterThanOrEqual(deadline);
+    expect(Date.now() - deadline).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
+  });
+
+  it.each([1, EARLY])(
+    'the completion hold ends on its deadline (timer %i ms early)',
+    async (early) => {
+      const f = fixture();
+      sleepsWakingEarly(f.engine, early);
+      const endedAt = Date.now();
+      f.engine.lastAcceptedHandEndedAtMs = endedAt;
+      const hold = handCompletionHoldMs({ wentToShowdown: false });
+      await f.engine.awaitHandCompletionDisplay(hold);
+      expect(Date.now()).toBeGreaterThanOrEqual(endedAt + hold);
+      expect(Date.now() - endedAt - hold).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
+    }
+  );
+
+  it('a wall clock stepped back mid-rest is not waited out again', async () => {
+    const f = fixture();
+    vi.useFakeTimers();
+    const asked: number[] = [];
+    f.engine.sleep = async (ms: number) => {
+      asked.push(ms);
+      await vi.advanceTimersByTimeAsync(ms);
+      // The timer ran its full length on the monotonic clock; the wall clock
+      // was then stepped back a minute.
+      if (asked.length === 2) vi.setSystemTime(Date.now() - 60_000);
+    };
+    f.engine.armNextHandRest(REST);
+    await f.engine.awaitNextHandRest();
+    const lead = ServerTableEngineDealing.BLIND_READ_LEAD_MS;
+    expect(asked).toEqual([REST - lead, lead]);
+  });
 });
 
 describe('every wait between the hold and the deal is named', () => {
@@ -205,7 +300,8 @@ describe('every wait between the hold and the deal is named', () => {
       'this.retainOriginalBatch', // the prepared deck made durable, under the rest
       'this.awaitNextHandRest', // stops SEQ1_RETAIN_LEAD_MS short so seq-1 rides the rest
     ]);
-    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 400;');
+    expect(DEALING).toContain('static readonly F06_RESERVE_LEAD_MS = 1500;');
+    expect(DEALING).toContain('static readonly SEQ1_RETAIN_LEAD_MS = 900;');
     expect(DEALING).toContain('finishRestBeforeFirstDispatch');
     // After the rest: no round trip on the path that deals. A saved hand the
     // last look (or a later hold) refuses is released in dealHand's finally,
@@ -237,6 +333,22 @@ describe('every wait between the hold and the deal is named', () => {
     expect(start).toBeGreaterThan(-1);
     expect(wait).toBeGreaterThan(start);
     expect(code(BASE.slice(start, wait))).toContain("this.setLoopPhase('parked_for_pause')");
+  });
+
+  it('pre-deal operator floor and seat-move reads overlap prepareNextHand instead of serializing (1e532243)', () => {
+    const BASE = readFileSync(
+      fileURLToPath(new URL('./ServerTableEngineBase.ts', import.meta.url)),
+      'utf8'
+    );
+    const overlapAt = DEALING.indexOf('this.startPreDealReadOverlap();');
+    const prepareAt = DEALING.indexOf('const nextRoster = await this.prepareNextHand();');
+    expect(overlapAt).toBeGreaterThan(-1);
+    expect(prepareAt).toBeGreaterThan(overlapAt);
+    expect(prepareAt - overlapAt).toBeLessThan(120);
+    expect(DEALING).toContain("this.setLoopPhase('operator_floor_boundary');");
+    expect(DEALING).toContain("this.timeCashPrepareBranch('hourly_cash_boundary'");
+    expect(BASE).toContain('const prepared = this.consumePreparedOperatorFloor();');
+    expect(BASE).toContain('const prepared = this.preparedPendingSeatMoves;');
   });
 });
 

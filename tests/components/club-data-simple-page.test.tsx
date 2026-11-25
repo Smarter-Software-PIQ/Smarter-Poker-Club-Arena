@@ -210,7 +210,7 @@ describe('ClubDataSimplePage', () => {
     authState.current = { user: { id: 'agent-1' }, isHydrating: true };
     view.rerender(<ClubDataSimplePage />);
     expect(screen.queryByText('Shark Tank')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Advanced$/i })).not.toBeInTheDocument();
   });
 
   it('ignores a previous owner response after switching to an agent', async () => {
@@ -443,25 +443,38 @@ describe('ClubDataSimplePage', () => {
     });
     render(<ClubDataSimplePage />);
     const title = await screen.findByRole('heading', { level: 1 });
-    await waitFor(() =>
-      expect(title.textContent?.replace(/\u00a0/g, ' ')).toBe('CLUB JAQK - CLUB DATA')
-    );
-    expect(title.getAttribute('title')).toBe('CLUB JAQK - CLUB DATA');
+    expect(title).toHaveTextContent('Club Data');
+    await waitFor(() => expect(title.closest('header')).toHaveTextContent('Club JAQK'));
     expect(headerTitle(null)).toBe('Club Data');
-    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Club Report' }));
     expect(navigateMock).toHaveBeenCalledWith(
-      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
+      `/clubs/${CLUB_ID}/data?dataGame=ALL&dataStakes=ALL&dataSearch=&report=open`
     );
   });
 
+  it('keeps a confirmed downline scope while another reporting window loads', async () => {
+    rpcMock.mockResolvedValue({ data: live, error: null });
+    render(<ClubDataSimplePage authorizedScope="club" />);
+    await screen.findByText('Shark Tank');
+    expect(screen.getByRole('button', { name: 'Open Club Report' })).toBeInTheDocument();
+    rpcMock.mockResolvedValue({ data: { ...live, scope: 'downline' }, error: null });
+    fireEvent.click(screen.getByRole('button', { name: '7 Days' }));
+    await screen.findByText('You And Your Downline');
+    rpcMock.mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: '14 Days' }));
+    expect(screen.queryByRole('button', { name: 'Open Club Report' })).toBeNull();
+  });
+
   it('an agent reads his own downline, and has no whole-club report door', async () => {
+    routeState.search = new URLSearchParams('report=open');
     rpcMock.mockResolvedValue({
       data: { ...live, club_name: 'Club JAQK', scope: 'downline' },
       error: null,
     });
-    render(<ClubDataSimplePage />);
+    render(<ClubDataSimplePage authorizedScope="downline" />);
     expect(await screen.findByText(/You And Your Downline/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Report' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Club Report' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Club Report', exact: true })).toBeNull();
   });
 });
 
@@ -591,11 +604,7 @@ it('finds a player independently when the game search fails', async () => {
   await screen.findByText('Shark Tank');
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'WooWoo' } });
   expect(await screen.findByRole('button', { name: /WooWoo.*View Player Data/i })).toBeVisible();
-  await waitFor(() =>
-    expect(
-      screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
-    ).toBeVisible()
-  );
+  await waitFor(() => expect(screen.getAllByText('Club Data Could Not Be Read.')[0]).toBeVisible());
 });
 
 describe('Selectable Chicago Dates And Player Totals', () => {

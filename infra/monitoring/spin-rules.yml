@@ -392,3 +392,27 @@ groups:
             result. A drawn or played game requires its continuation or
             settlement authority.
           runbook: 'docs/runbooks/spin-unfilled-backlog.md'
+
+      # FAST-FAIL ON DETERMINISTIC SPIN BOOKING REFUSALS (2026-11-24, incident
+      # 3c817b04-bc3a-4bc5-aa43-b2eee257584d). When fn_spin_book_entry refused
+      # seat 3 with three_paid_seats_required, boards looped every 12 seconds
+      # for 2.4 hours before SpinFleetProducingNothing finally paged past the
+      # 8400s ladder envelope. Watching unexpected seat-first booking RPC
+      # refusals (excluding ordinary horse four-table-cap refusals) catches a
+      # broken Spin booking door in two minutes with the exact reason label.
+      - alert: SpinSeatFirstBookingRefusedRepeatedly
+        expr: sum by (reason) (increase(poker_spin_seat_first_booking_refused_total[5m])) >= 3 unless on () max_over_time(poker_maintenance_break_active[6m]) == 1
+        for: 2m
+        labels:
+          severity: critical
+          component: spin
+        annotations:
+          summary: 'Spin seat-first booking refused {{ $value | printf "%.0f" }} times in 5m (reason={{ $labels.reason }})'
+          description: |
+            fn_seat_horse_in_seat_first_game raised an unexpected Spin booking
+            refusal at least three times in five minutes (excluding ordinary
+            four-table horse-capacity refusals). Check engine logs for
+            TournamentRecurring.seat_first_seat_rpc_failed and inspect
+            fn_spin_book_entry / fn_sync_seat_first_player_count for the named
+            reason.
+          runbook: 'docs/runbooks/spin-unfilled-backlog.md'

@@ -14,7 +14,9 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 #   00:01 Chicago nightly        refresh the production structure and seed,
 #                                re-clone the serving engine, certify main
 #   workflow_dispatch            certify one exact SHA
-#   sealed receiver event re-clone the serving engine (1:1 Backup)
+#   sealed receiver event     certify the NEXT candidate on a fresh copy,
+#                             rehearsed against the build that just sealed
+#                             (O24; nothing newer: the run ends in seconds)
 #
 # THE QUEUE DRAINS ITSELF (2026-11-07). Runs are serialized (one Backup host)
 # and a certificate takes about forty-five minutes, while main receives
@@ -89,6 +91,42 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # projection(SHA) or supabase/migrations already diverged from origin/main,
 # fewer than 75 min remain to the next scheduled cutoff, and every read
 # succeeded (O1; CLAUDE.md 10.86).
+#
+# THE POST-SEAL BACKUP CERTIFIES THE NEXT CANDIDATE (2026-11-24, O24).
+# Right after every seal the receiver starts "Backup after seal <run>-<attempt>".
+# It used to spend about 48 minutes of the one Backup host re-certifying the
+# build that had JUST SEALED (45370915542 held the host 10:02-10:50Z,
+# 45399317563 13:02-13:48Z), a certificate nothing shippable needs: the
+# selector walks only commits AFTER the serving release. The cycle's real
+# candidate could start only afterwards, which left one attempt per three-hour
+# cycle, and candidates certified before the seal had rehearsed against the
+# previous engine ("serving rollback rehearsal unavailable"). After the
+# unchanged custody proof (O15) the run now targets the newest first-parent
+# commit of its own commit (main at the seal) touching server/ or a
+# CONTROL_INPUTS path (the O13 rule) when that commit is ahead of the sealed
+# build; the standby rehearses against live /health, which the custody proof
+# has just shown to be the sealed release. Nothing ahead: custody is proven,
+# the host is not taken, no status is written. The target is always at or
+# behind this run's own commit and CONTROL_SHA stays github.sha, because
+# select-daily-engine.py admits a retargeted control from push runs only.
+# Inside tonight's freeze certification window the baseline rule
+# (scripts/ci/backup-freeze-baseline.py) alone decides: `due` certifies the
+# baseline exactly as a push run would, any other in-window answer certifies
+# nothing. A next-candidate run is treated as a push run by late supersession
+# while waiting (O11), the uninstalled-migration guard (O7) and the mid-soak
+# yield (O1/O16); it waits (bounded, 25 minutes, in the existing `due` read)
+# for migrations merged in the last day to install before its copy is taken,
+# and hands the host back when its target already holds a success for
+# production's current comparable set whose rollback rehearsal named the
+# sealed build. Anything unreadable certifies the sealed build as before
+# (CLAUDE.md 10.86).
+#
+# ONE BOUNDED RE-EXPORT (2026-11-24, O24). Run 45324579997 (04:18Z) lost its
+# cycle because production installed a migration between the export's two
+# schema-evidence captures. The export step repeats itself exactly once,
+# after a fixed 45 s pause, only when the offline before/after comparison
+# refuses; a capture, dump or seed error still fails at once and a second
+# refusal fails exactly as before.
 on:
   repository_dispatch:
     # The second event lets the owner deliver a previously lost seal to Backup alone.
@@ -171,6 +209,9 @@ jobs:
       freeze_baseline: ${{ steps.plan.outputs.freeze_baseline }}
       priority: ${{ steps.plan.outputs.priority }}
       inherit_eligible: ${{ steps.plan.outputs.inherit_eligible }}
+      # O24: '1' only when this post-seal run certifies the next candidate.
+      post_seal: ${{ steps.next.outputs.post_seal }}
+      sealed_sha: ${{ steps.seal.outputs.sha }}
     steps:
       - name: Prove the original sealed receiver and claim its first Backup run
         id: seal
@@ -224,9 +265,113 @@ jobs:
           fi
           echo "Sealed receiver $RUN_KEY requests a fresh Backup of $TARGET on instance $instance"
           echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
-      - id: plan
-        if: github.event_name != 'repository_dispatch' || steps.seal.outputs.sha != ''
+      # THE POST-SEAL BACKUP CERTIFIES THE NEXT CANDIDATE (2026-11-24, O24).
+      # A failed checkout is "unreadable": the next step then certifies the
+      # sealed build exactly as before instead of failing the plan. The
+      # sparse set is the plan job's one set (the inherit checkout below).
+      - uses: actions/checkout@v4
+        if: github.event_name == 'repository_dispatch' && steps.seal.outputs.sha != ''
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/engine-source-identity.sh
+            scripts/ci/read-engine-prequalification.py
+          sparse-checkout-cone-mode: false
+      - name: Choose the next candidate the post-seal Backup certifies
+        id: next
+        if: github.event_name == 'repository_dispatch' && steps.seal.outputs.sha != ''
         env:
+          GH_TOKEN: ${{ github.token }}
+          SEALED_SHA: ${{ steps.seal.outputs.sha }}
+          RUN_KEY: ${{ github.event.client_payload.release_run_key }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          sealed="$SEALED_SHA"
+          [[ "$sealed" =~ ^[0-9a-f]{40}$ ]]
+          as_before() {
+            echo "POST-SEAL TARGET UNREADABLE: $1; certifying the sealed build $sealed exactly as before (CLAUDE.md 10.86)."
+            echo "sha=$sealed" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          nothing() {
+            echo "NOTHING TO CERTIFY AFTER THE SEAL: $1. Custody of sealed receiver ${RUN_KEY:-} is proven; the Backup host is not taken and no status is written."
+            { echo "### Backup Engine"; echo ""; echo "- Nothing to certify after the seal of \`$sealed\`: $1; host not taken, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          # The target must be at or behind this run's own commit: CONTROL_SHA
+          # stays github.sha for a dispatch run (select-daily-engine.py admits a
+          # retargeted control from push runs only).
+          git rev-parse --verify --quiet "$GITHUB_SHA^{commit}" >/dev/null 2>&1 \
+            || as_before "this run has no checkout of its own commit $GITHUB_SHA"
+          git merge-base --is-ancestor "$sealed" "$GITHUB_SHA" 2>/dev/null \
+            || as_before "the sealed build is not an ancestor of this run's commit $GITHUB_SHA"
+          # INSIDE TONIGHT'S FREEZE THE BASELINE RULE DECIDES (O6/O17/O22). The
+          # same read-only reader the push and schedule runs ask. `due`: this
+          # run claims and certifies the baseline exactly as they would. Any
+          # other in-window answer: the baseline is certified, claimed by an
+          # active run, already serving, refused or unselectable, and no other
+          # build can ship at 04:00, so the host is left to the baseline's run.
+          # `outside` or unreadable: the next-candidate rule below.
+          tool=$(mktemp); baseline_state=unknown; baseline=''
+          if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-freeze-baseline.py?ref=main" > "$tool" 2>/dev/null; then
+            verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" 2>/dev/null) || verdict=''
+            baseline_state=$(printf '%s\n' "$verdict" | sed -n 's/^state=//p')
+            baseline=$(printf '%s\n' "$verdict" | sed -n 's/^baseline=//p')
+          fi
+          rm -f "$tool"
+          echo "freeze baseline: ${baseline_state:-unknown}${baseline:+ ($baseline)}"
+          case "${baseline_state:-unknown}" in
+            due)
+              if [[ "$baseline" =~ ^[0-9a-f]{40}$ ]] && [ "$baseline" != "$sealed" ] \
+                 && git merge-base --is-ancestor "$sealed" "$baseline" 2>/dev/null \
+                 && git merge-base --is-ancestor "$baseline" "$GITHUB_SHA" 2>/dev/null; then
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$baseline" -f state=pending -f context="$STATUS_CONTEXT" \
+                  -f description="Backup Engine claimed tonight's freeze baseline (run $RUN_ID)" \
+                  -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" >/dev/null \
+                  || echo "::warning::could not write the freeze-baseline claim; certifying anyway"
+                echo "FREEZE BASELINE: $baseline is tonight's shippable 04:00 build and is ahead of the sealed build $sealed; the post-seal run certifies it on a copy restored now, not superseded."
+                { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\` after the seal of \`$sealed\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                echo "sha=$baseline" >> "$GITHUB_OUTPUT"
+                echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              nothing "tonight's freeze baseline ${baseline:-unknown} is due but is not a build ahead of the sealed build on this run's commit"
+              ;;
+            claimed|done|served|refused|unselectable)
+              nothing "inside tonight's release schema freeze the baseline rule decides the one shippable build and answers $baseline_state${baseline:+ for $baseline}"
+              ;;
+          esac
+          # The O13 rule, read at this run's own commit: the newest first-parent
+          # commit touching server/ or any CONTROL_INPUTS path. Unreadable
+          # CONTROL_INPUTS follow the newest server commit only.
+          control_paths=()
+          while IFS= read -r control_path; do
+            [ -n "$control_path" ] && control_paths+=("$control_path")
+          done < <(python3 -B -c 'import runpy; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print("\n".join(m["CONTROL_INPUTS"]))' 2>/dev/null || true)
+          if [ "${#control_paths[@]}" -eq 0 ]; then
+            echo "could not read CONTROL_INPUTS; following the newest server commit only (CLAUDE.md 10.86)."
+          fi
+          head=$(git log -1 --first-parent --format=%H "$GITHUB_SHA" -- server ${control_paths[@]+"${control_paths[@]}"} 2>/dev/null || echo '')
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] \
+            || as_before "the newest server or release-control commit at $GITHUB_SHA could not be read"
+          if [ "$head" = "$sealed" ] || git merge-base --is-ancestor "$head" "$sealed" 2>/dev/null; then
+            nothing "main's newest server or release-control commit $head is the sealed build or behind it"
+          fi
+          git merge-base --is-ancestor "$sealed" "$head" 2>/dev/null \
+            || as_before "the newest server or release-control commit $head does not descend from the sealed build"
+          echo "POST-SEAL NEXT CANDIDATE: $sealed sealed and is serving; certifying $head, the newest server or release-control commit on main at $GITHUB_SHA, on a fresh copy with its rollback rehearsed against $sealed."
+          { echo "### Backup Engine"; echo ""; echo "- POST-SEAL NEXT CANDIDATE \`$head\` (sealed and serving: \`$sealed\`); refresh forced."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "sha=$head" >> "$GITHUB_OUTPUT"
+          echo "post_seal=1" >> "$GITHUB_OUTPUT"
+      - id: plan
+        if: github.event_name != 'repository_dispatch' || steps.next.outputs.sha != ''
+        env:
+          NEXT_SHA: ${{ steps.next.outputs.sha }}
+          NEXT_FREEZE_BASELINE: ${{ steps.next.outputs.freeze_baseline }}
           EVENT: ${{ github.event_name }}
           INPUT_SHA: ${{ github.event.inputs.sha }}
           INPUT_REFRESH: ${{ github.event.inputs.refresh }}
@@ -393,6 +538,10 @@ jobs:
             sha="$SEALED_SHA"
             [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
             refresh=force
+            # O24: the step above names the next candidate, tonight's freeze
+            # baseline, or (unreadable) the sealed build itself.
+            if [[ "${NEXT_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then sha="$NEXT_SHA"; fi
+            if [ "${NEXT_FREEZE_BASELINE:-}" = 1 ]; then echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"; fi
           fi
           if [ -n "${retarget_control:-}" ]; then echo "control_sha=$retarget_control" >> "$GITHUB_OUTPUT"; fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -535,6 +684,7 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+          POST_SEAL: ${{ needs.plan.outputs.post_seal }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -591,8 +741,9 @@ jobs:
             # engine-source-identity, identical backup_projection, unchanged
             # backup-engine.yml) never disrupt a waiting run; booking and
             # freeze-baseline runs never supersede; unreadable API, git, or
-            # projection answers keep waiting (CLAUDE.md 10.86).
-            if [ "${EVENT:-}" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            # projection answers keep waiting (CLAUDE.md 10.86). A post-seal
+            # next-candidate run (O24) yields to a newer push run the same way.
+            if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
               newer_shas=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
                 --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$SHA\" and .status != \"completed\") | .head_sha] | unique | .[]" 2>/dev/null) || newer_shas=unreadable
               if [ "$newer_shas" != unreadable ] && [ -n "$newer_shas" ]; then
@@ -905,6 +1056,8 @@ jobs:
           SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
           FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+          POST_SEAL: ${{ needs.plan.outputs.post_seal }}
+          SEALED_SHA: ${{ needs.plan.outputs.sealed_sha }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -914,9 +1067,18 @@ jobs:
           copy_evidence_sha=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\")).get(\"schemaEvidenceSha256\") or \"\")'" 2>/dev/null || echo '')
           ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" 'cat /var/lib/club-arena-standby/schema-evidence.json' > copy-evidence.json 2>/dev/null || : > copy-evidence.json
           [ "$stamp" != 1970-01-01T00:00:00Z ] || copy_evidence_sha=''
+          # THE POST-SEAL COPY WAITS FOR THE POST-SEAL INSTALLS (2026-11-24, O24).
+          # Ordinary migrations merged before a cycle are held until ten minutes
+          # after its start and install from then; this run starts about two
+          # minutes after it. A copy taken first lacks them and its certificate
+          # can never be selected, so the same bounded read waits up to 25
+          # minutes (one wait, no second one) for a next-candidate run. Still
+          # uninstalled afterwards: the O7 rule below hands the host back.
+          refresh_wait=()
+          if [ "${POST_SEAL:-}" = 1 ]; then refresh_wait=(--wait 1500); fi
           verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
             --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
-            --control "$CONTROL" --sha "$SHA" --wait 240 2> due-reason.txt) || verdict='due=true'
+            --control "$CONTROL" --sha "$SHA" --wait 240 ${refresh_wait[@]+"${refresh_wait[@]}"} 2> due-reason.txt) || verdict='due=true'
           contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
           pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
           comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
@@ -928,8 +1090,10 @@ jobs:
           # never pass select-daily-engine.py on a copy lacking them. Hand the
           # exclusive Backup host lease back immediately without writing any
           # status. Freeze-baseline, booking, forced, manual, nightly, and
-          # post-seal runs are exempt; unreadable production emits no pending=.
-          if [ -n "$pending_migrations" ] && [ "$EVENT" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ "$MODE" != force ]; then
+          # sealed-build runs are exempt; unreadable production emits no pending=.
+          # A post-seal next-candidate run (O24) follows the push rule although
+          # its refresh is forced: its target is an ordinary candidate.
+          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
             sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
@@ -952,6 +1116,57 @@ jobs:
             echo "due=false" >> "$GITHUB_OUTPUT"
             echo "deferred=1" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # ALREADY CERTIFIED AGAINST THE NEW SERVING ENGINE (2026-11-24, O24).
+          # ONE RUN CERTIFIES A TARGET: the run that takes the host lease first.
+          # A push run for the same commit that held the host ahead of this
+          # post-seal run has already published its verdict when this run gets
+          # its turn (and a push run behind it reads this run's success in
+          # late_inherit). The standing success is kept, and the host handed
+          # back, only when it names production's current comparable installed
+          # set AND its retained certificate rehearsed the rollback against the
+          # build that just sealed; a certificate rehearsed against the previous
+          # engine cannot be selected, so it is certified again. Any unreadable
+          # answer certifies (CLAUDE.md 10.86).
+          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
+             && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]] && [[ "${SEALED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
+            IFS='|' read -r standing_state standing_url standing_desc <<< "$standing_line"
+            standing_run="${standing_url##*/actions/runs/}"
+            rehearsed=''
+            if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
+               && [[ "$standing_run" =~ ^[1-9][0-9]*$ ]]; then
+              artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$standing_run/artifacts?per_page=100" \
+                --jq "[.artifacts[] | select((.name | startswith(\"backup-certificate-$SHA-\")) and (.expired | not))][0].id // \"\"" 2>/dev/null) || artifact=''
+              if [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
+                rehearsed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" 2>/dev/null \
+                  | python3 -c 'import io,json,sys,zipfile; print(json.loads(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("certificate.json")).get("rehearsedServingSha") or "")' 2>/dev/null) || rehearsed=''
+              fi
+            fi
+            if [ "$rehearsed" = "$SEALED_SHA" ]; then
+              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+                "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
+          import fcntl, json, os, sys
+          run_id, attempt = sys.argv[1], sys.argv[2]
+          lease_path = '/var/lib/club-arena-standby/run-lease.json'
+          os.makedirs('/var/lock', exist_ok=True)
+          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
+              fcntl.flock(lf, fcntl.LOCK_EX)
+              if os.path.exists(lease_path):
+                  try:
+                      cur = json.load(open(lease_path))
+                  except Exception:
+                      cur = None
+                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
+                      os.unlink(lease_path)
+          PY
+              echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success from run $standing_run for current installed migrations ($comparable_digest), rehearsed against the sealed build $SEALED_SHA; that run certified it, this post-seal run hands the host back without re-soaking."
+              { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\` by run $standing_run after the seal of \`$SEALED_SHA\`: host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "due=false" >> "$GITHUB_OUTPUT"
+              echo "deferred=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
           due=false
@@ -1019,17 +1234,33 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/out/seed"
-          python3 -B server/standby/schema-evidence.py capture --output "$RUNNER_TEMP/out/schema-before.json"
-          # A held snapshot over five minutes is cancelled by production's guard,
-          # and must never happen anyway: bounded at 270 s.
-          PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
-            --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
-            -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
-            -f "$RUNNER_TEMP/out/schema.dump"
-          SEED_DATABASE_URL="$DATABASE_URL" python3 server/standby/seed-extract.py "$RUNNER_TEMP/out/seed"
-          python3 -B server/standby/schema-evidence.py capture --dump "$RUNNER_TEMP/out/schema.dump" --output "$RUNNER_TEMP/out/schema-evidence.json"
-          python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"
+          export_once() {
+            rm -rf "$RUNNER_TEMP/out"
+            mkdir -p "$RUNNER_TEMP/out/seed"
+            python3 -B server/standby/schema-evidence.py capture --output "$RUNNER_TEMP/out/schema-before.json"
+            # A held snapshot over five minutes is cancelled by production's guard,
+            # and must never happen anyway: bounded at 270 s.
+            PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
+              --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
+              -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
+              -f "$RUNNER_TEMP/out/schema.dump"
+            SEED_DATABASE_URL="$DATABASE_URL" python3 server/standby/seed-extract.py "$RUNNER_TEMP/out/seed"
+            python3 -B server/standby/schema-evidence.py capture --dump "$RUNNER_TEMP/out/schema.dump" --output "$RUNNER_TEMP/out/schema-evidence.json"
+          }
+          # ONE BOUNDED RE-EXPORT (2026-11-24, O24; run 45324579997). The compare
+          # reads only the two evidence files this step has just written, so it
+          # can refuse for one reason: production's installed set or a required
+          # definition moved between the two captures. That, and only that, is
+          # exported once more after a fixed pause. A capture, dump or seed
+          # error stops the step above (set -e) and is never retried; a second
+          # refusal fails the step exactly as before.
+          export_once
+          if ! python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"; then
+            echo "EXPORT REPEATED ONCE: production's schema evidence moved during the export; exporting again after 45 s. A second refusal fails this refresh."
+            sleep 45
+            export_once
+            python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"
+          fi
           tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump schema-evidence.json seed
       - name: Ship to the standby host and restore
         if: steps.turn.outputs.acquired == '1' && steps.late_inherit.outputs.inherited != '1' && steps.due.outputs.deferred != '1' && steps.due.outputs.due == 'true'
@@ -1207,6 +1438,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
+          POST_SEAL: ${{ needs.plan.outputs.post_seal }}
+          SEALED_SHA: ${{ needs.plan.outputs.sealed_sha }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -1257,7 +1490,8 @@ jobs:
               return 0
             fi
             verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
-              --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" 2> o1-copy-reason.txt) || verdict=''
+              --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" \
+              --control "${CONTROL_SHA:-}" 2> o1-copy-reason.txt) || verdict=''
             due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
             production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
             if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1279,7 +1513,7 @@ jobs:
           yielded=0
           yield_reason=''
           check_interval="${YIELD_CHECK_INTERVAL:-60}"
-          if [ "${EVENT:-}" = push ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+          if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
             while kill -0 "$ssh_pid" 2>/dev/null; do
               elapsed=0
               while [ "$elapsed" -lt "$check_interval" ] && kill -0 "$ssh_pid" 2>/dev/null; do
@@ -1386,6 +1620,10 @@ jobs:
             fi
             echo "rc=$rc" >> "$GITHUB_OUTPUT"
             tail -1 certificate.out > certificate.json || true
+            if [ "$rc" = 0 ] && [ "${POST_SEAL:-}" = 1 ]; then
+              # Diagnostic only (O24): the standby rehearses against live /health.
+              echo "post-seal next candidate $SHA rehearsed its rollback against $(python3 -c 'import json;print(json.load(open("certificate.json")).get("rehearsedServingSha") or "none")' 2>/dev/null || echo unreadable) (sealed: ${SEALED_SHA:-unknown})"
+            fi
             # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
             # retained schema evidence must be the file the certified copy
             # recorded and bound to its dump; its installed set (less this
@@ -1393,7 +1631,8 @@ jobs:
             # release host compares production with it at cutover. No bound
             # set, no success (the verdict step below requires it).
             if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
-                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
+                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA" \
+                --control "${CONTROL_SHA:-}"); then
               echo "installed=$installed" >> "$GITHUB_OUTPUT"
             fi
           fi

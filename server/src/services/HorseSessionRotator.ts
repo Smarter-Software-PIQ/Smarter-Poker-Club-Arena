@@ -1044,6 +1044,7 @@ export class HorseSessionRotator {
           id: tableId,
           clusterId: t?.cluster_id ? String(t.cluster_id) : null,
           lifecycle: t?.lifecycle ?? null,
+          role: t?.role ?? null,
           horses: tableSeats.filter((x) => horseIds.has(x.user_id)).length,
         });
       }

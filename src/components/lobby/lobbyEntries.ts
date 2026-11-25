@@ -273,6 +273,8 @@ export interface LobbyEntry {
   entryCountStale?: boolean;
   players: number;
   capacity: number;
+  /** Cash board subscription count used to refresh an open waiting list. */
+  waitingCount?: number;
   /**
    * Set on the ONE row a must-move game gets on the board (R10). `players`
    * is then the count inside the whole game and `capacity` is 0: the game
@@ -1649,6 +1651,7 @@ export function cashEntry(t: LobbyTableRow, waiting = 0): LobbyEntry {
         ? 0
         : t.current_players || 0,
     capacity: cluster ? 0 : t.max_players || 0,
+    waitingCount: waiting,
     ...(cluster ? { game: cluster } : {}),
     startTime: null,
     startValue: Infinity,

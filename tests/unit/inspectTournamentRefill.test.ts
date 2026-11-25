@@ -29,10 +29,10 @@ const originalCase = {
 };
 const caseInput = { version: 1, sourceRelease: 'a'.repeat(40), cases: [originalCase] };
 function encodeCases(input: Buffer | string) {
-  return spawnSync('python3', [script, '--encode-reference-cases', 'a'.repeat(40)], {
+  return spawnSync('python3', ['-B', script, '--encode-reference-cases', 'a'.repeat(40)], {
     input,
     encoding: 'utf8',
-    timeout: 5000,
+    timeout: historyFixtureTimeoutMs,
   });
 }
 it('admits only bounded unique original metadata before any SSH or runtime read', () => {

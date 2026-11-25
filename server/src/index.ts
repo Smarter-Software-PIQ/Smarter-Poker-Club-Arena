@@ -33,6 +33,12 @@ import { subscribePlayerSessionRevocations } from './services/PlayerSessionAcces
 import { AsyncResource } from 'node:async_hooks';
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { createEngineHttpServer } from './http/createEngineHttpServer.js';
+import {
+  createInternalLivenessServer,
+  HTTP_LISTEN_BACKLOG,
+  INTERNAL_LIVENESS_HOST,
+  resolveInternalLivenessPort,
+} from './http/createInternalLivenessServer.js';
 import { describeError, reportError } from './services/errorReporter.js';
 import {
   flushEngineLifecycleLogs,
@@ -57,6 +63,7 @@ import {
   setBrainTelemetryGapSink,
   startBrainTelemetryFlush,
 } from './services/BrainTelemetryFlush.js';
+import { startHorseErrorLog } from './services/HorseErrorLog.js';
 import { handleHorseTelemetryGapEvent } from './services/horseTelemetryGapAlert.js';
 import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
@@ -104,6 +111,7 @@ import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+const INTERNAL_LIVENESS_PORT = resolveInternalLivenessPort(process.env, PORT);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MEMBER FEE ROLLUP - RETIRED (2026-09-04)
@@ -195,6 +203,8 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 const httpServer = createEngineHttpServer(
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
+const internalLivenessServer =
+  INTERNAL_LIVENESS_PORT > 0 ? createInternalLivenessServer(() => gameServer.getLiveness()) : null;
 // ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): with
 // ENGINE_ROLLING_HANDOFF=on and ENGINE_HANDOFF_PEER_PORT set, the relay takes
 // the server's upgrades first and re-emits every upgrade that stays here, so a
@@ -331,6 +341,9 @@ async function startLeaderOwnedServices(handoffTakeover = false): Promise<void> 
   // pre-action purge events are counted in this process; the decision
   // workers run their own flush for the decisions they make.
   startHorseUpgradeEvidenceFlush();
+  // The Horse error log (2026-11-24): decision fallbacks, legalizer corrections and worker failures
+  // become durable horse_error_log rows from here on (rows recorded earlier in boot are sent now).
+  startHorseErrorLog();
   // 2026-11-05: every file the Horse phase digests hash must be readable in
   // this image, or every phase sits in shadow with no forced authority (the
   // Nov 5 releases). The image build refuses that; this names it at boot
@@ -480,7 +493,23 @@ gameServer.onHandoffLeaderTakeover(() => {
   );
 });
 
-httpServer.listen(PORT, () => {
+if (internalLivenessServer) {
+  internalLivenessServer.on('error', (error) => {
+    reportError(error, 'InternalLivenessServer.listen_failed');
+  });
+  internalLivenessServer.listen(
+    INTERNAL_LIVENESS_PORT,
+    INTERNAL_LIVENESS_HOST,
+    HTTP_LISTEN_BACKLOG,
+    () => {
+      console.log(
+        `[HTTP] Internal loopback liveness server listening on ${INTERNAL_LIVENESS_HOST}:${INTERNAL_LIVENESS_PORT} (/livez)`
+      );
+    }
+  );
+}
+
+httpServer.listen(PORT, undefined, HTTP_LISTEN_BACKLOG, () => {
   // Module load and construction end here; /health bootPhases measures from process start.
   gameServer.markBootPhase('http_listening');
   console.log(`[HTTP] Health check server listening on port ${PORT}`);
@@ -566,6 +595,22 @@ function closeHttpServer(): Promise<void> {
   });
 }
 
+function closeInternalLivenessServer(): Promise<void> {
+  if (!internalLivenessServer || !internalLivenessServer.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    try {
+      internalLivenessServer.close((error) => (error ? reject(error) : resolve()));
+      internalLivenessServer.closeIdleConnections();
+      setTimeout(
+        () => internalLivenessServer.closeAllConnections(),
+        LOCAL_TRANSPORT_GRACE_MS
+      ).unref();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 async function performShutdown(): Promise<void> {
   console.log('\n[GameServer] Received shutdown signal...');
   // A stopping engine's final writes are never parked behind an event's bound.
@@ -602,6 +647,7 @@ async function performShutdown(): Promise<void> {
   const localStops = [
     beginShutdownStep('Player Session Revocations', () => unsubscribePlayerRevocations()),
     beginShutdownStep('HTTP server', closeHttpServer),
+    beginShutdownStep('internal liveness server', closeInternalLivenessServer),
     beginShutdownStep('table WebSocket server', () => engineWs.close()),
     beginShutdownStep('channel WebSocket server', () => channelWs.close()),
   ];

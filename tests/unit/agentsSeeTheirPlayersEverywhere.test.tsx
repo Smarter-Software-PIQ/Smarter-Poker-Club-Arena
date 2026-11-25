@@ -169,9 +169,9 @@ describe('deriveMyPlayers', () => {
 });
 
 describe('MyPlayersCard', () => {
-  it('says so when none of mine registered', () => {
+  it('keeps the lobby clear when none of mine registered', () => {
     render(<MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['absent']))} />);
-    expect(screen.getByText('None Of Your Players Registered For This Event')).toBeTruthy();
+    expect(screen.queryByLabelText('Your Players In This Event')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -250,6 +250,18 @@ describe('MyPlayersCard', () => {
     );
     expect(screen.queryByRole('button', { name: /Click And Watch/ })).toBeNull();
     expect(watch).not.toHaveBeenCalled();
+  });
+
+  it('shows finishing positions when the last player busts after the agent collapsed the live list', () => {
+    const mine = new Set(['danimal']);
+    const { rerender } = render(
+      <MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, mine)} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Players' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Players' }));
+    const out = [e('danimal', 0, 'eliminated', { position: 17 })];
+    rerender(<MyPlayersCard summary={deriveMyPlayers(T, out, TABLES, mine)} />);
+    expect(screen.getByText('Finished 17th')).toBeVisible();
   });
 
   it('opens the finishing list by itself once nobody is remaining', () => {

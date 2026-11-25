@@ -35,6 +35,8 @@ describe('fixed satellite paid admission plans', () => {
   });
   it('blocks every automated caller before horse selection when the union plan refuses', async () => {
     const service = new TournamentRecurringService() as any;
+    // No seat in this board is held for an invited friend (privateGameHolds.ts).
+    vi.spyOn(service.privateGameHolds, 'snapshot').mockResolvedValue(new Map());
     const load = vi.spyOn(service, 'horseLoadMap').mockResolvedValue(null);
     const event = {
       format_contract: 'sng-v1',

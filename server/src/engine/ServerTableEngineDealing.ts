@@ -124,7 +124,11 @@ import {
 } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
-import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
+import {
+  bindToProcessRoot,
+  currentTournamentDataAuthority,
+} from '../services/supabase/dataActorContext.js';
+import { subscribeSeatBoundaryChange } from '../cluster/seatBoundarySignals.js';
 
 /**
  * The number of award groups the CLIENT will animate for this hand.
@@ -161,7 +165,31 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   /** Both the startup wait and ordinary dealer use the original boundary. */
   protected override async passOperatorFloorBoundary(): Promise<boolean> {
     if (await super.passOperatorFloorBoundary()) return true;
-    return this.passHourlyCashBoundary();
+    return this.timeCashPrepareBranch('hourly_cash_boundary', this.passHourlyCashBoundary());
+  }
+
+  protected hasDeferredBankTheWin(): boolean {
+    return false;
+  }
+
+  /**
+   * Overlap read-only pre-deal checks (`refreshOperatorFloor`, and on
+   * clustered cash tables `pendingSeatMoves`) with `prepareNextHand()` so the
+   * dealing loop pays one parallel PostgREST wave instead of serializing three
+   * independent round trips under the 1,500 ms rest (incident 1e532243).
+   */
+  protected startPreDealReadOverlap(): void {
+    this.clearPreparedOperatorFloor();
+    this.clearPreparedPendingSeatMoves();
+    if (this.dealingHaltLock || !this.lifecycleCanMutate()) return;
+    this.startPreparedOperatorFloor((work) =>
+      this.timeCashPrepareBranch('refresh_operator_floor', work)
+    );
+    if (!this.isTournamentTable() && !this.hasDeferredBankTheWin()) {
+      this.startPreparedPendingSeatMoves((work) =>
+        this.timeCashPrepareBranch('pending_seat_moves', work)
+      );
+    }
   }
 
   /** Cash only. Never called by a timer or from inside an active hand. */
@@ -469,6 +497,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
         // Before the read: an arrival committed after this instant is caught by
         // the synchronous last look before dealHand (seatBoundarySignals).
+        this.startPreDealReadOverlap();
         this.captureSeatArrivalGeneration();
         const nextRoster = await this.prepareNextHand();
         if (!this.lifecycleCanMutate()) return;
@@ -617,17 +646,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               if (!this.isTournamentTable() && entryHold === 'moved') {
                 // Preserve the move marker until the destination admits this seat.
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
-                this.registerWaitForBB(p.user_id);
-                if (entryHold === 'waiting' && entryAgreed) {
-                  // An arrival already carrying a standing agreement to post.
-                  // Since 2026-11-15 no seat move writes one (every move lands
-                  // 'moved', docs/LAWS.md "A moved player never posts to
-                  // enter"); a row written before then is honoured once - the
-                  // live big blind on the next deal, held until clear if it
-                  // landed between the button and the blind.
-                  this.postBBWhenClear.add(p.user_id);
-                  this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
-                }
+                // A funded fresh arrival is ready to play. The existing
+                // position check admits a legal entry post after releasing
+                // whoever is naturally due the big blind.
+                this.registerWaitForBB(
+                  p.user_id,
+                  (entryHold === 'waiting' && entryAgreed) ||
+                    (p.stack > 0 &&
+                      !p.is_sitting_out &&
+                      !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+                );
               } else if (this.isTournamentTable()) {
                 // Tournament arrival: discard legacy entry debt; the natural
                 // blind rotation alone determines the blinds owed.
@@ -880,6 +908,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // counted at the deal itself, below.
         await this.evictExpiredSitOuts({ countOrbit: false });
 
+        this.setLoopPhase('operator_floor_boundary');
         if (await this.passOperatorFloorBoundary()) {
           await this.sleep(3000);
           continue;
@@ -1296,6 +1325,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           if (!this.lifecycleCanMutate()) return;
           this.prepareCashHandManifest(activePlayers);
         }
+        // NEW-ARRIVAL TIME-BANK READS RIDE THE REST (2026-11-25, cash_bust &
+        // tournament all_in_showdown hand-gap hardening). A player arriving via
+        // a tournament seat move or fresh cash seat has no cached bank or
+        // auto-activate preference on this table yet. Starting both read-only
+        // queries here (only while an active rest is open and no pause blocks
+        // the upcoming deal) overlaps announce_seat_moves, the rest, and F06
+        // begin instead of blocking dealHand serially.
+        if (
+          this.nextHandNotBeforeMs !== null &&
+          this.nextHandNotBeforeMs > Date.now() &&
+          !this.terminalCloseoutPaused &&
+          this.tournamentMovePauseOwners.size === 0
+        ) {
+          this.prepareTimeBankReads(activePlayers);
+        }
 
         // MUST-MOVE (Slice 2): a player with a planned move is told now, once,
         // that they move after this hand - HERE, immediately before the deal,
@@ -1638,7 +1682,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 } as never);
               }
 
-              if (this.handCompleteCallback && justBustedPlayers.length > 0) {
+              // Avoid double-notifying TournamentManager when Settlement already
+              // fired handCompleteCallback for this exact hand at HAND_COMPLETE
+              // (2026-11-25, root cause #4: the duplicate post-hold wake fired
+              // right at armNextHandRest t=0, launching a redundant elimination
+              // sweep and duplicate seat-head/consolidation pressure). Keep the
+              // fallback active whenever Settlement did not notify this hand.
+              if (
+                this.handCompleteCallback &&
+                justBustedPlayers.length > 0 &&
+                this.handCompleteCallbackNotifiedHandNumber !== this.handCount
+              ) {
                 try {
                   this.handCompleteCallback(
                     this.tableId,
@@ -1659,6 +1713,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 `[ServerTableEngine:${this.tableId}] Rebuy pause (<=5s) for: ${justBustedPlayers.map((p) => p.username).join(', ')}`
               );
               this.setLoopPhase('rebuy_pause');
+              // Overlap independent next-hand inputs with the rebuy pause so a
+              // full 5s pause does not pay hand-number allocation or stale
+              // table-config reads sequentially after the pause ends.
+              this.ensurePreparedHandNumber();
+              void this.refreshRakeConfig().catch(() => {});
+              void this.refreshDealingHalt().catch(() => {});
               /* SNAP-CONTINUE 2026-08-27. Dan's rule has two halves and only
                  one of them was built: "...to allow the player to rebuy in,
                  without skipping the hand, OR SNAP CONTINUES IF THEY CLICK NO
@@ -1678,7 +1738,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                  identical from the outside either way. */
               const rebuyPauseStart = Date.now();
               await this.waitForRebuyDecisions(
-                justBustedPlayers.map((p) => p.user_id).filter(Boolean),
+                justBustedPlayers
+                  .filter((p) => !this.wasBustedSeatReleasedThisHand(p))
+                  .map((p) => p.user_id)
+                  .filter(Boolean),
                 REBUY_PAUSE_MAX_MS
               );
               rebuyPauseMs = Math.max(0, Math.round(Date.now() - rebuyPauseStart));
@@ -2024,11 +2087,23 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * too (restFinishesAfterRetention). A saved original that a hold meets
    * before it starts is no longer fenced (`retained_original_start_unproven`):
    * it is released exactly once through fn_f06_cancel_retained_prepared_hand.
+   * 2026-11-25 (tournament all_in_showdown hand-gap root cause #3): widened
+   * F06_RESERVE_LEAD_MS (1250 -> 1500 ms) and SEQ1_RETAIN_LEAD_MS (650 -> 900 ms)
+   * after live production proof on 26b45e8d showed tables 968fff55 and f72c48d9
+   * sleeping 126-232 ms idle between seq-0 and seq-1 before a 1,221 ms seq-1
+   * blew past the 1,500 ms rest deadline. Keeping SEQ1_RETAIN_LEAD_MS at 900 ms
+   * preserves a 600 ms post-hold cancellation window (1500 - 900) so breaks,
+   * hand-for-hand barriers, and balancing moves still cancel a seq-0 prepared
+   * hand cleanly before seq-1 starts it, while giving seq-1 +250 ms more rest
+   * runway and preserving the exact nextHandNotBeforeMs (>= 1,500 ms) deadline.
    */
-  static readonly F06_RESERVE_LEAD_MS = 1000;
+  static readonly F06_RESERVE_LEAD_MS = 1500;
   /**
    * THE OPENING CONTINUATION BATCH (SEQ-1) RIDES THE END OF THE REST TOO
-   * (hand delay, 2026-11-22, incident 1e532243).
+   * (hand delay, 2026-11-22 / 2026-11-24, incident 1e532243; widened
+   * 2026-11-25 from 650 -> 900 ms so seq-1 absorbs peak-load tail latency
+   * while preserving a 600 ms pre-start pause/cancellation window under the
+   * 1,500 ms rest).
    *
    * Even after F06_RESERVE_LEAD_MS moved fn_f06_begin_hand and seq-0 under
    * the 1,500 ms rest, runOriginalController waited until the rest expired
@@ -2039,8 +2114,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * Stopping SEQ1_RETAIN_LEAD_MS before the rest ends retains seq-1 under the
    * rest while holding event dispatch, publishedHandState and flushSnapshot
    * until awaitNextHandRest() finishes on the exact rest boundary.
+   * 2026-11-24: widened F06_RESERVE_LEAD_MS (1000 -> 1250 ms) and
+   * SEQ1_RETAIN_LEAD_MS (400 -> 650 ms) after live peak-load production
+   * telemetry showed dealing p90 = 1,355 ms and seq-1 up to 562 ms while
+   * next_hand_rest sat idle for 730 ms p50.
    */
-  static readonly SEQ1_RETAIN_LEAD_MS = 400;
+  static readonly SEQ1_RETAIN_LEAD_MS = 900;
   private restFinishesInsideDeal = false;
   private restBlindRead: Promise<unknown> | null = null;
   /** Set by dealHand when its post-rest last look refused the deal. */
@@ -2132,6 +2211,70 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     );
   }
 
+  /**
+   * Sleep until `deadlineMs` on a cash table, waking immediately if a relevant
+   * seat-boundary signal (arrival at this table, targeted move/swap, or — on
+   * non-Main-1 tables — a game-wide move plan) commits during the rest.
+   * Returns `true` when woken early for a boundary change so `awaitNextHandRest`
+   * can return WITHOUT clearing `nextHandNotBeforeMs` and let the 2nd
+   * `prepareNextHand()` pass run inside the remaining rest window.
+   */
+  private async sleepUntilWithSeatBoundaryWake(deadlineMs: number): Promise<boolean> {
+    if (this.hasPendingSeatBoundaryChange()) return true;
+    let wokeByBoundary = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let resolveCurrentSleep: (() => void) | null = null;
+    const onBoundary = (): void => {
+      if (wokeByBoundary) return;
+      wokeByBoundary = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      const resolve = resolveCurrentSleep;
+      resolveCurrentSleep = null;
+      resolve?.();
+    };
+    const unsubscribe = subscribeSeatBoundaryChange(
+      {
+        tableId: this.tableId,
+        gameId: this.isPrimaryMainTable() ? null : (this.tableInfo?.cluster_id ?? null),
+      },
+      onBoundary
+    );
+    const sleepInterruptible = (ms: number): Promise<void> => {
+      if (wokeByBoundary || !(ms > 0)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        resolveCurrentSleep = resolve;
+        timer = setTimeout(() => {
+          timer = null;
+          resolveCurrentSleep = null;
+          resolve();
+        }, ms);
+      });
+    };
+    try {
+      if (this.hasPendingSeatBoundaryChange()) return true;
+      const left = deadlineMs - Date.now();
+      if (left > 0) {
+        await sleepInterruptible(left);
+        if (wokeByBoundary || this.hasPendingSeatBoundaryChange()) return true;
+        const residue = deadlineMs - Date.now();
+        if (residue > 0 && residue <= ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS) {
+          await sleepInterruptible(residue + ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS);
+        }
+      }
+      return wokeByBoundary || this.hasPendingSeatBoundaryChange();
+    } finally {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolveCurrentSleep = null;
+      unsubscribe();
+    }
+  }
+
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
     if (this.seq1RestStopShortMs > 0) {
@@ -2151,13 +2294,25 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const remaining = this.nextHandNotBeforeMs - Date.now();
       if (remaining > 0) {
         this.setLoopPhase('next_hand_rest');
-        const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
-        if (remaining > lead) await this.sleep(remaining - lead);
-        startBlindRead();
-        // withStepBudget names its own phase; the felt is still resting.
-        this.setLoopPhase('next_hand_rest');
-        const left = (this.nextHandNotBeforeMs ?? Date.now()) - Date.now();
-        if (left > 0) await this.sleep(left);
+        if (!this.isTournamentTable()) {
+          const wokeForBoundary = await this.sleepUntilWithSeatBoundaryWake(
+            this.nextHandNotBeforeMs
+          );
+          // Leave nextHandNotBeforeMs and the open gap/breach span intact so
+          // the loop runs its 2nd prepareNextHand() inside the remaining rest
+          // and deals on time at the original deadline.
+          if (wokeForBoundary && this.hasPendingSeatBoundaryChange()) return;
+        } else {
+          const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
+          if (remaining > lead) await this.sleep(remaining - lead);
+          startBlindRead();
+          // withStepBudget names its own phase; the felt is still resting.
+          this.setLoopPhase('next_hand_rest');
+          // Not before the deadline: one timer can wake 1-2 ms short of it,
+          // which started the next hand at rest - 1 ms (2026-11-23,
+          // ServerTableEngineBase.NODE_TIMER_EARLY_WAKE_MAX_MS).
+          if (this.nextHandNotBeforeMs !== null) await this.sleepUntil(this.nextHandNotBeforeMs);
+        }
       }
       this.nextHandNotBeforeMs = null;
     }
@@ -2186,15 +2341,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       });
     }
     // Cash next-hand start (Dan 2026-11-05): the clock keeps running through
-    // dealHand's own awaits and stops at the controller start. Recomputed on
-    // every pass, so a loop that goes round again leaves no stale anchor.
-    this.cashDealGapAnchorMs =
-      this.lastCompletionAtMs !== null &&
-      !this.gapSawIdle &&
-      !this.gapHadRebuyPause &&
-      !this.isTournamentTable()
-        ? this.lastCompletionAtMs
-        : null;
+    // dealHand's own awaits and stops at the controller start. Preserve the
+    // anchor across a re-prepare pass (e.g. seatBoundaryChangedUnderRest) that
+    // did not idle or rebuy-pause, so a second dealing pass still records its
+    // true total gap on /health instead of dropping the sample.
+    if (this.lastCompletionAtMs !== null) {
+      this.cashDealGapAnchorMs =
+        !this.gapSawIdle && !this.gapHadRebuyPause && !this.isTournamentTable()
+          ? this.lastCompletionAtMs
+          : null;
+    } else if (this.gapSawIdle || this.gapHadRebuyPause || this.isTournamentTable()) {
+      this.cashDealGapAnchorMs = null;
+    }
     // The breach span: from here to the controller start is the deal itself.
     if (this.cashBreachSpan) {
       this.cashBreachSpan.restEnded = true;
@@ -2272,6 +2430,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * A wait the metric contract excludes says so in `excluded`.
    */
   private settleCashBreachSpan(outcome: 'aborted', reason: string): void {
+    this.cashDealGapAnchorMs = null;
     const span = this.cashBreachSpan;
     if (!span) return;
     this.cashBreachSpan = null;
@@ -2288,6 +2447,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         gapMs,
         at: Date.now(),
         stages,
+        prepareSpansMs: span.subSpansMs(),
         settlement: this.cashBreachSettlement(span.handNumber),
       });
     } catch {
@@ -2314,7 +2474,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   override stop(): Promise<void> {
     this.settleCashBreachSpan('aborted', 'table_stopped');
+    this.clearPreparedTimeBankReads();
     return super.stop();
+  }
+
+  protected override discardPreparedHandForPause(): boolean {
+    const discarded = super.discardPreparedHandForPause();
+    if (discarded) this.clearPreparedTimeBankReads();
+    return discarded;
   }
 
   protected override killForRestart(
@@ -2331,6 +2498,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           .replace(/[^a-z0-9_:]/g, '_')
           .slice(0, 80)
     );
+    this.clearPreparedTimeBankReads();
     super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
   }
 
@@ -2410,6 +2578,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * The roster read failing still throws exactly as before; the other two
    * settle on their own and are consumed where they always were.
    */
+  /** Record one parallel prepare branch's elapsed duration onto the active cash breach span. */
+  private timeCashPrepareBranch<T>(name: string, work: Promise<T>): Promise<T> {
+    const span = this.cashBreachSpan;
+    if (!span) return work;
+    const startedAt = performance.now();
+    const record = (): void => {
+      span.recordSubSpan(name, Math.max(0, performance.now() - startedAt));
+    };
+    return work.then(
+      (value) => {
+        record();
+        return value;
+      },
+      (err) => {
+        record();
+        throw err;
+      }
+    );
+  }
+
   protected async prepareNextHand(): Promise<SeatedPlayer[]> {
     const releaseSeatBoundary = await this.acquireSeatBoundary();
     try {
@@ -2506,6 +2694,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           undefined,
           (userId, occupancyId) => this.noteLightningDeferredLeave(userId, occupancyId)
         );
+        rawSweep = this.timeCashPrepareBranch('leave_pending', rawSweep);
         budgetedSweep = this.withStepBudget(
           'leave_pending',
           ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
@@ -2513,39 +2702,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         );
         this.preparedLeavePending = budgetedSweep;
       }
-      if (this.preparedHandNumber === null) {
-        const issuerEpoch = this.allocatorMeasurement?.capture();
-        const prepare = () => this.allocateGlobalHandNumber();
-        const allocation = this.allocatorMeasurement
-          ? this.allocatorMeasurement.job('preparation', issuerEpoch!, prepare)
-          : prepare();
-        /* A FAILED ALLOCATION IS ONE ATTEMPT (2026-09-26). The failure
-           travels inside this preparation's own outcome and is taken by the
-           one deal attempt it belongs to. It used to be written to a field
-           that nothing but the Manager's retry sweep ever cleared, so a single
-           statement timeout behind the tournament's settlement lane
-           (production, 03:45 UTC, release 92d59cfb) was re-thrown on every
-           later deal attempt while the allocator was answering again: table
-           16de0024 sat 183 s until the zombie watchdog rebuilt it. An
-           allocation claims no hand - custody begins at fn_f06_begin_hand -
-           so the next preparation simply allocates fresh; a lost reply costs
-           at most a burned number. */
-        this.preparedHandNumber = allocation
-          .then((n): PreparedHandNumberOutcome => {
-            this.allocatorMeasurement?.assertAdmission(issuerEpoch!);
-            return { n, at: Date.now(), epoch: this.f06AllocationEpoch, issuerEpoch };
-          })
-          .catch((err: unknown): PreparedHandNumberOutcome => {
-            const f06 = this.hasF06Allocator();
-            console.warn(
-              f06
-                ? `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; this deal attempt fails and the next one allocates fresh:`
-                : `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; dealHand will retry:`,
-              err instanceof Error ? err.message : err
-            );
-            return f06 ? { failure: err ?? new Error('f06_allocation_unproven') } : null;
-          });
-      }
+      this.ensurePreparedHandNumber();
+      // PREFETCH F06 HAND-NUMBER STATE IN PARALLEL WITH ROSTER READ (2026-11-25,
+      // root cause #1): fn_f06_hand_number_state takes only (tournament, lease,
+      // table) and does not depend on loadSeatedPlayers or handNumber. Starting
+      // it here removes one full serial PostgREST RTT from reserveF06Hand().
+      this.prefetchF06HandState();
       // A failed sibling read or elapsed step budget does not cancel a
       // transaction. Join the raw cashout before releasing engine ownership.
       // Read and cashout still start together; no new polling is introduced.
@@ -2569,6 +2731,41 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     } finally {
       releaseSeatBoundary();
     }
+  }
+
+  protected ensurePreparedHandNumber(): void {
+    if (this.preparedHandNumber !== null) return;
+    const issuerEpoch = this.allocatorMeasurement?.capture();
+    const prepare = () => this.allocateGlobalHandNumber();
+    const allocation = this.allocatorMeasurement
+      ? this.allocatorMeasurement.job('preparation', issuerEpoch!, prepare)
+      : prepare();
+    /* A FAILED ALLOCATION IS ONE ATTEMPT (2026-09-26). The failure
+       travels inside this preparation's own outcome and is taken by the
+       one deal attempt it belongs to. It used to be written to a field
+       that nothing but the Manager's retry sweep ever cleared, so a single
+       statement timeout behind the tournament's settlement lane
+       (production, 03:45 UTC, release 92d59cfb) was re-thrown on every
+       later deal attempt while the allocator was answering again: table
+       16de0024 sat 183 s until the zombie watchdog rebuilt it. An
+       allocation claims no hand - custody begins at fn_f06_begin_hand -
+       so the next preparation simply allocates fresh; a lost reply costs
+       at most a burned number. */
+    this.preparedHandNumber = allocation
+      .then((n): PreparedHandNumberOutcome => {
+        this.allocatorMeasurement?.assertAdmission(issuerEpoch!);
+        return { n, at: Date.now(), epoch: this.f06AllocationEpoch, issuerEpoch };
+      })
+      .catch((err: unknown): PreparedHandNumberOutcome => {
+        const f06 = this.hasF06Allocator();
+        console.warn(
+          f06
+            ? `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; this deal attempt fails and the next one allocates fresh:`
+            : `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; dealHand will retry:`,
+          err instanceof Error ? err.message : err
+        );
+        return f06 ? { failure: err ?? new Error('f06_allocation_unproven') } : null;
+      });
   }
 
   private preparedLeavePending: ReturnType<typeof processLeavePending> | null = null;
@@ -2806,9 +3003,140 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     this.preparedHandNumberValue = outcome;
   }
 
+  private preparedTimeBankExtras: {
+    userIds: ReadonlySet<string>;
+    at: number;
+    result: Promise<Awaited<ReturnType<ServerTableEngineBase['fetchTimeBankExtras']>> | null>;
+  } | null = null;
+  private preparedAutoTimeBankPreferences: {
+    userIds: ReadonlySet<string>;
+    at: number;
+    result: Promise<Map<string, boolean> | null>;
+  } | null = null;
+
+  protected clearPreparedTimeBankReads(): void {
+    this.preparedTimeBankExtras = null;
+    this.preparedAutoTimeBankPreferences = null;
+  }
+
+  /**
+   * Pre-fetches time-bank allowances and auto-activate preferences for players
+   * not yet cached on this table (for example, players arriving from a
+   * tournament seat move or fresh cash seat) so those read-only queries
+   * overlap the rest and F06 reservation instead of blocking dealHand serially.
+   * Reuses a fresh matching in-flight prefetch when a second dealing pass runs
+   * under an active rest.
+   */
+  protected prepareTimeBankReads(players: readonly SeatedPlayer[]): void {
+    if (
+      !this.timeBankEngine ||
+      typeof this.timeBankEngine.getPlayerBank !== 'function' ||
+      typeof this.timeBankEngine.hasAutoActivatePreference !== 'function' ||
+      this.isNextHandPaused() ||
+      this.terminalCloseoutPaused ||
+      this.tournamentMovePauseOwners.size > 0 ||
+      players.length === 0
+    ) {
+      this.clearPreparedTimeBankReads();
+      return;
+    }
+    const tbNewIds: string[] = [];
+    const prefIds: string[] = [];
+    for (const p of players) {
+      if (!p.user_id) continue;
+      if (!this.timeBankEngine.getPlayerBank(this.tableId, p.user_id)) tbNewIds.push(p.user_id);
+      if (!this.timeBankEngine.hasAutoActivatePreference(this.tableId, p.user_id)) {
+        prefIds.push(p.user_id);
+      }
+    }
+    const now = Date.now();
+    const existingExtras = this.preparedTimeBankExtras;
+    const reuseExtras =
+      existingExtras !== null &&
+      tbNewIds.length > 0 &&
+      now - existingExtras.at <= ServerTableEngineDealing.PREPARED_HAND_NUMBER_MAX_AGE_MS &&
+      tbNewIds.every((id) => existingExtras.userIds.has(id));
+    if (!reuseExtras) {
+      this.preparedTimeBankExtras = null;
+      if (tbNewIds.length > 0) {
+        let extrasCall: ReturnType<ServerTableEngineBase['fetchTimeBankExtras']> | null = null;
+        try {
+          extrasCall = this.fetchTimeBankExtras(tbNewIds);
+        } catch {
+          extrasCall = null;
+        }
+        if (extrasCall) {
+          this.preparedTimeBankExtras = {
+            userIds: new Set(tbNewIds),
+            at: now,
+            result: extrasCall.catch(() => null),
+          };
+        }
+      }
+    }
+    const existingPrefs = this.preparedAutoTimeBankPreferences;
+    const reusePrefs =
+      existingPrefs !== null &&
+      prefIds.length > 0 &&
+      now - existingPrefs.at <= ServerTableEngineDealing.PREPARED_HAND_NUMBER_MAX_AGE_MS &&
+      prefIds.every((id) => existingPrefs.userIds.has(id));
+    if (!reusePrefs) {
+      this.preparedAutoTimeBankPreferences = null;
+      if (prefIds.length > 0) {
+        this.preparedAutoTimeBankPreferences = {
+          userIds: new Set(prefIds),
+          at: now,
+          result: readAutoTimeBankPreferences(prefIds).catch(() => null),
+        };
+      }
+    }
+  }
+
+  protected async takePreparedTimeBankExtras(
+    userIds: string[]
+  ): ReturnType<ServerTableEngineBase['fetchTimeBankExtras']> {
+    const prepared = this.preparedTimeBankExtras;
+    this.preparedTimeBankExtras = null;
+    if (userIds.length === 0) return this.fetchTimeBankExtras(userIds);
+    if (
+      prepared &&
+      Date.now() - prepared.at <= ServerTableEngineDealing.PREPARED_HAND_NUMBER_MAX_AGE_MS &&
+      userIds.every((id) => prepared.userIds.has(id))
+    ) {
+      const resolved = await prepared.result;
+      if (resolved) return resolved;
+    }
+    return this.fetchTimeBankExtras(userIds);
+  }
+
+  protected async takePreparedAutoTimeBankPreferences(
+    userIds: string[]
+  ): Promise<Map<string, boolean>> {
+    const prepared = this.preparedAutoTimeBankPreferences;
+    this.preparedAutoTimeBankPreferences = null;
+    if (userIds.length === 0) return new Map();
+    if (
+      prepared &&
+      Date.now() - prepared.at <= ServerTableEngineDealing.PREPARED_HAND_NUMBER_MAX_AGE_MS &&
+      userIds.every((id) => prepared.userIds.has(id))
+    ) {
+      const resolved = await prepared.result;
+      if (resolved) return resolved;
+    }
+    return readAutoTimeBankPreferences(userIds).catch((error) => {
+      reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
+      // Do not spend a paid bank on an unreadable opt-out. The player's
+      // next foreground heartbeat supplies the actual choice.
+      return new Map(userIds.map((id) => [id, false]));
+    });
+  }
+
   protected override invalidatePreparedAllocatorValue(): void {
     this.preparedHandNumberValue = null;
     this.preparedHandNumber = null; // Raw job/request remains in the issuer registry.
+    this.clearPrefetchedF06HandState();
+    this.preparedTimeBankExtras = null;
+    this.preparedAutoTimeBankPreferences = null;
   }
   protected override countReusableAllocatorValues(): number {
     return this.preparedHandNumberValue ? 1 : 0;
@@ -2972,12 +3300,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.withStepBudget(
         'load_seats',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        loadSeatedPlayers(this.tableId)
+        this.timeCashPrepareBranch('load_seats', loadSeatedPlayers(this.tableId))
       ),
       this.withStepBudget(
         'refresh_rake',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.refreshRakeConfig()
+        this.timeCashPrepareBranch('refresh_rake', this.refreshRakeConfig())
       ),
       /* THE HALT, READ ONCE PER HAND ON A CLUSTER TABLE (2026-09-25). In
          parallel with the roster, so it costs the deal no latency, and on
@@ -2989,7 +3317,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.withStepBudget(
         'refresh_dealing_halt',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.refreshDealingHalt()
+        this.timeCashPrepareBranch('refresh_dealing_halt', this.refreshDealingHalt())
       ),
     ] as const;
     this.setLoopPhase('load_next_hand_inputs');
@@ -3015,7 +3343,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       return await this.withStepBudget(
         'load_seats_after_halt_lift',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        loadSeatedPlayers(this.tableId)
+        this.timeCashPrepareBranch('load_seats_after_halt_lift', loadSeatedPlayers(this.tableId))
       );
     }
     return seats.value;
@@ -3237,6 +3565,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       }
       this.handsDealtThisSession++;
       const handNumber = this.handCount;
+      this.handCompleteCallbackNotifiedHandNumber = null;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
       this.currentHandStartedAt = handStartMs;
       this.currentHandCadence = this.pendingPriorHandCadence;
@@ -4379,6 +4708,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandDealtStacks = new Map(
         hcPlayers.map((p) => [p.user_id, Number(p.stack) || 0] as [string, number])
       );
+      this.releasedBustedSeatsThisHand.clear();
 
       // ── ADDITIVE observability (#5): hands-dealt counter (always) + hand span (flag-gated) ──
       try {
@@ -4494,13 +4824,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         .map((p) => p.user_id);
       this.cashBreachSpan?.enter('deal_time_bank_reads');
       const [tbExtras, autoPreferences] = await Promise.all([
-        this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
-        readAutoTimeBankPreferences(preferenceIds).catch((error) => {
-          reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
-          // Do not spend a paid bank on an unreadable opt-out. The player's
-          // next foreground heartbeat supplies the actual choice.
-          return new Map(preferenceIds.map((id) => [id, false]));
-        }),
+        this.takePreparedTimeBankExtras
+          ? this.takePreparedTimeBankExtras(tbNewPlayers.map((p) => p.user_id))
+          : this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
+        this.takePreparedAutoTimeBankPreferences
+          ? this.takePreparedAutoTimeBankPreferences(preferenceIds)
+          : readAutoTimeBankPreferences(preferenceIds).catch((error) => {
+              reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
+              // Do not spend a paid bank on an unreadable opt-out. The player's
+              // next foreground heartbeat supplies the actual choice.
+              return new Map(preferenceIds.map((id) => [id, false]));
+            }),
       ]);
       this.cashBreachSpan?.enter('dealing');
       /**
@@ -4605,6 +4939,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           gapMs: breachEnd.gapMs,
           at: startAtMs,
           stages: breachEnd.stages,
+          prepareSpansMs: breachSpan.subSpansMs(),
           settlement: this.cashBreachSettlement(breachSpan.handNumber),
         });
       }
@@ -4680,6 +5015,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.restBlindReadConsumed = false;
       this.handPreparedUnderTheRest = false;
       this.seq1RestStopShortMs = 0;
+      if (!handStarted) {
+        this.preparedTimeBankExtras = null;
+        this.preparedAutoTimeBankPreferences = null;
+      }
       releaseSeatBoundary();
       try {
         // The exact continuation has finished all preparation awaits and never
@@ -5502,31 +5841,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   protected async persistDiscardedCard(userId: string, seat: number, card: unknown): Promise<void> {
     const handNumberAtDiscard = this.handCount;
-    try {
-      const { error } = await supabase.from('hand_discards').upsert(
-        {
-          table_id: this.tableId,
-          hand_number: handNumberAtDiscard,
-          user_id: userId,
-          seat_number: seat,
-          discarded_card: card,
-        },
-        { onConflict: 'table_id,hand_number,user_id' }
-      );
-      if (error) {
-        reportError(
-          new Error(`hand_discards upsert failed: ${error.message}`),
-          `ServerTableEngine.${this.tableId}.hand_discards_failed`,
-          { userId, seat, handNumber: handNumberAtDiscard }
+    const tableId = this.tableId;
+    await bindToProcessRoot(async () => {
+      try {
+        const { error } = await supabase.from('hand_discards').upsert(
+          {
+            table_id: tableId,
+            hand_number: handNumberAtDiscard,
+            user_id: userId,
+            seat_number: seat,
+            discarded_card: card,
+          },
+          { onConflict: 'table_id,hand_number,user_id' }
         );
+        if (error) {
+          reportError(
+            new Error(`hand_discards upsert failed: ${error.message}`),
+            `ServerTableEngine.${tableId}.hand_discards_failed`,
+            { userId, seat, handNumber: handNumberAtDiscard }
+          );
+        }
+      } catch (err) {
+        reportError(err, `ServerTableEngine.${tableId}.hand_discards_threw`, {
+          userId,
+          seat,
+          handNumber: handNumberAtDiscard,
+        });
       }
-    } catch (err) {
-      reportError(err, `ServerTableEngine.${this.tableId}.hand_discards_threw`, {
-        userId,
-        seat,
-        handNumber: handNumberAtDiscard,
-      });
-    }
+    })();
   }
 
   private holeCardWriteBatches?: Map<
@@ -5691,7 +6033,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     alreadyRead?: Map<string, number>
   ): Promise<boolean> {
     if (this.tableInfo?.arena?.asset === 'diamonds') return false;
-    if (busted.length === 0) return false;
+    const stillSeated = busted.filter((p) => !this.wasBustedSeatReleasedThisHand(p));
+    if (stillSeated.length === 0) return false;
 
     // The minimum the purchase itself enforces (atomic_table_rebuy).
     const minBuyIn = cashRebuyMinimum(this.tableInfo);
@@ -5704,7 +6047,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // that decides the reload itself - this used to hard-code `< 2`, which
     // held the felt for a nit that was leaving and did not hold it for a
     // gambler that was reloading (2026-09-09).
-    const horses = busted.filter((p) => p.is_horse);
+    const horses = stillSeated.filter((p) => p.is_horse);
     for (const horse of horses) {
       if (
         !rebuyStopLossReached(
@@ -5716,7 +6059,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return true;
     }
 
-    const humans = busted.filter((p) => !p.is_horse);
+    const humans = stillSeated.filter((p) => !p.is_horse);
     if (humans.length === 0) return false; // Every horse present is at stop-loss.
 
     /* The wallet each SEAT was bought from, not the table's club: a union
@@ -6109,7 +6452,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     busted: SeatedPlayer[]
   ): Promise<Map<string, number> | undefined> {
     if (!this.bustRebuyWindowApplies()) return undefined;
-    const humans = busted.filter((p) => p.user_id && !p.is_horse);
+    const humans = busted.filter(
+      (p) => p.user_id && !p.is_horse && !this.wasBustedSeatReleasedThisHand(p)
+    );
     if (humans.length === 0) return undefined;
     const balances = await readSeatWalletBalances(
       this.tableId,

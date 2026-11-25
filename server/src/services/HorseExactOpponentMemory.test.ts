@@ -2,6 +2,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ rpc: vi.fn(), abortSignal: vi.fn() }));
 vi.mock('./supabase.js', () => ({ supabase: { rpc: mock.rpc } }));
 import { readExactHorseOpponentProfiles } from './HorseExactOpponentMemory.js';
+import {
+  currentTournamentIdOrNull,
+  runWithTournamentDataAuthority,
+} from './supabase/dataActorContext.js';
 import { freshExploitCounters } from '../engine/HorseOpponentExploit.js';
 const id = '10000000-0000-4000-8000-000000000001';
 const domain = { version: 1, speed: 'lightning', ante: 'big_blind' } as const;
@@ -32,6 +36,22 @@ it('reads only the exact saved public domain with a bounded original request', a
     p_ante: 'big_blind',
   });
   expect(mock.abortSignal.mock.calls[0][0]).toBeInstanceOf(AbortSignal);
+});
+it('runs outside tournament data authority so observe-only reads never lock leases or consume EventDbBulkhead', async () => {
+  let observedTournamentId: string | null | undefined;
+  mock.rpc.mockImplementation(() => {
+    observedTournamentId = currentTournamentIdOrNull();
+    return { abortSignal: mock.abortSignal };
+  });
+  mock.abortSignal.mockResolvedValueOnce({ data: [], error: null });
+  await runWithTournamentDataAuthority(
+    {
+      tournamentId: '64b7c660-575a-45d7-8e76-55f9ae758cc1',
+      leaseGeneration: '11111111-1111-4111-8111-111111111111',
+    },
+    () => readExactHorseOpponentProfiles([id], 'nlh', 'tournament', 'full', domain)
+  );
+  expect(observedTournamentId).toBeNull();
 });
 it('does not query unknown original rules', async () => {
   expect(await readExactHorseOpponentProfiles([id], 'plo6', 'cash', 'short', null)).toEqual([]);

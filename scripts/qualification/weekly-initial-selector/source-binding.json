@@ -278,8 +278,8 @@
       "sha256": "0e9661dc97f699f25859a37e182744ae980e0949b0fa6194f82180d9e5b3b7ff"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146313,
-      "sha256": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab"
+      "bytes": 147115,
+      "sha256": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2937,5 +2937,18 @@
     },
     "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification.",
     "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
+  },
+  "spinBooksNetOfRefundsAccountingShard4_20261124": {
+    "reason": "Required accounting shard 4 gains one additive step (and its evidence upload) that runs the throwaway PostgreSQL 17 proof that a Spin's third paid seat is proven net of refunds (scripts/ci/test-spin-books-net-of-refunds.py, incident 7e8dce13, migration 20261124172844). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab",
+        "current": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
   }
 }

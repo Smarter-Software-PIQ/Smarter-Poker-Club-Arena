@@ -417,7 +417,7 @@ describe('Find Your Game starts with two separate sections', () => {
     await flush();
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const filterTabs = within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole(
+    const filterTabs = within(screen.getByRole('dialog', { name: 'Game Filters' })).getByRole(
       'group',
       { name: 'Game Type' }
     );
@@ -431,6 +431,24 @@ describe('Find Your Game starts with two separate sections', () => {
     fireEvent.click(tournaments);
     await flush();
     expect(names()).toEqual(["MTT'S", 'SPINS', "SIT N GO'S", 'SATELLITES']);
+    const headingEl = document.querySelector('.lobby-controls__heading');
+    const sectionsEl = document.querySelector('.lobby-game-sections');
+    const favoritesRowEl = document.querySelector('.lobby-controls__favorites-row');
+    const favoritesBtnEl = document.querySelector('.lobby-controls__favorites');
+    const sectionControlsEl = document.getElementById('lobby-game-section-controls');
+    expect(headingEl?.querySelector('.lobby-controls__favorites')).toBeNull();
+    expect(favoritesRowEl?.contains(favoritesBtnEl)).toBe(true);
+    expect(
+      Boolean(
+        headingEl &&
+        sectionsEl &&
+        favoritesRowEl &&
+        sectionControlsEl &&
+        headingEl.compareDocumentPosition(sectionsEl) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        sectionsEl.compareDocumentPosition(favoritesRowEl) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        favoritesRowEl.compareDocumentPosition(sectionControlsEl) & Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ).toBe(true);
     expect(
       document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
     ).not.toBeNull();
@@ -624,7 +642,7 @@ describe('lobby filters stay attached to the selected game', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    const dialog = screen.getByRole('dialog', { name: 'Game Filters' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Spins', exact: true }));
     await flush();
     expect(screen.getByRole('tab', { name: 'SPINS', exact: true })).toHaveAttribute(
@@ -663,7 +681,7 @@ it.each(['SPINS', "SIT N GO'S"])(
     fireEvent.click(screen.getByRole('tab', { name: label, exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    const dialog = screen.getByRole('dialog', { name: 'Game Filters' });
     expect(within(dialog).queryByRole('button', { name: 'Starting Time', exact: true })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Most Players', exact: true })).toBeTruthy();
   }
@@ -707,7 +725,7 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
   fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
   await flush();
   fireEvent.click(
-    within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole('button', {
+    within(screen.getByRole('dialog', { name: 'Game Filters' })).getByRole('button', {
       name: 'Starting Time',
       exact: true,
     })

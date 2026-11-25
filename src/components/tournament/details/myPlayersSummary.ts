@@ -35,6 +35,7 @@ export type MyPlayerState = 'registered' | 'live' | 'out' | 'winner' | 'qualifie
 export interface MyPlayer {
   userId: string;
   username: string;
+  avatarUrl?: string | null;
   state: MyPlayerState;
   /** Live chip rank among the remaining field; null unless `live`. */
   rank: number | null;
@@ -153,6 +154,7 @@ export function deriveMyPlayers(
     players.push({
       userId: e.user_id,
       username: e.username,
+      avatarUrl: e.avatar_url,
       state,
       rank,
       position,

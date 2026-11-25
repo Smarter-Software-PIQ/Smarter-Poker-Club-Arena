@@ -141,6 +141,16 @@ while read -r WT; do
   REMOVED=$((REMOVED+1))
 done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
 
-git worktree prune
+# 2026-11-24: never a bare prune. A worktree on a drive that is not mounted looks
+# exactly like a deleted one, and on 2026-11-22 a prune during a 30-minute SSD1
+# drop deleted the registrations of every tree on that drive. The helper keeps
+# every registration whose drive is not mounted, and a dry run prunes nothing
+# (it used to prune for real). `|| true`: a refused prune is reported by the
+# helper and must not fail a run whose removals above already succeeded.
+if [ "$DRY_RUN" = "1" ]; then
+  node "$REPO_ROOT/scripts/ops/safe-worktree-prune.mjs" --repo "$REPO_ROOT" --dry-run || true
+else
+  node "$REPO_ROOT/scripts/ops/safe-worktree-prune.mjs" --repo "$REPO_ROOT" || true
+fi
 echo "---"
 echo "idle>${IDLE_HOURS}h+pushed+clean: ${REMOVED} pruned$( [ "$DRY_RUN" = "1" ] && echo ' (dry run)') | kept: ${KEPT_ACTIVE} active, ${KEPT_DIRTY} dirty, ${KEPT_UNPUSHED} unpushed"

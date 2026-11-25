@@ -571,3 +571,29 @@ it('keeps the submission latch until definitive receipt cleanup finishes', async
   expect(f.d.buyInProcessingRef.current).toBe(false);
   expect(f.d.cashBuyInJournal.read(f.d.userId, f.d.tableId)).toBeNull();
 });
+
+it('shows Feeder Join Game copy on must-move SEAT_RESERVED and opens the game lobby', async () => {
+  const f = fixture();
+  f.d.supabase.rpc.mockImplementation((name: string) =>
+    Promise.resolve({
+      data: name === 'fn_ca_cash_buyin_receipt' ? { status: 'unconfirmed' } : null,
+      error:
+        name === 'atomic_table_buyin'
+          ? {
+              code: 'P0001',
+              message: 'SEAT_RESERVED: this seat goes to the next player on the must-move list',
+            }
+          : null,
+    })
+  );
+  expect(await f.handler(100, false)).toBe(false);
+  await Promise.resolve();
+  expect(f.d.setPendingSeat).toHaveBeenCalledWith(null);
+  expect(f.d.setSelectedSeat).toHaveBeenCalledWith(null);
+  expect(f.d.setShowBuyInModal).toHaveBeenCalledWith(false);
+  expect(f.d.handleOpenWaitlist).toHaveBeenCalledOnce();
+  expect(f.d.toast.info).toHaveBeenCalledWith(
+    'This Seat Goes To The Next Player On The Must Move List. Tap Join Game To Sit At The Feeder Table.'
+  );
+  expect(f.d.toast.error).not.toHaveBeenCalled();
+});

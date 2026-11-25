@@ -38,6 +38,16 @@
 .club-home .lobby-sticky-filters .lobby-filter-label__text {
   font-size: calc(var(--lobby-key-font, 18px) * var(--fit, 1));
 }
+/* Revealing the quick controls during a phone scroll must leave the game
+   under the player's finger at the same point in the catalogue. */
+@media (max-width: 900px) {
+  .club-home .lobby-sticky-filters {
+    --quick-rail-height: 48px;
+    box-sizing: border-box;
+    height: var(--quick-rail-height);
+    margin-block-end: calc(-1 * var(--quick-rail-height));
+  }
+}
 @media (min-width: 901px) {
   .club-home .lobby-sticky-filters {
     top: 0;

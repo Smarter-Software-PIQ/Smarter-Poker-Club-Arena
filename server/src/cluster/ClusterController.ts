@@ -5,9 +5,9 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * "How do tables open and close with no human?" This. Every 5 s on the
- * leader it makes ONE call, fn_cash_clusters_tick_all(eligible_by_main1), and
- * the SQL runs the worklist itself: for every due game it calls
- * fn_cash_cluster_tick(game_id, eligible_horses), which locks the game row and
+ * leader it makes ONE call, fn_cash_clusters_tick_all_uncapped(eligible_by_main1),
+ * and the SQL runs the worklist itself: for every due game it calls
+ * fn_cash_cluster_tick_uncapped(game_id, eligible_horses), which locks the game row and
  * derives every decision from rows - must-move plans, a feeder opening, a
  * feeder promoted, a table breaking, roles renumbered, live or dormant. The
  * SQL is the brain; this file is the clock and the two things only the engine
@@ -49,7 +49,11 @@ import { supabase } from '../services/supabase.js';
 import { reportError } from '../services/errorReporter.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { clusterMetrics } from './ClusterMetrics.js';
-import { noteMovesPlanned, tickReportsMovesPlanned } from './seatBoundarySignals.js';
+import {
+  noteMovesPlanned,
+  tickPlannedSourceTableIds,
+  tickReportsMovesPlanned,
+} from './seatBoundarySignals.js';
 
 export const CLUSTER_TICK_MS = 5000;
 
@@ -64,7 +68,7 @@ export const CLUSTER_WAKE_DEBOUNCE_MS = 500;
 /**
  * How long a dormant, enabled, EMPTY game with no horse eligible may go
  * between ticks. The decision lives in the SQL worklist
- * (fn_cash_clusters_tick_all); this constant is the documented value the law
+ * (fn_cash_clusters_tick_all_uncapped); this constant is the documented value the law
  * test pins against the migration. Anything seated, any horse wanted, or a
  * wake bypasses it.
  */
@@ -98,7 +102,7 @@ export interface ClusterTickResult {
   actions?: unknown[];
 }
 
-/** One entry of fn_cash_clusters_tick_all's `results`. */
+/** One entry of fn_cash_clusters_tick_all_uncapped's `results`. */
 export interface ClusterTickAllEntry {
   game_id: string;
   main1_table_id: string | null;
@@ -184,7 +188,10 @@ function noteCommittedPlans(data: unknown): void {
   for (const entry of results) {
     const game = (entry as { game_id?: unknown } | null)?.game_id;
     if (typeof game !== 'string') continue;
-    if (tickReportsMovesPlanned((entry as { result?: unknown }).result)) noteMovesPlanned(game);
+    const result = (entry as { result?: unknown }).result;
+    if (tickReportsMovesPlanned(result)) {
+      noteMovesPlanned(game, tickPlannedSourceTableIds(result));
+    }
   }
 }
 
@@ -447,14 +454,20 @@ export class ClusterController {
     // at Main 1; that is the game's horse demand.
     const eligible = row?.main1_table_id ? this.deps.eligibleHorseCount(row.main1_table_id) : 0;
     this.wakesFiredCount++;
-    const { data, error } = await uncappedTick(rpc, 'fn_cash_cluster_tick', {
+    const { data, error } = await rpc(uncappedTickRpcName, {
       p_game_id: gameId,
       p_eligible_horses: eligible,
     });
-    if (!wakeIsCurrent()) return;
+    if (!this.lifecycleIsCurrent(generation)) return;
     // Tell the game's feeders now, before anything below awaits
-    // (seatBoundarySignals). Like the pass, a fenced wake signals nothing.
-    if (!error && tickReportsMovesPlanned(data)) noteMovesPlanned(gameId);
+    // (seatBoundarySignals). Even if a periodic 5 s pass refreshed `rowByGame`
+    // while this wake RPC was in flight, this controller generation still owns
+    // leadership and the SQL already committed those planned moves. Only a
+    // stopped/superseded controller generation signals nothing.
+    if (!error && tickReportsMovesPlanned(data)) {
+      noteMovesPlanned(gameId, tickPlannedSourceTableIds(data));
+    }
+    if (!wakeIsCurrent()) return;
     if (error) {
       reportError(error, 'ClusterController.wake_rpc_failed', { game_id: gameId });
       return;
@@ -565,7 +578,7 @@ export class ClusterController {
         }
 
         summary.rpcs++;
-        const { data, error } = await uncappedTick(rpc, 'fn_cash_clusters_tick_all', {
+        const { data, error } = await rpc(uncappedTickAllRpcName, {
           p_eligible: eligible,
         });
         if (!passIsCurrent()) return summary;
@@ -782,27 +795,12 @@ export class ClusterController {
  * This engine seats horses at every secondary table of an allowed game
  * (HorseUnionCashPlan.horseCashPlanSecondTables), so it calls the uncapped
  * tick (migration 20261112154904: `<name>_uncapped`, no table count, the OPEN
- * rule alone decides). The originals are untouched and every older engine
- * calls only them: that is the compatibility contract. Should this engine
- * ever run against a database without the uncapped functions (PostgREST
- * PGRST202), it falls back to the capped tick for that call rather than skip
- * the tick.
+ * rule alone decides). The capped originals were retired on 2026-11-23 so
+ * every tick fix lands on the single live copy the engine calls; there is no
+ * fallback to the retired originals.
  */
-/** The two doors uncappedTick opens, one per line so the release gate's door
- *  check (scripts/ci/check-engine-doors-exist.mjs, `...RpcName = '<name>'`)
+/** The two doors ClusterController opens, one per line so the release gate's
+ *  door check (scripts/ci/check-engine-doors-exist.mjs, `...RpcName = '<name>'`)
  *  requires both before this engine can ship. */
 export const uncappedTickRpcName = 'fn_cash_cluster_tick_uncapped';
 export const uncappedTickAllRpcName = 'fn_cash_clusters_tick_all_uncapped';
-
-export async function uncappedTick(
-  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>,
-  fn: 'fn_cash_cluster_tick' | 'fn_cash_clusters_tick_all',
-  args: Record<string, unknown>
-): Promise<{ data: any; error: any }> {
-  const res = await rpc(
-    fn === 'fn_cash_cluster_tick' ? uncappedTickRpcName : uncappedTickAllRpcName,
-    args
-  );
-  if (res?.error && (res.error as { code?: unknown }).code === 'PGRST202') return rpc(fn, args);
-  return res;
-}

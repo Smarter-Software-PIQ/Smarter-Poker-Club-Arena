@@ -330,12 +330,12 @@ production database host is reachable. The engine boots with
 
 ### 3.2 What starts a run
 
-| Trigger                                                                        | Effect                                                                                                                                    |
-| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Push to `main` touching `server/**`                                            | Certify that main commit (superseded if a newer push run exists, 3.6)                                                                     |
-| Nightly cron `7,23,41 5/6 * * *` UTC (after 00:00 Chicago)                     | Refresh the production structure and seed once per Chicago date, then certify main                                                        |
-| `workflow_dispatch` with `sha` and optional `refresh`                          | Certify exactly that SHA; `refresh=true` forces a copy first                                                                              |
-| `repository_dispatch` of `run-post-deploy-e2e` with the original verified seal | Post-seal 1:1 refresh: force a copy and re-certify the SHA that `/health` is now serving (refused if the sealed SHA is no longer serving) |
+| Trigger                                                                        | Effect                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Push to `main` touching `server/**`                                            | Certify that main commit (superseded if a newer push run exists, 3.6)                                                                                                                                                                                                                                              |
+| Nightly cron `7,23,41 5/6 * * *` UTC (after 00:00 Chicago)                     | Refresh the production structure and seed once per Chicago date, then certify main                                                                                                                                                                                                                                 |
+| `workflow_dispatch` with `sha` and optional `refresh`                          | Certify exactly that SHA; `refresh=true` forces a copy first                                                                                                                                                                                                                                                       |
+| `repository_dispatch` of `run-post-deploy-e2e` with the original verified seal | Post-seal: prove the seal (refused if the sealed SHA is no longer serving), then force a copy and certify the NEXT candidate, the newest `server/` or release-control commit ahead of the sealed SHA at the run's own commit, rehearsed against the sealed SHA; nothing ahead ends in seconds with no status (O24) |
 
 Runs are serialized (`concurrency: backup-engine`, `queue: max`).
 
@@ -494,8 +494,10 @@ active (non-completed) push run exists on `main` with a different head SHA AND a
 different `scripts/ci/engine-source-identity.sh` (or a diff to
 `.github/workflows/backup-engine.yml`); completed newer runs and identical-source
 pushes never disrupt a waiting run (2026-11-21, O2). `booking`,
-`freeze_baseline`, manual, nightly and post-seal runs are never superseded, and
-any unreadable GitHub or git answer keeps waiting (CLAUDE.md 10.86).
+`freeze_baseline`, manual and nightly runs are never superseded, and
+any unreadable GitHub or git answer keeps waiting (CLAUDE.md 10.86). A post-seal
+run certifying the next candidate (O24) yields here exactly as a push run does;
+a post-seal run that fell back to the sealed SHA is never superseded.
 
 Immediately after acquiring the Backup host turn (and never dropping an
 already-acquired lease for a newer ordinary push), `late_retarget` checks
@@ -575,6 +577,7 @@ break does not wait for a release.
 
 - **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
   created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
+  Every event, a push included, is judged by its own run's `created_at`, the one clock the election reads for every other run; a push is never judged by its payload's push time, so a run the election counts is always a run that claims (2026-11-23: a push made at 04:49:59Z whose run was created at 04:50:01Z judged itself by the push time, missed the 01:00 cycle's 04:50:00Z opening, and every later run deferred to it; `docs/changelog/2026-11-23-a-reservation-is-elected-by-the-moment-it-claims.md`).
   The preparation itself stays 03:30-03:50 for the 04:00 anchor, and opens 30 minutes before every other three-hourly cycle (`WINDOW_MINUTES = 20`); later runs refuse by name; an unreadable run list
   prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
   first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`). Operator deliveries may enter this same election only inside 03:30-03:50; they cannot reserve early or displace an earlier automatic owner.
@@ -684,8 +687,19 @@ within 60 s; then public `/health` reports the same `instanceId`. Output
   browser verification" is the client's own proof and has no engine dependency.
 - `backup-engine.yml` consumes the same event when it carries a sealed engine
   receipt. It verifies the original receiver attempt and serving instance. Only
-  the first Backup run for that seal forces the restore and re-certifies the
-  serving SHA (section 3.2). The receiver records the accepted Backup run ID.
+  the first Backup run for that seal goes on (section 3.2), and since
+  2026-11-24 (O24) it certifies the NEXT candidate instead of the serving SHA:
+  the newest first-parent commit of the run's own commit touching `server/` or
+  a `CONTROL_INPUTS` path, when that commit is ahead of the sealed SHA. It
+  forces the restore, waits at most 25 minutes (inside the existing `due`
+  read) for migrations merged in the last day to install, hands the host back
+  if any is still uninstalled or if the target already holds a success for
+  production's current installed set rehearsed against the sealed SHA, and
+  otherwise certifies with the rollback rehearsed against the sealed SHA.
+  Nothing ahead of the sealed SHA: the run ends in seconds, takes no host and
+  writes no status. Inside the nightly freeze certification window the freeze
+  baseline rule alone decides its target. An unreadable checkout certifies the
+  sealed SHA as before. The receiver records the accepted Backup run ID.
 
 ### 4.9 Reattaching the observer after a red run with a sealed receipt
 
@@ -736,7 +750,9 @@ gh run view <receiver-run> -R "$repo" --json status,conclusion,jobs \
 gh run list -R "$repo" --workflow backup-engine.yml -L 5
 gh api "repos/$repo/commits/$sha/statuses?per_page=100" \
   --jq '[.[] | select(.context == "backup-engine/certified")][0] | {state,updated_at}'
-# Expect: the repository_dispatch run named Backup after seal <run>-<attempt>, refresh due=true, state success, updated after the seal.
+# Expect: the repository_dispatch run named Backup after seal <run>-<attempt>. Its plan log names the target:
+# "POST-SEAL NEXT CANDIDATE: <sealed> sealed and is serving; certifying <next>" (read the status of <next>, not $sha:
+# refresh due=true, state success, updated after the seal), or "NOTHING TO CERTIFY AFTER THE SEAL" (no status is written).
 
 # 6. Post-deploy E2E
 gh run list -R "$repo" --workflow post-deploy-e2e.yml -L 3

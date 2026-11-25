@@ -14,10 +14,11 @@ describe('the Simple Cashier header', () => {
     expect(page).toContain("pill={isOnline ? undefined : 'Locked'}");
   });
 
-  it('carries no Simple Cashier caption or toolbar row, and keeps the Advanced switch beside the club', () => {
-    expect(page).not.toContain("'Simple Cashier'");
-    expect(page).toMatch(/\{advanced && \(\s*<div className=\{styles\.modeToolbar\}>/);
-    expect(page).toContain('{!advanced && modeToggle}');
+  it('keeps the everyday layout and opens authorized tools in place', () => {
+    expect(page).toContain('data-cashier-mode="simple"');
+    expect(page).not.toContain('setAdvanced');
+    expect(page).toContain('aria-controls="cashier-action-tabs"');
+    expect(page).toContain('hidden={!cashierToolsOpen}');
   });
 
   it('keeps a healthy sync status for assistive technology only, and shows every other state', () => {

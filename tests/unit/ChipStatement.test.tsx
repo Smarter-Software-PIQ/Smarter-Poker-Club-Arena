@@ -2,6 +2,8 @@
  * The chip statement shows both directions, the audit line, and refuses to
  * guess (phase 7, roadmap 9.5).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +13,15 @@ const auth = vi.hoisted(() => ({
   generation: 0,
   guards: new Map<string, () => boolean>(),
 }));
-vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a) } }));
+const tournamentNames = vi.fn();
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    rpc: (...a: unknown[]) => rpc(...a),
+    from: (table: string) => ({
+      select: () => ({ in: (_column: string, ids: string[]) => tournamentNames(table, ids) }),
+    }),
+  },
+}));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: auth.user, isHydrating: false }),
@@ -31,8 +41,12 @@ vi.mock('../../src/hooks/useCashoutScope', () => ({
 vi.mock('../../src/components/tournament/TournamentPaymentStatus', () => ({ default: () => null }));
 
 import ChipStatement, {
+  PROMO_TICKET_RETURN_DESCRIPTION,
   categoryLabel,
   counterpartyLabel,
+  isPromoReturnLeg,
+  statementLegCopy,
+  type StatementLeg,
 } from '../../src/components/wallet/ChipStatement';
 
 const leg = (over: Record<string, unknown>) => ({
@@ -107,6 +121,8 @@ const statement = (over: Record<string, unknown> = {}) => {
 
 beforeEach(() => {
   rpc.mockReset();
+  tournamentNames.mockReset();
+  tournamentNames.mockResolvedValue({ data: [], error: null });
   auth.user = { id: 'u' };
   auth.generation = 0;
   auth.guards.clear();
@@ -411,5 +427,271 @@ describe('ChipStatement', () => {
         counterpartyLabel(leg({ counterparty_type: 'union_wallet', counterparty_label: label }))
       ).not.toMatch(/_|\./);
     }
+  });
+
+  /* The rows a member read as "all of her spin prizes were reversed"
+     (production chip_ledger, 2026-11-22 22:11 UTC, read by id): one refund of
+     a 10.00 entry and the promo part of it going back to its fund. */
+  describe("a line says what happened in a player's words", () => {
+    const EVENT = '0be6a4b5-7a9a-4072-84ec-2353cedaed03';
+    const refundLeg = leg({
+      id: 'a6b6334c-b566-4ecb-9337-45882e7f0894',
+      at: '2026-11-22T22:11:47.006724+00:00',
+      direction: 'in',
+      amount: 10,
+      category: 'refund',
+      description: 'auto-audited club_members.chip_balance delta 10.00',
+      counterparty_type: 'prize_liability',
+      counterparty_label: null,
+      counterparty_id: EVENT,
+      tournament_id: EVENT,
+    }) as StatementLeg;
+    const promoReturn = (over: Record<string, unknown> = {}) =>
+      leg({
+        id: 'b25926f3',
+        at: '2026-11-22T22:11:47.934728+00:00',
+        direction: 'out',
+        amount: 0.77,
+        category: 'reversal',
+        description: 'Promo Principal Returned To Original Fund',
+        counterparty_type: 'union_wallet',
+        counterparty_label: 'union_wallets.promo_wallet',
+        counterparty_id: 'union',
+        tournament_id: null,
+        ...over,
+      }) as StatementLeg;
+
+    it('a promo return is never a bare Reversal: it names the promo and its sponsor', () => {
+      expect(isPromoReturnLeg(promoReturn())).toBe(true);
+      expect(statementLegCopy(promoReturn())).toEqual({
+        title: 'Promo Chips Returned To Sponsor',
+        route: 'To The Union Promo Wallet',
+      });
+      expect(
+        statementLegCopy(
+          promoReturn({
+            counterparty_type: 'promo_wallet',
+            counterparty_label: 'agents.promo_wallet_balance',
+          })
+        ).route
+      ).toBe('To An Agent Promo Wallet');
+      expect(
+        statementLegCopy(
+          promoReturn({
+            counterparty_type: 'promo_wallet',
+            counterparty_label: 'clubs.promo_balance',
+          })
+        ).route
+      ).toBe('To The Club Promo Wallet');
+      // A fund this map has never met still gets its ordinary account wording.
+      expect(
+        statementLegCopy(
+          promoReturn({ counterparty_type: 'promo_wallet', counterparty_label: 'new_fund.balance' })
+        )
+      ).toEqual({ title: 'Promo Chips Returned To Sponsor', route: 'To A Promo Wallet' });
+      // Seen from the receiving side it is still not a reversal of anything.
+      expect(
+        statementLegCopy(
+          promoReturn({
+            direction: 'in',
+            counterparty_type: 'player_wallet',
+            counterparty_label: 'club_members.chip_balance',
+          })
+        )
+      ).toEqual({ title: 'Promo Chips Returned By A Member', route: 'From A Player' });
+
+      // Ticket-refund promo returns (fn_ca_promo_returned_ticket_principal_fee)
+      // carry their own description and come from tournament_tickets.value.
+      const ticketPromoOut = promoReturn({
+        description: PROMO_TICKET_RETURN_DESCRIPTION,
+        counterparty_type: 'union_wallet',
+        counterparty_label: 'union_wallets.promo_wallet',
+      });
+      expect(isPromoReturnLeg(ticketPromoOut)).toBe(true);
+      expect(statementLegCopy(ticketPromoOut)).toEqual({
+        title: 'Promo Chips Returned To Sponsor',
+        route: 'To The Union Promo Wallet',
+      });
+      const ticketPromoIn = promoReturn({
+        direction: 'in',
+        description: PROMO_TICKET_RETURN_DESCRIPTION,
+        counterparty_type: 'escrow',
+        counterparty_label: 'tournament_tickets.value',
+      });
+      expect(isPromoReturnLeg(ticketPromoIn)).toBe(true);
+      expect(statementLegCopy(ticketPromoIn)).toEqual({
+        title: 'Promo Chips Returned From Ticket',
+        route: 'From A Refunded Tournament Ticket',
+      });
+      expect(statementLegCopy(ticketPromoIn).title.length).toBeLessThanOrEqual(32);
+
+      // Agent promo wallet credits display the account detail cleanly.
+      expect(
+        statementLegCopy(
+          leg({
+            category: 'promo',
+            counterparty_type: 'agent_wallet',
+            counterparty_label: 'agents.promo_wallet_balance',
+            tournament_id: null,
+          }) as StatementLeg
+        )
+      ).toEqual({ title: 'Promo Chips', route: 'From An Agent (Agent Promo Wallet)' });
+
+      // Both refund and tournament_refund from a prize pool read identically.
+      expect(
+        statementLegCopy(
+          leg({
+            category: 'tournament_refund',
+            counterparty_type: 'prize_liability',
+          }) as StatementLeg,
+          'Nightly 20K'
+        )
+      ).toEqual({ title: 'Tournament Refund', route: 'From Nightly 20K' });
+    });
+
+    it('recognizes every promo-return reversal description written by the database owners', () => {
+      const root = resolve(__dirname, '..', '..');
+      const walletOwnerSql = readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261122185915_sng_actual_start_unregister_and_promo_union_wallet_id.sql'
+        ),
+        'utf8'
+      );
+      const ticketOwnerSql = readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261123071237_a_refunded_entry_keeps_its_promo_on_a_ticket_and_past_a_clos.sql'
+        ),
+        'utf8'
+      );
+      const walletMatch = walletOwnerSql.match(/'reversal',holder_club,'([^']+)'/);
+      const ticketMatch = ticketOwnerSql.match(/'reversal',r\.club_id,key,'([^']+)'/);
+      expect(walletMatch?.[1]).toBeTruthy();
+      expect(ticketMatch?.[1]).toBeTruthy();
+      for (const description of [walletMatch![1], ticketMatch![1]]) {
+        const row = promoReturn({ description });
+        expect(isPromoReturnLeg(row), `unmapped promo return description: ${description}`).toBe(
+          true
+        );
+        expect(statementLegCopy(row).title).not.toBe('Reversal');
+      }
+    });
+
+    it('any other reversal keeps its own name: the leg does not say it was promo', () => {
+      for (const description of [null, '', 'Something Else', 'promo principal returned']) {
+        const other = promoReturn({ description });
+        expect(isPromoReturnLeg(other)).toBe(false);
+        expect(statementLegCopy(other)).toEqual({
+          title: 'Reversal',
+          route: 'To The Union (Union Promo Wallet)',
+        });
+      }
+    });
+
+    it('a refund from a prize pool is a tournament refund, named by its event when known', () => {
+      expect(statementLegCopy(refundLeg)).toEqual({
+        title: 'Tournament Refund',
+        route: 'From A Prize Pool',
+      });
+      expect(statementLegCopy(refundLeg, 'satellite into nightly 20K (nlh)')).toEqual({
+        title: 'Tournament Refund',
+        route: 'From Satellite Into Nightly 20K (NLH)',
+      });
+      expect(statementLegCopy(refundLeg, '   ').route).toBe('From A Prize Pool');
+      // An entry names the same event, so the two lines read as one story.
+      expect(
+        statementLegCopy(
+          leg({ direction: 'out', category: 'tournament_buyin' }) as StatementLeg,
+          'Nightly 20K'
+        )
+      ).toEqual({ title: 'Tournament Entry', route: 'To Nightly 20K' });
+      // A refund that did not come from a prize pool is not called a tournament refund,
+      // and an event name is never attached to a leg that is not a prize pool's.
+      expect(
+        statementLegCopy(
+          leg({ category: 'refund', counterparty_type: 'club_treasury' }) as StatementLeg,
+          'Nightly 20K'
+        )
+      ).toEqual({ title: 'Refund', route: 'From The Club' });
+    });
+
+    it('the promo give-back and unknown or malformed legs fall back safely', () => {
+      // The 5.25 returned to the member (chip_ledger 45582f46, category promo).
+      expect(
+        statementLegCopy(
+          leg({
+            category: 'promo',
+            amount: 5.25,
+            description: 'auto-audited club_members.chip_balance delta 5.25',
+            counterparty_type: 'union_wallet',
+            counterparty_label: 'union_wallets.promo_wallet',
+            tournament_id: null,
+          }) as StatementLeg
+        )
+      ).toEqual({ title: 'Promo Chips', route: 'From The Union (Union Promo Wallet)' });
+      expect(
+        statementLegCopy(
+          leg({ category: 'brand_new_kind', counterparty_type: null }) as StatementLeg
+        )
+      ).toEqual({ title: 'Brand New Kind', route: 'From Unknown' });
+      const malformed = {
+        direction: 'out',
+        category: undefined,
+        description: undefined,
+        counterparty_type: undefined,
+        counterparty_label: undefined,
+      } as unknown as StatementLeg;
+      expect(isPromoReturnLeg(malformed)).toBe(false);
+      expect(statementLegCopy(malformed, undefined)).toEqual({ title: '', route: 'To Unknown' });
+      for (const copy of [statementLegCopy(promoReturn()), statementLegCopy(refundLeg, 'A')]) {
+        expect(`${copy.title}${copy.route}`).not.toMatch(/\u2014|_/);
+        expect(copy.title.length).toBeLessThanOrEqual(32);
+      }
+    });
+
+    it('renders the refund by its event and the promo return in words, one line per leg', async () => {
+      tournamentNames.mockResolvedValue({
+        data: [{ id: EVENT, name: 'Satellite Into Nightly 20K (NLH)' }],
+        error: null,
+      });
+      rpc.mockResolvedValue({
+        data: statement({
+          legs: [promoReturn(), refundLeg],
+          has_more: false,
+          next_before: null,
+          next_cursor: null,
+        }),
+        error: null,
+      });
+      render(<ChipStatement scope="player" />);
+      expect(await screen.findByText('From Satellite Into Nightly 20K (NLH)')).toBeTruthy();
+      expect(tournamentNames).toHaveBeenCalledTimes(1);
+      expect(tournamentNames).toHaveBeenCalledWith('tournaments', [EVENT]);
+      expect(screen.getByText('Tournament Refund')).toBeTruthy();
+      expect(screen.getByText('Promo Chips Returned To Sponsor')).toBeTruthy();
+      expect(screen.getByText('To The Union Promo Wallet')).toBeTruthy();
+      expect(screen.queryByText('Reversal')).toBeNull();
+      expect(document.querySelectorAll('.chip-statement__leg')).toHaveLength(2);
+    });
+
+    it('an event name that cannot be read leaves the prize-pool wording and asks once', async () => {
+      tournamentNames.mockRejectedValue(new Error('offline'));
+      rpc.mockResolvedValue({
+        data: statement({
+          legs: [refundLeg],
+          has_more: false,
+          next_before: null,
+          next_cursor: null,
+        }),
+        error: null,
+      });
+      render(<ChipStatement scope="player" />);
+      expect(await screen.findByText('Tournament Refund')).toBeTruthy();
+      await waitFor(() => expect(tournamentNames).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      expect(screen.getByText('From A Prize Pool')).toBeTruthy();
+      expect(tournamentNames).toHaveBeenCalledTimes(1);
+    });
   });
 });

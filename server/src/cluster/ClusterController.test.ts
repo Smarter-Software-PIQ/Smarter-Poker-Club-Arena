@@ -628,32 +628,16 @@ describe('no memory, no overlap, no cascade', () => {
   });
 });
 
-describe('the uncapped tick (Dan 2026-11-11, migration 20261112154904)', () => {
-  it('calls <name>_uncapped and falls back to the capped tick only on PGRST202', async () => {
-    const { uncappedTick } = await import('./ClusterController.js');
+describe('the uncapped tick is the sole tick door (originals retired 2026-11-23)', () => {
+  it('calls only fn_cash_clusters_tick_all_uncapped and never falls back on PGRST202', async () => {
     const seen: Array<[string, Record<string, unknown>]> = [];
-    const missing = async (fn: string, args: Record<string, unknown>) => {
+    const rpc = (async (fn: string, args: Record<string, unknown>) => {
       seen.push([fn, args]);
-      return fn.endsWith('_uncapped')
-        ? { data: null, error: { code: 'PGRST202' } }
-        : { data: { ok: true }, error: null };
-    };
-    expect(await uncappedTick(missing, 'fn_cash_clusters_tick_all', { p_eligible: {} })).toEqual({
-      data: { ok: true },
-      error: null,
-    });
-    expect(seen).toEqual([
-      ['fn_cash_clusters_tick_all_uncapped', { p_eligible: {} }],
-      ['fn_cash_clusters_tick_all', { p_eligible: {} }],
-    ]);
-    seen.length = 0;
-    const other = async (fn: string, args: Record<string, unknown>) => {
-      seen.push([fn, args]);
-      return { data: null, error: { code: '57014' } };
-    };
-    expect((await uncappedTick(other, 'fn_cash_cluster_tick', { p_game_id: 'g' })).error.code).toBe(
-      '57014'
-    );
-    expect(seen).toEqual([['fn_cash_cluster_tick_uncapped', { p_game_id: 'g' }]]);
+      return { data: null, error: { code: 'PGRST202', message: 'missing function' } };
+    }) as unknown as Rpc;
+    const { controller } = build({ rpc });
+    const summary = await controller.tick();
+    expect(summary.errors).toBe(1);
+    expect(seen).toEqual([['fn_cash_clusters_tick_all_uncapped', { p_eligible: {} }]]);
   });
 });

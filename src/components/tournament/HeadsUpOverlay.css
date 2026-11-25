@@ -34,7 +34,7 @@
 }
 .hu-stage__heading p {
   margin: 0 0 6px;
-  color: #f1dbb3;
+  color: #92dfff;
   font: 750 11px/1.3 system-ui;
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -109,7 +109,7 @@
   letter-spacing: -0.045em;
 }
 .hu-contender__plate span {
-  color: #f7d492;
+  color: #92dfff;
   font: 750 clamp(14px, 2.8vw, 23px)/1.5 system-ui;
   font-variant-numeric: tabular-nums;
 }
@@ -118,7 +118,7 @@
   left: 50%;
   top: 40%;
   transform: translate(-50%, -50%) rotate(-7deg);
-  color: #ffe0a1;
+  color: #92dfff;
   text-shadow:
     0 4px #673713,
     0 0 21px #f60a;

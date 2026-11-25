@@ -190,6 +190,9 @@ describe('lobby and table invite wiring', () => {
 
     expect(lobbyTable).toContain('data-testid="lobby-invite-btn"');
     expect(lobbyTable).toContain(
+      "if (entry.kind === 'cash' || entry.kind === 'mtt') return false;"
+    );
+    expect(lobbyTable).toContain(
       '<InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />'
     );
     expect(lobbyTable).toContain('gameInviteUrl(lobbyEntryInviteTarget(entry, { inviteCode }))');
@@ -198,14 +201,18 @@ describe('lobby and table invite wiring', () => {
     expect(lobbyTable).toContain("if (entry.status === 'completed' || entry.status === 'closed')");
     expect(lobbyTableCss.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/:hover\b/);
 
-    expect(details).toContain('data-testid="tournament-invite-btn"');
+    const eventHeader = read('src/components/tournament/details/MttEventHeader.tsx');
+    expect(details).toContain('onInvite={() => void inviteToGame()}');
+    expect(eventHeader).toContain('data-testid="tournament-invite-btn"');
+    expect(eventHeader).toContain('onClick={onInvite}');
     expect(details).toContain('data-testid="tournament-footer-invite-btn"');
-    expect(details).toContain('Invite To Game');
+    expect(eventHeader).toContain('Invite To Game');
     // Opening a shared /t/:id link for a seat-first game (Heads-Up SNG / Spin)
     // must offer Take Seat to the live table rather than calling registerMtt.
     expect(details).toContain('if (isSeatFirstTournament)');
     expect(details).toContain("data.status === 'REGISTERING' || data.status === 'ANNOUNCED'");
 
+    expect(card).toContain("['sng', 'spin', 'satellite'].includes(tournament.type)");
     expect(card).toContain('data-testid="tournament-card-invite-btn"');
     expect(card).toContain("source: 'TournamentLobbyCard.inviteToGame'");
     expect(card).toContain("['finished', 'completed', 'cancelled']");

@@ -932,18 +932,31 @@ export async function getAvailableActions(
   }
 }
 
+let serverStatusInFlight: Promise<ServerStatus | null> | null = null;
+
 /**
- * Get game server health/status.
+ * Get game server health/status. Coalesces concurrent in-flight requests so
+ * simultaneous mounts share a single GET /health round-trip.
  */
 export async function getServerStatus(): Promise<ServerStatus | null> {
-  try {
-    const response = await engineFetch(`${GAME_SERVER_URL}/health`, { cache: 'no-store' });
-    if (!response.ok) return null;
-    return (await response.json()) as ServerStatus;
-  } catch (err) {
-    reportError(err, 'GameServerAPI.getStatus');
-    return null;
-  }
+  if (serverStatusInFlight) return serverStatusInFlight;
+  const pending = (async (): Promise<ServerStatus | null> => {
+    try {
+      const response = await engineFetch(`${GAME_SERVER_URL}/health`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as ServerStatus;
+    } catch (err) {
+      reportError(err, 'GameServerAPI.getStatus');
+      return null;
+    }
+  })().finally(() => {
+    if (serverStatusInFlight === pending) serverStatusInFlight = null;
+  });
+  serverStatusInFlight = pending;
+  return pending;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1094,7 +1107,16 @@ export async function setPreAction(
    * an arm for any other hand and drops every arm when the hand changes.
    * Omitted everywhere else, so a table's request body is unchanged.
    */
-  handId?: string
+  handId?: string,
+  /**
+   * The decision this page was showing when the player armed it (the
+   * engine's own `action_context`). Dan 2026-11-24 (CoachTim68): an arm that
+   * reaches the engine on the player's OWN turn is executed as an action, and
+   * a Call or Call Any made from a display that had fallen behind put a whole
+   * stack into a shove the player never saw. The engine now runs such an arm
+   * only against the decision named here.
+   */
+  actionContext?: string | null
 ): Promise<ActionResult> {
   // Circuit breaker: skip if game server is known-unreachable
   if (circuitBreaker.isOpen()) {
@@ -1105,9 +1127,13 @@ export async function setPreAction(
     const response = await engineFetch(`${GAME_SERVER_URL}/preaction`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(
-        handId ? { tableId, action, maxCallAmount, handId } : { tableId, action, maxCallAmount }
-      ),
+      body: JSON.stringify({
+        tableId,
+        action,
+        maxCallAmount,
+        ...(handId ? { handId } : {}),
+        ...(typeof actionContext === 'string' && actionContext ? { actionContext } : {}),
+      }),
     });
     if (response.status === 400 || response.status === 404) {
       /* THE ENGINE ANSWERED, AND ITS ANSWER IS KEPT (2026-10-04).

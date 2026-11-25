@@ -233,6 +233,9 @@ esac
   || { log "FATAL: release authority returned an ambiguous identity"; exit 1; }
 docker image inspect "$AUTHORIZED_IMAGE_ID" >/dev/null 2>&1 \
   || { log "FATAL: authorized image $AUTHORIZED_IMAGE_ID disappeared before cutover"; exit 1; }
+# Gate the isolated loopback /livez healthcheck on the immutable image label so
+# rolling back to any pre-/livez sealed image preserves the legacy /health probe.
+LIVEZ_CAPABLE="$(docker image inspect -f '{{index .Config.Labels "sp.engine.livez"}}' "$AUTHORIZED_IMAGE_ID" 2>/dev/null || true)"
 
 # The alert queue must survive docker rm and a candidate rollback. Establish
 # and test only its dedicated directory before touching the funded engine.
@@ -454,6 +457,14 @@ fi
 # host supervisor must start the container identically, and this is the one
 # place both of them read.
 INCOMING_CONTAINER="${INCOMING_PREFIX}${AUTHORIZED_SHA:0:12}-$$"
+if [ "$LIVEZ_CAPABLE" = "1" ]; then
+  HEALTH_CMD="node -e \"const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);const m=Number(process.env.PORT||8080);const r=Number(process.env.INTERNAL_LIVENESS_PORT||0);const p=(Number.isInteger(r)&&r>=1&&r<=65535&&r!==m)?r:(m+10000<=65535?m+10000:m-10000);fetch('http://127.0.0.1:'+p+'/livez').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))\""
+else
+  # Rollback compatibility: sealed images built before sp.engine.livez=1
+  # do not serve /livez. Preserve the legacy 0.0.0.0:8080/health probe
+  # (2026-08-23 dual-stack fix) so rolling back to any predecessor stays healthy.
+  HEALTH_CMD="node -e \"const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://0.0.0.0:8080/health').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))\""
+fi
 phase create-start
 STARTED_CONTAINER_ID="$(docker create \
   --name "$INCOMING_CONTAINER" \
@@ -462,7 +473,7 @@ STARTED_CONTAINER_ID="$(docker create \
   --health-timeout="$HEALTH_TIMEOUT" \
   --health-start-period="$HEALTH_START_PERIOD" \
   --health-retries="$HEALTH_RETRIES" \
-  --health-cmd="node -e \"const fs=require('fs');const s=fs.readFileSync('/proc/1/stat','utf8');const f=s.slice(s.lastIndexOf(')')+2).trim().split(' ').filter(Boolean);const u=Number(fs.readFileSync('/proc/uptime','utf8').split(' ')[0]);const a=u-Number(f[19])/100;if(a<300)process.exit(0);fetch('http://0.0.0.0:8080/health').then(r=>r.json()).then(j=>{const l=j.liveness;process.exit(j.running===true&&(l==='ok'||l==='standby')?0:1)}).catch(()=>process.exit(1))\"" \
+  --health-cmd="$HEALTH_CMD" \
   --label sp.engine-up.prepared=1 \
   --label autoheal=true \
   --label sp.role=engine \

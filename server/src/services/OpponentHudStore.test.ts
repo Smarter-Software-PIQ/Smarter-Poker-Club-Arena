@@ -1280,3 +1280,91 @@ describe('OpponentHudStore: a nightly verification that could not complete is re
     expect(reason.length).toBeLessThanOrEqual(200);
   });
 });
+
+describe('OpponentHudStore: the nightly verification waits for the catch-up of the day it verifies', () => {
+  // 2026-11-24 production (alert 448614): the switch went on at 05:08 Chicago with a sync point 28 hours old; the first
+  // alert tick (05:13) ran the 04:40 verification of the previous day while the switch-on catch-up was still reading,
+  // so it compared profiles that had not yet absorbed the day's hands (1,867 of 1,892 "differ", 620,057 "not counted")
+  // and raised OpponentHudDrift; when the catch-up finished every hand was in its profile (646,086 of 646,086).
+  it('a verification that falls due during the catch-up is deferred (no alert, the day not consumed) and runs clean after it', async () => {
+    const alerts: [string, boolean][] = [];
+    const day0 = Date.parse('2027-01-14T18:00:00Z'); // noon Chicago, 2027-01-14
+    const user = (n: number): HudStoredRow => {
+      // a profile that has tracked its day lists since the day before (so the verification can compare it)
+      const p = emptyHudProfile(U(n), 'plo5');
+      applyHudHand(p, handRecordFromRow(row(59_000 + n, 1, 2, day0 - 86_400_000)) as HudHandRecord);
+      return { user_id: U(n), family: 'plo5', version: 1, hands: p.hands, wm_ms: p.wm, profile: p };
+    };
+    const stored = new Map<string, HudStoredRow>([
+      [`plo5|${U(1)}`, user(1)],
+      [`plo5|${U(2)}`, user(2)],
+      // the sync point (the backfill's last hand) is an hour before the day's hands: the catch-up must count them
+      [
+        'plo5|*',
+        {
+          user_id: '*',
+          family: 'plo5',
+          version: 1,
+          hands: 0,
+          wm_ms: day0 - 3600_000,
+          profile: { family: {}, stakes: {} },
+        },
+      ],
+    ]);
+    const deps = fakeDeps(stored);
+    deps.alert = (name, firing) => alerts.push([name, firing]);
+    deps.sleep = async () => {};
+    const hands = [
+      row(60_001, 1, 2, day0),
+      row(60_002, 1, 2, day0 + 60_000),
+      row(60_003, 1, 2, day0 + 120_000),
+    ];
+    // the switch-on catch-up reads 250-row pages, the verification 500-row pages: hold the catch-up until released
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    deps.handsPage = async (
+      afterAt: string,
+      _id: string,
+      limit: number,
+      _s: AbortSignal,
+      until?: string
+    ) => {
+      if (limit === HUD_CATCHUP_PAGE_ROWS) await gate;
+      return hands.filter((r) => r.created_at > afterAt && (!until || r.created_at <= until));
+    };
+    // 05:00 Chicago on 2027-01-15: past the 04:40 verification time
+    deps.tick(Date.parse('2027-01-15T11:00:00Z') - deps.now());
+    const store = new OpponentHudStore(deps);
+    enableBrainTelemetry();
+    drainFires();
+    store.setArmed(true);
+    for (let i = 0; i < 10; i++) await flush();
+    // the verification falls due while the catch-up is still reading: not run, not alerted, the day not consumed
+    await store.maybeReconcile();
+    expect(alerts).toEqual([]);
+    expect(store.lastReconcile).toBeNull();
+    expect(drainFires().map((f) => f.feature)).toContain('opponent_hud_reconcile_deferred');
+    // called directly mid catch-up, it reports "not verified" and leaves the alert alone
+    expect(await store.reconcileDay('2027-01-14')).toMatchObject({
+      compared: 0,
+      drifted: 0,
+      deferred: 'catchup_in_progress',
+    });
+    expect(alerts).toEqual([]);
+    // the catch-up completes; the next alert tick verifies the day: every hand counted, nothing raised
+    release();
+    for (let i = 0; i < 50; i++) await flush();
+    expect(store.profile(U(1), 'plo5')!.hands).toBe(4);
+    await store.maybeReconcile();
+    expect(store.lastReconcile).toEqual({
+      day: '2027-01-14',
+      compared: 2,
+      drifted: 0,
+      missed: 0,
+      extra: 0,
+      miscounted: 0,
+    });
+    expect(alerts).toEqual([]);
+    store.stop();
+  });
+});

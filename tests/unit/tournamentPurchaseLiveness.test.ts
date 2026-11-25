@@ -87,6 +87,20 @@ function tournament(kind: string, id: string) {
 }
 
 describe('tournament financial requests preserve their identity after a hung response', () => {
+  it.each(['rebuy', 'addon'] as const)(
+    'does not submit a changed automatic %s quote',
+    async (kind) => {
+      const id = 'auto-price-changed-' + kind;
+      vi.spyOn(tournamentService, 'getTournament').mockResolvedValue(tournament(kind, id));
+      const action =
+        kind === 'rebuy'
+          ? tournamentService.processRebuy(id, 'player', 'automatic-offer', 9)
+          : tournamentService.processAddOn(id, 'player', 9);
+      await expect(action).rejects.toThrow(/price changed|not submitted/i);
+      expect(rpc).not.toHaveBeenCalled();
+    }
+  );
+
   it.each(['rebuy', 'reentry', 'addon', 'unregister', 'seat'])(
     '%s releases the control, retains uncertainty, and ignores its late reply',
     async (kind) => {

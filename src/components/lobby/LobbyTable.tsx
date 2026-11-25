@@ -457,10 +457,11 @@ function LobbyArtSymbol({ kind }: { kind: 'target' }) {
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
-  const label = TOURNAMENT_ICON_LABELS[kind];
+  // The Spin board paints the rotor for every structure, including Deep Stack.
+  const label = entry.kind === 'spin' ? 'Spin Tournament' : TOURNAMENT_ICON_LABELS[kind];
   const badgeFiles: Partial<Record<TournamentFormatIcon, string>> = {
     pko: 'progressive-ko-v1.webp',
-    mystery: 'mystery-chest-v1.webp',
+    mystery: 'mystery-chest-v2.webp',
     turbo: 'turbo-wordmark-v1.webp',
   };
   const badge = badgeFiles[kind];
@@ -965,6 +966,19 @@ function spinInviteOnlyStatus(entry: LobbyEntry): boolean {
   );
 }
 
+/**
+ * Owner ruling (2026-11-23): Cash Game and MTT display cards on the
+ * front-facing game lobby list never show an Invite link button — Invite links
+ * for Cash Games and MTTs live only inside their clicked-in lobby pages
+ * (GameLobbyPanel and TournamentDetails). SNG cards keep their top-right
+ * plaque Invite (sngInviteInHeading) and open Spin cards keep their
+ * invite-only status bay (spinInviteOnlyStatus).
+ */
+function rowStatusShowsInvite(entry: LobbyEntry): boolean {
+  if (entry.kind === 'cash' || entry.kind === 'mtt') return false;
+  return !sngInviteInHeading(entry);
+}
+
 function TournamentHeadingRow({
   entry,
   colSpan,
@@ -1410,6 +1424,8 @@ function InviteRowButton({
           status: typeof raw.status === 'string' ? raw.status : null,
           variant: typeof raw.variant === 'string' ? raw.variant : null,
           max_players: Number(raw.max_players ?? entry.capacity ?? 0),
+          format_contract: raw.format_contract,
+          current_players: Number(raw.current_players ?? entry.players ?? 0),
           buy_in_amount: raw.buy_in_amount as number | string | null | undefined,
           buy_in_fee: raw.buy_in_fee as number | string | null | undefined,
           started_at: typeof raw.started_at === 'string' ? raw.started_at : null,
@@ -1442,19 +1458,21 @@ function InviteRowButton({
 
   return (
     <>
-    <button
-      type="button"
-      className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
-      data-testid="lobby-invite-btn"
-      aria-label={`Invite To ${entry.name}`}
-      title="Invite To Game"
-      onClick={handleInvite}
-      onDoubleClick={(e) => e.stopPropagation()}
-    >
-      <InviteLinkIcon />
-      <span>{feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}</span>
-    </button>
-    {privateInvite.element}
+      <button
+        type="button"
+        className={`lt-invite-btn${feedback !== 'idle' ? ' is-done' : ''}`}
+        data-testid="lobby-invite-btn"
+        aria-label={`Invite To ${entry.name}`}
+        title="Invite To Game"
+        onClick={handleInvite}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <InviteLinkIcon />
+        <span>
+          {feedback === 'copied' ? 'Copied' : feedback === 'shared' ? 'Shared' : 'Invite'}
+        </span>
+      </button>
+      {privateInvite.element}
     </>
   );
 }
@@ -1470,7 +1488,7 @@ const COL_STATUS: ColumnDef = {
      which is precisely where the chip mattered. See PlayerStateChip. */
   render: (e, ctx) => {
     const inviteOnly = spinInviteOnlyStatus(e);
-    const inviteInHeading = sngInviteInHeading(e);
+    const showInvite = rowStatusShowsInvite(e);
     return (
       <span className={`lt-statuscell${inviteOnly ? ' lt-statuscell--invite-only' : ''}`}>
         {/* No countdown here any more, on any kind. An MTT carries a live
@@ -1479,7 +1497,7 @@ const COL_STATUS: ColumnDef = {
             Min..." beside a badge reading Filling was two different answers to
             the same question; and a cash game is running now. */}
         {!inviteOnly && <LobbyStatusBadge status={e.status} label={e.statusLabel} />}
-        {!inviteInHeading && (
+        {showInvite && (
           <InviteRowButton entry={e} inviteCode={ctx.inviteCode} onFailed={ctx.onInviteFailed} />
         )}
       </span>
@@ -2181,6 +2199,7 @@ export function columnsFor(category: LobbyCategory): ColumnDef[] {
 
 // ─── The table ─────────────────────────────────────────────────────────────
 interface LobbyTableProps {
+  renderPinnedRows?: (colSpan: number) => React.ReactNode;
   entries: LobbyEntry[];
   /** Raw data snapshot identity; a reconnect may leave visible counters unchanged. */
   tournamentSnapshot?: readonly unknown[];
@@ -2229,6 +2248,7 @@ interface LobbyTableProps {
 
 export default function LobbyTable({
   entries: suppliedEntries,
+  renderPinnedRows,
   tournamentSnapshot,
   category,
   selectedId,
@@ -2682,7 +2702,7 @@ export default function LobbyTable({
     COL_STATUS,
   ];
 
-  const hasTournamentHeadings = sorted.length > 0;
+  const hasTournamentHeadings = sorted.length > 0 || Boolean(renderPinnedRows);
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
     const rows = mobileCardsRef.current;
@@ -2755,6 +2775,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody role="rowgroup">
+            {renderPinnedRows?.(4)}
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
@@ -2971,6 +2992,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody ref={bodyRef} role="rowgroup">
+            {renderPinnedRows?.(browseColumns.length)}
             {loading &&
               entries.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (

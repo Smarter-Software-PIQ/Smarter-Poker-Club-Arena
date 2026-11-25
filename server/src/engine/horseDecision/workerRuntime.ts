@@ -311,9 +311,14 @@ import {
   OPTION_SHADOW_STAGE,
   OPTION_SHADOW_STAGE_ACTED_BUDGET_MS,
   optionShadowStageCompanions,
+  optionShadowStageDirectionKeys,
   optionShadowStaged,
+  optionShadowStageGameCode,
+  optionShadowStageGameOf,
+  optionShadowStageIsHoldem,
   OptionShadowStageGuard,
   optionShadowStageInScope,
+  optionShadowStageWallOnlySlow,
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import {
@@ -381,7 +386,7 @@ export interface HorseDecisionWorkerDependencies {
    */
   optionShadowPerMinute?: number;
   /**
-   * 2026-11-20 SHADOW STAGE (HorseOptionShadowStage): the staged PLO4/PLO5 cash options. Absent: OPTION_SHADOW_STAGE.
+   * 2026-11-20 SHADOW STAGE (HorseOptionShadowStage): the staged options (PLO4/PLO5 cash; hold'em since 2026-11-24). Absent: OPTION_SHADOW_STAGE.
    * A test passes its own table to stage an option the registry already holds.
    */
   optionShadowStage?: OptionShadowStageTable;
@@ -477,6 +482,12 @@ export interface HorseDecisionWorkerDependencies {
   noteDecision(scope: string, ms: number): void;
   noteFeature(feature: string): void;
   now(): number;
+  /**
+   * SHADOW STAGE BREAKER (2026-11-23): this worker thread's own CPU time in ms (process.threadCpuUsage, the calling
+   * thread only), read around a staged re-decision so the breaker charges the time it ran
+   * (optionShadowStageChargedMs). NaN when it cannot be read. Absent in an injected test runtime: wall time only.
+   */
+  threadCpuMs?(): number;
   /**
    * Admit the committed protected-release Phase 8 selection. Absent in an
    * injected test runtime means no selection: every decision stays shadow.
@@ -804,6 +815,19 @@ export function learnCompletedHandInPersistedMemory(
   else persistedMemoryMirror.learn(request, observeCompletedHandInMind);
 }
 
+/** See HorseDecisionWorkerDependencies.threadCpuMs. Never throws: NaN when the runtime cannot read it. */
+export function liveThreadCpuMs(): number {
+  try {
+    const read = (process as unknown as { threadCpuUsage?: () => { user: number; system: number } })
+      .threadCpuUsage;
+    if (typeof read !== 'function') return Number.NaN;
+    const u = read.call(process);
+    return (u.user + u.system) / 1000;
+  } catch {
+    return Number.NaN;
+  }
+}
+
 export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependencies = {
   journalEnabled: horseDecisionJournalConfigured,
   journalDecision: journalHorseDecision,
@@ -876,6 +900,7 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   noteDecision: noteDecisionMs,
   noteFeature: noteFire,
   now: () => performance.now(),
+  threadCpuMs: liveThreadCpuMs,
 };
 
 /** SHADOW STAGE (2026-11-20): staged receipts held for the next journaled decision record, at most this many. */
@@ -3480,7 +3505,7 @@ export class HorseDecisionWorkerRuntime {
     // the action receipt plus a per-minute budget. No option in shadow: nothing runs and nothing is counted.
     // ON_SHADOW (2026-11-19): an option in on_shadow passed true above (exactly as on) and takes its turn here with
     // the shadow options; its re-decision passes false.
-    // SHADOW STAGE (2026-11-20, HorseOptionShadowStage): a staged PLO4/PLO5 cash option is left out of a decision
+    // SHADOW STAGE (2026-11-20, HorseOptionShadowStage): a staged option (PLO4/PLO5 cash, hold'em) is left out of a decision
     // outside its games and streets. When the pick is a staged option NOTHING of its re-decision runs here: it is
     // handed over after the answer is sent (below) and runs on a later turn of an idle worker, so the time from
     // request to response is that of no row. An option that is not staged takes exactly the path it had.
@@ -3533,10 +3558,16 @@ export class HorseDecisionWorkerRuntime {
       } catch {
         /* an unreadable scale is a moved scale: skip */
       }
-      const admitted = shadowScaleMoved
-        ? null
-        : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
+      // HOLD'EM SHADOW (2026-11-24): an inline (before the answer) re-decision in a hold'em game runs under the
+      // stage's latency breaker, so a slow option holds at most one live decision per worker
+      const holdem = optionShadowStageIsHoldem(optionShadowStageGameOf(player, gameState));
+      const breakerOff = holdem && this.optionShadowStageGuard.disabled(shadowPick!);
+      const admitted =
+        shadowScaleMoved || breakerOff
+          ? null
+          : this.optionShadowBudget.admit(this.deps.now(), shadowPersonDealt());
       if (shadowScaleMoved) shadowSkipped('scale');
+      else if (breakerOff) shadowSkipped('stage_disabled');
       else if (admitted === null) shadowSkipped('rate');
       else {
         if (admitted === 'person_over')
@@ -3544,7 +3575,7 @@ export class HorseDecisionWorkerRuntime {
         const pick = shadowPick!;
         for (let i = 1; i < shadowOptions.length; i++)
           this.deps.noteFeature('option_shadow_rotated_out_seen');
-        this.optionShadowReceipt(
+        const timed = this.optionShadowReceipt(
           request,
           player,
           gameState,
@@ -3555,6 +3586,8 @@ export class HorseDecisionWorkerRuntime {
           rngBefore,
           governorScale
         );
+        if (holdem && timed !== null && this.optionShadowStageGuard.note(pick, timed.wallMs))
+          this.deps.noteFeature('option_shadow_inline_self_disabled_seen');
       }
     }
     if (!horseDecisionEffectsAreValid(captured.effects)) {
@@ -3940,7 +3973,7 @@ export class HorseDecisionWorkerRuntime {
     committedScale: number,
     stage: OptionShadowStageTable | null = null,
     sink: ((receipt: OptionShadowReceipt) => void) | null = null
-  ): number | null {
+  ): { wallMs: number; threadCpuMs: number } | null {
     const flippedTo = optionSwitchShadowFlip(
       option,
       base as Readonly<Record<string, unknown>>,
@@ -3948,8 +3981,12 @@ export class HorseDecisionWorkerRuntime {
     );
     if (flippedTo === null) return null;
     const saved = this.deps.saveRng();
+    // SHADOW STAGE BREAKER (2026-11-23): a staged re-decision is also timed on this thread's CPU (read only when
+    // staged, so the inline option shadow is unchanged)
+    const c0 = stage ? this.readThreadCpuMs() : Number.NaN;
     const t0 = performance.now();
     let redecideMs = 0;
+    let threadCpuMs = Number.NaN;
     let would: HorseDecision | null = null;
     try {
       this.deps.restoreRng(rngBefore);
@@ -3991,6 +4028,7 @@ export class HorseDecisionWorkerRuntime {
       clearStyleShadowEngaged();
       takeStyleReadMs();
       redecideMs = performance.now() - t0;
+      if (stage) threadCpuMs = this.readThreadCpuMs() - c0;
       this.deps.noteDecision('option_shadow_redecide', redecideMs);
     }
     try {
@@ -4015,7 +4053,17 @@ export class HorseDecisionWorkerRuntime {
     } catch {
       this.deps.noteFeature('option_shadow_unencodable_seen');
     }
-    return redecideMs;
+    return { wallMs: redecideMs, threadCpuMs };
+  }
+
+  /** This thread's CPU time in ms, NaN when the dependency is absent or cannot read it (never throws). */
+  private readThreadCpuMs(): number {
+    try {
+      const ms = this.deps.threadCpuMs?.();
+      return typeof ms === 'number' ? ms : Number.NaN;
+    } catch {
+      return Number.NaN;
+    }
   }
 
   /**
@@ -4078,6 +4126,13 @@ export class HorseDecisionWorkerRuntime {
       this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
       if (personDealt) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
     };
+    // HOLD'EM SHADOW (2026-11-24): the decision's stage game, after the answer (it reads what the scope read)
+    let game: ReturnType<typeof optionShadowStageGameOf> = null;
+    try {
+      game = optionShadowStageGameOf(task.player, task.gameState);
+    } catch {
+      game = null;
+    }
     if (!(task.actedMs <= OPTION_SHADOW_STAGE_ACTED_BUDGET_MS)) {
       skipped('budget');
       return;
@@ -4101,7 +4156,7 @@ export class HorseDecisionWorkerRuntime {
       // deferred staged re-decisions never drift against ambient HorseMind state.
       installDecisionHud(task.request.opponentHud);
       installOmahaTurn4bHudProviders();
-      const redecideMs = this.observerReads.runReadOnly(task.request, () =>
+      const timed = this.observerReads.runReadOnly(task.request, () =>
         this.optionShadowReceipt(
           task.request,
           task.player,
@@ -4114,6 +4169,9 @@ export class HorseDecisionWorkerRuntime {
           task.governorScale,
           task.table,
           (receipt) => {
+            // HOLD'EM SHADOW (2026-11-24): in a hold'em game a changed receipt also counts what it would change
+            if (optionShadowStageIsHoldem(game))
+              for (const key of optionShadowStageDirectionKeys(receipt)) this.deps.noteFeature(key);
             this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
             if (!(this.deps.journalEnabled?.() ?? true)) return;
             if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
@@ -4129,9 +4187,21 @@ export class HorseDecisionWorkerRuntime {
           }
         )
       );
-      if (redecideMs !== null) {
-        this.deps.noteDecision('option_shadow_stage_redecide', redecideMs);
-        if (this.optionShadowStageGuard.note(task.option, redecideMs))
+      if (timed !== null) {
+        this.deps.noteDecision('option_shadow_stage_redecide', timed.wallMs);
+        // HOLD'EM SHADOW (2026-11-24): the same wall time per stage game
+        if (game !== null)
+          this.deps.noteDecision(
+            `option_shadow_stage_redecide_game_${optionShadowStageGameCode(game)}`,
+            timed.wallMs
+          );
+        // SHADOW STAGE BREAKER (2026-11-23): the thread CPU it used, and a re-decision whose wall time alone would
+        // have been slow but whose charged time is not (a pause it did not cause), are counted apart
+        if (Number.isFinite(timed.threadCpuMs) && timed.threadCpuMs >= 0)
+          this.deps.noteDecision('option_shadow_stage_redecide_cpu', timed.threadCpuMs);
+        if (optionShadowStageWallOnlySlow(timed.wallMs, timed.threadCpuMs))
+          this.deps.noteFeature('option_shadow_stage_wall_only_slow_seen');
+        if (this.optionShadowStageGuard.note(task.option, timed.wallMs, timed.threadCpuMs))
           this.deps.noteFeature('option_shadow_stage_self_disabled_seen');
       }
     }

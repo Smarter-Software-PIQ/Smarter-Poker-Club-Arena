@@ -101,6 +101,20 @@ import LobbyTable, {
   type LobbyRowContext,
 } from '../components/lobby/LobbyTable';
 import GameLobbyPanel from '../components/lobby/GameLobbyPanel';
+import { CreatePrivateMatchModal } from '../components/lobby/CreatePrivateMatchModal';
+import {
+  PrivateMatchTopBar,
+  type ActivePrivateMatchRow,
+} from '../components/lobby/PrivateMatchTopBar';
+import {
+  closePrivateSeatFirstMatch,
+  extractOfferedPrivateTemplates,
+  readPrivateSeatFirstLobbyState,
+  type PrivateLobbyVisibilityState,
+  type PrivateMatchFormat,
+} from '../lib/privateSeatFirstMatch';
+import { privateGameInviteUrl, privateGameRefusalText } from '../lib/privateGameInvite';
+import { gameInviteText, shareLink } from '../lib/share';
 import {
   cashEntry,
   cashStyleKeyOf,
@@ -3913,6 +3927,65 @@ function ClubHomePageContent({
   // Zero matches is a valid saved preference. Only the player's explicit
   // Show All Games action above may clear it.
   const scheduleNow = useSharedSecondTick(showsTournaments);
+
+  /* Player-created strictly link-only Private Heads-Up Matches & Private Spins
+     (2026-11-23). Hides other players' private matches from the public board
+     and surfaces the current player's own open private matches at the top. */
+  const [privateLobbyState, setPrivateLobbyState] = useState<PrivateLobbyVisibilityState>({
+    hiddenTournamentIds: new Set(),
+    myMatches: new Map(),
+    unavailable: false,
+  });
+  const [privateLobbyTick, setPrivateLobbyTick] = useState(0);
+  const [createPrivateFormat, setCreatePrivateFormat] = useState<PrivateMatchFormat | null>(null);
+  const [closingPrivateMatchId, setClosingPrivateMatchId] = useState<string | null>(null);
+  const privateTournamentIdsKey = useMemo(
+    () =>
+      tournaments
+        .filter((t) => Number(t.max_players ?? 0) <= 3)
+        .map((t) => t.id)
+        .sort()
+        .join(','),
+    [tournaments]
+  );
+
+  useEffect(() => {
+    const scopeClubId = resolvedClubId || club?.id || null;
+    if (!currentUserId || !scopeClubId) {
+      setPrivateLobbyState({
+        hiddenTournamentIds: new Set(),
+        myMatches: new Map(),
+        unavailable: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    void readPrivateSeatFirstLobbyState(scopeClubId).then((next) => {
+      if (!cancelled) setPrivateLobbyState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, resolvedClubId, club?.id, privateTournamentIdsKey, privateLobbyTick]);
+
+  const allKnownPrivateIds = useMemo(() => {
+    const ids = new Set<string>(privateLobbyState.hiddenTournamentIds);
+    for (const id of privateLobbyState.myMatches.keys()) ids.add(id);
+    return ids;
+  }, [privateLobbyState]);
+
+  const isPrivateMatchTab = gameType === 'SNG' || gameType === 'SPIN';
+
+  const offeredPrivateHeadsUpTemplates = useMemo(
+    () => extractOfferedPrivateTemplates(tournaments, 'heads_up', allKnownPrivateIds),
+    [tournaments, allKnownPrivateIds]
+  );
+
+  const offeredPrivateSpinTemplates = useMemo(
+    () => extractOfferedPrivateTemplates(tournaments, 'spin', allKnownPrivateIds),
+    [tournaments, allKnownPrivateIds]
+  );
+
   const filteredTournaments = useMemo(() => {
     if (!showsTournaments) return [];
 
@@ -3962,6 +4035,7 @@ function ClubHomePageContent({
     const windowNow = scheduleNow;
 
     const rows = tournaments.filter((t) => {
+      if (privateLobbyState.hiddenTournamentIds.has(t.id) && t.id !== linkedGameId) return false;
       if (!isListable(t)) return false;
       if (
         classifyTournament(t as unknown as LobbyTournamentRow) === 'mtt' &&
@@ -4062,6 +4136,7 @@ function ClubHomePageContent({
     allStatusFilter,
     linkedGameId,
     scheduleNow,
+    privateLobbyState.hiddenTournamentIds,
   ]);
 
   /**
@@ -4732,9 +4807,87 @@ function ClubHomePageContent({
     [registerMtt, openTournamentLobby, spinQuickJoin]
   );
 
+  const handleClosePrivateMatch = useCallback(
+    async (tournamentId: string) => {
+      if (!currentUserId || closingPrivateMatchId) return;
+      setClosingPrivateMatchId(tournamentId);
+      try {
+        const res = await closePrivateSeatFirstMatch(tournamentId);
+        if (!res.ok) {
+          toast.error(privateGameRefusalText(res.reason));
+          return;
+        }
+        setTournaments((prev) => prev.filter((row) => row.id !== tournamentId));
+        setRegisteredTournamentIds((prev) => {
+          const s = new Set(prev);
+          s.delete(tournamentId);
+          return s;
+        });
+        setPrivateLobbyTick((n) => n + 1);
+        toast.success('Private Match Closed. Your Buy-In Has Been Refunded.');
+      } catch (e) {
+        reportError(e, 'ClubHomePage.handleClosePrivateMatch', { tournamentId });
+        toast.error('Could Not Close Private Match, Please Try Again');
+      } finally {
+        setClosingPrivateMatchId(null);
+      }
+    },
+    [currentUserId, closingPrivateMatchId, toast]
+  );
+
+  const handleSharePrivateMatch = useCallback(
+    async (match: ActivePrivateMatchRow, inviteCode: string | null) => {
+      if (!match.info.inviteToken) return;
+      const url = privateGameInviteUrl({
+        tableId: match.info.tableId,
+        tournamentId: match.info.tournamentId,
+        inviteToken: match.info.inviteToken,
+        inviteCode,
+      });
+      const outcome = await shareLink({
+        source: 'ClubHomePage.privateMatchShare',
+        title: match.name,
+        text: gameInviteText(match.name),
+        url,
+      });
+      if (outcome === 'copied') toast.success('Game Invite Link Copied');
+      else if (outcome === 'shared') toast.success('Game Invite Link Shared');
+    },
+    [toast]
+  );
+
+  const activePrivateMatchesForTab = useMemo<ActivePrivateMatchRow[]>(() => {
+    if (gameType !== 'SNG' && gameType !== 'SPIN') return [];
+    const targetFormat: PrivateMatchFormat = gameType === 'SPIN' ? 'spin' : 'heads_up';
+    const byId = new Map(tournaments.map((row) => [row.id, row]));
+    const list: ActivePrivateMatchRow[] = [];
+    for (const info of privateLobbyState.myMatches.values()) {
+      if (info.format !== targetFormat) continue;
+      const row = byId.get(info.tournamentId);
+      const seats = Number(row?.max_players ?? (targetFormat === 'spin' ? 3 : 2));
+      const players = Number(row?.current_players ?? 1);
+      list.push({
+        info,
+        name: row?.name || (targetFormat === 'spin' ? 'Private Spin' : 'Private Heads-Up Match'),
+        seatsLabel: `${players}/${seats} Seated`,
+      });
+    }
+    return list;
+  }, [gameType, tournaments, privateLobbyState.myMatches]);
+
+  const canCreatePrivateMatch = Boolean(currentUserId) && !arenaRegistrationClosedLabel;
+  const showPrivateMatchRows =
+    isPrivateMatchTab &&
+    !privateLobbyState.unavailable &&
+    (canCreatePrivateMatch || activePrivateMatchesForTab.length > 0);
+
   const handleUnregister = useCallback(
     async (t: LobbyTournamentRow) => {
       if (!currentUserId || actionBusy) return;
+      if (privateLobbyState.myMatches.get(t.id)?.isCreator) {
+        await handleClosePrivateMatch(t.id);
+        return;
+      }
       setActionBusy(true);
       try {
         const result = await tournamentService.unregisterPlayer(t.id, currentUserId);
@@ -4751,7 +4904,7 @@ function ClubHomePageContent({
         setActionBusy(false);
       }
     },
-    [currentUserId, actionBusy, toast]
+    [currentUserId, actionBusy, toast, privateLobbyState.myMatches, handleClosePrivateMatch]
   );
 
   // ── LOBBY V2 view models — the SAME filtered/sorted rows, normalized ──
@@ -4967,6 +5120,17 @@ function ClubHomePageContent({
       return [...selectedTourns, ...cash];
     }
 
+    // Pin the current player's own open Private Heads-Up / Spin matches at the very top.
+    if ((gameType === 'SNG' || gameType === 'SPIN') && privateLobbyState.myMatches.size > 0) {
+      const mine: LobbyEntry[] = [];
+      const rest: LobbyEntry[] = [];
+      for (const e of tourns) {
+        if (privateLobbyState.myMatches.has(e.id)) mine.push(e);
+        else rest.push(e);
+      }
+      tourns = [...mine, ...rest];
+    }
+
     // Tournaments first, cash after — same order the card grid used, so the
     // page-level sort control keeps meaning what it meant.
     return [...tourns, ...cash];
@@ -4981,6 +5145,7 @@ function ClubHomePageContent({
     club?.id,
     clubNames,
     linkedGameId,
+    privateLobbyState.myMatches,
   ]);
 
   useEffect(() => {
@@ -5911,16 +6076,6 @@ function ClubHomePageContent({
               <section className="lobby-controls" aria-label="Browse Games">
                 <div className="lobby-controls__heading">
                   <strong className="lobby-controls__title">Find Your Game</strong>
-                  {gameSection && currentUserId && gameType !== 'ALL' && (
-                    <button
-                      type="button"
-                      className="lobby-controls__favorites"
-                      aria-pressed={favoritesOnly}
-                      onClick={() => selectFavoritesOnly(!favoritesOnly)}
-                    >
-                      <LobbyFilterLabel>Favorites</LobbyFilterLabel>
-                    </button>
-                  )}
                 </div>
                 <LobbyGameSections
                   selected={gameSection}
@@ -5940,6 +6095,18 @@ function ClubHomePageContent({
                     selectGameType(matching ? gameType : section === 'cash' ? 'ALL' : 'MTT');
                   }}
                 />
+                {gameSection && currentUserId && gameType !== 'ALL' && (
+                  <div className="lobby-controls__favorites-row">
+                    <button
+                      type="button"
+                      className="lobby-controls__favorites"
+                      aria-pressed={favoritesOnly}
+                      onClick={() => selectFavoritesOnly(!favoritesOnly)}
+                    >
+                      <LobbyFilterLabel>Favorites</LobbyFilterLabel>
+                    </button>
+                  </div>
+                )}
                 {gameSection && (
                   <div id="lobby-game-section-controls">
                     {canCreateClubGames && (
@@ -6298,9 +6465,44 @@ function ClubHomePageContent({
             {/* Render while loading too: LobbyTable owns the skeleton rows, and
             gating on entries>0 made them unreachable - first load flashed the
             empty state instead (review 2026-08-22). */}
-            {gameSection && (lobbyEntries.length > 0 || loading) && (
+            {gameSection && (lobbyEntries.length > 0 || loading || showPrivateMatchRows) && (
               <LobbyTable
                 entries={lobbyEntries}
+                renderPinnedRows={
+                  showPrivateMatchRows
+                    ? (colSpan) => (
+                        <PrivateMatchTopBar
+                          format={gameType === 'SPIN' ? 'spin' : 'heads_up'}
+                          colSpan={colSpan}
+                          canCreate={canCreatePrivateMatch}
+                          activeMatches={activePrivateMatchesForTab}
+                          closingId={closingPrivateMatchId}
+                          onOpenCreate={() =>
+                            setCreatePrivateFormat(gameType === 'SPIN' ? 'spin' : 'heads_up')
+                          }
+                          onOpenMatch={(match) => {
+                            if (match.info.tableId) {
+                              navigate(
+                                withClubContext(
+                                  `/table/${match.info.tableId}${match.info.isCreator ? '?held=1' : ''}`,
+                                  clubId
+                                )
+                              );
+                            } else {
+                              const found = lobbyEntries.find(
+                                (e) => e.id === match.info.tournamentId
+                              );
+                              if (found) openEntry(found);
+                            }
+                          }}
+                          onShareLink={(match) =>
+                            void handleSharePrivateMatch(match, clubInviteCode)
+                          }
+                          onCloseMatch={(id) => void handleClosePrivateMatch(id)}
+                        />
+                      )
+                    : undefined
+                }
                 tournamentSnapshot={tournaments}
                 clubId={club.id}
                 category={gameType as LobbyCategory}
@@ -6588,6 +6790,27 @@ function ClubHomePageContent({
             </button>
           </div>
         </div>
+      )}
+
+      {createPrivateFormat && (
+        <CreatePrivateMatchModal
+          isOpen
+          format={createPrivateFormat}
+          templates={
+            createPrivateFormat === 'spin'
+              ? offeredPrivateSpinTemplates
+              : offeredPrivateHeadsUpTemplates
+          }
+          onClose={() => setCreatePrivateFormat(null)}
+          onCreated={(hold) => {
+            setCreatePrivateFormat(null);
+            setPrivateLobbyTick((n) => n + 1);
+            toast.success('Private Match Created, Your Seat Is Bought');
+            if (hold.tableId) {
+              navigate(withClubContext(`/table/${hold.tableId}?held=1`, clubId));
+            }
+          }}
+        />
       )}
 
       {/* Confirm Modal for Table Closure */}

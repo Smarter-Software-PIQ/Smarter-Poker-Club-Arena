@@ -4836,6 +4836,31 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigBetIsPotShare: false, omahaBigBetSizeIsPriced: true },
     b: { omahaBigBetIsPotShare: true },
   })),
+  // 2026-11-22 PLO-OWNER lead-5 (default OFF, PLO4/PLO5 cash): omahaPricedRaiseNeverMakesNonNutRaise. Both arms run
+  // the two live turn and river raise rules it limits; a adds the option, b is today.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_priced_raise_never_makes_non_nut_raise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaTurnRiverRaiseIsPriced: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+      omahaPricedRaiseNeverMakesNonNutRaise: true,
+    },
+    b: { omahaTurnRiverRaiseIsPriced: true, omahaTurnRiverRaiseNeedsNuts: true },
+  })),
+  // 2026-11-22 PLO-OWNER lead-5 (default OFF, PLO4/PLO5 cash): omahaLateFlattenedCallIsPriced. Both arms run the
+  // facing-bet verdict that prices the late-flattened river call; a adds the option, b is today. The spot is rare
+  // (once in 14,614 replayed states), so this card can show no difference.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_late_flattened_call_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaLateFlattenedCallIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5 (default OFF, PLO4/PLO5 cash): R2 omahaFlopBetIsPricedOnHisResponse
   // (replaces #13 omahaBareOverpairOopFlopCheck + HUD flop raiser/stabber range); a on, b today.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -4905,6 +4930,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverCurrentNutsCallFloor: true },
     b: {},
   })),
+  // 2026-11-24 PLO-LEAD-6 (default OFF): omahaOopReraiseRangeHoldsVsReraise (PLO4/PLO5 cash) and
+  // holdemOopReraiseRangeHoldsVsReraise (NLH cash): the out-of-position 3-bet stands only when priced against the call
+  // and the Horse's own answer to the 4-bet; a switches it on, b is today's brain. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_oop_reraise_range_holds_vs_reraise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOopReraiseRangeHoldsVsReraise: true },
+    b: {},
+  })),
+  {
+    name: 'nlh_holdem_oop_reraise_range_holds_vs_reraise',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOopReraiseRangeHoldsVsReraise: true },
+    b: {},
+  },
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
   // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
   // a re-raise is positive); a switches it on, b is today's brain.

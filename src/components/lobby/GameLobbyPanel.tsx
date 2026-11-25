@@ -19,7 +19,15 @@ import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
  * plain PanelSection: a lit heading, rows on hairline rules, no chassis.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { gameInviteText, gameInviteUrl, lobbyEntryInviteTarget, shareLink } from '../../lib/share';
@@ -35,7 +43,8 @@ import { parseBlindStructure, tournamentBlinds, tournamentLevel } from './tourna
 import { parseTableSettings, seatsTakenLabel, seatFirstJoinable } from './lobbyEntries';
 import { cashBuyInRange } from '../../lib/cashBuyIn';
 import { tournamentService, type TournamentWithArena } from '../../services/TournamentService';
-import { waitlistService, type WaitlistEntry } from '../../services/WaitlistService';
+import { fetchCashGameLobby, waitingListRows } from '../../services/cashGameLobby';
+import { waitlistService } from '../../services/WaitlistService';
 import { tableService } from '../../services/TableService';
 import { supabase } from '../../lib/supabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -58,6 +67,9 @@ import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
 import { tournamentStartsWhenFull } from '../../utils/tournamentPresentation';
 import './GameLobbyPanel.css';
+import PlayerAvatar from '../avatars/PlayerAvatar';
+import { avatarService } from '../../services/AvatarService';
+import { ArenaEventCard } from './ArenaEventCard';
 import './PremiumGameLobbyPanel.css';
 import { formatPrizeAtUnit, formatTableChips } from '../../utils/format';
 
@@ -100,6 +112,64 @@ export interface GameLobbyPanelProps {
 
 type TournTab = 'overview' | 'structure' | 'payouts';
 
+interface DrawerQueue {
+  count: number;
+  rows: { id: string; userId: string; name: string; position: number; joinedAt?: string }[];
+}
+
+async function readDrawerQueue(
+  tableId: string,
+  gameId: string | null
+): Promise<DrawerQueue | null> {
+  if (gameId) {
+    const { waitlist } = await fetchCashGameLobby(gameId);
+    if (!Number.isSafeInteger(waitlist?.waiting) || waitlist.waiting < 0) return null;
+    return {
+      count: waitlist.waiting,
+      rows: waitingListRows(waitlist.players, null).map((row) => ({
+        id: row.key,
+        userId: row.key,
+        name: row.name,
+        position: row.position,
+      })),
+    };
+  }
+  const entries = await waitlistService.getTableWaitlist(tableId);
+  if (!entries) return null;
+  return {
+    count: entries.filter((row) => row.status === 'waiting').length,
+    rows: entries.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      name: row.displayName || 'Player',
+      position: row.position,
+      joinedAt: row.joinedAt,
+    })),
+  };
+}
+
+// Queue and seat identities can change without changing either board count.
+// Refresh only the open, visible drawer and allow at most one request per resource.
+function refreshVisibleCashDetail(read: () => Promise<void>, initial = true) {
+  let reading = false;
+  const refresh = () => {
+    if (document.hidden || reading) return;
+    reading = true;
+    void read().finally(() => {
+      reading = false;
+    });
+  };
+  if (initial) refresh();
+  window.addEventListener('focus', refresh);
+  document.addEventListener('visibilitychange', refresh);
+  const interval = window.setInterval(refresh, 60_000);
+  return () => {
+    window.clearInterval(interval);
+    window.removeEventListener('focus', refresh);
+    document.removeEventListener('visibilitychange', refresh);
+  };
+}
+
 /** How long a queued player has ACTUALLY been waiting, from created_at.
  *  (Dan 2026-08-26: replaced the fabricated ~5m-per-position ETA.) */
 function waitedLabel(joinedAt: string): string {
@@ -125,6 +195,7 @@ interface CtaSpec {
 const titleCaseRule = (r: RuleMedallion): RuleMedallion => ({
   ...r,
   label: titleCase(r.label),
+  detail: r.detail && titleCase(r.detail),
   tip: titleCase(r.tip),
 });
 
@@ -221,6 +292,34 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
      to the row on close. */
   const panelRef = useFocusTrap(true);
 
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!isEmbedded) return;
+    const backdrop = backdropRef.current;
+    const header = document.querySelector<HTMLElement>(
+      '.multi-table-page__lobby-tab:not([data-lobby-held]) > [data-in-tab="true"]'
+    );
+    if (!backdrop || !header) return;
+    const placeBelowHeader = () => {
+      backdrop.style.setProperty(
+        '--glp-top',
+        Math.max(0, header.getBoundingClientRect().bottom) + 'px'
+      );
+    };
+    placeBelowHeader();
+    const observer = new ResizeObserver(placeBelowHeader);
+    observer.observe(header);
+    if (header.parentElement) observer.observe(header.parentElement);
+    window.addEventListener('resize', placeBelowHeader);
+    document.addEventListener('scroll', placeBelowHeader, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', placeBelowHeader);
+      document.removeEventListener('scroll', placeBelowHeader, true);
+      backdrop.style.removeProperty('--glp-top');
+    };
+  }, [isEmbedded]);
+
   /* Lock the page behind the drawer. On a phone the sheet is full-screen and
      the lobby scrolled underneath it, so closing put the player somewhere
      they had never scrolled to. */
@@ -244,11 +343,18 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   // ── Detail data (read-only enrichment; actions never depend on it) ──
   const [tournament, setTournament] = useState<TournamentWithArena | null>(null);
   const [tournamentFieldSize, setTournamentFieldSize] = useState<number | null>(null);
-  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
-  const [waitlistError, setWaitlistError] = useState(false);
-  const waitlistSnapshotRef = useRef<{ tableId: string; waitlisted: boolean } | null>(null);
+  const gameId = entry.game?.id ?? null;
+  const [queue, setQueue] = useState<DrawerQueue | null>(null);
+  const waitlistSnapshotRef = useRef<{
+    tableId: string;
+    gameId: string | null;
+    count?: number;
+    waitlisted: boolean;
+  } | null>(null);
   const [avgPot, setAvgPot] = useState<number | null>(null);
-  const [seatMap, setSeatMap] = useState<{ seat_number: number; user_id: string }[] | null>(null);
+  const [seatMap, setSeatMap] = useState<
+    { seat_number: number; user_id: string; avatarUrl?: string }[] | null
+  >(null);
   const [tick, setTick] = useState<{
     last_tick_at: string | null;
     last_tick_actions: unknown;
@@ -261,8 +367,8 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
     let cancelled = false;
     setTournament(null);
     setTournamentFieldSize(null);
-    setWaitlist([]);
-    setWaitlistError(false);
+    setQueue(null);
+    setSeatMap(null);
     waitlistSnapshotRef.current = null;
     setAvgPot(null);
     setTab('overview');
@@ -310,34 +416,31 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   useEffect(() => {
     if (!isCash || isLightning || busy) return;
     const previous = waitlistSnapshotRef.current;
-    if (previous?.tableId === entry.id && previous.waitlisted === waitlisted) return;
+    const sameSource = previous?.tableId === entry.id && previous.gameId === gameId;
+    const confirmed =
+      sameSource && previous.count === entry.waitingCount && previous.waitlisted === waitlisted;
+    if (!sameSource) setQueue(null);
     let cancelled = false;
-    waitlistService
-      .getTableWaitlist(entry.id)
-      .then((rows) => {
+    const stop = refreshVisibleCashDetail(async () => {
+      try {
+        const result = await readDrawerQueue(entry.id, gameId);
         if (cancelled) return;
-        if (rows === null) {
-          waitlistSnapshotRef.current = null;
-          setWaitlist([]);
-          setWaitlistError(true);
-        } else {
-          waitlistSnapshotRef.current = { tableId: entry.id, waitlisted };
-          setWaitlist(rows);
-          setWaitlistError(false);
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          waitlistSnapshotRef.current = null;
-          setWaitlist([]);
-          setWaitlistError(true);
-        }
-        reportError(e, 'GameLobbyPanel.loadWaitlist');
-      });
+        waitlistSnapshotRef.current = result
+          ? { tableId: entry.id, gameId, count: entry.waitingCount, waitlisted }
+          : null;
+        setQueue(result);
+      } catch (error) {
+        if (cancelled) return;
+        waitlistSnapshotRef.current = null;
+        setQueue(null);
+        reportError(error, 'GameLobbyPanel.loadWaitlist');
+      }
+    }, !confirmed);
     return () => {
       cancelled = true;
+      stop();
     };
-  }, [entry.id, isCash, isLightning, busy, waitlisted]);
+  }, [entry.id, entry.waitingCount, gameId, isCash, isLightning, busy, waitlisted]);
 
   // ── Seat map (cash only; table_seats is public-read). Keyed on
   //    entry.players so a realtime seat change refreshes the map without
@@ -355,7 +458,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
        `.catch`, so there was nowhere to put the handler and a dropped
        connection here surfaced as an unhandled rejection. The seat map is a
        nice-to-have; failing to get it must not raise. */
-    void (async () => {
+    const stop = refreshVisibleCashDetail(async () => {
       try {
         const { data, error } = await supabase
           .from('table_seats')
@@ -372,14 +475,27 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
           setSeatMap(null);
           return;
         }
-        setSeatMap(data ?? []);
+        const seats = data ?? [];
+        setSeatMap(seats);
+        if (seats.length) {
+          try {
+            const avatars = await avatarService.getUserAvatars(seats.map((seat) => seat.user_id));
+            if (!cancelled && avatars.size > 0) {
+              setSeatMap(seats.map((seat) => ({ ...seat, avatarUrl: avatars.get(seat.user_id) })));
+            }
+          } catch (error) {
+            if (!cancelled) reportError(error, 'GameLobbyPanel.loadSeatAvatars');
+          }
+        }
       } catch (err) {
-        /* transport failure - the panel simply shows no seat map */
+        if (cancelled) return;
+        setSeatMap(null);
         reportError(err, 'GameLobbyPanel.loadSeatMap');
       }
-    })();
+    });
     return () => {
       cancelled = true;
+      stop();
     };
   }, [entry.id, isCash, entry.capacity, entry.players]);
 
@@ -388,14 +504,14 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   //    authenticated may read the row - cash_games_read) on open and every
   //    ten seconds while the panel is up. Read-only enrichment: a failed read
   //    prints nothing and never raises. ──
-  const gameId = entry.game?.id ?? null;
   useEffect(() => {
-    if (!isCash || !staff || !gameId) {
-      setTick(null);
-      return;
-    }
+    setTick(null);
+    if (!isCash || !staff || !gameId) return;
     let cancelled = false;
+    let reading = false;
     const read = async () => {
+      if (reading) return;
+      reading = true;
       try {
         const { data, error } = await supabase
           .from('cash_games')
@@ -403,17 +519,22 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
           .eq('id', gameId)
           .maybeSingle();
         if (cancelled) return;
-        if (error) {
-          reportError(error, 'GameLobbyPanel.loadTick');
-          return;
-        }
-        setTick({
-          last_tick_at: (data?.last_tick_at as string | null) ?? null,
-          last_tick_actions: data?.last_tick_actions ?? null,
-          readAt: Date.now(),
-        });
-      } catch (err) {
-        reportError(err, 'GameLobbyPanel.loadTick');
+        if (error) throw error;
+        setTick(
+          data
+            ? {
+                last_tick_at: data.last_tick_at ?? null,
+                last_tick_actions: data.last_tick_actions ?? null,
+                readAt: Date.now(),
+              }
+            : null
+        );
+      } catch (error) {
+        if (cancelled) return;
+        setTick(null);
+        reportError(error, 'GameLobbyPanel.loadTick');
+      } finally {
+        reading = false;
       }
     };
     void read();
@@ -824,6 +945,8 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
         status: typeof raw.status === 'string' ? raw.status : null,
         variant: typeof raw.variant === 'string' ? raw.variant : null,
         max_players: Number(raw.max_players ?? entry.capacity ?? 0),
+        format_contract: raw.format_contract,
+        current_players: Number(raw.current_players ?? entry.players ?? 0),
         buy_in_amount: raw.buy_in_amount as number | string | null | undefined,
         buy_in_fee: raw.buy_in_fee as number | string | null | undefined,
         started_at: typeof raw.started_at === 'string' ? raw.started_at : null,
@@ -850,7 +973,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
   // The page can establish a stacking context below the global header.
   // Keep the modal at the body layer so its close control stays reachable.
   return createPortal(
-    <div className="glp-backdrop" onClick={onClose} role="presentation">
+    <div ref={backdropRef} className="glp-backdrop" onClick={onClose} role="presentation">
       {privateInvite.element}
       <aside
         ref={panelRef}
@@ -881,12 +1004,20 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {satelliteDestination || 'Loading Satellite Destination...'}
             </div>
           )}
-          <ArenaGameCard
-            data={gameCardData}
-            actions={gameCardActions}
-            presentation="auto"
-            className="glp__arena-card"
-          />
+          {isCash ? (
+            <ArenaGameCard
+              data={gameCardData}
+              actions={gameCardActions}
+              presentation="auto"
+              className="glp__arena-card"
+            />
+          ) : (
+            <ArenaEventCard
+              data={gameCardData}
+              actions={gameCardActions}
+              destination={satelliteDestination}
+            />
+          )}
           {entry.status !== 'completed' && entry.status !== 'closed' && (
             <div className="glp__invite-bar">
               <button
@@ -1001,7 +1132,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                   {!isLightning && (
                     <div>
                       <dt>Waiting</dt>
-                      <dd className="glp__mono">{waitlistError ? '-' : waitlist.length}</dd>
+                      <dd className="glp__mono">{queue?.count ?? '-'}</dd>
                     </div>
                   )}
                   <div>
@@ -1029,7 +1160,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
               {seatMap && entry.capacity > 0 && (
                 <section className="glp__section">
                   <h3 className="glp__h">Seat Map</h3>
-                  <div className="glp__seatmap">
+                  <div className="glp__seatmap" data-orbit={entry.capacity <= 10 || undefined}>
                     {Array.from({ length: entry.capacity }).map((_, i) => {
                       const n = i + 1;
                       const taken = seatMap.find((x) => x.seat_number === n);
@@ -1039,8 +1170,24 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       return (
                         <span
                           key={n}
+                          style={
+                            entry.capacity <= 10
+                              ? {
+                                  left:
+                                    50 + 39 * Math.sin((i * 2 * Math.PI) / entry.capacity) + '%',
+                                  top: 50 - 36 * Math.cos((i * 2 * Math.PI) / entry.capacity) + '%',
+                                }
+                              : undefined
+                          }
                           className={`glp__seat${taken ? ' is-taken' : ''}${mine ? ' is-you' : ''}`}
                         >
+                          {taken && (
+                            <PlayerAvatar
+                              src={taken.avatarUrl}
+                              name={mine ? 'You' : 'Seat ' + n}
+                              size="xs"
+                            />
+                          )}
                           <i>{n}</i>
                           <em>{mine ? 'You' : taken ? 'Taken' : 'Open'}</em>
                         </span>
@@ -1061,7 +1208,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                 </section>
               )}
 
-              {!isLightning && waitlist.length > 0 && (
+              {!isLightning && queue && queue.rows.length > 0 && (
                 <section className="glp__section">
                   <h3 className="glp__h">Waiting List</h3>
                   {/* Dan 2026-08-26: real names, real times. Every non-hero row
@@ -1071,15 +1218,17 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       player has actually been waiting (from created_at) —
                       truthful, and the only wait figure the data can prove. */}
                   <ol className="glp__waitlist">
-                    {waitlist.slice(0, 10).map((w, i) => (
-                      <li key={w.id || i}>
-                        <span className="glp__wl-pos">{i + 1}</span>
-                        <span className="glp__wl-name">
-                          {w.userId && currentUserId && w.userId === currentUserId
-                            ? 'You'
-                            : w.displayName || 'Player'}
+                    {queue.rows.map((w) => (
+                      <li key={w.id}>
+                        <span className="glp__wl-pos">
+                          {w.position > 0 ? w.position : 'Seat Offered'}
                         </span>
-                        <span className="glp__wl-time">{waitedLabel(w.joinedAt)}</span>
+                        <span className="glp__wl-name">
+                          {w.userId && currentUserId && w.userId === currentUserId ? 'You' : w.name}
+                        </span>
+                        {w.joinedAt && (
+                          <span className="glp__wl-time">{waitedLabel(w.joinedAt)}</span>
+                        )}
                       </li>
                     ))}
                   </ol>

@@ -21,7 +21,14 @@ name: Stage Exact Club Arena Engine Release
 # A missed date or failed owner never gains a retry. Changed release authority
 # is not a retry: the date belongs to the first run reserved under the release
 # controls the cutoff binds, and a run reserved under older controls refuses.
-run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
+#
+# The post-seal Backup (repository_dispatch, titled "Backup after seal
+# <run>-<attempt>") completes inside the next cycle's election window. Its
+# successful first-attempt completion on main is the same election trigger as
+# a push Backup's, under the same run title (O25, 2026-11-24), so every reader
+# of the election still names the same runs. No trigger is added: it is the
+# workflow_run subscription below.
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
@@ -64,13 +71,20 @@ permissions: {}
 
 jobs:
   detect:
-    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 315
+    # issues: write and statuses: read (O25, 2026-11-24) serve one thing: the
+    # owner's readiness comments on the cutover log issue, posted from inside
+    # its existing cutoff wait. statuses: read lets the read-only readiness
+    # check see backup-engine/certified. The admission step itself still only
+    # reads, and nothing here can write source or send a release event.
     permissions:
       contents: read
       actions: read
+      issues: write
+      statuses: read
     outputs:
       protected_sha: ${{ steps.cutoff.outputs.sha }}
       window_sha: ${{ steps.window_source.outputs.sha }}
@@ -105,6 +119,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/read-engine-prequalification.py
+            /scripts/release/three-hourly-readiness.py
             /server/scripts/engine-release-seal.py
             /server/release/owner-maintenance-windows.json
             /server/release/activation-floor.json
@@ -120,7 +135,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           SENDER_TYPE: ${{ github.event.sender.type }}
-          PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -144,13 +158,33 @@ jobs:
           daily_date=''
           cutoff_epoch=''
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::A daily reservation cannot be replayed."; exit 1; }
-          # Original event time selects one bounded reservation date. A delayed
-          # event cannot claim an expired date, and a rerun cannot reserve again.
+          # The run's own creation time selects one bounded reservation date. A
+          # delayed event cannot claim an expired date, and a rerun cannot
+          # reserve again.
+          #
+          # ONE CLOCK FOR THE CLAIM AND THE ELECTION (2026-11-23). A push used
+          # to judge itself by the push payload's repository.pushed_at while the
+          # election below judges every earlier run by its created_at, the only
+          # time it can see. Push run 45114163784 was pushed at 04:49:59Z and
+          # created at 04:50:01Z; the 01:00 Chicago cycle's reservation opened
+          # at 04:50:00Z. It found no window and prepared nothing, every later
+          # run deferred to it, and the cycle was never prepared. A push is now
+          # judged by its run's created_at like every other event, so a run the
+          # election counts is a run that claims. created_at is never earlier
+          # than the push, so this clock is the stricter one at the window end.
           moment=''
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
-            moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
-          elif [ "$EVENT_NAME" = push ]; then
-            moment="${PUSHED_AT:-}"
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = push ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+            # Three immediate attempts, no pause (O25, 2026-11-24): one failed
+            # read of this run's own record used to cost the whole cycle.
+            moment_read=false
+            for _ in 1 2 3; do
+              if moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at); then
+                moment_read=true
+                break
+              fi
+              moment=''
+            done
+            [ "$moment_read" = true ] || echo "::warning title=DAILY PREPARATION UNKNOWN::Could not read this run's own creation time; this run prepares nothing."
           fi
           window=''
           if [ -n "$moment" ]; then
@@ -212,8 +246,16 @@ jobs:
             # SERVING engine breaks on it. Until a release carrying the three-hourly
             # schedule seals, only the 04:00 anchor is prepared (fail closed).
             if [ "$cycle_hour" != 4 ]; then
-              serving_schedule=$(curl -fsS --max-time 15 -H 'Cache-Control:no-cache' https://engine.smarter.poker/health \
-                | jq -c '.maintenance.schedule // {}') || serving_schedule='{}'
+              # Three immediate attempts, no pause, 45 s at most (O25): a single
+              # failed read of /health no longer decides the cycle.
+              serving_schedule='{}'
+              for _ in 1 2 3; do
+                if schedule_read=$(curl -fsS --max-time 15 -H 'Cache-Control:no-cache' https://engine.smarter.poker/health \
+                  | jq -c '.maintenance.schedule // {}'); then
+                  serving_schedule="$schedule_read"
+                  break
+                fi
+              done
               if ! printf '%s' "$serving_schedule" | jq -e '.frequency == "three-hourly" and (.startHours == [1,4,7,10,13,16,19,22])' >/dev/null; then
                 echo "Cycle $daily_date is not yet a serving engine break (serving schedule: $serving_schedule); this run prepares nothing for it."
                 window=''
@@ -226,11 +268,32 @@ jobs:
             # the reservation/preparation interval owns the preparation; GitHub run ids only increase,
             # so "an earlier run in this window exists" is a lower id. A list
             # that cannot be read is UNKNOWN and prepares nothing (10.86).
+            #
+            # THE ELECTION AND THE CLAIM AGREE (O25, 2026-11-24). The election
+            # used to hand the cycle to the lowest earlier run id whatever that
+            # run did. A run whose own reads failed (its creation time, the
+            # serving schedule, the run list) claimed nothing and ended green,
+            # every later run still deferred to it, and the cycle had no owner:
+            # the shape of the 2026-11-23 01:00 loss, by another door. The
+            # election now reads what each earlier run did. A run that claims
+            # holds its job open until the cutoff, so an earlier run that
+            # finished green, first attempt, more than two minutes before the
+            # cutoff claimed nothing and is passed over. One that finished
+            # green later than that is asked through its own job record: only
+            # a detect job that finished green with its cutoff step skipped
+            # claimed nothing. Anything else keeps the cycle, as before: a run
+            # still going, a failed or cancelled one (a failed owner never
+            # gains a retry), a replayed one, an unreadable record, or more
+            # than five such questions. So a run is passed over only after it
+            # has finished without claiming, and it can never claim afterwards
+            # (a replay is refused above): two owners are impossible.
             verdict=unknown
             runs_file=$(mktemp "$RUNNER_TEMP/daily-reservations.XXXXXXXX")
-            trap 'rm -f -- "$runs_file"' EXIT
+            claims_dir=$(mktemp -d "$RUNNER_TEMP/daily-claims.XXXXXXXX")
+            trap 'rm -rf -- "$runs_file" "$claims_dir"' EXIT
             if gh api --paginate --slurp "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100" > "$runs_file"; then
-              verdict=$(RUNS_FILE="$runs_file" WINDOW_START="$window_start" WINDOW_END="$window_end" CUTOFF_EPOCH="$cutoff_epoch" python3 - <<'PYTHON'
+              for lookup in 1 2 3 4 5 6; do
+              verdict=$(RUNS_FILE="$runs_file" CLAIMS_DIR="$claims_dir" WINDOW_START="$window_start" WINDOW_END="$window_end" CUTOFF_EPOCH="$cutoff_epoch" python3 - <<'PYTHON'
           import importlib.util, json, os, re, sys
           from datetime import datetime
           def when(value):
@@ -267,6 +330,36 @@ jobs:
                   return reader.projection(sha, release_authority=True)
               except Exception:
                   return None
+          DETECT_JOB = "Prove Whether The Server Tree Changed"
+          CUTOFF_STEP = "Wait once for the reserved cutoff and bind protected source"
+          STOOD_DOWN_MARGIN = 120
+          def stood_down(run):
+              # "yes": finished without claiming. "no": keeps the cycle.
+              # "ask": only its own job record can tell.
+              if run.get("status") != "completed" or run.get("conclusion") != "success" or run.get("run_attempt") != 1:
+                  return "no"
+              try:
+                  finished = when(run["updated_at"]).timestamp()
+              except (KeyError, TypeError, ValueError, AttributeError):
+                  return "no"
+              if finished <= int(os.environ["CUTOFF_EPOCH"]) - STOOD_DOWN_MARGIN:
+                  return "yes"
+              record = os.path.join(os.environ.get("CLAIMS_DIR") or ".", f"{run['id']}.json")
+              if not os.environ.get("CLAIMS_DIR") or not os.path.isfile(record):
+                  return "ask"
+              try:
+                  with open(record, encoding="utf-8") as source:
+                      document = json.load(source)
+                  jobs = document["jobs"]
+                  if type(document.get("total_count")) is not int or document["total_count"] != len(jobs):
+                      return "no"
+                  detect = [job for job in jobs if job.get("name") == DETECT_JOB]
+                  if len(detect) != 1 or detect[0].get("status") != "completed" or detect[0].get("conclusion") != "success" or detect[0].get("run_attempt") != 1:
+                      return "no"
+                  waits = [step for step in detect[0]["steps"] if step.get("name") == CUTOFF_STEP]
+                  return "yes" if len(waits) == 1 and waits[0].get("status") == "completed" and waits[0].get("conclusion") == "skipped" else "no"
+              except Exception:
+                  return "no"
           try:
               me = int(os.environ["RUN_ID"])
               mine = authority(os.environ.get("GITHUB_SHA", ""))
@@ -300,8 +393,21 @@ jobs:
                           print(f"Earlier run {run['id']} reserved under other release controls; it cannot own this date.", file=sys.stderr)
                           continue
                       earlier.append(run["id"])
-              if earlier:
-                  print("false", min(earlier))
+              # Lowest id first: the first earlier run that did not stand down
+              # keeps the cycle.
+              by_id = {run["id"]: run for run in runs}
+              passed, keeper = [], None
+              for rid in sorted(earlier):
+                  state = stood_down(by_id[rid])
+                  if state == "yes":
+                      passed.append(rid)
+                      continue
+                  keeper = (state, rid)
+                  break
+              if passed:
+                  print(f"{len(passed)} earlier run(s) finished without claiming this cycle (first {passed[0]}); none of them owns it.", file=sys.stderr)
+              if keeper:
+                  print("ask" if keeper[0] == "ask" else "false", keeper[1])
               elif all(type(page.get("total_count")) is int and page["total_count"] <= len(runs) for page in pages):
                   print("true", me)
               else:
@@ -310,6 +416,14 @@ jobs:
               print("unknown -")
           PYTHON
               ) || verdict=unknown
+              [ "${verdict%% *}" = ask ] || break
+              asked="${verdict#ask }"
+              if ! [[ "$asked" =~ ^[1-9][0-9]*$ ]]; then verdict=unknown; break; fi
+              # Out of questions: that run keeps the cycle.
+              if [ "$lookup" = 6 ]; then verdict="false $asked"; break; fi
+              gh api "repos/$REPO/actions/runs/$asked/jobs?per_page=100" > "$claims_dir/$asked.json" \
+                || printf '{}' > "$claims_dir/$asked.json"
+              done
             fi
             read -r daily_preparation daily_owner <<< "$verdict"
             case "$daily_preparation" in
@@ -360,6 +474,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           THIS_RUN_ID: ${{ github.run_id }}
+          DAILY_PREPARATION: ${{ steps.admission.outputs.daily_preparation }}
+          LOG_ISSUE: '11599'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           # Admission already validated the exact finite owner dispatch. It
@@ -375,6 +492,64 @@ jobs:
           [ "$remaining" -le 18000 ] || { echo '::error::Reservation exceeds five hours.'; exit 1; }
           [[ "${LOOKBACK_SECONDS:-18000}" =~ ^[1-9][0-9]*$ ]] && [ "$remaining" -le "${LOOKBACK_SECONDS:-18000}" ] \
             || { echo '::error::Reservation exceeds its cycle lookback.'; exit 1; }
+          # EARLY WARNING (O25, 2026-11-24). The owner of the cycle says on the
+          # cutover log issue what the cycle will find, while there is still
+          # time to act: once when it reserves (ten minutes or more before the
+          # cutoff) and once 45 minutes before the cutoff when it reserved
+          # earlier than that. It is the same single wait, cut in two around
+          # the second comment: no job, trigger or timer is added, and the
+          # wait still ends at the cutoff because what is left is measured
+          # again after each comment. Reporting only: every command is bounded
+          # (185 s in all), every failure is swallowed, and "could not tell"
+          # is said as unknown. Never on a replay or a finite owner window.
+          readiness_note() {
+            local minutes="$1" cycle report line body
+            cycle=$(TZ=America/Chicago jq -nr --argjson cutoff "$CUTOFF_EPOCH" '$cutoff + 1800 | strflocaltime("%Y-%m-%d %H:%M %Z")') || return 0
+            timeout 45 git fetch --no-tags origin main >/dev/null 2>&1 || true
+            report=$(timeout 120 python3 -B scripts/release/three-hourly-readiness.py --repo "$REPO" --repo-dir . --json 2>/dev/null) || true
+            line=$(printf '%s' "$report" | jq -r --argjson cutoff "$CUTOFF_EPOCH" '
+              def short: (. // "unknown") | tostring | .[0:12];
+              def flat: (. // "") | tostring | gsub("[\\r\\n|]+"; " ") | .[0:240];
+              (.summary | flat) as $summary
+              | if .verdict == "READY" or .verdict == "IN_FLIGHT" or .verdict == "NO_CANDIDATE" then
+                  if (.schedule.preparationCutoffEpoch? // null) != $cutoff then
+                    "readiness unknown (the check read another cycle than this one)"
+                  elif .verdict == "READY" then
+                    "READY " + (.selectableSha | short)
+                  elif .verdict == "IN_FLIGHT" then
+                    ([.candidates[]? | select(.status == "PENDING") | select((.sha | short) as $s | $summary | contains($s + " is in flight"))][0]) as $c
+                    | if $c then "IN_FLIGHT " + ($c.sha | short) + " (" + ($c.reason | flat) + ")" else "IN_FLIGHT (" + $summary + ")" end
+                  elif (.git.totalCommitsSinceServing? // null) == 0 then
+                    "NO CHANGE: protected main is the serving engine " + (.git.servingSha | short)
+                  else
+                    (([.candidates[]? | select(.status == "DISQUALIFIED")][0]) // (.candidates[0]? // null)) as $c
+                    | "AT RISK: no certified candidate; newest refusal: " + (if $c then ($c.sha | short) + " " + ($c.reason | flat) else $summary end)
+                  end
+                else
+                  "readiness unknown" + (if $summary != "" then " (" + $summary + ")" else "" end)
+                end' 2>/dev/null) || line=''
+            [ -n "$line" ] || line='readiness unknown (the read-only readiness check gave no verdict)'
+            body=$(printf 'Cycle: %s | Readiness at T-%sm: %s\nStage: %s\n' "$cycle" "$minutes" "$line" "$RUN_URL")
+            if timeout 20 gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null 2>&1; then
+              echo "Posted the T-${minutes}m readiness of cycle $cycle to issue #$LOG_ISSUE: $line"
+            else
+              echo "::notice::The T-${minutes}m readiness of cycle $cycle was not posted to issue #$LOG_ISSUE: $line"
+            fi
+            return 0
+          }
+          if [ "$remaining" -gt 0 ] && [ "${DAILY_PREPARATION:-}" = true ] && [ "${GITHUB_RUN_ATTEMPT:-}" = 1 ] && [[ "${LOG_ISSUE:-}" =~ ^[1-9][0-9]*$ ]]; then
+            if [ "$remaining" -ge 600 ]; then
+              readiness_note "$((remaining / 60))" || true
+              now=$(date +%s)
+              remaining=$((CUTOFF_EPOCH - now))
+            fi
+            if [ "$remaining" -gt 2700 ]; then
+              sleep "$((remaining - 2700))"
+              readiness_note 45 || true
+              now=$(date +%s)
+              remaining=$((CUTOFF_EPOCH - now))
+            fi
+          fi
           [ "$remaining" -le 0 ] || sleep "$remaining"
           now=$(date +%s)
           [ "$now" -ge "$CUTOFF_EPOCH" ] && [ "$now" -lt "$((CUTOFF_EPOCH + 1200))" ] || { echo '::error::Reserved preparation window missed.'; exit 1; }
@@ -794,6 +969,66 @@ jobs:
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cutover-log-keep-serving:
+    # KEEP-SERVING CYCLES ARE LOGGED TOO (2026-11-23, O20/D3).
+    # auto-deploy-hetzner.yml posts to issue #11599 when a receiver runs
+    # (SEALED, ALREADY-RELEASED or REFUSED), but when Stage selects
+    # keep-serving no receiver is dispatched and #11599 stayed silent.
+    # Reporting only: downloads the selection artifact, posts one keep-serving
+    # comment with the serving SHA, reason and deferred candidates, never
+    # dispatches, retries or advances a release, and its own failure changes
+    # nothing. Uses "Serving SHA:" (never "Sealed SHA:") so the receiver's
+    # previous-seal parser only reads real seals.
+    if: always() && needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.selection.result == 'success' && needs.selection.outputs.send != 'true' && github.run_attempt == 1
+    name: Post Keep-Serving Cycle To The Engine Cutover Log
+    needs: [detect, selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Download the daily selection artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
+          path: selection-artifact
+      - name: Comment once on the Engine cutover log issue
+        id: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LOG_ISSUE: '11599'
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$LOG_ISSUE" =~ ^[1-9][0-9]*$ ]]
+          [ -f selection-artifact/daily-selection.json ] || { echo '::warning::daily-selection.json missing; skipping #11599 keep-serving log.'; exit 0; }
+          outcome=$(jq -r '.outcome // "unknown"' selection-artifact/daily-selection.json)
+          [ "$outcome" != selected ] || exit 0
+          serving=$(jq -r '.servingSha // "unknown"' selection-artifact/daily-selection.json)
+          reason=$(jq -r '(.reason // "no reason recorded") | gsub("[\\r\\n]+"; " ")' selection-artifact/daily-selection.json)
+          deferred=$(jq -r 'if ((.deferredCandidates // []) | length) == 0 then "(none)" else [.deferredCandidates[] | "\((.sha // "unknown")[0:12]): \(.reason // "deferred")" + (if (.detail // "") != "" then " (" + ((.detail | tostring) | gsub("[\\r\\n]+"; " ")) + ")" else "" end)] | join("; ") end' selection-artifact/daily-selection.json)
+          cycle=$(RELEASE_DATE="$RELEASE_DATE" python3 -c '
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          raw = os.environ["RELEASE_DATE"]
+          tz = ZoneInfo("America/Chicago")
+          if "T" in raw:
+              day, hour = raw.split("T", 1)
+              dt = datetime.strptime(f"{day} {hour}:00", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+          else:
+              dt = datetime.strptime(f"{raw} 04:00", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+          print(dt.strftime("%Y-%m-%d %H:%M %Z"))')
+          body=$(printf 'Cycle: %s\nResult: KEEP-SERVING (the serving engine keeps running)\nServing SHA: `%s`\nReason: %s\nDeferred candidates: %s\nStage: %s\n' \
+            "$cycle" "$serving" "$reason" "$deferred" "$RUN_URL")
+          gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
+          echo "Posted keep-serving cycle $cycle to issue #$LOG_ISSUE."
 
   signal:
     name: Dispatch The Exact Main SHA

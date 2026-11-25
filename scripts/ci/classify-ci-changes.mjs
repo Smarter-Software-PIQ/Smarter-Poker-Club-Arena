@@ -331,7 +331,7 @@ const nativeRecovery =
 // wrapper, its wiring test, and every fixture are executable inputs; a change
 // to any one of them must select that job even without a migration beside it.
 const dataConsolePostgres =
-  /^(scripts\/ci\/(?:test-full-session-hands-postgres\.py|test-data-console-postgres-contracts\.sh|test-bug-report-routing\.sh|test-member-jackpot-win-loss\.sh|test-club-data-(?:(?:union-mtt|fact-db|report-db|legacy-pacific)-postgres|pacific-fees)\.py)$|tests\/(?:data-console-postgres-contracts-wired|rake-agent-report-native-contract)\.test\.ts$|tests\/fixtures\/(?:player-throwable-favorites|throw-targets|bug-report-routing|member-jackpot-win-loss|club-data-(?:fact-db|report-db|pacific)|rake-agent-report|financial-admin-revenue|union-ops-financial-admin|union-statement-availability|stats-(?:cash-opportunities|club-scope|evidence-session|exact-cash-sessions|facts-phase2|financial-reports|operational-quality|owner-workspace))\/)/;
+  /^(scripts\/ci\/(?:test-full-session-hands-postgres\.py|test-data-console-postgres-contracts\.sh|test-bug-report-routing\.sh|test-member-jackpot-win-loss\.sh|test-hand-player-facts-bomb-pot\.sh|test-club-data-(?:(?:union-mtt|fact-db|report-db|legacy-pacific)-postgres|pacific-fees)\.py)$|tests\/(?:data-console-postgres-contracts-wired|rake-agent-report-native-contract)\.test\.ts$|tests\/fixtures\/(?:player-throwable-favorites|throw-targets|hand-player-facts-bomb-pot|bug-report-routing|member-jackpot-win-loss|club-data-(?:fact-db|report-db|pacific)|rake-agent-report|financial-admin-revenue|union-ops-financial-admin|union-statement-availability|stats-(?:cash-opportunities|club-scope|evidence-session|exact-cash-sessions|facts-phase2|financial-reports|operational-quality|owner-workspace))\/)/;
 // Every input to the managed-game one-door fixture must select the hosted
 // PostgreSQL job, including a fixture-only correction.
 const managedGameOneDoor =
@@ -682,6 +682,8 @@ export function classifyChangedPaths(paths) {
       matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
       matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
+      // The promo Lightning settlement proof reads production's preimages from this fixture.
+      matches(/^scripts\/ci\/fixtures\/lightning-promo-stack-before-preimages\.sql$/) ||
       matches(
         /^scripts\/ci\/(?:test-club-promo-journal-source\.py|fixtures\/club-promo-journal-[^/]+\.(?:json|sql))$/
       ) ||

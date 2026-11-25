@@ -1520,11 +1520,14 @@ export default function WalletCashierModal({
       const res = (Array.isArray(data) ? data[0] : data) as {
         success?: boolean;
         error?: string;
+        return_destination?: string;
       } | null;
       if (!res?.success) throw new CashierRefusal(res?.error || 'That Send Could Not Be Reversed');
       await clearCashierWalletOperation(operation);
       if (!isMounted.current || actionView.current !== owningView) return;
-      toast?.success?.(`Reversed ${fmtMovement(row.amount)} Chips Back Into The Club Bank`);
+      const returnedWallet =
+        res.return_destination === 'club_promo_wallet' ? 'Club Promo Wallet' : 'Club Bank';
+      toast?.success?.(`Reversed ${fmtMovement(row.amount)} Chips Back Into The ${returnedWallet}`);
       masterBus.emit('BALANCE_UPDATED', { source: 'club_bank_reverse', userId: user?.id || '' });
       reverseOpIdsRef.current.delete(row.id);
       setUnconfirmed(null);
@@ -1869,11 +1872,12 @@ export default function WalletCashierModal({
                 </div>
               )}
 
-            {walletType === 'promo_wallet' &&
+            {(walletType === 'promo_wallet' ||
+              (tab === 'send' && destination === 'promo_wallet')) &&
               ['super_agent', 'agent', 'sub_agent'].includes(viewerRole ?? '') && (
                 <div className="cbc-note">
                   Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All
-                  Destination Wallets Share This Limit.
+                  Funding And Destination Wallets Share This Limit.
                 </div>
               )}
 
@@ -1911,9 +1915,10 @@ export default function WalletCashierModal({
             </div>
 
             <div className="cbc-body">
-              {tab === 'send' && spendWallet === 'promo_wallet' && (
-                <p className="cbc-note">{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>
-              )}
+              {tab === 'send' &&
+                (spendWallet === 'promo_wallet' || destination === 'promo_wallet') && (
+                  <p className="cbc-note">{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>
+                )}
 
               {walletType === 'agent_wallet' && tab === 'send' && holdsPlayerWallet(viewerRole) && (
                 <button

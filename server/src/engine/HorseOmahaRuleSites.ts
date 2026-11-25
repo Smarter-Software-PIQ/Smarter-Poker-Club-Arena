@@ -355,6 +355,12 @@ const PREFLOP =
 export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> = Object.freeze({
   // the priced rules of 2026-11-17
   omahaTurnRiverRaiseIsPriced: priced('fold, call and each raise size on the exact count'),
+  omahaPricedRaiseNeverMakesNonNutRaise: priced(
+    'a limit on omahaTurnRiverRaiseIsPriced by the owner rulings of 2026-11-15 (12:52 / 12:53: a non-nut hand facing a turn or river bet folds or at best calls; 12:30: a draw raises only in position with a combo draw): the rule returns a raise only for a nut-class hand or the in-position turn combo draw raising, every other raise becomes the priced call or fold it already computed, and a call is never turned into a raise; the nut rule reads the Lightning pools too; switches neither rule on (default OFF; PLO-OWNER lead-5 2026-11-22)'
+  ),
+  omahaLateFlattenedCallIsPriced: priced(
+    'a river raise that call_large_river_boat_wager flattened to a call after the facing-bet EV stage stood aside for the raise is priced by that same exact-hand verdict and folded where the call does not stand; no other call is read (default OFF; PLO-OWNER lead-5 2026-11-22)'
+  ),
   omahaDrawRaiseIsPriced: priced('raise beside the call on sampled shares'),
   omahaOopTurnBarrelIsPriced: priced('bet beside the check on the card-impact model'),
   omahaPairedBoardBetIsPriced: priced('bet beside the check on the card-impact model'),
@@ -533,6 +539,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaRiverCurrentNutsCallFloor: priced(
     'a river fold with the exact current nuts becomes the call only where its expected value is proven non-negative (a full chop with every live opponent still returns the call); it changes only a fold (default OFF)'
+  ),
+  omahaOopReraiseRangeHoldsVsReraise: priced(
+    "an out-of-position preflop 3-bet facing one open stands only when EV(3-bet), priced on the opener's measured answer to a 3-bet (fitted population answer when unread) and the Horse's own answer to the 4-bet at the real depth, is at least the priced call the existing calling rule admits (or 0), and that answer is not a fold except a blocker kept at the seeded frequency that holds the range's fold-to-4-bet share under horse.reraiseFoldShareCap; it only removes 3-bets, as the call or the fold (default OFF; PLO-LEAD-6)"
   ),
   omahaFourBetFoldPricedCall: priced(
     "a preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the call only where the engine's priced call of a re-raise (omahaReraisedCallPriced) is positive; it changes only a fold (default OFF)"

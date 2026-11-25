@@ -32,6 +32,12 @@ a fake extensions.http answering from a table, so every outcome is data:
     freeze never says "dispatch it"; a refused file fixed in place resolves
     its outdated page, restarts its hour from the fixing commit and pages
     again once if still not installed (20261119064912, incident dc479141);
+  * a file merged inside a three-hourly cutover deferral, which Dispatch Merged
+    Migrations holds to cycle start + 10 minutes, pages one hour after that
+    (20261123000830, incident ba9d1133); the deferral opens 150 minutes before
+    the cycle start since O21, so a file merged 120 minutes before a cycle is
+    quiet at merge + 60 and a file merged at 22:30 Central is held through the
+    nightly freeze to 04:15 (O21_FIX below);
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
 """
@@ -58,6 +64,10 @@ PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_insta
 FREEZE_FIX = next(MIGRATIONS.glob('*_the_install_watch_hour_starts_when_the_dispatcher_may_send.sql'))
 # 20261123000830: the install watch follows three-hourly O3 deferral (incident ba9d1133).
 O3_FIX = next(MIGRATIONS.glob('*_the_install_watch_follows_three_hourly_deferral.sql'))
+# O21 (2026-11-24): the helper follows the 150 minute three-hourly deferral.
+O21_FIX = next(MIGRATIONS.glob('*_the_install_watch_follows_the_150_minute_deferral.sql'))
+# 20261123151024: re-read superseded edits on held rows & vanished schema_migrations holds (incident 0da46df7).
+HELD_SUPERSEDED_FIX = next(MIGRATIONS.glob('*_superseded_watch_cutover_diagnosis_and_closed_arena_revoke.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -574,13 +584,164 @@ def main():
         assert alert_status('20261123053000') == 'firing'
         ok('23:30 CST O3 deferral chains cleanly into the 23:45-04:15 nightly freeze')
 
+        # ── 20261123151024: held row superseded then deleted from schema_migrations ──
+        # Reproduces the 20261123002808 CutoverReadinessAtRisk incident:
+        #   1) file merged while temporarily held in schema_migrations -> installed_seen_at stamped
+        #   2) file modified on main with SUPERSEDED BY -> patch matches c_superseded -> superseded_by recorded
+        #   3) another file held in schema_migrations, hold row deleted without seeing modify ->
+        #      vanished-hold check clears installed_seen_at and re-reads raw file from main.
+        sql("""CREATE TABLE IF NOT EXISTS public.ca_drift_incidents (id uuid PRIMARY KEY, status text);
+CREATE FUNCTION public.fn_ca_closed_arena_finding_is_intended()
+  RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN RETURN NEW; END $$;
+CREATE FUNCTION smarter_private.reliability_runbook_cutover_diagnosis(
+  p_incident_id uuid, p_dry_run boolean, p_limits jsonb, p_now timestamptz)
+  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $stub$
+DECLARE v_history text := 'supabase_migrations.schema_migrations'; v_version text; v_installed boolean; v_missing text[] := '{}';
+BEGIN
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM ' || v_history || ' m WHERE m.version = $1)'
+         INTO v_installed USING v_version;
+      IF NOT v_installed THEN
+        v_missing := v_missing || v_version;
+      END IF;
+  RETURN '{}'::jsonb;
+END $stub$;""")
+        assert sql("SELECT has_function_privilege('anon', 'public.fn_ca_closed_arena_finding_is_intended()', 'EXECUTE')") == 't'
+        for _ in range(2):
+            r = psql(['-f', str(HELD_SUPERSEDED_FIX)])
+            assert r.returncode == 0, f'held-superseded fix failed:\n{r.stderr}'
+        proof_hs = re.search(r'^-- @live-proof: (.+)$', HELD_SUPERSEDED_FIX.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof_hs}') == 't', 'held-superseded live proof must hold'
+        assert sql("SELECT has_function_privilege('anon', 'public.fn_ca_closed_arena_finding_is_intended()', 'EXECUTE')") == 'f'
+        assert sql("SELECT has_function_privilege('authenticated', 'public.fn_ca_closed_arena_finding_is_intended()', 'EXECUTE')") == 'f'
+        ok('20261123151024 amends install watch idempotently and revokes closed-arena trigger from anon/authenticated')
+
+        # Case A: file temporarily held in schema_migrations, then modified with SUPERSEDED BY.
+        HELD1 = 'supabase/migrations/20261123002808_held_then_superseded.sql'
+        REP1 = 'supabase/migrations/20261123024924_replacement_for_held.sql'
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261123002808', 'held_then_superseded')")
+        merge(46, '2026-11-23T02:43:46Z', [{'filename': HELD1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-23 02:50:00Z')
+        assert sql("SELECT installed_seen_at IS NOT NULL FROM smarter_private.ca_merged_migration_watch WHERE version = '20261123002808'") == 't'
+        merge(47, '2026-11-23T03:29:29Z', [
+            {'filename': REP1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'},
+            {'filename': HELD1, 'status': 'modified', 'patch': '@@ -1,1 +1,2 @@\n+' + MARK + '20261123024924\n BEGIN; COMMIT;'}])
+        mock(f'{RAW}/{sha(47)}/{HELD1}', MARK + '20261123024924\nBEGIN; COMMIT;\n')
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261123024924', 'replacement_for_held')")
+        watch('2026-11-23 03:40:00Z')
+        assert sql("SELECT superseded_by FROM smarter_private.ca_merged_migration_watch WHERE version = '20261123002808'") == '20261123024924'
+        sql("DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261123002808'")
+        watch('2026-11-23 09:00:00Z')
+        assert alert_status('20261123002808') == ''
+        ok('a held migration modified with SUPERSEDED BY is read immediately even while held in schema_migrations')
+
+        # Case B: a held row vanished from schema_migrations with superseded_by still NULL
+        # is self-healed by re-reading its raw file at the newest read commit on main.
+        HELD2 = 'supabase/migrations/20261123009999_vanished_hold.sql'
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261123009999', 'vanished_hold')")
+        merge(48, '2026-11-23T12:00:00Z', [{'filename': HELD2, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-23 12:10:00Z')
+        assert sql("SELECT installed_seen_at IS NOT NULL FROM smarter_private.ca_merged_migration_watch WHERE version = '20261123009999'") == 't'
+        sql("DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261123009999'")
+        mock(f'{RAW}/{sha(48)}/{HELD2}', MARK + '20261123024924\nBEGIN; COMMIT;\n')
+        watch('2026-11-23 12:20:00Z')
+        assert sql("SELECT superseded_by FROM smarter_private.ca_merged_migration_watch WHERE version = '20261123009999'") == '20261123024924'
+        assert sql("SELECT installed_seen_at IS NULL FROM smarter_private.ca_merged_migration_watch WHERE version = '20261123009999'") == 't'
+        assert alert_status('20261123009999') == ''
+        ok('a vanished schema_migrations hold row clears installed_seen_at and reads SUPERSEDED BY from main')
+
+        # THE 150 MINUTE DEFERRAL (O21, 2026-11-24). The dispatcher is to hold
+        # ordinary merges inside [cycleStart - 150m, cycleStart + 10m), so they
+        # install only in the 20 minutes after a cycle clears. The watch's
+        # helper moves first: with it installed, a file merged in
+        # [cycleStart - 150m, cycleStart - 90m) is never paged before the
+        # dispatcher may send it. MIGWATCH_PRE_O21=1 leaves the helper at 90
+        # minutes, and the first scenario then fails with the false page.
+        if os.environ.get('MIGWATCH_PRE_O21') != '1':
+            pre_acl = sql("SELECT COALESCE(proacl::text, '<default>') || ' ' || proowner::regrole::text FROM pg_proc "
+                          "WHERE oid = 'smarter_private.ca_three_hourly_deferral_clears_at(timestamptz)'::regprocedure")
+            assert sql("SELECT md5(pg_get_functiondef('smarter_private.ca_three_hourly_deferral_clears_at(timestamptz)'::regprocedure))") \
+                == re.search(r'^-- @replaces-md5: \S+\(timestamp with time zone\)=([0-9a-f]{32})$', O21_FIX.read_text(), re.M).group(1), \
+                'the O21 file must pin the helper exactly as 20261123000830 leaves it'
+            for attempt in (1, 2):
+                r = psql(['-f', str(O21_FIX)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', O21_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'o21 live proof must hold after install'
+            assert sql("SELECT COALESCE(proacl::text, '<default>') || ' ' || proowner::regrole::text FROM pg_proc "
+                       "WHERE oid = 'smarter_private.ca_three_hourly_deferral_clears_at(timestamptz)'::regprocedure") == pre_acl
+            # A helper that is neither the pinned body nor this file's own result is refused, and nothing changes.
+            sql("ALTER FUNCTION smarter_private.ca_three_hourly_deferral_clears_at(timestamptz) RENAME TO ca_three_hourly_deferral_clears_at_o21_kept")
+            sql("CREATE FUNCTION smarter_private.ca_three_hourly_deferral_clears_at(p_at timestamptz) RETURNS timestamptz "
+                "LANGUAGE sql STABLE SET search_path TO 'pg_catalog' AS $f$ SELECT NULL::timestamptz $f$")
+            r = psql(['-f', str(O21_FIX)])
+            assert r.returncode != 0 and 'THREE_HOURLY_DEFERRAL_150_PREIMAGE_DRIFT' in r.stderr, r.stderr
+            assert sql("SELECT smarter_private.ca_three_hourly_deferral_clears_at('2026-11-22 21:35:11+00') IS NULL") == 't'
+            sql("DROP FUNCTION smarter_private.ca_three_hourly_deferral_clears_at(timestamptz)")
+            sql("ALTER FUNCTION smarter_private.ca_three_hourly_deferral_clears_at_o21_kept(timestamptz) RENAME TO ca_three_hourly_deferral_clears_at")
+            assert sql(f'SELECT {proof}') == 't'
+            ok('the 150 minute helper installs twice idempotently, keeps its grants and owner, holds its live proof and refuses a drifted helper')
+
+        # Merged at 14:00 CST (20:00Z), 120 minutes before the 16:00 cycle:
+        # inside [13:30, 16:10) now, outside the old [14:30, 16:10). Quiet at
+        # 15:00 CST (merge + 60, the page the 90 minute helper raised) and at
+        # 17:09 CST; pages at 17:10 CST (16:10 + 60m). 17:10 is inside the
+        # 19:00 cycle's deferral [16:30, 19:10), so the page says do NOT
+        # hand-dispatch and names 19:10 Central.
+        O21A = 'supabase/migrations/20261125200000_merged_120_minutes_before_a_cycle.sql'
+        # 20261112050000 above was recorded installed and then removed from the
+        # ledger, so since 20261123151024 the watch reads its raw file again at
+        # each newest commit; unanswered, that read leaves the run 'unknown'
+        # and nothing new is raised. Answer it for the commits below.
+        mock(f'{RAW}/%/{R1}', 'BEGIN; COMMIT;\n')
+        merge(49, '2026-11-25T20:00:00Z', [{'filename': O21A, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-25 20:10:00Z')
+        watch('2026-11-25 21:00:00Z')                                   # 15:00 CST: merge + 60m
+        assert alert_status('20261125200000') == '', 'a file held by the 150 minute deferral must not page at merge + 60m'
+        watch('2026-11-25 23:09:00Z')                                   # 17:09 CST
+        assert alert_status('20261125200000') == ''
+        watch('2026-11-25 23:10:00Z')                                   # 17:10 CST
+        assert alert_status('20261125200000') == 'firing'
+        assert 'do NOT hand-dispatch' in summary('20261125200000'), summary('20261125200000')
+        assert '19:10 Central' in summary('20261125200000'), summary('20261125200000')
+        assert 'Dispatch Apply Merged Migration for it' not in summary('20261125200000')
+        ok('a file merged 120 minutes before a cycle pages one hour after cycle+10m, never at merge+60')
+
+        # Merged at 13:15 CST (19:15Z 2026-11-26), inside the 13:10-13:30
+        # install window: the dispatcher sends it at once, so its hour runs
+        # from the merge. It pages at 14:15 CST, inside [13:30, 16:10).
+        O21B = 'supabase/migrations/20261126191500_merged_in_the_install_window.sql'
+        merge(50, '2026-11-26T19:15:00Z', [{'filename': O21B, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-26 19:20:00Z')
+        watch('2026-11-26 20:14:00Z')
+        assert alert_status('20261126191500') == ''
+        watch('2026-11-26 20:15:00Z')
+        assert alert_status('20261126191500') == 'firing', 'a file merged in the install window keeps the plain 60 minute hour'
+        assert '16:10 Central' in summary('20261126191500'), summary('20261126191500')
+        ok('a file merged in the 20 minute install window pages at merge+60, as before')
+
+        # Merged at 22:30 CST (04:30Z 2026-11-27) = 01:00 - 150m: released at
+        # 01:10 CST, inside the nightly freeze, so the hour starts at 04:15.
+        # Quiet at 23:30 CST (merge + 60) and 05:14 CST; pages at 05:15 CST,
+        # inside the 07:00 cycle's deferral [04:30, 07:10).
+        O21C = 'supabase/migrations/20261127043000_merged_at_2230_central.sql'
+        merge(51, '2026-11-27T04:30:00Z', [{'filename': O21C, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-27 04:40:00Z')
+        watch('2026-11-27 05:30:00Z')                                   # 23:30 CST: merge + 60m
+        assert alert_status('20261127043000') == '', 'a 22:30 Central merge must not page at merge + 60m'
+        watch('2026-11-27 11:14:00Z')                                   # 05:14 CST
+        assert alert_status('20261127043000') == ''
+        watch('2026-11-27 11:15:00Z')                                   # 05:15 CST
+        assert alert_status('20261127043000') == 'firing'
+        assert '07:10 Central' in summary('20261127043000'), summary('20261127043000')
+        ok('a 22:30 Central merge is held through the nightly freeze to 04:15 + 60m')
+
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
             "jsonb_build_object('summary', 'The 4 AM engine update did not happen.'))")
         assert pages('Engine Update Missed At 4 AM') == 1
         ok('a migration page does not hold back an engine release page')
 
-        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '2'  # both inserted by this test
+        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '3'  # 3 inserted by this test (20261123024924 added)
         assert sql("SELECT count(*) FROM mock_http_calls WHERE uri NOT LIKE 'https://api.github.com/%' AND uri NOT LIKE 'https://raw.githubusercontent.com/%'") == '0'
         assert sql("SELECT jobname || ' ' || schedule FROM cron.job WHERE jobname LIKE 'ca-merged-migration%'") == 'ca-merged-migration-install-watch-10m */10 * * * *'
         ok('it never writes the migration ledger and only reads GitHub')

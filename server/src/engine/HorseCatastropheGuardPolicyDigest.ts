@@ -37,14 +37,31 @@ export const HORSE_CATASTROPHE_GUARD_POLICY_SOURCE_FILES = Object.freeze([
 ]);
 export const runningCatastropheGuardPolicySourceReader = (path: string): Buffer =>
   readFileSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)));
+let runningCatastropheGuardDigestCache: string | null = null;
+
+/** Test seam: clear the process-wide memoized digest for immutable running sources. */
+export function _resetHorseCatastropheGuardPolicyDigestCacheForTests(): void {
+  runningCatastropheGuardDigestCache = null;
+}
+
 export function horseCatastropheGuardPolicyDigest(
   read = runningCatastropheGuardPolicySourceReader
 ): string {
+  if (
+    read === runningCatastropheGuardPolicySourceReader &&
+    runningCatastropheGuardDigestCache !== null
+  ) {
+    return runningCatastropheGuardDigestCache;
+  }
   const hash = createHash('sha256').update('horse-catastrophe-guard-runtime-policy-v1\0');
   for (const path of HORSE_CATASTROPHE_GUARD_POLICY_SOURCE_FILES)
     hash
       .update(path + '\0')
       .update(read(path))
       .update('\0');
-  return hash.digest('hex');
+  const digest = hash.digest('hex');
+  if (read === runningCatastropheGuardPolicySourceReader) {
+    runningCatastropheGuardDigestCache = digest;
+  }
+  return digest;
 }

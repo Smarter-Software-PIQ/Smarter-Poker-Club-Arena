@@ -1,0 +1,71 @@
+/* The lobby table paints the same chassis as its tournament headings. */
+.private-match-topbar__active-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  height: 100%;
+  padding-inline: 5cqw;
+}
+
+.private-match-topbar__active-info {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.private-match-topbar__active-tag {
+  color: #8fd4ff;
+  font-size: clamp(0.6rem, 2.3cqw, 0.85rem);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.private-match-topbar__active-name {
+  color: #f3f7fc;
+  font-size: clamp(0.75rem, 3cqw, 1rem);
+  font-weight: 800;
+}
+
+.has-premium-chassis tbody .private-match-topbar[data-game-heading] {
+  min-height: 44px !important;
+}
+
+.has-premium-chassis tbody .private-match-topbar--active[data-game-heading] {
+  height: auto !important;
+}
+
+.has-premium-chassis tbody .private-match-topbar--active[data-game-heading] > td {
+  min-height: max(44px, 14.34cqw);
+  height: auto !important;
+}
+
+.private-match-topbar__active-item {
+  min-height: max(44px, 14.34cqw);
+  flex-wrap: wrap;
+}
+
+.has-premium-chassis .private-match-topbar button.private-match-topbar__btn {
+  top: calc(8.1cqw - max(22px, 3.45cqw));
+  min-height: 44px;
+  padding-inline: 0.15rem;
+  font-size: clamp(9px, 2.4cqw, 18px);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.has-premium-chassis .private-match-topbar .lt-invite-btn {
+  flex: none;
+  min-height: 44px;
+  padding-inline: 0.8rem;
+}
+
+.private-match-topbar__active-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.private-match-topbar__action--danger {
+  color: #ffb8bf;
+}

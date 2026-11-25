@@ -41,8 +41,12 @@ jobs:
         inputs.tests_proven == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # actions: read lets finalize re-admit against an origin another publisher
+    # moved while this run waited for the production lock (it reads that
+    # publisher's run, jobs and sealed artifact, exactly as admission does).
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Checkout qualified current protected verification source
         uses: actions/checkout@v4
@@ -58,6 +62,8 @@ jobs:
           path: .
       - name: Verify both origins still serve the qualified immutable runtime
         id: retained_verified
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/client-runtime-retention.mjs finalize retained-runtime.json
       - name: Record qualified retained runtime
         id: retained_recorded

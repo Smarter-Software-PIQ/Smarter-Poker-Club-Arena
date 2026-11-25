@@ -226,6 +226,9 @@ async function main() {
           '--migration',
           f,
           ...(dryRun ? ['--dry-run'] : []),
+          ...(argValue('--release-freeze-override')
+            ? ['--release-freeze-override', argValue('--release-freeze-override')]
+            : []),
         ],
         { stdio: 'inherit' }
       );

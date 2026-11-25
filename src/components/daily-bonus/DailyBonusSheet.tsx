@@ -44,11 +44,14 @@ import { reportError } from '../../utils/errorReporter';
 import {
   dailyBonusService,
   claimReasonText,
+  type DailyBonusClaimResult,
   type DailyBonusGranted,
   type DailyBonusStatus,
   type DailyBonusTile,
   type DailyBonusTileKind,
+  type DailyBonusWeekDay,
 } from '../../services/DailyBonusService';
+import { useUserStore } from '../../stores/useUserStore';
 import { formatCountdown, useDailyBonus } from './useDailyBonus';
 /* The sheet prints in the console's own inks, so it loads the console's sheet
    itself rather than trusting the chunk to carry it. */
@@ -116,8 +119,12 @@ function TileRender({
   if (kind === 'time_bank') {
     /* The bank of seconds has no render in the kit: it is printed in the same
        engraved chrome as every value, the way the card prints its blinds. */
+    const compact = seconds >= 100 ? ' dbs-row__render--compact' : '';
     return (
-      <span className="dbs-row__render dbs-row__render--print sc-ink--silver" aria-hidden="true">
+      <span
+        className={`dbs-row__render dbs-row__render--print${compact} sc-ink--silver`}
+        aria-hidden="true"
+      >
         +{seconds}
         <small>Sec</small>
       </span>
@@ -151,8 +158,12 @@ function offered(tile: DailyBonusTile): { figure: string; sub: string } {
       return { figure: '?', sub: 'Claim To Reveal, With A Lucky Roll Up To 5×' };
     case 'diamonds':
       return { figure: `+${tile.diamonds}`, sub: 'Diamonds' };
+    case 'throwables':
+      return { figure: `×${tile.quantity}`, sub: 'Table Throwables · 7 Days' };
+    case 'rabbit_hunts':
+      return { figure: `×${tile.quantity}`, sub: 'Rabbit Hunts · 7 Days' };
     case 'time_bank':
-      return { figure: `×${tile.quantity}`, sub: '20 Seconds Each' };
+      return { figure: `×${tile.quantity}`, sub: '20 Seconds Each · 7 Days' };
     case 'shield':
       return { figure: `×${tile.quantity}`, sub: 'Covers One Missed Day' };
     case 'boost':
@@ -164,13 +175,17 @@ function offered(tile: DailyBonusTile): { figure: string; sub: string } {
   }
 }
 
-/** The same two for what the ledger actually granted. */
-function granted(g: DailyBonusGranted): { figure: string; sub: string } {
+/** The same two for what the ledger actually granted. Names the item explicitly for Mystery Vault reveals. */
+export function granted(g: DailyBonusGranted): { figure: string; sub: string } {
   switch (g.kind) {
     case 'diamonds':
       return { figure: `+${g.diamonds}`, sub: 'Diamonds Credited' };
+    case 'throwables':
+      return { figure: `×${g.quantity}`, sub: 'Throwables · 7 Days' };
+    case 'rabbit_hunts':
+      return { figure: `×${g.quantity}`, sub: 'Rabbit Hunts · 7 Days' };
     case 'time_bank':
-      return { figure: `×${g.quantity}`, sub: 'In Your Bank' };
+      return { figure: `×${g.quantity}`, sub: `+${g.quantity * 20}s In Your Bank` };
     case 'shield':
       return { figure: `×${g.quantity}`, sub: 'Held For 30 Days' };
     case 'boost':
@@ -273,16 +288,133 @@ function BonusRow({ tile, busy, burst, revealed }: RowProps) {
 function tomorrowWords(status: DailyBonusStatus): string {
   return status.tomorrow
     .filter((t) => !t.vip_only || status.is_vip)
-    .map((t) =>
-      t.kind === 'diamonds'
-        ? `+${t.diamonds} Diamonds`
-        : t.kind === 'mystery'
-          ? 'A Mystery Tile'
-          : t.kind === 'boost'
-            ? 'A Mission Boost'
-            : `×${t.quantity} ${t.label}`
-    )
+    .map((t) => {
+      if (t.kind === 'diamonds') {
+        return t.vip_only ? `+${t.diamonds} VIP Diamonds` : `+${t.diamonds} Diamonds`;
+      }
+      if (t.kind === 'mystery') return 'Mystery Vault (Up To 5×)';
+      if (t.kind === 'boost') return '2× Mission Boost (24H)';
+      if (t.kind === 'free_spin') return '100 Diamond Bonus Spin';
+      if (t.kind === 'time_bank') return `+${t.quantity * 20}s Time Bank`;
+      if (t.kind === 'shield') return `×${t.quantity} Streak Shield`;
+      return `×${t.quantity} ${t.label}`;
+    })
     .join(' · ');
+}
+
+/** Next streak multiplier milestone shown under the live multiplier readout. */
+function nextMultiplierHint(streak: number): string {
+  if (streak < 3) return '×1.2 On Day 3';
+  if (streak < 7) return '×1.5 On Day 7';
+  if (streak < 14) return '×1.8 On Day 14';
+  if (streak < 30) return '×2 On Day 30';
+  return 'Max Tier Active';
+}
+
+/** Weekly Jackpot streak milestones: Day 7, Day 28, and Prestige Step 7 (Day 37, 44, 51…). */
+function isJackpotStreak(streak: number): boolean {
+  return streak === 7 || streak === 28 || (streak >= 37 && (streak - 30) % 7 === 0);
+}
+
+/**
+ * Keep the modal open after claiming a Mystery Vault reveal (so the player can
+ * see what rolled and their Lucky Roll ×N) or a 100 Diamond Bonus Spin (so the
+ * player can immediately tap "Use Bonus Spin").
+ */
+export function shouldAutoCloseAfterClaim(
+  mode: 'modal' | 'inline',
+  complete: boolean,
+  paid: DailyBonusClaimResult[]
+): boolean {
+  if (mode !== 'modal' || !complete) return false;
+  const hasRevealOrSpin = paid.some((r) => r.revealed != null || r.granted?.kind === 'free_spin');
+  return !hasRevealOrSpin;
+}
+
+/** Clean cell display for each day on the progressive 7-day strip (zero duplicate labels). */
+export function weekDayDisplay(d: DailyBonusWeekDay): {
+  label: string;
+  value: string;
+  sub: string | null;
+  highlightGold: boolean;
+} {
+  const dayNum = d.streak > 0 ? d.streak : d.day;
+  const label = d.chest ? 'Chest' : d.has_spin ? 'Spin' : `Day ${dayNum}`;
+  const highlightGold = Boolean(d.chest || d.has_spin);
+
+  if (d.diamonds != null && d.diamonds > 0) {
+    // Never duplicate top label ("Chest"/"Spin") in the bottom sub-label.
+    // Day 30 is both Chest and Spin -> Chest / +110 / Spin+.
+    const sub = d.primary_kind
+      ? d.chest
+        ? d.has_spin
+          ? 'Spin+'
+          : 'Diamonds'
+        : isJackpotStreak(dayNum)
+          ? 'Jackpot'
+          : 'Diamonds'
+      : null;
+    return { label, value: `+${d.diamonds}`, sub, highlightGold };
+  }
+
+  switch (d.primary_kind) {
+    case 'throwables':
+      return {
+        label,
+        value: `×${d.primary_quantity ?? 3}`,
+        sub: 'Throws',
+        highlightGold,
+      };
+    case 'rabbit_hunts':
+      return {
+        label,
+        value: `×${d.primary_quantity ?? 2}`,
+        sub: 'Rabbits',
+        highlightGold,
+      };
+    case 'time_bank':
+      return {
+        label,
+        value: `+${(d.primary_quantity ?? 4) * 20}s`,
+        sub: 'Time',
+        highlightGold,
+      };
+    case 'shield':
+      return {
+        label,
+        value: `×${d.primary_quantity ?? 1}`,
+        sub: 'Shield',
+        highlightGold,
+      };
+    case 'mystery':
+      return {
+        label,
+        value: '? 5×',
+        sub: 'Mystery',
+        highlightGold,
+      };
+    case 'boost':
+      return {
+        label,
+        value: '2×',
+        sub: 'Boost',
+        highlightGold,
+      };
+    case 'free_spin':
+      return {
+        label,
+        value: '100',
+        sub: 'Ticket',
+        highlightGold: true,
+      };
+    default:
+      return {
+        label,
+        value: d.state === 'done' ? 'Done' : 'New',
+        sub: null,
+        highlightGold,
+      };
+  }
 }
 
 /** ×2 rather than ×2.0; a streak multiplier of 1.5 keeps its one decimal because it is one. */
@@ -305,6 +437,7 @@ export default function DailyBonusSheet({
   chassis = 'console',
 }: DailyBonusSheetProps) {
   const toast = useToast();
+  const accountId = useUserStore((state) => state.user?.id ?? null);
   const enabled = mode === 'inline' || open;
   const {
     status,
@@ -321,33 +454,58 @@ export default function DailyBonusSheet({
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const spinClubReqRef = useRef(0);
   const [spinClubs, setSpinClubs] = useState<Array<{ id: string; name: string }> | null>(null);
   const [choosingSpinClub, setChoosingSpinClub] = useState(false);
   const [spinClubsError, setSpinClubsError] = useState(false);
-  const chooseSpinClub = async () => {
+
+  const chooseSpinClub = useCallback(async () => {
+    const req = ++spinClubReqRef.current;
     setChoosingSpinClub(true);
     setSpinClubsError(false);
     try {
       const { ClubsService } = await import('../../services/ClubsService');
       const memberships = await ClubsService.getUserMemberships();
+      if (!mountedRef.current || req !== spinClubReqRef.current) return;
       setSpinClubs(
         memberships
           .filter((m) => m.club && m.club.id !== m.club.union_id)
           .map((m) => ({ id: m.club.id, name: m.club.name }))
       );
     } catch (err) {
+      if (!mountedRef.current || req !== spinClubReqRef.current) return;
       reportError(err, 'DailyBonusSheet.chooseSpinClub');
       setSpinClubsError(true);
     } finally {
-      setChoosingSpinClub(false);
+      if (mountedRef.current && req === spinClubReqRef.current) {
+        setChoosingSpinClub(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      spinClubReqRef.current += 1;
       if (burstTimer.current) clearTimeout(burstTimer.current);
     };
   }, []);
+
+  // Account changes and modal close retire in-flight club lookups and visual bursts.
+  useEffect(() => {
+    spinClubReqRef.current += 1;
+    setSpinClubs(null);
+    setSpinClubsError(false);
+    setChoosingSpinClub(false);
+    setBurstSlot(null);
+    setRevealSlot(null);
+    if (burstTimer.current) {
+      clearTimeout(burstTimer.current);
+      burstTimer.current = null;
+    }
+  }, [accountId, open]);
 
   // The sheet is in front of the player: today is spent, on every device.
   // Once per day per mount; the server keeps the first mark.
@@ -397,8 +555,13 @@ export default function DailyBonusSheet({
     };
   }, [mode, open, onClose]);
 
+  const claimableCount = status?.eligible
+    ? status.tiles.filter((t) => !t.claimed && !t.locked).length
+    : 0;
+
   const handleClaim = useCallback(async () => {
     triggerHaptic('medium');
+    const wasSingleReward = claimableCount === 1;
     const receipt = await claimAll();
     if (!receipt) return;
     if (!receipt.success) {
@@ -409,6 +572,7 @@ export default function DailyBonusSheet({
     const failures = (receipt.results ?? []).filter((r) => !r.success);
     const paid = (receipt.results ?? []).filter((r) => r.success && !r.idempotent);
     const complete = !failures.length && receipt.status?.unclaimed === 0;
+    const autoClose = shouldAutoCloseAfterClaim(mode, complete, paid);
     if (paid.length) {
       triggerHaptic('success');
       playPremiumSfx('ctaClick');
@@ -417,7 +581,7 @@ export default function DailyBonusSheet({
       if (burstTimer.current) clearTimeout(burstTimer.current);
       burstTimer.current = setTimeout(() => {
         setBurstSlot(null);
-        if (complete && mode === 'modal') onClose?.();
+        if (autoClose) onClose?.();
       }, 1400);
     }
     if (failures.length && !paid.length) {
@@ -426,16 +590,19 @@ export default function DailyBonusSheet({
     } else if (failures.length) {
       toast.info(`Available Rewards Collected. ${claimReasonText(failures[0].reason)}`);
     } else {
-      toast.success('All Rewards Collected');
-      if (complete && !paid.length && mode === 'modal') onClose?.();
+      toast.success(
+        wasSingleReward && paid.length <= 1 ? 'Reward Collected' : 'All Rewards Collected'
+      );
+      if (autoClose && !paid.length) onClose?.();
     }
-  }, [claimAll, toast, mode, onClose]);
+  }, [claimAll, claimableCount, toast, mode, onClose]);
 
   if (mode === 'modal' && !open) return null;
 
   const nextClaimable = status?.eligible
     ? (status.tiles.find((t) => !t.claimed && !t.locked) ?? null)
     : null;
+  const claimActionLabel = claimableCount === 1 ? 'Claim Reward' : 'Claim All';
 
   const glass: ReactNode = (() => {
     if (loadError) {
@@ -484,6 +651,9 @@ export default function DailyBonusSheet({
           <div className="dbs__readout">
             <dt className="sc-label sc-ink--blue">Multiplier</dt>
             <dd className="dbs__figure sc-ink--silver">{formatMultiplier(status.multiplier)}</dd>
+            <dd className="sc-label sc-ink--muted dbs__readout-note">
+              {nextMultiplierHint(status.streak)}
+            </dd>
           </div>
           <div className="dbs__readout">
             <dt className="sc-label sc-ink--blue">Resets In</dt>
@@ -496,40 +666,61 @@ export default function DailyBonusSheet({
         </dl>
 
         <ol className="dbs__week" aria-label="This Week">
-          {status.week.map((d) => (
-            <li
-              key={d.day}
-              className="dbs__day"
-              data-state={d.state}
-              data-chest={d.chest || undefined}
-              data-protected={(d.state === 'today' && status.streak_protected) || undefined}
-            >
-              <span
-                className={`sc-label dbs__day-label ${
-                  d.chest
-                    ? 'sc-ink--gold'
-                    : d.state === 'done'
+          {status.week.map((d) => {
+            const cell = weekDayDisplay(d);
+            return (
+              <li
+                key={d.day}
+                className="dbs__day"
+                data-state={d.state}
+                data-chest={d.chest || undefined}
+                data-spin={d.has_spin || undefined}
+                data-protected={(d.state === 'today' && status.streak_protected) || undefined}
+              >
+                <span
+                  className={`sc-label dbs__day-label ${
+                    cell.highlightGold
+                      ? 'sc-ink--gold'
+                      : d.state === 'done'
+                        ? 'sc-ink--green'
+                        : d.state === 'today'
+                          ? 'sc-ink--blue'
+                          : 'sc-ink--muted'
+                  }`}
+                >
+                  {cell.label}
+                </span>
+                <span
+                  className={`dbs__day-value ${
+                    d.state === 'done'
                       ? 'sc-ink--green'
                       : d.state === 'today'
-                        ? 'sc-ink--blue'
-                        : 'sc-ink--muted'
-                }`}
-              >
-                {d.chest ? 'Chest' : `Day ${d.day}`}
-              </span>
-              <span
-                className={`dbs__day-value ${
-                  d.state === 'done'
-                    ? 'sc-ink--green'
-                    : d.state === 'today'
-                      ? 'sc-ink--white'
-                      : 'sc-ink--muted'
-                }`}
-              >
-                {d.diamonds != null ? `+${d.diamonds}` : d.state === 'done' ? 'Done' : 'New'}
-              </span>
-            </li>
-          ))}
+                        ? 'sc-ink--white'
+                        : cell.highlightGold
+                          ? 'sc-ink--gold'
+                          : 'sc-ink--silver'
+                  }`}
+                >
+                  {cell.value}
+                </span>
+                {cell.sub && (
+                  <span
+                    className={`sc-label dbs__day-sub ${
+                      d.state === 'done'
+                        ? 'sc-ink--green'
+                        : d.state === 'today'
+                          ? 'sc-ink--blue'
+                          : cell.highlightGold
+                            ? 'sc-ink--gold'
+                            : 'sc-ink--muted'
+                    }`}
+                  >
+                    {cell.sub}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ol>
 
         <div className="dbs__tiles">
@@ -551,7 +742,7 @@ export default function DailyBonusSheet({
             disabled={claimingSlot !== null}
             onClick={() => void handleClaim()}
           >
-            {claimingSlot !== null ? 'Claiming' : 'Claim All'}
+            {claimingSlot !== null ? 'Claiming' : claimActionLabel}
           </button>
         )}
 
@@ -608,7 +799,9 @@ export default function DailyBonusSheet({
             <dd className="sc-copy">
               {status.claimed_today
                 ? 'Streak Locked In For Today.'
-                : 'Claim All Rewards Today To Keep Your Streak.'}
+                : claimableCount === 1
+                  ? 'Claim Today To Keep Your Streak Growing.'
+                  : 'Claim All Rewards Today To Keep Your Streak.'}
             </dd>
           </div>
           {status.shield.held > 0 && (
@@ -672,7 +865,7 @@ export default function DailyBonusSheet({
       ? 'green'
       : 'blue';
   const claiming = claimingSlot !== null;
-  const primaryLabel = claiming ? 'Claiming' : nextClaimable ? 'Claim All' : 'Done';
+  const primaryLabel = claiming ? 'Claiming' : nextClaimable ? claimActionLabel : 'Done';
 
   const sheet = (
     <div

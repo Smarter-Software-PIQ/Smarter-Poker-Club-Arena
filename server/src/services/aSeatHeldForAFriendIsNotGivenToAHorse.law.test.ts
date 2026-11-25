@@ -19,19 +19,34 @@
  *      hold, which every other caller (the past-start walk, the overlay guard)
  *      meets - and an unreadable answer holds the fill instead of filling;
  *   3. the board room and the board's coverage leave private held games out;
- *   4. no horse identity enters the rule.
+ *   4. no horse identity enters the rule;
+ *   5. A SIT & GO (2026-11-23, migration 20261123071654): the same hold, held in
+ *      place in a six or nine seat field. Every horse entry into one passes
+ *      registerHorses, which asks the hold before the union's daily horse
+ *      plan and before any horse is picked, registers horses only into the
+ *      seats neither taken nor held, none when that is none (and names it a
+ *      deliberate wait, not an empty pool), and nothing at all on an
+ *      unreadable answer. The serving engine says so on /health.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   PRIVATE_GAME_HOLD_MAX_MS,
   PrivateGameHoldReader,
   parsePrivateGameHolds,
+  privateHeldOpenSeats,
   privateHoldUntilMs,
   privatelyHeldIds,
+  sitAndGoCanHoldSeats,
+  sitAndGoHorseRoom,
 } from './privateGameHolds.js';
 import { sliceMethod } from '../testHelpers/sourceWindow.js';
+import { TournamentRecurringService } from './TournamentRecurringService.js';
+import { supabase } from './supabase.js';
+
+vi.mock('../maintenance/freezeState.js', () => ({ isMaintenanceFrozen: () => false }));
+vi.mock('./errorReporter.js', () => ({ reportError: vi.fn() }));
 
 const NOW = Date.parse('2026-11-22T20:00:00Z');
 const row = (over: Record<string, unknown> = {}) => ({
@@ -183,5 +198,191 @@ describe('a private held game is not one of the board instances', () => {
 describe('horses are players', () => {
   it('the rule the engine reads names no horse', () => {
     expect(RULE).not.toMatch(/is_horse|isHorse/);
+  });
+});
+
+describe('a Sit & Go holds its friends\' seats in place (20261123071654)', () => {
+  const sng = (over: Record<string, unknown> = {}) => ({
+    format_contract: 'sng-v1',
+    variant: 'sng',
+    max_players: 6,
+    ...over,
+  });
+
+  it('only a persisted sng-v1 Sit & Go of four to nine seats holds in place', () => {
+    expect(sitAndGoCanHoldSeats(sng())).toBe(true);
+    expect(sitAndGoCanHoldSeats(sng({ max_players: 9 }))).toBe(true);
+    expect(sitAndGoCanHoldSeats(sng({ max_players: '9' }))).toBe(true);
+    for (const odd of [
+      sng({ max_players: 2 }),
+      sng({ max_players: 3 }),
+      sng({ max_players: 10 }),
+      sng({ max_players: null }),
+      sng({ format_contract: null }),
+      sng({ format_contract: 'mtt-v2' }),
+      sng({ variant: 'spin', max_players: 3, format_contract: 'spin-v1' }),
+      sng({ variant: 'freezeout' }),
+      null,
+    ]) {
+      expect(sitAndGoCanHoldSeats(odd)).toBe(false);
+    }
+  });
+
+  it('held open seats count only while the hold is live', () => {
+    const live = parsePrivateGameHolds([row({ exclusive: false, held_open: 2, seats_held: 2 })])!;
+    expect(privateHeldOpenSeats(live.get('t-1'), NOW)).toBe(2);
+    for (const over of [
+      { live: false, outcome: 'expired' },
+      { live: false, outcome: 'cancelled' },
+      { live: false, outcome: 'creator_left' },
+      { hold_expires_at: new Date(NOW - 1).toISOString() },
+    ]) {
+      const dead = parsePrivateGameHolds([row({ exclusive: false, held_open: 2, ...over })])!;
+      expect(privateHeldOpenSeats(dead.get('t-1'), NOW)).toBe(0);
+    }
+    expect(privateHeldOpenSeats(undefined, NOW)).toBe(0);
+  });
+
+  it('horses take only the seats that are neither taken nor held, never more than asked', () => {
+    // Six seats: the inviter, two held for friends: three for the field.
+    expect(sitAndGoHorseRoom({ maxPlayers: 6, entrants: 1, heldOpen: 2, requested: 5 })).toBe(3);
+    expect(sitAndGoHorseRoom({ maxPlayers: 6, entrants: 1, heldOpen: 2, requested: 2 })).toBe(2);
+    // Four in, two held: nothing for a horse; the field waits for the friends.
+    expect(sitAndGoHorseRoom({ maxPlayers: 6, entrants: 4, heldOpen: 2, requested: 2 })).toBe(0);
+    // Nine seats, the inviter alone holding eight: nothing.
+    expect(sitAndGoHorseRoom({ maxPlayers: 9, entrants: 1, heldOpen: 8, requested: 8 })).toBe(0);
+    // An unreadable count admits nobody.
+    expect(sitAndGoHorseRoom({ maxPlayers: 6, entrants: NaN, heldOpen: 2, requested: 5 })).toBe(0);
+    expect(sitAndGoHorseRoom({ maxPlayers: NaN, entrants: 1, heldOpen: 2, requested: 5 })).toBe(0);
+  });
+
+  it('the reader answers held seats, nothing held, or null when it cannot tell', async () => {
+    const reader = new PrivateGameHoldReader(
+      async () => ({ data: [row({ exclusive: false, held_open: 2 })], error: null }),
+      0,
+      () => NOW
+    );
+    expect(await reader.heldSeats('t-1')).toEqual({ heldOpen: 2, untilMs: NOW + 6 * 60_000 });
+    expect(await reader.heldSeats('other')).toEqual({ heldOpen: 0, untilMs: -Infinity });
+    const failing = new PrivateGameHoldReader(
+      async () => ({ data: null, error: { code: '57014', message: 'canceling statement' } }),
+      0,
+      () => NOW
+    );
+    expect(await failing.heldSeats('t-1')).toBeNull();
+  });
+});
+
+describe('every Sit & Go horse entry asks the hold first', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const harness = (holds: Map<string, unknown> | null, event: Record<string, unknown>) => {
+    const svc = new TournamentRecurringService() as any;
+    vi.spyOn(svc.privateGameHolds, 'snapshot').mockResolvedValue(holds);
+    const load = vi.spyOn(svc, 'horseLoadMap').mockResolvedValue(null);
+    vi.spyOn(supabase, 'from').mockImplementation(() => {
+      const b: any = {};
+      for (const k of ['select', 'eq']) b[k] = () => b;
+      b.maybeSingle = async () => ({ data: event, error: null });
+      return b;
+    });
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockResolvedValue({ data: { ok: true, target_players: 9 }, error: null } as never);
+    return { svc, load, rpc };
+  };
+  const satellite = (over: Record<string, unknown> = {}) => ({
+    format_contract: 'sng-v1',
+    tournament_type: 'SNG',
+    variant: 'sng',
+    max_players: 9,
+    min_players: 9,
+    table_size: 9,
+    satellite_seats: 2,
+    satellite_target_id: 'target',
+    status: 'REGISTERING',
+    current_players: 3,
+    ...over,
+  });
+  const liveHold = (heldOpen: number) =>
+    parsePrivateGameHolds([
+      row({
+        tournament_id: 'sat',
+        exclusive: false,
+        seats_held: heldOpen,
+        held_open: heldOpen,
+        hold_expires_at: new Date(Date.now() + 6 * 60_000).toISOString(),
+      }),
+    ])!;
+
+  it('an unreadable hold registers nobody: no plan slot, no horse picked', async () => {
+    const h = harness(null, satellite());
+    expect(await h.svc.registerHorses('sat', 6)).toBe(0);
+    expect(h.rpc).not.toHaveBeenCalled();
+    expect(h.load).not.toHaveBeenCalled();
+  });
+
+  it('a hold that leaves no unheld seat registers nobody and names it a deliberate wait', async () => {
+    // Nine seats, three in, six held: the field waits for the friends.
+    const h = harness(liveHold(6), satellite());
+    expect(await h.svc.registerHorses('sat', 6)).toBe(0);
+    expect(h.rpc).not.toHaveBeenCalled();
+    expect(h.load).not.toHaveBeenCalled();
+    expect(h.svc.seatFirstPartnerHoldUntil('sat')).toBeGreaterThan(Date.now());
+  });
+
+  it('a hold that leaves unheld seats lets the ordinary fill continue to them', async () => {
+    const h = harness(liveHold(2), satellite());
+    await h.svc.registerHorses('sat', 6);
+    expect(h.rpc).toHaveBeenCalledWith('fn_sng_satellite_horse_fill_plan', {
+      p_tournament_id: 'sat',
+    });
+    expect(h.load).toHaveBeenCalledOnce();
+    expect(h.svc.seatFirstPartnerHoldUntil('sat')).toBe(-Infinity);
+  });
+
+  it('no hold at all is the ordinary fill, unchanged', async () => {
+    const h = harness(new Map(), satellite());
+    await h.svc.registerHorses('sat', 6);
+    expect(h.rpc).toHaveBeenCalledWith('fn_sng_satellite_horse_fill_plan', {
+      p_tournament_id: 'sat',
+    });
+    expect(h.load).toHaveBeenCalledOnce();
+  });
+
+  it('an MTT never asks: only a Sit & Go can hold in place', async () => {
+    const h = harness(null, { format_contract: 'mtt-v2', variant: 'freezeout', max_players: null });
+    await h.svc.registerHorses('event', 4);
+    expect(h.svc.privateGameHolds.snapshot).not.toHaveBeenCalled();
+  });
+
+  const REGISTER = sliceMethod(RECURRING, 'private async registerHorses(');
+
+  it('the hold is read before the union horse plan and before any horse is picked', () => {
+    const ask = REGISTER.indexOf('this.privateGameHolds.heldSeats(tournamentId)');
+    expect(ask).toBeGreaterThan(-1);
+    expect(ask).toBeLessThan(REGISTER.indexOf("'fn_sng_satellite_horse_fill_plan'"));
+    expect(ask).toBeLessThan(REGISTER.indexOf('this.horseLoadMap()'));
+    expect(REGISTER).toMatch(/if \(held === null\) return 0;/);
+    expect(REGISTER).toMatch(/count = room;/);
+  });
+
+  it('a refused race against the database guard stops the pass instead of asking every horse', () => {
+    expect(REGISTER).toMatch(
+      /regError\.message \?\? ''\)\.includes\('PRIVATE_GAME_SEAT_HELD'\)\) break;/
+    );
+  });
+
+  it('the serving engine says it honours Sit & Go holds, so the client can offer them', () => {
+    expect(GAME_SERVER).toMatch(/privateSitAndGoHolds: 1,/);
+  });
+
+  it('the Sit & Go fill names no horse: the rule is the same for every entrant', () => {
+    const start = REGISTER.indexOf('A SEAT HELD FOR AN INVITED FRIEND IN A SIT & GO');
+    const end = REGISTER.indexOf("'fn_sng_satellite_horse_fill_plan'");
+    expect(start).toBeGreaterThan(-1);
+    expect(REGISTER.slice(start, end)).not.toMatch(/is_horse|isHorse/);
   });
 });

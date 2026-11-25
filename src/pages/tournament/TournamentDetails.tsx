@@ -13,10 +13,12 @@ import {
   tournamentEntryWindowOpen,
   type TournamentEntryWindowRow,
 } from '../../utils/tournamentEntryWindow';
+import { readClubContextParam } from '../../utils/clubScopedPath';
 import { serverNow } from '../../utils/serverClock';
 import {
   isSeatFirstTournamentFormat,
   isTournamentEntryUnavailable,
+  tournamentClosingStatus,
   tournamentStartsWhenFull,
 } from '../../utils/tournamentPresentation';
 /**
@@ -76,6 +78,7 @@ import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import type { Tournament } from '../../types/database.types';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import './TournamentDetails.css';
+import { MttEventHeader } from '../../components/tournament/details/MttEventHeader';
 import { TournamentRegisterButton } from '../../components/tournament/TournamentRegisterButton';
 import { useToast } from '../../components/common/Toast';
 import PageErrorBoundary from '../../components/common/PageErrorBoundary';
@@ -103,7 +106,7 @@ import { normaliseTabId, tabsFor } from '../../components/tournament/details/typ
 import { blindLevelMinutes } from '../../components/lobby/tournamentFigures';
 import { reportError } from '../../utils/errorReporter';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
-import { formatBuyIn } from '../../utils/buyIn';
+import { formatBuyIn, lobbyBuyInLabel } from '../../utils/buyIn';
 import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
@@ -114,6 +117,7 @@ import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
 import { gameInviteText, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { usePrivateGameInviteLauncher } from '../../hooks/usePrivateGameInviteLauncher';
+import { usePrivateSitAndGoHold } from '../../hooks/usePrivateSitAndGoHold';
 import { useTournamentSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { parseTournamentInviteParams } from '../../lib/mustMoveInviteRouting';
 import TournamentClubJoinGate from '../../components/tournament/TournamentClubJoinGate';
@@ -1819,11 +1823,63 @@ export default function TournamentDetails({
      minutes, so its link alone reaches a friend too late. The invite holds
      the friend's seat instead (usePrivateGameInviteLauncher); every other
      game, and an engine that does not honour held seats, shares the link. */
-  const privateInvite = usePrivateGameInviteLauncher((kind, message) => {
-    if (kind === 'success') toast?.success?.(message);
-    else toast?.error?.(message);
+  /* A SIT & GO HOLDS ITS FRIENDS' SEATS ON THIS PAGE (2026-11-23). A six or
+     nine seat Sit & Go has no table before it starts, so its held seats, the
+     friend's Take Seat and the expiry message live here
+     (usePrivateSitAndGoHold). The token rides the shared link as `invite`;
+     only the real route reads it (a lobby tab's query is the table's). */
+  const handleRegisterRef = useRef(handleRegister);
+  handleRegisterRef.current = handleRegister;
+  const sitAndGoInviteToken = useMemo(
+    () =>
+      tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken,
+    [tournamentIdOverride, tournamentId, search]
+  );
+  const sitAndGoHeldParam = useMemo(() => {
+    try {
+      return new URLSearchParams(search).get('held') === '1';
+    } catch {
+      return false;
+    }
+  }, [search]);
+  const sitAndGoHold = usePrivateSitAndGoHold({
+    tournament: tournament
+      ? {
+          id: tournament.id,
+          name: tournament.name,
+          status: tournament.status,
+          variant: tournament.variant,
+          max_players: tournament.max_players,
+          format_contract: (tournament as { format_contract?: unknown }).format_contract,
+          started_at: (tournament as { started_at?: string | null }).started_at ?? null,
+        }
+      : null,
+    userId: user?.id,
+    isRegistered,
+    inviteToken: sitAndGoInviteToken,
+    heldParam: sitAndGoHeldParam,
+    inviteCode: shareInviteCode,
+    onRegister: () => handleRegisterRef.current(false),
+    notify: (kind, message) => {
+      if (kind === 'success') toast?.success?.(message);
+      else if (kind === 'error') toast?.error?.(message);
+      else toast?.info?.(message);
+    },
   });
+  const privateInvite = usePrivateGameInviteLauncher(
+    (kind, message) => {
+      if (kind === 'success') toast?.success?.(message);
+      else toast?.error?.(message);
+    },
+    (hold) => {
+      sitAndGoHold.showHeld(hold);
+      setIsRegistered(true);
+      void loadTournament(undefined, { quiet: true });
+    }
+  );
   const inviteToGame = useCallback(async () => {
+    // A Sit & Go whose seats this player already holds: reopen that hold.
+    if (sitAndGoHold.reopenHeld()) return;
     if (
       tournament &&
       (await privateInvite.offer({
@@ -1832,6 +1888,8 @@ export default function TournamentDetails({
         status: tournament.status,
         variant: tournament.variant,
         max_players: tournament.max_players,
+        format_contract: (tournament as { format_contract?: unknown }).format_contract,
+        current_players: tournament.current_players ?? null,
         buy_in_amount: tournament.buy_in_amount,
         buy_in_fee: tournament.buy_in_fee,
         started_at: (tournament as { started_at?: string | null }).started_at ?? null,
@@ -1840,7 +1898,7 @@ export default function TournamentDetails({
     )
       return;
     await shareTournament();
-  }, [tournament, privateInvite, isRegistered, shareTournament]);
+  }, [tournament, privateInvite, isRegistered, shareTournament, sitAndGoHold]);
 
   /**
    * The stored structure spells the level length three ways, and one of them is
@@ -1887,6 +1945,7 @@ export default function TournamentDetails({
    */
   const satelliteAwards = useSatelliteAwards(tournament, entries, undefined, user?.id);
 
+  const viewerLinkClub = readClubContextParam(search);
   const tabProps = useMemo<TournamentTabProps | null>(
     () =>
       tournament
@@ -1905,6 +1964,7 @@ export default function TournamentDetails({
             tables: isWatchable ? tables : NO_TABLES,
             blindLevels,
             currentUserId: user?.id,
+            viewerLinkClub,
             isRegistered,
             /* `isWatchable`, not `isRunning`: during LATE_REG the event is
                dealing and every one of these rows points at a live table, but
@@ -1921,6 +1981,7 @@ export default function TournamentDetails({
       tables,
       blindLevels,
       user?.id,
+      viewerLinkClub,
       isRegistered,
       /* `isWatchable`, not `isRunning`: the BODY reads isWatchable (LATE_REG
          counts as watchable, RUNNING alone does not cover it), so listing the
@@ -2041,11 +2102,12 @@ export default function TournamentDetails({
   /* What state the event is in, in the words the footer already uses for it.
      One reading of `status`, so the pill in the header and the badge in the
      footer cannot name two different states for one event. */
+  const closingStatus = tournamentClosingStatus(tournament.status);
   const lobbyStatus: { label: string; tone: 'open' | 'live' | 'done' | 'cancelled' } = (() => {
     const raw = String(tournament.status || '').toUpperCase();
     if (isBaggedStatus(raw)) return { label: DAY_COMPLETE_LABEL, tone: 'live' };
-    if (raw === 'COMPLETED') return { label: 'Completed', tone: 'done' };
-    if (raw === 'CANCELLED') return { label: 'Cancelled', tone: 'cancelled' };
+    if (closingStatus)
+      return { label: closingStatus, tone: closingStatus === 'Cancelled' ? 'cancelled' : 'done' };
     if (isWatchable) {
       return { label: lateRegCountdown ? 'Late Registration' : 'Running', tone: 'live' };
     }
@@ -2229,11 +2291,14 @@ export default function TournamentDetails({
         <span className="tournament-status-badge running">{DAY_COMPLETE_LABEL}</span>
       );
     }
-    if (tournament.status === 'COMPLETED') {
-      return footer ? null : <span className="tournament-status-badge completed">Completed</span>;
-    }
-    if (tournament.status === 'CANCELLED') {
-      return footer ? null : <span className="tournament-status-badge cancelled">Cancelled</span>;
+    if (closingStatus) {
+      return footer ? null : (
+        <span
+          className={`tournament-status-badge ${closingStatus === 'Cancelled' ? 'cancelled' : 'completed'}`}
+        >
+          {closingStatus}
+        </span>
+      );
     }
 
     /* A SEAT-FIRST GAME (Heads-Up Sit N Go / Spin) IS SAT AT, NEVER REGISTERED
@@ -2287,6 +2352,8 @@ export default function TournamentDetails({
        label ran out of it and off the screen. It prints on the same plate
        Register does, in the header and in the footer, so the two states are
        the same control with a different word. */
+    // Standard pre-start registration has one primary control in the shared footer.
+    if (!footer) return null;
     if (isRegistered) {
       return (
         <RegisterButton
@@ -2321,7 +2388,7 @@ export default function TournamentDetails({
   return (
     <PageErrorBoundary pageName="TournamentDetails">
       <div
-        className="tournament-details"
+        className="tournament-details console-lobby"
         ref={shellRef}
         data-active-tab={activeTab}
         data-embedded={isEmbedded}
@@ -2329,6 +2396,7 @@ export default function TournamentDetails({
       >
         {recoveryNotice}
         {privateInvite.element}
+        {sitAndGoHold.element}
         {goneTournamentId && (
           <div
             role="status"
@@ -2372,41 +2440,38 @@ export default function TournamentDetails({
             strip and, in the popup, a third header above both. The rule
             badges (Freezeout, Rebuy, Bounty ...) stay in DetailOverviewTab,
             which is the only place they have ever been drawn. */}
-        <header className="details-header">
-          <div className="details-header__top">
-            <span className={`details-status details-status--${lobbyStatus.tone}`}>
-              {lobbyStatus.label}
-            </span>
-            <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
-            <div className="details-header__actions">
-              <TournamentRegisterButton
-                className="btn-invite-game"
-                data-testid="tournament-invite-btn"
-                onClick={() => void inviteToGame()}
-              >
-                Invite To Game
-              </TournamentRegisterButton>
-              {tournamentAction('header')}
-            </div>
-            {closeButton}
-          </div>
-          <h1 className="tournament-name">{formatTournamentTitle(tournament.name)}</h1>
-          <div className="tournament-desc">
-            {/* Whole chips only (Dan 2026-08-20) - formatBuyIn leads with the
-                total the player actually pays and never prints a decimal. */}
+        <MttEventHeader
+          name={formatTournamentTitle(tournament.name)}
+          format={tournament}
+          status={lobbyStatus.label}
+          price={
             <p className="tournament-buyin">
-              {formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament)}{' '}
-              {tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
-                ? 'Diamonds'
-                : 'Chips'}{' '}
-              Buy-In
+              {lobbyBuyInLabel(
+                formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament),
+                tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
+                  ? 'Diamonds'
+                  : 'Chips'
+              )}
             </p>
-            {/* Owner-written short description (2026-08-22). No tab renders it:
-                it is the event's own identity copy, not a figure, so it belongs
-                beside the name on every tab rather than inside one. */}
-            {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
-          </div>
-        </header>
+          }
+          terms={[
+            tournament.starting_chips &&
+              `${Number(tournament.starting_chips).toLocaleString()} Starting Stack`,
+            tabProps.blindLevels?.[0]?.duration && `${tabProps.blindLevels[0].duration} Min Levels`,
+            tournament.late_reg_levels && `Late Reg Through Lv ${tournament.late_reg_levels}`,
+          ]
+            .filter(Boolean)
+            .join('　·　')}
+          info={
+            <>
+              {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
+              <small>ID: {tournament.id.slice(0, 8)}</small>
+            </>
+          }
+          onInvite={() => void inviteToGame()}
+          close={closeButton}
+          actions={tournamentAction('header')}
+        />
 
         {/* Tabs */}
         {/* A tablist is a ROVING focus widget, not seven tab stops. Declaring

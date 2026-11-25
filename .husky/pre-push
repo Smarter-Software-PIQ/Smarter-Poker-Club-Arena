@@ -385,6 +385,16 @@ EOV
       fi
     done
   fi
+  # VITEST WORKERS (2026-11-24). On the 28-core Mac Studio sharing an external
+  # USB SSD across concurrent pushes, uncapped Vitest spawns ~28 forks that
+  # saturate SSD I/O and time out unrelated subprocess tests (15+ min and
+  # 5 ETIMEDOUT failures on a ci.yml push; 10 min and 0 failures at 4 workers).
+  # Default to 4 workers on Darwin unless the caller already chose a cap;
+  # vitest.config.ts feeds VITEST_MAX_THREADS into clientVitestWorkerBudget.
+  if [ -z "${VITEST_MAX_THREADS:-}" ]; then
+    VITEST_MAX_THREADS=4
+    export VITEST_MAX_THREADS
+  fi
 
 fi
 
@@ -1599,6 +1609,40 @@ if [ -f server/package.json ]; then
       echo "[club-arena pre-push] fast non-engine mode: skipping full server vitest related crawl for benchmark-only source ($SRV_SRC); exact changed/companion server tests and server tsc ran locally, and GitHub CI still runs 100% of required server checks."
     fi
   elif [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_SRC" ] && [ -x "$SERVER_VITEST" ]; then
+    # A WIDELY IMPORTED ENGINE FILE IS READ BY THE HOSTED ENGINE CHECK (2026-11-24).
+    # `related` on server/src/engine/HorseLogic.ts selects about 1,500 of the
+    # server project's test files. On 2026-11-22 that one stage took 41 of the
+    # 49 and 54 minutes two pushes held the machine's one push lock, against a
+    # 60 minute cap, and every other lane queued behind them. The required
+    # hosted check `Server Engine (typecheck + tests)` runs the WHOLE server
+    # project in four shards for any pull request that changes a path under
+    # server/, so that crawl ran twice on the same commit. This is the engine
+    # form of CA_LOCAL_CONTRACT_LIMIT above: a source file that more than
+    # CA_LOCAL_ENGINE_RELATED_LIMIT server tests reach is a widely read input,
+    # and its readers are the hosted shards, not a second local copy of them.
+    # Everything above still ran here for this push: the changed server tests,
+    # the source-contract laws (ledger, digests, source pins) and the server
+    # compiler. A narrower change keeps the local crawl exactly as before.
+    # FAILS CLOSED: the crawl is left to the hosted check only when the hosted
+    # classifier admits the Server Engine shards for these paths AND the count
+    # is a number above the limit. A missing script, an error or an empty
+    # answer runs the crawl here.
+    CA_LOCAL_ENGINE_RELATED_LIMIT=300
+    CA_ENGINE_RELATED_VERDICT=""
+    if [ -f "$CA_TREE_TOP/scripts/ci/prepush-engine-related-count.mjs" ]; then
+      CA_ENGINE_RELATED_VERDICT=$(node "$CA_TREE_TOP/scripts/ci/prepush-engine-related-count.mjs" --root "$CA_TREE_TOP" $FILES 2>/dev/null) || CA_ENGINE_RELATED_VERDICT=""
+    fi
+    CA_ENGINE_RELATED_COUNT=$(printf '%s\n' "$CA_ENGINE_RELATED_VERDICT" | sed -n 's/^COUNT=//p')
+    CA_ENGINE_CRAWL=local
+    if printf '%s\n' "$CA_ENGINE_RELATED_VERDICT" | grep -qx 'HOSTED_SERVER=yes' \
+      && printf '%s' "$CA_ENGINE_RELATED_COUNT" | grep -qE '^[0-9]+$' \
+      && [ "$CA_ENGINE_RELATED_COUNT" -gt "$CA_LOCAL_ENGINE_RELATED_LIMIT" ]; then
+      CA_ENGINE_CRAWL=hosted
+    fi
+  fi
+  if [ "${CA_ENGINE_CRAWL:-}" = hosted ]; then
+    echo "[club-arena pre-push] $CA_ENGINE_RELATED_COUNT server tests reach your engine change (limit $CA_LOCAL_ENGINE_RELATED_LIMIT): the full related crawl is left to the required hosted Server Engine shards, which run the whole server project on this commit. The changed server tests, the source-contract laws and the server compiler ran here."
+  elif [ "${CA_ENGINE_CRAWL:-}" = local ]; then
     echo "[club-arena pre-push] running the server tests that cover your changes..."
     SERVER_RELATED_ARGS=()
     for tested_file in $SRV_TESTS $SRV_CONTRACTS; do

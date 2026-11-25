@@ -85,6 +85,11 @@ import ClubMembersPage, {
   liveRosterRefreshPolicy,
 } from '../../src/pages/ClubMembersPage';
 
+function openRosterTools() {
+  const tools = screen.getByRole('button', { name: 'Sort And Roster Tools' });
+  if (tools.getAttribute('aria-expanded') === 'false') fireEvent.click(tools);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   f.actor = { user: { id: '00000000-0000-0000-0000-000000000042' } };
@@ -144,7 +149,8 @@ it.each([false, true])(
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    if (advanced) fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    if (advanced)
+      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools', exact: true }));
     act(() => {
       f.channel?.onSubscriptionStatus?.('SUBSCRIBED');
       f.wallet?.onSubscriptionStatus?.('SUBSCRIBED');
@@ -207,7 +213,7 @@ it('retires an audit failure when the viewer no longer has audit access', async 
   expect(screen.queryByRole('button', { name: 'Retry Live Sync' })).not.toBeInTheDocument();
 });
 
-it('defaults to a compact directory and restores the full workspace in Advanced', async () => {
+it('opens with one directory and discloses its tools without changing the search', async () => {
   render(
     <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
       <Routes>
@@ -218,18 +224,20 @@ it('defaults to a compact directory and restores the full workspace in Advanced'
   await act(async () => {
     await vi.advanceTimersByTimeAsync(110);
   });
-  expect(screen.getByRole('button', { name: 'Simple' })).toHaveAttribute('aria-pressed', 'true');
-  // No page hero in either mode (Dan 2026-10-17); Advanced adds the live totals to the page bar.
-  expect(screen.getByRole('heading', { level: 1, name: 'Player Management' })).toHaveClass(
-    'ca-page-bar__title'
-  );
+  expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
+  // Both directory modes share the approved mast. Advanced also shows the live totals.
+  expect(
+    screen
+      .getByRole('heading', { level: 1, name: 'Player Management' })
+      .closest('.arena-workspace-mast')
+  ).toBeVisible();
   expect(screen.queryByText('Player Command')).not.toBeInTheDocument();
   expect(screen.queryByText('Total Members')).not.toBeInTheDocument();
   expect(screen.queryByRole('combobox', { name: 'Filter Players' })).not.toBeInTheDocument();
   expect(screen.queryByText('Metric Definitions')).not.toBeInTheDocument();
   expect(screen.getByRole('searchbox', { name: 'Search Club Members' })).toBeInTheDocument();
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'King' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
   expect(screen.queryByText('Player Command')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Player Management Live Summary')).toHaveTextContent(
     'Total Members'
@@ -237,7 +245,7 @@ it('defaults to a compact directory and restores the full workspace in Advanced'
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toBeInTheDocument();
   expect(screen.getByText('Metric Definitions')).toBeInTheDocument();
   expect(screen.getByRole('searchbox')).toHaveValue('King');
-  fireEvent.click(screen.getByRole('button', { name: 'Simple' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
   expect(screen.getByRole('searchbox')).toHaveValue('King');
   expect(screen.queryByRole('link', { name: 'Applicants' })).not.toBeInTheDocument();
 });
@@ -253,6 +261,7 @@ it('routes Simple agent and role grouping controls through the existing server q
   await act(async () => {
     await vi.advanceTimersByTimeAsync(110);
   });
+  openRosterTools();
   fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(110);
@@ -287,9 +296,9 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
+  openRosterTools();
   expect(screen.getByRole('combobox', { name: 'Win And Loss Period' })).toHaveValue('week');
   expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('activity');
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
   expect(screen.getByRole('option', { name: 'Overall Fees 100+' })).toHaveValue('high_fees');
   expect(screen.getByRole('option', { name: 'Most Overall Fees' })).toHaveValue('fees');
   fireEvent.change(screen.getByRole('combobox', { name: 'Filter Players' }), {
@@ -376,7 +385,8 @@ for (const mode of ['Simple', 'Advanced']) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    if (mode === 'Advanced') fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    if (mode === 'Advanced')
+      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
     expect(screen.queryByRole('button', { name: 'Refresh', exact: true })).not.toBeInTheDocument();
     const search = screen.getByRole('searchbox');
     fireEvent.change(search, { target: { value: 'pending' } });
@@ -629,6 +639,7 @@ it('shows automatic name relevance during search and restores the selected manua
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
+  openRosterTools();
   const sort = screen.getByRole('combobox', { name: 'Sort Players' });
   await act(async () => {
     fireEvent.change(sort, { target: { value: 'oldest' } });
@@ -721,11 +732,13 @@ it.each([
       </MemoryRouter>
     );
     await act(async () => {});
-    if (advanced) fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    if (advanced)
+      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools', exact: true }));
     expect(document.querySelector('.members-console')).toHaveAttribute('aria-busy', 'true');
     await act(async () =>
       resolve({ search: 'Saved Search', filter: 'online', sort, columns: ['fees'] })
     );
+    openRosterTools();
     expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('search');
     expect(screen.getByTestId('workspace-url')).toHaveTextContent(expected);
     expect(document.querySelector('.members-console')).toHaveAttribute('aria-busy', 'false');
@@ -760,10 +773,10 @@ it('keeps workspace controls unavailable until the account workspace resolves, t
     </MemoryRouter>
   );
   await act(async () => {});
-  expect(screen.getByRole('button', { name: 'All', exact: true })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'All Players', exact: true })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Agents', exact: true })).toBeDisabled();
+  openRosterTools();
   expect(screen.getByRole('button', { name: 'Group By Role', exact: true })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
   const search = screen.getByRole('searchbox', { name: 'Search Club Members' });
   expect(search).toBeDisabled();
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toBeDisabled();

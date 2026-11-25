@@ -815,3 +815,9 @@ subprocess.run([
 subprocess.run([
     sys.executable, str(ROOT / "scripts/ci/test-promo-ticket-postgres.py"),
 ], env={**os.environ, "PG_BIN": str(pg)}, check=True)
+
+# The same lane qualifies promo wallet sends from every funding wallet (Club Bank,
+# Agent Wallet, Player Wallet, Promo Wallet) and exit-lock enforcement.
+subprocess.run([
+    sys.executable, str(ROOT / "scripts/ci/test-promo-wallet-rules-all-sources-postgres.py"),
+], env={**os.environ, "PG_BIN": str(pg)}, check=True)

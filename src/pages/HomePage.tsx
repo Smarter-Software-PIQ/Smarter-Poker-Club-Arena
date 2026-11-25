@@ -1,3 +1,4 @@
+import { readKingsClubDisplayTotals } from '../services/KingsClubDisplayService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -57,11 +58,7 @@ import CarouselSection from '../components/home/CarouselSection';
 import { savedPinnedClubIds } from '../components/home/arenaSelection';
 import ClubEntryActionBar from '../components/home/ClubEntryActionBar';
 import { getClubLevelFromMembers } from '../utils/clubLevels';
-import type {
-  UserClub,
-  ClubStats,
-  KingsClubDisplayTotals,
-} from '../components/home/CarouselSection';
+import type { UserClub, ClubStats } from '../components/home/CarouselSection';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 import { STORAGE_KEYS } from '../lib/storage';
@@ -977,12 +974,7 @@ function HomePageInner() {
           : null;
 
         const kingsClub = displayClubs.find((club) => Number(club.club_id) === SHARK_CLUB_ID);
-        const kingsDisplayPromise = kingsClub
-          ? supabase.rpc('fn_kings_club_display_totals').then(
-              (result) => result,
-              (error) => ({ data: null, error })
-            )
-          : null;
+        const kingsDisplayPromise = kingsClub ? readKingsClubDisplayTotals() : null;
 
         const { data: clubRows, error: clubRowsError } = await supabase
           .from('clubs')
@@ -1111,25 +1103,8 @@ function HomePageInner() {
         );
 
         if (kingsClub && kingsDisplayPromise) {
-          const { data, error } = await kingsDisplayPromise;
-          if (error) reportError(error, 'HomePage.kingsClubDisplayTotals');
-          const totals = data as Partial<KingsClubDisplayTotals> | null;
-          if (totals && statsMap[kingsClub.id]) {
-            const { member_total, active_total, member_addition, active_addition } = totals;
-            if (
-              (typeof member_total === 'number' || member_total === null) &&
-              (typeof active_total === 'number' || active_total === null) &&
-              typeof member_addition === 'number' &&
-              typeof active_addition === 'number'
-            ) {
-              statsMap[kingsClub.id].kingsDisplayTotals = {
-                member_total,
-                active_total,
-                member_addition,
-                active_addition,
-              };
-            }
-          }
+          const totals = await kingsDisplayPromise;
+          if (totals && statsMap[kingsClub.id]) statsMap[kingsClub.id].kingsDisplayTotals = totals;
         }
 
         /* ── A UNION MEMBER CLUB'S CASH / EVENTS SPLIT IS THE UNION FLOOR ──

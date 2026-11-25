@@ -163,7 +163,8 @@ vi.mock('../../engine/horseDecision/index.js', () => ({
 }));
 
 import {
-  logHandHistory,
+  logHandHistory as rawLogHandHistory,
+  flushPendingHandHistoryObservationsForTests,
   buildHandHistoryTiers,
   isLedgerInvariantRefusal,
   resumeRetainedHandSubmission,
@@ -171,6 +172,11 @@ import {
   LEDGER_INVARIANT_REFUSED,
   HAND_COMMIT_RETRY_DELAYS_MS,
 } from './handHistory.js';
+const logHandHistory: typeof rawLogHandHistory = async (input) => {
+  const result = await rawLogHandHistory(input);
+  await flushPendingHandHistoryObservationsForTests();
+  return result;
+};
 import { persistedKnockoutEvidence } from '../../tournament/bountyAttributionGate.js';
 import type { HorsePublicActionNode } from '../../engine/HorsePublicActionNode.js';
 import { captureHandSeatGenerations } from '../../engine/handSeatGeneration.js';
@@ -531,6 +537,33 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
     const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
     expect(sent.durableOpponentProfiles).toEqual([]);
     expect(sent).not.toHaveProperty('durableOpponentProfilesRead');
+  });
+
+  it('returns handId immediately after atomic commit without blocking settlement on a slow opponent-memory read (1e532243)', async () => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    let releaseRead: (rows: []) => void = () => {};
+    memoryMocks.readExact.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseRead = resolve;
+        })
+    );
+    try {
+      const settled = await Promise.race([
+        rawLogHandHistory({
+          ...identityParams(),
+          publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+        }),
+        new Promise<'BLOCKED'>((resolve) => setTimeout(() => resolve('BLOCKED'), 50)),
+      ]);
+      expect(settled).toMatchObject({ handId: historyId, settlementCommitted: true });
+      expect(mockObserveCompletedHand).not.toHaveBeenCalled();
+    } finally {
+      releaseRead([]);
+      await flushPendingHandHistoryObservationsForTests();
+    }
+    expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
   });
 
   it('STYLE READ: a malformed public domain sends no style format', async () => {

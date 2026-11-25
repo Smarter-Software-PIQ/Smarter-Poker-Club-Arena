@@ -1302,6 +1302,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOopReraiseRangeHoldsVsReraise',
+    "PLO-LEAD-6 2026-11-24 (hand a6f9206d, trace OOP-3BET-FOLD-TRACE.md: out of position the Horse 3-bets a range with no depth term, widened by V53 pressure, and deeper than about 135 bb two thirds of it folds to a pot 4-bet (replay PLO5 no read 65% at 200 bb, 71% at 800 bb; break-even 66.7%), so a 4-bet with any hand profits; owner: calling 3-bets and 4-bets out of position is a losing play, out of position needs a much stronger range). PLO4/PLO5 cash tables (horse.omahaGameScope.<option>), out of position facing one open, no caller; default off (read === true). A 3-bet the brain chose stands only when EV(3-bet) = phi P0 + kappa [R eq(call band) Pot3 (1 - rake) - I3] + rho V4 is at least the priced call the existing calling rule admits (omahaDowngradedThreeBetCalls) or 0, where phi / kappa / rho are the opener's answers to a 3-bet (his measured fold to a 3-bet shrunk to the fitted population answer OPENER_ANSWERS_PRIOR 2026-11-24.v1), R the measured realization (omahaPreflopDefenceRealization) and V4 the value of the Horse's OWN answer to the 4-bet asked on the public 4-bet frame (side ask: options off, no learning, effects discarded, streams restored); and that answer is not a fold, unless the hand holds an ace and the seeded keep unit (hash of id, pot, own cards) is under the frequency that holds the range's fold-to-4-bet share at or under horse.reraiseFoldShareCap. A rejected 3-bet becomes the call (calling rule admits it and EV(call) >= 0) or the fold; never a call the calling rule refuses. Never PLO6, tournaments, Lightning, hi-lo, bomb pots, multi-board. Receipt on the decision (oopReraiseRangeHolds). Off: byte-identical.",
+    'V94'
+  ),
+  flag(
+    'holdemOopReraiseRangeHoldsVsReraise',
+    "PLO-LEAD-6 2026-11-24 (live NLH cash 7 days: Horse out-of-position 3-bets folded to a 4-bet 74.8% against a 61.4% break-even). The same rule as omahaOopReraiseRangeHoldsVsReraise for no-limit hold'em cash tables: equity by holdemRangeEquity over STRENGTH_ORDER bands, the 4-bet priced at 2.3x the 3-bet, the rejected 3-bet calls only where the brain's own call bar for the spot (strength >= callThreshold) admits the call and EV(call) >= 0, otherwise folds. Never tournaments, Short Deck, Lightning. Default off (read === true). Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'reraiseFoldShareCap',
+    'Runtime setting horse.reraiseFoldShareCap (default 0.45): the most of the out-of-position 3-bet range the two OOP re-raise range options let fold to a 4-bet (planned blocker folds kept at the frequency that holds it); never above the pure-bluff break-even of the 4-bet size; a parameter, not a switch',
+    'V94'
+  ),
+  flag(
     'omahaFourBetFoldPricedCall',
     "EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (LIVEGRADE-7 duty 5: persons win the hands that end preflop; the channel is re-raises the Horses fold to; Horse folds facing a 4-bet after their own raise, heads-up, gave up EV(call) +346 +/- 50 bb without the most frequent re-raiser, n 26): in PLO4/PLO5 cash a final preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only when omahaReraisedCallPriced (the engine's own priced call, its inputs) is positive. Changes only a fold. Default OFF.",
     'V94'
@@ -1564,6 +1579,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaTurnRiverRaiseIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). On the turn and the river facing a wager the final answer is a priced comparison of the fold, the call and a raise to each legal size on the exact hand (HorseOmahaPricedRules.omahaPricedRaise: the exact count of the opponent holdings with the Horse own cards removed; his bluffs fold to the raise first, the strongest part of his value region continues, sized by the price the raise lays him, his measured fold to a bet beside the population and, where the street read has it, his measured fold to a raise). A raise is made when it is worth more than the best other action by the margin, with any hand; a raise that is not becomes the priced call or fold. With it on, omahaTurnRiverRaiseNeedsNuts and omahaRiverNutRaiseOnly do not decide in this scope. A nut-class hand keeps the raise or call it was given.',
+    'V94'
+  ),
+  flag(
+    'omahaPricedRaiseNeverMakesNonNutRaise',
+    'PLO-OWNER lead-5 2026-11-22 (real hands b910fc9e and 89b5b740; owner 2026-11-15 12:52 / 12:53: on the turn and river facing a bet a non-nut hand folds or at best calls, never a raise; owner 2026-11-15 12:30: raising draws never happens out of position, only in position with combo draws). PLO4/PLO5 cash, high only, one board, no bomb pot, turn and river facing a wager; default off (read === true). With omahaTurnRiverRaiseIsPriced on, HorseOmahaPricedWiring.omahaPricedTurnRiverRaiseRule returns a raise only for a hand that is nut class now (omahaNutClassNow) or for the in-position turn combo draw that is already raising (HorseOmahaTurnRiverRaiseNeedsNuts.omahaRaiseNeedsNutsKeeps, the one existing classifier; no new threshold): every other raise it is given becomes the priced call or fold it already computed (verdict.callStands; the call when nothing could be priced or the rule throws), and a call or fold it is given is never turned into a raise (b910fc9e: a call the draw bar had just made was turned back into an all-in). With omahaTurnRiverRaiseNeedsNuts on, that rule reads its own spot in the Lightning pools too (89b5b740: no raise rule looked at a Lightning turn raise), and the receipt validator admits its raise -> call there only for a decision that may have run with this option (responseValidation omahaNonNutRaiseInLightningGate). It switches neither rule on. Never PLO6, a tournament, hi-lo, a bomb pot or more than one board. Evidence NOT MET: replay counts only (docs/horse-option-authority.d/omahaPricedRaiseNeverMakesNonNutRaise.md)',
+    'V94'
+  ),
+  flag(
+    'omahaLateFlattenedCallIsPriced',
+    'PLO-OWNER lead-5 2026-11-22 (real hand b1e6ae31). PLO4/PLO5 cash (table and Lightning), river; default off (read === true). The facing-bet EV stage of wager_rules (omaha_facing_bet_ev) judges only a call or a fold, so a raise passes it unjudged; when the later stage call_large_river_boat_wager flattens that raise to a call, no verdict has priced the call (b1e6ae31: fours full of twos called a pot bet the verdict priced at a fold). With the option on, exactly that call (a raise entered the EV stage, a raise entered the boat stage, the boat stage returned the call) is given the same facing-bet verdict (omahaFacingBetEv, HorseLogic.omahaLateFlattenedCallIsPricedRule): it stands where the verdict calls and folds where it does not. Where that verdict does not price the spot, omahaTurnRiverRaiseIsPriced applies its own priced call to the same marked call (HorseOmahaPricedWiring.omahaLateFlattenedCallPriced). No other call, fold or raise is read or changed. Receipts omaha_late_flattened_call_priced_kept / _folded count how often it happens. Never PLO6 or a tournament. Evidence NOT MET: replay counts only (docs/horse-option-authority.d/omahaLateFlattenedCallIsPriced.md)',
     'V94'
   ),
   flag(
@@ -3809,6 +3834,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fleet'
   ),
   table(
+    'horse_error_log',
+    'per_action',
+    'scripts/ops/shadow-read-report-lib.mjs (a row in the window is a rollback reason) and every switch watch list',
+    'one row per Horse decision fallback, legalizer correction, Lightning fallback or decision worker failure, coalesced per minute (services/HorseErrorLog.ts); public context only, never a card. Held zero rows until 2026-11-24 because nothing wrote it',
+    'errors'
+  ),
+  table(
     'ca_horse_fleet_heartbeat',
     'minute',
     'SQL only: fn_ca_fleet_overview (the panel reads the leader heartbeat)',
@@ -3821,7 +3853,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // legacy) and so the panel can show them as what they are.
   ...[
     'horse_analytics',
-    'horse_error_log',
     'horse_hand_history',
     'horse_memory',
     'horse_opponent_journals',
@@ -3853,6 +3884,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // so a healthy day never trips them and a dead layer always does.
   // ─────────────────────────────────────────────────────────────────────────
   receipt('decide', 'HorseLogic.decide', 'every live decision', 'V15'),
+  receipt(
+    'horse_error_log_write_exception_seen',
+    'scripts/ops/shadow-read-report-lib.mjs (a safety exception)',
+    'a horse_error_log row the engine could not write (services/HorseErrorLog.ts); nonzero means a quiet error log is not a clean one',
+    'errors'
+  ),
   receipt(
     'horse_feature_authority_withdrawn_before_acceptance',
     'ServerTableEngineTurns qualified feature acceptance gate',
@@ -5918,6 +5955,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_oop_reraise_range_holds_kept',
+    'HorseOopReraiseRangeHoldsWiring (omahaOopReraiseRangeHoldsVsReraise)',
+    'a PLO4/PLO5 cash out-of-position 3-bet facing one open was priced and stands: EV(3-bet) at or above the priced alternative and the Horse continues against the 4-bet (numbers on the decision, oopReraiseRangeHolds)',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraise_range_holds_blocker_kept',
+    'HorseOopReraiseRangeHoldsWiring (omahaOopReraiseRangeHoldsVsReraise)',
+    'the same, a blocker (ace) 3-bet the Horse would fold to the 4-bet kept by the seeded keep frequency that holds the fold-to-4-bet share at or under the cap (frequency and unit on the receipt)',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraise_range_holds_called',
+    'HorseOopReraiseRangeHoldsWiring (omahaOopReraiseRangeHoldsVsReraise)',
+    'a PLO4/PLO5 cash out-of-position 3-bet became the call: priced below the alternative or a planned fold, and the existing calling rule admits a call priced at or above 0',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraise_range_holds_folded',
+    'HorseOopReraiseRangeHoldsWiring (omahaOopReraiseRangeHoldsVsReraise)',
+    'a PLO4/PLO5 cash out-of-position 3-bet became the fold: priced below the alternative or a planned fold, and no call is admitted at a price at or above 0',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraise_range_holds_unpriced',
+    'HorseOopReraiseRangeHoldsWiring (omahaOopReraiseRangeHoldsVsReraise)',
+    'fail-safe: an in-scope 3-bet could not be priced (no equity sample) or the stage was not reached on the re-ask; the 3-bet stands as the brain made it',
+    'V94'
+  ),
+  receipt(
+    'holdem_oop_reraise_range_holds_kept',
+    'HorseOopReraiseRangeHoldsWiring (holdemOopReraiseRangeHoldsVsReraise)',
+    'an NLH cash out-of-position 3-bet facing one open was priced and stands (numbers on the decision, oopReraiseRangeHolds)',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_oop_reraise_range_holds_blocker_kept',
+    'HorseOopReraiseRangeHoldsWiring (holdemOopReraiseRangeHoldsVsReraise)',
+    'the same, a blocker (ace) 3-bet the Horse would fold to the 4-bet kept by the seeded keep frequency the cap asks for',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_oop_reraise_range_holds_called',
+    'HorseOopReraiseRangeHoldsWiring (holdemOopReraiseRangeHoldsVsReraise)',
+    "an NLH cash out-of-position 3-bet became the call the brain's call bar admits, priced at or above 0",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_oop_reraise_range_holds_folded',
+    'HorseOopReraiseRangeHoldsWiring (holdemOopReraiseRangeHoldsVsReraise)',
+    'an NLH cash out-of-position 3-bet became the fold',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_oop_reraise_range_holds_unpriced',
+    'HorseOopReraiseRangeHoldsWiring (holdemOopReraiseRangeHoldsVsReraise)',
+    'fail-safe: an in-scope NLH 3-bet could not be priced or the stage was not reached on the re-ask; it stands as the brain made it',
+    "Hold'em Strategy"
+  ),
+  receipt(
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
     "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
@@ -6721,6 +6818,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_raise_made_bluff',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
     'the same, a raise that earns by the folds it is priced to get (the continuing holdings mostly beat the hand): made',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_non_nut_raise_not_made',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule; omahaPricedRaiseNeverMakesNonNutRaise)',
+    'PLO4/PLO5 cash turn or river facing a wager with omahaPricedRaiseNeverMakesNonNutRaise on: the priced comparison chose a raise for a hand that is not nut class (and is not the in-position turn combo draw raising), and the raise was not made; the call or fold given stays, or the raise given becomes the priced call or fold (omaha_priced_raise_called / omaha_priced_raise_folded)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_non_nut_unpriced_called',
+    'HorseOmahaPricedWiring (omahaPricedTurnRiverRaiseRule; omahaPricedRaiseNeverMakesNonNutRaise)',
+    'the same option: a raise given with a hand that is not nut class could not be priced, and it became the call (never kept as a raise, never folded on a failure to price)',
+    'V94'
+  ),
+  receipt(
+    'omaha_late_flattened_call_priced_kept',
+    'HorseLogic wager_rules (omahaLateFlattenedCallIsPricedRule) and HorseOmahaPricedWiring (omahaLateFlattenedCallPriced); omahaLateFlattenedCallIsPriced',
+    'a PLO4/PLO5 cash river raise that call_large_river_boat_wager flattened to a call after the facing-bet EV stage had stood aside for the raise was priced, and the call stands (counts how often a late-flattened call occurs and is priced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_late_flattened_call_priced_folded',
+    'HorseLogic wager_rules (omahaLateFlattenedCallIsPricedRule) and HorseOmahaPricedWiring (omahaLateFlattenedCallPriced); omahaLateFlattenedCallIsPriced',
+    'the same late-flattened river call was priced and the call does not stand: the hand folds',
     'V94'
   ),
   receipt(

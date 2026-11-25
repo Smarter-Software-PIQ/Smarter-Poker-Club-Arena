@@ -2085,92 +2085,96 @@ let pruneArmed = false;
 
 /**
  * Record 20bb+ horse hands for review. Fire-and-forget, never throws.
+ * Bound to process root so fire-and-forget review writes never inherit a
+ * tournament manager's lease/eventDatabaseBulkhead authority.
  */
-export async function recordHorseHandReviews(input: HorseReviewInput): Promise<void> {
-  try {
-    // V16: the real-nets aggregate sees EVERY hand, not just the 20bb flags,
-    // and has its own kill switch (HORSE_NET_ROLLUP_ENABLED).
-    if (!input.rollupsInAcceptedFacts) accumulateHorseNets(input);
-    else touchHorseSeats(input);
-    if (!enabled() || !input.handId) return;
-    const rows = buildReviewRows(input);
-    if (rows.length === 0) return;
-
-    // ONE ATOMIC PUBLICATION (P14.1, 2026-10-06). The review rows, their
-    // permanent receipts and the per-horse/day rollup are written by ONE
-    // database function in ONE transaction. This used to be an upsert of the
-    // reviews followed by one fn_hhr_rollup_add call per inserted horse: a
-    // failed or unanswered second call left a review with no rollup (and the
-    // `break` dropped every later horse's rollup with it), and a resend could
-    // never reconcile it because the review already existed. Now either all
-    // of it lands or none of it does, and a resend of the same hand - a
-    // settlement retry, or a reply lost on the wire - finds its receipts and
-    // answers 'replayed' without adding anything. So there is deliberately no
-    // additive retry here: an error is reported and the hand is left to a
-    // later resend, which is safe.
-    const payload = rows.map(toAtomicPayloadRow);
-    let reply: unknown;
+export const recordHorseHandReviews: (input: HorseReviewInput) => Promise<void> = bindToProcessRoot(
+  async function recordHorseHandReviews(input: HorseReviewInput): Promise<void> {
     try {
-      const { data, error } = await supabase.rpc('fn_hhr_record_atomic', { p_rows: payload });
-      if (error) {
-        reportError(new Error(error.message), 'HorseHandReview.record_atomic');
+      // V16: the real-nets aggregate sees EVERY hand, not just the 20bb flags,
+      // and has its own kill switch (HORSE_NET_ROLLUP_ENABLED).
+      if (!input.rollupsInAcceptedFacts) accumulateHorseNets(input);
+      else touchHorseSeats(input);
+      if (!enabled() || !input.handId) return;
+      const rows = buildReviewRows(input);
+      if (rows.length === 0) return;
+
+      // ONE ATOMIC PUBLICATION (P14.1, 2026-10-06). The review rows, their
+      // permanent receipts and the per-horse/day rollup are written by ONE
+      // database function in ONE transaction. This used to be an upsert of the
+      // reviews followed by one fn_hhr_rollup_add call per inserted horse: a
+      // failed or unanswered second call left a review with no rollup (and the
+      // `break` dropped every later horse's rollup with it), and a resend could
+      // never reconcile it because the review already existed. Now either all
+      // of it lands or none of it does, and a resend of the same hand - a
+      // settlement retry, or a reply lost on the wire - finds its receipts and
+      // answers 'replayed' without adding anything. So there is deliberately no
+      // additive retry here: an error is reported and the hand is left to a
+      // later resend, which is safe.
+      const payload = rows.map(toAtomicPayloadRow);
+      let reply: unknown;
+      try {
+        const { data, error } = await supabase.rpc('fn_hhr_record_atomic', { p_rows: payload });
+        if (error) {
+          reportError(new Error(error.message), 'HorseHandReview.record_atomic');
+          return;
+        }
+        reply = data;
+      } catch (err) {
+        reportError(err, 'HorseHandReview.record_atomic');
         return;
       }
-      reply = data;
-    } catch (err) {
-      reportError(err, 'HorseHandReview.record_atomic');
-      return;
-    }
-    if (!isAtomicReply(reply)) {
-      reportError(
-        new Error(`fn_hhr_record_atomic returned an unreadable reply: ${safeJson(reply)}`),
-        'HorseHandReview.record_atomic'
-      );
-      return;
-    }
+      if (!isAtomicReply(reply)) {
+        reportError(
+          new Error(`fn_hhr_record_atomic returned an unreadable reply: ${safeJson(reply)}`),
+          'HorseHandReview.record_atomic'
+        );
+        return;
+      }
 
-    // Retention: prune once per process lifetime, well after boot.
-    if (!pruneArmed) {
-      pruneArmed = true;
-      // ARMED BY A HAND, RUN FOR THE PROCESS (2026-09-11). The first hand to
-      // flag a horse arms this, and that is a tournament table's hand as often
-      // as a cash table's; a Node timer keeps the async context it was created
-      // in. Unbound, the prune - a DELETE across every horse's review and
-      // rollup rows - went out ten minutes later as that tournament's manager:
-      // admitted under its lease while it still held one, refused
-      // TOURNAMENT_MANAGER_FENCED once it had finished or lost it, which a Spin
-      // or an SNG routinely does inside ten minutes. pruneArmed is never
-      // reset, so retention then never ran again for the life of the process.
-      // Bound to the process root, like the nets flush above.
-      setTimeout(
-        bindToProcessRoot(() => {
-          // supabase-js builders are PromiseLike without .catch — wrap in a
-          // real Promise so the rejection handler exists and is typed.
-          void (async () => {
-            const { error: perr } = await supabase.rpc('sp_prune_horse_hand_reviews');
-            if (perr) reportError(new Error(perr.message), 'HorseHandReview.prune');
-          })()
-            .catch((err: unknown) => reportError(err, 'HorseHandReview.prune'))
-            // RECEIPT RETENTION (20261008041150). The replay receipts are
-            // pruned after the reviews, in their own statement: the review
-            // prune already spends most of service_role's 8 s statement
-            // timeout, and a receipt delete inside it could roll it back.
-            // The receipt prune removes at most 25,000 receipts whose review
-            // row is gone and whose hand is past the 30-day publication
-            // horizon, so it runs whether or not the review prune succeeded.
-            .then(async () => {
-              const { error: rerr } = await supabase.rpc('sp_prune_horse_hand_review_receipts');
-              if (rerr) reportError(new Error(rerr.message), 'HorseHandReview.prune_receipts');
-            })
-            .catch((err: unknown) => reportError(err, 'HorseHandReview.prune_receipts'));
-        }),
-        10 * 60 * 1000
-      );
+      // Retention: prune once per process lifetime, well after boot.
+      if (!pruneArmed) {
+        pruneArmed = true;
+        // ARMED BY A HAND, RUN FOR THE PROCESS (2026-09-11). The first hand to
+        // flag a horse arms this, and that is a tournament table's hand as often
+        // as a cash table's; a Node timer keeps the async context it was created
+        // in. Unbound, the prune - a DELETE across every horse's review and
+        // rollup rows - went out ten minutes later as that tournament's manager:
+        // admitted under its lease while it still held one, refused
+        // TOURNAMENT_MANAGER_FENCED once it had finished or lost it, which a Spin
+        // or an SNG routinely does inside ten minutes. pruneArmed is never
+        // reset, so retention then never ran again for the life of the process.
+        // Bound to the process root, like the nets flush above.
+        setTimeout(
+          bindToProcessRoot(() => {
+            // supabase-js builders are PromiseLike without .catch — wrap in a
+            // real Promise so the rejection handler exists and is typed.
+            void (async () => {
+              const { error: perr } = await supabase.rpc('sp_prune_horse_hand_reviews');
+              if (perr) reportError(new Error(perr.message), 'HorseHandReview.prune');
+            })()
+              .catch((err: unknown) => reportError(err, 'HorseHandReview.prune'))
+              // RECEIPT RETENTION (20261008041150). The replay receipts are
+              // pruned after the reviews, in their own statement: the review
+              // prune already spends most of service_role's 8 s statement
+              // timeout, and a receipt delete inside it could roll it back.
+              // The receipt prune removes at most 25,000 receipts whose review
+              // row is gone and whose hand is past the 30-day publication
+              // horizon, so it runs whether or not the review prune succeeded.
+              .then(async () => {
+                const { error: rerr } = await supabase.rpc('sp_prune_horse_hand_review_receipts');
+                if (rerr) reportError(new Error(rerr.message), 'HorseHandReview.prune_receipts');
+              })
+              .catch((err: unknown) => reportError(err, 'HorseHandReview.prune_receipts'));
+          }),
+          10 * 60 * 1000
+        );
+      }
+    } catch (err) {
+      reportError(err, 'HorseHandReview.record');
     }
-  } catch (err) {
-    reportError(err, 'HorseHandReview.record');
   }
-}
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SEAT TOUCH (2026-09-05) - the fleet state says when a horse last acted
