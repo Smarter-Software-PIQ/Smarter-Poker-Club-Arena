@@ -1333,6 +1333,7 @@ export default function ClubMembersPage() {
     loadedQuery,
     loading,
     members.length,
+    rowHeight,
     searchQuery,
     sortKey,
     workspaceScope,

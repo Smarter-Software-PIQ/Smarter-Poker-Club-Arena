@@ -705,51 +705,34 @@
   padding: 3px;
   margin: 7px 0;
 }
-.page:global(.arena-workspace) .console > :global(.sc__head) {
+.page:global(.arena-workspace) .console > :global(.club-page-heading) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 5px;
   min-height: 31px;
-  aspect-ratio: auto;
+  padding: 3px 2px 6px;
   background: none;
   border-bottom: 1px solid #253e57;
 }
-.page:global(.arena-workspace) .console > :global(.sc__head) > :global(.sc-zone) {
-  position: static;
-  width: auto !important;
-  height: auto !important;
-  line-height: 1.2;
-  text-align: left;
-}
-.page:global(.arena-workspace) .console :global(.sc__title) span {
+.page:global(.arena-workspace) .console :global(.club-page-heading) :is(h2, h3) {
+  margin: 0;
   font:
     800 20px/1.1 'Arial Narrow',
     Arial,
-    sans-serif !important;
+    sans-serif;
+  color: white;
 }
-.page:global(.arena-workspace) .console :global(.sc__eyebrow),
-.page:global(.arena-workspace) .console :global(.sc__subtitle) {
+.page:global(.arena-workspace) .console :global(.club-page-eyebrow),
+.page:global(.arena-workspace) .console :global(.club-page-subtitle) {
   display: none;
 }
-.page:global(.arena-workspace) .console > :global(.sc__body) {
-  background: none;
+.page:global(.arena-workspace) .console > :global(.club-page-body) {
   padding: 6px 1px;
-}
-.page:global(.arena-workspace) .console > :global(.sc__foot) {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  aspect-ratio: auto;
-  min-height: 0;
   background: none;
 }
-.page:global(.arena-workspace) .console :global(.sc__foot .sc-plate) {
-  position: relative;
-  inset: auto !important;
-  width: auto !important;
-  flex: 1;
-  height: 44px !important;
+.page:global(.arena-workspace) .console :global(.club-page-action) {
+  min-height: 44px;
   border: 4px solid transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
   background: var(--arena-tile);

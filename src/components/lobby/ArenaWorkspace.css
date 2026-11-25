@@ -495,3 +495,54 @@
 .arena-workspace .stats-secondary {
   margin-top: 6px;
 }
+.arena-transfer-review .club-page-eyebrow,
+.arena-transfer-review .club-page-subtitle {
+  display: none;
+}
+.arena-transfer-review .club-page-heading {
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.arena-transfer-amount {
+  margin: 8px 0;
+  padding: 12px 8px;
+  text-align: center;
+  border: 7px solid transparent;
+  border-image: var(--arena-readout) 21 / 11px stretch;
+  background: #071421;
+}
+.arena-transfer-amount small {
+  color: #9ad8fb;
+}
+.arena-transfer-amount strong {
+  display: block;
+  font-size: 38px;
+  line-height: 1.2;
+  color: #effaff;
+}
+.arena-transfer-lines {
+  margin: 0;
+}
+.arena-transfer-lines > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #22364b;
+}
+.arena-transfer-lines dd {
+  margin: 0;
+  font-weight: 700;
+}
+.arena-transfer-review .club-page-actions button {
+  flex: 1;
+  min-height: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.arena-transfer-review .club-page-actions button:last-child {
+  border-image-source: var(--arena-active);
+  background: #084397;
+  color: white;
+}

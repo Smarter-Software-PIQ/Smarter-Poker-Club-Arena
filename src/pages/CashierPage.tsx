@@ -93,7 +93,7 @@ import { retryFetch } from '../utils/retryFetch';
 import { reportError } from '../utils/errorReporter';
 import { formatPopupText } from '../utils/popupStyle';
 import { CashierWorkspace } from '../components/wallet/CashierWorkspace';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import { ClubPageSection } from '../components/club/ClubPageSection';
 import { compactChips, formatWalletChips } from '../utils/format';
 import { enumToTitleCase, titleCase } from '../utils/titleCase';
 
@@ -3637,7 +3637,7 @@ function CashierContent() {
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
-            <SpadeConsole
+            <ClubPageSection
               onClose={
                 isProcessing
                   ? undefined
@@ -3651,7 +3651,7 @@ function CashierContent() {
               pill="Verify"
               pillInk="blue"
               foot="plates"
-              className={styles.console}
+              className="arena-case arena-transfer-review"
               plates={{
                 secondary: {
                   label: 'Cancel',
@@ -3692,11 +3692,34 @@ function CashierContent() {
               }}
             >
               <div className={styles.glass}>
-                <p className="sc-copy">
-                  You Are About To Send{' '}
-                  <strong className="sc-ink--silver">{chipFigure(sendConfirm.value)}</strong> Chips
-                  To <strong className="sc-ink--silver">{sendConfirm.recipientName}</strong>.
-                </p>
+                <div className="arena-transfer-amount">
+                  <small>Chip Amount</small>
+                  <strong>{chipFigure(sendConfirm.value)}</strong>
+                </div>
+                <dl className="arena-transfer-lines">
+                  <div>
+                    <dt>From</dt>
+                    <dd>Agent Wallet</dd>
+                  </div>
+                  <div>
+                    <dt>Recipient</dt>
+                    <dd>{sendConfirm.recipientName}</dd>
+                  </div>
+                  <div>
+                    <dt>Recipient Wallet</dt>
+                    <dd>
+                      {titleCase(
+                        (sendConfirm.destination ?? distributeDestination).replace(/_/g, ' ')
+                      )}
+                    </dd>
+                  </div>
+                  {myAgentWallet !== null && (
+                    <div>
+                      <dt>Available After Transfer</dt>
+                      <dd>{formatWalletChips(myAgentWallet - sendConfirm.value)}</dd>
+                    </div>
+                  )}
+                </dl>
                 <p className="sc-copy sc-ink--red">
                   {/* THE SAME SCREEN SAYS "Claim Back Window: Ten Minutes" three
                   hundred lines up. This warning said the opposite - "This
@@ -3708,7 +3731,7 @@ function CashierContent() {
                   Amount And Recipient.
                 </p>
               </div>
-            </SpadeConsole>
+            </ClubPageSection>
           </div>
         </div>
       )}
