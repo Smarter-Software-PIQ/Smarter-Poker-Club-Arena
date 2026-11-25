@@ -41,6 +41,7 @@ import { closeFreeBuyBoardAlert } from './freeBuyAuditAlert.js';
 import {
   emptySeatFirstPrecheckTally,
   recordSeatFirstPrecheck,
+  recordSpinSeatFirstBookingRefusal,
   type SeatFirstPrecheckTally,
 } from './seatFirstPrecheckMetrics.js';
 import nodeCrypto from 'node:crypto';
@@ -7459,6 +7460,13 @@ export class TournamentRecurringService {
             if (seatRpcErr) {
               tally.rpcRefused++;
               if (!isExpectedSeatRefusal(seatRpcErr.message)) {
+                if (
+                  String((tRow as { variant?: string | null }).variant ?? '').toLowerCase() ===
+                    'spin' ||
+                  /could not book Spin\b/i.test(seatRpcErr.message)
+                ) {
+                  recordSpinSeatFirstBookingRefusal(seatRpcErr.message);
+                }
                 reportError(
                   new Error(
                     `[TournamentRecurring] seat-first fill refused for ${tournamentId.slice(0, 8)}: ${seatRpcErr.message}`
