@@ -95,41 +95,45 @@ BEGIN
     RETURN jsonb_build_object('skipped', 'a fold is already running');
   END IF;
 
-  CREATE TEMP TABLE leaderboard_fold ON COMMIT DROP AS
-  SELECT t.club_id, tp.user_id,
-         count(*)::integer AS tournaments_played,
-         (count(*) FILTER (WHERE tp.position = 1))::integer AS wins,
-         (count(*) FILTER (WHERE tp.position IS NOT NULL AND tp.position <= 9))::integer AS final_tables,
-         (count(*) FILTER (WHERE COALESCE(tp.prize, 0) > 0))::integer AS itm_finishes,
-         COALESCE(sum(tp.prize), 0)::numeric AS total_prizes,
-         sum(COALESCE(t.buy_in_amount, 0) + COALESCE(t.buy_in_fee, 0))::numeric AS total_buy_ins,
-         COALESCE(max(tp.prize), 0)::numeric AS biggest_win,
-         max(tp.username) AS username
-    FROM public.tournament_players tp
-    JOIN public.tournaments t ON t.id = tp.tournament_id
-   WHERE tp.status IN ('eliminated', 'winner')
-     AND t.club_id IS NOT NULL
-     AND (CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END) < v_before
-   GROUP BY t.club_id, tp.user_id;
-  GET DIAGNOSTICS v_pairs = ROW_COUNT;
-
-  DELETE FROM smarter_private.club_tournament_leaderboard_totals x
-   WHERE NOT EXISTS (SELECT 1 FROM leaderboard_fold f WHERE f.club_id = x.club_id AND f.user_id = x.user_id);
-  GET DIAGNOSTICS v_removed = ROW_COUNT;
-
-  INSERT INTO smarter_private.club_tournament_leaderboard_totals AS x
-    (club_id, user_id, tournaments_played, wins, final_tables, itm_finishes, total_prizes, total_buy_ins, biggest_win, username)
-  SELECT club_id, user_id, tournaments_played, wins, final_tables, itm_finishes, total_prizes, total_buy_ins, biggest_win, username
-    FROM leaderboard_fold
-  ON CONFLICT (club_id, user_id) DO UPDATE SET
-    tournaments_played = EXCLUDED.tournaments_played, wins = EXCLUDED.wins,
-    final_tables = EXCLUDED.final_tables, itm_finishes = EXCLUDED.itm_finishes,
-    total_prizes = EXCLUDED.total_prizes, total_buy_ins = EXCLUDED.total_buy_ins,
-    biggest_win = EXCLUDED.biggest_win, username = EXCLUDED.username
-  WHERE (x.tournaments_played, x.wins, x.final_tables, x.itm_finishes, x.total_prizes, x.total_buy_ins, x.biggest_win, x.username)
-        IS DISTINCT FROM
-        (EXCLUDED.tournaments_played, EXCLUDED.wins, EXCLUDED.final_tables, EXCLUDED.itm_finishes, EXCLUDED.total_prizes, EXCLUDED.total_buy_ins, EXCLUDED.biggest_win, EXCLUDED.username);
-  GET DIAGNOSTICS v_written = ROW_COUNT;
+  -- One statement, one snapshot: the fold is computed once and both the
+  -- removal of vanished pairs and the upsert of changed ones read it.
+  WITH fold AS MATERIALIZED (
+    SELECT t.club_id, tp.user_id,
+           count(*)::integer AS tournaments_played,
+           (count(*) FILTER (WHERE tp.position = 1))::integer AS wins,
+           (count(*) FILTER (WHERE tp.position IS NOT NULL AND tp.position <= 9))::integer AS final_tables,
+           (count(*) FILTER (WHERE COALESCE(tp.prize, 0) > 0))::integer AS itm_finishes,
+           COALESCE(sum(tp.prize), 0)::numeric AS total_prizes,
+           sum(COALESCE(t.buy_in_amount, 0) + COALESCE(t.buy_in_fee, 0))::numeric AS total_buy_ins,
+           COALESCE(max(tp.prize), 0)::numeric AS biggest_win,
+           max(tp.username) AS username
+      FROM public.tournament_players tp
+      JOIN public.tournaments t ON t.id = tp.tournament_id
+     WHERE tp.status IN ('eliminated', 'winner')
+       AND t.club_id IS NOT NULL
+       AND (CASE WHEN t.is_private IS TRUE THEN NULL::timestamptz ELSE t.ended_at END) < v_before
+     GROUP BY t.club_id, tp.user_id
+  ), removed AS (
+    DELETE FROM smarter_private.club_tournament_leaderboard_totals x
+     WHERE NOT EXISTS (SELECT 1 FROM fold f WHERE f.club_id = x.club_id AND f.user_id = x.user_id)
+    RETURNING 1
+  ), written AS (
+    INSERT INTO smarter_private.club_tournament_leaderboard_totals AS x
+      (club_id, user_id, tournaments_played, wins, final_tables, itm_finishes, total_prizes, total_buy_ins, biggest_win, username)
+    SELECT club_id, user_id, tournaments_played, wins, final_tables, itm_finishes, total_prizes, total_buy_ins, biggest_win, username
+      FROM fold
+    ON CONFLICT (club_id, user_id) DO UPDATE SET
+      tournaments_played = EXCLUDED.tournaments_played, wins = EXCLUDED.wins,
+      final_tables = EXCLUDED.final_tables, itm_finishes = EXCLUDED.itm_finishes,
+      total_prizes = EXCLUDED.total_prizes, total_buy_ins = EXCLUDED.total_buy_ins,
+      biggest_win = EXCLUDED.biggest_win, username = EXCLUDED.username
+    WHERE (x.tournaments_played, x.wins, x.final_tables, x.itm_finishes, x.total_prizes, x.total_buy_ins, x.biggest_win, x.username)
+          IS DISTINCT FROM
+          (EXCLUDED.tournaments_played, EXCLUDED.wins, EXCLUDED.final_tables, EXCLUDED.itm_finishes, EXCLUDED.total_prizes, EXCLUDED.total_buy_ins, EXCLUDED.biggest_win, EXCLUDED.username)
+    RETURNING 1
+  )
+  SELECT (SELECT count(*) FROM fold), (SELECT count(*) FROM removed), (SELECT count(*) FROM written)
+    INTO v_pairs, v_removed, v_written;
 
   INSERT INTO smarter_private.club_tournament_leaderboard_state AS s
     (singleton, folded_before, refreshed_at, pairs, rows_written, rows_removed)
@@ -235,6 +239,7 @@ AS $function$
     OFFSET GREATEST(p_offset, 0);
 $function$;
 
+-- periodic-work: the fold IS the product: finished history is summed once per half hour so the leaderboard never re-reads it per page load; nothing upstream fails that this compensates for
 SELECT cron.schedule('club-tournament-leaderboard-fold', '7,37 * * * *',
   $job$SET statement_timeout = '120s'; SELECT smarter_private.refresh_club_tournament_leaderboard_totals();$job$);
 
