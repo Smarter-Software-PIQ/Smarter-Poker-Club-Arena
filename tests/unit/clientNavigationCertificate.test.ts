@@ -136,6 +136,33 @@ describe('closed client navigation recovery certificate', () => {
     }
     expect(() => assertClientNavigationReports(undefined, lobby)).toThrow();
   });
+  it('can prepare the private club and verify the bounty after an independent check fails', () => {
+    const staff = client.steps.find((step: any) => step.id === 'staff_access');
+    expect(staff?.run).toBe('node scripts/ci/production-e2e-account.mjs prepare-staff');
+    for (const id of ['template_access', 'bounty_guarantee']) {
+      const condition = client.steps.find((step: any) => step.id === id).if;
+      expect(condition).toContain('!cancelled()');
+      expect(condition).toContain("steps.staff_access.outcome == 'success'");
+      expect(condition).toContain("steps.account.outcome == 'success'");
+    }
+  });
+  it('retains the authenticated Cashier verdict before the full browser suite starts', () => {
+    const steps = client.steps;
+    const cashier = steps.findIndex((step: any) => step.id === 'cashier');
+    const receipt = steps.findIndex(
+      (step: any) => step.with?.name === 'post-deploy-cashier-report'
+    );
+    const sweep = steps.findIndex(
+      (step: any) => step.name === 'Run the specs that need a deployed page'
+    );
+    expect(cashier).toBeGreaterThan(-1);
+    expect(steps[cashier].env.E2E_CASHIER_STAFF_ROLE).toBe('Admin');
+    expect(receipt).toBeGreaterThan(cashier);
+    expect(sweep).toBeGreaterThan(receipt);
+    expect(steps[receipt].if).toContain('always()');
+    expect(steps[receipt].if).toContain("steps.cashier.outcome != 'skipped'");
+    expect(steps[receipt].with.path).toBe(steps[cashier].env.PLAYWRIGHT_JSON_OUTPUT_NAME);
+  });
   it('reuses the client fixture, provenance, serialization and unconditional cleanup', () => {
     expect(client.concurrency.group).toBe(
       "${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"

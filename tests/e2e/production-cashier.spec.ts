@@ -442,10 +442,50 @@ test.describe('Production Cashier Certification', () => {
         await route.abort('blockedbyclient');
       }
     );
-    const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
-    await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: 'Request Cash Out', exact: true }).click();
+    const request = page.getByRole('button', { name: 'Request Cash Out', exact: true });
+    const expectedStaffRole = process.env.E2E_CASHIER_STAFF_ROLE;
+    const inspectClub = async (clubId: string, expectedRole?: string) => {
+      await page.goto(`clubs/${clubId}/cashier`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+      await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
+      const access = page.getByLabel('Current Cashier Balances').locator('strong').last();
+      await expect(access).toHaveText(
+        expectedRole || new RegExp(`^(${[...CASHIER_ROLES, 'Player'].join('|')})$`),
+        { timeout: 30_000 }
+      );
+      const role = (await access.innerText()).trim();
+      if (role === 'Admin') {
+        await expect(request).toHaveCount(0);
+        await expect(
+          page
+            .getByRole('group', { name: 'Wallet Actions' })
+            .getByRole('button', { name: 'Cash-Out', exact: true })
+        ).toHaveCount(0);
+      }
+      return role;
+    };
+
+    const staffClub = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    if ((await inspectClub(staffClub, expectedStaffRole)) === 'Admin') {
+      const templateClub = process.env.E2E_TEMPLATE_CLUB_ID;
+      if (!templateClub || templateClub === staffClub) {
+        throw new Error(
+          'Cashout note verification requires a club where this viewer holds a Player Wallet. The staff club verified Admin access; no separate template club is configured.'
+        );
+      }
+      const role = await inspectClub(templateClub);
+      expect(
+        role,
+        'Cashout note verification requires a Player Wallet. The template club also verified Admin access.'
+      ).not.toBe('Admin');
+      if (expectedStaffRole)
+        expect(role, 'The reserved positive cashout fixture is owned by this viewer.').toBe(
+          'Owner'
+        );
+    }
+    await request.click();
     const note = page.getByLabel('Note For Agent (Optional)', { exact: true });
     await expect(note).toBeVisible();
     await expect(note).toHaveAttribute('maxlength', '2000');

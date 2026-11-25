@@ -2176,7 +2176,17 @@ it('background balance events and browser wake preserve a typed transfer', async
   expect(screen.getByRole('dialog', { name: 'Send Out' })).toBe(dialog);
 });
 
-it.each(['player', 'agent'])(
+it('withholds both personal cashout entries from an admin after the club role resolves', async () => {
+  state.myRole = 'admin';
+  mountCashier();
+  await synchronized();
+  const actions = screen.getByRole('group', { name: 'Wallet Actions' });
+  expect(within(actions).getByRole('button', { name: 'Send' })).toBeVisible();
+  expect(within(actions).queryByRole('button', { name: 'Cash-Out' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Request Cash Out' })).toBeNull();
+});
+
+it.each(['player', 'agent', 'owner'])(
   'Simple Cashier opens the amount-based cashout sheet for a %s',
   async (role) => {
     state.myRole = role;
@@ -2189,6 +2199,10 @@ it.each(['player', 'agent'])(
     expect(within(sheet).getByText('Balance')).toBeInTheDocument();
     expect(within(sheet).getByText('6,000.00 Chips')).toBeInTheDocument();
     expect(within(sheet).getByRole('textbox', { name: /Amount/i })).toBeInTheDocument();
+    const note = within(sheet).getByRole('textbox', { name: 'Note For Agent (Optional)' });
+    expect(note).toHaveAttribute('maxlength', '2000');
+    fireEvent.change(note, { target: { value: 'Please Review My Request' } });
+    expect(note).toHaveValue('Please Review My Request');
     expect(
       within(sheet).getByText(/Chips Will Be Locked Until Your Agent Approves/i)
     ).toBeInTheDocument();

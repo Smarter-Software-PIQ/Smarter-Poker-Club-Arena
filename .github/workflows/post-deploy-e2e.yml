@@ -1331,6 +1331,7 @@ jobs:
       # browser starts. The helper refuses existing memberships and non-test
       # identities; the always() sweep below removes this row with the account.
       - name: Prepare isolated Player Command staff access
+        id: staff_access
         if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1353,7 +1354,7 @@ jobs:
       # Reuse the reserved zero-balance identity; save no template or game.
       - name: Prepare isolated standalone template access
         id: template_access
-        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success'
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.staff_access.outcome == 'success' && !cancelled()
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1366,7 +1367,7 @@ jobs:
       # correctly refuses to overwrite (production run 42193473441).
       - name: Verify the reported bounty guarantee and charged entry breakdown
         id: bounty_guarantee
-        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.tournament_only != 'true'
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.staff_access.outcome == 'success' && needs.publication-gate.outputs.tournament_only != 'true' && !cancelled()
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1575,6 +1576,7 @@ jobs:
           esac
 
       - name: Certify the authenticated production Cashier
+        id: cashier
         if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
@@ -1584,11 +1586,22 @@ jobs:
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
           # This job has credentials. A silent signed-out fallback here produces
           # a green run that verified almost nothing - see global-setup.ts.
+          E2E_CASHIER_STAFF_ROLE: Admin
           E2E_REQUIRE_AUTH: '1'
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/cashier.json
         run: >-
           npx playwright test tests/e2e/production-cashier.spec.ts
           --project=chromium --reporter=line,json --workers=1 --retries=0
+
+      # Preserve the Cashier result even if the later shared sweep exhausts the job budget.
+      - name: Retain the authenticated Cashier result
+        if: always() && steps.cashier.outcome != 'skipped' && steps.cashier.outcome != 'cancelled'
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-cashier-report
+          path: e2e-report/cashier.json
+          if-no-files-found: error
+          retention-days: 3
 
       # Cashier Phase 5: the Full Statement route is the same money surface
       # read through a second door (clubs/:clubId/cashier/statements), so it
