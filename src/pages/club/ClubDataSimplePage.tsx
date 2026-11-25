@@ -619,7 +619,7 @@ export default function ClubDataSimplePage() {
   if (denied) {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <Header onBack={() => navigate(-1)} clubName={clubName} />
+        <Header clubName={clubName} />
         <div className={styles.empty}>
           <SpadeMark />
           <p className={styles.emptyText}>
@@ -642,10 +642,9 @@ export default function ClubDataSimplePage() {
         />
       )}
       <Header
-        onBack={() => navigate(-1)}
         clubName={clubName}
         /* The full report is the whole club's; an agent's view is his own. */
-        onAdvanced={
+        onReport={
           visibleSnapshot?.scope === 'club'
             ? () =>
                 navigate(
@@ -1112,15 +1111,7 @@ export function headerTitle(clubName: string | null | undefined): string {
   return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';
 }
 
-function Header({
-  onBack,
-  onAdvanced,
-  clubName,
-}: {
-  onBack: () => void;
-  onAdvanced?: () => void;
-  clubName?: string | null;
-}) {
+function Header({ onReport, clubName }: { onReport?: () => void; clubName?: string | null }) {
   return (
     <>
       <ArenaWorkspaceHeader
@@ -1129,19 +1120,13 @@ function Header({
         context={clubName}
         subtitle="Club Reporting"
       />
-      <nav className="arena-switch" aria-label="Club Data Mode">
-        <button type="button" onClick={onBack} aria-label="Back To Club">
-          Back
-        </button>
-        <button type="button" aria-pressed={true}>
-          Simple
-        </button>
-        {onAdvanced && (
-          <button type="button" aria-pressed={false} onClick={onAdvanced}>
-            Advanced
+      {onReport && (
+        <nav className="arena-switch" aria-label="Club Reports">
+          <button type="button" onClick={onReport}>
+            Open Club Report
           </button>
-        )}
-      </nav>
+        </nav>
+      )}
     </>
   );
 }

@@ -7,24 +7,16 @@ import { isDeepStrictEqual } from 'node:util';
 const CLUB_DATA_PATH = 'clubs/shark-club/data/advanced';
 type ClubDataAccess = 'authorized' | 'restricted';
 
-/** Establish an actual choice before a delayed saved preference can hydrate. */
-async function selectSimpleMode(
-  page: Page,
-  selector: string,
-  controlRole: 'button' | 'radio' = 'button'
-): Promise<void> {
-  const root = page.locator(selector);
-  const attribute = selector.slice(1, -1);
-  await expect(root).toBeVisible({ timeout: 60_000 });
-  // Selecting an already-Simple default is intentionally a no-op in
-  // usePlayerPreference, so it cannot supersede a pending saved Advanced read.
-  // Establish Advanced, then make Simple a genuine user choice.
-  if ((await root.getAttribute(attribute)) !== 'advanced') {
-    await page.getByRole(controlRole, { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
-  }
-  await expect(root).toHaveAttribute(attribute, 'advanced');
-  await page.getByRole(controlRole, { name: 'Simple', exact: true }).click();
-  await expect(root).toHaveAttribute(attribute, 'simple');
+function toolName(root: string) {
+  if (root.includes('cashier')) return /^Requests, Tickets And Tools/;
+  if (root.includes('players')) return /^Sort And Roster Tools$/;
+  return /^Report Tools$/;
+}
+async function closeTools(page: Page, selector: string) {
+  const trigger = page.getByRole('button', { name: toolName(selector) });
+  await expect(trigger).toBeVisible({ timeout: 60_000 });
+  if ((await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 }
 
 interface ObservedPlayerPage {
@@ -167,9 +159,9 @@ async function openClubData(page: Page, testInfo: TestInfo): Promise<ClubDataAcc
 
   await expect(workspace).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-page="club-data"]')).toBeVisible();
-  await selectSimpleMode(page, '[data-club-data-mode]');
+  await closeTools(page, '[data-club-data-mode]');
   await expect(page.locator('[data-club-data-mode="simple"]')).toBeVisible();
-  await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+  await page.getByRole('button', { name: 'Report Tools' }).click();
   await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Games' }).getByRole('listitem').first()).toBeVisible(
     {
@@ -555,7 +547,7 @@ test.describe('Club Data production experience', () => {
 
 // Read-only acceptance for the repaired page-channel admission/recovery owner.
 // Financial action and report contracts already have their own certificates.
-test('keeps Cashier, Players and Club Data realtime connected in both modes and viewport sizes', async ({
+test('keeps Cashier, Players and Club Data realtime connected with tools open and closed at both viewport sizes', async ({
   page,
 }, testInfo) => {
   test.setTimeout(6 * (60_000 + 80_000 + 70_000) + 60_000);
@@ -565,7 +557,6 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
       path: 'cashier',
       root: '[data-cashier-mode]',
       prefixes: ['realtime:cashier-member-authority:'],
-      button: true,
     },
     {
       path: 'members',
@@ -575,7 +566,6 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
         'realtime:club-roster-wallet:',
         'realtime:club-members-audit-',
       ],
-      button: true,
     },
     {
       // #6895: these realtime channels belong to the full report at data/advanced;
@@ -588,7 +578,6 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
         'realtime:club-data-invoices-',
         'realtime:club-data-members-',
       ],
-      button: true,
     },
   ];
   for (const width of [375, 1440]) {
@@ -663,7 +652,7 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
       page.on('websocket', onSocket);
       try {
         await page.goto(new URL('clubs/shark-club/' + surface.path, base).toString());
-        await selectSimpleMode(page, surface.root, surface.button ? 'button' : 'radio');
+        await closeTools(page, surface.root);
         await expect(page.locator(surface.root)).toHaveAttribute(
           surface.root.slice(1, -1),
           'simple',
@@ -681,10 +670,13 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
           .toBe(true);
         observing = true;
         const observeMode = async (mode: string) => {
-          await expect(page.locator(surface.root)).toHaveAttribute(surface.root.slice(1, -1), mode);
+          await expect(page.getByRole('button', { name: toolName(surface.root) })).toHaveAttribute(
+            'aria-expanded',
+            mode === 'tools-open' ? 'true' : 'false'
+          );
           const start = Date.now();
-          // 35 seconds in each mode spans multiple native SDK heartbeats and
-          // the existing 60-second report refresh across the two-mode window.
+          // 35 seconds in each state spans multiple native SDK heartbeats and
+          // the existing 60-second report refresh while the tools are opened.
           await page.waitForTimeout(35_000);
           expect(allJoined(), surface.path + ' lost an acknowledged feed').toBe(true);
           expect(interruptions, surface.path + ' interrupted during observation').toEqual([]);
@@ -705,11 +697,9 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
             contentType: 'application/json',
           });
         };
-        await observeMode('simple');
-        await page
-          .getByRole(surface.button ? 'button' : 'radio', { name: /^Advanced(?: \([\d,]+\))?$/ })
-          .click();
-        await observeMode('advanced');
+        await observeMode('tools-closed');
+        await page.getByRole('button', { name: toolName(surface.root) }).click();
+        await observeMode('tools-open');
       } finally {
         observing = false;
         page.off('websocket', onSocket);

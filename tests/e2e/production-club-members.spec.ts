@@ -231,21 +231,12 @@ async function openMembers(page: Page, probe: MembersProbe): Promise<number> {
   await page.goto(MEMBERS_PATH, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
   await expect(page.locator('[data-players-mode]')).toBeVisible({ timeout: 45_000 });
-  // A previous case may legitimately have saved Advanced mode for this actor.
-  // Choose the mode being checked through its real control, preserving preferences.
-  await page.getByRole('button', { name: 'Simple', exact: true }).click();
-  await expect(page.locator('[data-players-mode="simple"]')).toBeVisible({ timeout: 45_000 });
-  const viewportWidth = page.viewportSize()?.width;
-  if (viewportWidth !== undefined && viewportWidth <= 430) {
-    await expect(page.getByRole('combobox', { name: 'Sort Players' })).toHaveCSS(
-      'font-size',
-      '16px'
-    );
-  }
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-  // The page hero is gone (Dan 2026-10-17); its title is a hidden h1 and the
-  // Advanced desk adds the live totals to the page bar.
-  await expect(page.locator('[data-players-mode="advanced"]')).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Sort And Roster Tools' }).click();
+  await expect(page.getByRole('button', { name: 'Sort And Roster Tools' })).toHaveAttribute(
+    'aria-expanded',
+    'true'
+  );
   await expect(page.getByRole('heading', { level: 1, name: 'Player Management' })).toHaveCount(1);
   await expect(page.getByRole('list', { name: 'Club Member Directory' })).toBeVisible();
   await expect
@@ -683,7 +674,7 @@ test.describe('Production Kings Club Players', () => {
     );
     expect(savedPositions).toEqual([448]);
     await page.locator('.mm-back').click();
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('button', { name: 'Sort And Roster Tools', exact: true }).click();
     await expect(sort).toHaveValue('name');
     await expect
       .poll(() => viewport.evaluate((node) => node.scrollTop), { timeout: 30_000 })
@@ -712,7 +703,7 @@ test.describe('Production Kings Club Players', () => {
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await expect(page.locator('#mm-player-name')).toContainText(alias);
     await page.locator('.mm-back').click();
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('button', { name: 'Sort And Roster Tools', exact: true }).click();
     await expect(search).toHaveValue(alias);
     await expect(sort).toHaveValue('search');
     await expect(sort).toBeDisabled();
@@ -1277,11 +1268,11 @@ test('account roster preferences survive logout and a cache-empty second device'
     await acknowledgePreferenceWelcome(writer.page);
     const route = `clubs/${clubId}/members`;
     await writer.page.goto(route, { waitUntil: 'domcontentloaded' });
-    await expect(
-      writer.page.getByRole('combobox', { name: 'Sort Players', exact: true })
-    ).toBeVisible({ timeout: 45_000 });
-    const advanced = writer.page.getByRole('button', { name: 'Advanced', exact: true });
-    if ((await advanced.getAttribute('aria-pressed')) !== 'true') await advanced.click();
+    const advanced = writer.page.getByRole('button', {
+      name: 'Sort And Roster Tools',
+      exact: true,
+    });
+    if ((await advanced.getAttribute('aria-expanded')) !== 'true') await advanced.click();
     await writer.page
       .getByRole('combobox', { name: 'Sort Players', exact: true })
       .selectOption('name');

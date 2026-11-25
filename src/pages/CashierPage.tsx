@@ -2474,6 +2474,7 @@ function CashierContent() {
       )}
 
       <CashierWorkspace
+        hasVisibleTitle
         title="Cashier"
         summary="Move Chips Between Your Club Wallets, Answer Chip Requests, Redeem Tickets And Check Every Ledger Entry."
         context={titleCase(clubName || 'Club Wallet')}

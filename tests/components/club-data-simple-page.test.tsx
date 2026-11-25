@@ -446,7 +446,7 @@ describe('ClubDataSimplePage', () => {
     expect(title).toHaveTextContent('Club Data');
     await waitFor(() => expect(title.closest('header')).toHaveTextContent('Club JAQK'));
     expect(headerTitle(null)).toBe('Club Data');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Club Report' }));
     expect(navigateMock).toHaveBeenCalledWith(
       `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
     );
@@ -459,7 +459,7 @@ describe('ClubDataSimplePage', () => {
     });
     render(<ClubDataSimplePage />);
     expect(await screen.findByText(/You And Your Downline/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Advanced' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Club Report' })).toBeNull();
   });
 });
 

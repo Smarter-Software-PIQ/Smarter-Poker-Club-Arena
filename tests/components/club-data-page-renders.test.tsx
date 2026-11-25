@@ -1,3 +1,4 @@
+import { useReducer as useRouteUpdate } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -253,12 +254,16 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ clubId: routeState.clubId }),
-  useSearchParams: () => [
-    routeState.search,
-    (next: URLSearchParams) => {
-      routeState.search = next;
-    },
-  ],
+  useSearchParams: () => {
+    const [, refresh] = useRouteUpdate((v: number) => v + 1, 0);
+    return [
+      routeState.search,
+      (next: URLSearchParams) => {
+        routeState.search = next;
+        refresh();
+      },
+    ];
+  },
 }));
 
 // Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would
@@ -388,7 +393,7 @@ describe('ClubDataPage', () => {
         : prior(fn, args)
     );
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
     expect(screen.getByText('42.25')).toBeInTheDocument();
     expect(screen.getByText('Posted Totals Verified')).toBeInTheDocument();
@@ -414,7 +419,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     expect(await screen.findByText('By Shark Club')).toBeVisible();
     expect(screen.queryByText(/11111111/i)).toBeNull();
@@ -449,7 +454,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     expect(await screen.findByText('Cached Table')).toBeInTheDocument();
     expect(screen.getByText('Recent Verified Snapshot')).toBeInTheDocument();
@@ -492,7 +497,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await waitFor(() => expect(resolveSnapshot).toBeTypeOf('function'));
     expect(screen.queryByText('Invalid Cached Game')).not.toBeInTheDocument();
@@ -538,7 +543,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith('ca_club_data_snapshot_v2', expect.any(Object))
@@ -586,7 +591,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
@@ -635,7 +640,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
@@ -650,7 +655,7 @@ describe('ClubDataPage', () => {
 
   it('wires scoped realtime tables and coalesces a mutation into an authoritative refresh', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
 
     const latestByTable = new Map<string, Record<string, any>>();
@@ -690,7 +695,7 @@ describe('ClubDataPage', () => {
 
   it('renders the operator hero and live financial summary', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     expect(screen.getByRole('heading', { name: /Report Status/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('2,450')).toBeInTheDocument());
@@ -722,7 +727,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
       expect(await screen.findByText('Shark Table One')).toBeInTheDocument();
       expect(screen.getByText('Club Intelligence')).toBeInTheDocument();
@@ -789,7 +794,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
     // The control exists during the cold snapshot read but is intentionally
     // disabled. Clicking it before the ledger is verified is a no-op in the
@@ -860,7 +865,7 @@ describe('ClubDataPage', () => {
     });
 
     const view = render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
     await waitFor(() => expect(exportButton).toBeEnabled());
     fireEvent.click(exportButton);
@@ -870,7 +875,7 @@ describe('ClubDataPage', () => {
 
     routeState.clubId = 'b52545cc-9e1d-411b-901e-f9c4e76bfee5';
     view.rerender(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     expect(guard?.()).toBe(false);
     finishHandoff?.(true);
 
@@ -912,7 +917,7 @@ describe('ClubDataPage', () => {
 
       try {
         render(<ClubDataPage />);
-        fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+        fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
         const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
         await waitFor(() => expect(exportButton).toBeEnabled());
         fireEvent.click(exportButton);
@@ -959,7 +964,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       await screen.findByText('Table Regular');
       const exportButton = screen.getByRole('button', { name: 'Export As CSV' });
@@ -987,7 +992,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
       expect(
         await screen.findByText('Could Not Refresh Your Union Statement.')
@@ -1012,7 +1017,7 @@ describe('ClubDataPage', () => {
    */
   it('never names a horse, even for the staff who could once see the flag', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await waitFor(() => expect(screen.getByText('Table Regular')).toBeInTheDocument());
@@ -1074,7 +1079,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await waitFor(() => expect(screen.getByText('Winner 0')).toBeInTheDocument());
 
@@ -1124,7 +1129,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await waitFor(() => expect(screen.getByText('Table Regular')).toBeInTheDocument());
 
@@ -1145,7 +1150,7 @@ describe('ClubDataPage', () => {
 
     authState.current = { user: { id: 'owner-1' }, isHydrating: false };
     rerender(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith('ca_club_data_snapshot_v2', expect.any(Object))
@@ -1174,12 +1179,12 @@ describe('ClubDataPage', () => {
     });
 
     const { rerender } = render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
 
     routeState.clubId = secondClubId;
     rerender(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
     expect(screen.queryByText('2.4K')).not.toBeInTheDocument();
@@ -1219,13 +1224,13 @@ describe('ClubDataPage', () => {
     });
 
     const view = render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
     await screen.findByText('-350');
 
     authState.current = { user: { id: 'owner-2' }, isHydrating: false };
     view.rerender(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     expect(screen.queryByText('Shark Table One')).toBeNull();
     expect(screen.queryByText('-350')).toBeNull();
@@ -1247,7 +1252,7 @@ describe('ClubDataPage', () => {
         : defaultRpc(fn, args)
     );
     const view = render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await waitFor(() => expect(pending).toHaveLength(1));
     routeState.search = new URLSearchParams(
       'view=advanced&dataStart=2020-01-01&dataEnd=2020-01-01'
@@ -1277,7 +1282,7 @@ describe('ClubDataPage', () => {
         : defaultRpc(fn, args)
     );
     const view = render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await waitFor(() => expect(pending).toHaveLength(2));
@@ -1312,7 +1317,7 @@ describe('ClubDataPage', () => {
 
   it('supports arrow-key tab navigation with a roving tab stop', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     const gamesTab = screen.getByRole('tab', { name: 'Games' });
     const playersTab = screen.getByRole('tab', { name: 'Players' });
 
@@ -1327,7 +1332,7 @@ describe('ClubDataPage', () => {
 
   it('refreshes the game ledger and union statement together', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     const refresh = screen.getByRole('button', { name: 'Refresh Club Ledger' });
 
     await waitFor(() => expect(refresh).toBeEnabled());
@@ -1371,7 +1376,7 @@ describe('ClubDataPage', () => {
     };
     try {
       const view = render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       await waitFor(() => expect(pending).toHaveLength(2));
@@ -1401,7 +1406,10 @@ describe('ClubDataPage', () => {
       const outgoing = pending.splice(0);
       routeState.clubId = 'b52545cc-9e1d-411b-9f1e-f9c4e76bf0e5';
       view.rerender(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      expect(screen.getByRole('button', { name: 'Report Tools' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
       await waitFor(() => expect(pending).toHaveLength(2));
       await act(async () => finish(outgoing, 'Outgoing Player'));
       expect(screen.queryByText('Outgoing Player')).not.toBeInTheDocument();
@@ -1416,7 +1424,7 @@ describe('ClubDataPage', () => {
 
   it('keeps manual recovery available during a silent player reconciliation', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await screen.findByText('Table Regular');
 
@@ -1470,7 +1478,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       const refresh = screen.getByRole('button', { name: 'Refresh Club Ledger' });
       await waitFor(() => expect(refresh).toBeEnabled());
@@ -1509,7 +1517,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       returnMalformed = true;
 
@@ -1548,7 +1556,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText('Shark Table One');
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await screen.findByText('Loading Players');
@@ -1583,7 +1591,7 @@ describe('ClubDataPage', () => {
     });
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       const retry = await screen.findByRole('button', { name: 'Try Again' });
@@ -1602,7 +1610,7 @@ describe('ClubDataPage', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       await screen.findByText('Table Regular');
 
@@ -1651,7 +1659,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText(/-350/);
       const refresh = screen.getByRole('button', { name: 'Refresh Club Ledger' });
       await waitFor(() => expect(refresh).toBeEnabled());
@@ -1685,7 +1693,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await screen.findByText('Shark Table One');
     expect(snapshotRequest).toBe(2);
@@ -1709,7 +1717,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await screen.findByText('Shark Table One', {}, { timeout: 5_000 });
     // Four calls prove that three transient cancellations healed. A concurrent
@@ -1742,7 +1750,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await waitFor(() => expect(gamesAlert()).toBeTruthy());
       expect(screen.queryByText('No Games In This Period.')).not.toBeInTheDocument();
 
@@ -1782,7 +1790,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
       expect(await screen.findByText('Ledger Unavailable')).toBeInTheDocument();
       expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
@@ -1825,7 +1833,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
       expect(await screen.findByText('Ledger Unavailable')).toBeInTheDocument();
       expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
@@ -1862,7 +1870,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
       expect(await screen.findByText('Ledger Unavailable')).toBeInTheDocument();
       expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
@@ -1894,7 +1902,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
@@ -1928,7 +1936,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
@@ -1963,7 +1971,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       // Settle request-starting effects before advancing the clock. A single
       // large advance inside act can defer a React effect until after the
       // deadline and replace the captured signal with a newly started retry.
@@ -2115,7 +2123,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       await screen.findByText('Table Regular');
       await waitFor(() => expect(resolveWinners).toBeTypeOf('function'));
@@ -2249,7 +2257,7 @@ describe('ClubDataPage', () => {
 
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
       const first = await screen.findByRole('button', { name: 'Load More Players - 100 Of 101' });
       fireEvent.click(first);
@@ -2302,7 +2310,7 @@ describe('ClubDataPage', () => {
 
   it('asks the server for the selected player order before slicing the page', async () => {
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await screen.findByText('Table Regular');
 
@@ -2345,7 +2353,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     await screen.findByText('Shark Table Two');
     expect(screen.getAllByText('Shark Table One')).toHaveLength(1);
@@ -2392,7 +2400,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     const loadMore = await screen.findByRole('button', {
       name: 'Load More Games - 100 Of 250',
@@ -2454,7 +2462,7 @@ describe('ClubDataPage', () => {
 
     try {
       const { rerender } = render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       const loadMore = await screen.findByRole('button', {
         name: 'Load More Games - 100 Of 250',
       });
@@ -2473,7 +2481,7 @@ describe('ClubDataPage', () => {
       // first-page reload.
       authState.current = { user: { id: 'owner-1' }, isHydrating: false };
       rerender(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       // Two hundred ledger rows render after the page lands; under a loaded CI
       // runner that took longer than the default 1s (publish run 38981365558).
       await screen.findByRole(
@@ -2546,7 +2554,7 @@ describe('ClubDataPage', () => {
     });
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       await screen.findByText('Shark Table One');
       await waitFor(() => expect(resolveRecent).toBeTypeOf('function'));
       fireEvent.click(screen.getByRole('button', { name: 'Highest Fee' }));
@@ -2629,7 +2637,7 @@ describe('ClubDataPage', () => {
     });
     try {
       render(<ClubDataPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       const first = await screen.findByRole('button', { name: 'Load More Games - 100 Of 250' });
       await waitFor(() => expect(resolveRecent).toBeTypeOf('function'));
       fireEvent.click(first);
@@ -2724,7 +2732,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
 
     const recentLoadMore = await screen.findByRole('button', {
       name: 'Load More Games - 100 Of 250',
@@ -2821,7 +2829,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     fireEvent.click(await screen.findByRole('tab', { name: 'Players' }));
 
     const loadMore = await screen.findByRole('button', {
@@ -2892,7 +2900,7 @@ describe('ClubDataPage', () => {
     });
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText(snapshot.rows[0].name);
     await waitFor(() => expect(recentCalls).toBe(1));
     fireEvent.click(screen.getByRole('button', { name: 'Highest Fee' }));
@@ -2949,7 +2957,7 @@ describe('ClubDataPage', () => {
       );
 
     render(<ClubDataPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     await screen.findByText(snapshot.rows[0].name);
     const snapshotsBeforeSort = rpcMock.mock.calls.filter(
       ([fn]) => fn === 'ca_club_data_snapshot_v2'
@@ -3066,7 +3074,7 @@ it('rejects a future Pacific date before its first read', async () => {
 
 it('clears Advanced totals and cached rows when Pacific source coverage becomes incomplete', async () => {
   render(<ClubDataPage />);
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
   await screen.findByText('Shark Table One');
   expect(Object.keys(sessionStorage).some((key) => key.includes('kind=games'))).toBe(true);
   const previousRpc = rpcMock.getMockImplementation()!;

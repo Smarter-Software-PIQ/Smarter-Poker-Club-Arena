@@ -105,6 +105,10 @@ test.describe('Production Cashier Certification', () => {
     await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
     await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible();
+    await expect(
+      page.locator('.arena-workspace-mast').getByRole('heading', { name: 'Cashier' })
+    ).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Wallet Balances', exact: true })).toBeVisible();
     await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).not.toBeVisible();
     await expect(page.getByRole('button', { name: 'Claim Back', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send Ticket', exact: true })).toBeVisible();
@@ -133,10 +137,12 @@ test.describe('Production Cashier Certification', () => {
       }
       await attachCashierScreenshot(page, testInfo, `simple-cashier-${width}`);
     }
-    await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+    await page
+      .getByRole('button', { name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/ })
+      .click();
     // 2026-10-17: the "Wallet Command" title and its paragraph are gone; the
     // desk is still named for assistive technology, and the "?" explains it.
-    await expect(page.getByRole('region', { name: 'Wallet Command' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Club Cashier' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Page Help', exact: true })).toBeVisible();
 
     const tablist = page.getByRole('tablist', { name: 'Cashier Actions' });
@@ -177,7 +183,7 @@ test.describe('Production Cashier Certification', () => {
     // verified timestamp. Scoping this assertion to the console looked for a
     // node that cannot exist and made a healthy production cashier fail its
     // canary after hydration completed.
-    const cashierStatus = page.getByRole('region', { name: 'Wallet Command' }).getByRole('status');
+    const cashierStatus = page.getByRole('region', { name: 'Club Cashier' }).getByRole('status');
     // A first roster page is usable before the remaining pages have been
     // verified. Both witnesses must agree within the existing hydration budget;
     // a continuation warning or refused read must still fail certification.
@@ -675,7 +681,9 @@ test.describe('Production Cashier Certification', () => {
     const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
     await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
+    await page
+      .getByRole('button', { name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/ })
+      .click();
     const access = page.getByLabel('Current Cashier Balances').locator('strong').last();
     await expect(access).toBeVisible({ timeout: 60_000 });
     // The visible metric intentionally reads "Synchronizing" during

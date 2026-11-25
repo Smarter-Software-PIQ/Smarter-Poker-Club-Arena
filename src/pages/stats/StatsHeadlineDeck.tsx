@@ -70,6 +70,7 @@ export default function StatsHeadlineDeck(props: Props) {
       the page's "?" (Dan, 2026-10-17). What stays is what a player reads or
       presses: the analysis window and the headline figures. */}
       <section className="stats-command-deck" aria-labelledby="stats-page-title">
+        <h2 className="arena-section-title">Cash Performance</h2>
         <div className="stats-command-copy">
           {/* Analysis range. Everything below is computed over this window. */}
           <div className="stats-range-control">

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -288,7 +289,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ clubId: routeState.clubId }),
-  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+  useSearchParams: () => useState(() => new URLSearchParams()),
 }));
 
 vi.mock('../../src/lib/supabase', () => ({
@@ -385,7 +386,8 @@ describe('Simple Club Data', () => {
     async (advanced) => {
       render(<ClubDataPage />);
       await screen.findByText('Shark Table One');
-      if (advanced) fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      if (advanced)
+        fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       const latest = () => realtimeState.channels.slice(-4);
       act(() => latest().forEach((config) => config.onSubscriptionStatus('SUBSCRIBED')));
       act(() =>
@@ -433,9 +435,10 @@ describe('Simple Club Data', () => {
     const page = document.querySelector('[data-page="club-data"]');
 
     expect(page).toHaveAttribute('data-club-data-mode', 'simple');
-    expect(screen.getByRole('button', { name: 'Simple', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true'
+    expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Report Tools' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
     );
     expect(screen.queryByRole('heading', { name: 'Data Integrity' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
@@ -444,8 +447,8 @@ describe('Simple Club Data', () => {
       screen.getByRole('group', { name: 'Date Range' }).querySelectorAll('button')
     ).toHaveLength(3);
     const calls = rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2').length;
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
-    expect(page).toHaveAttribute('data-club-data-mode', 'advanced');
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
+    expect(page).toHaveAttribute('data-report-tools', 'open');
     expect(screen.getByRole('heading', { name: 'Data Integrity' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Players' })).toBeInTheDocument();
     expect(
@@ -457,7 +460,7 @@ describe('Simple Club Data', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
     await screen.findByText('Table Regular');
-    fireEvent.click(screen.getByRole('button', { name: 'Simple', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     expect(screen.getByText('Shark Table One')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
   });
@@ -494,7 +497,8 @@ for (const advanced of [false, true]) {
     it(`keeps refresh ownership across ${scope} changes in ${advanced ? 'Advanced' : 'Simple'}`, async () => {
       const view = render(<ClubDataPage />);
       await screen.findByText('Shark Table One');
-      if (advanced) fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      if (advanced)
+        fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       const refresh = () =>
         screen.getByRole('button', {
           name: advanced ? 'Refresh Club Ledger' : 'Refresh Simple Club Data',
@@ -571,7 +575,8 @@ for (const advanced of [false, true]) {
   it(`never relabels the outgoing game's money during an uncached query in ${advanced ? 'Advanced' : 'Simple'}`, async () => {
     render(<ClubDataPage />);
     await screen.findByText('Shark Table One');
-    if (advanced) fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    if (advanced)
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     let resolveQuery!: (result: any) => void;
     rpcMock.mockImplementation(async (fn: string) => {
       if (fn === 'ca_club_data_snapshot_v2')
@@ -775,7 +780,7 @@ describe('a union club opened between midnight and 02:00 Chicago', () => {
       expect(screen.queryByText(/Could Not Load/i)).toBeNull();
 
       // The export states the same window, from the answer it belongs to.
-      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
       const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
       await waitFor(() => expect(exportButton).toBeEnabled());
       fireEvent.click(exportButton);

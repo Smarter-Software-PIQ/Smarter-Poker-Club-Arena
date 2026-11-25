@@ -65,7 +65,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     await expect(page.getByRole('heading', { name: EVERYDAY_CLUB_DATA_HEADING })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole('button', { name: 'Advanced', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open Club Report', exact: true })).toBeVisible();
     await expect(
       page.getByRole('list', { name: 'Games' }).or(page.getByText('No Data In This Period.'))
     ).toBeVisible({
@@ -84,7 +84,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     // remains exact below.
     await expect(page.locator('[data-page="club-data"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Club Data', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
     const dataLink = page
       .getByRole('navigation', { name: 'Club Operations Sections' })

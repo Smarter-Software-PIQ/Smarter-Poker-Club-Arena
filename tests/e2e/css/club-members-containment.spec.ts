@@ -413,39 +413,61 @@ const PHONE_ROWS = [
     downline: '12.3K',
   },
 ];
+const ARENA_CSS = readFileSync(
+  resolve(process.cwd(), 'src/components/lobby/ArenaWorkspace.css'),
+  'utf8'
+);
 for (const adminLoadsLast of [false, true]) {
   for (const width of [320, 360, 375, 393, 430, 568, 751, 1024, 1440]) {
-    test(`every player row prints its name, upline, PlayerID and status in full at ${width}px (admin CSS ${adminLoadsLast ? 'after' : 'before'})`, async ({
+    test(`every arena player row prints its name, upline, PlayerID and status in full at ${width}px (admin CSS ${adminLoadsLast ? 'after' : 'before'})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 812 });
       const rows = PHONE_ROWS.map(
         (
           m
-        ) => `<div class="member-row" role="listitem"><button type="button" class="member-row__open">
+        ) => `<div class="member-row" role="listitem"><div class="member-row__open"><button type="button" class="member-row__record" aria-label="Open Player"></button>
         <span class="member-avatar"><span>${m.alias[0]}</span></span>
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
         }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
-        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span class="member-simple-balance__wallet">274,600.00</span><span class="member-simple-balance__secondary member-winloss--up">Today +433</span>${
+        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span class="member-simple-balance__wallet">Wallet Balance 274,600.00</span><span class="member-simple-balance__secondary member-winloss--up">Today +433</span>${
           m.downline
             ? `<span class="member-simple-balance__downline">Downline ${m.downline}</span>`
             : ''
         }<strong class="member-simple-balance__winloss">-1.2K</strong></span></span>
-        <span class="member-chevron" aria-hidden="true">&rsaquo;</span></button></div>`
+        <span class="member-chevron" aria-hidden="true">&rsaquo;</span></div></div>`
       ).join('');
       await page.setContent(`
-      <style>${adminLoadsLast ? CSS + ADMIN_CSS : ADMIN_CSS + CSS}
+      <style>${adminLoadsLast ? CSS + ARENA_CSS + ADMIN_CSS : ADMIN_CSS + CSS + ARENA_CSS}
         *, *::before, *::after { box-sizing: border-box; }
         html, body { margin: 0; background: #000; color: #fff; font-family: sans-serif; line-height: 1.6; }
         .application-shell { width: calc(100% - 32px); margin: auto; }
       </style>
-      <main class="application-shell"><section class="club-members-page members-simple">
+      <main class="application-shell"><section class="club-members-page members-simple arena-workspace">
+        <header class="arena-workspace-mast"></header>
+        <section class="members-console"><div class="members-console__heading"><h2>Find A Player</h2><span class="members-result-count">168 Results</span></div></section>
+        <section class="members-live-now">Live Now</section>
         <section class="members-list" role="list">${rows}</section>
       </section></main>`);
       const problems = await page.evaluate(() => {
         const found: string[] = [];
+        const bounds = (selector: string) =>
+          document.querySelector(selector)!.getBoundingClientRect();
+        const mast = bounds('.arena-workspace-mast');
+        for (const selector of ['.members-console', '.members-list', '.members-live-now']) {
+          const rect = bounds(selector);
+          if (Math.abs(rect.left - mast.left) > 1 || Math.abs(rect.right - mast.right) > 1)
+            found.push(selector + ' misses shell edge');
+        }
+        const title = bounds('.members-console__heading h2'),
+          count = bounds('.members-result-count');
+        if (count.right > mast.right - 5 || (title.right > count.left && title.bottom > count.top))
+          found.push('heading overlaps results');
         document.querySelectorAll('.member-row').forEach((row) => {
+          const avatar = row.querySelector('.member-avatar')!.getBoundingClientRect();
+          const name = row.querySelector('.member-alias')!.getBoundingClientRect();
+          if (avatar.right > name.left || !name.width) found.push('avatar overlaps player name');
           const r = row.getBoundingClientRect();
           row
             .querySelectorAll(

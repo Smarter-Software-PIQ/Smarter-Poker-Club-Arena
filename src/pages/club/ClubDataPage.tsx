@@ -1129,15 +1129,16 @@ export default function ClubDataPage() {
   const [ledgerSource, setLedgerSource] = useState<'cold' | 'cached' | 'live' | 'degraded'>('cold');
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const [savedAdvanced, saveAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
-  // Report is an explicit navigation choice, including after a saved Simple
-  // preference hydrates. The URL also lets the user switch modes normally.
-  const requestedView = searchParams.get('view');
-  const advanced = requestedView === 'advanced' || (requestedView !== 'simple' && savedAdvanced);
-  const setAdvanced = (next: boolean) => {
-    saveAdvanced(next);
+  // Existing bookmarked report links open their tools directly. The everyday layout
+  // always stays in place when a viewer expands the additional reporting controls.
+  const reportToolsOpen = searchParams.get('view') === 'advanced';
+  const setReportToolsOpen = (open: boolean) => {
     const params = new URLSearchParams(searchParams);
-    params.set('view', next ? 'advanced' : 'simple');
+    params.set('view', open ? 'advanced' : 'simple');
+    if (!open) {
+      params.set('dataTab', 'games');
+      saveTab('games');
+    }
     setSearchParams(params, { replace: true });
   };
   const [savedTab, saveTab] = usePlayerPreference<'games' | 'players'>(
@@ -1158,7 +1159,6 @@ export default function ClubDataPage() {
   };
   const openReportBreakdown = (next: 'games' | 'players') => {
     saveTab(next);
-    saveAdvanced(true);
     const params = new URLSearchParams(searchParams);
     params.set('dataTab', next);
     params.set('view', 'advanced');
@@ -3496,9 +3496,10 @@ export default function ClubDataPage() {
 
   return (
     <div
-      className={`${styles.page} arena-workspace ${advanced ? '' : styles.simple}`}
+      className={`${styles.page} arena-workspace ${styles.simple}`}
       data-page="club-data"
-      data-club-data-mode={advanced ? 'advanced' : 'simple'}
+      data-club-data-mode="simple"
+      data-report-tools={reportToolsOpen ? 'open' : 'closed'}
     >
       {sourceRow?.key === gameScopeKey && clubUuid && (
         <ClubDataSourceDetails
@@ -3525,33 +3526,14 @@ export default function ClubDataPage() {
           Back
         </button>
 
-        <div
-          className={`${styles.modeSwitch} arena-switch`}
-          role="group"
-          aria-label="Club Data Mode"
-        >
+        <div className="arena-switch">
           <button
             type="button"
-            className={styles.word}
-            aria-pressed={!advanced}
-            onClick={() => {
-              saveAdvanced(false);
-              saveTab('games');
-              const next = new URLSearchParams(searchParams);
-              next.set('view', 'simple');
-              next.set('dataTab', 'games');
-              setSearchParams(next, { replace: true });
-            }}
+            aria-controls="club-report-details club-report-ledger-tools"
+            aria-expanded={reportToolsOpen}
+            onClick={() => setReportToolsOpen(!reportToolsOpen)}
           >
-            Simple
-          </button>
-          <button
-            type="button"
-            className={styles.word}
-            aria-pressed={advanced}
-            onClick={() => setAdvanced(true)}
-          >
-            Advanced
+            Report Tools
           </button>
         </div>
         {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
@@ -3562,7 +3544,7 @@ export default function ClubDataPage() {
           summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
         />
       </header>
-      {!advanced && (
+      {!reportToolsOpen && (
         <div className={styles.simpleStatus}>
           <span role="status">{statusLine}</span>
           <button
@@ -3715,20 +3697,22 @@ export default function ClubDataPage() {
           which is impossible for a tab and leaves a tablist with nothing
           selected. A screen reader was told "tab 3 of 6" for a filter. */}
           <div className={styles.words} role="group" aria-label="Date Range">
-            {(advanced ? PRESETS : PRESETS.filter((p) => p <= 14 || p === preset)).map((p) => (
-              <button
-                key={p}
-                type="button"
-                aria-pressed={customStart === null && preset === p}
-                className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
-                onClick={() => {
-                  selectReportDates(null, clubDataDayOn(dayBasisRef.current));
-                  setPreset(p);
-                }}
-              >
-                {p === 1 ? '1 Day' : `${p} Days`}
-              </button>
-            ))}
+            {(reportToolsOpen ? PRESETS : PRESETS.filter((p) => p <= 14 || p === preset)).map(
+              (p) => (
+                <button
+                  key={p}
+                  type="button"
+                  aria-pressed={customStart === null && preset === p}
+                  className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                  onClick={() => {
+                    selectReportDates(null, clubDataDayOn(dayBasisRef.current));
+                    setPreset(p);
+                  }}
+                >
+                  {p === 1 ? '1 Day' : `${p} Days`}
+                </button>
+              )
+            )}
           </div>
         </section>
 
@@ -3813,7 +3797,7 @@ export default function ClubDataPage() {
             onHistory={
               latestInvoice
                 ? () => {
-                    setAdvanced(true);
+                    setReportToolsOpen(true);
                     setShowInvoiceDetail(true);
                     setShowInvoiceHistory(true);
                     requestAnimationFrame(() =>
@@ -3836,7 +3820,7 @@ export default function ClubDataPage() {
         )}
       </SpadeConsole>
 
-      <div className={styles.advancedOnly} hidden={!advanced}>
+      <div id="club-report-details" className={styles.advancedOnly} hidden={!reportToolsOpen}>
         {/* ── The union statement ────────────────────────────────────────── */}
         {(latestInvoice || invoicesError) && (
           <SpadeConsole
@@ -4081,7 +4065,7 @@ export default function ClubDataPage() {
         {/* ── The ledger: games and players ──────────────────────────────── */}
       </div>
       {/* HIT AND RUN (owner 2026-11-06): members owing hands before leaving. */}
-      <div className={styles.advancedOnly} hidden={!advanced}>
+      <div id="club-report-ledger-tools" className={styles.advancedOnly} hidden={!reportToolsOpen}>
         {/* ── The ledger head: status, the two page actions, the export notes ── */}
         <SpadeConsole
           eyebrow={clubLabel || 'Club Intelligence'}
@@ -4177,7 +4161,7 @@ export default function ClubDataPage() {
             clubId={clubUuid}
             userId={userId}
             scopes={rakeScopes}
-            active={advanced && !reportRangeError}
+            active={reportToolsOpen && !reportRangeError}
             refreshToken={rakeRefreshKey}
           />
         )}
@@ -4253,7 +4237,7 @@ export default function ClubDataPage() {
         aria-labelledby="club-data-ledger-title"
       >
         <div
-          hidden={!advanced}
+          hidden={!reportToolsOpen}
           className={`${styles.words} ${styles.tabs}`}
           role="tablist"
           aria-label="View"
@@ -4291,10 +4275,10 @@ export default function ClubDataPage() {
         {tab === 'games' && (
           <div
             className={styles.panel}
-            role={advanced ? 'tabpanel' : 'region'}
+            role={reportToolsOpen ? 'tabpanel' : 'region'}
             id="club-data-panel-games"
-            aria-label={advanced ? undefined : 'Games'}
-            aria-labelledby={advanced ? 'club-data-tab-games' : undefined}
+            aria-label={reportToolsOpen ? undefined : 'Games'}
+            aria-labelledby={reportToolsOpen ? 'club-data-tab-games' : undefined}
             tabIndex={0}
           >
             <label className={styles.searchField}>
@@ -4336,7 +4320,12 @@ export default function ClubDataPage() {
               ))}
             </div>
 
-            <div hidden={!advanced} className={styles.words} role="group" aria-label="Sort Games">
+            <div
+              hidden={!reportToolsOpen}
+              className={styles.words}
+              role="group"
+              aria-label="Sort Games"
+            >
               {GAME_SORTS.map((option) => (
                 <button
                   key={option.id}

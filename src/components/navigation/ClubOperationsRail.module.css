@@ -236,3 +236,41 @@
   border: 1px solid rgba(240, 179, 87, 0.62);
   border-radius: 2px;
 }
+
+@media (max-width: 700px) {
+  :global(body:has(.arena-workspace)) .rail {
+    padding: 0 6px;
+  }
+  :global(body:has(.arena-workspace)) .chassis {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    gap: 3px;
+    padding: 0;
+    min-height: 0;
+    border: 0;
+    box-shadow: none;
+    background: #060e18;
+    clip-path: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  :global(body:has(.arena-workspace)) .identity {
+    min-height: 44px;
+    padding: 0 8px;
+    border: 0;
+  }
+  :global(body:has(.arena-workspace)) .items {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    padding: 0;
+    margin: 0;
+    width: auto;
+    overflow: visible;
+  }
+  :global(body:has(.arena-workspace)) .badge {
+    color: #8bdcff;
+    border-color: #46729d;
+    background: #102436;
+  }
+}

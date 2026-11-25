@@ -88,11 +88,6 @@ import './ClubMembersPage.css';
    would miss them (Dan 2026-10-17: the words moved behind the "?"). */
 const SHARED_TOUR_HEAD: TutorialStep[] = [
   {
-    title: 'Simple Or Advanced',
-    body: 'Simple Is A Compact Directory. Advanced Opens The Full Desk With Totals, Saved Views, Columns, Export And Player History.',
-    target: '.members-mode-toggle',
-  },
-  {
     title: 'Search',
     body: 'Find A Player By Name, Number, Club Or Upline.',
     target: '.members-search',
@@ -116,20 +111,6 @@ const SIMPLE_TOUR: TutorialStep[] = [
     title: 'Player Views',
     body: 'Switch Between Every Player, Your Agents And Pending Applicants.',
     target: '.members-simple-tabs',
-  },
-  ...SHARED_TOUR_TAIL,
-];
-const ADVANCED_TOUR: TutorialStep[] = [
-  ...SHARED_TOUR_HEAD,
-  {
-    title: 'Saved Views',
-    body: 'Filter The Roster To Online Players, Players At Tables, Agents And More.',
-    target: '.members-view-filter',
-  },
-  {
-    title: 'Columns And Export',
-    body: 'Choose The Columns You Read And Export Every Matching Player As A CSV.',
-    target: '.members-columns',
   },
   ...SHARED_TOUR_TAIL,
 ];
@@ -304,13 +285,9 @@ export default function ClubMembersPage() {
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [filter, setFilter] = useState<RosterFilter>(() => readFilter(searchParams.get('view')));
   const [sortKey, setSortKey] = useState<RosterSort>(() => readSort(searchParams.get('sort')));
-  const [simpleMode, setSimpleMode] = usePlayerPreference('roster:simpleMode', true, routeClub);
-  const [expandedMetrics, setExpandedMetrics] = usePlayerPreference(
-    'roster:expandedMetrics',
-    false,
-    routeClub
-  );
-  const rowHeight = expandedMetrics ? ROSTER_ROW_HEIGHT : 56;
+  const [toolsOpen, setToolsOpen] = useState(false);
+  // Daily figures and exact wallet balances can occupy several lines on phones.
+  const rowHeight = toolsOpen ? ROSTER_ROW_HEIGHT + 64 : ROSTER_ROW_HEIGHT + 28;
   const [winLossPeriod, setWinLossPeriod] = usePlayerPreference<WinLossPeriod>(
     'roster:winLossPeriod',
     'week',
@@ -1655,10 +1632,10 @@ export default function ClubMembersPage() {
 
   return (
     <div
-      className={`club-members-page arena-workspace${simpleMode ? ' members-simple' : ''}`}
+      className="club-members-page arena-workspace members-simple"
       aria-busy={loading}
-      data-row-density={expandedMetrics ? 'expanded' : 'compact'}
-      data-players-mode={simpleMode ? 'simple' : 'advanced'}
+      data-players-mode="simple"
+      style={{ '--member-row-pitch': `${rowHeight}px` } as React.CSSProperties}
       data-roster-connection={connectionState}
     >
       <ArenaWorkspaceHeader
@@ -1677,7 +1654,7 @@ export default function ClubMembersPage() {
         className="members-page-bar"
         title="Player Management"
         summary="Find Any Member, Read Their Live Club Status, And Open The Controls Behind Their Seat."
-        status={simpleMode ? undefined : (summaryStatusMessage ?? undefined)}
+        status={toolsOpen ? (summaryStatusMessage ?? undefined) : undefined}
         statusTone={
           summaryFreshness === 'failed'
             ? 'danger'
@@ -1686,7 +1663,7 @@ export default function ClubMembersPage() {
               : 'default'
         }
         metrics={
-          simpleMode
+          !toolsOpen
             ? []
             : [
                 { label: 'Total Members', value: stat(summary.counts.total) },
@@ -1695,27 +1672,12 @@ export default function ClubMembersPage() {
                 { label: 'Agents', value: stat(summary.counts.agents) },
               ]
         }
-        steps={simpleMode ? SIMPLE_TOUR : ADVANCED_TOUR}
-      >
-        {!simpleMode && summary.capabilities.can_manage_members && (
-          <Link className="members-applicants" to={`/clubs/${routeClubId}/applicants`}>
-            Review Applicants
-          </Link>
-        )}
-        <div className="members-mode-toggle" role="group" aria-label="Player Management Mode">
-          <button type="button" aria-pressed={simpleMode} onClick={() => setSimpleMode(true)}>
-            Simple
-          </button>
-          <button type="button" aria-pressed={!simpleMode} onClick={() => setSimpleMode(false)}>
-            Advanced
-          </button>
-        </div>
-      </PageBar>
+        steps={SIMPLE_TOUR}
+      />
       <section
         className="members-console"
         aria-busy={!workspaceUrlReady}
-        aria-label={simpleMode ? 'Player Directory' : undefined}
-        aria-labelledby={simpleMode ? undefined : 'members-directory-title'}
+        aria-label="Player Directory"
       >
         {
           <div className="members-console__heading">
@@ -1728,30 +1690,7 @@ export default function ClubMembersPage() {
           </div>
         }
 
-        {
-          <div className="members-simple-tabs" role="group" aria-label="Player Views">
-            <button
-              type="button"
-              disabled={!workspaceReady}
-              aria-pressed={filter === 'all'}
-              onClick={() => setFilter('all')}
-            >
-              All Players
-            </button>
-            <button
-              type="button"
-              disabled={!workspaceReady}
-              aria-pressed={filter === 'agents'}
-              onClick={() => setFilter('agents')}
-            >
-              Agents
-            </button>
-            {simpleMode && summary.capabilities.can_manage_members && (
-              <Link to={`/clubs/${routeClubId}/applicants`}>Applicants</Link>
-            )}
-          </div>
-        }
-        {simpleMode && !['all', 'agents'].includes(filter) && (
+        {!['all', 'agents'].includes(filter) && (
           <button
             type="button"
             disabled={!workspaceReady}
@@ -1779,48 +1718,69 @@ export default function ClubMembersPage() {
           />
         </label>
 
-        {!simpleMode && (
-          <div className="members-filter-rail" role="group" aria-label="Saved Roster Views">
-            <label className="members-view-filter">
-              <span>Filter Players</span>
-              <select
-                aria-label="Filter Players"
-                disabled={!workspaceReady}
-                value={filter}
-                onChange={(event) => setFilter(event.target.value as RosterFilter)}
-              >
-                {filters.map((value) => (
-                  <option key={value} value={value}>
-                    {FILTER_LABEL[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
-
-        <details className="arena-roster-tools">
-          <summary>Sort And Roster Tools</summary>
-          <label>
-            <input
-              type="checkbox"
-              checked={expandedMetrics}
-              onChange={(event) => setExpandedMetrics(event.target.checked)}
-            />{' '}
-            Show Expanded Player Metrics
-          </label>
-          <div className="members-toolbar">
-            {simpleMode && (
-              <button
-                type="button"
-                className="members-group-role"
-                aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
-                disabled={!workspaceReady || Boolean(searchQuery.trim())}
-                onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
-              >
-                Group By Role
-              </button>
+        {
+          <div className="members-simple-tabs" role="group" aria-label="Player Views">
+            <button
+              type="button"
+              disabled={!workspaceReady}
+              aria-pressed={filter === 'all'}
+              onClick={() => setFilter('all')}
+            >
+              All Players
+            </button>
+            <button
+              type="button"
+              disabled={!workspaceReady}
+              aria-pressed={filter === 'agents'}
+              onClick={() => setFilter('agents')}
+            >
+              Agents
+            </button>
+            {summary.capabilities.can_manage_members && (
+              <Link to={`/clubs/${routeClubId}/applicants`}>Applicants</Link>
             )}
+          </div>
+        }
+        <button
+          type="button"
+          className="members-tools-trigger"
+          aria-expanded={toolsOpen}
+          aria-controls="roster-tools"
+          onClick={() => setToolsOpen((open) => !open)}
+        >
+          Sort And Roster Tools
+        </button>
+        <div id="roster-tools" hidden={!toolsOpen} className="arena-roster-tools">
+          {toolsOpen && (
+            <div className="members-filter-rail" role="group" aria-label="Saved Roster Views">
+              <label className="members-view-filter">
+                <span>Filter Players</span>
+                <select
+                  aria-label="Filter Players"
+                  disabled={!workspaceReady}
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value as RosterFilter)}
+                >
+                  {filters.map((value) => (
+                    <option key={value} value={value}>
+                      {FILTER_LABEL[value]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
+          <div className="members-toolbar">
+            <button
+              type="button"
+              className="members-group-role"
+              aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
+              disabled={!workspaceReady || Boolean(searchQuery.trim())}
+              onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
+            >
+              Group By Role
+            </button>
             {showWinLoss && (
               <label className="members-sort members-winloss-period">
                 <span className="members-sort__label">Win / Loss</span>
@@ -1854,7 +1814,7 @@ export default function ClubMembersPage() {
               </select>
             </label>
 
-            {!simpleMode && canUseFinancialViews && (
+            {toolsOpen && canUseFinancialViews && (
               <details className="members-columns">
                 <summary>Columns</summary>
                 <div className="members-columns__menu">
@@ -1875,7 +1835,7 @@ export default function ClubMembersPage() {
               </details>
             )}
 
-            {!simpleMode && summary.capabilities.can_export && members.length > 0 && (
+            {toolsOpen && summary.capabilities.can_export && members.length > 0 && (
               <button
                 type="button"
                 className="members-select-loaded"
@@ -1888,7 +1848,7 @@ export default function ClubMembersPage() {
               </button>
             )}
 
-            {!simpleMode && summary.capabilities.can_export && (
+            {toolsOpen && summary.capabilities.can_export && (
               <button
                 type="button"
                 className="members-export"
@@ -1904,7 +1864,7 @@ export default function ClubMembersPage() {
             )}
           </div>
 
-          {!simpleMode && summary.capabilities.can_export && (
+          {toolsOpen && summary.capabilities.can_export && (
             <p className="members-count" role="note" aria-label="Export Scope">
               <strong>Export Scope: </strong>
               <span>
@@ -1915,7 +1875,7 @@ export default function ClubMembersPage() {
               Includes Authorized Fields Regardless Of Visible Columns.
             </p>
           )}
-          {!simpleMode && (
+          {toolsOpen && (
             <details className="members-columns">
               <summary>Metric Definitions</summary>
               <div className="members-count">
@@ -1946,18 +1906,17 @@ export default function ClubMembersPage() {
               </div>
             </details>
           )}
-
-          {(loadSlow || !['live', 'connecting'].includes(connectionState)) && (
-            <RosterConnectionStatus
-              state={connectionState}
-              hasData={hasVerifiedDirectory}
-              lastSuccessfulSyncAt={lastSuccessfulSyncAt}
-              isRefreshing={isRefreshing}
-              isSlow={loadSlow}
-              onRetry={retryLiveSync}
-            />
-          )}
-        </details>
+        </div>
+        {(loadSlow || !['live', 'connecting'].includes(connectionState)) && (
+          <RosterConnectionStatus
+            state={connectionState}
+            hasData={hasVerifiedDirectory}
+            lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+            isRefreshing={isRefreshing}
+            isSlow={loadSlow}
+            onRetry={retryLiveSync}
+          />
+        )}
         {workspaceReady &&
           !accessDenied &&
           auditEnabled &&
@@ -1966,7 +1925,7 @@ export default function ClubMembersPage() {
             <div>
               <button
                 type="button"
-                className="members-export"
+                className="members-history-action"
                 aria-expanded={historyOpen}
                 onClick={() => setHistoryOpen(!historyOpen)}
               >
@@ -1994,7 +1953,7 @@ export default function ClubMembersPage() {
               ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players`
               : `Showing ${members.length.toLocaleString()} Previously Verified Players. Current Filter And Search Not Yet Verified.`
             : 'Directory Not Yet Verified.'}{' '}
-          {!simpleMode && summary.capabilities.can_export
+          {toolsOpen && summary.capabilities.can_export
             ? `${selected.size.toLocaleString()} Loaded Players Selected. Selection Limit ${MAX_ROSTER_SELECTION.toLocaleString()}.`
             : ''}
         </p>
@@ -2026,7 +1985,7 @@ export default function ClubMembersPage() {
               {exportOperation.auditId ? ` Audit Reference: ${exportOperation.auditId}.` : ''}
             </p>
           )}
-        {!simpleMode && resolvedClubId && user?.id && (
+        {toolsOpen && resolvedClubId && user?.id && (
           <PlayerChangeHistory
             key={`history:${resolvedClubId}:${user.id}`}
             clubId={resolvedClubId}
@@ -2036,7 +1995,7 @@ export default function ClubMembersPage() {
         )}
       </section>
 
-      {!simpleMode && summary.capabilities.can_export && selected.size > 0 && (
+      {toolsOpen && summary.capabilities.can_export && selected.size > 0 && (
         <div className="members-bulk" role="region" aria-label="Selected Players">
           <strong>{selected.size.toLocaleString()} Selected</strong>
           <button type="button" onClick={() => setSelected(selectLoadedRoster(loadedMemberIds))}>
@@ -2108,8 +2067,9 @@ export default function ClubMembersPage() {
                 total={filteredTotal}
                 query={debouncedSearch}
                 onOpen={openMember}
-                selectable={!simpleMode && summary.capabilities.can_export}
-                simpleMode={simpleMode}
+                selectable={toolsOpen && summary.capabilities.can_export}
+                simpleMode
+                showColumns={toolsOpen}
                 selected={selected.has(member.user_id)}
                 onSelect={toggleSelected}
                 columns={columns}
@@ -2165,6 +2125,7 @@ export const MemberRow = memo(function MemberRow({
   onSelect,
   columns,
   simpleMode = false,
+  showColumns = false,
   winLoss,
   winLossUnavailable = false,
   winLossLabel = 'Win / Loss',
@@ -2176,6 +2137,7 @@ export const MemberRow = memo(function MemberRow({
   onWatch = () => {},
 }: {
   simpleMode?: boolean;
+  showColumns?: boolean;
   /** The net for the chosen window; undefined while it loads. */
   winLoss?: WinLossFigure;
   /** The last read for this row failed; it is being retried. */
@@ -2314,32 +2276,46 @@ export const MemberRow = memo(function MemberRow({
           </span>
           {simpleMode && member.can_view_financials && (
             <span className="member-simple-balance" title={feeTitle(member, winLoss, feeLabel)}>
-              <strong>
-                {periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
-              </strong>
-              <span>{feeLabel}</span>
+              {(!showColumns || columns.has('fees')) && (
+                <>
+                  <strong>
+                    {periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
+                  </strong>
+                  <span>{feeLabel}</span>
+                </>
+              )}
               <span
                 className="member-simple-balance__wallet"
                 title="Balance"
-                aria-label={`Balance ${walletFigure(member.player_wallet)}`}
+                aria-label={`Balance ${walletFigure(member.player_wallet_text ?? member.player_wallet)}`}
               >
-                Wallet Balance {walletFigure(member.player_wallet)}
+                Wallet Balance {walletFigure(member.player_wallet_text ?? member.player_wallet)}
               </span>
+              {showColumns && columns.has('wallets') && (
+                <span>
+                  Agent Wallet {walletFigure(member.agent_wallet_text ?? member.agent_wallet)}
+                </span>
+              )}
+              {showColumns && columns.has('downlines') && (
+                <span>Downlines {countFigure(member.downline_total)}</span>
+              )}
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
                 aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
               >
                 {secondaryWinLossLabel} {secondaryText}
               </span>
-              {(member.downline_total ?? 0) > 0 && winLoss?.downline_fees !== undefined && (
-                <span className="member-simple-balance__downline">
-                  Downline{' '}
-                  {periodFeeText(
-                    winLoss?.downline_fees_text ?? winLoss?.downline_fees,
-                    winLossUnavailable
-                  )}
-                </span>
-              )}
+              {(!showColumns || columns.has('fees')) &&
+                (member.downline_total ?? 0) > 0 &&
+                winLoss?.downline_fees !== undefined && (
+                  <span className="member-simple-balance__downline">
+                    Downline{' '}
+                    {periodFeeText(
+                      winLoss?.downline_fees_text ?? winLoss?.downline_fees,
+                      winLossUnavailable
+                    )}
+                  </span>
+                )}
               <strong
                 className={`member-simple-balance__winloss${winLossTone}`}
                 aria-label={`${winLossLabel} ${winLossText(winLoss, winLossUnavailable)}`}
