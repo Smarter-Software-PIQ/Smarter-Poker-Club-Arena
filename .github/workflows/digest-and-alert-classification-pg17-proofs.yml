@@ -1,0 +1,48 @@
+name: Digest cash residual and reliability alert classification (PostgreSQL 17 proofs)
+
+# Native PostgreSQL 17 RED-before / GREEN-after regression proofs for:
+#   1. 20261124152017_fix_digest_cash_residual_alert_proofs_and_cron_freeze.sql
+#      (midnight banking reconciliation, OpenClaw recovery twins, WeeklyPayout
+#      receipt proof & stale_unverified recovery, bounded pruners, quiet replay)
+#   2. 20261125022248_classify_remaining_alerts_and_backfill_unclassified_incident.sql
+#      (explicit reliability_alert_classes coverage across all emitted alerts,
+#      lockstep member fingerprint backfill, and evidence-proved closures)
+# Pull-request only (CLAUDE.md 10.85), scoped to the paths these proofs cover.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/digest-and-alert-classification-pg17-proofs.yml
+      - scripts/ci/test-digest-cash-residual-alerts-and-cron-freeze.py
+      - scripts/ci/test-reliability-alert-classification-hardening.py
+      - scripts/ci/fixtures/reliability-controller-production-objects.sql
+      - supabase/migrations/20261124152017_fix_digest_cash_residual_alert_proofs_and_cron_freeze.sql
+      - supabase/migrations/20261125022248_classify_remaining_alerts_and_backfill_unclassified_incident.sql
+      - infra/monitoring/*.yml
+      - tests/digest-cash-residual-alert-proofs-and-cron-freeze.law.test.ts
+      - tests/every-emitted-alert-has-a-reliability-class.law.test.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: digest-and-alert-classification-pg17-proofs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Digest cash residual & alert classification (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Prove digest cash residual, alert proofs, and pruner bounds on PostgreSQL 17
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-digest-cash-residual-alerts-and-cron-freeze.py
+      - name: Prove reliability alert classification and backfill on PostgreSQL 17
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-reliability-alert-classification-hardening.py

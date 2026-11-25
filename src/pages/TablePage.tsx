@@ -193,6 +193,7 @@ import {
   useEffect,
   useLayoutEffect,
   useCallback,
+  useEffectEvent,
   useRef,
   startTransition,
   useMemo,
@@ -340,6 +341,8 @@ import {
   collectedSeatBet,
   isLightningObserverSnapshot,
   mapEngineSnapshot,
+  resolveSeatSitOut,
+  type EnginePublicPlayer,
 } from '../utils/mapEngineSnapshot';
 import { selectBoundaryHoldBanner } from '../utils/boundaryHoldBanner';
 import {
@@ -1335,6 +1338,8 @@ interface TablePageProps {
     handNumber?: number;
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
+    tournamentAutoRebuy?: boolean;
+    tournamentAutoAddOn?: boolean;
     standUpNextBB?: boolean;
     straddleAvailable?: boolean;
     straddleEnabled?: boolean;
@@ -3914,6 +3919,15 @@ function LiveTablePage({
    */
   const preActionCallAmountRef = useRef(0);
   /**
+   * The decision on screen (`actionContext`) at the moment the player pressed
+   * a pre-action, snapshotted beside the price. Dan 2026-11-24 (CoachTim68):
+   * an arm that reaches the engine on the player's own turn is played at once,
+   * and a Call Any pressed on a display that had fallen behind went all in
+   * against a shove that display had not shown. The engine now plays a Call or
+   * Call Any armed on the player's own turn only against this decision.
+   */
+  const preActionSeenContextRef = useRef<string | null>(null);
+  /**
    * The last pre-action that was actually ARMED, kept for the clear path.
    * `const armed = preAction` inside the clear branch was null by definition
    * (that branch only runs when preAction is falsy), which made the
@@ -4377,6 +4391,8 @@ function LiveTablePage({
         lightningRoomRef,
       },
       handNumber: () => tableStateRef.current.handNumber ?? 0,
+      // What the player was looking at when they pressed, never a later view.
+      actionContext: () => preActionSeenContextRef.current,
       /* LIGHTNING PHASE 6: in a Lightning room the arm names its hand. */
       lightningArmHandId: () =>
         lightningRoomRef.current
@@ -5547,11 +5563,14 @@ function LiveTablePage({
     : tableState.players[tableState.heroSeat - 1]?.stack || 0;
   const heroEntrySeat = tableState.players[tableState.heroSeat - 1];
   const heroWaitingForButton = heroEntrySeat?.isHero && heroEntrySeat.waitingForButton === true;
+  const heroWaitingForEntryBlind =
+    !!userId && (tableState.waitingForBBUserIds ?? []).includes(userId);
   const heroIsSittingOut =
     (tableState.heroSeat > 0 &&
-      ((!heroWaitingForButton &&
-        tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out') ||
-        heroSitsOutPerRow)) ||
+      (heroSitsOutPerRow ||
+        (!heroWaitingForButton &&
+          !heroWaitingForEntryBlind &&
+          tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out'))) ||
     (!!lightningRoom && lightningSitOut.sittingOut);
   /**
    * A PROVISIONAL stamp, replaced by the server's the moment the seat read
@@ -10809,9 +10828,36 @@ function LiveTablePage({
     playTurnAlert,
   } = useTableSound();
 
+  const autoTopUpEnabledRef = useRef(isAutoRebuyEnabled);
+  autoTopUpEnabledRef.current = isAutoRebuyEnabled;
+
   useEffect(() => {
     onTableInfoUpdate?.({ isAutoRebuyEnabled });
   }, [isAutoRebuyEnabled, onTableInfoUpdate]);
+
+  const tournamentPurchaseScope = tableState.tournamentId ?? 'no-tournament';
+  const [tournamentAutoRebuy, setTournamentAutoRebuy] = usePlayerPreference(
+    'table:autoTournamentRebuy',
+    false,
+    tournamentPurchaseScope
+  );
+  const [tournamentAutoAddOn, setTournamentAutoAddOn] = usePlayerPreference(
+    'table:autoTournamentAddOn',
+    false,
+    tournamentPurchaseScope
+  );
+  const canSetTournamentAutoPurchase =
+    tableState.isTournament &&
+    !!tableState.tournamentId &&
+    tableState.arenaAsset === 'chips' &&
+    (tableState.heroSeat > 0 || tournamentAutoRebuy || tournamentAutoAddOn);
+
+  useEffect(() => {
+    onTableInfoUpdate?.({
+      tournamentAutoRebuy: canSetTournamentAutoPurchase ? tournamentAutoRebuy : undefined,
+      tournamentAutoAddOn: canSetTournamentAutoPurchase ? tournamentAutoAddOn : undefined,
+    });
+  }, [canSetTournamentAutoPurchase, tournamentAutoRebuy, tournamentAutoAddOn, onTableInfoUpdate]);
 
   // All-in dramatic mode
   const [isAllInMode, setIsAllInMode] = useState(false);
@@ -12053,7 +12099,7 @@ function LiveTablePage({
       chipsSeenForSeatAtRef.current = seatAcquiredAtRef.current;
       return;
     }
-    if (tableState.isHandInProgress) return;
+    if (tableState.isHandInProgress || isAutoRebuyEnabled) return;
     if (bustPromptFiredRef.current) return;
     if (bustRebuyOpen || showBuyInModal) return;
     /* A SEAT JUST TAKEN IS NOT A BUST (see utils/bustPromptGate). A zero that
@@ -12086,7 +12132,13 @@ function LiveTablePage({
          One transient read failure cost the seat. Read twice before giving
          up, and hand the dialog a Retry so the player is never stuck on a
          number nobody actually knows. */
-      setBustWalletBalance(await readBustBalance(userId, tableId));
+      const balance = await readBustBalance(userId, tableId);
+      if (tableStateRef.current.tableId !== tableId) return;
+      if (autoTopUpEnabledRef.current) {
+        bustPromptFiredRef.current = false;
+        return;
+      }
+      setBustWalletBalance(balance);
       setBustRebuyOpen(true);
     })();
   }, [
@@ -12098,6 +12150,7 @@ function LiveTablePage({
     tableState.isTournament,
     bustRebuyOpen,
     showBuyInModal,
+    isAutoRebuyEnabled,
     bustRecheckTick,
   ]);
 
@@ -12111,10 +12164,19 @@ function LiveTablePage({
       return;
     }
     const heroPlayer = tableState.players[tableState.heroSeat - 1];
-    if (heroPlayer && heroPlayer.holeCards && heroPlayer.holeCards.length > 0) {
+    if (
+      (heroPlayer?.holeCards?.length ?? 0) > 0 ||
+      (userId && (tableState.postBBDeferredUserIds ?? []).includes(userId))
+    ) {
       setPostOrWaitOpen(false);
     }
-  }, [postOrWaitOpen, tableState.heroSeat, tableState.players]);
+  }, [
+    postOrWaitOpen,
+    tableState.heroSeat,
+    tableState.players,
+    tableState.postBBDeferredUserIds,
+    userId,
+  ]);
 
   /* Dan 2026-08-29 — the optimistic "I already agreed" flag lives exactly as
      long as the engine is still holding the hero out.
@@ -12355,7 +12417,12 @@ function LiveTablePage({
           if (tournament) {
             const quote = tournamentService.quoteFromTournament(tournament, 'rebuy');
             beginRebuyPrompt();
-            setRebuyData({ cost: quote.baseCost, fee: quote.fee, chips: quote.chips });
+            setRebuyData({
+              cost: quote.baseCost,
+              fee: quote.fee,
+              chips: quote.chips,
+              autoEligible: tournament.is_rebuy === true,
+            });
             setShowRebuyModal(true);
             /* The modal IS the pause now, so the 5s deadline must not fire out
              * from under a player who is reading a price. It is replaced by the
@@ -16001,6 +16068,10 @@ function LiveTablePage({
       const auto = tableStateRef.current;
       if (!seatCanAddFunds(auto.arenaAsset, auto.isTournament) || auto.isTournament) return;
       setIsAutoRebuyEnabled((prev) => !prev);
+    } else if (event.action === 'TOGGLE_AUTO_TOURNAMENT_REBUY') {
+      if (canSetTournamentAutoPurchase) setTournamentAutoRebuy((enabled) => !enabled);
+    } else if (event.action === 'TOGGLE_AUTO_TOURNAMENT_ADD_ON') {
+      if (canSetTournamentAutoPurchase) setTournamentAutoAddOn((enabled) => !enabled);
     } else if (event.action === 'TOGGLE_STRADDLE') {
       /* The same guard the row is offered under: the engine refuses a
          straddle the host has not enabled, and an empty seat has none. */
@@ -20629,7 +20700,10 @@ function LiveTablePage({
                 // hide a live all-in).
                 status: sp.is_all_in
                   ? 'all_in'
-                  : sittingOutIdsRef.current.has(sp.user_id)
+                  : resolveSeatSitOut(
+                        { position: sp.position },
+                        sittingOutIdsRef.current.has(sp.user_id)
+                      )
                     ? 'sitting_out'
                     : sp.is_folded
                       ? 'folded'
@@ -26224,12 +26298,20 @@ function LiveTablePage({
            tournament tables too, where the stamp is always null.
 
            The stamps are their own state and reach SeatSlot as their own prop. */
-        const players = prev.players.map((p) => {
+        const snapshot = engineSnapshotRef.current;
+        const engineSeats =
+          snapshot?.table_id === tableId && Array.isArray(snapshot.players)
+            ? (snapshot.players as EnginePublicPlayer[])
+            : undefined;
+        const players = prev.players.map((p, index) => {
           if (!p || !p.id) return p;
-          // The DB flag describes a voluntary sit-out, not an engine entry
-          // hold. Only an authoritative waiting-list update admits that seat.
+          // The row refresh can finish after a reconnect snapshot. Reconcile
+          // the same occupant against the current wire state before painting.
+          const engineSeat = engineSeats?.find(
+            (seat) => seat.seat === index + 1 && seat.user_id === p.id
+          );
           const shouldBeOut =
-            sittingOut.has(p.id) ||
+            resolveSeatSitOut(engineSeat, sittingOut.has(p.id)) ||
             p.waitingForButton === true ||
             (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.
@@ -29148,9 +29230,21 @@ function LiveTablePage({
   /* The question stops applying: chips arrived (the auto top-up, another
      device) or the room closed. A confirm in flight finishes first. */
   useEffect(() => {
-    if (!lightningRoom || !bustRebuyOpen || bustRebuyProcessing) return;
-    if (lightningBust === 'funded' || lightningRoomClosed) setBustRebuyOpen(false);
-  }, [lightningRoom, bustRebuyOpen, bustRebuyProcessing, lightningBust, lightningRoomClosed]);
+    if (!bustRebuyOpen || bustRebuyProcessing) return;
+    if (isAutoRebuyEnabled) {
+      bustPromptFiredRef.current = false;
+      setBustRebuyOpen(false);
+    } else if (lightningRoom && (lightningBust === 'funded' || lightningRoomClosed)) {
+      setBustRebuyOpen(false);
+    }
+  }, [
+    isAutoRebuyEnabled,
+    lightningRoom,
+    bustRebuyOpen,
+    bustRebuyProcessing,
+    lightningBust,
+    lightningRoomClosed,
+  ]);
   useEffect(() => {
     if (!bustRebuyOpen) setLightningBustMax(null);
   }, [bustRebuyOpen]);
@@ -29204,8 +29298,6 @@ function LiveTablePage({
     autoTopUpKeyRef.current = null;
     autoTopUpRefusedForHandRef.current = null;
   }
-  const autoTopUpEnabledRef = useRef(isAutoRebuyEnabled);
-  autoTopUpEnabledRef.current = isAutoRebuyEnabled;
   useEffect(
     () => () => {
       // Late funding replies belong to the departed mount, even if the next table has the same ID.
@@ -29495,6 +29587,232 @@ function LiveTablePage({
     heroFacesADecision,
     getPlayerAtSeat,
   ]);
+
+  const confirmTournamentAddOn = async (expectedTotal?: number) => {
+    if (!tableState.tournamentId || !userId || rebuyProcessingRef.current) return false;
+    const purchaseContext = tournamentPurchaseContext;
+    const isCurrentPurchase = () =>
+      purchaseContext.active && tournamentPurchaseContextRef.current === purchaseContext;
+    if (!isCurrentPurchase()) return false;
+    rebuyProcessingRef.current = true;
+    addOnPurchasePendingRef.current = true;
+    addOnPresentationEpochRef.current += 1;
+    setRebuyProcessing(true);
+    try {
+      const purchase = await tournamentService.processAddOn(
+        tableState.tournamentId,
+        userId,
+        expectedTotal
+      );
+      if (!isCurrentPurchase()) return false;
+      if (purchase?.success !== true) return false;
+      addOnPurchasePendingRef.current = false;
+      toast?.success('Add-on accepted - chips added to your stack');
+      addOnPresentationEpochRef.current += 1;
+      setAddOnPeriod((prev) => ({ ...prev, active: false }));
+      return true;
+    } catch (error) {
+      if (!isCurrentPurchase()) return false;
+      if (error instanceof TournamentPurchaseNotSubmittedError) {
+        addOnPurchasePendingRef.current = false;
+        throw error;
+      }
+      // Maintenance break refusal is definitive (2026-10-16).
+      const frozenAddOn = platformFrozenMessage(error);
+      if (frozenAddOn) {
+        addOnPurchasePendingRef.current = false;
+        throw new TournamentPurchaseNotSubmittedError(new Error(frozenAddOn));
+      }
+      toast?.error('Add-On Not Confirmed. Retry To Check The Same Purchase.');
+      return false;
+    } finally {
+      if (isCurrentPurchase()) {
+        rebuyProcessingRef.current = false;
+        setRebuyProcessing(false);
+      }
+    }
+  };
+
+  const confirmTournamentRebuy = async (expectedTotal?: number) => {
+    if (!tableState.tournamentId || !userId || rebuyProcessingRef.current) return;
+    const purchaseContext = tournamentPurchaseContext;
+    const token = rebuyPromptTokenRef.current ?? beginRebuyPrompt();
+    const isCurrentPurchase = () =>
+      purchaseContext.active &&
+      tournamentPurchaseContextRef.current === purchaseContext &&
+      rebuyPromptTokenRef.current === token;
+    if (!isCurrentPurchase()) return;
+    rebuyProcessingRef.current = true;
+    rebuyPurchasePendingRef.current = true;
+    setRebuyProcessing(true);
+    try {
+      const purchase = await tournamentService.processRebuy(
+        tableState.tournamentId,
+        userId,
+        token,
+        expectedTotal
+      );
+      if (!isCurrentPurchase()) return;
+      if (purchase?.success !== true) throw new Error('Rebuy Receipt Not Confirmed');
+      rebuyPurchasePendingRef.current = false;
+      setRebuyUnconfirmed(false);
+      /* Set BEFORE anything else can run. The stack that proves this
+         purchase arrives over the engine feed a moment from now, and
+         `exitIfBusted` must not be allowed to look at the stale zero in
+         between — see rebuyJustSucceededRef. */
+      rebuyJustSucceededRef.current = true;
+      toast?.success('Rebuy successful - chips added to your stack');
+      rebuyProcessingRef.current = false;
+      setRebuyProcessing(false);
+      setShowRebuyModal(false);
+      endRebuyPrompt();
+      /* Dan 2026-08-25: the player REBOUGHT, so any exit the elimination
+         broadcast deferred into the bust hold must be thrown away rather
+         than replayed — replaying it would navigate a player with a fresh
+         stack out of the tournament they just paid to stay in. */
+      bustHoldRef.current.pendingExit = null;
+      releaseBustHold();
+      // The atomic receipt owns the paid seat. Do not wait for a later
+      // broadcast, another hand, or a page refresh to restore the player.
+      masterBus.emit('TABLE_SEATED', {
+        tableId: purchase.tableId,
+        userId,
+        tableName: tableState.tableName,
+      });
+      /* A REBUY IS TAKING A SEAT AGAIN (2026-11-10, MichaelJordan, Monday
+         Night Turbo). The bust vacates the physical seat, and both the
+         engine's `seat_left` (busted_awaiting_rebuy_decision) and the
+         ten-second seat read answer that through applySeatRemoved, which
+         latches leftSeatPendingRef. This receipt restored heroSeat and
+         left the latch set, so the page went on treating a paid, seated
+         player as one who had left: their row was stripped from every
+         snapshot and, since 2026-11-09, their hole cards were dropped at
+         the delivery door. He was dealt three hands he could not see
+         and was folded by the clock on each. The receipt clears the
+         latch like every other paid seat, and stamps the seat time so a
+         seat read already in flight from before the purchase cannot
+         latch it again. */
+      leftSeatPendingRef.current = false;
+      seatAcquiredAtRef.current = Date.now();
+      bootNoticeShownRef.current = false;
+      if (purchase.tableId !== tableId) {
+        navigate(`/table/${purchase.tableId}`);
+      } else {
+        setLeaveAttentionSuppressed(false);
+        heroSeatRef.current = purchase.seatNumber;
+        setTableState((prev) => ({ ...prev, heroSeat: purchase.seatNumber }));
+        requestEngineSnapshot();
+      }
+    } catch (error) {
+      if (!isCurrentPurchase()) return;
+      if (error instanceof TournamentPurchaseNotSubmittedError) {
+        rebuyPurchasePendingRef.current = false;
+        setRebuyUnconfirmed(false);
+        toast?.error('The Purchase Was Not Submitted. Please Try Again.');
+        return;
+      }
+      // Maintenance break refusal is definitive (2026-10-16).
+      const frozenRebuy = platformFrozenMessage(error);
+      if (frozenRebuy) {
+        rebuyPurchasePendingRef.current = false;
+        setRebuyUnconfirmed(false);
+        toast?.error(frozenRebuy);
+        return;
+      }
+      setRebuyUnconfirmed(true);
+      toast?.error('Rebuy Not Confirmed. Retry To Check The Same Purchase.');
+    } finally {
+      if (isCurrentPurchase()) {
+        rebuyProcessingRef.current = false;
+        setRebuyProcessing(false);
+      }
+    }
+  };
+
+  // One automatic attempt per offer. An unknown receipt can only be retried
+  // from the existing manual recovery with the original purchase identity.
+  const autoRebuyAttemptRef = useRef<string | null>(null);
+  const autoAddOnAttemptRef = useRef<typeof tournamentPurchaseContext | null>(null);
+  const automaticRebuy =
+    tournamentAutoRebuy && canSetTournamentAutoPurchase && !!rebuyData?.autoEligible;
+  const automaticAddOn = tournamentAutoAddOn && canSetTournamentAutoPurchase;
+  const rebuyPrice = rebuyData ? rebuyData.cost + rebuyData.fee : null;
+  const addOnPrice = addOnPeriod.addOnCost + addOnPeriod.addOnFee;
+  const rebuyAffordable =
+    rebuyPrice !== null && accountBalance !== null && accountBalance >= rebuyPrice;
+  const addOnAffordable =
+    Number.isFinite(addOnPeriod.walletBalance) && addOnPeriod.walletBalance >= addOnPrice;
+  const autoRebuyAttempted =
+    rebuyPromptTokenRef.current !== null &&
+    autoRebuyAttemptRef.current === rebuyPromptTokenRef.current;
+  const autoAddOnAttempted = autoAddOnAttemptRef.current === tournamentPurchaseContext;
+  const presentRebuy =
+    showRebuyModal &&
+    (!automaticRebuy || (!rebuyProcessing && (!rebuyAffordable || autoRebuyAttempted)));
+  const presentAddOn =
+    addOnPeriod.active &&
+    (!automaticAddOn || (!rebuyProcessing && (!addOnAffordable || autoAddOnAttempted)));
+
+  const runAutomaticTournamentPurchase = useEffectEvent(() => {
+    if (!tournamentPurchaseContext.active || rebuyProcessingRef.current) return;
+    const token = rebuyPromptTokenRef.current;
+    if (showRebuyModal && automaticRebuy && token && !autoRebuyAttempted && rebuyAffordable) {
+      autoRebuyAttemptRef.current = token;
+      void confirmTournamentRebuy(rebuyPrice ?? undefined);
+      return;
+    }
+
+    if (
+      addOnPeriod.active &&
+      automaticAddOn &&
+      !autoAddOnAttempted &&
+      addOnAffordable &&
+      (addOnPeriod.endsAtMs ?? 0) > Date.now()
+    ) {
+      autoAddOnAttemptRef.current = tournamentPurchaseContext;
+      void confirmTournamentAddOn(addOnPrice).catch((error) => {
+        if (tournamentPurchaseContext.active) {
+          toast.error(
+            error instanceof Error ? error.message : 'Auto Add-On Could Not Be Submitted'
+          );
+        }
+      });
+    }
+  });
+
+  useEffect(() => {
+    runAutomaticTournamentPurchase();
+  }, [
+    showRebuyModal,
+    automaticRebuy,
+    rebuyAffordable,
+    addOnPeriod.active,
+    addOnPeriod.endsAtMs,
+    automaticAddOn,
+    addOnAffordable,
+    rebuyProcessing,
+    tournamentPurchaseContext,
+  ]);
+
+  const autoRebuyInsufficient =
+    showRebuyModal &&
+    automaticRebuy &&
+    rebuyPrice != null &&
+    accountBalance != null &&
+    accountBalance < rebuyPrice;
+  const autoAddOnInsufficient =
+    addOnPeriod.active &&
+    automaticAddOn &&
+    Number.isFinite(addOnPeriod.walletBalance) &&
+    addOnPeriod.walletBalance < addOnPrice;
+  useEffect(() => {
+    if (autoRebuyInsufficient)
+      toast.info(`You Need More ${seatUnits(tableState.arenaAsset)} To Auto Rebuy`);
+  }, [autoRebuyInsufficient, tableState.arenaAsset, toast]);
+  useEffect(() => {
+    if (autoAddOnInsufficient)
+      toast.info(`You Need More ${seatUnits(tableState.arenaAsset)} For Auto Add-On`);
+  }, [autoAddOnInsufficient, tableState.arenaAsset, toast]);
 
   const isModalActive = Boolean(
     tournamentWinner ||
@@ -32448,7 +32766,7 @@ function LiveTablePage({
               Retry Seat Status
             </button>
           </div>
-        ) : heroWaitingForButton ? (
+        ) : heroWaitingForButton && !heroSitsOutPerRow ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
             <span className="spectator-footer-bar__label">
               {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
@@ -32859,7 +33177,9 @@ function LiveTablePage({
               className="spectator-footer-bar__cta"
               onClick={() => void handleSitBackIn()}
             >
-              I'm Back
+              {disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                ? 'Resume Play'
+                : "I'm Back"}
             </button>
           </div>
         ) : !tableState.isHandInProgress &&
@@ -33284,6 +33604,7 @@ function LiveTablePage({
                        button the player pressed, and it rides to the engine
                        as auto_call's cap — a raise past it invalidates
                        instead of calling. */
+                    preActionSeenContextRef.current = tableStateRef.current.actionContext ?? null;
                     preActionCallAmountRef.current =
                       lightningOwes !== null
                         ? lightningOwes
@@ -33991,7 +34312,7 @@ function LiveTablePage({
           handleAddChips(amount, opId, { source: 'manual', onTerminalRefusal })
         }
         // Bust Rebuy
-        bustRebuyOpen={bustRebuyOpen}
+        bustRebuyOpen={bustRebuyOpen && !isAutoRebuyEnabled}
         bustWalletBalance={bustWalletBalance}
         bustRebuyProcessing={bustRebuyProcessing}
         bustRebuySecondsLeft={bustRebuySecondsLeft}
@@ -34423,51 +34744,12 @@ function LiveTablePage({
         sharedHandId={sharedHandId}
         onCloseShareHand={() => setShowShareHand(false)}
         // Add-On
-        addOnPeriod={addOnPeriod}
+        addOnPeriod={presentAddOn ? addOnPeriod : { ...addOnPeriod, active: false }}
         rebuyProcessing={rebuyProcessing}
         // Returns the outcome. This used to swallow the error and resolve void,
         // so AddOnModal printed "Add-On Accepted -- +N chips added" over a
         // purchase the server had just refused.
-        onAddOnAccept={async () => {
-          if (!tableState.tournamentId || !userId || rebuyProcessingRef.current) return false;
-          const purchaseContext = tournamentPurchaseContext;
-          const isCurrentPurchase = () =>
-            purchaseContext.active && tournamentPurchaseContextRef.current === purchaseContext;
-          if (!isCurrentPurchase()) return false;
-          rebuyProcessingRef.current = true;
-          addOnPurchasePendingRef.current = true;
-          addOnPresentationEpochRef.current += 1;
-          setRebuyProcessing(true);
-          try {
-            const purchase = await tournamentService.processAddOn(tableState.tournamentId, userId);
-            if (!isCurrentPurchase()) return false;
-            if (purchase?.success !== true) return false;
-            addOnPurchasePendingRef.current = false;
-            toast?.success('Add-on accepted - chips added to your stack');
-            addOnPresentationEpochRef.current += 1;
-            setAddOnPeriod((prev) => ({ ...prev, active: false }));
-            return true;
-          } catch (error) {
-            if (!isCurrentPurchase()) return false;
-            if (error instanceof TournamentPurchaseNotSubmittedError) {
-              addOnPurchasePendingRef.current = false;
-              throw error;
-            }
-            // Maintenance break refusal is definitive (2026-10-16).
-            const frozenAddOn = platformFrozenMessage(error);
-            if (frozenAddOn) {
-              addOnPurchasePendingRef.current = false;
-              throw new TournamentPurchaseNotSubmittedError(new Error(frozenAddOn));
-            }
-            toast?.error('Add-On Not Confirmed. Retry To Check The Same Purchase.');
-            return false;
-          } finally {
-            if (isCurrentPurchase()) {
-              rebuyProcessingRef.current = false;
-              setRebuyProcessing(false);
-            }
-          }
-        }}
+        onAddOnAccept={confirmTournamentAddOn}
         onAddOnDecline={() => {
           if (rebuyProcessingRef.current) return;
           // Dismissal after an unknown reply closes only this presentation.
@@ -34480,103 +34762,10 @@ function LiveTablePage({
            price-bound offer the table menu's Add-On item opens. */
         onOpenAddOn={() => void handleTournamentAddOn()}
         // Rebuy
-        showRebuyModal={showRebuyModal}
+        showRebuyModal={presentRebuy}
         rebuyData={rebuyData}
         rebuyUnconfirmed={rebuyUnconfirmed}
-        onConfirmRebuy={async () => {
-          if (!tableState.tournamentId || !userId || rebuyProcessingRef.current) return;
-          const purchaseContext = tournamentPurchaseContext;
-          const token = rebuyPromptTokenRef.current ?? beginRebuyPrompt();
-          const isCurrentPurchase = () =>
-            purchaseContext.active &&
-            tournamentPurchaseContextRef.current === purchaseContext &&
-            rebuyPromptTokenRef.current === token;
-          if (!isCurrentPurchase()) return;
-          rebuyProcessingRef.current = true;
-          rebuyPurchasePendingRef.current = true;
-          setRebuyProcessing(true);
-          try {
-            const purchase = await tournamentService.processRebuy(
-              tableState.tournamentId,
-              userId,
-              token
-            );
-            if (!isCurrentPurchase()) return;
-            if (purchase?.success !== true) throw new Error('Rebuy Receipt Not Confirmed');
-            rebuyPurchasePendingRef.current = false;
-            setRebuyUnconfirmed(false);
-            /* Set BEFORE anything else can run. The stack that proves this
-               purchase arrives over the engine feed a moment from now, and
-               `exitIfBusted` must not be allowed to look at the stale zero in
-               between — see rebuyJustSucceededRef. */
-            rebuyJustSucceededRef.current = true;
-            toast?.success('Rebuy successful - chips added to your stack');
-            rebuyProcessingRef.current = false;
-            setRebuyProcessing(false);
-            setShowRebuyModal(false);
-            endRebuyPrompt();
-            /* Dan 2026-08-25: the player REBOUGHT, so any exit the elimination
-               broadcast deferred into the bust hold must be thrown away rather
-               than replayed — replaying it would navigate a player with a fresh
-               stack out of the tournament they just paid to stay in. */
-            bustHoldRef.current.pendingExit = null;
-            releaseBustHold();
-            // The atomic receipt owns the paid seat. Do not wait for a later
-            // broadcast, another hand, or a page refresh to restore the player.
-            masterBus.emit('TABLE_SEATED', {
-              tableId: purchase.tableId,
-              userId,
-              tableName: tableState.tableName,
-            });
-            /* A REBUY IS TAKING A SEAT AGAIN (2026-11-10, MichaelJordan, Monday
-               Night Turbo). The bust vacates the physical seat, and both the
-               engine's `seat_left` (busted_awaiting_rebuy_decision) and the
-               ten-second seat read answer that through applySeatRemoved, which
-               latches leftSeatPendingRef. This receipt restored heroSeat and
-               left the latch set, so the page went on treating a paid, seated
-               player as one who had left: their row was stripped from every
-               snapshot and, since 2026-11-09, their hole cards were dropped at
-               the delivery door. He was dealt three hands he could not see
-               and was folded by the clock on each. The receipt clears the
-               latch like every other paid seat, and stamps the seat time so a
-               seat read already in flight from before the purchase cannot
-               latch it again. */
-            leftSeatPendingRef.current = false;
-            seatAcquiredAtRef.current = Date.now();
-            bootNoticeShownRef.current = false;
-            if (purchase.tableId !== tableId) {
-              navigate(`/table/${purchase.tableId}`);
-            } else {
-              setLeaveAttentionSuppressed(false);
-              heroSeatRef.current = purchase.seatNumber;
-              setTableState((prev) => ({ ...prev, heroSeat: purchase.seatNumber }));
-              requestEngineSnapshot();
-            }
-          } catch (error) {
-            if (!isCurrentPurchase()) return;
-            if (error instanceof TournamentPurchaseNotSubmittedError) {
-              rebuyPurchasePendingRef.current = false;
-              setRebuyUnconfirmed(false);
-              toast?.error('The Purchase Was Not Submitted. Please Try Again.');
-              return;
-            }
-            // Maintenance break refusal is definitive (2026-10-16).
-            const frozenRebuy = platformFrozenMessage(error);
-            if (frozenRebuy) {
-              rebuyPurchasePendingRef.current = false;
-              setRebuyUnconfirmed(false);
-              toast?.error(frozenRebuy);
-              return;
-            }
-            setRebuyUnconfirmed(true);
-            toast?.error('Rebuy Not Confirmed. Retry To Check The Same Purchase.');
-          } finally {
-            if (isCurrentPurchase()) {
-              rebuyProcessingRef.current = false;
-              setRebuyProcessing(false);
-            }
-          }
-        }}
+        onConfirmRebuy={confirmTournamentRebuy}
         onCloseRebuyModal={async () => {
           if (rebuyProcessingRef.current || rebuyPurchasePendingRef.current) return;
           if (!tableId || !userId) return;

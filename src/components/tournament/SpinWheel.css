@@ -93,7 +93,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 108px;
   font-weight: 900;
-  color: #ffe14d;
+  color: #92dfff;
   text-shadow:
     0 0 30px rgba(255, 225, 77, 0.55),
     0 4px 14px rgba(0, 0, 0, 0.8);
@@ -459,7 +459,7 @@
   font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.06em;
-  color: #e7c76a;
+  color: #92dfff;
   text-shadow: 0 0 10px rgba(231, 199, 106, 0.5);
 }
 
@@ -467,7 +467,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 24px;
   font-weight: 900;
-  color: #ffe14d;
+  color: #92dfff;
   text-shadow: 0 0 14px rgba(255, 225, 77, 0.6);
   animation: swHubPop 0.45s cubic-bezier(0.2, 1.5, 0.35, 1) both;
 }
@@ -544,7 +544,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 40px;
   font-weight: 900;
-  color: #ffe14d;
+  color: #92dfff;
   text-shadow:
     0 0 24px rgba(255, 225, 77, 0.45),
     0 3px 10px rgba(0, 0, 0, 0.8);
@@ -586,7 +586,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px;
   font-weight: 800;
-  color: #ffe9a1;
+  color: #92dfff;
 }
 
 .sw__hype {
@@ -721,11 +721,11 @@
   text-shadow: 0 0 10px rgba(125, 211, 252, 0.45);
 }
 .sw__hype--big {
-  color: #fbbf24;
+  color: #92dfff;
   text-shadow: 0 0 14px rgba(251, 191, 36, 0.55);
 }
 .sw__hype--mega {
-  color: #fff1a8;
+  color: #92dfff;
   text-shadow:
     0 0 10px rgba(255, 241, 168, 0.9),
     0 0 30px rgba(255, 190, 60, 0.75);

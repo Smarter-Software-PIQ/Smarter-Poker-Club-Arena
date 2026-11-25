@@ -78,6 +78,10 @@ import {
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { bindToProcessRoot } from './services/supabase/dataActorContext.js';
 import {
+  eventDatabaseBulkhead,
+  eventDbBulkheadPrometheusLines,
+} from './services/supabase/eventDatabaseBulkhead.js';
+import {
   F06DrainedCustodyUnprovenError,
   f06CustodyRefusalKey,
   f06RecoveryDispositionOwner,
@@ -115,6 +119,7 @@ import { ServerTableEngine } from './engine/ServerTableEngine.js';
 import { TableRestartBackoff } from './engine/TableRestartBackoff.js';
 import { equityGovernor } from './engine/EquityLoadGovernor.js';
 import { stopBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { stopHorseErrorLog } from './services/HorseErrorLog.js';
 import { stopHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { HorseDecisionAbortedError } from './engine/horseDecision/client.js';
 import {
@@ -6051,6 +6056,11 @@ export class GameServer {
       // is not an ownership stop: unwritten evidence is reported, never a reason to hold the leases.
       stopHorseUpgradeEvidenceFlush(),
     ]);
+    // The Horse error log closes its open minutes AFTER the decision workers have drained, so a fallback
+    // taken during the drain is still a row, then waits at most 5,000 ms for the last writes (usually
+    // none in flight). It never rejects and owns no lease: an unwritten row is logged, never a reason to
+    // hold the leases.
+    await stopHorseErrorLog();
     if (horseDecisionStop.status === 'rejected') {
       const error = new AggregateError(
         [horseDecisionStop.reason],
@@ -6590,6 +6600,7 @@ export class GameServer {
       // not fit inside the rest. See engine/NextHandGap.ts.
       nextHandGap: nextHandGap.snapshot(),
       cashNextHandStart: cashDealGap.snapshot(),
+      eventDbBulkhead: eventDatabaseBulkhead.snapshot(),
       // Deploy drain gate reads this. A restart voids in-flight hands, so a
       // routine server/ push waits (or is explicitly forced) while real people
       // are seated. Horses are excluded — they do not care.
@@ -7222,6 +7233,10 @@ export class GameServer {
       // DatabaseRepliesLost / DatabaseWriteRetriesExhausted. See
       // services/supabase/dbReplyMetrics.ts.
       ...dbReplyPrometheusLines(),
+      // ── EVENT DATABASE BULKHEAD ──────────────────────────────────────
+      // Per-event & fleet database concurrency protection (PR #11926). Read by
+      // EventDbBulkheadSaturated / EventDbBulkheadOpen in alert-rules.yml.
+      ...eventDbBulkheadPrometheusLines(),
       // ── REPLICATION OBSERVABILITY (2026-09-04) ───────────────────────
       // How far behind the realtime replication slot is, in bytes, per slot.
       // See services/ReplicationMetrics.ts.

@@ -23,10 +23,12 @@ import { describe, expect, it } from 'vitest';
 
 const DIR = join(__dirname, '..', 'supabase', 'migrations');
 const ROOT = '20261124041800_stall_watch_v3_thaw_boundary.sql';
+const HARDEN = '20261124074800_harden_stall_12m_and_bbj_alert_closure.sql';
 const files = readdirSync(DIR)
   .filter((f) => /^\d{14}_.+\.sql$/.test(f))
   .sort();
 const root = readFileSync(join(DIR, ROOT), 'utf8');
+const harden = readFileSync(join(DIR, HARDEN), 'utf8');
 
 describe('stall watch honors bounded complete v3 maintenance thaw boundaries', () => {
   it('opens with BEGIN, closes with COMMIT, declares @live-proof, and pins exact live preimages', () => {
@@ -58,6 +60,16 @@ describe('stall watch honors bounded complete v3 maintenance thaw boundaries', (
     );
     expect(root).toContain('AND t.release_target_at <= p_now');
     expect(root).toContain("AND t.release_target_at > p_now - interval '1 day'");
+  });
+
+  it('hardening follow-up 20261124074800 raises bounded maintenance cap from 5m to 12m with exact preimage pins', () => {
+    expect(harden).toMatch(/^-- @live-proof: /m);
+    expect(harden).toContain("md5(v_tick_def) IS DISTINCT FROM 'c4c690d3f6204a24d29a1a7ee4f1d39c'");
+    expect(harden).toContain("md5(v_ingest_def) IS DISTINCT FROM '9d987cc7e2d4a3a958d05dcd89137fac'");
+    expect(harden).toContain("AND b.break_ends_at <= b.break_started_at + interval '12 minutes'");
+    expect(harden).toContain(
+      "AND t.release_target_at <= t.freeze_started_at + interval '12 minutes'"
+    );
   });
 
   it('no later migration drops v3 thaw awareness or post-HTTP v_now refresh', () => {

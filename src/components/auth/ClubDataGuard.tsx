@@ -11,7 +11,7 @@ export default function ClubDataGuard({
   children,
   wholeClub = false,
 }: {
-  children: ReactNode;
+  children: ReactNode | ((scope: NonNullable<ClubDataScope>) => ReactNode);
   wholeClub?: boolean;
 }) {
   const { clubId } = useParams<{ clubId: string }>();
@@ -56,5 +56,9 @@ export default function ClubDataGuard({
     return <Navigate to={`/clubs/${clubId}/data`} replace />;
   }
   // Account changes retire the entire report tree, including all private state.
-  return <Fragment key={key}>{children}</Fragment>;
+  return (
+    <Fragment key={key}>
+      {typeof children === 'function' ? children(verdict.scope) : children}
+    </Fragment>
+  );
 }

@@ -42,7 +42,9 @@ const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 describe('which games hold a seat for a friend', () => {
   it('a Sit & Go of four to nine seats does, beside the Spin and the Heads Up', () => {
     expect(isSitAndGoInviteFormat({ variant: 'sng', max_players: 6 })).toBe(true);
-    expect(isSitAndGoInviteFormat({ variant: 'SNG', max_players: 9, format_contract: 'sng-v1' })).toBe(true);
+    expect(
+      isSitAndGoInviteFormat({ variant: 'SNG', max_players: 9, format_contract: 'sng-v1' })
+    ).toBe(true);
     expect(isPrivateInviteFormat({ variant: 'sng', max_players: 9 })).toBe(true);
     expect(isPrivateInviteFormat({ variant: 'spin', max_players: 3 })).toBe(true);
     expect(isPrivateInviteFormat({ variant: 'sng', max_players: 2 })).toBe(true);
@@ -198,11 +200,16 @@ describe('offered only by an engine that honours a Sit & Go hold', () => {
 
 describe('it is wired where a player meets it', () => {
   it('every Sit & Go registration asks the hold before any money moves, and is not retried past it', () => {
-    const register = sliceMethod(read('src/services/TournamentService.ts'), 'async registerPlayer(');
-    const ask = register.indexOf('acceptPrivateGameInvite(tournamentId, privateInviteTokenFor(tournamentId))');
+    const register = sliceMethod(
+      read('src/services/TournamentService.ts'),
+      'async registerPlayer('
+    );
+    const ask = register.search(
+      /acceptPrivateGameInvite\(\s*tournamentId,\s*privateInviteTokenFor\(tournamentId\)\s*\)/
+    );
     expect(ask).toBeGreaterThan(-1);
     expect(ask).toBeLessThan(register.indexOf("'fn_register_for_tournament_request'"));
-    expect(register).toMatch(/if \(isSitAndGoInviteFormat\(\s*tournament/);
+    expect(register).toMatch(/if \(\s*isSitAndGoInviteFormat\(\s*tournament/);
     expect(register.indexOf('isSitAndGoInviteFormat(')).toBeLessThan(ask);
     expect(register).toMatch(/!isPrivateGameSeatHeldError\(rpcCall\.error\)/);
     expect(register).toMatch(/if \(isPrivateGameSeatHeldError\(rpcError\)\)/);
@@ -213,10 +220,12 @@ describe('it is wired where a player meets it', () => {
     expect(launcher).toMatch(
       /sitAndGo \? privateSitAndGoHoldsSupported\(\) : privateGameHoldsSupported\(\)/
     );
-    expect(launcher).toMatch(/navigate\(`\/tournaments\/\$\{encodeURIComponent\(res\.hold\.tournamentId\)\}\?held=1`\)/);
+    expect(launcher).toMatch(
+      /navigate\(`\/tournaments\/\$\{encodeURIComponent\(res\.hold\.tournamentId\)\}\?held=1`\)/
+    );
   });
 
-  it('the tournament page shows the held seats and the friend\'s Take Seat', () => {
+  it("the tournament page shows the held seats and the friend's Take Seat", () => {
     const page = read('src/pages/tournament/TournamentDetails.tsx');
     expect(page).toMatch(/usePrivateSitAndGoHold\(\{/);
     expect(page).toMatch(/\{sitAndGoHold\.element\}/);
@@ -243,7 +252,11 @@ describe('it is wired where a player meets it', () => {
 
   it('the dialog speaks in Title Case with no em dash and no new painted control', () => {
     const modal = read('src/components/table/PrivateGameInviteModal.tsx');
-    const sng = sliceBetween(modal, "if (step === 'start' && sitAndGo) {", "} else if (step === 'start') {");
+    const sng = sliceBetween(
+      modal,
+      "if (step === 'start' && sitAndGo) {",
+      "} else if (step === 'start') {"
+    );
     expect(sng).not.toMatch(/\u2014/);
     expect(sng).toMatch(/hu-waiting-dialog__copy-inline/);
     expect(sng).not.toMatch(/style=\{|border-radius|linear-gradient/);

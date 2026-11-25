@@ -25,6 +25,7 @@ import {
   formatSwitchChangeLogLine,
   inferLaneFromActor,
   parseAlarmBaselineJson,
+  parseAuthorityDocEvidence,
   parseCliArgs,
   parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
@@ -73,6 +74,9 @@ function baseServingRegistry(
   ];
 }
 
+const METAUTHORITY_DOC =
+  '# styleTightPlayerExploit: authority\n\n**State: OFF**. Evidence MET (replay row below).\n';
+
 function basePreflightInput(overrides: Record<string, unknown> = {}) {
   return {
     option: 'styleTightPlayerExploit',
@@ -102,6 +106,7 @@ function basePreflightInput(overrides: Record<string, unknown> = {}) {
     ownerWindowsConfig: { version: 1, windows: [] },
     engineHealth: healthyEngine(),
     recentConfigAlarms: [],
+    authorityEvidence: 'met',
     ...overrides,
   };
 }
@@ -138,6 +143,43 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       const unrecorded = evaluatePreflight(basePreflightInput({ evidenceRecorded: false }));
       expect(unrecorded.ok).toBe(false);
       expect(unrecorded.failures.map((f) => f.code)).toContain('EVIDENCE_NOT_RECORDED');
+    });
+
+    it('refuses on / on_shadow unless the cited authority file states "Evidence MET"', () => {
+      for (const authorityEvidence of ['not_met', 'none', 'unreadable', null]) {
+        for (const targetState of ['on', 'on_shadow']) {
+          const res = evaluatePreflight(basePreflightInput({ targetState, authorityEvidence }));
+          expect(res.ok).toBe(false);
+          expect(res.failures.map((f) => f.code)).toContain('AUTHORITY_EVIDENCE_NOT_MET');
+        }
+      }
+      // A rollback only restores a state that was live, so it is exempt.
+      const rollback = evaluatePreflight(
+        basePreflightInput({ targetState: 'on', isRollback: true, authorityEvidence: 'not_met' })
+      );
+      expect(rollback.failures.map((f) => f.code)).not.toContain('AUTHORITY_EVIDENCE_NOT_MET');
+      // off / shadow are not switch-ons and do not need it.
+      const off = evaluatePreflight(
+        basePreflightInput({ targetState: 'off', authorityEvidence: 'not_met' })
+      );
+      expect(off.failures.map((f) => f.code)).not.toContain('AUTHORITY_EVIDENCE_NOT_MET');
+    });
+
+    it('reads the evidence claim from the status paragraph exactly as the replay law does', () => {
+      expect(parseAuthorityDocEvidence(METAUTHORITY_DOC)).toBe('met');
+      expect(
+        parseAuthorityDocEvidence('# x\n\n**State: LIVE ON**. Evidence NOT MET against the bar.\n')
+      ).toBe('not_met');
+      expect(parseAuthorityDocEvidence('# x\n\n**State: OFF**.\n\nLater: Evidence MET.\n')).toBe(
+        'none'
+      );
+      expect(parseAuthorityDocEvidence('no title, Evidence MET')).toBe('none');
+      // The file that was switched on with "Evidence NOT MET" on 2026-11-22 (audit #185) is refused.
+      const packet2 = readFileSync(
+        resolve('docs/horse-option-authority.d/holdemValueAndCallsArePriced.md'),
+        'utf8'
+      );
+      expect(parseAuthorityDocEvidence(packet2)).toBe('not_met');
     });
 
     it('allows rollback from on_shadow back to on and from shadow back to off', () => {
@@ -890,7 +932,7 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
           queryDb,
           fetchHealth: vi.fn(async () => healthyEngine()),
           readFile: vi.fn(() => JSON.stringify({ version: 1, windows: [] })),
-          readFileBuffer: vi.fn(() => Buffer.from('authority-doc')),
+          readFileBuffer: vi.fn(() => Buffer.from(METAUTHORITY_DOC)),
           appendLogLine: vi.fn((file: string, line: string) => loggedLines.push({ file, line })),
           writeStateFile: vi.fn((file: string, text: string) => stateWrites.push({ file, text })),
           now: () => SAFE_NOW,

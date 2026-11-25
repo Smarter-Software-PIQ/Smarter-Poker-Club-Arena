@@ -8,14 +8,31 @@ export function registerCompactLobbyRowsCases() {
   }) => {
     await page.setViewportSize({ width: 393, height: 812 });
     await page.setContent(
-      `<main class="club-home"><div class="lobby-table-wrap"><table class="compact-lobby has-premium-chassis"><tbody>${['first', 'second', 'third'].map((id) => `<tr data-game-heading="${id}" data-kind="cash"><td><span class="lt-tournament-heading"><span class="lt-tournament-icon">Cash Game</span></span></td></tr><tr data-id="${id}" data-kind="cash"><td><button class="lt-fav" aria-label="Favorite ${id}" onclick="document.body.dataset.favorite='${id}'">Star</button><button class="compact-lobby__open" aria-label="Details: ${id}" onclick="document.body.dataset.details='${id}'"><span class="premium-cash-style">Classic</span></button></td><td data-label="Stakes">1/2</td><td>6</td><td>Running</td></tr>`).join('')}</tbody></table></div></main>`
+      `<meta name="viewport" content="width=device-width,initial-scale=1"><main class="club-home"><nav class="lobby-sticky-filters" aria-label="Quick Lobby Filters" hidden><button>Browse Game Types</button></nav><div class="lobby-table-wrap"><table class="compact-lobby has-premium-chassis"><tbody>${['first', 'second', 'third'].map((id) => `<tr data-game-heading="${id}" data-kind="cash"><td><span class="lt-tournament-heading"><span class="lt-tournament-icon">Cash Game</span></span></td></tr><tr data-id="${id}" data-kind="cash"><td><button class="lt-fav" aria-label="Favorite ${id}" onclick="document.body.dataset.favorite='${id}'">Star</button><button class="compact-lobby__open" aria-label="Details: ${id}" onclick="document.body.dataset.details='${id}'"><span class="premium-cash-style">Classic</span></button></td><td data-label="Stakes">1/2</td><td>6</td><td>Running</td></tr>`).join('')}</tbody></table></div></main>`
     );
     await page.addStyleTag({
-      content: ['LobbyTable.css', 'CompactLobbyRows.css', 'PremiumMttRows.css']
+      content: [
+        'LobbyTable.css',
+        'CompactLobbyRows.css',
+        'PremiumMttRows.css',
+        'StickyLobbyFilters.css',
+      ]
         .map((name) => readFileSync('src/components/lobby/' + name, 'utf8'))
         .join('\n'),
     });
     const details = page.getByRole('button', { name: 'Details: third', exact: true });
+    // Scrolling past the main controls reveals this rail between measuring a
+    // tap and dispatching it. The same screen point must still open this game.
+    const point = await details.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    });
+    await page
+      .locator('.lobby-sticky-filters')
+      .evaluate((element) => element.removeAttribute('hidden'));
+    await expect(page.getByRole('button', { name: 'Browse Game Types' })).toBeVisible();
+    await page.mouse.click(point.x, point.y);
+    await expect(page.locator('body')).toHaveAttribute('data-details', 'third', { timeout: 1000 });
     const geometry = await details.evaluate((button) => {
       const row = button.closest('tr')!.getBoundingClientRect();
       const hit = button.getBoundingClientRect();
@@ -29,7 +46,21 @@ export function registerCompactLobbyRowsCases() {
     expect(geometry.width).toBeCloseTo(geometry.rowWidth, 0);
     expect(Math.abs(geometry.top)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.bottom)).toBeLessThanOrEqual(1);
-    await details.click();
+    const scroll = page.locator('.lobby-table-wrap');
+    await scroll.evaluate((element) => {
+      element.style.maxHeight = '160px';
+      element.style.overflowY = 'auto';
+    });
+    for (const id of ['third', 'second', 'first']) {
+      const entry = page.getByRole('button', { name: 'Details: ' + id, exact: true });
+      await entry.click();
+      await expect(page.locator('body')).toHaveAttribute('data-details', id);
+      await page.locator('body').evaluate((element) => element.removeAttribute('data-details'));
+      await entry.locator('.premium-cash-style').click();
+      await expect(page.locator('body')).toHaveAttribute('data-details', id);
+    }
+    await details.focus();
+    await page.keyboard.press('Enter');
     await expect(page.locator('body')).toHaveAttribute('data-details', 'third');
     await page.getByRole('button', { name: 'Favorite third', exact: true }).click();
     await expect(page.locator('body')).toHaveAttribute('data-favorite', 'third');

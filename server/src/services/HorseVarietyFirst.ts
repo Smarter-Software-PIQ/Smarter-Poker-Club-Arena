@@ -140,22 +140,44 @@ export function varietyFirstPlan<T extends VarietyTable>(
 /**
  * THE HOLD IS ONLY AS GOOD AS THE CYCLE THAT CAN PAY THE DEBT (review of
  * 02de6de4e2f, finding 1). An extra table waits for an owed start only in a
- * cycle that can actually make that start: the walk is not withheld (fleet
- * disabled, seating paused, brain behind, fleet-wide cap, outside the
- * schedule) and the hourly cap admits at least one owed table this cycle. In
- * every other cycle nothing is held by any door: the owed game cannot start
- * anyway, and a feeder-start move, which adds no Horse to the floor, must not
- * wait on a fleet that is not seating.
+ * cycle whose walk is seating: not withheld (fleet disabled, seating paused,
+ * brain behind, fleet-wide cap, outside the schedule). In a withheld cycle
+ * nothing is held by any door: the owed game cannot start, and a feeder-start
+ * move, which adds no Horse to the floor, must not wait on a fleet that is not
+ * seating.
+ *
+ * A FULL CAP IS NOT A CYCLE THAT CANNOT PAY (2026-11-24). Until then the hold
+ * also required the hourly cap to admit an owed table THIS cycle. At a full
+ * cap it never did, so nothing was held, and the cluster tick (every 5 s; the
+ * fleet walks every 30 s) turned each slot that freed into another game's
+ * waiting-list feeder: Short Deck, Pineapple, FLO8 and PLO8 dealt nothing from
+ * 2026-11-23 08:43Z while ten games held up to four tables each. What keeps an
+ * owed table out of the cap's admission is the cap itself or the floor clock,
+ * and both pass; the extra table waits behind them so the owed start gets the
+ * next slot. The same games ride the heartbeat (varietyOwedGamesThisCycle) so
+ * the database's feeder opener (fn_cash_hourly_feeder_admissible,
+ * 20261124072701) holds on the same list.
  */
 export function varietyHoldsThisCycle(
   plan: VarietyFirstPlan,
-  cycle: { withheld: boolean; admitted: (tableId: string) => boolean }
+  cycle: { withheld: boolean }
 ): ReadonlySet<string> {
-  if (cycle.withheld) return NO_VARIETY_PLAN.heldStarts;
-  for (const tableId of plan.owedStarts.keys()) {
-    if (cycle.admitted(tableId)) return plan.heldStarts;
-  }
-  return NO_VARIETY_PLAN.heldStarts;
+  if (cycle.withheld || plan.owedStarts.size === 0) return NO_VARIETY_PLAN.heldStarts;
+  return plan.heldStarts;
+}
+
+/**
+ * The games this cycle holds extra tables for, sorted, for the heartbeat's
+ * `detail.variety_owed_games`. Empty in a withheld cycle, exactly when
+ * varietyHoldsThisCycle holds nothing, so the database never holds on a list
+ * the fleet is not paying.
+ */
+export function varietyOwedGamesThisCycle(
+  plan: VarietyFirstPlan,
+  cycle: { withheld: boolean }
+): string[] {
+  if (cycle.withheld) return [];
+  return [...new Set(plan.owedStarts.values())].sort();
 }
 
 /** The walk's rank: an owed start before everything but a short-handed person. */

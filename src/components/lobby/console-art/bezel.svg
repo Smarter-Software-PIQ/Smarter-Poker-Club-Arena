@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none">
+  <defs>
+    <linearGradient id="chrome" x1="0" y1="0" x2="0.22" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#edf6ff"/><stop offset=".09" stop-color="#899ead"/><stop offset=".32" stop-color="#3c5067"/><stop offset=".7" stop-color="#657988"/><stop offset=".94" stop-color="#a3bbd0"/><stop offset="1" stop-color="#e0e9fa"/>
+    </linearGradient>
+    <linearGradient id="reflection"><stop stop-color="#91a0ad"/><stop offset=".32" stop-color="#526378"/><stop offset=".46" stop-color="#66c1ff"/><stop offset=".51" stop-color="#e4fbff"/><stop offset=".58" stop-color="#266cc8"/><stop offset=".78" stop-color="#617487"/><stop offset="1" stop-color="#98aabd"/></linearGradient>
+  </defs>
+  <path d="M11 2 H85 L94 11 V85 L85 94 H11 L2 85 V11 Z" stroke="url(#chrome)" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M11 2 H85 M11 94 H85" stroke="url(#reflection)" stroke-width="2.5"/>
+</svg>

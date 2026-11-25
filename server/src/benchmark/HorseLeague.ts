@@ -4589,6 +4589,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverCurrentNutsCallFloor: true },
     b: {},
   })),
+  // 2026-11-24 PLO-LEAD-6 (default OFF): omahaOopReraiseRangeHoldsVsReraise (PLO4/PLO5 cash) and
+  // holdemOopReraiseRangeHoldsVsReraise (NLH cash): the out-of-position 3-bet stands only when priced against the call
+  // and the Horse's own answer to the 4-bet; a switches it on, b is today's brain. Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_oop_reraise_range_holds_vs_reraise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOopReraiseRangeHoldsVsReraise: true },
+    b: {},
+  })),
+  {
+    name: 'nlh_holdem_oop_reraise_range_holds_vs_reraise',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOopReraiseRangeHoldsVsReraise: true },
+    b: {},
+  },
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
   // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
   // a re-raise is positive); a switches it on, b is today's brain.

@@ -1,3 +1,4 @@
+import { ownTurnArmRefusal } from '../engine/PreActionOnOwnTurn.js';
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
 import { warmOpponentHudSeats } from '../services/OpponentHudStore.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
@@ -2366,7 +2367,9 @@ export class LightningHandHost {
     userId: string,
     action: string,
     maxCallAmount?: number,
-    handId?: string
+    handId?: string,
+    /** The decision the browser was showing when the player armed this. */
+    seenActionContext?: string
   ): { success: boolean; error?: string; code?: string } {
     const refuse = (
       detail: string,
@@ -2417,6 +2420,12 @@ export class LightningHandHost {
     ) {
       const released = this.preActionFold(userId, action, handId);
       if (released.success) return released;
+    }
+    // On the player's own turn an arm is an action: one that can put chips in
+    // must have seen this decision (PreActionOnOwnTurn, CoachTim68 2026-11-24).
+    if (st.currentPlayerSeat === me.seat && this.turnUser === userId) {
+      const stale = ownTurnArmRefusal(action, seenActionContext, playerActionContext(this.hc));
+      if (stale) return refuse('stale_decision', { ...stale });
     }
     this.preActions.setPreAction(
       this.timerKey,

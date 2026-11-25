@@ -9,6 +9,7 @@ import {
   buildResetTrapsSql,
   buildServingRegistrySql,
   evaluateCommitAncestry,
+  evaluateExploitReport,
   evaluateConfigAlarms,
   evaluateLiveHealth,
   evaluateResetTraps,
@@ -512,6 +513,83 @@ describe('post-cutover-audit-lib', () => {
       const trapCheck = report.checks.find((c) => c.name === 'zero_reset_traps');
       expect(trapCheck?.status).toBe('fail');
       expect(trapCheck?.details?.offendingRows).toHaveLength(1);
+    });
+  });
+  describe('optional Horse exploit report step (--exploit-split-at)', () => {
+    const cleanDb = vi.fn(async (sql: string) => {
+      if (sql.includes('ca_horse_option_registry_serving')) {
+        return [
+          { release_sha: HEALTHY_BODY.releaseSha, age_sec: 8, seen_at: '2026-11-24T06:59:00Z' },
+        ];
+      }
+      if (sql.includes('horse_brain_flush_receipts')) {
+        return [{ scope: 'nlh', samples: 500, avg_ms: 12, max_ms: 85, over100: 0 }];
+      }
+      return [];
+    });
+    const baseDeps = {
+      now: () => Date.parse('2026-11-24T07:00:00Z'),
+      fetchHealth: async () => ({ status: 200, body: HEALTHY_BODY }),
+      querySupabase: cleanDb,
+      isGitAncestor: () => ({ ok: true, reason: null }),
+    };
+
+    it('parses --exploit-split-at and --strict-exploit and refuses an instant without a zone', () => {
+      const o = parseCliArgs(['--exploit-split-at', '2026-11-24T04:00:00Z', '--strict-exploit']);
+      expect(o.exploitSplitAt).toBe('2026-11-24T04:00:00Z');
+      expect(o.strictExploit).toBe(true);
+      expect(parseCliArgs([]).exploitSplitAt).toBeNull();
+      expect(() => parseCliArgs(['--exploit-split-at', '2026-11-24T04:00:00'])).toThrow(/zone/);
+    });
+
+    it('is not run, and adds no check, without --exploit-split-at', async () => {
+      const runExploitReport = vi.fn();
+      const report = await runPostCutoverAudit(
+        { compareHours: 1 },
+        { ...baseDeps, runExploitReport }
+      );
+      expect(runExploitReport).not.toHaveBeenCalled();
+      expect(report.checks.map((c) => c.name)).not.toContain('horse_exploit_report');
+    });
+
+    it('runs the report from 24 h before the split to now; a finding warns and does not fail the audit', async () => {
+      const runExploitReport = vi.fn(async () => ({
+        exitCode: 1,
+        gateLine: 'GATE 1: 1 cell(s) became or grew EXPLOITABLE after a split (...)',
+        findings: ['NLH cash, heads-up, river, facing a bet: Horses fold 84.4%'],
+      }));
+      const report = await runPostCutoverAudit(
+        { compareHours: 1, exploitSplitAt: '2026-11-24T04:00:00Z' },
+        { ...baseDeps, runExploitReport }
+      );
+      expect(runExploitReport).toHaveBeenCalledWith({
+        splitAt: '2026-11-24T04:00:00.000Z',
+        since: '2026-11-23T04:00:00.000Z',
+        until: '2026-11-24T07:00:00.000Z',
+      });
+      const check = report.checks.find((c) => c.name === 'horse_exploit_report');
+      expect(check?.status).toBe('warn');
+      expect(report.overallStatus).toBe('PASS');
+      const text = formatAuditReportText(report);
+      expect(text).toContain('[WARN   ] horse_exploit_report');
+      expect(text).toContain('rollback trigger');
+    });
+
+    it('with --strict-exploit a finding or a failed read fails the audit; too few hands never does', async () => {
+      const finding = await runPostCutoverAudit(
+        { compareHours: 1, exploitSplitAt: '2026-11-24T04:00:00Z', strictExploit: true },
+        { ...baseDeps, runExploitReport: async () => ({ exitCode: 1, gateLine: 'GATE 1' }) }
+      );
+      expect(finding.overallStatus).toBe('FAIL');
+      expect(evaluateExploitReport({ exitCode: 70 }, { strict: true }).status).toBe('fail');
+      expect(evaluateExploitReport({ exitCode: 70 }, { strict: false }).status).toBe('unknown');
+      expect(evaluateExploitReport({ exitCode: 2 }, { strict: true }).status).toBe('unknown');
+      expect(evaluateExploitReport({ exitCode: 0 }, { strict: true }).status).toBe('pass');
+      const future = await runPostCutoverAudit(
+        { compareHours: 1, exploitSplitAt: '2026-11-24T08:00:00Z', strictExploit: true },
+        { ...baseDeps, runExploitReport: vi.fn() }
+      );
+      expect(future.checks.find((c) => c.name === 'horse_exploit_report')?.status).toBe('fail');
     });
   });
 });

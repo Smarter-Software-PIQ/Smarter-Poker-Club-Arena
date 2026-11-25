@@ -39,6 +39,8 @@ on:
       - tests/operations/engine-build-resource-proof.test.py
       - tests/operations/engine-image-dependencies.mjs
       - .github/workflows/engine-build-resource-proof.yml
+      - scripts/ci/engine-emit-heap-headroom.mjs
+      - scripts/ci/engine-emit-heap-headroom.test.mjs
 permissions:
   contents: read
 concurrency:
@@ -82,6 +84,10 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build -- --project tsconfig.runtime.json
+      - name: The engine emit keeps 100 MiB of heap headroom under its bound
+        run: |
+          node --test scripts/ci/engine-emit-heap-headroom.test.mjs
+          node scripts/ci/engine-emit-heap-headroom.mjs
       - name: Real bounded image build and neighboring process survival
         run: python3 tests/operations/engine-build-resource-proof.py
       - name: Exercise real calculator workers and retain Linux memory samples

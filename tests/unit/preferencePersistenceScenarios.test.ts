@@ -190,6 +190,15 @@ describe('saved means the account accepted it', () => {
     await vi.waitFor(() => expect(readSaveStatus(`account-a:lobby:${CLUB}`).state).toBe('saved'));
   });
 
+  it('persists the Favorites filter without a Saved confirmation', async () => {
+    const prefs = loadViewPrefs(CLUB);
+    await pushRemoteViewPrefs(CLUB, { ...prefs, favoritesOnly: true });
+    expect(net.calls[0].args.p_changes).toMatchObject([
+      { field: 'view.favoritesOnly', value: true },
+    ]);
+    expect(readSaveStatus(`account-a:lobby:${CLUB}`).state).toBe('idle');
+  });
+
   it('a failed save stays visible and pending, and Retry finishes it', async () => {
     net.failNext = [{ message: 'server error' }];
     loadFilters(CLUB);
@@ -381,6 +390,7 @@ describe('favorites', () => {
     await toggleLobbyFavorite('account-a', 'cash', 'table-2', true, 0);
     const r1 = (await fetchLobbyFavorites()).revisions['table-2'];
     await toggleLobbyFavorite('account-a', 'cash', 'table-2', false, r1);
+    expect(readSaveStatus('account-a:favorites').state).toBe('saved');
     const after = await fetchLobbyFavorites();
     expect(after.ids).not.toContain('table-2');
     expect(after.revisions['table-2']).toBeGreaterThan(r1);

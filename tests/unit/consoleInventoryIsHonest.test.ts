@@ -361,7 +361,9 @@ describe('the Card primitive is ruled off the sweep because nothing renders it',
   ].map((m) => m[1]);
 
   /** Every (file, local binding) pair that can put a common/Card export on screen. */
+  let cachedRenderSites: { pairs: Array<[string, string]>; edges: number } | null = null;
   function renderSites(): { pairs: Array<[string, string]>; edges: number } {
+    if (cachedRenderSites) return cachedRenderSites;
     const pairs: Array<[string, string]> = [];
     let edges = 0;
 
@@ -381,11 +383,18 @@ describe('the Card primitive is ruled off the sweep because nothing renders it',
       .split('\n')
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
 
+    // Read every tracked src/ file once instead of six times across passes and tests.
+    const sources = new Map<string, string>();
+    for (const f of files) {
+      sources.set(f, read(f));
+    }
+
     // 1. Direct importers of common/Card.
     const direct = new Map<string, string[]>();
-    for (const f of files) {
+    for (const [f, text] of sources) {
       if (f === CARD) continue;
-      for (const m of read(f).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
+      if (!text.includes('Card')) continue;
+      for (const m of text.matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
         if (!/(^|\/)(common\/)?Card$/.test(m[2])) continue;
         if (
           !m[2].includes('common/Card') &&
@@ -399,18 +408,23 @@ describe('the Card primitive is ruled off the sweep because nothing renders it',
 
     // 2. Barrels that re-export it, and what each importer of a barrel takes.
     const reexported = new Map<string, string[]>();
-    for (const f of files) {
-      for (const m of read(f).matchAll(/export\s+(\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g)) {
+    for (const [f, text] of sources) {
+      if (!text.includes('./Card')) continue;
+      for (const m of text.matchAll(/export\s+(\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g)) {
         if (m[2] !== './Card') continue;
         edges++;
         reexported.set(f, names(m[1]));
       }
     }
-    for (const f of files) {
-      for (const m of read(f).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
-        for (const [barrel, exposed] of reexported) {
-          const dir = barrel.replace(/\/index\.tsx?$/, '');
-          if (!m[2].endsWith(dir.replace(/^src\//, '')) && !m[2].endsWith(dir)) continue;
+    const barrels = [...reexported.entries()].map(([barrel, exposed]) => {
+      const dir = barrel.replace(/\/index\.tsx?$/, '');
+      return { dir, shortDir: dir.replace(/^src\//, ''), exposed };
+    });
+    for (const [f, text] of sources) {
+      if (!text.includes('import')) continue;
+      for (const m of text.matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
+        for (const { dir, shortDir, exposed } of barrels) {
+          if (!m[2].endsWith(shortDir) && !m[2].endsWith(dir)) continue;
           const taken = names(m[1]).filter((n) => exposed.includes(n));
           if (taken.length) {
             edges++;
@@ -421,12 +435,13 @@ describe('the Card primitive is ruled off the sweep because nothing renders it',
     }
 
     for (const [f, bindings] of direct) {
-      const text = read(f);
+      const text = sources.get(f) ?? read(f);
       for (const b of new Set(bindings)) {
         if (new RegExp(`<${b}[\\s/>]`).test(text)) pairs.push([f, b]);
       }
     }
-    return { pairs, edges };
+    cachedRenderSites = { pairs, edges };
+    return cachedRenderSites;
   }
 
   it('reads as a design-system primitive with several component exports', () => {

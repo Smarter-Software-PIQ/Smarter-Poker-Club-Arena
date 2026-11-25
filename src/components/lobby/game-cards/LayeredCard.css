@@ -88,8 +88,8 @@
 }
 
 .agc-layered__text--gold {
-  color: #f3cf6b;
-  -webkit-text-fill-color: #f3cf6b;
+  color: #92dfff;
+  -webkit-text-fill-color: #92dfff;
   text-shadow:
     0 -0.18cqw 0 rgb(255 245 200 / 70%),
     0 0.25cqw 0 #8a6414,
@@ -344,7 +344,7 @@
 }
 
 .agc-layered__action--gold .agc-layered__action-text {
-  color: #ffd700;
+  color: #92dfff;
   text-shadow:
     0 0 1cqw rgb(255 215 0 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);

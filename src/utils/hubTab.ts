@@ -82,6 +82,7 @@ const NAMED: Record<string, string> = {
   'diamond-store': 'Diamonds',
   messenger: 'Messages',
   'social-media': 'Social',
+  'personal-assistant': 'Assistant',
   jarvis: 'Jarvis',
   ai: 'AI',
 };

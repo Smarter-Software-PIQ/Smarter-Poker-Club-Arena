@@ -75,6 +75,14 @@ export function seedHorseBetSizeRandom(seed: number): void {
   sizeState = (h ^ (h >>> 16)) >>> 0 || 1;
 }
 
+/** The size stream's position, and putting it back (a side ask that must not move the decision's own draws). */
+export function saveHorseBetSizeRandom(): number {
+  return sizeState;
+}
+export function restoreHorseBetSizeRandom(state: number): void {
+  sizeState = state >>> 0 || 1;
+}
+
 export function horseBetSizeRandom(): number {
   sizeState ^= sizeState << 13;
   sizeState ^= sizeState >>> 17;

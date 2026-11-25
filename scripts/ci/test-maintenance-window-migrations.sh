@@ -87,6 +87,30 @@ SU=("$PG_BIN/psql" -X -q -h "$WORK" -p "$PORT" -U supabase_admin -d postgres -v 
 su_sql() { as_pg "${SU[@]}" -Atc "$1"; }
 as_pg "${SU[@]}" -f "$FIXTURES/schema.sql" >/dev/null
 
+# The nightly release schema freeze is also a database rule (migration
+# 20261124085047_the_release_freeze_refuses_migration_ddl_from_every_repo).
+# Arm production's freeze guard, verbatim, and pin it INSIDE the freeze
+# (04:05 America/Chicago) for this whole run: the window route at 04:00 and
+# the ordinary route at 04:15 must pass it at any hour CI happens to run.
+as_pg "${SU[@]}" >/dev/null <<'SQL'
+CREATE SCHEMA IF NOT EXISTS smarter_private AUTHORIZATION postgres; -- as production
+-- The migration's postimage asks the engine recovery contract; this fixture
+-- carries no recovery capability, so it answers for the unchanged guard.
+CREATE OR REPLACE FUNCTION public.fn_engine_recovery_window_contract() RETURNS text
+  LANGUAGE sql AS $$ SELECT 'engine-recovery-window-v1' $$;
+SQL
+as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261124085047_the_release_freeze_refuses_migration_ddl_from_every_repo.sql" >/dev/null
+as_pg "${SU[@]}" >/dev/null <<'SQL'
+ALTER FUNCTION smarter_private.fn_ca_release_freeze_refuses_migrations(timestamptz, text)
+  RENAME TO fn_ca_release_freeze_refuses_migrations_at;
+CREATE FUNCTION smarter_private.fn_ca_release_freeze_refuses_migrations(p_at timestamptz, p_app text)
+  RETURNS text LANGUAGE sql
+  AS $$ SELECT smarter_private.fn_ca_release_freeze_refuses_migrations_at('2026-11-22 10:05:00+00', p_app) $$;
+SQL
+freeze="$(su_sql "SELECT (SELECT count(*) FROM pg_event_trigger WHERE evtname IN ('ca_release_freeze_refuses_ddl','ca_release_freeze_refuses_drops') AND evtenabled = 'O') || ' ' || (smarter_private.fn_ca_release_freeze_refuses_migrations(now(), 'window-fixture-hand') IS NOT NULL) || ' ' || (smarter_private.fn_ca_release_freeze_refuses_migrations(now(), 'apply-recorded-migration') IS NULL)")"
+[ "$freeze" = "2 true true" ] || { echo "FAIL: release freeze guard not armed inside the freeze ($freeze)"; exit 1; }
+echo "PASS 0: release freeze guard armed and pinned inside the freeze; a hand session is refused, the installer's route is admitted"
+
 export DATABASE_URL="postgres://postgres:window-fixture@localhost:$PORT/postgres"
 export PSQL_BIN="$PG_BIN/psql"
 CA="$WORK/ca-public.crt"

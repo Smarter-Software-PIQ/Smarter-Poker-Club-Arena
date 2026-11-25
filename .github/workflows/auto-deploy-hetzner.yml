@@ -169,6 +169,7 @@ jobs:
       target_sha: ${{ steps.target.outputs.sha }}
       image_id: ${{ steps.preparation.outputs.image_id }}
       rollback_image_id: ${{ steps.preparation.outputs.rollback_image_id }}
+      selected_serving_sha: ${{ steps.preparation.outputs.selected_serving_sha }}
     steps:
       - name: Checkout the requested immutable commit
         uses: actions/checkout@v4
@@ -314,6 +315,7 @@ jobs:
           receipt="$(python3 -B "$reader" --repo "$GITHUB_REPOSITORY" --target "$TARGET" --control "$SELECTED_CONTROL" --receiver-control "$GITHUB_SHA" --selection-run-id "$SELECTION_RUN" "${selection_args[@]}")"
           echo "image_id=$(jq -er .imageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
           echo "rollback_image_id=$(jq -er .rollbackImageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
+          echo "selected_serving_sha=$(jq -r '.servingSha // empty' <<< "$receipt")" >> "$GITHUB_OUTPUT"
 
   cutover-spectator:
     if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
@@ -745,6 +747,7 @@ jobs:
         env:
           PREPARED_IMAGE: ${{ needs.preflight.outputs.image_id }}
           ROLLBACK_IMAGE: ${{ needs.preflight.outputs.rollback_image_id }}
+          SELECTED_SERVING_SHA: ${{ needs.preflight.outputs.selected_serving_sha }}
         run: |
           set -euo pipefail
           if python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" "$SHA" <<'PYTHON'
@@ -762,11 +765,12 @@ jobs:
           PYTHON
           then
             [[ "$PREPARED_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && "$ROLLBACK_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [ -z "${SELECTED_SERVING_SHA:-}" ] || [[ "$SELECTED_SERVING_SHA" =~ ^[0-9a-f]{40}$ ]]
             REMAINING=$((RELEASE_DISPATCH_DEADLINE_EPOCH - $(date +%s) - 15))
             [ "$REMAINING" -gt 0 ]
             [ "$REMAINING" -le 3450 ] || REMAINING=3450
             timeout --signal=TERM --kill-after=5s "${REMAINING}s" \
-              "$HSSH" "PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' REPO_DIR='$REPO_DIR' bash -se" \
+              "$HSSH" "PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' SELECTED_SERVING_SHA='${SELECTED_SERVING_SHA:-}' TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' REPO_DIR='$REPO_DIR' bash -se" \
               <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/engine-prepared-image-$RUN_KEY.log"
           set -euo pipefail
           STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
@@ -799,13 +803,35 @@ jobs:
             sync -f "$STAGE/prepared-image"
             exit 0
           fi
-          [[ "$(docker image inspect -f '{{.Id}}' "$ROLLBACK_IMAGE")" = "$ROLLBACK_IMAGE" ]]
-          [[ "$RUNNING_IMAGE" = "$ROLLBACK_IMAGE" ]]
-          [[ "$DESIRED_IMAGE" = "$ROLLBACK_IMAGE" ]]
+          EFFECTIVE_ROLLBACK_IMAGE="$ROLLBACK_IMAGE"
+          # Intermediate protected-main cutover (incident 67714b80, 2026-11-25):
+          # Under the three-hourly cadence, a commit between prestage-time serving
+          # and TARGET_SHA can legitimately seal and prune the old prestage-time
+          # ROLLBACK_IMAGE before TARGET_SHA's cycle runs. Rebase only when the
+          # live sealed host release is a strict protected-main ancestor of
+          # TARGET_SHA, matches the Backup-rehearsed SELECTED_SERVING_SHA (when
+          # supplied), is currently running, exists locally in Docker, and matches
+          # the candidate's OS/Arch. Everything else fails closed on ROLLBACK_IMAGE.
+          if [ "$ROLLBACK_IMAGE" != "$DESIRED_IMAGE" ] \
+            && [[ "$DESIRED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            && [ "$DESIRED_SHA" != "$TARGET_SHA" ] \
+            && { [ -z "${SELECTED_SERVING_SHA:-}" ] || [ "$DESIRED_SHA" = "$SELECTED_SERVING_SHA" ]; } \
+            && [[ "$DESIRED_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            && [ "$DESIRED_IMAGE" != "$PREPARED_IMAGE" ] \
+            && [ "$RUNNING_IMAGE" = "$DESIRED_IMAGE" ] \
+            && GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" merge-base --is-ancestor "$DESIRED_SHA" "$TARGET_SHA" \
+            && [ "$(docker image inspect -f '{{.Id}}' "$DESIRED_IMAGE" 2>/dev/null || true)" = "$DESIRED_IMAGE" ] \
+            && [ "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "club-arena-engine:$TARGET_SHA")" = "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$DESIRED_IMAGE")" ]; then
+            echo "Sealed host release advanced to protected ancestor $DESIRED_SHA ($DESIRED_IMAGE) after prestage; rebasing rollback image from $ROLLBACK_IMAGE to live sealed $DESIRED_IMAGE."
+            EFFECTIVE_ROLLBACK_IMAGE="$DESIRED_IMAGE"
+          fi
+          [[ "$(docker image inspect -f '{{.Id}}' "$EFFECTIVE_ROLLBACK_IMAGE")" = "$EFFECTIVE_ROLLBACK_IMAGE" ]]
+          [[ "$RUNNING_IMAGE" = "$EFFECTIVE_ROLLBACK_IMAGE" ]]
+          [[ "$DESIRED_IMAGE" = "$EFFECTIVE_ROLLBACK_IMAGE" ]]
           # The durable transaction reloads this run's exact admission evidence.
           # Stage is private to root and retained while its transaction is active.
           umask 077
-          printf '%s\n' "$TARGET_SHA" "$CONTROL_SHA" "$PREPARED_IMAGE" "$ROLLBACK_IMAGE" > "$STAGE/prepared-image"
+          printf '%s\n' "$TARGET_SHA" "$CONTROL_SHA" "$PREPARED_IMAGE" "$EFFECTIVE_ROLLBACK_IMAGE" > "$STAGE/prepared-image"
           sync -f "$STAGE/prepared-image"
           IMAGE_JSON="$(docker image inspect "club-arena-engine:$TARGET_SHA")"
           EXPECTED_TREE="$(GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" rev-parse "$TARGET_SHA:server")"

@@ -830,3 +830,117 @@ describe('TablePage hands the rule its refs and keeps no copy of it', () => {
     expect(handler.slice(marker, shown)).toMatch(/preActionHeldByEngineRef\.current = mapped;/);
   });
 });
+
+/* ═══ Dan 2026-11-24 (CoachTim68): an arm on your own turn names its decision ═══
+   The engine plays an arm that reaches it on the player's own turn at once. A
+   Call Any pressed on a display that had fallen behind went all in against a
+   shove that display had not shown. A Call or Call Any now names the decision
+   on screen at the press, and the engine refuses it (STALE_ACTION) against any
+   other. */
+describe('a Call or Call Any names the decision it was pressed on', () => {
+  function syncOnce(opts: {
+    preAction: PreActionChoice;
+    seen: string | null;
+    reply: PreActionReply;
+  }) {
+    const calls: unknown[][] = [];
+    const toasts: string[] = [];
+    const reports: string[] = [];
+    let shown: PreActionChoice | null = opts.preAction;
+    syncPreActionToEngine({
+      tableId: 'table-1',
+      preAction: opts.preAction,
+      refs: {
+        hadPreActionRef: { current: false },
+        lastArmedPreActionRef: { current: null },
+        preActionCanCheckRef: { current: false },
+        preActionFoldOnTurnHandRef: { current: null },
+        preActionCallAmountRef: { current: 800 },
+        preActionHeldByEngineRef: { current: null },
+        preActionSendSeqRef: { current: 0 },
+        lightningRoomRef: { current: null },
+      },
+      handNumber: () => 7,
+      lightningArmHandId: () => null,
+      actionContext: () => opts.seen,
+      serverSetPreAction: async (...args: unknown[]) => {
+        calls.push(args);
+        return opts.reply;
+      },
+      setPreAction: (next) => {
+        shown = next;
+      },
+      toastError: (m) => toasts.push(m),
+      reportError: (_e, c) => reports.push(c),
+      retry: retryNow,
+    });
+    return { calls, toasts, reports, shown: () => shown };
+  }
+
+  it.each([
+    ['callAny', 'auto_call_any', undefined],
+    ['call', 'auto_call', 800],
+  ] as const)('%s carries the decision on screen at the press', async (choice, action, cap) => {
+    const s = syncOnce({ preAction: choice, seen: 'ctx-seat-1', reply: OK });
+    await settle();
+    expect(s.calls).toEqual([['table-1', action, cap, undefined, 'ctx-seat-1']]);
+  });
+
+  it('a Fold sends no decision: it never puts chips in', async () => {
+    const s = syncOnce({ preAction: 'fold', seen: 'ctx-seat-1', reply: OK });
+    await settle();
+    expect(s.calls).toEqual([['table-1', 'auto_fold', undefined]]);
+  });
+
+  it('a STALE_ACTION refusal disarms the bar and says the action changed', async () => {
+    const s = syncOnce({
+      preAction: 'callAny',
+      seen: 'ctx-seat-1',
+      reply: {
+        success: false,
+        error: 'The turn has changed. Review the table before acting again.',
+        code: PRE_ACTION_REFUSED,
+        hint: { engineCode: 'STALE_ACTION' },
+      },
+    });
+    await settle();
+    expect(s.calls).toHaveLength(1); // an answer is never retried
+    expect(s.shown()).toBeNull();
+    expect(s.toasts).toEqual(['The Action Changed. Review The Table And Act.']);
+    expect(s.reports).toEqual([]);
+  });
+
+  it('the page snapshots the decision when the player presses, beside the price', () => {
+    const RAW = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    expect(RAW).toMatch(/actionContext: \(\) => preActionSeenContextRef\.current,/);
+    // Inside the bar's press handler, before the price snapshot beside it.
+    const handler = RAW.slice(RAW.indexOf('onPreActionChange={(next) => {'));
+    const press = handler.search(
+      /preActionSeenContextRef\.current =\s*tableStateRef\.current\.actionContext \?\? null;/
+    );
+    const price = handler.indexOf('preActionCallAmountRef.current =');
+    expect(press).toBeGreaterThan(-1);
+    expect(price).toBeGreaterThan(press);
+  });
+
+  it('the API puts the decision in the request body, and only when there is one', async () => {
+    mockFetch.mockReset();
+    resetEngineCircuitBreaker();
+    localStorage.setItem(
+      'smarter-poker-auth',
+      JSON.stringify({
+        access_token: `e30.${btoa(JSON.stringify({ sub: 'user-1', session_id: 'login-1', exp: 4102444800 }))}.sig`,
+      })
+    );
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true }) });
+    await apiSetPreAction('table-1', 'auto_call_any', undefined, undefined, 'ctx-9');
+    await apiSetPreAction('table-1', 'auto_fold');
+    const bodies = mockFetch.mock.calls.map((c) => JSON.parse(c[1].body));
+    expect(bodies[0]).toEqual({
+      tableId: 'table-1',
+      action: 'auto_call_any',
+      actionContext: 'ctx-9',
+    });
+    expect(bodies[1]).toEqual({ tableId: 'table-1', action: 'auto_fold' });
+  });
+});

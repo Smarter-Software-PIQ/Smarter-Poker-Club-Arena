@@ -36,7 +36,7 @@ describe('a moved player never posts to enter a new table', () => {
   it('the engine admits a moved arrival without a wait for the big blind or a bill', () => {
     // arrival: a moved chair is never registered to wait for, or post, the big blind
     expect(DEALING).toMatch(
-      /if \(!this\.isTournamentTable\(\) && entryHold === 'moved'\) \{[\s\S]{0,200}?\} else if \(!this\.returningFromSitout\.has\(p\.user_id\) && !this\.isTournamentTable\(\)\) \{\s*this\.registerWaitForBB\(p\.user_id\);/
+      /if \(!this\.isTournamentTable\(\) && entryHold === 'moved'\) \{[\s\S]{0,200}?\} else if \(!this\.returningFromSitout\.has\(p\.user_id\) && !this\.isTournamentTable\(\)\) \{[\s\S]{0,450}?this\.registerWaitForBB\(\s*p\.user_id,/
     );
     // admission: the marker clears with nothing billed
     expect(DEALING).toMatch(

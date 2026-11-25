@@ -1,0 +1,4 @@
+{
+  "_owner": "Club workspace read deadline: withClubWorkspaceReadTimeout moved out of ClubWorkspaceContext.tsx (already in the entry, mounted in the global shell) into its own module so it can be exported and tested without breaking fast refresh. Same code and bytes that were already in first paint; no new dependency.",
+  "modules": ["src/contexts/clubWorkspaceReadTimeout.ts"]
+}

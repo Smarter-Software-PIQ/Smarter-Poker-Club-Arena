@@ -25,6 +25,8 @@ const api = vi.hoisted(() => ({
 vi.mock('../../src/lib/supabase', () => ({ supabase: api }));
 vi.mock('../../src/utils/clubIdResolver', () => ({ resolveClubUUIDStrict: api.resolve }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: api.report }));
+import { useMyPlayers } from '../../src/components/tournament/details/useMyPlayers';
+import type { TournamentTabProps } from '../../src/components/tournament/details/types';
 import { useDownlineIds } from '../../src/components/tournament/details/useDownlineIds';
 
 beforeEach(() => {
@@ -36,6 +38,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('tournament Mine Only reads the current club downline', () => {
+  it('asks only for the club on the opened tournament link inside the dashboard', async () => {
+    renderHook(() =>
+      useMyPlayers(
+        { id: 'event' } as TournamentTabProps['tournament'],
+        [],
+        [],
+        'viewer',
+        'tournament-club'
+      )
+    );
+    await waitFor(() =>
+      expect(api.rpc.mock.calls).toEqual([
+        [
+          'ca_tournament_my_downline_ids',
+          { p_tournament_id: 'event', p_club_id: 'tournament-club' },
+        ],
+      ])
+    );
+  });
+
   it('asks the scoped reader once, for the tournament and the club the viewer is inside', async () => {
     api.result.mockResolvedValue({
       data: ['direct', 'nested-player', 'nested-agent'],
@@ -153,7 +175,9 @@ describe('the Ranking tab passes the club the viewer is inside', () => {
     'utf8'
   );
   it('Ranking and the other tabs read their players through the shared hook', () => {
-    expect(ranking).toMatch(/useMyPlayers\(tournament, merged, tables, currentUserId\)/);
+    expect(ranking).toMatch(
+      /useMyPlayers\(\s*tournament,\s*merged,\s*tables,\s*currentUserId,\s*viewerLinkClub\s*\)/
+    );
     expect(ranking).not.toMatch(/useDownlineIds\(/);
     for (const file of ['DetailOverviewTab.tsx', 'RewardsTab.tsx', 'TablesTab.tsx']) {
       const src = readFileSync(
@@ -166,9 +190,12 @@ describe('the Ranking tab passes the club the viewer is inside', () => {
   });
   it('keys Mine Only on the route club, else the link club, else the entered club - never the union', () => {
     expect(tab).toMatch(/useParams<\{ clubId\?: string \}>\(\)\.clubId/);
-    expect(tab).toMatch(
-      /readClubContextParam\(\s*typeof window === 'undefined' \? '' : window\.location\.search\s*\)/
+    const page = readFileSync(
+      resolve(__dirname, '../../src/pages/tournament/TournamentDetails.tsx'),
+      'utf8'
     );
+    expect(page).toContain('readClubContextParam(search)');
+    expect(tab).not.toContain('window.location.search');
     expect(tab).toMatch(/useUserStore\(\(s\) => s\.currentClubId\)/);
     expect(tab).toMatch(
       /useDownlineIds\(\s*currentUserId,\s*tournament\?\.id,\s*routeClubId \|\| linkClubId \|\| enteredClubId\s*\)/

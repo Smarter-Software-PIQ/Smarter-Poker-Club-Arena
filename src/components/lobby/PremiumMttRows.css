@@ -587,7 +587,7 @@
   background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/rebuy.png');
 }
 .has-premium-chassis [data-game-heading][data-kind='spin'] [data-tournament-icon] {
-  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/spin.png');
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/spin-rotor.png');
 }
 
 .has-premium-chassis .lt-tournament-heading__guarantee .lt-payout {
@@ -991,16 +991,12 @@
   height: clamp(20px, 5.1cqw, 42px);
   padding: 0 clamp(8px, 2.2cqw, 20px);
   gap: clamp(4px, 0.8cqw, 8px);
-  border-color: rgb(69 173 255 / 60%);
-  background: linear-gradient(180deg, rgb(69 173 255 / 22%) 0%, rgb(15 44 82 / 55%) 100%);
   color: #bfe4ff;
   font-size: clamp(10px, 2.4cqw, 18px);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 .has-premium-chassis .lt-tournament-heading__guarantee .lt-invite-btn.is-done {
-  border-color: rgb(53 217 90 / 65%);
-  background: rgb(53 217 90 / 20%);
   color: #c8ffd2;
 }
 .has-premium-chassis .lt-tournament-heading__guarantee .lt-invite-btn svg {
@@ -1034,16 +1030,12 @@
   height: clamp(24px, 6cqw, 46px);
   padding: 0 clamp(10px, 2.4cqw, 22px);
   gap: clamp(4px, 0.8cqw, 8px);
-  border-color: rgb(69 173 255 / 60%);
-  background: linear-gradient(180deg, rgb(69 173 255 / 22%) 0%, rgb(15 44 82 / 55%) 100%);
   color: #bfe4ff;
   font-size: clamp(10.5px, 2.5cqw, 18px);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 .has-premium-chassis .lt-statuscell--invite-only .lt-invite-btn.is-done {
-  border-color: rgb(53 217 90 / 65%);
-  background: rgb(53 217 90 / 20%);
   color: #c8ffd2;
 }
 .has-premium-chassis .lt-statuscell--invite-only .lt-invite-btn svg {

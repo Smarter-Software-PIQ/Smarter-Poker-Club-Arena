@@ -1,3 +1,5 @@
+import { SHARK_CLUB_ID } from '../lib/constants';
+import { useKingsClubDisplayTotals } from '../hooks/useKingsClubDisplayTotals';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { CASH_TABLE_MIN_BB } from '../config/cashGames';
 /**
@@ -364,6 +366,9 @@ export default function ClubDetailPage() {
     onTabChange: setActiveTab,
   });
   const [club, setClub] = useState<ClubData | null>(null);
+  const isKingsClub = Number(club?.clubId) === SHARK_CLUB_ID;
+  const kingsTotals = useKingsClubDisplayTotals(isKingsClub);
+  const kingsMembers = kingsTotals?.member_total?.toLocaleString() ?? '…';
   const [members, setMembers] = useState<ClubMember[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<ClubMember[]>([]);
   const [pendingMembers, setPendingMembers] = useState<
@@ -1119,7 +1124,7 @@ export default function ClubDetailPage() {
               Updated {lastRefreshed.toLocaleTimeString()}
             </span>
             <span className={styles.heroBadge} style={{ borderColor: '#60a5fa' }}>
-              {club.memberCount} Members
+              {isKingsClub ? kingsMembers : club.memberCount} Members
             </span>
             <span className={styles.heroBadge} style={{ borderColor: '#00d4ff' }}>
               {tables.filter((t) => t.status === 'running').length} Live
@@ -1187,7 +1192,7 @@ export default function ClubDetailPage() {
           accent="#22c55e"
         />
         <StatCard
-          value={animatedMemberCount}
+          value={isKingsClub ? kingsMembers : animatedMemberCount}
           label="Members"
           icon={Icons.members}
           accent="#60a5fa"
