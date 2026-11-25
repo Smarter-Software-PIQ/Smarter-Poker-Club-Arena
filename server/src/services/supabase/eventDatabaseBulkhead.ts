@@ -379,6 +379,50 @@ export class EventDatabaseBulkhead {
   }
 
   /**
+   * Bounded Prometheus exposition lines for /metrics (always present, even at
+   * zero on cold start, with zero per-event cardinality).
+   */
+  toPrometheusLines(): string[] {
+    let parkedCurrent = 0;
+    let coolingCurrent = 0;
+    let throttledEvents = 0;
+    for (const state of this.events.values()) {
+      parkedCurrent += state.queue.length;
+      coolingCurrent += state.cooling;
+      if (state.limit < this.maxPerEvent) throttledEvents++;
+    }
+    return [
+      '# HELP poker_event_db_bulkhead_open 1 when the event database bulkhead is open for shutdown (bypassing concurrency bounds), 0 during normal operation',
+      '# TYPE poker_event_db_bulkhead_open gauge',
+      `poker_event_db_bulkhead_open ${this.open ? 1 : 0}`,
+      '# HELP poker_event_db_bulkhead_in_flight Current in-flight event-scoped database calls across all tournaments',
+      '# TYPE poker_event_db_bulkhead_in_flight gauge',
+      `poker_event_db_bulkhead_in_flight ${this.totalInFlight}`,
+      '# HELP poker_event_db_bulkhead_parked_current Current event-scoped database calls parked waiting for a bulkhead slot',
+      '# TYPE poker_event_db_bulkhead_parked_current gauge',
+      `poker_event_db_bulkhead_parked_current ${parkedCurrent}`,
+      '# HELP poker_event_db_bulkhead_cooling_current Current bulkhead slots cooling after database congestion',
+      '# TYPE poker_event_db_bulkhead_cooling_current gauge',
+      `poker_event_db_bulkhead_cooling_current ${coolingCurrent}`,
+      '# HELP poker_event_db_bulkhead_active_events Active tournament event lanes currently tracked by the database bulkhead',
+      '# TYPE poker_event_db_bulkhead_active_events gauge',
+      `poker_event_db_bulkhead_active_events ${this.events.size}`,
+      '# HELP poker_event_db_bulkhead_throttled_events Active tournament event lanes currently throttled below their normal concurrency limit',
+      '# TYPE poker_event_db_bulkhead_throttled_events gauge',
+      `poker_event_db_bulkhead_throttled_events ${throttledEvents}`,
+      '# HELP poker_event_db_bulkhead_parked_total Cumulative event-scoped database calls parked by the bulkhead',
+      '# TYPE poker_event_db_bulkhead_parked_total counter',
+      `poker_event_db_bulkhead_parked_total ${this.parkedTotal}`,
+      '# HELP poker_event_db_bulkhead_park_timeouts_total Cumulative parked event-scoped database calls whose caller deadline expired before acquiring a slot',
+      '# TYPE poker_event_db_bulkhead_park_timeouts_total counter',
+      `poker_event_db_bulkhead_park_timeouts_total ${this.parkTimeoutsTotal}`,
+      '# HELP poker_event_db_bulkhead_refused_full_total Cumulative event-scoped database calls refused immediately because the bulkhead wait queue was full',
+      '# TYPE poker_event_db_bulkhead_refused_full_total counter',
+      `poker_event_db_bulkhead_refused_full_total ${this.refusedFullTotal}`,
+    ];
+  }
+
+  /**
    * Hand free slots to parked calls. Within an event, in arrival order. Across
    * events, one each in turn, and an event that was just served goes to the
    * back: when the all-events total is what binds, no event can take two
@@ -443,6 +487,11 @@ export class EventDatabaseBulkhead {
 
 /** The process's one bulkhead, shared by every bounded client in client.ts. */
 export const eventDatabaseBulkhead = new EventDatabaseBulkhead();
+
+/** Prometheus exposition lines for the process-wide event database bulkhead. */
+export function eventDbBulkheadPrometheusLines(): string[] {
+  return eventDatabaseBulkhead.toPrometheusLines();
+}
 
 /** How one finished attempt reads as evidence about its event's lane. */
 export function classifyEventDbOutcome(

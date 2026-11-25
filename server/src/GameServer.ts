@@ -77,7 +77,10 @@ import {
 } from './tournament/tournamentEntryCapacity.js';
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { bindToProcessRoot } from './services/supabase/dataActorContext.js';
-import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
+import {
+  eventDatabaseBulkhead,
+  eventDbBulkheadPrometheusLines,
+} from './services/supabase/eventDatabaseBulkhead.js';
 import {
   F06DrainedCustodyUnprovenError,
   f06CustodyRefusalKey,
@@ -7230,6 +7233,10 @@ export class GameServer {
       // DatabaseRepliesLost / DatabaseWriteRetriesExhausted. See
       // services/supabase/dbReplyMetrics.ts.
       ...dbReplyPrometheusLines(),
+      // ── EVENT DATABASE BULKHEAD ──────────────────────────────────────
+      // Per-event & fleet database concurrency protection (PR #11926). Read by
+      // EventDbBulkheadSaturated / EventDbBulkheadOpen in alert-rules.yml.
+      ...eventDbBulkheadPrometheusLines(),
       // ── REPLICATION OBSERVABILITY (2026-09-04) ───────────────────────
       // How far behind the realtime replication slot is, in bytes, per slot.
       // See services/ReplicationMetrics.ts.
