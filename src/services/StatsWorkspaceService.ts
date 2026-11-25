@@ -111,6 +111,25 @@ function rpcValue<T>(value: unknown): T {
   return value as T;
 }
 
+/**
+ * The workspace tables are owner-only: RLS is `user_id = auth.uid()` for
+ * `authenticated`, and migration 20261003140226_stats_owner_workspace revoked
+ * every privilege from `anon` on purpose. A read sent without a Supabase
+ * session goes out as `anon` and can only fail with 42501 "permission denied",
+ * which is what production logged while the stats page rendered from a cached
+ * account with no live session. Resolve the session first and read nothing for
+ * a visitor who has none.
+ */
+type WorkspaceSession = { ok: true } | { ok: false; error: string };
+
+async function requireWorkspaceSession(): Promise<WorkspaceSession> {
+  const result = await getAuthUser();
+  if (result?.data?.user?.id) return { ok: true };
+  // A failed session read is not evidence of a signed-out visitor; say which.
+  const failed = Boolean(result && 'failed' in result && result.failed);
+  return { ok: false, error: failed ? 'session_unavailable' : 'authentication_required' };
+}
+
 async function mapWithConcurrency<T, R>(
   values: T[],
   concurrency: number,
@@ -132,6 +151,8 @@ async function mapWithConcurrency<T, R>(
 export const statsWorkspaceService = {
   async loadPreferences(): Promise<WorkspaceResult<StatsWorkspacePreferences>> {
     try {
+      const session = await requireWorkspaceSession();
+      if (!session.ok) return session;
       const { data, error } = await supabase
         .from('ca_stats_workspace_preferences')
         .select('dashboard_layout, privacy_presentation_mode')
@@ -153,6 +174,8 @@ export const statsWorkspaceService = {
 
   async load(): Promise<WorkspaceResult<StatsWorkspaceSnapshot>> {
     try {
+      const session = await requireWorkspaceSession();
+      if (!session.ok) return session;
       const [reports, leaks, goals, progress, collections, preferences, alerts] = await Promise.all(
         [
           supabase
