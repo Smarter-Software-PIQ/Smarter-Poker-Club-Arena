@@ -4,13 +4,13 @@ import { isDeepStrictEqual } from 'node:util';
 
 // #6895 made clubs/:clubId/data the PokerBros-style everyday screen and moved
 // this full operator report (and its Simple/Advanced modes) to data/advanced.
-const CLUB_DATA_PATH = 'clubs/shark-club/data/advanced';
+const CLUB_DATA_PATH = 'clubs/shark-club/data?report=open';
 type ClubDataAccess = 'authorized' | 'restricted';
 
 function toolName(root: string) {
   if (root.includes('cashier')) return /^Requests, Tickets And Tools/;
   if (root.includes('players')) return /^Sort And Roster Tools$/;
-  return /^Report Tools$/;
+  return /^(Open|Close) Club Report$/;
 }
 async function closeTools(page: Page, selector: string) {
   const trigger = page.getByRole('button', { name: toolName(selector) });
@@ -159,15 +159,17 @@ async function openClubData(page: Page, testInfo: TestInfo): Promise<ClubDataAcc
 
   await expect(workspace).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-page="club-data"]')).toBeVisible();
-  await closeTools(page, '[data-club-data-mode]');
-  await expect(page.locator('[data-club-data-mode="simple"]')).toBeVisible();
-  await page.getByRole('button', { name: 'Report Tools' }).click();
+  await expect(page.getByRole('region', { name: 'Club Report', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Games' }).getByRole('listitem').first()).toBeVisible(
-    {
-      timeout: 60_000,
-    }
-  );
+  await expect(
+    page
+      .getByRole('region', { name: 'Club Report', exact: true })
+      .getByRole('list', { name: 'Games' })
+      .getByRole('listitem')
+      .first()
+  ).toBeVisible({
+    timeout: 60_000,
+  });
   return 'authorized';
 }
 
@@ -285,7 +287,9 @@ test.describe('Club Data production experience', () => {
   }, testInfo) => {
     test.setTimeout(180_000);
     await requireAuthorizedClubData(page, testInfo);
-    const gamesList = page.getByRole('list', { name: 'Games' });
+    const gamesList = page
+      .getByRole('region', { name: 'Club Report', exact: true })
+      .getByRole('list', { name: 'Games' });
     await expect(gamesList.getByRole('listitem').first()).toBeVisible();
 
     const highestFee = page.getByRole('button', { name: 'Highest Fee' });
@@ -505,7 +509,9 @@ test.describe('Club Data production experience', () => {
   }, testInfo) => {
     test.setTimeout(180_000);
     await requireAuthorizedClubData(page, testInfo);
-    const gamesList = page.getByRole('list', { name: 'Games' });
+    const gamesList = page
+      .getByRole('region', { name: 'Club Report', exact: true })
+      .getByRole('list', { name: 'Games' });
     const firstRow = gamesList.getByRole('listitem').first();
     await expect(firstRow).toBeVisible();
     const identity = (await firstRow.textContent()) || '';
@@ -568,9 +574,8 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
       ],
     },
     {
-      // #6895: these realtime channels belong to the full report at data/advanced;
-      // the everyday screen at data re-reads on a timer and opens none of them.
-      path: 'data/advanced',
+      // The everyday figures use a timed read. The inline report owns these feeds.
+      path: 'data?report=open',
       root: '[data-club-data-mode]',
       prefixes: [
         'realtime:club-data-tables-',
@@ -652,7 +657,8 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
       page.on('websocket', onSocket);
       try {
         await page.goto(new URL('clubs/shark-club/' + surface.path, base).toString());
-        await closeTools(page, surface.root);
+        const isReport = surface.root === '[data-club-data-mode]';
+        if (!isReport) await closeTools(page, surface.root);
         await expect(page.locator(surface.root)).toHaveAttribute(
           surface.root.slice(1, -1),
           'simple',
@@ -697,8 +703,21 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
             contentType: 'application/json',
           });
         };
-        await observeMode('tools-closed');
-        await page.getByRole('button', { name: toolName(surface.root) }).click();
+        if (isReport) {
+          await observeMode('tools-open');
+          observing = false;
+          await page.getByRole('button', { name: 'Close Club Report' }).click();
+          await expect(page.getByRole('region', { name: 'Club Report', exact: true })).toHaveCount(
+            0
+          );
+          await expect(page.getByRole('heading', { name: 'Club Totals' })).toBeVisible();
+          await page.getByRole('button', { name: 'Open Club Report' }).click();
+          await expect.poll(allJoined, { timeout: 80_000 }).toBe(true);
+          observing = true;
+        } else {
+          await observeMode('tools-closed');
+          await page.getByRole('button', { name: toolName(surface.root) }).click();
+        }
         await observeMode('tools-open');
       } finally {
         observing = false;

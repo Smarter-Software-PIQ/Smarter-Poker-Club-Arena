@@ -1,3 +1,4 @@
+import { clubDataReportPath } from '../utils/clubDataReportPath';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -5,11 +6,16 @@ import { resolveUnionUUID } from '../utils/unionIdResolver';
 
 /** Retired union Report bookmarks resolve to the existing guarded club report. */
 export default function UnionReportRedirect() {
-  const { unionId = '' } = useParams();
+  const { unionId = '', clubId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    if (clubId) {
+      navigate(clubDataReportPath(clubId, query, location.hash), { replace: true });
+      return;
+    }
     let current = true;
     setFailed(false);
     const depart = () => {
@@ -28,12 +34,7 @@ export default function UnionReportRedirect() {
         .maybeSingle();
       if (error || !data?.id) throw error || new Error('Union report not found');
       if (!current) return;
-      const query = new URLSearchParams(location.search);
-      query.set('view', 'advanced');
-      navigate(
-        `/clubs/${encodeURIComponent(data.slug || data.id)}/data/advanced?${query}${location.hash}`,
-        { replace: true }
-      );
+      navigate(clubDataReportPath(data.slug || data.id, query, location.hash), { replace: true });
     })().catch(() => {
       if (current) setFailed(true);
     });
@@ -41,7 +42,7 @@ export default function UnionReportRedirect() {
       current = false;
       window.removeEventListener('beforeunload', depart);
     };
-  }, [unionId, location.pathname, location.search, location.hash, navigate]);
+  }, [unionId, clubId, location.pathname, location.search, location.hash, navigate]);
   return (
     <p role={failed ? 'alert' : 'status'}>
       {failed

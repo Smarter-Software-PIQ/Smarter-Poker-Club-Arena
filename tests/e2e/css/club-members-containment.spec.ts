@@ -417,9 +417,9 @@ const ARENA_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/lobby/ArenaWorkspace.css'),
   'utf8'
 );
-for (const adminLoadsLast of [false, true]) {
+for (const rosterLoadsLast of [false, true]) {
   for (const width of [320, 360, 375, 393, 430, 568, 751, 1024, 1440]) {
-    test(`every arena player row prints its name, upline, PlayerID and status in full at ${width}px (admin CSS ${adminLoadsLast ? 'after' : 'before'})`, async ({
+    test(`every arena player row prints its name, upline, PlayerID and status in full at ${width}px (roster CSS ${rosterLoadsLast ? 'last' : 'first'})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 812 });
@@ -439,7 +439,7 @@ for (const adminLoadsLast of [false, true]) {
         <span class="member-chevron" aria-hidden="true">&rsaquo;</span></div></div>`
       ).join('');
       await page.setContent(`
-      <style>${adminLoadsLast ? CSS + ARENA_CSS + ADMIN_CSS : ADMIN_CSS + CSS + ARENA_CSS}
+      <style>${rosterLoadsLast ? ARENA_CSS + ADMIN_CSS + CSS : CSS + ADMIN_CSS + ARENA_CSS}
         *, *::before, *::after { box-sizing: border-box; }
         html, body { margin: 0; background: #000; color: #fff; font-family: sans-serif; line-height: 1.6; }
         .application-shell { width: calc(100% - 32px); margin: auto; }
@@ -460,9 +460,17 @@ for (const adminLoadsLast of [false, true]) {
           if (Math.abs(rect.left - mast.left) > 1 || Math.abs(rect.right - mast.right) > 1)
             found.push(selector + ' misses shell edge');
         }
-        const title = bounds('.members-console__heading h2'),
-          count = bounds('.members-result-count');
-        if (count.right > mast.right - 5 || (title.right > count.left && title.bottom > count.top))
+        const frame = bounds('.members-console');
+        const textBounds = (selector: string) => {
+          const range = document.createRange();
+          range.selectNodeContents(document.querySelector(selector)!);
+          return range.getBoundingClientRect();
+        };
+        const title = textBounds('.members-console__heading h2');
+        const count = textBounds('.members-result-count');
+        if (title.left < frame.left + 14 || count.right > frame.right - 14)
+          found.push('directory heading or result count intrudes into the chrome inset');
+        if (title.right > count.left && title.bottom > count.top)
           found.push('heading overlaps results');
         document.querySelectorAll('.member-row').forEach((row) => {
           const avatar = row.querySelector('.member-avatar')!.getBoundingClientRect();

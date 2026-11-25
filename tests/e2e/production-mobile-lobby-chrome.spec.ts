@@ -1149,7 +1149,7 @@ test.describe('the mobile lobby chrome on production', () => {
       );
     const chooseSort = async (label: string) => {
       await page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
-      const filters = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+      const filters = page.getByRole('dialog', { name: 'Game Filters', exact: true });
       const choice = filters.getByRole('button', { name: label, exact: true });
       await choice.click();
       await expect(choice).toHaveAttribute('aria-pressed', 'true');
@@ -1734,7 +1734,7 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
       );
       const exactUrl = page.url();
       await page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
-      const dialog = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+      const dialog = page.getByRole('dialog', { name: 'Game Filters', exact: true });
       const seats = dialog.getByRole('slider', { name: 'Minimum Seats', exact: true });
       await expect(seats).toBeVisible();
       const original = await seats.inputValue();
@@ -1826,7 +1826,7 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
         await fresh.page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
         await expect(
           fresh.page
-            .getByRole('dialog', { name: 'Advanced Filters', exact: true })
+            .getByRole('dialog', { name: 'Game Filters', exact: true })
             .getByRole('slider', { name: 'Minimum Seats', exact: true })
         ).toHaveValue(chosen, { timeout: 30_000 });
         const filterReadback = await fresh.client

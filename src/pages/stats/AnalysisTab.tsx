@@ -206,15 +206,9 @@ export default function AnalysisTab({
         />
       </PanelBoundary>
 
-      {/* Advanced Stats */}
-      <div>
-        <div className="stats-section-header">
-          <h3>Advanced Stats</h3>
-        </div>
-        <PanelBoundary name="Advanced Stats" resetKey={panelResetKey}>
-          <AdvancedStatsSummary initialData={advancedInitialData} rangeLabel={rangeLabel} />
-        </PanelBoundary>
-      </div>
+      <PanelBoundary name="Betting And Showdown Statistics" resetKey={panelResetKey}>
+        <AdvancedStatsSummary initialData={advancedInitialData} rangeLabel={rangeLabel} />
+      </PanelBoundary>
 
       {/* Charts */}
       <PanelBoundary name="Charts" resetKey={panelResetKey}>

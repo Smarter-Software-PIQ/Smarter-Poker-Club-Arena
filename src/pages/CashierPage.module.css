@@ -633,3 +633,17 @@
   background: var(--arena-tile);
   min-height: 44px;
 }
+
+.inlineTools {
+  width: 100%;
+  min-width: 0;
+}
+.inlineTools .console,
+.inlineTools .glass {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}

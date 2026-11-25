@@ -198,7 +198,7 @@ const AdvancedStatsSummary: React.FC<AdvancedStatsSummaryProps> = ({ initialData
   return (
     <div className="advanced-stats-summary">
       <div className="stats-header">
-        <h3>Advanced Statistics</h3>
+        <h3>Betting And Showdown Statistics</h3>
         <p className="stats-subtitle">
           Detailed Metrics From Your Play
           {rangeLabel && rangeLabel !== 'All' ? ` Over The Last ${rangeLabel}` : ''}

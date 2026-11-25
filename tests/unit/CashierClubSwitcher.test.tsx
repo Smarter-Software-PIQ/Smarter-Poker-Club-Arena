@@ -37,7 +37,7 @@ vi.mock('../../src/utils/clubQuickLink', async (importOriginal) => ({
 
 function Where() {
   const location = useLocation();
-  return <output data-testid="where">{location.pathname}</output>;
+  return <output data-testid="where">{location.pathname + location.search}</output>;
 }
 
 function start(path: string) {
@@ -69,8 +69,8 @@ describe('CashierClubSwitcher destination', () => {
   });
 
   it('cashierDestination maps each cashier surface to itself', () => {
-    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic`)).toBe('cashier-classic');
-    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic/`)).toBe('cashier-classic');
+    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic`)).toBe('wallet-operations');
+    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic/`)).toBe('wallet-operations');
     expect(cashierDestination(`/clubs/${CLUB_A}/cashier/statements`)).toBe('cashier/statements');
     expect(cashierDestination(`/clubs/${CLUB_A}/cashier`)).toBe('cashier');
     expect(cashierDestination('/cashier')).toBe('cashier');
@@ -90,7 +90,9 @@ describe('CashierClubSwitcher destination', () => {
   it('keeps the viewer on the classic cashier when switching from it', async () => {
     start(`/clubs/${CLUB_A}/cashier-classic`);
     await pickWhaleClub();
-    expect(screen.getByTestId('where')).toHaveTextContent(`/clubs/${CLUB_B}/cashier-classic`);
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      `/clubs/${CLUB_B}/cashier?walletTools=open`
+    );
   });
 
   it('keeps the viewer on the statements page when switching from it', async () => {

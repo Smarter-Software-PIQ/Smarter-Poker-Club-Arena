@@ -3,8 +3,15 @@ import { clubDataReportFixture } from '../helpers/club-data-report-fixture.mjs';
 
 const dates = 'dataStart=2026-11-09&dataEnd=2026-11-15';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-for (const entry of ['Advanced', 'union slug bookmark', 'union UUID bookmark']) {
-  test(`union ${entry} opens Advanced with its inclusive dates and BBJ`, async ({ page }) => {
+for (const entry of [
+  'Open Club Report',
+  'club bookmark',
+  'union slug bookmark',
+  'union UUID bookmark',
+]) {
+  test(`union ${entry} opens the inline report with its inclusive dates and BBJ`, async ({
+    page,
+  }) => {
     page.on('pageerror', (error) => {
       throw error;
     });
@@ -16,13 +23,15 @@ for (const entry of ['Advanced', 'union slug bookmark', 'union UUID bookmark']) 
       })
     );
     const path =
-      entry === 'Advanced'
+      entry === 'Open Club Report'
         ? '/clubs/fixture-union/data'
-        : `/unions/${entry.includes('UUID') ? id : 'fixture-union'}/data/advanced`;
+        : entry === 'club bookmark'
+          ? '/clubs/fixture-union/data/advanced'
+          : `/unions/${entry.includes('UUID') ? id : 'fixture-union'}/data/advanced`;
     await page.goto(`http://club-data.fixture${path}?${dates}#reconciliation`);
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    if (entry === 'Advanced') {
+    if (entry === 'Open Club Report') {
       const openReport = page.getByRole('button', { name: 'Open Club Report', exact: true });
       await expect(openReport).toBeVisible();
       await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
@@ -48,34 +57,24 @@ for (const entry of ['Advanced', 'union slug bookmark', 'union UUID bookmark']) 
       }
       await openReport.click();
     }
-    await expect(page).toHaveURL(
-      new RegExp(
-        `/clubs/fixture-union/data/advanced\\?${dates}${entry === 'Advanced' ? '&dataGame=ALL&dataStakes=ALL&dataSearch=' : ''}&view=advanced${entry === 'Advanced' ? '$' : '#reconciliation$'}`
-      )
-    );
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-report-tools',
-      'open'
-    );
-    await expect(page.getByRole('button', { name: 'Report Tools', exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-    await expect(page.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Financial Reconciliation' })).toContainText(
+    const report = page.getByRole('region', { name: 'Club Report', exact: true });
+    await expect(page).toHaveURL(/\/clubs\/fixture-union\/data\?/);
+    const opened = new URL(page.url());
+    expect(opened.searchParams.get('report')).toBe('open');
+    expect(opened.searchParams.get('dataEnd')).toBe('2026-11-15');
+    expect(opened.hash).toBe(entry === 'Open Club Report' ? '' : '#reconciliation');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Club Data', exact: true })
+    ).toHaveCount(1);
+    await expect(report.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
+    await expect(report.getByRole('region', { name: 'Financial Reconciliation' })).toContainText(
       '639.04'
     );
-    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'simple'
-    );
-    await expect(page).toHaveURL(/dataStart=2026-11-09&dataEnd=2026-11-15.*view=simple/);
-    await page.getByRole('button', { name: 'Report Tools', exact: true }).click();
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-report-tools',
-      'open'
-    );
+    await page.getByRole('button', { name: 'Close Club Report' }).click();
+    await expect(report).toHaveCount(0);
+    await expect(page).not.toHaveURL(/report=open/);
+    await page.goBack();
+    await expect(report.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
     const reads = await page.evaluate(() =>
       (window as any).fixtureReads.filter((r: any) => r.fn === 'ca_club_data_snapshot_v2')
     );
@@ -106,13 +105,19 @@ test('filtered Report keeps one question through real navigation and breakdown a
   await expect(page.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
     'Nov 9, 2026 Through Nov 15, 2026 Pacific Calendar Dates'
   );
-  await page.getByRole('button', { name: 'View Contributing Games', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Club Report', exact: true })
+    .getByRole('button', { name: 'View Contributing Games', exact: true })
+    .click();
   await expect(page.getByRole('tab', { name: 'Games', exact: true })).toHaveAttribute(
     'aria-selected',
     'true'
   );
   await expect(page).toHaveURL(/dataTab=games/);
-  await page.getByRole('button', { name: 'Cross Day Cash', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Club Report', exact: true })
+    .getByRole('button', { name: 'Cross Day Cash', exact: true })
+    .click();
   await expect(page.getByRole('dialog', { name: 'Contributing Game Source' })).toContainText(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   );

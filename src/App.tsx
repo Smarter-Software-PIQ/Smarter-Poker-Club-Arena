@@ -86,6 +86,7 @@ import TOSGuard from './components/legal/TOSGuard';
    shape: a wrapper here re-indents 1,500 lines and every text pin on them. */
 const AgeGate = lazyWithRetry(() => import('./components/legal/AgeGate'));
 const ConsentPrompt = lazyWithRetry(() => import('./components/legal/ConsentPrompt'));
+import CashierEntrance from './components/navigation/CashierEntrance';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
 // Push maintenance is intentionally delayed inside these components (four
@@ -123,7 +124,6 @@ const PokerArenaLandingPage = lazyWithRetry(() => import('./pages/PokerArenaLand
 const ClubsPage = lazyWithRetry(() => import('./pages/ClubsPage'));
 const ClubHomePage = lazyWithRetry(() => import('./pages/ClubHomePage'));
 const ClubDashboard = lazyWithRetry(() => import('./pages/club/ClubDashboard'));
-const ClubDataPage = lazyWithRetry(() => import('./pages/club/ClubDataPage'));
 const ClubDataGuard = lazyWithRetry(() => import('./components/auth/ClubDataGuard'));
 const ClubDataSimplePage = lazyWithRetry(() => import('./pages/club/ClubDataSimplePage'));
 const ClubOperationsPage = lazyWithRetry(() => import('./pages/club/ClubOperationsPage'));
@@ -181,7 +181,6 @@ const MessengerDockHost = lazyWithRetry(() => import('./components/messenger/Mes
 const NavigateToMessenger = lazyWithRetry(() => import('./pages/NavigateToMessenger'));
 const SearchPage = lazyWithRetry(() => import('./pages/SearchPage'));
 const HelpPage = lazyWithRetry(() => import('./pages/HelpPage'));
-const CashierPage = lazyWithRetry(() => import('./pages/CashierPage'));
 const CashierTradePage = lazyWithRetry(() => import('./pages/CashierTradePage'));
 const CashierStatementsPage = lazyWithRetry(() => import('./pages/CashierStatementsPage'));
 const SuperAgentDashboard = lazyWithRetry(() => import('./pages/SuperAgentDashboard'));
@@ -1452,7 +1451,7 @@ function FullApp() {
                   element={
                     <AuthGuard>
                       <PageErrorBoundary pageName="Cashier">
-                        <CashierPage />
+                        <CashierEntrance />
                       </PageErrorBoundary>
                     </AuthGuard>
                   }
@@ -1488,7 +1487,7 @@ function FullApp() {
                       <ClubMemberGuard>
                         <PageErrorBoundary pageName="Club Data">
                           <ClubDataGuard>
-                            <ClubDataSimplePage />
+                            {(scope) => <ClubDataSimplePage authorizedScope={scope} />}
                           </ClubDataGuard>
                         </PageErrorBoundary>
                       </ClubMemberGuard>
@@ -1501,9 +1500,7 @@ function FullApp() {
                     <AuthGuard>
                       <ClubMemberGuard>
                         <PageErrorBoundary pageName="Club Data Report">
-                          <ClubDataGuard wholeClub>
-                            <ClubDataPage />
-                          </ClubDataGuard>
+                          <UnionReportRedirect />
                         </PageErrorBoundary>
                       </ClubMemberGuard>
                     </AuthGuard>
@@ -1545,10 +1542,6 @@ function FullApp() {
                     </AuthGuard>
                   }
                 />
-                {/* Dan 2026-08-21: the PokerBros-style Trade cashier is now the
-                    front door; the full classic cashier (buy-in / cash-out /
-                    mint / history) moved to /cashier-classic and is linked
-                    from inside the Trade view. */}
                 <Route
                   path="clubs/:clubId/cashier"
                   element={
@@ -1582,7 +1575,7 @@ function FullApp() {
                     <AuthGuard>
                       <ClubMemberGuard>
                         <PageErrorBoundary pageName="Cashier">
-                          <CashierPage />
+                          <CashierEntrance legacy />
                         </PageErrorBoundary>
                       </ClubMemberGuard>
                     </AuthGuard>

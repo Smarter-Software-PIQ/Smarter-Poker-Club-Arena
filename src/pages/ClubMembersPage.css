@@ -1027,7 +1027,7 @@
   }
 }
 
-.club-members-page:not(.diamond-players) .members-console {
+.club-members-page:not(.diamond-players, .arena-workspace) .members-console {
   background: transparent;
   border: 0;
   box-shadow: none;

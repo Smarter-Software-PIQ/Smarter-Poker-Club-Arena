@@ -13,6 +13,7 @@ import './CashierWorkspace.css';
  */
 export function CashierWorkspace({
   compact = false,
+  inline = false,
   hasVisibleTitle = false,
   title,
   summary,
@@ -23,6 +24,7 @@ export function CashierWorkspace({
   children,
 }: {
   compact?: boolean;
+  inline?: boolean;
   hasVisibleTitle?: boolean;
   title: string;
   /** What this desk is for. Shown behind the "?", never on the page. */
@@ -35,6 +37,7 @@ export function CashierWorkspace({
   className?: string;
   children: ReactNode;
 }) {
+  if (inline) return <div className={className}>{children}</div>;
   const status = [context, pill].filter(Boolean).join(' · ') || undefined;
   return (
     <div

@@ -34,8 +34,8 @@ export async function clubDataReportFixture() {
       import Redirect from './src/pages/UnionReportRedirect';
       import SlugEnforcer from './src/components/common/SlugEnforcer';
       createRoot(document.getElementById('root')).render(<BrowserRouter><SlugEnforcer/><Routes>
-        <Route path="/clubs/:clubId/data" element={<Simple/>}/>
-        <Route path="/clubs/:clubId/data/advanced" element={<Advanced/>}/>
+        <Route path="/clubs/:clubId/data" element={<Simple authorizedScope="club"/>}/>
+        <Route path="/clubs/:clubId/data/advanced" element={<Redirect/>}/>
         <Route path="/unions/:unionId/data/advanced" element={<Redirect/>}/>
       </Routes></BrowserRouter>);`,
     },
