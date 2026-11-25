@@ -312,6 +312,7 @@ export default function RewardsTab({
   entries,
   tables,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
   satelliteAwards: providedAwards,
 }: TournamentTabProps) {
@@ -319,7 +320,7 @@ export default function RewardsTab({
   const tournamentId = tournament?.id;
   /* An agent's own players (Dan 2026-11-08: "IT SHOULD SHOW UP ON THE DETAILS
      PAGE AND REWARDS"). Same derivation as Ranking, so the two agree. */
-  const myPlayers = useMyPlayers(tournament, entries, tables || [], currentUserId);
+  const myPlayers = useMyPlayers(tournament, entries, tables || [], currentUserId, viewerLinkClub);
 
   /* One read of fn_ca_tournament_prize_funding, shared with every other
      surface that projects a place (2026-11-07): the lobby panel, the

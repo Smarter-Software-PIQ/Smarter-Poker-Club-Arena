@@ -627,9 +627,7 @@ describe('the tick for staff', () => {
 
   it('is read off cash_games columns for staff only, on a must-move game only, and the page passes the staff test the notice board uses', () => {
     const panel = read('src/components/lobby/GameLobbyPanel.tsx');
-    expect(panel).toMatch(
-      /if \(!isCash \|\| !staff \|\| !gameId\) \{\s*setTick\(null\);\s*return;/
-    );
+    expect(panel).toMatch(/setTick\(null\);\s*if \(!isCash \|\| !staff \|\| !gameId\) return;/);
     expect(panel).toMatch(/\.from\('cash_games'\)\s*\.select\('last_tick_at, last_tick_actions'\)/);
     expect(panel).toMatch(/\{staff && tick && \(/);
     expect(panel).toMatch(/className=\{`glp__tick glp__mono/);

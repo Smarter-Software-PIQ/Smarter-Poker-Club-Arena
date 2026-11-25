@@ -194,6 +194,8 @@ export interface TournamentTabProps {
   blindLevels: NormalisedBlindLevel[];
   /** Signed-in player, for "your position" and hero highlighting. */
   currentUserId?: string;
+  /** Club on the opened lobby link, including a lobby embedded inside a table. */
+  viewerLinkClub?: string | null;
   /** True once this player holds an entry in this event. */
   isRegistered: boolean;
 

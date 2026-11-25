@@ -68,6 +68,10 @@ import {
   type TournamentTabProps,
 } from './types';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
+import {
+  tournamentClosingStatus,
+  tournamentStartsWhenFull,
+} from '../../../utils/tournamentPresentation';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
 import { useMyPlayers } from './useMyPlayers';
@@ -357,11 +361,12 @@ export default function TablesTab({
   entries,
   tables,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
 }: TournamentTabProps) {
   const toast = useToast();
   const tableListRef = useRef<HTMLUListElement>(null);
-  const myPlayers = useMyPlayers(tournament, entries, tables, currentUserId);
+  const myPlayers = useMyPlayers(tournament, entries, tables, currentUserId, viewerLinkClub);
   const myByTable = myPlayers.ready ? myPlayers.summary.byTable : null;
 
   /** Live players only. An eliminated row keeps its last table_id, and counting
@@ -517,16 +522,19 @@ export default function TablesTab({
        Starts": a promise about the future, printed under a header that says
        Completed. Each state has its own true sentence. */
     const status = String(tournament?.status || '').toUpperCase();
+    const closingStatus = tournamentClosingStatus(status);
     const empty =
-      status === 'COMPLETED'
-        ? { title: 'No Tables', hint: 'This Event Has Finished And Its Tables Are Closed' }
-        : status === 'CANCELLED'
-          ? { title: 'No Tables', hint: 'This Event Was Cancelled' }
-          : isBaggedStatus(status)
-            ? { title: 'No Tables Right Now', hint: 'Tables Reopen When The Next Day Starts' }
-            : status === 'RUNNING' || status === 'LATE_REG' || status === 'LATE_REGISTRATION'
-              ? { title: 'No Tables Yet', hint: 'Seating Is Being Drawn Now' }
-              : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
+      closingStatus === 'Completing'
+        ? { title: 'No Tables', hint: 'Results Are Being Finalized' }
+        : closingStatus === 'Completed'
+          ? { title: 'No Tables', hint: 'This Event Has Finished And Its Tables Are Closed' }
+          : closingStatus === 'Cancelled'
+            ? { title: 'No Tables', hint: 'This Event Was Cancelled' }
+            : isBaggedStatus(status)
+              ? { title: 'No Tables Right Now', hint: 'Tables Reopen When The Next Day Starts' }
+              : status === 'RUNNING' || status === 'LATE_REG' || status === 'LATE_REGISTRATION'
+                ? { title: 'No Tables Yet', hint: 'Seating Is Being Drawn Now' }
+                : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
     return (
       <div className="tl-panel tt-panel">
         {myPlayers.ready && (
@@ -551,9 +559,12 @@ export default function TablesTab({
             </span>
             <strong className="table-message">{empty.title}</strong>
             <span className="table-hint">{empty.hint}</span>
-            {tournament.start_time && empty.title === 'No Tables Yet' && (
-              <EventStartClock start={tournament.start_time} />
-            )}
+            {['REGISTERING', 'ANNOUNCED', 'SCHEDULED', 'OPEN', 'PENDING'].includes(status) &&
+              (tournamentStartsWhenFull(tournament) ? (
+                <b className="mtt-start-clock">Starts When Full</b>
+              ) : tournament.start_time ? (
+                <EventStartClock start={tournament.start_time} />
+              ) : null)}
           </div>
         </div>
       </div>

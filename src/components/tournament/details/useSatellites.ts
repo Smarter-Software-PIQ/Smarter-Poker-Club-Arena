@@ -54,7 +54,9 @@ import {
   getTournamentEntryCapacity,
   tournamentStartsWhenFull,
 } from '../../../utils/tournamentPresentation';
-import { totalBuyIn } from '../../../utils/buyIn';
+import { totalBuyIn, type BookedBuyInContext } from '../../../utils/buyIn';
+import { TOURNAMENT_ARENA_EMBED } from '../../../services/TournamentService';
+import type { TournamentArenaEmbed } from './types';
 
 /**
  * Explicit column list. `select('*')` on `tournaments` pulls well over a
@@ -112,7 +114,8 @@ export const SATELLITE_LIMIT = 200;
 // BAGGED: a multi-day satellite between days is still live.
 const LIVE_STATUSES = ['ANNOUNCED', 'REGISTERING', 'LATE_REG', 'RUNNING', 'BAGGED'] as const;
 
-export interface SatelliteRow {
+export interface SatelliteRow
+  extends TournamentArenaEmbed, Pick<BookedBuyInContext, 'club_id' | 'union_id' | 'name'> {
   id: string;
   [key: string]: unknown;
 }
@@ -135,7 +138,7 @@ export function speedLabel(minutes: number): string {
   return describeStoredMttStructure([{ durationMinutes: minutes }], 0).speedLabel ?? 'Unconfirmed';
 }
 
-export function mapSatelliteRowToCard(sat: Record<string, unknown>) {
+export function mapSatelliteRowToCard(sat: SatelliteRow) {
   // The target-link query establishes satellite identity, including legacy SNG rows.
   const type: CardType = 'satellite';
 
@@ -159,6 +162,7 @@ export function mapSatelliteRowToCard(sat: Record<string, unknown>) {
     buy_in_amount: num(sat.buy_in_amount),
     buy_in_fee: num(sat.buy_in_fee),
     storedStatus: rawStatus,
+    arena: sat.arena,
     variant: typeof sat.variant === 'string' ? sat.variant : null,
     tournament_type: typeof sat.tournament_type === 'string' ? sat.tournament_type : null,
     name: String(sat.name || 'Satellite'),
@@ -268,7 +272,7 @@ export function useSatellites(
           (signal) =>
             supabase
               .from('tournaments')
-              .select(SATELLITE_COLUMNS)
+              .select(`${SATELLITE_COLUMNS}, ${TOURNAMENT_ARENA_EMBED}`)
               .or(`satellite_target_id.eq.${tournamentId},satellite_target.eq.${tournamentId}`)
               .in('status', LIVE_STATUSES as unknown as string[])
               .order('start_time', { ascending: true })

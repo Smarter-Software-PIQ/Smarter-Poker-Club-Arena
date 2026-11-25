@@ -457,7 +457,8 @@ function LobbyArtSymbol({ kind }: { kind: 'target' }) {
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
-  const label = TOURNAMENT_ICON_LABELS[kind];
+  // The Spin board paints the rotor for every structure, including Deep Stack.
+  const label = entry.kind === 'spin' ? 'Spin Tournament' : TOURNAMENT_ICON_LABELS[kind];
   const badgeFiles: Partial<Record<TournamentFormatIcon, string>> = {
     pko: 'progressive-ko-v1.webp',
     mystery: 'mystery-chest-v2.webp',

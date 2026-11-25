@@ -1,4 +1,3 @@
-import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  *  PLAYER STATS PAGE — Premium Glassmorphism Design
@@ -26,7 +25,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { tabTransition, instant } from '../components/stats/statsMotion';
 import { statsGameMode, type StatsGameMode } from '../services/statsGameMode';
-import StatsGameModeControl from './stats/StatsGameModeControl';
+import StatsWorkspaceHeader from './stats/StatsWorkspaceHeader';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { findClubByParam, readClubContextParam } from '../utils/clubScopedPath';
 import { supabase } from '../lib/supabase';
@@ -1537,24 +1536,20 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
-  const mast = (
-    <>
-      <ArenaWorkspaceHeader
-        area="stats"
-        title="Player Stats"
-        context={clubLabel}
-        subtitle="Player Intelligence"
-        id="stats-page-title"
-      />
-      <StatsGameModeControl />
-    </>
-  );
+  const mast = <StatsWorkspaceHeader context={clubLabel} />;
   if (!isOwnProfile) {
     return (
       <div className="stats-page arena-workspace">
-        {mast}
-        <Suspense fallback={<PageSkeleton variant="stats" />}>
+        <Suspense
+          fallback={
+            <>
+              <StatsWorkspaceHeader context="Shared Club" />
+              <PageSkeleton variant="stats" />
+            </>
+          }
+        >
           <SharedClubStatsView
+            renderMast={(context) => <StatsWorkspaceHeader context={context} />}
             targetUserId={targetUserId!}
             asset={statsScope}
             gameMode={gameMode}

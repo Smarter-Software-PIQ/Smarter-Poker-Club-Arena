@@ -62,7 +62,15 @@ import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
-import { clubDataRangeDays, clubDataRangeError, readClubDataRange } from '../../lib/clubDataRange';
+import {
+  CLUB_DATA_PRESETS,
+  type ClubDataPreset,
+  clubDataRangeDays,
+  clubDataRangeError,
+  readClubDataPreset,
+  readClubDataRange,
+  writeClubDataRange,
+} from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
@@ -104,7 +112,6 @@ import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/f
 import { clubDataReportPath } from '../../utils/clubDataReportPath';
 const ClubReport = lazy(() => import('./ClubDataPage'));
 
-type Preset = 1 | 7 | 14;
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 
@@ -161,7 +168,7 @@ interface Snapshot {
   rows: ClubDataRow[];
   generated_at?: string;
   /** 'club' for the owner, co-owner and admins; 'downline' for an agent. */
-  scope?: 'club' | 'downline';
+  scope: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
   /** The club's union, when it is in one (or is one). Decides "today". */
@@ -180,7 +187,6 @@ interface Snapshot {
   clubs?: ClubDataClubRow[];
 }
 
-const PRESETS: Preset[] = [1, 7, 14];
 const GAME_FILTERS: Array<{ id: GameFilter; label: string }> = [
   { id: 'ALL', label: 'All' },
   { id: 'HOLDEM', label: "Hold'em" },
@@ -198,7 +204,7 @@ const STAKES_FILTERS: Array<{ id: Exclude<StakesFilter, 'ALL'>; label: string }>
 const ROW_LIMIT = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export function refreshIntervalMs(preset: Preset): number {
+export function refreshIntervalMs(preset: ClubDataPreset): number {
   return preset === 1 ? 15_000 : 60_000;
 }
 
@@ -290,7 +296,7 @@ export default function ClubDataSimplePage({
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   // A fresh visit starts today, regardless of a previously saved preset.
-  const [preset, setPreset] = useState<Preset>(1);
+  const preset = readClubDataPreset(searchParams);
   // Current reports share Pacific midnight; financial definitions remain distinct.
   const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
   const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
@@ -303,16 +309,10 @@ export default function ClubDataSimplePage({
   const requestedRange = readClubDataRange(searchParams, today);
   const endDate = requestedRange?.end ?? currentDay;
   const customStart = requestedRange?.start ?? null;
-  const selectDates = (start: string | null, end: string) => {
-    if (end === clubDataToday(new Date(), dayBasisRef.current)) setCurrentDay(end);
-    const next = new URLSearchParams(searchParams);
-    if (start !== null) next.set('dataStart', start);
-    else next.delete('dataStart');
-    next.delete('dataUntil');
-    if (start !== null || end !== clubDataToday(new Date(), dayBasisRef.current)) {
-      next.set('dataEnd', end);
-    } else next.delete('dataEnd');
-    setSearchParams(next);
+  const selectDates = (start: string | null, end: string, days = preset) => {
+    const reportingToday = clubDataToday(new Date(), dayBasisRef.current);
+    if (end === reportingToday) setCurrentDay(end);
+    setSearchParams(writeClubDataRange(searchParams, start, end, reportingToday, days));
   };
   const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
@@ -327,13 +327,15 @@ export default function ClubDataSimplePage({
     items: RosterMember[];
     failed: boolean;
   } | null>(null);
-  const [playerSearchAccess, setPlayerSearchAccess] = useState<string | null>(null);
+  const [access, setAccess] = useState<{
+    identity: string;
+    scope: Snapshot['scope'] | 'denied';
+  } | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [denied, setDenied] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const requestRef = useRef(0);
   // "CLUB JAQK - CLUB DATA": the name stays in the header while a window loads.
@@ -356,8 +358,11 @@ export default function ClubDataSimplePage({
     reportRangeError,
   ]);
   const identityKey = JSON.stringify([userId, clubParam, clubUuid]);
-  const playerSearchReady =
-    !isHydrating && !!userId && playerSearchAccess === identityKey && !denied;
+  // A new filter retires the figures, but the last server authorization still
+  // applies to this viewer and club until a later response supersedes it.
+  const currentScope = access?.identity === identityKey ? access.scope : undefined;
+  const denied = currentScope === 'denied';
+  const playerSearchReady = !isHydrating && !!userId && !!currentScope && !denied;
   const activeScopeRef = useRef(scopeKey);
   activeScopeRef.current = scopeKey;
   const visibleSnapshot =
@@ -371,7 +376,6 @@ export default function ClubDataSimplePage({
     setBreakdown(null);
     setSnapshot(null);
     setSnapshotScope(null);
-    setDenied(false);
     setError(null);
     setUpdatedAt(null);
     setLoading(true);
@@ -471,33 +475,31 @@ export default function ClubDataSimplePage({
         } else if (isAuthzError(rpcError)) {
           setSnapshot(null);
           setSnapshotScope(null);
-          setDenied(true);
-          setPlayerSearchAccess(null);
+          setAccess({ identity: identityKey, scope: 'denied' });
           setError(null);
         } else {
           reportError(rpcError, 'ClubDataSimplePage.snapshot');
-          setError('Club Data Could Not Be Read. Showing The Last Good Figures.');
+          setError('Club Data Could Not Be Read.');
         }
         return;
       }
       if (!isSnapshot(data)) {
-        setError('Club Data Came Back Incomplete. Showing The Last Good Figures.');
+        setError('Club Data Came Back Incomplete.');
         return;
       }
       setSnapshot(data);
       // Both verified Data bases use the same Pacific calendar day.
       if (isUnionClubAnswer(data)) setDayBasis('accounting');
       else if (clubDataDayBasis(data) === 'pacific') setDayBasis('pacific');
-      setPlayerSearchAccess(identityKey);
+      setAccess({ identity: identityKey, scope: data.scope });
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
-      setDenied(false);
       setError(null);
       setUpdatedAt(Date.now());
     } catch (err) {
       if (!isCurrent()) return;
       reportError(err, 'ClubDataSimplePage.snapshot');
-      setError('Club Data Could Not Be Read. Showing The Last Good Figures.');
+      setError('Club Data Could Not Be Read.');
     } finally {
       window.clearTimeout(timer);
       if (isCurrent()) setLoading(false);
@@ -630,8 +632,9 @@ export default function ClubDataSimplePage({
   const clubKey = clubUuid || clubParam;
   const canOpenReport =
     authorizedScope !== 'downline' &&
-    visibleSnapshot?.scope !== 'downline' &&
-    (authorizedScope === 'club' || visibleSnapshot?.scope === 'club');
+    !isHydrating &&
+    !!userId &&
+    (currentScope ?? authorizedScope) === 'club';
   const reportOpen = canOpenReport && searchParams.get('report') === 'open';
   const openReport = (games = false) => {
     const query = clubDataContextQuery(searchParams, {
@@ -641,6 +644,11 @@ export default function ClubDataSimplePage({
       stakes,
       search: searchInput,
     });
+    if (customStart === null) {
+      if (preset !== 1) query.set('dataDays', String(preset));
+      query.delete('dataStart');
+      if (!requestedRange) query.delete('dataEnd');
+    }
     if (games) query.set('dataTab', 'games');
     navigate(
       clubDataReportPath(clubParam || clubKey, query, games ? '#club-data-panel-games' : '')
@@ -654,6 +662,9 @@ export default function ClubDataSimplePage({
     setSearchParams(query);
   };
 
+  const readMessage =
+    reportRangeError ??
+    (error && visibleSnapshot ? `${error} Showing The Last Good Figures.` : error);
   const updatedLabel = updatedAt ? chicagoClock(updatedAt) : null;
 
   if (denied) {
@@ -774,15 +785,14 @@ export default function ClubDataSimplePage({
           />
         )}
         <div className={`${styles.segment} arena-switch`} role="group" aria-label="Date Range">
-          {PRESETS.map((p) => (
+          {CLUB_DATA_PRESETS.filter((days) => days <= 14 || days === preset).map((p) => (
             <button
               key={p}
               type="button"
               aria-pressed={customStart === null && preset === p}
               className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
               onClick={() => {
-                selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
-                setPreset(p);
+                selectDates(null, clubDataToday(new Date(), dayBasisRef.current), p);
                 setEditingDates(false);
               }}
             >
@@ -925,8 +935,8 @@ export default function ClubDataSimplePage({
       </section>
       <div className={styles.liveRow}>
         <div className={styles.liveLine} role="status">
-          {error ? (
-            <span className={styles.inkLoss}>{error}</span>
+          {readMessage ? (
+            <span className={styles.inkLoss}>{readMessage}</span>
           ) : loading && !snapshot ? (
             <span>Reading Live Data</span>
           ) : (
@@ -1085,10 +1095,12 @@ export default function ClubDataSimplePage({
         ) : !snapshot && !loading ? (
           <div className={styles.empty}>
             <SpadeMark />
-            <p className={styles.emptyText}>{error ?? 'No Data In This Period.'}</p>
-            <button type="button" className={styles.retry} onClick={() => void load()}>
-              Try Again
-            </button>
+            <p className={styles.emptyText}>{readMessage ?? 'Club Data Is Unavailable.'}</p>
+            {!reportRangeError && (
+              <button type="button" className={styles.retry} onClick={() => void load()}>
+                Try Again
+              </button>
+            )}
           </div>
         ) : (
           <ul className={styles.list} aria-label="Games">

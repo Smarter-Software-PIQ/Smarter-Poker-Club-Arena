@@ -13,10 +13,12 @@ import {
   tournamentEntryWindowOpen,
   type TournamentEntryWindowRow,
 } from '../../utils/tournamentEntryWindow';
+import { readClubContextParam } from '../../utils/clubScopedPath';
 import { serverNow } from '../../utils/serverClock';
 import {
   isSeatFirstTournamentFormat,
   isTournamentEntryUnavailable,
+  tournamentClosingStatus,
   tournamentStartsWhenFull,
 } from '../../utils/tournamentPresentation';
 /**
@@ -1943,6 +1945,7 @@ export default function TournamentDetails({
    */
   const satelliteAwards = useSatelliteAwards(tournament, entries, undefined, user?.id);
 
+  const viewerLinkClub = readClubContextParam(search);
   const tabProps = useMemo<TournamentTabProps | null>(
     () =>
       tournament
@@ -1961,6 +1964,7 @@ export default function TournamentDetails({
             tables: isWatchable ? tables : NO_TABLES,
             blindLevels,
             currentUserId: user?.id,
+            viewerLinkClub,
             isRegistered,
             /* `isWatchable`, not `isRunning`: during LATE_REG the event is
                dealing and every one of these rows points at a live table, but
@@ -1977,6 +1981,7 @@ export default function TournamentDetails({
       tables,
       blindLevels,
       user?.id,
+      viewerLinkClub,
       isRegistered,
       /* `isWatchable`, not `isRunning`: the BODY reads isWatchable (LATE_REG
          counts as watchable, RUNNING alone does not cover it), so listing the
@@ -2097,11 +2102,12 @@ export default function TournamentDetails({
   /* What state the event is in, in the words the footer already uses for it.
      One reading of `status`, so the pill in the header and the badge in the
      footer cannot name two different states for one event. */
+  const closingStatus = tournamentClosingStatus(tournament.status);
   const lobbyStatus: { label: string; tone: 'open' | 'live' | 'done' | 'cancelled' } = (() => {
     const raw = String(tournament.status || '').toUpperCase();
     if (isBaggedStatus(raw)) return { label: DAY_COMPLETE_LABEL, tone: 'live' };
-    if (raw === 'COMPLETED') return { label: 'Completed', tone: 'done' };
-    if (raw === 'CANCELLED') return { label: 'Cancelled', tone: 'cancelled' };
+    if (closingStatus)
+      return { label: closingStatus, tone: closingStatus === 'Cancelled' ? 'cancelled' : 'done' };
     if (isWatchable) {
       return { label: lateRegCountdown ? 'Late Registration' : 'Running', tone: 'live' };
     }
@@ -2285,11 +2291,14 @@ export default function TournamentDetails({
         <span className="tournament-status-badge running">{DAY_COMPLETE_LABEL}</span>
       );
     }
-    if (tournament.status === 'COMPLETED') {
-      return footer ? null : <span className="tournament-status-badge completed">Completed</span>;
-    }
-    if (tournament.status === 'CANCELLED') {
-      return footer ? null : <span className="tournament-status-badge cancelled">Cancelled</span>;
+    if (closingStatus) {
+      return footer ? null : (
+        <span
+          className={`tournament-status-badge ${closingStatus === 'Cancelled' ? 'cancelled' : 'completed'}`}
+        >
+          {closingStatus}
+        </span>
+      );
     }
 
     /* A SEAT-FIRST GAME (Heads-Up Sit N Go / Spin) IS SAT AT, NEVER REGISTERED

@@ -305,7 +305,7 @@ export default function ClubMembersPage() {
      presence door are watched once a minute (never a roster re-read, which
      keeps the 180-second floor above); under Active Now the loaded rows are
      re-ranked from them in place. */
-  const liveSeats = useClubLiveSeats(resolvedClubId, members.length > 0);
+  const liveSeats = useClubLiveSeats(resolvedClubId, directoryAvailable);
   const presence = useLoadedPresence(loadedMemberIds);
   const orderedMembers = useMemo(
     () =>
