@@ -14,7 +14,7 @@
  *
  * WHAT THIS IS. A real badge: a filled chip carrying a glyph, sized and
  * weighted so the hierarchy reads top to bottom without anyone learning a
- * legend. Rank descends through the palette in one direction -- gold for the
+ * legend. Rank descends through the palette in one direction -- silver for the
  * two owners, smarter.poker royal blue for the club staff, arena cyan for the
  * three agent tiers, steel for a player -- and the glyph gets simpler as the
  * rank falls: filled star, open star, diamond, triangle, filled circle, open
@@ -44,14 +44,14 @@ export interface RoleBadgeSpec {
 export const ROLE_BADGE: Record<ClubRole, RoleBadgeSpec> = {
   owner: {
     glyph: '★', // filled star
-    color: '#FFC93C',
-    wash: 'rgba(255, 201, 60, 0.16)',
+    color: '#E5F2FF',
+    wash: 'rgba(229, 242, 255, 0.16)',
     label: ROLE_LABEL.owner,
   },
   co_owner: {
     glyph: '☆', // open star
-    color: '#E0A82E',
-    wash: 'rgba(224, 168, 46, 0.16)',
+    color: '#B4CEE6',
+    wash: 'rgba(180, 206, 230, 0.16)',
     label: ROLE_LABEL.co_owner,
   },
   admin: {

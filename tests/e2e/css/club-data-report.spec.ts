@@ -3,7 +3,7 @@ import { clubDataReportFixture } from '../helpers/club-data-report-fixture.mjs';
 
 const dates = 'dataStart=2026-11-09&dataEnd=2026-11-15';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-for (const entry of ['Report', 'union slug bookmark', 'union UUID bookmark']) {
+for (const entry of ['Advanced', 'union slug bookmark', 'union UUID bookmark']) {
   test(`union ${entry} opens Advanced with its inclusive dates and BBJ`, async ({ page }) => {
     page.on('pageerror', (error) => {
       throw error;
@@ -16,16 +16,17 @@ for (const entry of ['Report', 'union slug bookmark', 'union UUID bookmark']) {
       })
     );
     const path =
-      entry === 'Report'
+      entry === 'Advanced'
         ? '/clubs/fixture-union/data'
         : `/unions/${entry.includes('UUID') ? id : 'fixture-union'}/data/advanced`;
     await page.goto(`http://club-data.fixture${path}?${dates}#reconciliation`);
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    if (entry === 'Report') await page.getByRole('button', { name: 'Report', exact: true }).click();
+    if (entry === 'Advanced')
+      await page.getByRole('button', { name: 'Advanced', exact: true }).click();
     await expect(page).toHaveURL(
       new RegExp(
-        `/clubs/fixture-union/data/advanced\\?${dates}${entry === 'Report' ? '&dataGame=ALL&dataStakes=ALL&dataSearch=' : ''}&view=advanced${entry === 'Report' ? '$' : '#reconciliation$'}`
+        `/clubs/fixture-union/data/advanced\\?${dates}${entry === 'Advanced' ? '&dataGame=ALL&dataStakes=ALL&dataSearch=' : ''}&view=advanced${entry === 'Advanced' ? '$' : '#reconciliation$'}`
       )
     );
     await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
@@ -76,7 +77,7 @@ test('filtered Report keeps one question through real navigation and breakdown a
   );
   await page.addStyleTag({ content: fixture.css });
   await page.addScriptTag({ content: fixture.javascript });
-  await page.getByRole('button', { name: 'Report', exact: true }).click();
+  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
   await expect(page).toHaveURL(/dataGame=OMAHA&dataStakes=HIGH&dataSearch=River/);
   await expect(page.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
     'Nov 9, 2026 Through Nov 15, 2026 Pacific Calendar Dates'

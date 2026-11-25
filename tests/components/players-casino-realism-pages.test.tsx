@@ -396,7 +396,7 @@ describe('Players detail surfaces', () => {
     render(<MemberManagementPage />);
 
     expect(await screen.findByRole('heading', { name: 'River Shark' })).toBeVisible();
-    expect(screen.getByText('Audited Player Credential')).toBeVisible();
+    expect(screen.getByText('Member Profile')).toBeVisible();
     expect(screen.getByText('At A Table')).toBeVisible();
     expect(screen.getByText('ID: 1042')).toBeVisible();
     expect(document.querySelector<HTMLImageElement>('.mm-credential__art')?.src).toContain(

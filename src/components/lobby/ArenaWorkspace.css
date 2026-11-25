@@ -1,0 +1,567 @@
+/* The Arena workspaces use the same continuous, nine-slice metal as the MTT console.
+   The frame decorates real controls and content, so it grows with the ledger. */
+.arena-workspace.arena-workspace {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  padding: 7px 6px max(18px, env(safe-area-inset-bottom));
+  background: #050d17;
+  color: #f1f5fc;
+  --arena-frame: url('./console-art/chrome-case.webp');
+  --arena-row: url('./console-art/chrome-row.webp');
+  --arena-stat: url('./console-art/chrome-stat.webp');
+  --arena-active: url('./console-art/chrome-active.webp');
+  --arena-readout: url('./console-art/chrome-readout.webp');
+  --arena-panel:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  --arena-tile: linear-gradient(155deg, #12273b, #07111c 70%);
+}
+.arena-workspace .arena-workspace-mast {
+  display: flex;
+  flex-flow: column;
+  justify-content: center;
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  min-height: 103px;
+  box-sizing: border-box;
+  background: #07111c;
+  padding: 19px 18px 15px;
+  text-align: left;
+}
+.arena-workspace-mast::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-image: var(--arena-row) 13 / 9px stretch;
+  pointer-events: none;
+  z-index: 1;
+}
+.arena-workspace-mast .arena-mast-art {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  height: calc(100% - 6px);
+  width: 75%;
+  background-size: auto 155%;
+  background-repeat: no-repeat;
+  background-position: right 53%;
+  z-index: -2;
+}
+.arena-workspace-mast::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: linear-gradient(90deg, #030a14 0%, #061120 35%, transparent 80%);
+  z-index: -1;
+}
+.arena-workspace .arena-workspace-mast > span {
+  font:
+    700 10px/1.2 Arial,
+    sans-serif;
+  letter-spacing: 0.14em;
+  color: #80dcff;
+  text-transform: uppercase;
+}
+.arena-workspace .arena-workspace-mast h1 {
+  margin: 5px 0 0;
+  font:
+    800 33px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.65px;
+  color: #fff;
+  text-shadow: 1px 2px 2px #000;
+}
+.arena-workspace .arena-workspace-mast small {
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  color: #c4cfdb;
+  margin-top: 6px;
+}
+.arena-workspace .arena-case,
+.arena-workspace .members-console,
+.arena-workspace .members-list,
+.arena-workspace .mm-card,
+.arena-workspace .stats-command-deck,
+.arena-workspace .stats-content,
+.arena-workspace .stats-club-command,
+.arena-workspace .stats-intelligence-brief {
+  box-sizing: border-box;
+  position: relative;
+  background: var(--arena-panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px;
+  margin: 7px 0;
+}
+.arena-workspace .arena-case::before,
+.arena-workspace .members-console::before,
+.arena-workspace .members-list::before,
+.arena-workspace .mm-card::before,
+.arena-workspace .stats-command-deck::before,
+.arena-workspace .stats-content::before,
+.arena-workspace .stats-club-command::before,
+.arena-workspace .stats-intelligence-brief::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-image: var(--arena-frame) 41 / 19px stretch;
+  background: none;
+}
+.arena-workspace .arena-section-title,
+.arena-workspace .members-console__heading h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 30px;
+  margin: 0 0 6px;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+}
+.arena-section-title small {
+  font:
+    10px/1.35 Arial,
+    sans-serif;
+  color: #9aabba;
+}
+.arena-workspace .arena-switch,
+.arena-workspace .members-mode-toggle,
+.arena-workspace .members-simple-tabs,
+.arena-workspace .stats-range-row,
+.arena-workspace .stats-pill-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 7px 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.arena-workspace .arena-switch > :is(button, a),
+.arena-workspace .members-mode-toggle > :is(button, a),
+.arena-workspace .members-simple-tabs > :is(button, a),
+.arena-workspace .stats-range-row > :is(button, a),
+.arena-workspace .stats-pill-tabs > :is(button, a) {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  position: relative;
+  padding: 6px 5px;
+  line-height: 1.1;
+  color: #dce5ef;
+  background: linear-gradient(#152639, #06111e 65%);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  text-align: center;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  white-space: normal;
+}
+.arena-workspace .arena-switch > :is(button, a)::after,
+.arena-workspace .members-mode-toggle > :is(button, a)::after,
+.arena-workspace .members-simple-tabs > :is(button, a)::after,
+.arena-workspace .stats-range-row > :is(button, a)::after,
+.arena-workspace .stats-pill-tabs > :is(button, a)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-mode-toggle > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-simple-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-range-row > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-pill-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active) {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .members-mode-toggle
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .members-simple-tabs
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-range-row
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-pill-tabs
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after {
+  border-image-source: var(--arena-active);
+}
+.arena-workspace .arena-meter,
+.arena-workspace .ca-page-bar__metric,
+.arena-workspace .hero-stat {
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  text-align: center;
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+  padding: 5px 2px;
+}
+.arena-workspace .arena-ledger-row,
+.arena-workspace .member-row {
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  border-radius: 0;
+  box-shadow: none;
+}
+.arena-workspace .ca-page-bar {
+  min-height: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.arena-workspace .ca-page-bar__live {
+  flex: 1;
+  min-width: 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__live {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 6px;
+}
+.arena-workspace .members-mode-toggle,
+.arena-workspace .ca-page-bar__metrics {
+  grid-column: 1/-1;
+  width: 100%;
+}
+.arena-workspace .members-mode-toggle {
+  order: -2;
+}
+.arena-workspace .members-page-bar .ca-page-bar__metrics {
+  order: -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace .ca-page-bar__metric {
+  display: flex;
+  flex-direction: column;
+}
+.arena-workspace .ca-page-bar__metric dt {
+  font: 700 10px Arial;
+  color: #b6c8d6;
+}
+.arena-workspace .ca-page-bar__metric dd {
+  font: bold 20px Arial;
+  color: #f2f8ff;
+  margin: 3px 0 0;
+}
+.arena-workspace .ca-page-bar__metric[data-tone='live'] dd {
+  color: #74dfff;
+}
+.arena-roster-tools {
+  margin: 6px 0;
+}
+.arena-roster-tools > summary,
+.arena-workspace details.stats-secondary > summary {
+  min-height: 44px;
+  box-sizing: border-box;
+  align-content: center;
+  padding: 8px 4px;
+  color: #b6c8d6;
+  cursor: pointer;
+  font-size: 12px;
+}
+.arena-workspace .member-avatar {
+  height: 29px;
+  width: 29px;
+  min-width: 29px;
+}
+.arena-workspace .member-alias {
+  font:
+    700 14px/1.16 Arial,
+    sans-serif;
+}
+.arena-workspace .member-subline {
+  font-size: 10px;
+}
+.arena-workspace .member-row {
+  padding: 4px 6px;
+}
+.arena-workspace .member-row__open {
+  min-height: 42px;
+}
+.arena-workspace.arena-cashier > div > div {
+  gap: 0;
+}
+.arena-cashier .dw {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.arena-cashier .dw__rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-cashier .dw__rows .dw__row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: auto;
+  min-height: 52px;
+  aspect-ratio: auto;
+  padding: 8px;
+  gap: 3px;
+  color: #f1f5fc;
+  background: var(--arena-tile);
+  border: 4px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  box-shadow: none;
+}
+.arena-cashier .dw__row[data-wallet-key='player_wallet'] {
+  order: -1;
+  grid-column: 1/-1;
+  min-height: 87px;
+  border-image: var(--arena-readout) 21 / 11px stretch;
+  background: radial-gradient(ellipse at 50% 5%, #132e47, transparent 68%), #030b14;
+}
+.arena-cashier .dw__row[data-wallet-key='diamonds'] {
+  order: 1;
+  grid-column: 1/-1;
+  min-height: 35px;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 5px 12px;
+  gap: 8px;
+}
+.arena-cashier .dw__row .dw__row-value,
+.arena-cashier .dw__row .dw__row-label {
+  position: static;
+  inset: auto;
+  display: block;
+  transform: none;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+.arena-cashier .dw__row .dw__row-label {
+  font:
+    700 11px/1.2 Arial,
+    sans-serif;
+  color: #b6c8d6;
+}
+.arena-cashier .dw__row .dw__row-value {
+  font:
+    700 20px/1.15 Arial,
+    sans-serif;
+  color: #effaff;
+  text-shadow: none;
+}
+.arena-cashier .dw__row[data-wallet-key='player_wallet'] .dw__row-value {
+  font:
+    800 41px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: 0 0 13px #2878bc8c;
+}
+.arena-cashier .dw__row[data-wallet-key='diamonds'] .dw__row-value {
+  margin-left: auto;
+  font-size: 16px;
+}
+.arena-cashier .dw__row .dw__plus {
+  position: static;
+  width: 28px;
+  height: 28px;
+  transform: none;
+}
+.arena-cashier .dw__row .dw__row-picture,
+.arena-cashier .dw__row .dw__row-shell,
+.arena-cashier .dw__row .dw__row-hint,
+.arena-cashier .dw__row .dw__row-icon,
+.arena-cashier .dw__row .dw__row-chevron {
+  display: none;
+}
+.arena-cashier .cashier-workspace,
+.arena-cashier .cashier-workspace__content {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.arena-workspace.stats-page .stats-pill-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: visible;
+}
+.arena-workspace.stats-page .stats-hero {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+}
+.arena-workspace.stats-page .hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-workspace.stats-page .hero-stat-label {
+  font: 700 10px/1.2 Arial;
+  color: #b6c8d6;
+}
+.arena-workspace.stats-page .hero-stat-value {
+  font: bold 21px/1.2 Arial;
+}
+.arena-workspace.stats-page .stats-command-deck {
+  display: block;
+}
+.arena-workspace.stats-page .stats-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-workspace .mm-credential {
+  background: var(--arena-panel);
+  border: 6px solid transparent;
+  border-image: var(--arena-row) 13 / 8px stretch;
+}
+.arena-workspace .mm-credential__art,
+.arena-workspace .mm-credential__shade {
+  display: none;
+}
+.arena-workspace .arena-switch > [aria-current='page'] {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  border: 5px solid transparent;
+  border-image: var(--arena-active) 11 / 6px stretch;
+  background: #084397;
+  color: white;
+}
+.club-members-page[data-row-density='compact'] .member-row {
+  height: 52px;
+  min-height: 0;
+  box-sizing: border-box;
+  margin: 0 0 4px;
+}
+.club-members-page[data-row-density='compact'] .member-row__open {
+  grid-template-columns: 29px minmax(0, 1fr) 10px;
+  gap: 6px;
+  padding: 0 4px;
+  min-height: 0;
+}
+.club-members-page[data-row-density='compact'] .member-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 2px;
+}
+.club-members-page[data-row-density='compact'] .member-identity,
+.club-members-page[data-row-density='compact'] .member-subline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+  flex-wrap: nowrap;
+}
+.club-members-page[data-row-density='compact'] .member-subline .member-seated,
+.club-members-page[data-row-density='compact'] .member-subline .member-online,
+.club-members-page[data-row-density='compact'] .member-subline .member-seen {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+}
+.club-members-page[data-row-density='compact'] .member-row__open {
+  padding-right: 72px;
+}
+.club-members-page[data-row-density='compact'] .member-username,
+.club-members-page[data-row-density='compact'] .member-club,
+.club-members-page[data-row-density='compact'] .member-upline,
+.club-members-page[data-row-density='compact'] .member-metrics,
+.club-members-page[data-row-density='compact'] .member-simple-balance {
+  display: none;
+}
+.arena-workspace .stats-secondary {
+  margin-top: 6px;
+}
+.arena-transfer-review .club-page-eyebrow,
+.arena-transfer-review .club-page-subtitle {
+  display: none;
+}
+.arena-transfer-review .club-page-heading {
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.arena-transfer-amount {
+  margin: 8px 0;
+  padding: 12px 8px;
+  text-align: center;
+  border: 7px solid transparent;
+  border-image: var(--arena-readout) 21 / 11px stretch;
+  background: #071421;
+}
+.arena-transfer-amount small {
+  color: #9ad8fb;
+}
+.arena-transfer-amount strong {
+  display: block;
+  font-size: 38px;
+  line-height: 1.2;
+  color: #effaff;
+}
+.arena-transfer-lines {
+  margin: 0;
+}
+.arena-transfer-lines > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #22364b;
+}
+.arena-transfer-lines dd {
+  margin: 0;
+  font-weight: 700;
+}
+.arena-transfer-review .club-page-actions button {
+  flex: 1;
+  min-height: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.arena-transfer-review .club-page-actions button:last-child {
+  border-image-source: var(--arena-active);
+  background: #084397;
+  color: white;
+}

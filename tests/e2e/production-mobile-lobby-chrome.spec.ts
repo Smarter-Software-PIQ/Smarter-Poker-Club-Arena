@@ -999,7 +999,7 @@ test.describe('the mobile lobby chrome on production', () => {
       if (mode === 'mtt' || mode === 'satellites') {
         const files: Record<string, string> = {
           pko: 'game-card-icons/progressive-ko-v1.webp',
-          mystery: 'game-card-icons/mystery-chest-v1.webp',
+          mystery: 'game-card-icons/mystery-chest-v2.webp',
           turbo: 'game-card-icons/turbo-wordmark-v1.webp',
           hyper: 'game-card-icons/hyper-turbo.png',
           rebuy: 'game-card-icons/rebuy-addon-raised-chip-v1.png',

@@ -316,7 +316,7 @@
   border: 1px solid rgb(214 173 82 / 45%);
   border-left: 3px solid var(--members-gold);
   border-radius: 4px;
-  color: #e0c27f;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.72rem;
@@ -350,7 +350,7 @@
   min-height: 44px;
   border: 1px solid rgba(255, 201, 60, 0.42);
   border-radius: 4px;
-  color: #e0c27f;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.72rem;
@@ -411,7 +411,7 @@
   border: 1px solid rgb(214 173 82 / 45%);
   border-left: 3px solid var(--members-gold);
   border-radius: 4px;
-  color: #d9c79e;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.76rem;

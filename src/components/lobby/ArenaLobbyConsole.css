@@ -99,16 +99,6 @@
   border-radius: 18px;
   padding: 12px;
 }
-.arena-format-card :is(.sc__title, .club-page-heading h2, .club-page-heading h3),
-.arena-game-card[data-format-art]
-  :is(h3[data-zone='title'], .agc-spins-premium__title, .agc-premium-heading h3) {
-  box-sizing: border-box;
-  padding-inline-start: 1.8em;
-  background-image: var(--arena-title-art);
-  background-repeat: no-repeat;
-  background-position: left center;
-  background-size: 1.65em 100%;
-}
 .tournament-details .dov-hero__clockcol {
   text-align: center;
   padding: 8px;
@@ -164,10 +154,6 @@
 .tournament-details .un-head__name {
   font-weight: 900;
   letter-spacing: 0.025em;
-}
-.lt-tournament-heading__name[data-arena-format] {
-  background: var(--arena-title-art) left center / auto 90% no-repeat;
-  padding-inline-start: clamp(36px, 7vw, 65px);
 }
 .glp .arena-event-card {
   flex: none;
@@ -443,45 +429,6 @@
   width: 100%;
   margin: 0;
 }
-.nightly-plaque {
-  display: grid;
-  justify-content: center;
-  align-content: center;
-  position: relative;
-  min-height: 60px;
-  width: 100%;
-  text-align: center;
-  background: radial-gradient(ellipse at center, #112a41, #020912 78%);
-  color: white;
-}
-.nightly-plaque small {
-  font:
-    650 14px/1.2 Arial,
-    sans-serif;
-}
-.nightly-plaque strong {
-  position: relative;
-  font:
-    850 28px/1.15 Arial,
-    sans-serif;
-}
-.nightly-plaque strong::before,
-.nightly-plaque strong::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  right: calc(100% + 6px);
-  width: 30px;
-  height: 34px;
-  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
-  mix-blend-mode: lighten;
-}
-.nightly-plaque strong::after {
-  right: auto;
-  left: calc(100% + 6px);
-  transform: translateY(-50%) scaleX(-1);
-}
 .mtt-meta {
   display: flex;
   align-items: center;
@@ -559,7 +506,7 @@
   background-image: url('./console-art/mtt-chip.webp');
 }
 .tournament-details.tournament-details .arena-event-facts > div:nth-child(2) dt {
-  background-image: url('./console-art/mtt-guarantee.webp');
+  background-image: url('./console-art/mtt-chip.webp');
 }
 .mtt-pair,
 .mtt-instruments {

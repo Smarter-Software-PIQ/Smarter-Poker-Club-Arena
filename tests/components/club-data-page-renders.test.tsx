@@ -692,7 +692,7 @@ describe('ClubDataPage', () => {
     render(<ClubDataPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
 
-    expect(screen.getByRole('heading', { name: /Read The Room/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Report Status/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('2,450')).toBeInTheDocument());
     expect(screen.getByText('Shark Table One')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Games' })).toHaveAttribute('tabindex', '0');

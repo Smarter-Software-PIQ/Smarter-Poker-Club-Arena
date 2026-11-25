@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -133,7 +134,6 @@ const ADVANCED_TOUR: TutorialStep[] = [
   ...SHARED_TOUR_TAIL,
 ];
 const PAGE_SIZE = 80;
-const ROW_HEIGHT = ROSTER_ROW_HEIGHT;
 
 const FILTER_LABEL: Record<RosterFilter, string> = {
   all: 'All Players',
@@ -305,6 +305,12 @@ export default function ClubMembersPage() {
   const [filter, setFilter] = useState<RosterFilter>(() => readFilter(searchParams.get('view')));
   const [sortKey, setSortKey] = useState<RosterSort>(() => readSort(searchParams.get('sort')));
   const [simpleMode, setSimpleMode] = usePlayerPreference('roster:simpleMode', true, routeClub);
+  const [expandedMetrics, setExpandedMetrics] = usePlayerPreference(
+    'roster:expandedMetrics',
+    false,
+    routeClub
+  );
+  const rowHeight = expandedMetrics ? ROSTER_ROW_HEIGHT : 56;
   const [winLossPeriod, setWinLossPeriod] = usePlayerPreference<WinLossPeriod>(
     'roster:winLossPeriod',
     'week',
@@ -1261,7 +1267,7 @@ export default function ClubMembersPage() {
   ]);
 
   const virtual = useVirtualScroll(orderedMembers, {
-    itemHeight: ROW_HEIGHT,
+    itemHeight: rowHeight,
     viewportHeight: 696,
     buffer: 5,
   });
@@ -1295,7 +1301,7 @@ export default function ClubMembersPage() {
       return;
     const node = virtual.containerRef.current;
     const viewportHeight = node?.clientHeight || 696;
-    const requiredRows = Math.ceil((position.viewportTop + viewportHeight) / ROW_HEIGHT);
+    const requiredRows = Math.ceil((position.viewportTop + viewportHeight) / rowHeight);
     if (hasMore && members.length < requiredRows) {
       if (positionPagesRef.current >= Math.ceil(requiredRows / PAGE_SIZE)) {
         pendingPositionRef.current = null;
@@ -1327,6 +1333,7 @@ export default function ClubMembersPage() {
     loadedQuery,
     loading,
     members.length,
+    rowHeight,
     searchQuery,
     sortKey,
     workspaceScope,
@@ -1648,15 +1655,27 @@ export default function ClubMembersPage() {
 
   return (
     <div
-      className={`club-members-page${simpleMode ? ' members-simple' : ''}`}
+      className={`club-members-page arena-workspace${simpleMode ? ' members-simple' : ''}`}
       aria-busy={loading}
+      data-row-density={expandedMetrics ? 'expanded' : 'compact'}
       data-players-mode={simpleMode ? 'simple' : 'advanced'}
       data-roster-connection={connectionState}
     >
+      <ArenaWorkspaceHeader
+        area="members"
+        title="Player Management"
+        context={
+          routeClub && !/^[0-9a-f]{8}-/i.test(routeClub)
+            ? routeClub.replace(/[-_]/g, ' ')
+            : undefined
+        }
+        subtitle="Member Directory"
+        id="members-page-title"
+      />
       <PageBar
+        titleAs={false}
         className="members-page-bar"
         title="Player Management"
-        titleId="members-page-title"
         summary="Find Any Member, Read Their Live Club Status, And Open The Controls Behind Their Seat."
         status={simpleMode ? undefined : (summaryStatusMessage ?? undefined)}
         statusTone={
@@ -1692,39 +1711,13 @@ export default function ClubMembersPage() {
           </button>
         </div>
       </PageBar>
-      {workspaceReady &&
-        !accessDenied &&
-        auditEnabled &&
-        canUseFinancialViews &&
-        resolvedClubId && (
-          <div>
-            <button
-              type="button"
-              className="members-export"
-              aria-expanded={historyOpen}
-              onClick={() => setHistoryOpen(!historyOpen)}
-            >
-              Club Transaction History
-            </button>
-            {historyOpen && (
-              <MemberTransactionHistory
-                key={exportScopeKey}
-                clubId={resolvedClubId}
-                memberId={null}
-                scope="club"
-                revision={recordRevision}
-              />
-            )}
-          </div>
-        )}
-
       <section
         className="members-console"
         aria-busy={!workspaceUrlReady}
         aria-label={simpleMode ? 'Player Directory' : undefined}
         aria-labelledby={simpleMode ? undefined : 'members-directory-title'}
       >
-        {!simpleMode && (
+        {
           <div className="members-console__heading">
             <h2 id="members-directory-title">Find A Player</h2>
             <span className="members-result-count" aria-live="polite">
@@ -1733,9 +1726,9 @@ export default function ClubMembersPage() {
                 : `${filteredTotal.toLocaleString()} Results`}
             </span>
           </div>
-        )}
+        }
 
-        {simpleMode && (
+        {
           <div className="members-simple-tabs" role="group" aria-label="Player Views">
             <button
               type="button"
@@ -1743,7 +1736,7 @@ export default function ClubMembersPage() {
               aria-pressed={filter === 'all'}
               onClick={() => setFilter('all')}
             >
-              All
+              All Players
             </button>
             <button
               type="button"
@@ -1753,11 +1746,11 @@ export default function ClubMembersPage() {
             >
               Agents
             </button>
-            {summary.capabilities.can_manage_members && (
+            {simpleMode && summary.capabilities.can_manage_members && (
               <Link to={`/clubs/${routeClubId}/applicants`}>Applicants</Link>
             )}
           </div>
-        )}
+        }
         {simpleMode && !['all', 'agents'].includes(filter) && (
           <button
             type="button"
@@ -1806,154 +1799,190 @@ export default function ClubMembersPage() {
           </div>
         )}
 
-        <div className="members-toolbar">
-          {simpleMode && (
-            <button
-              type="button"
-              className="members-group-role"
-              aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
-              disabled={!workspaceReady || Boolean(searchQuery.trim())}
-              onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
-            >
-              Group By Role
-            </button>
-          )}
-          {showWinLoss && (
-            <label className="members-sort members-winloss-period">
-              <span className="members-sort__label">Win / Loss</span>
-              <select
-                aria-label="Win And Loss Period"
-                value={winLossPeriod}
-                onChange={(event) => setWinLossPeriod(event.target.value as WinLossPeriod)}
+        <details className="arena-roster-tools">
+          <summary>Sort And Roster Tools</summary>
+          <label>
+            <input
+              type="checkbox"
+              checked={expandedMetrics}
+              onChange={(event) => setExpandedMetrics(event.target.checked)}
+            />{' '}
+            Show Expanded Player Metrics
+          </label>
+          <div className="members-toolbar">
+            {simpleMode && (
+              <button
+                type="button"
+                className="members-group-role"
+                aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
+                disabled={!workspaceReady || Boolean(searchQuery.trim())}
+                onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
               >
-                {(Object.keys(WIN_LOSS_LABEL) as WinLossPeriod[]).map((value) => (
+                Group By Role
+              </button>
+            )}
+            {showWinLoss && (
+              <label className="members-sort members-winloss-period">
+                <span className="members-sort__label">Win / Loss</span>
+                <select
+                  aria-label="Win And Loss Period"
+                  value={winLossPeriod}
+                  onChange={(event) => setWinLossPeriod(event.target.value as WinLossPeriod)}
+                >
+                  {(Object.keys(WIN_LOSS_LABEL) as WinLossPeriod[]).map((value) => (
+                    <option key={value} value={value}>
+                      {WIN_LOSS_LABEL[value]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="members-sort">
+              <span className="members-sort__label">Sort By</span>
+              <select
+                aria-label="Sort Players"
+                disabled={!workspaceReady || Boolean(searchQuery.trim())}
+                value={searchQuery.trim() ? 'search' : sortKey}
+                onChange={(event) => setSortKey(event.target.value as RosterSort)}
+              >
+                {searchQuery.trim() && <option value="search">Player Name Matches</option>}
+                {sorts.map((value) => (
                   <option key={value} value={value}>
-                    {WIN_LOSS_LABEL[value]}
+                    {SORT_LABEL[value]}
                   </option>
                 ))}
               </select>
             </label>
-          )}
-          <label className="members-sort">
-            <span className="members-sort__label">Sort By</span>
-            <select
-              aria-label="Sort Players"
-              disabled={!workspaceReady || Boolean(searchQuery.trim())}
-              value={searchQuery.trim() ? 'search' : sortKey}
-              onChange={(event) => setSortKey(event.target.value as RosterSort)}
-            >
-              {searchQuery.trim() && <option value="search">Player Name Matches</option>}
-              {sorts.map((value) => (
-                <option key={value} value={value}>
-                  {SORT_LABEL[value]}
-                </option>
-              ))}
-            </select>
-          </label>
 
-          {!simpleMode && canUseFinancialViews && (
+            {!simpleMode && canUseFinancialViews && (
+              <details className="members-columns">
+                <summary>Columns</summary>
+                <div className="members-columns__menu">
+                  {(['fees', 'downlines', 'activity', 'wallets'] as OptionalColumn[]).map(
+                    (column) => (
+                      <label key={column}>
+                        <input
+                          type="checkbox"
+                          disabled={!workspaceReady}
+                          checked={columns.has(column)}
+                          onChange={() => toggleColumn(column)}
+                        />
+                        {titleCase(column)}
+                      </label>
+                    )
+                  )}
+                </div>
+              </details>
+            )}
+
+            {!simpleMode && summary.capabilities.can_export && members.length > 0 && (
+              <button
+                type="button"
+                className="members-select-loaded"
+                aria-pressed={loadedSelected}
+                onClick={() =>
+                  setSelected(loadedSelected ? new Set() : selectLoadedRoster(loadedMemberIds))
+                }
+              >
+                {loadedSelected ? 'Clear Selection' : 'Select Loaded'}
+              </button>
+            )}
+
+            {!simpleMode && summary.capabilities.can_export && (
+              <button
+                type="button"
+                className="members-export"
+                onClick={() => void handleExport()}
+                disabled={loading || isRefreshing || isExporting || searchIsSettling}
+              >
+                {isExporting
+                  ? 'Preparing...'
+                  : selected.size
+                    ? `Export Selected (${selected.size})`
+                    : 'Export CSV'}
+              </button>
+            )}
+          </div>
+
+          {!simpleMode && summary.capabilities.can_export && (
+            <p className="members-count" role="note" aria-label="Export Scope">
+              <strong>Export Scope: </strong>
+              <span>
+                {selected.size
+                  ? 'Selected Players Matching The Current Filter And Search'
+                  : 'All Matching Players Across Every Page'}
+              </span>{' '}
+              Includes Authorized Fields Regardless Of Visible Columns.
+            </p>
+          )}
+          {!simpleMode && (
             <details className="members-columns">
-              <summary>Columns</summary>
-              <div className="members-columns__menu">
-                {(['fees', 'downlines', 'activity', 'wallets'] as OptionalColumn[]).map(
-                  (column) => (
-                    <label key={column}>
-                      <input
-                        type="checkbox"
-                        disabled={!workspaceReady}
-                        checked={columns.has(column)}
-                        onChange={() => toggleColumn(column)}
-                      />
-                      {titleCase(column)}
-                    </label>
-                  )
-                )}
+              <summary>Metric Definitions</summary>
+              <div className="members-count">
+                <p>Downlines: Players In The Recursive Downline, Excluding This Player.</p>
+                <p>
+                  Player Wallet: Current Club Member Chip Balance. Agent Wallet: Current Active
+                  Agent Chip Balance. Wallets Are An Optional Column And Never Replace Fees.
+                </p>
+                <p>
+                  Fees Generated (Indiv. Fees): Cash Game Rake Attributed To This Player Plus Their
+                  Tournament Entry Fees. Downline Fees: Fees Generated By The Recursive Downline
+                  Only, Excluding This Player.
+                </p>
+                <p>
+                  Fees Are Read From The Club Fee Ledgers That Pay Agents And Rakeback. They Count
+                  From The Week Of October 12, 2026 (Monday Midnight Pacific) And Keep Accumulating
+                  From Then On, With No Weekly Reset. Wallets And Fees Are In Club Chips.
+                </p>
+                <p>
+                  Recent Activity Uses Login Time When Available, Otherwise Presence Or Club
+                  Activity Time. Online Includes Players At A Live Table Or With Fresh Presence.
+                </p>
+                <p>
+                  Select Loaded Selects Only Players Already Loaded. Export Without A Selection
+                  Reads All Authorized Matches Across Every Page. A Selection Is Further Limited By
+                  The Current Filter And Search.
+                </p>
               </div>
             </details>
           )}
 
-          {!simpleMode && summary.capabilities.can_export && members.length > 0 && (
-            <button
-              type="button"
-              className="members-select-loaded"
-              aria-pressed={loadedSelected}
-              onClick={() =>
-                setSelected(loadedSelected ? new Set() : selectLoadedRoster(loadedMemberIds))
-              }
-            >
-              {loadedSelected ? 'Clear Selection' : 'Select Loaded'}
-            </button>
+          {(loadSlow || !['live', 'connecting'].includes(connectionState)) && (
+            <RosterConnectionStatus
+              state={connectionState}
+              hasData={hasVerifiedDirectory}
+              lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+              isRefreshing={isRefreshing}
+              isSlow={loadSlow}
+              onRetry={retryLiveSync}
+            />
           )}
-
-          {!simpleMode && summary.capabilities.can_export && (
-            <button
-              type="button"
-              className="members-export"
-              onClick={() => void handleExport()}
-              disabled={loading || isRefreshing || isExporting || searchIsSettling}
-            >
-              {isExporting
-                ? 'Preparing...'
-                : selected.size
-                  ? `Export Selected (${selected.size})`
-                  : 'Export CSV'}
-            </button>
-          )}
-        </div>
-
-        {!simpleMode && summary.capabilities.can_export && (
-          <p className="members-count" role="note" aria-label="Export Scope">
-            <strong>Export Scope: </strong>
-            <span>
-              {selected.size
-                ? 'Selected Players Matching The Current Filter And Search'
-                : 'All Matching Players Across Every Page'}
-            </span>{' '}
-            Includes Authorized Fields Regardless Of Visible Columns.
-          </p>
-        )}
-        {!simpleMode && (
-          <details className="members-columns">
-            <summary>Metric Definitions</summary>
-            <div className="members-count">
-              <p>Downlines: Players In The Recursive Downline, Excluding This Player.</p>
-              <p>
-                Player Wallet: Current Club Member Chip Balance. Agent Wallet: Current Active Agent
-                Chip Balance. Wallets Are An Optional Column And Never Replace Fees.
-              </p>
-              <p>
-                Fees Generated (Indiv. Fees): Cash Game Rake Attributed To This Player Plus Their
-                Tournament Entry Fees. Downline Fees: Fees Generated By The Recursive Downline Only,
-                Excluding This Player.
-              </p>
-              <p>
-                Fees Are Read From The Club Fee Ledgers That Pay Agents And Rakeback. They Count
-                From The Week Of October 12, 2026 (Monday Midnight Pacific) And Keep Accumulating
-                From Then On, With No Weekly Reset. Wallets And Fees Are In Club Chips.
-              </p>
-              <p>
-                Recent Activity Uses Login Time When Available, Otherwise Presence Or Club Activity
-                Time. Online Includes Players At A Live Table Or With Fresh Presence.
-              </p>
-              <p>
-                Select Loaded Selects Only Players Already Loaded. Export Without A Selection Reads
-                All Authorized Matches Across Every Page. A Selection Is Further Limited By The
-                Current Filter And Search.
-              </p>
+        </details>
+        {workspaceReady &&
+          !accessDenied &&
+          auditEnabled &&
+          canUseFinancialViews &&
+          resolvedClubId && (
+            <div>
+              <button
+                type="button"
+                className="members-export"
+                aria-expanded={historyOpen}
+                onClick={() => setHistoryOpen(!historyOpen)}
+              >
+                Club Transaction History
+              </button>
+              {historyOpen && (
+                <MemberTransactionHistory
+                  key={exportScopeKey}
+                  clubId={resolvedClubId}
+                  memberId={null}
+                  scope="club"
+                  revision={recordRevision}
+                />
+              )}
             </div>
-          </details>
-        )}
-
-        {(loadSlow || !['live', 'connecting'].includes(connectionState)) && (
-          <RosterConnectionStatus
-            state={connectionState}
-            hasData={hasVerifiedDirectory}
-            lastSuccessfulSyncAt={lastSuccessfulSyncAt}
-            isRefreshing={isRefreshing}
-            isSlow={loadSlow}
-            onRetry={retryLiveSync}
-          />
-        )}
+          )}
         <p
           className="members-count"
           role="status"

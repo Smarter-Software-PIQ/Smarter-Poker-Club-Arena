@@ -117,7 +117,7 @@ export default function OverviewTab({
                   v.toFixed(1)
                 )
           }
-          color="#f59e0b"
+          color="#80dfff"
           scope={SCOPE_CASH}
         />
         <StatRow

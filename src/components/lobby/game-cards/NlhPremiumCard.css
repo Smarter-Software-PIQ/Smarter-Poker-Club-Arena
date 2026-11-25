@@ -105,8 +105,8 @@
 }
 
 .arena-premium-text--gold {
-  color: #e2bd54;
-  -webkit-text-fill-color: #e2bd54;
+  color: #92dfff;
+  -webkit-text-fill-color: #92dfff;
   text-shadow:
     0 -0.18cqw 0 #fff0a9,
     0 0.25cqw 0 #76500d,
@@ -311,8 +311,8 @@
 }
 
 .agc-nlh-premium__action--gold .agc-nlh-premium__action-text {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #92dfff;
+  -webkit-text-fill-color: #92dfff;
   text-shadow:
     0 0 1cqw rgb(255 215 0 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
