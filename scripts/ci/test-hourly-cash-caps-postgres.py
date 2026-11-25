@@ -3,7 +3,7 @@
 The injected cashout records calls and value conservation; the existing accounting
 qualification owns that kernel's actual wallet/ledger behavior. No live writes.
 """
-import json, os, pathlib, shutil, subprocess, tempfile
+import json, os, pathlib, shutil, subprocess, sys, tempfile
 P=pathlib.Path
 ROOT=P(__file__).resolve().parents[2]
 if os.environ.get('PG_BIN'):
@@ -376,3 +376,5 @@ try:
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
  shutil.rmtree(w)
+# Also verify 20261125040442 single-pass census & fast-path close (incident 1e532243).
+subprocess.run([sys.executable,'-B',str(ROOT/'scripts/ci/test-hourly-cash-census-single-pass-postgres.py')],check=True)
