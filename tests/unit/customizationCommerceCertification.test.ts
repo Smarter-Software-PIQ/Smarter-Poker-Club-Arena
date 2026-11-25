@@ -92,6 +92,34 @@ describe('customization commerce certification', () => {
     expect(helper).not.toContain('ca_register_new_device');
   });
 
+  it('enrolls the isolated gameplay browsers before opening the table or touching settings', () => {
+    const spec = source('tests/e2e/gameplay-customization-runtime.spec.ts');
+    const signIn = spec.slice(
+      spec.indexOf('async function signIn('),
+      spec.indexOf('async function tapReady(')
+    );
+    const journey = spec.slice(
+      spec.indexOf("test.describe('production routed gameplay customization'")
+    );
+    const enroll = signIn.indexOf(
+      'await enrollCustomizationBrowser(page, account, enrollment.approvedBy)'
+    );
+    expect(enroll).toBeGreaterThan(signIn.indexOf('await completeCustomizationSignIn'));
+    expect(enroll).toBeLessThan(signIn.indexOf('await ensureAcceptedTerms'));
+    const steps = [
+      'await signIn(writer, baseURL, account, {})',
+      'await signIn(page, baseURL, account!, { approvedBy: writer })',
+      'await blockProjectedTableWrites(page)',
+      'await phone.close()',
+      'await signIn(reader, baseURL, account, { approvedBy: writer })',
+      'writer.goto(`table/',
+    ].map((step) => journey.indexOf(step));
+    steps.forEach((step, index) => expect(step).toBeGreaterThan(steps[index - 1] ?? -1));
+    expect(journey).not.toMatch(
+      /storageState:\s*await|ca_enrolled_device_id|ca_register_new_device/
+    );
+  });
+
   it('certifies all live SKUs, double-buy serialization, realtime delivery and RLS', () => {
     const spec = source('tests/e2e/production-customization-commerce.spec.ts');
 
