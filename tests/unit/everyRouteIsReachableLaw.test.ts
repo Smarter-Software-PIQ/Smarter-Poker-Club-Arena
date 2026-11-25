@@ -132,6 +132,10 @@ const ALLOWED_ORPHANS: Record<string, string> = {
     'guarded legacy bookmark redirect - platform staff are forwarded to /financial-incidents',
   players: 'LegacyClubToolRedirect - resolves a club and forwards to its members page',
   data: 'LegacyClubToolRedirect - resolves a club and forwards to its data page',
+  'clubs/:clubId/data/advanced':
+    'retired club report bookmark forwards to the report section of the guarded club data page',
+  'clubs/:clubId/cashier-classic':
+    'retired club wallet bookmark forwards to the wallet operations in the club cashier',
   'unions/:unionId/data/advanced':
     'retired union Report bookmark redirects to the guarded house-club report',
   invite: 'LegacyClubToolRedirect - resolves a club and forwards to /invite/:clubId',
@@ -287,6 +291,16 @@ describe('the reachability analysis itself is sound', () => {
 });
 
 describe('every declared route is reachable, or explicitly justified', () => {
+  it.each([
+    ['clubs/:clubId/data/advanced', '<UnionReportRedirect />', 'clubs/:clubId/data'],
+    ['clubs/:clubId/cashier-classic', '<CashierEntrance legacy />', 'clubs/:clubId/cashier'],
+  ])('keeps %s as a guarded redirect to a reachable workspace', (legacy, redirect, destination) => {
+    const route = APP.split(`path="${legacy}"`)[1]?.split('<Route')[0];
+    expect(route).toContain('<ClubMemberGuard>');
+    expect(route).toContain(redirect);
+    expect(isReachable(destination)).toBe(true);
+  });
+
   it('has no orphan outside the allowlist', () => {
     const unexplained = ORPHANS.filter((p) => !(p in ALLOWED_ORPHANS));
     expect(

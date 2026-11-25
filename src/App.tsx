@@ -86,7 +86,6 @@ import TOSGuard from './components/legal/TOSGuard';
    shape: a wrapper here re-indents 1,500 lines and every text pin on them. */
 const AgeGate = lazyWithRetry(() => import('./components/legal/AgeGate'));
 const ConsentPrompt = lazyWithRetry(() => import('./components/legal/ConsentPrompt'));
-import CashierEntrance from './components/navigation/CashierEntrance';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
 // Push maintenance is intentionally delayed inside these components (four
@@ -181,6 +180,7 @@ const MessengerDockHost = lazyWithRetry(() => import('./components/messenger/Mes
 const NavigateToMessenger = lazyWithRetry(() => import('./pages/NavigateToMessenger'));
 const SearchPage = lazyWithRetry(() => import('./pages/SearchPage'));
 const HelpPage = lazyWithRetry(() => import('./pages/HelpPage'));
+const CashierEntrance = lazyWithRetry(() => import('./components/navigation/CashierEntrance'));
 const CashierTradePage = lazyWithRetry(() => import('./pages/CashierTradePage'));
 const CashierStatementsPage = lazyWithRetry(() => import('./pages/CashierStatementsPage'));
 const SuperAgentDashboard = lazyWithRetry(() => import('./pages/SuperAgentDashboard'));
