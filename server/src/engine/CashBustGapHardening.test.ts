@@ -12,9 +12,9 @@
  *   3. `waitForRebuyDecisions` never overshoots its `totalMs` deadline when a
  *      slow database poll runs past the deadline.
  *   4. New-player time-bank reads (`fetchTimeBankExtras` +
- *      `readAutoTimeBankPreferences`) ride under the between-hand rest via
+ *      `readAutoTimeBankPreferences`) ride under an active between-hand rest via
  *      `prepareTimeBankReads` instead of adding a post-rest round trip inside
- *      `dealHand`.
+ *      `dealHand`, and do no speculative DB work when no rest is active.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -95,6 +95,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const engine of engines.splice(0)) {
     engine.running = false;
@@ -128,6 +129,7 @@ describe('cash_bust hand-gap hardening', () => {
   });
 
   it('waitForRebuyDecisions snap-continues immediately when a busted seat already left (left_at IS NOT NULL)', async () => {
+    vi.useFakeTimers();
     const engine = makeCashEngine();
     vi.spyOn(supabase, 'from').mockImplementation(
       fromStub({
@@ -136,14 +138,18 @@ describe('cash_bust hand-gap hardening', () => {
       }) as never
     );
 
-    const t0 = Date.now();
-    await engine.waitForRebuyDecisions(['departed-player'], 2500);
-    const elapsed = Date.now() - t0;
-
-    expect(elapsed).toBeLessThan(400);
+    let settled = false;
+    const wait = engine.waitForRebuyDecisions(['departed-player'], 5_000).then(() => {
+      settled = true;
+    });
+    // First microtask poll observes the empty chair and returns without waiting on any timer.
+    await vi.advanceTimersByTimeAsync(0);
+    await wait;
+    expect(settled).toBe(true);
   });
 
   it('waitForRebuyDecisions still fails open on a database read error', async () => {
+    vi.useFakeTimers();
     const engine = makeCashEngine();
     vi.spyOn(supabase, 'from').mockImplementation(
       fromStub({
@@ -152,35 +158,47 @@ describe('cash_bust hand-gap hardening', () => {
       }) as never
     );
 
-    const t0 = Date.now();
-    await engine.waitForRebuyDecisions(['hero'], 300);
-    const elapsed = Date.now() - t0;
-
-    expect(elapsed).toBeGreaterThanOrEqual(250);
+    let settled = false;
+    const wait = engine.waitForRebuyDecisions(['hero'], 5_000).then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await wait;
+    expect(settled).toBe(true);
   });
 
   it('waitForRebuyDecisions never overshoots its deadline when a DB poll hangs past totalMs', async () => {
+    vi.useFakeTimers();
     const engine = makeCashEngine();
     vi.spyOn(supabase, 'from').mockImplementation(
       fromStub({
         table_seats: () =>
           new Promise((resolve) =>
-            setTimeout(() => resolve({ data: [{ user_id: 'hero', stack: 0 }], error: null }), 900)
+            setTimeout(
+              () => resolve({ data: [{ user_id: 'hero', stack: 0 }], error: null }),
+              10_000
+            )
           ),
         table_pending_addons: { data: [], error: null },
       }) as never
     );
 
-    const t0 = Date.now();
-    await engine.waitForRebuyDecisions(['hero'], 250);
-    const elapsed = Date.now() - t0;
-
-    // Must stop near the 250 ms deadline, never waiting for the 900 ms poll.
-    expect(elapsed).toBeGreaterThanOrEqual(200);
-    expect(elapsed).toBeLessThan(450);
+    let settled = false;
+    const wait = engine.waitForRebuyDecisions(['hero'], 5_000).then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(settled).toBe(false);
+    // Exits on the exact 5,000 ms deadline even while the 10,000 ms DB poll is still pending.
+    await vi.advanceTimersByTimeAsync(1);
+    await wait;
+    expect(settled).toBe(true);
   });
 
-  it('prepares new-player time-bank reads under the rest so dealHand pays zero post-rest RTT', async () => {
+  it('prepares new-player time-bank reads under an active rest and skips when no rest is armed', async () => {
+    vi.useFakeTimers();
     const engine = makeCashEngine();
     const seats = [
       {
@@ -193,28 +211,43 @@ describe('cash_bust hand-gap hardening', () => {
       },
     ];
     const fetchExtras = vi.fn(async (ids: string[]) => {
-      await new Promise((r) => setTimeout(r, 80));
+      await new Promise((r) => setTimeout(r, 150));
       return new Map(ids.map((id) => [id, { extraSeconds: 30, unlimited: false }]));
     });
     engine.fetchTimeBankExtras = fetchExtras;
 
-    // Start preparation under the rest.
+    // With no active rest armed, no speculative DB read is issued.
+    engine.prepareTimeBankReads(seats);
+    expect(fetchExtras).not.toHaveBeenCalled();
+    expect(readAutoTimeBankPreferences).not.toHaveBeenCalled();
+
+    // Arm the between-hand rest and start preparation under it.
+    engine.armNextHandRest(1_500);
     engine.prepareTimeBankReads(seats);
     expect(fetchExtras).toHaveBeenCalledTimes(1);
     expect(readAutoTimeBankPreferences).toHaveBeenCalledTimes(1);
 
-    // Simulate the rest elapsing while the reads complete in parallel.
-    await new Promise((r) => setTimeout(r, 120));
+    // Rest elapses while the reads settle in parallel.
+    await vi.advanceTimersByTimeAsync(1_500);
 
-    // Consuming inside dealHand takes the settled result immediately with no second read.
-    const t0 = Date.now();
-    const [extras, prefs] = await Promise.all([
-      engine.takePreparedTimeBankExtras(['player-new-1']),
-      engine.takePreparedAutoTimeBankPreferences(['player-new-1']),
-    ]);
-    const takeMs = Date.now() - t0;
+    // Consuming inside dealHand takes the already-settled promise with zero additional RTT.
+    const extrasPromise = engine.takePreparedTimeBankExtras(['player-new-1']);
+    const prefsPromise = engine.takePreparedAutoTimeBankPreferences(['player-new-1']);
+    expect(extrasPromise).not.toBeNull();
+    expect(prefsPromise).not.toBeNull();
 
-    expect(takeMs).toBeLessThan(30);
+    let resolved = false;
+    let extras!: Map<string, unknown>;
+    let prefs!: Map<string, boolean>;
+    const joined = Promise.all([extrasPromise!, prefsPromise!]).then(([e, p]) => {
+      extras = e;
+      prefs = p;
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await joined;
+
+    expect(resolved).toBe(true);
     expect(fetchExtras).toHaveBeenCalledTimes(1);
     expect(readAutoTimeBankPreferences).toHaveBeenCalledTimes(1);
     expect(extras.get('player-new-1')).toEqual({ extraSeconds: 30, unlimited: false });

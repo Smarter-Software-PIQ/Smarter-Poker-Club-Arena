@@ -2706,9 +2706,22 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * Pre-warm new-player time-bank extras and auto-activate preferences under
    * the between-hand rest (both cash and tournament) so dealHand pays zero
    * post-rest PostgREST round-trip when a fresh seat joins after a bust or
-   * table balance.
+   * table balance. Runs only while an active rest is still open and no pause
+   * blocks the upcoming deal.
    */
   protected prepareTimeBankReads(players: readonly SeatedPlayer[]): void {
+    if (
+      this.nextHandNotBeforeMs === null ||
+      this.nextHandNotBeforeMs <= Date.now() ||
+      this.isNextHandPaused() ||
+      this.terminalCloseoutPaused ||
+      this.tournamentMovePauseOwners.size > 0 ||
+      typeof this.timeBankEngine?.getPlayerBank !== 'function' ||
+      typeof this.timeBankEngine?.hasAutoActivatePreference !== 'function'
+    ) {
+      this.preparedTimeBankReads = null;
+      return;
+    }
     const extrasIds = players
       .filter((p) => !this.timeBankEngine.getPlayerBank(this.tableId, p.user_id))
       .map((p) => p.user_id);
