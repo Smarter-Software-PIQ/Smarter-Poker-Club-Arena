@@ -837,7 +837,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     } else {
       openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
     }
-  }, [user?.id, targetUserId, gameMode]);
+  }, [user?.id, targetUserId, gameMode, toast]);
   // The index refresh is a WRITE. Un-throttled it fired on every bus refresh and
   // every tab-visibility change, i.e. repeatedly during active play.
   // ── Single RPC pulls everything from hand_history server-side ──

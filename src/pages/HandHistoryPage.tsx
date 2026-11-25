@@ -173,6 +173,7 @@ export default function HandHistoryPage() {
   const arenaAssetScope = arenaScoped ? ('diamonds' as const) : null;
   const hasStatsDrilldown = Object.keys(statsDrilldown).some((key) => key !== 'gameMode');
   const cameFromStats = searchParams.get('source') === 'stats';
+  const cameFromPaHome = searchParams.get('source') === 'personal-assistant-loop';
   const cameFromPersonalAssistant =
     searchParams.get('source') === 'personal-assistant' ||
     (searchParams.get('source') || '').startsWith('personal-assistant-');
@@ -897,8 +898,12 @@ export default function HandHistoryPage() {
         params.set('leak', returnLeakId);
       }
       const query = params.toString();
+      const basePath =
+        cameFromPaHome && !linkedHandId && !returnLeakId
+          ? '/hub/personal-assistant'
+          : '/hub/personal-assistant/leaks';
       openPersonalAssistantPath(
-        `/hub/personal-assistant/leaks${query ? `?${query}` : ''}`,
+        `${basePath}${query ? `?${query}` : ''}`,
         'Returning To Personal Assistant'
       );
     } catch (err) {
@@ -1137,7 +1142,11 @@ export default function HandHistoryPage() {
           role="navigation"
           aria-label="Personal Assistant Return"
         >
-          <span>Opened From Personal Assistant Leak Finder</span>
+          <span>
+            {cameFromPaHome && !linkedHandId && !returnLeakId
+              ? 'Opened From Personal Assistant'
+              : 'Opened From Personal Assistant Leak Finder'}
+          </span>
           <button type="button" onClick={returnToPersonalAssistant}>
             Return To Personal Assistant
           </button>
