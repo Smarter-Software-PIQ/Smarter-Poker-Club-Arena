@@ -1691,7 +1691,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                  identical from the outside either way. */
               const rebuyPauseStart = Date.now();
               await this.waitForRebuyDecisions(
-                justBustedPlayers.map((p) => p.user_id).filter(Boolean),
+                justBustedPlayers
+                  .filter((p) => !this.wasBustedSeatReleasedThisHand(p))
+                  .map((p) => p.user_id)
+                  .filter(Boolean),
                 REBUY_PAUSE_MAX_MS
               );
               rebuyPauseMs = Math.max(0, Math.round(Date.now() - rebuyPauseStart));
@@ -2412,7 +2415,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   override stop(): Promise<void> {
     this.settleCashBreachSpan('aborted', 'table_stopped');
+    this.preparedTimeBankReads = null;
     return super.stop();
+  }
+
+  protected override discardPreparedHandForPause(): boolean {
+    const discarded = super.discardPreparedHandForPause();
+    if (discarded) this.preparedTimeBankReads = null;
+    return discarded;
   }
 
   protected override killForRestart(
@@ -2429,6 +2439,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           .replace(/[^a-z0-9_:]/g, '_')
           .slice(0, 80)
     );
+    this.preparedTimeBankReads = null;
     super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
   }
 
@@ -2732,22 +2743,32 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.preparedTimeBankReads = null;
       return;
     }
-    const extras = extrasIds.length > 0 ? this.fetchTimeBankExtras(extrasIds) : null;
-    extras?.catch(() => {});
+    const nextExtrasKey = extrasIds.length > 0 ? extrasIds.join(',') : null;
+    const nextPrefKey = prefIds.length > 0 ? prefIds.join(',') : null;
+    const existing = this.preparedTimeBankReads;
+    const extras =
+      nextExtrasKey === null
+        ? null
+        : existing?.extras && existing.extrasKey === nextExtrasKey
+          ? existing.extras
+          : this.fetchTimeBankExtras(extrasIds);
+    if (extras && extras !== existing?.extras) extras.catch(() => {});
     const prefs =
-      prefIds.length > 0
-        ? readAutoTimeBankPreferences(prefIds).catch((error) => {
-            reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
-            // Do not spend a paid bank on an unreadable opt-out. The player's
-            // next foreground heartbeat supplies the actual choice.
-            return new Map(prefIds.map((id) => [id, false]));
-          })
-        : null;
-    prefs?.catch(() => {});
+      nextPrefKey === null
+        ? null
+        : existing?.prefs && existing.prefKey === nextPrefKey
+          ? existing.prefs
+          : readAutoTimeBankPreferences(prefIds).catch((error) => {
+              reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
+              // Do not spend a paid bank on an unreadable opt-out. The player's
+              // next foreground heartbeat supplies the actual choice.
+              return new Map(prefIds.map((id) => [id, false]));
+            });
+    if (prefs && prefs !== existing?.prefs) prefs.catch(() => {});
     this.preparedTimeBankReads = {
-      extrasKey: extras ? extrasIds.join(',') : null,
+      extrasKey: nextExtrasKey,
       extras,
-      prefKey: prefs ? prefIds.join(',') : null,
+      prefKey: nextPrefKey,
       prefs,
     };
   }
@@ -6335,7 +6356,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     busted: SeatedPlayer[]
   ): Promise<Map<string, number> | undefined> {
     if (!this.bustRebuyWindowApplies()) return undefined;
-    const humans = busted.filter((p) => p.user_id && !p.is_horse);
+    const humans = busted.filter(
+      (p) => p.user_id && !p.is_horse && !this.wasBustedSeatReleasedThisHand(p)
+    );
     if (humans.length === 0) return undefined;
     const balances = await readSeatWalletBalances(
       this.tableId,

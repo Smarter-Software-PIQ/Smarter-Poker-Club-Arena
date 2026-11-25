@@ -265,4 +265,86 @@ describe('cash_bust hand-gap hardening', () => {
     expect(prepIdx).toBeLessThan(noticeIdx);
     expect(noticeIdx).toBeLessThan(restIdx);
   });
+
+  it('excludes already-released seats from offerCashBustWindows and waitForRebuyDecisions', async () => {
+    const engine = makeCashEngine();
+    const human = {
+      user_id: 'human-released-1',
+      username: 'ReleasedHuman',
+      seat_number: 2,
+      stack: 0,
+      is_horse: false,
+      occupancy_id: 'occ-human-rel-1',
+    };
+    engine.seatedPlayers = [human];
+    engine.hub = { emitEvent: vi.fn(), sendToUser: vi.fn() };
+    engine.armBustRebuyExpiry = vi.fn();
+
+    expect(await engine.releaseBustedSeat(human, 'busted_no_rebuy')).toBe(true);
+    expect(await engine.offerCashBustWindows([human])).toBeUndefined();
+    expect(engine.hub.sendToUser).not.toHaveBeenCalled();
+    expect(engine.armBustRebuyExpiry).not.toHaveBeenCalled();
+
+    const dealingSrc = readFileSync(
+      new URL('./ServerTableEngineDealing.ts', import.meta.url),
+      'utf8'
+    );
+    const callIdx = dealingSrc.indexOf('await this.waitForRebuyDecisions(');
+    expect(callIdx).toBeGreaterThan(-1);
+    const callSnippet = dealingSrc.slice(callIdx, callIdx + 240);
+    expect(callSnippet).toContain('!this.wasBustedSeatReleasedThisHand(p)');
+  });
+
+  it('deduplicates in-flight preparedTimeBankReads across a second dealing pass and clears them on pause/stop/restart', async () => {
+    vi.useFakeTimers();
+    const engine = makeCashEngine();
+    const seats = [
+      {
+        seat_number: 1,
+        user_id: 'player-dedup-1',
+        username: 'DedupSeat',
+        stack: 100,
+        is_horse: true,
+        occupancy_id: 'occ-dedup-1',
+      },
+    ];
+    const fetchExtras = vi.fn(async (ids: string[]) => {
+      await new Promise((r) => setTimeout(r, 150));
+      return new Map(ids.map((id) => [id, { extraSeconds: 30, unlimited: false }]));
+    });
+    engine.fetchTimeBankExtras = fetchExtras;
+    engine.armNextHandRest(1_500);
+
+    // First pass starts both reads; second pass (e.g. after seatBoundaryChangedUnderRest)
+    // reuses matching in-flight promises without firing duplicate DB queries.
+    engine.prepareTimeBankReads(seats);
+    engine.prepareTimeBankReads(seats);
+    expect(fetchExtras).toHaveBeenCalledTimes(1);
+    expect(readAutoTimeBankPreferences).toHaveBeenCalledTimes(1);
+
+    // discardPreparedHandForPause clears prepared reads when paused.
+    engine.maintenancePaused = true;
+    expect(engine.discardPreparedHandForPause()).toBe(true);
+    expect(engine.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
+    expect(engine.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+
+    // Re-arm and verify stop() clears prepared reads.
+    engine.maintenancePaused = false;
+    engine.armNextHandRest(1_500);
+    engine.prepareTimeBankReads(seats);
+    expect(fetchExtras).toHaveBeenCalledTimes(2);
+    await engine.stop();
+    expect(engine.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
+    expect(engine.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+
+    // Re-arm on a fresh engine and verify killForRestart() clears prepared reads.
+    const engine2 = makeCashEngine();
+    engine2.fetchTimeBankExtras = fetchExtras;
+    engine2.armNextHandRest(1_500);
+    engine2.prepareTimeBankReads(seats);
+    expect(fetchExtras).toHaveBeenCalledTimes(3);
+    engine2.killForRestart('audit_test_restart', false);
+    expect(engine2.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
+    expect(engine2.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+  });
 });
