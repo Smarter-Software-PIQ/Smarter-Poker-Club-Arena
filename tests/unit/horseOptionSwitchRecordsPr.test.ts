@@ -7,7 +7,10 @@
 // run or a refused write, and that it keeps the machine-read phrases other tools parse.
 import { describe, expect, it, vi } from 'vitest';
 import {
+  AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
   findAuthorityDocStateDrift,
+  findUnjudgedLiveAuthorityDocs,
+  parseAuthorityDocEvidence,
   formatSwitchStateSnapshot,
   parseAuthorityDocState,
   snapshotFromRows,
@@ -16,6 +19,7 @@ import {
   RECORDS_FINISH_COMMAND,
   buildRecordsChange,
   formatRecordsPr,
+  insertAuthorityDocState,
   rewriteAuthorityDocState,
 } from '../../scripts/ops/horse-option-switch-records.mjs';
 import { runCli } from '../../scripts/ops/horse-option-switch.mjs';
@@ -134,6 +138,73 @@ describe('the records PR is computed from the live rows', () => {
     ]);
     const { body } = formatRecordsPr({ change, snapshot: empty, trigger: 't' });
     expect(body).toContain('NOT CHANGED, needs a person: holdemValueAndCallsArePriced');
+  });
+
+  // 2026-11-24: omahaPricedRaiseNeverMakesNonNutRaise went live (audits #197, #198) through a private
+  // wrapper. Its doc had no State token and still read "stays OFF"; buildRecordsChange reported nothing,
+  // so a records PR built from it failed the law "every option with a live row has a doc State the drift
+  // check can read" without saying why.
+  const NO_STATE_DOC =
+    '# omahaPricedRaiseNeverMakesNonNutRaise: Authority For The Live Switch\n\n' +
+    'Built 2026-11-22 by PLO-OWNER lead-5. Evidence NOT MET: stays OFF. This file does not authorize switching the option on.\n\n' +
+    '## What It Does\n';
+  const NON_NUT_ROW = {
+    option: 'omahaPricedRaiseNeverMakesNonNutRaise',
+    state: 'on',
+    updated_at: '2026-11-24 18:09:58.496+00',
+    audit_id: 198,
+    audit_max: 198,
+  };
+
+  it('a newly live option whose doc has no State token gains one in its status paragraph', () => {
+    const snap = snapshotFromRows([NON_NUT_ROW], '2026-11-25T23:38:00Z');
+    const docs = { omahaPricedRaiseNeverMakesNonNutRaise: NO_STATE_DOC };
+    expect(findUnjudgedLiveAuthorityDocs({ snapshot: snap, docs })).toHaveLength(1);
+    const change = buildRecordsChange({ snapshot: snap, docs });
+    expect(change.unresolved).toEqual([]);
+    expect(change.docChanges).toHaveLength(1);
+    const [c] = change.docChanges;
+    expect(c.from).toBe('(no State token)');
+    expect(c.to).toBe('LIVE ON since audit #198, 2026-11-24T18:09:58Z.');
+    expect(parseAuthorityDocState(c.text)?.state).toBe('on');
+    // The law's two readings of the rewritten doc: judged, and in step with the live row.
+    const after = { omahaPricedRaiseNeverMakesNonNutRaise: c.text };
+    expect(findUnjudgedLiveAuthorityDocs({ snapshot: snap, docs: after })).toEqual([]);
+    expect(findAuthorityDocStateDrift({ snapshot: snap, docs: after })).toEqual([]);
+    // The token sits in the status paragraph and the evidence claim is still the doc's own.
+    expect(c.text.split('\n')[2].startsWith('**State: LIVE ON since audit #198')).toBe(true);
+    expect(parseAuthorityDocEvidence(c.text)).toBe('not_met');
+    expect(c.text).toContain('Evidence NOT MET: stays OFF.');
+    const { body } = formatRecordsPr({ change, snapshot: snap, trigger: 't' });
+    expect(body).toContain('State "(no State token)" -> "LIVE ON since audit #198');
+  });
+
+  it('a doc on the closed pre-token list is left alone, as the law leaves it', () => {
+    const name = AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN[0];
+    const snap = snapshotFromRows([{ ...NON_NUT_ROW, option: name }], '2026-11-25T23:38:00Z');
+    const change = buildRecordsChange({ snapshot: snap, docs: { [name]: NO_STATE_DOC } });
+    expect(change.docChanges).toEqual([]);
+    expect(change.unresolved).toEqual([]);
+  });
+
+  it('never guesses where a State token goes: no title, no opening paragraph or an unreadable State is left for a person', () => {
+    const snap = snapshotFromRows([NON_NUT_ROW], '2026-11-25T23:38:00Z');
+    expect(insertAuthorityDocState('no title here\n', 'on')).toBeNull();
+    expect(insertAuthorityDocState('# t\n\n- a list first\n', 'on')).toBeNull();
+    expect(insertAuthorityDocState('# t\n\n## a heading first\n', 'on')).toBeNull();
+    expect(insertAuthorityDocState('# t\n\n**State: OFF.** has one\n', 'on')).toBeNull();
+    for (const text of ['# t\n\n| a | table |\n', '# t\n\n**State: pending review.** odd\n']) {
+      const change = buildRecordsChange({
+        snapshot: snap,
+        docs: { omahaPricedRaiseNeverMakesNonNutRaise: text },
+      });
+      expect(change.docChanges).toEqual([]);
+      expect(change.unresolved).toEqual([
+        expect.objectContaining({ option: 'omahaPricedRaiseNeverMakesNonNutRaise' }),
+      ]);
+      const { body } = formatRecordsPr({ change, snapshot: snap, trigger: 't' });
+      expect(body).toContain('NOT CHANGED, needs a person: omahaPricedRaiseNeverMakesNonNutRaise');
+    }
   });
 
   it('the PR names the options it records and says it writes nothing live', () => {
