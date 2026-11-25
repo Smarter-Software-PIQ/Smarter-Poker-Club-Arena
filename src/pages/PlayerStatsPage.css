@@ -42,14 +42,13 @@
   gap: 1.25rem;
   padding: 1.25rem 1rem;
   margin: 0 0.75rem 0.5rem;
-  background: linear-gradient(145deg, rgba(0, 212, 255, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
-  border: 1px solid rgba(0, 212, 255, 0.15);
-  border-radius: 16px;
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  background: linear-gradient(180deg, #0b1826, #040d18);
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
   box-shadow:
     0 0 30px rgba(0, 212, 255, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 rgba(174, 192, 208, 0.18);
   position: relative;
   overflow: hidden;
 }
@@ -110,7 +109,7 @@
 
 .gauge-label {
   display: block;
-  font-size: 0.55rem;
+  font-size: 0.72rem;
   color: rgba(138, 154, 170, 0.8);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -262,7 +261,7 @@
   min-height: 32px;
   margin-top: 0.35rem;
   font-family: 'Rajdhani', monospace;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -344,7 +343,7 @@
   gap: 1rem;
 }
 
-.chart-card {
+.stats-page .chart-card {
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.05) 0%, rgba(100, 100, 100, 0.02) 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
@@ -426,7 +425,7 @@
    EXPORT BUTTON
    ───────────────────────────────────────────────────────────────────────────── */
 
-.export-btn {
+.stats-page .export-btn {
   background: rgba(65, 105, 225, 0.12);
   color: #4169e1;
   border: 1px solid rgba(65, 105, 225, 0.25);
@@ -580,7 +579,7 @@
   /* 44px minimum tap targets on touch widths */
   .stats-range-row button,
   .hand-mode-row button,
-  .export-btn {
+  .stats-page .export-btn {
     min-height: 44px;
     touch-action: manipulation;
   }
@@ -789,7 +788,7 @@
 
 .hero-stat-sub {
   display: block;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   color: rgba(255, 255, 255, 0.4);
   letter-spacing: 0.03em;
 }
@@ -928,10 +927,10 @@
 /* ── Hero panel: glass slab with edge light + under-glow ── */
 .stats-hero {
   position: relative;
-  background: linear-gradient(160deg, rgba(26, 32, 56, 0.85) 0%, rgba(13, 17, 32, 0.92) 60%);
-  border: 1px solid rgba(0, 212, 255, 0.18);
-  border-top-color: rgba(255, 255, 255, 0.16);
-  border-radius: 18px;
+  background: linear-gradient(180deg, #0b1826, #040d18);
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
   box-shadow:
     0 24px 50px rgba(0, 0, 0, 0.55),
     0 6px 18px rgba(0, 0, 0, 0.45),
@@ -1167,7 +1166,7 @@
     box-shadow 0.2s ease;
 }
 /* ── Charts: glass frames ── */
-.chart-card {
+.stats-page .chart-card {
   background: linear-gradient(165deg, rgba(28, 34, 60, 0.7) 0%, rgba(13, 16, 30, 0.92) 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-top-color: rgba(255, 255, 255, 0.15);
@@ -1304,12 +1303,12 @@
   .stats-section-loading,
   .stats-action-row,
   .stats-brief-actions,
-  .export-btn,
+  .stats-page .export-btn,
   .view-hands-btn,
   .hand-mode-row,
   .heatmap-modes,
-  .nemesis-expand,
-  .sharecard {
+  .stats-page .nemesis-expand,
+  .stats-page .sharecard {
     display: none !important;
   }
 
@@ -1326,8 +1325,8 @@
 
   /* Filters and legends are read-only labels on paper: show them, but the
      interactive affordance should not look clickable. */
-  .heatmap-select,
-  .pos-radar-toggle {
+  .stats-page .heatmap-select,
+  .stats-page .pos-radar-toggle {
     border-color: #d1d5db !important;
     background: #ffffff !important;
   }
@@ -1338,7 +1337,7 @@
   .stats-intelligence-brief,
   .stats-grid,
   .variant-table,
-  .chart-card,
+  .stats-page .chart-card,
   .pos-radar-card,
   .evluck-card,
   .heatmap-card,
@@ -1427,13 +1426,13 @@
   /* Keep the semantic red/green: on paper these are the only thing telling a
      reader whether a number is good or bad, and they are legible on white. */
   .is-up,
-  .bench-pill.tone-good,
+  .stats-page .bench-pill.tone-good,
   .nemesis-card.is-target .nemesis-amount {
     color: #15803d !important;
   }
 
   .is-down,
-  .bench-pill.tone-bad,
+  .stats-page .bench-pill.tone-bad,
   .nemesis-card.is-nemesis .nemesis-amount {
     color: #b91c1c !important;
   }
@@ -1443,9 +1442,9 @@
   .evluck-note,
   .heatmap-note,
   .nemesis-note,
-  .bench-note,
-  .trophy-note,
-  .bench-bar-scale,
+  .stats-page .bench-note,
+  .stats-page .trophy-note,
+  .stats-page .bench-bar-scale,
   .trophy-desc,
   .trophy-style-note {
     color: #4b5563 !important;
@@ -1478,7 +1477,7 @@
   }
 
   /* The 13x13 grid must print whole, not scroll. */
-  .heatmap-scroll {
+  .stats-page .heatmap-scroll {
     overflow: visible !important;
   }
 
@@ -1486,7 +1485,7 @@
     min-width: 0 !important;
   }
 
-  .heatmap-cell {
+  .stats-page .heatmap-cell {
     border-color: #e5e7eb !important;
     color: #111827 !important;
   }
@@ -1496,7 +1495,7 @@
     stroke: #d1d5db !important;
   }
 
-  .pos-radar-axis-label {
+  .stats-page .pos-radar-axis-label {
     fill: #111827 !important;
   }
 }
@@ -1795,7 +1794,7 @@
 
   .stats-club-table thead th {
     color: #7f9bb2;
-    font-size: 0.65rem;
+    font-size: 0.72rem;
     letter-spacing: 0.09em;
     text-transform: uppercase;
   }
@@ -1884,7 +1883,7 @@
     padding: 0 9px 0 3px;
     color: #8fa3b5;
     font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
-    font-size: 0.65rem;
+    font-size: 0.72rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1966,11 +1965,10 @@
     margin: 0 20px 20px;
     padding: 11px 13px;
     overflow: visible;
-    border: 1px solid rgba(199, 210, 220, 0.24);
+    border: 1px solid #688299;
+    border-top-color: #aec0d0;
     border-radius: 3px;
-    background: linear-gradient(180deg, rgba(8, 14, 22, 0.92), rgba(2, 6, 11, 0.96));
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    background: linear-gradient(180deg, #0b1826, #040d18);
     box-shadow:
       0 14px 36px rgba(0, 0, 0, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -2000,8 +1998,9 @@
 
   .gauge-label {
     color: #8998a6;
-    font-size: 0.5rem;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    line-height: 1.05;
   }
 
   .hero-stats {
@@ -2049,7 +2048,7 @@
     grid-column: 1 / -1;
     margin-top: 2px;
     color: #687887;
-    font-size: 0.58rem;
+    font-size: 0.72rem;
     text-align: right;
   }
 
@@ -2161,7 +2160,7 @@
     margin-bottom: 17px;
     color: rgba(216, 201, 167, 0.48);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     letter-spacing: 0.12em;
   }
 
@@ -2521,7 +2520,7 @@
   /* The dossier artwork is the section chassis. Charts and recoverable panel
      errors print directly on that glass; they must not bolt a generic glass
      dashboard card on top of the approved render. */
-  .chart-card,
+  .stats-page .chart-card,
   .panel-boundary-fallback,
   .stats-empty-state {
     border: 0;
@@ -2645,7 +2644,7 @@
 
     .stats-last-updated {
       padding: 1px 7px 5px;
-      font-size: 0.69rem;
+      font-size: 0.72rem;
     }
 
     .stats-range-row button {
@@ -2671,6 +2670,15 @@
       font-size: 1rem;
     }
 
+    .gauge-center {
+      width: 80%;
+    }
+
+    .gauge-label {
+      letter-spacing: 0.02em;
+      overflow-wrap: anywhere;
+    }
+
     .hero-stats {
       grid-template-columns: minmax(0, 1fr);
       gap: 4px;
@@ -2691,7 +2699,7 @@
        which is where this product is mostly read; it is smaller here, not
        gone. */
     .hero-stat-sub {
-      font-size: 0.58rem;
+      font-size: 0.72rem;
     }
 
     .stats-notice-deck {
@@ -2831,4 +2839,50 @@
 .stats-page--presentation .stats-notice-deck,
 .stats-page--presentation .stats-intelligence-brief {
   display: none;
+}
+
+/* Tactile press feedback. Touch has no hover, and this stylesheet carries none
+   by law: :active is the only pointer response, :focus-visible the keyboard one. */
+.stats-page .stats-pill-tabs button:active,
+.stats-page .stats-range-row button:active {
+  transform: translateY(1px);
+  filter: brightness(1.15);
+}
+
+/* The Cash / Tournaments switch is rendered by StatsWorkspaceHeader inside the
+   .stats-page.arena-workspace shell on every Stats state (own profile, shared
+   club, loading, error). It takes the same MTT steel frame as the hero, so it
+   reads as part of the page chassis. The three-class selector outranks
+   ArenaWorkspace.css's .arena-workspace .arena-switch reset whatever the sheet
+   load order. */
+.stats-page.arena-workspace .arena-switch {
+  gap: 4px;
+  margin: 8px 0 10px;
+  padding: 3px;
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #0b1826, #040d18);
+  box-shadow: inset 0 1px 0 rgba(174, 192, 208, 0.18);
+}
+
+.stats-page.arena-workspace .arena-switch > button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+.stats-page.arena-workspace .arena-switch > button:active {
+  transform: translateY(1px);
+  filter: brightness(1.15);
+}
+
+.stats-page.arena-workspace .arena-switch > button:focus-visible {
+  outline: 2px solid #72bdff;
+  outline-offset: -3px;
+}
+
+@media print {
+  .stats-page.arena-workspace .arena-switch {
+    display: none;
+  }
 }
