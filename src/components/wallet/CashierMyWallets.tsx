@@ -114,6 +114,7 @@ export default function CashierMyWallets({
             compactLobby
             showAllLobbyWallets
             showBBJ={false}
+            showArtwork={!consoleLayout}
             onVisibleWalletCountChange={setVisibleWalletCount}
             onBuyDiamonds={() => {
               haptic.medium();

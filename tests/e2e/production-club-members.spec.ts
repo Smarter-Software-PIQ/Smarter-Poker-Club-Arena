@@ -863,6 +863,14 @@ test.describe('Production Kings Club Players', () => {
   test('wires the live Player Record and Statistics subpages without unsafe writes', async ({
     page,
   }) => {
+    const obsoleteArtRequests: string[] = [];
+    page.on('request', (request) => {
+      if (
+        new URL(request.url()).pathname.endsWith('/images/club-members/member-credential-v1.webp')
+      ) {
+        obsoleteArtRequests.push(request.url());
+      }
+    });
     const probe = observeMembersPath(page);
     await openMembers(page, probe);
 
@@ -884,11 +892,12 @@ test.describe('Production Kings Club Players', () => {
     await clubHistory.locator('summary').click();
 
     const directory = page.getByRole('list', { name: 'Club Member Directory' });
-    await directory
-      .getByRole('listitem')
-      .first()
-      .getByRole('button', { name: /^Open / })
-      .click();
+    const firstMember = directory.getByRole('listitem').first();
+    const alias = (await firstMember.locator('.member-alias').innerText()).trim();
+    const selectedMember = directory.getByRole('listitem').filter({
+      has: page.locator('.member-alias').and(page.getByText(alias, { exact: true })),
+    });
+    await selectedMember.getByRole('button', { name: /^Open / }).click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible({
       timeout: 45_000,
@@ -949,26 +958,36 @@ test.describe('Production Kings Club Players', () => {
     await activityGuide.locator('summary').click();
     await expect(activityGuide).toContainText('MTT Winnings Is Tournament Money');
 
-    const credentialArt = page.locator('.mm-credential__art');
-    await expect(credentialArt).toBeVisible();
+    const identity = page.getByRole('region', { name: alias, exact: true });
+    await expect(identity.getByRole('heading', { name: alias, exact: true })).toBeVisible();
+    await expect(identity.locator('.mm-player-id')).toBeVisible();
+    const avatar = identity.locator('.mm-avatar');
+    await avatar.scrollIntoViewIfNeeded();
+    await expect(avatar).toBeVisible();
     await expect
       .poll(() =>
-        credentialArt.evaluate(
-          (image: HTMLImageElement) => image.complete && image.naturalWidth > 0
-        )
+        avatar.evaluate((element, memberAlias) => {
+          const image = element.querySelector('img');
+          return image
+            ? image.complete && image.naturalWidth > 0
+            : element.textContent?.trim() === memberAlias[0]?.toUpperCase();
+        }, alias)
       )
       .toBe(true);
+    await expect(page.locator('.mm-credential__art, .mm-credential__shade')).toHaveCount(0);
+    expect(obsoleteArtRequests).toEqual([]);
 
     // The identity must remain readable beside a long role at phone widths.
     // These are real rendered boxes on the published page, not CSS string pins.
     const originalViewport = page.viewportSize();
     for (const width of [375, 393]) {
       await page.setViewportSize({ width, height: 812 });
-      const boxes = await Promise.all(
-        ['.mm-avatar', '.role-badge', '.mm-presence', '.mm-player-id', '#mm-player-name'].map(
-          (selector) => page.locator(`.mm-credential ${selector}`).boundingBox()
-        )
+      const fields = identity.locator(
+        '.mm-avatar, .role-badge, .mm-presence, .mm-player-id, #mm-player-name'
       );
+      await expect(identity.locator('.role-badge')).toBeVisible();
+      await expect(identity.locator('.mm-presence').first()).toBeVisible();
+      const boxes = await Promise.all((await fields.all()).map((field) => field.boundingBox()));
       for (let i = 0; i < boxes.length; i++) {
         expect(boxes[i], `identity field ${i} has no rendered box at ${width}px`).not.toBeNull();
         expect(boxes[i]!.x).toBeGreaterThanOrEqual(0);

@@ -24,9 +24,6 @@
   max-width: none;
   margin: 0;
 }
-.walletHeader :global(.dw__bbj-shell) {
-  display: none;
-}
 .walletHeader :global(.dw__bbj) {
   background: #091727;
   display: flex;

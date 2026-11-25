@@ -664,8 +664,6 @@
   height: 28px;
   transform: none;
 }
-.arena-cashier .dw__row .dw__row-picture,
-.arena-cashier .dw__row .dw__row-shell,
 .arena-cashier .dw__row .dw__row-hint,
 .arena-cashier .dw__row .dw__row-icon,
 .arena-cashier .dw__row .dw__row-chevron {
@@ -713,10 +711,6 @@
   background: var(--arena-panel);
   border: 6px solid transparent;
   border-image: var(--arena-row) 13 / 8px stretch;
-}
-.arena-workspace .mm-credential__art,
-.arena-workspace .mm-credential__shade {
-  display: none;
 }
 .arena-workspace .arena-switch > [aria-current='page'] {
   flex: 1;

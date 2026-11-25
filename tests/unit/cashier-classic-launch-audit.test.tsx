@@ -70,9 +70,15 @@ vi.mock('../../src/utils/clubQuickLink', () => ({
 vi.mock('../../src/components/club/CashierClubSwitcher', () => ({ default: () => null }));
 vi.mock('../../src/components/agent/AgentPromoPanel', () => ({ default: () => null }));
 vi.mock('../../src/components/wallet/DynamicWallet', () => ({
-  default: (props: { roleReady: boolean }) => {
+  default: (props: { roleReady: boolean; showArtwork?: boolean }) => {
     mocks.walletProps.push({ roleReady: props.roleReady });
-    return <div data-testid="dynamic-wallet" data-role-ready={String(props.roleReady)} />;
+    return (
+      <div
+        data-testid="dynamic-wallet"
+        data-role-ready={String(props.roleReady)}
+        data-artwork={String(props.showArtwork)}
+      />
+    );
   },
 }));
 vi.mock('../../src/components/wallet/WalletCashierModal', () => ({ default: () => null }));
@@ -332,6 +338,7 @@ describe('Cashier Classic launch audit', () => {
     expect(await screen.findByRole('tab', { name: 'Send', selected: true })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByTestId('dynamic-wallet')).toHaveAttribute('data-role-ready', 'true');
+    expect(screen.getByTestId('dynamic-wallet')).toHaveAttribute('data-artwork', 'false');
   });
 
   it('P-01 / G-04: a failed club read hides the cashier and names the club, not the role', async () => {

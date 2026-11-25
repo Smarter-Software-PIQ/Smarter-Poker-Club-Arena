@@ -95,8 +95,6 @@ import './MemberManagementPage.css';
 import MemberCreditWalletRows from '../components/club/MemberCreditWalletRows';
 import { MemberPromoPlayThrough } from '../components/club/MemberPromoPlayThrough';
 
-const MEMBER_CREDENTIAL_ART = `${import.meta.env.BASE_URL}images/club-members/member-credential-v1.webp`;
-
 type WalletKey = 'chip_balance' | 'player_wallet' | 'agent_wallet' | 'promo_wallet';
 
 /**
@@ -956,18 +954,6 @@ export default function MemberManagementPage() {
       {/* ── Identity ─────────────────────────────────────────────────────── */}
 
       <section className="mm-credential" aria-labelledby="mm-player-name">
-        <img
-          className="mm-credential__art"
-          src={MEMBER_CREDENTIAL_ART}
-          alt=""
-          aria-hidden="true"
-          width="1672"
-          height="941"
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-        />
-        <div className="mm-credential__shade" aria-hidden="true" />
         <div className="mm-credential__content">
           <span className="mm-eyebrow">Member Profile</span>
           <div className="mm-identity">

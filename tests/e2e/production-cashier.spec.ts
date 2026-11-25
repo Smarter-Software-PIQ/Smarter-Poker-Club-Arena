@@ -292,9 +292,6 @@ test.describe('Production Cashier Certification', () => {
     const roleFilter = page.getByRole('combobox', { name: 'Filter Roster By Role' });
     await roleFilter.selectOption('player');
     await expect(roleFilter).toHaveValue('player');
-    await page.getByRole('button', { name: 'Clear Filters', exact: true }).click();
-    await expect(roleFilter).toHaveValue('all');
-    await expect(rosterSearch).toBeFocused();
     // Dan 2026-10-15: one tap anywhere on a row checks it; Send Out opens the
     // dialog on the selection.
     const nativeSelect = surface.getByRole('checkbox', { name: /^Include / }).first();
@@ -321,7 +318,13 @@ test.describe('Production Cashier Certification', () => {
     });
     await expect(selectedPlayer).toBeVisible();
     await expect(selectedPlayer).toContainText('ID');
-    await expect(selectedPlayer).toContainText('Player Wallet');
+    const recipientWallet = selectedPlayer.getByRole('combobox', {
+      name: /^Recipient Wallet For /,
+    });
+    await expect(recipientWallet).toHaveValue('player_wallet');
+    await expect(recipientWallet.getByRole('option', { selected: true })).toHaveText(
+      /^Player Wallet: /
+    );
     await expect(
       transferDialog.getByRole('region', { name: 'From Your Agent Wallet' })
     ).toBeVisible();
@@ -335,6 +338,9 @@ test.describe('Production Cashier Certification', () => {
     await transferDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(sendOutAction).toBeFocused();
     await expect(transferDialog).toHaveCount(0);
+    await page.getByRole('button', { name: 'Clear Filters', exact: true }).click();
+    await expect(roleFilter).toHaveValue('all');
+    await expect(rosterSearch).toBeFocused();
     // Preview only: certify the published individual-amount wiring without
     // spending real chips or issuing tickets against production players.
     const recipients = surface.locator('input[type="checkbox"][aria-label^="Include "]:enabled');
@@ -530,6 +536,13 @@ test.describe('Production Cashier Certification', () => {
   }, testInfo) => {
     test.setTimeout(150_000);
     const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    const obsoleteWalletFaces: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (/\/assets\/club-buttons\/wallets\/(?:desktop|mobile)\/wallet-[^/]+\.webp$/.test(path)) {
+        obsoleteWalletFaces.push(path);
+      }
+    });
     await page.setViewportSize({ width: 393, height: 852 });
     await page.goto(`clubs/${clubId}/cashier-classic`, {
       waitUntil: 'domcontentloaded',
@@ -591,7 +604,8 @@ test.describe('Production Cashier Certification', () => {
     await expect(presets.getByRole('button', { name: 'Max', exact: true })).toBeVisible();
     expectCashierAmountPresets(await presets.getByRole('button').allInnerTexts());
     await expectCashierAxeClean(page, testInfo, 'main', 'advanced-cashier');
-    await expect(balances.locator('.dw__row-picture:visible')).toHaveCount(0);
+    await expect(balances.locator('.dw__row-picture')).toHaveCount(0);
+    expect(obsoleteWalletFaces, 'Cashier must not request the replaced wallet faces').toEqual([]);
     await expect(balances.getByText('Diamond Wallet', { exact: true })).toBeVisible();
     await expect(balances.locator('.dw__bbj-shell')).toHaveCount(0);
     await attachCashierScreenshot(page, testInfo, 'advanced-cashier');
