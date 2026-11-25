@@ -165,7 +165,31 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   /** Both the startup wait and ordinary dealer use the original boundary. */
   protected override async passOperatorFloorBoundary(): Promise<boolean> {
     if (await super.passOperatorFloorBoundary()) return true;
-    return this.passHourlyCashBoundary();
+    return this.timeCashPrepareBranch('hourly_cash_boundary', this.passHourlyCashBoundary());
+  }
+
+  protected hasDeferredBankTheWin(): boolean {
+    return false;
+  }
+
+  /**
+   * Overlap read-only pre-deal checks (`refreshOperatorFloor`, and on
+   * clustered cash tables `pendingSeatMoves`) with `prepareNextHand()` so the
+   * dealing loop pays one parallel PostgREST wave instead of serializing three
+   * independent round trips under the 1,500 ms rest (incident 1e532243).
+   */
+  protected startPreDealReadOverlap(): void {
+    this.clearPreparedOperatorFloor();
+    this.clearPreparedPendingSeatMoves();
+    if (this.dealingHaltLock || !this.lifecycleCanMutate()) return;
+    this.startPreparedOperatorFloor((work) =>
+      this.timeCashPrepareBranch('refresh_operator_floor', work)
+    );
+    if (!this.isTournamentTable() && !this.hasDeferredBankTheWin()) {
+      this.startPreparedPendingSeatMoves((work) =>
+        this.timeCashPrepareBranch('pending_seat_moves', work)
+      );
+    }
   }
 
   /** Cash only. Never called by a timer or from inside an active hand. */
@@ -473,6 +497,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
         // Before the read: an arrival committed after this instant is caught by
         // the synchronous last look before dealHand (seatBoundarySignals).
+        this.startPreDealReadOverlap();
         this.captureSeatArrivalGeneration();
         const nextRoster = await this.prepareNextHand();
         if (!this.lifecycleCanMutate()) return;
@@ -883,6 +908,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // counted at the deal itself, below.
         await this.evictExpiredSitOuts({ countOrbit: false });
 
+        this.setLoopPhase('operator_floor_boundary');
         if (await this.passOperatorFloorBoundary()) {
           await this.sleep(3000);
           continue;

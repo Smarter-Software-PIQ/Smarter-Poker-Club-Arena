@@ -134,7 +134,6 @@ interface EventState {
   lastDecreaseAt: number;
   congestedStreak: number;
   slowStreak: number;
-  lastSlowAt: number;
   lastLoggedAt: number;
   readonly queue: Waiter[];
   readonly coolingTimers: Set<ReturnType<typeof setTimeout>>;
@@ -162,8 +161,6 @@ export interface EventDbBulkheadOptions {
 const PASS_THROUGH: EventDbPermit = Object.freeze({ key: null, released: true });
 const LOG_INTERVAL_MS = 10_000;
 const IDLE_SWEEP_THRESHOLD = 1_024;
-/** Window over which consecutive slow answers at low concurrency count toward slowStreak. */
-const SLOW_STREAK_WINDOW_MS = 10_000;
 
 /** PostgREST error codes that mean "the lane was busy", not "the work is wrong". */
 export function isCongestionSqlstate(code: unknown): boolean {
@@ -230,7 +227,6 @@ export class EventDatabaseBulkhead {
         lastDecreaseAt: Number.NEGATIVE_INFINITY,
         congestedStreak: 0,
         slowStreak: 0,
-        lastSlowAt: Number.NEGATIVE_INFINITY,
         lastLoggedAt: Number.NEGATIVE_INFINITY,
         queue: [],
         coolingTimers: new Set(),
@@ -299,22 +295,21 @@ export class EventDatabaseBulkhead {
         }
       }
     } else if (outcome === 'slow' || outcome === 'congested') {
-      const at = this.now();
-      if (outcome === 'congested') {
-        state.congestedStreak++;
-      } else {
-        if (at - state.lastSlowAt > SLOW_STREAK_WINDOW_MS) state.slowStreak = 0;
-        state.slowStreak++;
-        state.lastSlowAt = at;
-      }
-      // An isolated serialization retry (e.g. a single 40001) OR a single
-      // isolated slow PostgREST response on a quiet event at low concurrency
-      // (< minPerEvent) must not cut the event's bound in half for the next
-      // ~210 calls (~2 min). Halve on sustained slowness/congestion (streak >= 2)
-      // or whenever concurrency is already active (inFlight + cooling >= minPerEvent).
+      if (outcome === 'congested') state.congestedStreak++;
+      else state.slowStreak++;
+      // An isolated serialization retry (e.g. a single 40001 on a quiet event
+      // at inFlight=0) cools one slot without cutting the event's bound in
+      // half for the next ~210 calls. Likewise, an isolated slow outlier (e.g.
+      // a single 2s rebuy or vacuum tick on a healthy 40-table tournament)
+      // must not halve the bound for ~210 calls (incident 1e532243): require
+      // sustained slowness (slowStreak >= 2, or prior congestion) to halve on
+      // `slow`, while preserving immediate halving on `congested` when
+      // streak >= 2 or concurrency is already active (inFlight + cooling >= minPerEvent).
       const shouldHalve =
-        state.congestedStreak + state.slowStreak >= 2 ||
-        state.inFlight + state.cooling >= this.minPerEvent;
+        outcome === 'slow'
+          ? state.slowStreak >= 2 || state.congestedStreak >= 1
+          : state.congestedStreak >= 2 || state.inFlight + state.cooling >= this.minPerEvent;
+      const at = this.now();
       if (shouldHalve && at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
         state.lastDecreaseAt = at;
         state.goodSinceIncrease = 0;
@@ -414,14 +409,12 @@ export class EventDatabaseBulkhead {
   }
 
   private forgetIfIdle(key: string, state: EventState): void {
-    const slowStreakActive =
-      state.slowStreak > 0 && this.now() - state.lastSlowAt <= SLOW_STREAK_WINDOW_MS;
     if (
       state.inFlight === 0 &&
       state.cooling === 0 &&
       state.queue.length === 0 &&
       state.limit === this.maxPerEvent &&
-      !slowStreakActive
+      state.slowStreak === 0
     )
       this.events.delete(key);
   }

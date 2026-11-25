@@ -1,0 +1,42 @@
+name: Certification spawns stand down and the club leaderboard reads a folded total
+
+# Migrations 20261125022315 and 20261125022320. Runs
+# scripts/ci/test-slow-reads-stand-down-and-leaderboard-fold.py against a
+# throwaway PostgreSQL 17 cluster, never production: the exact live bodies
+# (md5-pinned fixtures) must show the measured waits and full scans first, and
+# after the unmodified migration files a certification claim stands down at
+# once while every real club waits exactly as before, and the folded
+# leaderboard equals the full aggregate. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261125022315_a_certification_spawn_stands_down_while_its_club_is_retired.sql
+      - supabase/migrations/20261125022320_the_club_tournament_leaderboard_reads_a_folded_total.sql
+      - scripts/ci/fixtures/slow-reads/**
+      - scripts/ci/test-slow-reads-stand-down-and-leaderboard-fold.py
+      - tests/slow-reads-stand-down-and-leaderboard-fold.law.test.ts
+      - .github/workflows/slow-reads-stand-down-and-leaderboard-fold.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slow-reads-fold-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slow-reads-fold:
+    name: Certification spawns stand down and the club leaderboard reads a folded total
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: The live bodies wait and scan before; the migrations stand down and fold after
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-slow-reads-stand-down-and-leaderboard-fold.py

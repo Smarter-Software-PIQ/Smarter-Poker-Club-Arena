@@ -517,12 +517,16 @@ describe('Root Cause 5: EventDatabaseBulkhead does not halve quiet tournaments o
     const sustained = bulkhead.snapshot().events.find((e) => e.key === 'sustained-slow')!;
     expect(sustained.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
 
-    // Active concurrency (>= minPerEvent still in flight) halves immediately on first slow.
+    // Prior congestion + slow (congestedStreak >= 1) halves immediately on slow,
+    // while an isolated single slow at active concurrency keeps the full bound.
     const active = Array.from({ length: EVENT_DB_MIN_IN_FLIGHT + 1 }, () =>
       acquireSync('busy-slow')
     );
     bulkhead.release(active[0], 'slow');
-    const busy = bulkhead.snapshot().events.find((e) => e.key === 'busy-slow')!;
-    expect(busy.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+    const busyAfterOne = bulkhead.snapshot().events.find((e) => e.key === 'busy-slow')!;
+    expect(busyAfterOne.limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    bulkhead.release(active[1], 'slow');
+    const busyAfterTwo = bulkhead.snapshot().events.find((e) => e.key === 'busy-slow')!;
+    expect(busyAfterTwo.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
   });
 });
