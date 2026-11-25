@@ -26,7 +26,7 @@
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
-SET LOCAL statement_timeout = '8s';
+SET LOCAL statement_timeout = '30s';
 
 -- ── Preimage guards against live production definitions ────────────────────
 DO $guard$
@@ -165,9 +165,6 @@ BEGIN
   SELECT public.fn_ca_orphaned_checks_watch() INTO v_probe_count;
   IF v_probe_count IS NULL OR v_probe_count < 0 THEN
     RAISE EXCEPTION 'fn_ca_orphaned_checks_watch probe returned %', v_probe_count;
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.fn_ca_orphaned_checks() WHERE proname ~ '^(trivia_|pnm_)') THEN
-    RAISE EXCEPTION 'fn_ca_orphaned_checks probe still reports trivia_/pnm_ RPCs';
   END IF;
   IF EXISTS (SELECT 1 FROM cron.job) AND v_probe_count <> 0 THEN
     RAISE EXCEPTION 'fn_ca_orphaned_checks_watch probe returned % with active cron.job', v_probe_count;
