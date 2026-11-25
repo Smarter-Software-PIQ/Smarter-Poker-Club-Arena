@@ -731,7 +731,7 @@ export default function AdvancedFilters({
         className="afx-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label={sortOnly ? 'Sort' : 'Advanced Filters'}
+        aria-label={sortOnly ? 'Sort' : 'Game Filters'}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="afx-head">

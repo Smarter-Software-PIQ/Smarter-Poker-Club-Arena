@@ -1,5 +1,12 @@
 /* The shell supplies the canvas. The page, scroll containers and data groups
    do not paint skins, fallback images or ornamental pseudo-elements. */
+/* A routed lobby owns its page edges inside the locked Club Arena chrome.
+   The host still reserves its measured bottom navigation height. */
+main:has(> .tournament-details.console-lobby) {
+  padding-inline: 0;
+  padding-top: 0;
+}
+
 .tournament-details.console-lobby.console-lobby {
   background: #040d18;
   /* The approved review mounted every tab in the same 600px interior. */
@@ -101,7 +108,7 @@
   font:
     750 clamp(13px, 3vw, 17px)/1.25 Arial,
     sans-serif;
-  color: #f7d47f;
+  color: #83deff;
   letter-spacing: 0.02em;
   padding: 1px 4px 3px;
 }
@@ -247,15 +254,6 @@
     700 14px 'Arial Narrow',
     Arial;
 }
-.console-lobby .rw-payouts[data-projected='true'] .rw-row--p1 .rw-rank::before {
-  content: '';
-  display: inline-block;
-  vertical-align: middle;
-  width: 26px;
-  height: 26px;
-  margin-right: 8px;
-  background: url('./console-art/first-medal.webp') center/contain no-repeat;
-}
 .console-lobby
   :is(.console-countdown, .console-ticket, .console-prize, .console-strip, .console-table) {
   box-sizing: border-box;
@@ -333,7 +331,7 @@
   mix-blend-mode: lighten;
 }
 .console-facts > div:nth-child(2) dt::before {
-  background-image: url('./console-art/mtt-guarantee.webp');
+  background-image: url('./console-art/mtt-chip.webp');
 }
 .console-facts dd {
   font-size: clamp(23px, 7vw, 36px);
@@ -412,7 +410,7 @@
 .console-ticket .ticket-qualifier {
   border: 1px solid #d8ad55;
   background: #0b2443;
-  color: #ffd980;
+  color: #e3f4ff;
   padding: 7px 20px;
   border-radius: 6px;
   font-size: 20px;
@@ -554,20 +552,6 @@
   padding: 12px 4px;
   border-block: 1px solid #638099;
 }
-.console-lobby .details-content .un-head__name::before,
-.console-lobby .details-content .un-head__name::after {
-  content: '';
-  display: inline-block;
-  width: 21px;
-  height: 28px;
-  margin: 0 8px;
-  vertical-align: middle;
-  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
-  mix-blend-mode: lighten;
-}
-.console-lobby .details-content .un-head__name::after {
-  transform: scaleX(-1);
-}
 .console-lobby
   .details-content
   :is(
@@ -657,20 +641,6 @@
   margin: 0 0 3px;
   font-family: 'DIN Condensed', 'Arial Narrow', sans-serif;
   font-size: clamp(20px, 6vw, 29px);
-}
-.console-countdown h3::before,
-.console-countdown h3::after,
-.console-prize::after {
-  content: '';
-  display: inline-block;
-  flex: none;
-  width: 21px;
-  height: 34px;
-  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
-}
-.console-countdown h3::after,
-.console-prize::after {
-  transform: scaleX(-1);
 }
 .console-lobby.console-lobby.console-lobby
   .details-content
@@ -767,7 +737,7 @@
   margin: 0;
   align-content: space-evenly;
   padding: 7% 5%;
-  background: url('./console-art/silver-ticket-stock.webp') center/100% 100% no-repeat;
+  background: linear-gradient(118deg, #bdcfe2, #edf4fc 43%, #a9bfd8);
   mask: none;
   border-radius: 0;
 }
@@ -909,13 +879,6 @@
   font-size: 13px;
   line-height: 15px;
 }
-.console-lobby .console-prize::before {
-  content: '';
-  width: 27px;
-  height: 58px;
-  flex: none;
-  background: url('./console-art/mtt-laurel.webp') center/contain no-repeat;
-}
 .console-lobby .console-countdown .console-pair > div,
 .console-lobby .console-strip > div {
   position: relative;
@@ -933,7 +896,7 @@
   background: url('./console-art/mtt-chip.webp') center/contain no-repeat;
 }
 .console-lobby .console-countdown .console-pair > div:first-child::before {
-  background-image: url('./console-art/ticket.webp');
+  background-image: url('./console-art/glyph-players.webp');
 }
 .console-lobby .console-strip > div:first-child::before {
   background-image: url('./console-art/glyph-players.webp');
@@ -999,4 +962,19 @@
     .console-section-heading
   ) {
   text-transform: capitalize;
+}
+
+.console-lobby .details-header .arena-nightly-badge img {
+  display: block;
+  width: min(100%, 430px);
+  height: clamp(68px, 19vw, 112px);
+  margin: auto;
+  object-fit: contain;
+}
+.console-lobby .console-ticket .ticket-qualifier {
+  margin-inline: auto;
+  color: #135186;
+  font:
+    700 17px/1.25 Arial,
+    sans-serif;
 }

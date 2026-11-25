@@ -619,6 +619,47 @@ groups:
             that hand. More tables usually follow while the link is bad.
           runbook: 'docs/runbooks/database-replies-lost.md'
 
+      # ── EVENT DATABASE BULKHEAD ───────────────────────────────────────
+      # Per-tournament database concurrency bulkhead (eventDatabaseBulkhead.ts).
+      # Early-warning coverage before tournament DB contention cascades into
+      # lost replies or stalled tables: park timeouts or full-queue refusals
+      # mean an event lane is actively shedding work; sustained open == 1 means
+      # the bulkhead was left bypassed outside shutdown.
+      - alert: EventDbBulkheadSaturated
+        expr: |
+          increase(poker_event_db_bulkhead_park_timeouts_total[5m]) > 0
+          or increase(poker_event_db_bulkhead_refused_full_total[5m]) > 0
+        for: 1m
+        keep_firing_for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'Event database bulkhead is dropping tournament DB calls (park timeouts or full queue)'
+          description: |
+            One or more event-scoped database calls either timed out while
+            parked in EventDatabaseBulkhead or were refused because the wait
+            queue was full. Check poker_event_db_bulkhead_throttled_events,
+            poker_event_db_bulkhead_parked_current, poker_event_db_bulkhead_in_flight,
+            and /health eventDbBulkhead.events to identify the congested tournament.
+          runbook: 'docs/runbooks/event-db-bulkhead.md'
+
+      - alert: EventDbBulkheadOpen
+        expr: poker_event_db_bulkhead_open == 1
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'Event database bulkhead has been open (bypassed) for over 5 minutes'
+          description: |
+            EventDatabaseBulkhead.openForShutdown() is only expected during a
+            short graceful shutdown. A running engine reporting
+            poker_event_db_bulkhead_open == 1 for over 5 minutes is operating
+            without per-event database concurrency bounds.
+          runbook: 'docs/runbooks/event-db-bulkhead.md'
+
   # ── vercel-health: DELETED 2026-09-04, deliberately ───────────────────
   # This group existed with no rules in it. Filling it honestly is not
   # possible from this stack: every rule it would want reads

@@ -1,6 +1,6 @@
 import { tournamentClockSpeed } from '../../utils/tournamentFilters';
 import { titleCase } from '../../utils/titleCase';
-import type { CSSProperties } from 'react';
+import nightlyBadge from './console-art/nightly-20k.webp';
 import './ArenaLobbyConsole.css';
 import './MttConsole.css';
 import './MttSurfaces.css';
@@ -113,12 +113,6 @@ export function lobbyArtwork(format: Format = {}, kind = '') {
   return 'mtt';
 }
 
-export function titleArtStyle(format?: Format | null, kind?: string): CSSProperties {
-  return {
-    '--arena-title-art': 'url(' + artwork[lobbyArtwork(format ?? {}, kind)] + ')',
-  } as CSSProperties;
-}
-
 function TitleGuarantee({ amount }: { amount?: number | null }) {
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null;
   return (
@@ -138,6 +132,14 @@ export function ArenaLobbyTitle({
   kind?: string;
 }) {
   const art = lobbyArtwork(format ?? {}, kind);
+  if (name.trim().toLowerCase() === 'nightly 20k' && art !== 'satellite') {
+    return (
+      <span className="arena-format-plaque arena-nightly-badge" data-format={art}>
+        <img src={nightlyBadge} alt="Nightly 20K" />
+        <TitleGuarantee amount={format?.guaranteed_prize} />
+      </span>
+    );
+  }
   if (Object.prototype.hasOwnProperty.call(plaques, art)) {
     const plaque = plaques[art as keyof typeof plaques];
     return (
@@ -146,15 +148,6 @@ export function ArenaLobbyTitle({
         {name.trim().toLowerCase() !== plaque.label.toLowerCase() && (
           <strong>{titleCase(name)}</strong>
         )}
-        <TitleGuarantee amount={format?.guaranteed_prize} />
-      </span>
-    );
-  }
-  if (art === 'mtt' && name.trim().toLowerCase() === 'nightly 20k') {
-    return (
-      <span className="nightly-plaque">
-        <small>Tournament</small>
-        <strong>{titleCase(name)}</strong>
         <TitleGuarantee amount={format?.guaranteed_prize} />
       </span>
     );

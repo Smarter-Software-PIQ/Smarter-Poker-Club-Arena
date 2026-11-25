@@ -78,6 +78,7 @@ describe('one tournament identity icon beside each headline', () => {
       event('Add On Only', ['addon']),
       event('Reentry Only', ['reentry']),
       event('Spin', [], 'spin'),
+      event('Deep Stack Spin', ['deepstack'], 'spin'),
       event('SNG', [], 'sng'),
     ];
     render(
@@ -109,7 +110,9 @@ describe('one tournament identity icon beside each headline', () => {
           const file = { PKO: 'progressive-ko', Mystery: 'mystery-chest', Turbo: 'turbo-wordmark' }[
             entry.name
           ];
-          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(file + '-v1.webp');
+          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(
+            file + (file === 'mystery-chest' ? '-v2.webp' : '-v1.webp')
+          );
         } else {
           expect(icons[0].querySelector('svg')).not.toBeNull();
         }
@@ -117,7 +120,12 @@ describe('one tournament identity icon beside each headline', () => {
           expect(icons[0].hasAttribute('data-lobby-symbol')).toBe(false);
           expect(icons[0].querySelector('[data-lobby-art]')).toBeNull();
         }
-        expect(icons[0].getAttribute('aria-label')).toMatch(/Tournament/);
+        if (entry.kind === 'spin') {
+          expect(icons[0]).toHaveAccessibleName('Spin Tournament');
+          expect(icons[0]).toHaveAttribute('title', 'Spin Tournament');
+        } else {
+          expect(icons[0].getAttribute('aria-label')).toMatch(/Tournament/);
+        }
         if (entry.name === 'Rebuy And Add On') {
           expect(icons[0].textContent).toBe('REBUY & ADD ON');
         }

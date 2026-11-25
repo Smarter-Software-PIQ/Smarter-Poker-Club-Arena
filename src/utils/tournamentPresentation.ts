@@ -32,11 +32,28 @@ export function getTournamentEntryCapacity(row: unknown): number | null {
     : null;
 }
 
+export function tournamentClosingStatus(
+  status: unknown
+): 'Completing' | 'Completed' | 'Cancelled' | null {
+  switch (String(status ?? '').toUpperCase()) {
+    case 'COMPLETING':
+      return 'Completing';
+    case 'COMPLETED':
+    case 'FINISHED':
+      return 'Completed';
+    case 'CANCELLED':
+    case 'ABORTED':
+      return 'Cancelled';
+    default:
+      return null;
+  }
+}
+
 /** A missing marker never authorizes registration, waitlisting or a seat purchase. */
 export function isTournamentEntryUnavailable(row: unknown, entrants: number): boolean {
   if (!isKnownTournamentFormat(row) || !Number.isSafeInteger(entrants) || entrants < 0) return true;
   const status = String((row as { status?: unknown }).status ?? '').toUpperCase();
-  if (['COMPLETING', 'COMPLETED', 'CANCELLED', 'ABORTED', 'FINISHED'].includes(status)) return true;
+  if (tournamentClosingStatus(status)) return true;
   // Multi-day, between days: entries are closed (the registration core admits
   // nobody into a BAGGED event), though the event is not over.
   if (status === 'BAGGED') return true;

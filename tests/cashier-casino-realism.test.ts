@@ -32,7 +32,7 @@ describe('cashier navigation and ledger controls stay operational', () => {
     expect(PAGE).toContain('aria-label="Cashier Actions"');
     expect(PAGE).toContain('aria-busy={!roleResolved}');
     expect(PAGE).toContain("['ArrowRight', 'ArrowLeft', 'Home', 'End']");
-    expect(PAGE).toContain('aria-selected={tab === key}');
+    expect(PAGE).toContain('aria-selected={!walletToolsOpen && tab === key}');
   });
 
   it('loads ledger pages with a truthful sentinel row', () => {

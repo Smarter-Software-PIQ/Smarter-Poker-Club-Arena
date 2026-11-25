@@ -133,6 +133,7 @@ interface EventState {
   goodSinceIncrease: number;
   lastDecreaseAt: number;
   congestedStreak: number;
+  slowStreak: number;
   lastLoggedAt: number;
   readonly queue: Waiter[];
   readonly coolingTimers: Set<ReturnType<typeof setTimeout>>;
@@ -225,6 +226,7 @@ export class EventDatabaseBulkhead {
         goodSinceIncrease: 0,
         lastDecreaseAt: Number.NEGATIVE_INFINITY,
         congestedStreak: 0,
+        slowStreak: 0,
         lastLoggedAt: Number.NEGATIVE_INFINITY,
         queue: [],
         coolingTimers: new Set(),
@@ -283,6 +285,7 @@ export class EventDatabaseBulkhead {
 
     if (outcome === 'ok') {
       state.congestedStreak = 0;
+      state.slowStreak = 0;
       if (state.limit < this.maxPerEvent && ++state.goodSinceIncrease >= state.limit) {
         state.goodSinceIncrease = 0;
         state.limit++;
@@ -293,15 +296,19 @@ export class EventDatabaseBulkhead {
       }
     } else if (outcome === 'slow' || outcome === 'congested') {
       if (outcome === 'congested') state.congestedStreak++;
+      else state.slowStreak++;
       // An isolated serialization retry (e.g. a single 40001 on a quiet event
       // at inFlight=0) cools one slot without cutting the event's bound in
-      // half for the next ~210 calls. Halve immediately on slow answers, on
-      // sustained congestion (streak >= 2), or when concurrency is already
-      // active (inFlight + cooling >= minPerEvent).
+      // half for the next ~210 calls. Likewise, an isolated slow outlier (e.g.
+      // a single 2s rebuy or vacuum tick on a healthy 40-table tournament)
+      // must not halve the bound for ~210 calls (incident 1e532243): require
+      // sustained slowness (slowStreak >= 2, or prior congestion) to halve on
+      // `slow`, while preserving immediate halving on `congested` when
+      // streak >= 2 or concurrency is already active (inFlight + cooling >= minPerEvent).
       const shouldHalve =
-        outcome === 'slow' ||
-        state.congestedStreak >= 2 ||
-        state.inFlight + state.cooling >= this.minPerEvent;
+        outcome === 'slow'
+          ? state.slowStreak >= 2 || state.congestedStreak >= 1
+          : state.congestedStreak >= 2 || state.inFlight + state.cooling >= this.minPerEvent;
       const at = this.now();
       if (shouldHalve && at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
         state.lastDecreaseAt = at;
@@ -372,6 +379,50 @@ export class EventDatabaseBulkhead {
   }
 
   /**
+   * Bounded Prometheus exposition lines for /metrics (always present, even at
+   * zero on cold start, with zero per-event cardinality).
+   */
+  toPrometheusLines(): string[] {
+    let parkedCurrent = 0;
+    let coolingCurrent = 0;
+    let throttledEvents = 0;
+    for (const state of this.events.values()) {
+      parkedCurrent += state.queue.length;
+      coolingCurrent += state.cooling;
+      if (state.limit < this.maxPerEvent) throttledEvents++;
+    }
+    return [
+      '# HELP poker_event_db_bulkhead_open 1 when the event database bulkhead is open for shutdown (bypassing concurrency bounds), 0 during normal operation',
+      '# TYPE poker_event_db_bulkhead_open gauge',
+      `poker_event_db_bulkhead_open ${this.open ? 1 : 0}`,
+      '# HELP poker_event_db_bulkhead_in_flight Current in-flight event-scoped database calls across all tournaments',
+      '# TYPE poker_event_db_bulkhead_in_flight gauge',
+      `poker_event_db_bulkhead_in_flight ${this.totalInFlight}`,
+      '# HELP poker_event_db_bulkhead_parked_current Current event-scoped database calls parked waiting for a bulkhead slot',
+      '# TYPE poker_event_db_bulkhead_parked_current gauge',
+      `poker_event_db_bulkhead_parked_current ${parkedCurrent}`,
+      '# HELP poker_event_db_bulkhead_cooling_current Current bulkhead slots cooling after database congestion',
+      '# TYPE poker_event_db_bulkhead_cooling_current gauge',
+      `poker_event_db_bulkhead_cooling_current ${coolingCurrent}`,
+      '# HELP poker_event_db_bulkhead_active_events Active tournament event lanes currently tracked by the database bulkhead',
+      '# TYPE poker_event_db_bulkhead_active_events gauge',
+      `poker_event_db_bulkhead_active_events ${this.events.size}`,
+      '# HELP poker_event_db_bulkhead_throttled_events Active tournament event lanes currently throttled below their normal concurrency limit',
+      '# TYPE poker_event_db_bulkhead_throttled_events gauge',
+      `poker_event_db_bulkhead_throttled_events ${throttledEvents}`,
+      '# HELP poker_event_db_bulkhead_parked_total Cumulative event-scoped database calls parked by the bulkhead',
+      '# TYPE poker_event_db_bulkhead_parked_total counter',
+      `poker_event_db_bulkhead_parked_total ${this.parkedTotal}`,
+      '# HELP poker_event_db_bulkhead_park_timeouts_total Cumulative parked event-scoped database calls whose caller deadline expired before acquiring a slot',
+      '# TYPE poker_event_db_bulkhead_park_timeouts_total counter',
+      `poker_event_db_bulkhead_park_timeouts_total ${this.parkTimeoutsTotal}`,
+      '# HELP poker_event_db_bulkhead_refused_full_total Cumulative event-scoped database calls refused immediately because the bulkhead wait queue was full',
+      '# TYPE poker_event_db_bulkhead_refused_full_total counter',
+      `poker_event_db_bulkhead_refused_full_total ${this.refusedFullTotal}`,
+    ];
+  }
+
+  /**
    * Hand free slots to parked calls. Within an event, in arrival order. Across
    * events, one each in turn, and an event that was just served goes to the
    * back: when the all-events total is what binds, no event can take two
@@ -406,7 +457,8 @@ export class EventDatabaseBulkhead {
       state.inFlight === 0 &&
       state.cooling === 0 &&
       state.queue.length === 0 &&
-      state.limit === this.maxPerEvent
+      state.limit === this.maxPerEvent &&
+      state.slowStreak === 0
     )
       this.events.delete(key);
   }
@@ -435,6 +487,11 @@ export class EventDatabaseBulkhead {
 
 /** The process's one bulkhead, shared by every bounded client in client.ts. */
 export const eventDatabaseBulkhead = new EventDatabaseBulkhead();
+
+/** Prometheus exposition lines for the process-wide event database bulkhead. */
+export function eventDbBulkheadPrometheusLines(): string[] {
+  return eventDatabaseBulkhead.toPrometheusLines();
+}
 
 /** How one finished attempt reads as evidence about its event's lane. */
 export function classifyEventDbOutcome(

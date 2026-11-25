@@ -15,7 +15,6 @@
 
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { readClubContextParam } from '../../../utils/clubScopedPath';
 import { useUserStore } from '../../../stores/useUserStore';
 import { useDownlineIds } from './useDownlineIds';
 import { deriveMyPlayers, type MyPlayersSummary } from './myPlayersSummary';
@@ -32,12 +31,10 @@ export function useMyPlayers(
   tournament: TournamentTabProps['tournament'] | null | undefined,
   entries: readonly TournamentEntry[],
   tables: readonly TournamentTable[],
-  currentUserId: string | undefined | null
+  currentUserId: string | undefined | null,
+  linkClubId?: string | null
 ): MyPlayersResult {
   const routeClubId = useParams<{ clubId?: string }>().clubId;
-  const linkClubId = readClubContextParam(
-    typeof window === 'undefined' ? '' : window.location.search
-  );
   const enteredClubId = useUserStore((s) => s.currentClubId);
   const { downlineIds, carriesDownline, loading } = useDownlineIds(
     currentUserId,

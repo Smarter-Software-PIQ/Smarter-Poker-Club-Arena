@@ -13,9 +13,9 @@
  *
  * This file is now presentation only: states, and a list.
  */
-import type { TournamentTabProps } from './types';
+import { tournamentRowUnitCents, type TournamentTabProps } from './types';
+import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
 import SatelliteCard from './SatelliteCard';
-import qualifierSeal from '../../lobby/console-art/qualifier-seal.webp';
 import { useSatellites } from './useSatellites';
 import './SatellitesTab.css';
 
@@ -67,7 +67,10 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
             <dl className="ticket-counts">
               <div>
                 <dt>Admission</dt>
-                <dd>{sat.buyIn} Chips</dd>
+                <dd>
+                  {sat.buyIn}{' '}
+                  {tournamentRowUnitCents(sat) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+                </dd>
               </div>
               <div>
                 <dt>Filled</dt>
@@ -77,7 +80,7 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
                 </dd>
               </div>
             </dl>
-            <img className="ticket-qualifier" src={qualifierSeal} alt="Qualifier" />
+            <span className="ticket-qualifier">Seat Into {tournament.name}</span>
             <b className="ticket-start">
               {sat.startsWhenFull
                 ? '◷  Starts When Full'

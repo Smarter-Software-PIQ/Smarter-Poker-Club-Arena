@@ -197,7 +197,7 @@
 }
 
 .glp__tick.is-stale {
-  color: #ffd700;
+  color: #92dfff;
 }
 
 /* Format: each tag under its lit label, an engraved rule between them. */
@@ -349,7 +349,7 @@
 }
 .glp__break td {
   text-align: center;
-  color: #ffd700;
+  color: #92dfff;
   font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -556,7 +556,7 @@
 }
 .glp__seat.is-you i,
 .glp__seat.is-you em {
-  color: #ffd700;
+  color: #92dfff;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

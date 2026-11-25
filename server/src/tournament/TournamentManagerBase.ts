@@ -3425,13 +3425,60 @@ export abstract class TournamentManagerBase {
           }
         )
       );
+      const PREPARED_F06_HAND_STATE_MAX_AGE_MS = 10_000;
+      const readFreshHandState = () =>
+        supabase.rpc('fn_f06_hand_number_state', {
+          p_tournament_id: this.tournamentId,
+          p_lease_generation: leaseGeneration,
+          p_table_id: tableId,
+        });
+      let prefetchedHandState: {
+        startedAtMs: number;
+        promise: Promise<Awaited<ReturnType<typeof readFreshHandState>>>;
+      } | null = null;
+      engine.installF06HandStatePrefetch?.(
+        bindTournamentDataAuthority(handAuthority, async () => {
+          if (!current()) return;
+          const startedAtMs = Date.now();
+          const promise = Promise.resolve(readFreshHandState());
+          // Observe errors so a discarded prefetch never becomes an unhandled rejection.
+          promise.catch(() => undefined);
+          prefetchedHandState = { startedAtMs, promise };
+          await promise;
+        }),
+        () => {
+          prefetchedHandState = null;
+        }
+      );
       engine.installF06HandAdmission(
         bindTournamentDataAuthority(handAuthority, async (handNumber: string) => {
-          const refreshed = await supabase.rpc('fn_f06_hand_number_state', {
-            p_tournament_id: this.tournamentId,
-            p_lease_generation: leaseGeneration,
-            p_table_id: tableId,
-          });
+          const pendingPrefetch = prefetchedHandState;
+          prefetchedHandState = null;
+          let refreshed: Awaited<ReturnType<typeof readFreshHandState>> | null = null;
+          if (
+            pendingPrefetch &&
+            Date.now() - pendingPrefetch.startedAtMs <= PREPARED_F06_HAND_STATE_MAX_AGE_MS
+          ) {
+            try {
+              const candidate = await pendingPrefetch.promise;
+              const candidateData = candidate.data as typeof state;
+              const usable =
+                !candidate.error &&
+                candidateData?.ok === true &&
+                candidateData.table_id === tableId &&
+                (candidateData.blocked_reason === 'source_excluded' ||
+                  (candidateData.lifecycle === tableLifecycle &&
+                    candidateData.can_reserve === true &&
+                    candidateData.blocked_reason === null &&
+                    candidateData.unresolved_permit === null));
+              if (usable) refreshed = candidate;
+            } catch {
+              refreshed = null;
+            }
+          }
+          if (!refreshed) {
+            refreshed = await readFreshHandState();
+          }
           const latest = refreshed.data as typeof state;
           if (
             current() &&
