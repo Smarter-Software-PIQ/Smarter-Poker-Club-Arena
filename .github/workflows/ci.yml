@@ -3657,6 +3657,24 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: A Spin's third paid seat is proven net of refunds
+        if: matrix.shard == 4
+        run: |
+          python3 -B scripts/ci/test-spin-books-net-of-refunds.py \
+            --evidence artifacts/spin-books-net-of-refunds \
+            --work-root "$RUNNER_TEMP/spin-net-refund-work" \
+            --socket-root "$RUNNER_TEMP/spin-net-refund-socket" \
+            --pg-bin /usr/lib/postgresql/17/bin
+
+      - name: Retain Spin net-of-refunds booking evidence
+        if: always() && matrix.shard == 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: spin-books-net-of-refunds-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/spin-books-net-of-refunds/
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Retain cancellation admission and funded rollback evidence
         if: always() && matrix.shard == 4
         uses: actions/upload-artifact@v4
@@ -4000,6 +4018,14 @@ jobs:
         if: matrix.shard == 1
         working-directory: .
         run: python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py
+
+      # A promo player's Lightning hand settles while their earlier fast-folded
+      # hand is still running (20261124162105): red on production's preimages,
+      # green after the migration, physical-table refusal unchanged.
+      - name: A promo player's Lightning hand settles
+        if: matrix.shard == 1
+        working-directory: .
+        run: python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py
 
       # BLOCKING. Named explicitly so it is obvious in the job log which
       # regressions are being defended, and so deleting them is a visible diff.

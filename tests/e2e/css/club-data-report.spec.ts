@@ -1,10 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { clubDataReportFixture } from '../helpers/club-data-report-fixture.mjs';
 
 const dates = 'dataStart=2026-11-09&dataEnd=2026-11-15';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-for (const entry of ['Report', 'union slug bookmark', 'union UUID bookmark']) {
-  test(`union ${entry} opens Advanced with its inclusive dates and BBJ`, async ({ page }) => {
+for (const entry of [
+  'Open Club Report',
+  'club bookmark',
+  'union slug bookmark',
+  'union UUID bookmark',
+]) {
+  test(`union ${entry} opens the inline report with its inclusive dates and BBJ`, async ({
+    page,
+  }) => {
     page.on('pageerror', (error) => {
       throw error;
     });
@@ -16,41 +24,58 @@ for (const entry of ['Report', 'union slug bookmark', 'union UUID bookmark']) {
       })
     );
     const path =
-      entry === 'Report'
+      entry === 'Open Club Report'
         ? '/clubs/fixture-union/data'
-        : `/unions/${entry.includes('UUID') ? id : 'fixture-union'}/data/advanced`;
+        : entry === 'club bookmark'
+          ? '/clubs/fixture-union/data/advanced'
+          : `/unions/${entry.includes('UUID') ? id : 'fixture-union'}/data/advanced`;
     await page.goto(`http://club-data.fixture${path}?${dates}#reconciliation`);
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    if (entry === 'Report') await page.getByRole('button', { name: 'Report', exact: true }).click();
-    await expect(page).toHaveURL(
-      new RegExp(
-        `/clubs/fixture-union/data/advanced\\?${dates}${entry === 'Report' ? '&dataGame=ALL&dataStakes=ALL&dataSearch=' : ''}&view=advanced${entry === 'Report' ? '$' : '#reconciliation$'}`
-      )
-    );
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'advanced'
-    );
-    await expect(page.getByRole('button', { name: 'Advanced', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-    await expect(page.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Financial Reconciliation' })).toContainText(
+    if (entry === 'Open Club Report') {
+      const openReport = page.getByRole('button', { name: 'Open Club Report', exact: true });
+      await expect(openReport).toBeVisible();
+      await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
+      for (const width of [375, 1280]) {
+        await page.setViewportSize({ width, height: 850 });
+        const edges = await page.locator('.arena-workspace').evaluate((workspace) => {
+          const shell = workspace.parentElement!.getBoundingClientRect();
+          const mast = workspace.querySelector('.arena-workspace-mast')!.getBoundingClientRect();
+          const cases = [...workspace.querySelectorAll('.arena-case')].map((section) =>
+            section.getBoundingClientRect()
+          );
+          return {
+            available: shell.width,
+            used: workspace.getBoundingClientRect().width,
+            cases: cases.map((r) =>
+              Math.max(Math.abs(r.left - mast.left), Math.abs(r.right - mast.right))
+            ),
+          };
+        });
+        expect(Math.abs(edges.available - edges.used)).toBeLessThanOrEqual(1);
+        expect(edges.cases).toHaveLength(3);
+        for (const error of edges.cases) expect(error).toBeLessThanOrEqual(1);
+      }
+      await openReport.click();
+    }
+    const report = page.getByRole('region', { name: 'Club Report', exact: true });
+    await expect(page).toHaveURL(/\/clubs\/fixture-union\/data\?/);
+    const opened = new URL(page.url());
+    expect(opened.searchParams.get('report')).toBe('open');
+    expect(opened.searchParams.get('dataEnd')).toBe('2026-11-15');
+    expect(opened.hash).toBe(entry === 'Open Club Report' ? '' : '#reconciliation');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Club Data', exact: true })
+    ).toHaveCount(1);
+    await expect(report.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
+    await expect(report.getByRole('region', { name: 'Financial Reconciliation' })).toContainText(
       '639.04'
     );
-    await page.getByRole('button', { name: 'Simple', exact: true }).click();
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'simple'
-    );
-    await expect(page).toHaveURL(/dataStart=2026-11-09&dataEnd=2026-11-15.*view=simple/);
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-    await expect(page.locator('[data-club-data-mode]')).toHaveAttribute(
-      'data-club-data-mode',
-      'advanced'
-    );
+    await page.getByRole('button', { name: 'Close Club Report' }).click();
+    await expect(report).toHaveCount(0);
+    await expect(page).not.toHaveURL(/report=open/);
+    await page.goBack();
+    await expect(report.locator('dl[aria-label="BBJ Totals"]')).toBeVisible();
     const reads = await page.evaluate(() =>
       (window as any).fixtureReads.filter((r: any) => r.fn === 'ca_club_data_snapshot_v2')
     );
@@ -76,18 +101,19 @@ test('filtered Report keeps one question through real navigation and breakdown a
   );
   await page.addStyleTag({ content: fixture.css });
   await page.addScriptTag({ content: fixture.javascript });
-  await page.getByRole('button', { name: 'Report', exact: true }).click();
+  await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
   await expect(page).toHaveURL(/dataGame=OMAHA&dataStakes=HIGH&dataSearch=River/);
-  await expect(page.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await expect(report.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
     'Nov 9, 2026 Through Nov 15, 2026 Pacific Calendar Dates'
   );
-  await page.getByRole('button', { name: 'View Contributing Games', exact: true }).click();
+  await report.getByRole('button', { name: 'View Contributing Games', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Games', exact: true })).toHaveAttribute(
     'aria-selected',
     'true'
   );
   await expect(page).toHaveURL(/dataTab=games/);
-  await page.getByRole('button', { name: 'Cross Day Cash', exact: true }).click();
+  await report.getByRole('button', { name: 'Cross Day Cash', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Contributing Game Source' })).toContainText(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   );
@@ -104,4 +130,176 @@ test('filtered Report keeps one question through real navigation and breakdown a
       p_stakes: 'HIGH',
       p_search: 'River',
     });
+});
+
+test('daily and inline report share rolling presets and saved filters through reload', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
+  );
+  await page.addInitScript(() => {
+    (window as any).fixturePreferences = {
+      'club/ClubDataSimplePage:game': 'OMAHA',
+      'club/ClubDataPage:game': 'HOLDEM',
+    };
+  });
+  await page.goto('http://club-data.fixture/clubs/fixture-union/data/advanced');
+  const mount = async () => {
+    await page.addStyleTag({ content: fixture.css });
+    await page.addScriptTag({ content: fixture.javascript });
+  };
+  const windows = () =>
+    page.evaluate(() => {
+      const reads = (window as any).fixtureReads ?? [];
+      return ['ca_club_data_screen', 'ca_club_data_snapshot_v2'].map((fn) => {
+        const a = reads.filter((r: any) => r.fn === fn).at(-1)?.args;
+        return a ? [1 + (Date.parse(a.p_end) - Date.parse(a.p_start)) / 86400000, a.p_game] : null;
+      });
+    });
+  await mount();
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await report.getByRole('button', { name: '30 Days', exact: true }).click();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+  const daily = page
+    .locator('section.arena-case')
+    .filter({ has: page.getByRole('group', { name: 'Date Range', exact: true }) })
+    .last();
+  await daily.getByRole('button', { name: '7 Days', exact: true }).click();
+  await expect.poll(windows).toEqual([
+    [7, 'OMAHA'],
+    [7, 'OMAHA'],
+  ]);
+  await page.goBack();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+  await page.reload();
+  await mount();
+  await expect.poll(windows).toEqual([
+    [30, 'OMAHA'],
+    [30, 'OMAHA'],
+  ]);
+});
+
+test('opening the report keeps Today live while dated bookmarks stay pinned at Pacific midnight', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
+  );
+  const lastEnds = () =>
+    page.evaluate(() =>
+      ['ca_club_data_screen', 'ca_club_data_snapshot_v2'].map(
+        (fn) => (window as any).fixtureReads?.filter((r: any) => r.fn === fn).at(-1)?.args.p_end
+      )
+    );
+  for (const pinned of [false, true]) {
+    await page.clock.setFixedTime(new Date('2026-11-24T18:00:00Z'));
+    await page.goto(
+      'http://club-data.fixture/clubs/fixture-union/data' + (pinned ? '?dataEnd=2026-11-24' : '')
+    );
+    await page.addStyleTag({ content: fixture.css });
+    await page.addScriptTag({ content: fixture.javascript });
+    await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
+    await expect.poll(lastEnds).toEqual(['2026-11-24', '2026-11-24']);
+    await page.clock.setFixedTime(new Date('2026-11-25T08:00:01Z'));
+    await page.evaluate(() => {
+      (window as any).fixtureReads = [];
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const end = pinned ? '2026-11-24' : '2026-11-25';
+    await expect.poll(lastEnds).toEqual([end, end]);
+  }
+});
+
+test('populated Club Pulse comparisons and reporting dates fit the report down to 320px and 200% text', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>',
+    })
+  );
+  await page.goto(`http://club-data.fixture/clubs/fixture-union/data?report=open&${dates}`);
+  await page.addStyleTag({ content: readFileSync('src/styles/globals.css', 'utf8') });
+  await page.addStyleTag({ content: fixture.css });
+  await page.evaluate(() => {
+    Object.assign(window, {
+      fixtureInvoices: [
+        {
+          invoice_id: 'fixture-invoice',
+          status: 'generated',
+          overdue: false,
+          paid_total: 0,
+          outstanding: 250.25,
+          amount: 250.25,
+          direction: 'club_owes_union',
+          message_sent: false,
+          breakdown: null,
+          issued_at: '2026-11-23T08:00:00Z',
+          due_at: '2026-11-27T02:00:00Z',
+          period_start: '2026-11-16T08:00:00Z',
+          period_end: '2026-11-23T08:00:00Z',
+        },
+      ],
+    });
+  });
+  await page.addScriptTag({ content: fixture.javascript });
+  const report = page.locator('[data-page="club-data"]');
+  const summary = report.locator('[aria-label="Club Performance Summary"]');
+  await expect(summary.getByText('-415.25 Vs Prev 7 Days')).toBeVisible();
+  const statement = report.getByRole('region', { name: 'Union Statement' });
+  const period = statement.getByText('Nov 16, 2026 2:00 AM To Nov 23, 2026 2:00 AM Chicago Time', {
+    exact: true,
+  });
+  await expect(period).toBeVisible();
+  for (const [width, size] of [
+    [1280, 100],
+    [768, 100],
+    [393, 100],
+    [320, 100],
+    [320, 200],
+  ]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate((scale) => {
+      document.documentElement.style.fontSize = scale + '%';
+    }, size);
+    const excess = await report.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(excess, `report at ${width}px and ${size}%`).toBeLessThanOrEqual(1);
+    const dateFits = await period.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const row = element.parentElement!.getBoundingClientRect();
+      return Array.from(range.getClientRects()).every(
+        (line) => line.left >= row.left - 1 && line.right <= row.right + 1
+      );
+    });
+    expect(dateFits, `statement period at ${width}px and ${size}%`).toBe(true);
+    const overhang = await summary.evaluate((grid) =>
+      Math.max(
+        ...[...grid.children].flatMap((tile) => {
+          const bounds = tile.getBoundingClientRect();
+          return [...tile.querySelectorAll('dt, dd, dd span')].map((child) => {
+            const text = document.createRange();
+            text.selectNodeContents(child);
+            const r = text.getBoundingClientRect();
+            return Math.max(0, bounds.left - r.left, r.right - bounds.right);
+          });
+        })
+      )
+    );
+    expect(
+      overhang,
+      `figures inside their own tiles at ${width}px and ${size}%`
+    ).toBeLessThanOrEqual(1);
+  }
 });

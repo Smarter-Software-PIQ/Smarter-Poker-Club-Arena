@@ -682,6 +682,8 @@ export function classifyChangedPaths(paths) {
       matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
       matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
+      // The promo Lightning settlement proof reads production's preimages from this fixture.
+      matches(/^scripts\/ci\/fixtures\/lightning-promo-stack-before-preimages\.sql$/) ||
       matches(
         /^scripts\/ci\/(?:test-club-promo-journal-source\.py|fixtures\/club-promo-journal-[^/]+\.(?:json|sql))$/
       ) ||

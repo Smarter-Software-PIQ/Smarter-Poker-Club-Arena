@@ -34,7 +34,7 @@ test.describe('Player Stats production experience', () => {
       .toBe(true);
     test.skip(page.url().includes('/auth'), 'authenticated Stats session is not configured');
     await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByRole('heading', { name: 'Player Intelligence' })).toBeAttached({
+    await expect(page.getByRole('heading', { name: 'Player Stats' })).toBeVisible({
       timeout: 30_000,
     });
   });
@@ -408,7 +408,7 @@ test.describe('Player Stats production experience', () => {
       await page.setViewportSize({ width, height: 844 });
       await page.reload();
       await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole('heading', { name: 'Player Intelligence' })).toBeAttached();
+      await expect(page.getByRole('heading', { name: 'Player Stats' })).toBeVisible();
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth

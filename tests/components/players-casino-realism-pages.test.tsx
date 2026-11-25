@@ -1,6 +1,6 @@
 import { lastDaysRange } from '../../src/lib/clubDataDay';
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   } as Record<string, string>,
   viewerId: 'viewer-1',
   search: new URLSearchParams(),
+  location: { state: null as { rosterClub: string } | null },
   navigate: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
   getMemberDetail: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('react-router-dom', () => ({
   useParams: () => state.params,
   useSearchParams: () => [state.search, vi.fn()],
   useNavigate: () => state.navigate,
+  useLocation: () => state.location,
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -162,6 +164,7 @@ beforeEach(() => {
   };
   state.viewerId = 'viewer-1';
   state.search = new URLSearchParams();
+  state.location.state = null;
   state.navigate.mockReset();
   state.toast.success.mockReset();
   state.toast.error.mockReset();
@@ -193,6 +196,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('Players detail surfaces', () => {
+  it.each([null, 'another-club', 'shark-club'])(
+    'returns the player record to its directory when opened from %s',
+    async (rosterClub) => {
+      state.location.state = rosterClub ? { rosterClub } : null;
+      render(<MemberManagementPage />);
+      await screen.findByRole('heading', { name: memberDetail.identity.alias });
+      expect(screen.getByRole('heading', { level: 1, name: 'Player Record' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: /Directory$/ }));
+      if (rosterClub === 'shark-club') {
+        expect(state.navigate).toHaveBeenCalledWith(-1);
+      } else {
+        expect(state.navigate).toHaveBeenCalledWith('/clubs/shark-club/members', { replace: true });
+      }
+    }
+  );
+
   it('frames the current player role and opens individual rakeback editing without promotion', async () => {
     state.getMemberDetail.mockResolvedValue({
       ...memberDetail,
@@ -392,16 +411,34 @@ describe('Players detail surfaces', () => {
     expect(screen.queryByRole('option', { name: 'No Limit Holdem' })).not.toBeInTheDocument();
   });
 
+  it('renders the member portrait and falls back to an avatar for that member on image failure', async () => {
+    const url = 'https://images.example.test/river-shark.png';
+    state.getMemberDetail.mockResolvedValue({
+      ...memberDetail,
+      identity: { ...memberDetail.identity, avatar_url: url },
+    });
+    render(<MemberManagementPage />);
+    const identity = await screen.findByRole('region', { name: 'River Shark' });
+    const portrait = identity.querySelector<HTMLImageElement>('.mm-avatar img')!;
+    expect(portrait).toBeVisible();
+    expect(portrait).toHaveAttribute('src', url);
+    expect(identity.querySelectorAll('img')).toHaveLength(1);
+    fireEvent.error(portrait);
+    expect(portrait.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+    expect(within(identity).getByRole('heading', { name: 'River Shark' })).toBeVisible();
+  });
+
   it('renders the audited credential and wires every player destination', async () => {
     render(<MemberManagementPage />);
 
     expect(await screen.findByRole('heading', { name: 'River Shark' })).toBeVisible();
-    expect(screen.getByText('Audited Player Credential')).toBeVisible();
+    expect(screen.getByText('Member Profile')).toBeVisible();
     expect(screen.getByText('At A Table')).toBeVisible();
     expect(screen.getByText('ID: 1042')).toBeVisible();
-    expect(document.querySelector<HTMLImageElement>('.mm-credential__art')?.src).toContain(
-      'member-credential-v1.webp'
-    );
+    const identity = screen.getByRole('region', { name: 'River Shark' });
+    expect(identity.querySelector('.mm-credential__art, .mm-credential__shade')).toBeNull();
+    expect(identity.querySelector('img')).toBeNull();
+    expect(identity.querySelector('.mm-avatar')).toHaveTextContent(/^R$/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Cyan Rail, Player' }));
     expect(state.navigate).toHaveBeenCalledWith(
@@ -485,7 +522,6 @@ describe('Players Casino Realism asset and interaction contracts', () => {
   const root = resolve(__dirname, '../..');
   const files = [
     'public/images/club-members/roster-ledger-desk-v2.webp',
-    'public/images/club-members/member-credential-v1.webp',
     'public/images/club-members/player-instrument-felt-v1.webp',
   ];
 
@@ -495,7 +531,7 @@ describe('Players Casino Realism asset and interaction contracts', () => {
     expect(statSync(path).size).toBeLessThan(200_000);
   });
 
-  it('keeps three distinct compositions and accessible responsive controls', () => {
+  it('keeps accessible responsive controls', () => {
     const member = readFileSync(resolve(root, 'src/pages/MemberManagementPage.css'), 'utf8');
     const stats = readFileSync(resolve(root, 'src/pages/PlayerStatisticsPage.css'), 'utf8');
     const roster = readFileSync(resolve(root, 'src/pages/ClubMembersPage.css'), 'utf8');
@@ -504,7 +540,6 @@ describe('Players Casino Realism asset and interaction contracts', () => {
       'utf8'
     );
 
-    expect(new Set(files).size).toBe(3);
     for (const css of [member, stats, roster, cashier]) {
       expect(css).toContain(':focus-visible');
       expect(css).toContain('prefers-reduced-motion');

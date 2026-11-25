@@ -1107,6 +1107,59 @@ test.describe('mobile lobby chrome', () => {
     expect(empty.text.trim()).toBe('');
   });
 
+  test('Cashier keeps its count centered under the live Wallet Balances title at mobile and desktop widths', async ({
+    page,
+  }) => {
+    await page.setContent(lobby({ countText: '4 Balances', publishControlsHeight: false }));
+    await page.addStyleTag({ content: css('src/components/lobby/ArenaWorkspace.css') });
+    await page.evaluate(() => {
+      const card = document.querySelector('.cashier-my-wallets')!;
+      card.classList.add('arena-case');
+      card.querySelector('strong')!.textContent = 'Wallet Balances';
+      const cashier = document.createElement('main');
+      cashier.className = 'arena-workspace arena-trade';
+      cashier.append(card);
+      document.body.replaceChildren(cashier);
+    });
+    const trigger = page.locator('.lobby-wallets-trigger');
+    for (const [width, count] of [
+      [320, 4],
+      [393, 6],
+      [1024, 12],
+    ]) {
+      await page.setViewportSize({ width, height: 850 });
+      await trigger.locator('small').evaluate((line, n) => {
+        line.textContent = n + ' Balances';
+      }, count);
+      const g = await trigger.evaluate((button) => {
+        const frame = button.getBoundingClientRect();
+        const range = document.createRange();
+        const textBox = (selector: string) => {
+          range.selectNodeContents(button.querySelector(selector)!);
+          return range.getBoundingClientRect();
+        };
+        const title = textBox('strong'),
+          count = textBox('small');
+        return {
+          titleOffset: Math.abs(title.left + title.width / 2 - frame.left - frame.width / 2),
+          countOffset: Math.abs(count.left + count.width / 2 - title.left - title.width / 2),
+          clipped:
+            count.left < frame.left ||
+            count.right > frame.right ||
+            count.top < frame.top ||
+            count.bottom > frame.bottom,
+          under: count.top >= title.bottom,
+          background: getComputedStyle(button).backgroundImage,
+        };
+      });
+      expect(g.titleOffset).toBeLessThan(1);
+      expect(g.countOffset).toBeLessThan(1);
+      expect(g.under).toBe(true);
+      expect(g.clipped).toBe(false);
+      expect(g.background).toBe('none');
+    }
+  });
+
   test('compact game rows fit the phone and keep touch targets', async ({ page }) => {
     await page.setContent(lobby({ countText: '5 Balances', publishControlsHeight: true }));
     await settle(page);

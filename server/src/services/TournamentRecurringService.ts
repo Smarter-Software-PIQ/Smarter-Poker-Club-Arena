@@ -41,6 +41,7 @@ import { closeFreeBuyBoardAlert } from './freeBuyAuditAlert.js';
 import {
   emptySeatFirstPrecheckTally,
   recordSeatFirstPrecheck,
+  recordSpinSeatFirstBookingRefusal,
   type SeatFirstPrecheckTally,
 } from './seatFirstPrecheckMetrics.js';
 import nodeCrypto from 'node:crypto';
@@ -5732,7 +5733,7 @@ export class TournamentRecurringService {
   }
 
   private async seedOpenSeatTable(
-    tournament: { id: string; club_id?: string | null; name: string },
+    tournament: { id: string; club_id?: string | null; name: string; variant?: string | null },
     seats: number,
     tableId: string,
     reopening = false
@@ -5812,6 +5813,13 @@ export class TournamentRecurringService {
                 ),
                 'TournamentRecurring.opening_seat_rpc_failed'
               );
+              if (
+                String(tournament.variant ?? '').toLowerCase() === 'spin' ||
+                (tournament.variant == null && seats === SPIN_SEATS) ||
+                /could not book Spin\b/i.test(seatRpcErr.message)
+              ) {
+                recordSpinSeatFirstBookingRefusal(seatRpcErr.message);
+              }
             }
             continue;
           }
@@ -7459,6 +7467,13 @@ export class TournamentRecurringService {
             if (seatRpcErr) {
               tally.rpcRefused++;
               if (!isExpectedSeatRefusal(seatRpcErr.message)) {
+                if (
+                  String((tRow as { variant?: string | null }).variant ?? '').toLowerCase() ===
+                    'spin' ||
+                  /could not book Spin\b/i.test(seatRpcErr.message)
+                ) {
+                  recordSpinSeatFirstBookingRefusal(seatRpcErr.message);
+                }
                 reportError(
                   new Error(
                     `[TournamentRecurring] seat-first fill refused for ${tournamentId.slice(0, 8)}: ${seatRpcErr.message}`

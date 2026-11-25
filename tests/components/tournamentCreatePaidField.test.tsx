@@ -430,10 +430,10 @@ describe('new drafts only advertise supported tournament breaks', () => {
     expect(screen.queryByText('Levels Are Sent Exactly As Shown, Breaks Included.')).toBeNull();
     // A lit word with aria-expanded replaced the "+ Advanced Options" glyph
     // button, and the labeled On / Off switch replaced the native checkbox.
-    const advanced = screen.getByRole('button', { name: 'Show Advanced Options' });
+    const advanced = screen.getByRole('button', { name: 'Show Tournament Options' });
     expect(advanced).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(advanced);
-    expect(screen.getByRole('button', { name: 'Hide Advanced Options' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Hide Tournament Options' })).toHaveAttribute(
       'aria-expanded',
       'true'
     );

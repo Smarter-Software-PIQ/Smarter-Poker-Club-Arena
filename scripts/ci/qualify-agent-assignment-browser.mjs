@@ -1,7 +1,8 @@
 /** Production UI proof using only the assignment job's existing reserved identities. */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { readFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 const PRODUCTION_BASE = 'https://smarter.poker/hub/club-arena/';
 const CLUB = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
@@ -24,14 +25,20 @@ export function validateAssignmentBrowserIdentity(account, session, clubId) {
     'Browser requires the complete real GoTrue session'
   );
 }
-async function readBrowserSupport(name) {
-  const { transform } = await import('esbuild');
-  const source = await readFile(
-    new URL(`../../tests/e2e/support/${name}.ts`, import.meta.url),
-    'utf8'
-  );
-  const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'node20' });
-  return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+export async function readBrowserSupport(name) {
+  const { build } = await import('esbuild');
+  const entryPoint = fileURLToPath(new URL(`../../tests/e2e/support/${name}.ts`, import.meta.url));
+  // Resolve the maintained helper's runtime imports from its real file path.
+  // The in-memory ESM module then needs no filesystem-relative specifiers.
+  const { outputFiles } = await build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    write: false,
+  });
+  return import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].contents).toString('base64'));
 }
 
 /** Reuse the same owned browser as global setup, never a claimed-device marker. */
@@ -143,7 +150,7 @@ export async function startAssignmentBrowserProof({
   assert.ok(evidenceDir);
   const { chromium } = await import('playwright');
   // These are the maintained server-backed first-run gates, not DOM bypasses.
-  // The owning workflow uses Node20. Compile the existing type-only TS gate
+  // The owning workflow uses Node20. Bundle the maintained TS gate
   // modules in memory with the repository's locked esbuild; never copy their logic.
   async function gate(name) {
     return (await readBrowserSupport(name))[name];

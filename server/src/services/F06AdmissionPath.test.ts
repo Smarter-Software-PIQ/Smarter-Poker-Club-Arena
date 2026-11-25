@@ -31,9 +31,17 @@ function fixture(data: unknown) {
   let starts = 0;
   let installed: any;
   let allocator: any;
+  let prefetch: any;
+  let clearPrefetch: any;
+  let stateCalls = 0;
+  let breakHolds = 0;
   const engine = {
     installF06Allocator: (_epoch: any, fn: any) => {
       allocator = fn;
+    },
+    installF06HandStatePrefetch: (fn: any, clear: any) => {
+      prefetch = fn;
+      clearPrefetch = clear;
     },
     installF06HandAdmission: (f: any) => (installed = f),
     installF06OwnReservedPermitReconciler: () => {},
@@ -49,6 +57,9 @@ function fixture(data: unknown) {
     // The opening wave (tableOpenWaves.ts) is its own tested unit; here the
     // slot is granted at once so the admission body runs as before.
     awaitTableOpeningWave: async () => {},
+    holdSourceForItsBreak: () => {
+      breakHolds++;
+    },
     tableEngines: new Map([[tableId, engine]]),
     gameServer: {
       ownsTournamentTableEngine: () => true,
@@ -63,6 +74,7 @@ function fixture(data: unknown) {
       engine,
       {
         rpc: async (name: string) => {
+          if (name === 'fn_f06_hand_number_state') stateCalls++;
           if (
             name === 'fn_f06_allocate_hand_number' ||
             (name === 'fn_f06_hand_number_state' && starts > 0)
@@ -71,8 +83,12 @@ function fixture(data: unknown) {
             expect(headers.get('x-smarter-tournament-id')).toBe(tournamentId);
             expect(headers.get('x-smarter-tournament-lease-generation')).toBe(leaseGeneration);
           }
+          const result = typeof data === 'function' ? data(name) : data;
+          if (result && typeof result === 'object' && '__rpcResponse' in result) {
+            return { data: result.data, error: result.error };
+          }
           return {
-            data: typeof data === 'function' ? data(name) : data,
+            data: result,
             error: null,
           };
         },
@@ -90,6 +106,10 @@ function fixture(data: unknown) {
     starts: () => starts,
     installed: () => installed,
     allocator: () => allocator,
+    prefetch: () => prefetch,
+    clearPrefetch: () => clearPrefetch,
+    stateCalls: () => stateCalls,
+    breakHolds: () => breakHolds,
     fence: () => (valid = false),
   };
 }
@@ -148,4 +168,48 @@ it('actual allocator callback validates canonical safe decimal and exact table/l
   );
   await f.invoke();
   expect(await f.allocator()()).toBe(1000001);
+});
+
+it('actual managed-start prefetch consumes a fresh healthy state once and falls back on clear, error, or break hold', async () => {
+  let mode: 'ok' | 'error' | 'break' = 'ok';
+  const f = fixture(() => {
+    if (mode === 'error') {
+      mode = 'ok';
+      return { __rpcResponse: true, data: null, error: { message: 'transient_timeout' } };
+    }
+    if (mode === 'break') {
+      return { ...state, can_reserve: false, blocked_reason: 'source_excluded' };
+    }
+    return state;
+  });
+  await f.invoke();
+  const afterStart = f.stateCalls();
+
+  // 1. Fresh prefetch satisfies admission with ZERO extra fn_f06_hand_number_state RPCs.
+  await f.prefetch()();
+  expect(f.stateCalls()).toBe(afterStart + 1);
+  expect((await f.installed()('1000001')).binding.lifecycle).toBe(state.lifecycle);
+  expect(f.stateCalls()).toBe(afterStart + 1);
+
+  // 2. Single-use: a second admission without a new prefetch reads fresh.
+  expect((await f.installed()('1000002')).binding.lifecycle).toBe(state.lifecycle);
+  expect(f.stateCalls()).toBe(afterStart + 2);
+
+  // 3. Clearing the prefetch forces a fresh read on admission.
+  await f.prefetch()();
+  f.clearPrefetch()();
+  expect((await f.installed()('1000003')).binding.lifecycle).toBe(state.lifecycle);
+  expect(f.stateCalls()).toBe(afterStart + 4);
+
+  // 4. An errored prefetch falls back cleanly to a fresh read on admission.
+  mode = 'error';
+  await f.prefetch()();
+  expect((await f.installed()('1000004')).binding.lifecycle).toBe(state.lifecycle);
+  expect(f.stateCalls()).toBe(afterStart + 6);
+
+  // 5. A prefetched source_excluded state is STILL honored as a break hold & refusal (never bypassed).
+  mode = 'break';
+  await f.prefetch()();
+  await expect(f.installed()('1000005')).rejects.toThrow(/source_excluded/);
+  expect(f.breakHolds()).toBe(1);
 });

@@ -135,27 +135,50 @@
 }
 
 .dbs__day {
+  position: relative;
   display: grid;
-  gap: 0.8cqw;
+  gap: 0.6cqw;
+  padding-bottom: 1.2cqw;
   min-width: 0;
 }
 
 .dbs__day-label {
-  font-size: clamp(11px, 2.2cqw, 16px);
-  letter-spacing: 0.1em;
+  font-size: clamp(10px, 2.1cqw, 15px);
+  letter-spacing: 0.08em;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dbs__day-value {
-  font-size: 3.6cqw;
+  font-size: 3.5cqw;
   font-weight: 800;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
+.dbs__day-sub {
+  font-size: clamp(9px, 1.7cqw, 12px);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .dbs__day[data-state='today'] {
   animation: dbs-today 2.4s ease-in-out infinite;
+}
+
+.dbs__day[data-state='today']::after {
+  content: '';
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: 0;
+  height: 2px;
+  background: var(--dbs-cyan);
+  box-shadow: 0 0 8px var(--dbs-cyan);
 }
 
 /* ── Tiles: rows on the glass, engraved rules between them ────────────── */
@@ -221,6 +244,12 @@
   font-size: 0.5em;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+/* 3-digit Time Bank packs (+120SEC, +160SEC) stay cleanly inside the 15cqw column. */
+.dbs-row__render--compact {
+  font-size: 5cqw;
+  letter-spacing: -0.04em;
 }
 
 .dbs-row__lines {

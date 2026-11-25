@@ -145,13 +145,21 @@ describe('the page and the footer say the same thing', () => {
 
   it('names the club in the header: "CLUB JAQK - CLUB DATA"', () => {
     expect(page).toContain("return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';");
-    expect(page).toContain(
-      '<span className={styles.titleClub}>{clubName.trim().toUpperCase()}</span>'
-    );
+    expect(page).toContain('context={clubName}');
   });
 
   it("an agent's page has no whole-club report door", () => {
-    expect(page).toContain("visibleSnapshot?.scope === 'club'");
+    expect(page).toContain('const identityKey = JSON.stringify([userId, clubParam, clubUuid])');
+    expect(page).toContain('setAccess({ identity: identityKey, scope: data.scope })');
+    expect(page).toContain("setAccess({ identity: identityKey, scope: 'denied' })");
+    expect(page).toContain('access?.identity === identityKey ? access.scope : undefined');
+    expect(squash(page)).toContain(
+      "const canOpenReport = authorizedScope !== 'downline' && !isHydrating && !!userId && (currentScope ?? authorizedScope) === 'club'"
+    );
+    expect(page).toContain(
+      "const reportOpen = canOpenReport && searchParams.get('report') === 'open'"
+    );
+    expect(page).toContain('onReport={canOpenReport ?');
   });
 
   it('a player gets the five-door footer, with no Data door, and it never flashes on', () => {

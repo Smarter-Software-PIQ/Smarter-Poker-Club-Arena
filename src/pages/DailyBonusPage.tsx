@@ -21,7 +21,7 @@ export default function DailyBonusPage() {
     <StandardContentLayout className="daily-bonus-page">
       <RewardsSurfaceHeader
         title="Daily Bonus"
-        description="Show Up Every Day And Claim All Rewards With One Tap. Reward Types Change Daily, With No Repeat In The Same Slot On Consecutive Days. Unclaimed Rewards Are Gone At Midnight Central."
+        description="Show Up Every Day For Progressively Bigger Rewards. Every Day Brings A Fresh Prize With No Back-To-Back Repeats, Scaling Multipliers, Milestone Chests, And A 100 Diamond Bonus Spin Every Tenth Day."
         status="DAILY SHEET // LIVE"
         crest="diamond"
       >

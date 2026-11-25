@@ -124,7 +124,10 @@ import {
   horseChoosesTournamentRebuy,
   horseTournamentRebuyShareFor,
 } from './horseTournamentRebuyChoice.js';
-import { reportHorseRebuyDecision } from './horseTournamentRebuyDiagnostic.js';
+import {
+  reportHorseRebuyDecision,
+  shouldEmitHorseRebuyDiagnostic,
+} from './horseTournamentRebuyDiagnostic.js';
 import {
   horseRebuyAnswerDueAtMs,
   horseRebuyOfferTimingOf,
@@ -2828,6 +2831,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   }
   /** Retain physical purchases until their responses settle; never cancel an unknown money outcome. */
   private horseRebuyPending?: Map<string, Promise<void>>;
+  private horseRebuyDiagnosticSeen?: Set<string>;
   private horseRebuyInputAgain = false;
   private horseRebuyInputTimer: ReturnType<typeof setTimeout> | null = null;
   private horseRebuyInputTimerAtMs = Number.POSITIVE_INFINITY;
@@ -3175,11 +3179,13 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         );
         const timing = offerTimings.get(h.id);
         let dueAtMs: number | null = null;
+        const diagnosticSeen = (this.horseRebuyDiagnosticSeen ??= new Set());
         const diagnostic = (
           phase: Parameters<typeof reportHorseRebuyDecision>[0]['phase'],
           error?: unknown,
           startedAtMs?: number
-        ) =>
+        ) => {
+          if (!shouldEmitHorseRebuyDiagnostic(diagnosticSeen, h.id, bustHandNumber, phase)) return;
           reportHorseRebuyDecision({
             tournamentId: this.tournamentId,
             userId: h.id,
@@ -3193,6 +3199,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             dueAtMs,
             error,
           });
+        };
         diagnostic('choice');
         if (!choice) {
           await this.declineHorseRebuyOffer(h.id, mayMutate);

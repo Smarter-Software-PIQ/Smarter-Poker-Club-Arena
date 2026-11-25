@@ -80,6 +80,7 @@ const TX_TYPES: Record<string, { label: string }> = {
   bonus: { label: 'Bonus' },
   signup_bonus: { label: 'Welcome Bonus' },
   daily_bonus: { label: 'Daily Bonus' },
+  daily_bonus_boost: { label: 'Daily Bonus Boost' },
   daily_login: { label: 'Daily Login' },
   daily_trivia: { label: 'Daily Trivia' },
   streak_reward: { label: 'Streak Reward' },

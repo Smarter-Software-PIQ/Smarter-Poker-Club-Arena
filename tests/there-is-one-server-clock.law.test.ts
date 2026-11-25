@@ -57,21 +57,27 @@ const ROOT = join(__dirname, '..');
 const SRC = join(ROOT, 'src');
 
 function everySourceFile(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) everySourceFile(full, out);
-    else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) everySourceFile(full, out);
+    else if (/\.(ts|tsx)$/.test(entry.name)) out.push(full);
   }
   return out;
 }
 
-describe('LAW 1/2 - one definition, and the other one is gone', () => {
-  const files = everySourceFile(SRC);
+let cachedSources: ReadonlyArray<readonly [string, string]> | null = null;
+function allSources(): ReadonlyArray<readonly [string, string]> {
+  if (!cachedSources) {
+    cachedSources = everySourceFile(SRC).map((f) => [f, readFileSync(f, 'utf8')] as const);
+  }
+  return cachedSources;
+}
 
+describe('LAW 1/2 - one definition, and the other one is gone', () => {
   it('exactly one module in src/ defines serverNow', () => {
-    const definers = files.filter((f) =>
-      /export function serverNow\(/.test(readFileSync(f, 'utf8'))
-    );
+    const definers = allSources()
+      .filter(([, text]) => /export function serverNow\(/.test(text))
+      .map(([f]) => f);
     expect(
       definers.map((f) => relative(ROOT, f)),
       'two serverNow implementations is how a clock silently inverts'
@@ -79,9 +85,9 @@ describe('LAW 1/2 - one definition, and the other one is gone', () => {
   });
 
   it('nothing imports the deleted lib/serverClock', () => {
-    const offenders = files.filter((f) =>
-      /from '.*lib\/serverClock'/.test(readFileSync(f, 'utf8'))
-    );
+    const offenders = allSources()
+      .filter(([, text]) => /from '.*lib\/serverClock'/.test(text))
+      .map(([f]) => f);
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
 
@@ -97,8 +103,6 @@ describe('LAW 1/2 - one definition, and the other one is gone', () => {
 });
 
 describe('LAW 3 - every consumer reads the surviving clock', () => {
-  const files = everySourceFile(SRC);
-
   it.each([
     'src/components/table/SeatSlot.tsx',
     'src/components/table/PineappleDiscard.tsx',
@@ -119,8 +123,7 @@ describe('LAW 3 - every consumer reads the surviving clock', () => {
   });
 
   it('every file that imports it names the same path shape', () => {
-    for (const f of files) {
-      const src = readFileSync(f, 'utf8');
+    for (const [f, src] of allSources()) {
       for (const m of src.matchAll(/from '([^']*serverClock)'/g)) {
         expect(m[1], `${relative(ROOT, f)} imports a serverClock that is not utils/`).toMatch(
           /utils\/serverClock$|\.\/serverClock$/
@@ -203,25 +206,28 @@ describe('LAW 5 - server-stamped deadlines use serverNow()', () => {
     'server_time_ms',
   ];
 
-  const files = everySourceFile(SRC);
+  const stampPatterns = SERVER_STAMPS.map((id) => ({
+    id,
+    near: new RegExp(
+      `(?:${id}[\\w.?\\]) ]*(?:-|<=?|>=?|===?)\\s*Date\\.now\\(\\))` +
+        `|(?:Date\\.now\\(\\)\\s*(?:-|<=?|>=?|===?)[\\w.?( ]*${id})`
+    ),
+  }));
 
   it('no source file measures one against Date.now()', () => {
     const offences: string[] = [];
-    for (const f of files) {
+    for (const [f, raw] of allSources()) {
       // Comments are where these bugs get DESCRIBED (three of the eleven had a
       // comment promising the opposite of the code), so read code only. The
       // clock module itself is the one place Date.now() and a server stamp
       // legitimately meet - that subtraction IS the offset.
       if (f.endsWith(join('utils', 'serverClock.ts'))) continue;
-      const code = readFileSync(f, 'utf8')
+      if (!raw.includes('Date.now')) continue;
+      const code = raw
         .replace(/\/\*[\s\S]*?\*\//g, ' ')
         .replace(/\/\/[^\n]*/g, ' ')
         .replace(/\s+/g, ' ');
-      for (const id of SERVER_STAMPS) {
-        const near = new RegExp(
-          `(?:${id}[\\w.?\\]) ]*(?:-|<=?|>=?|===?)\\s*Date\\.now\\(\\))` +
-            `|(?:Date\\.now\\(\\)\\s*(?:-|<=?|>=?|===?)[\\w.?( ]*${id})`
-        );
+      for (const { id, near } of stampPatterns) {
         if (near.test(code)) offences.push(`${relative(ROOT, f)}: ${id}`);
       }
     }

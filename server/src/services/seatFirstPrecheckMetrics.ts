@@ -110,3 +110,94 @@ export function seatFirstPrecheckPrometheusLines(): string[] {
   }
   return lines;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  FAST-FAIL SPIN SEAT-FIRST BOOKING REFUSAL COUNTER (2026-11-24, incident
+ *  3c817b04-bc3a-4bc5-aa43-b2eee257584d)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * When fn_seat_horse_in_seat_first_game raises a deterministic SQL refusal on
+ * a Spin board (such as three_paid_seats_required from fn_spin_book_entry),
+ * the board used to loop silently every 12 seconds for 2.4 hours until
+ * SpinFleetProducingNothing finally paged past the 8400s ladder envelope.
+ *
+ * This bounded-label counter records unexpected Spin seat-first RPC refusals
+ * (never ordinary horse four-table-cap refusals) with a closed, low-cardinality
+ * reason label so SpinSeatFirstBookingRefusedRepeatedly pages in two minutes
+ * with the exact reason already in the alert payload. Every series is present
+ * at zero from boot so Prometheus rules never evaluate an absent vector.
+ */
+export const SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS = [
+  'three_paid_seats_required',
+  'invalid_spin_contract',
+  'not_a_spin',
+  'spin_reserve_unproven',
+  'other',
+] as const;
+
+export type SpinSeatFirstBookingRefusalReason =
+  (typeof SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS)[number];
+
+const spinBookingRefusals = new Map<SpinSeatFirstBookingRefusalReason, number>(
+  SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS.map((r) => [r, 0] as const)
+);
+
+/** Map a raw seat-first RPC error message into a bounded low-cardinality reason label. */
+export function classifySpinSeatFirstBookingRefusalReason(
+  message: string | null | undefined
+): SpinSeatFirstBookingRefusalReason {
+  const text = String(message ?? '').toLowerCase();
+  if (text.includes('three_paid_seats_required')) return 'three_paid_seats_required';
+  if (text.includes('invalid_spin_contract')) return 'invalid_spin_contract';
+  if (text.includes('not_a_spin')) return 'not_a_spin';
+  if (
+    text.includes('spin_reserve') ||
+    text.includes('spin_entry') ||
+    text.includes('spin_paid_entry_unproven') ||
+    text.includes('spin_field_unproven')
+  ) {
+    return 'spin_reserve_unproven';
+  }
+  return 'other';
+}
+
+/** Record one unexpected Spin seat-first booking RPC refusal (excludes expected capacity caps). */
+export function recordSpinSeatFirstBookingRefusal(
+  message: string | null | undefined
+): SpinSeatFirstBookingRefusalReason {
+  const reason = classifySpinSeatFirstBookingRefusalReason(message);
+  spinBookingRefusals.set(reason, (spinBookingRefusals.get(reason) ?? 0) + 1);
+  return reason;
+}
+
+/** Running totals by bounded refusal reason, for tests and diagnostics. */
+export function spinSeatFirstBookingRefusalTotals(): Record<
+  SpinSeatFirstBookingRefusalReason,
+  number
+> {
+  const out = {} as Record<SpinSeatFirstBookingRefusalReason, number>;
+  for (const r of SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS) {
+    out[r] = spinBookingRefusals.get(r) ?? 0;
+  }
+  return out;
+}
+
+/** Tests only: reset Spin seat-first booking refusal totals. */
+export function resetSpinSeatFirstBookingRefusalTotalsForTests(): void {
+  for (const r of SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS) spinBookingRefusals.set(r, 0);
+}
+
+/** Prometheus exposition lines for Spin seat-first booking refusals (always emitted at boot). */
+export function spinSeatFirstBookingRefusalPrometheusLines(): string[] {
+  const lines = [
+    '# HELP poker_spin_seat_first_booking_refused_total Unexpected Spin seat-first booking RPC refusals (label: reason), excluding expected four-table horse-capacity refusals. Emitted at zero from boot so SpinSeatFirstBookingRefusedRepeatedly watches live series.',
+    '# TYPE poker_spin_seat_first_booking_refused_total counter',
+  ];
+  for (const r of SPIN_SEAT_FIRST_BOOKING_REFUSAL_REASONS) {
+    lines.push(
+      `poker_spin_seat_first_booking_refused_total{reason="${r}"} ${spinBookingRefusals.get(r) ?? 0}`
+    );
+  }
+  return lines;
+}

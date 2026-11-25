@@ -30,7 +30,6 @@ import {
   useLayoutEffect,
   useCallback,
 } from 'react';
-import { titleArtStyle } from './ArenaLobbyTitle';
 import type { LobbyEntry, LobbyStatusKey, LobbyTournamentRow, LobbyTableRow } from './lobbyEntries';
 import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
@@ -458,10 +457,11 @@ function LobbyArtSymbol({ kind }: { kind: 'target' }) {
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
-  const label = TOURNAMENT_ICON_LABELS[kind];
+  // The Spin board paints the rotor for every structure, including Deep Stack.
+  const label = entry.kind === 'spin' ? 'Spin Tournament' : TOURNAMENT_ICON_LABELS[kind];
   const badgeFiles: Partial<Record<TournamentFormatIcon, string>> = {
     pko: 'progressive-ko-v1.webp',
-    mystery: 'mystery-chest-v1.webp',
+    mystery: 'mystery-chest-v2.webp',
     turbo: 'turbo-wordmark-v1.webp',
   };
   const badge = badgeFiles[kind];
@@ -1093,16 +1093,7 @@ function TournamentHeadingRow({
           ) : (
             <TournamentFormatIcon entry={entry} />
           )}
-          <span
-            className="lt-tournament-heading__name"
-            title={heading}
-            data-arena-format={entry.kind !== 'cash' || undefined}
-            style={
-              entry.kind === 'cash'
-                ? undefined
-                : titleArtStyle(entry.raw as LobbyTournamentRow, entry.kind)
-            }
-          >
+          <span className="lt-tournament-heading__name" title={heading}>
             <span ref={titleRef} className="premium-lobby-title-fit">
               {heading}
             </span>

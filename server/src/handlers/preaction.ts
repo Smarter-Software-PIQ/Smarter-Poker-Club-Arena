@@ -2,7 +2,7 @@
  * `POST /preaction` — Bible V8 §4.15: set or clear pre-action.
  *
  * Extracted Phase U3.3 (2026-04-23). Byte-identical.
- * Body: `{ tableId, action, maxCallAmount? }`.
+ * Body: `{ tableId, action, maxCallAmount?, handId?, actionContext? }`.
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
@@ -19,7 +19,8 @@ export interface PreactionDeps {
             userId: string,
             action: string,
             maxCallAmount?: number,
-            handId?: string
+            handId?: string,
+            seenActionContext?: string
           ): { success: boolean; [k: string]: unknown };
         }
       | null
@@ -39,7 +40,7 @@ export async function handlePreaction(
     }
 
     const body = JSON.parse(await readBody(req));
-    const { tableId, action, maxCallAmount, handId } = body;
+    const { tableId, action, maxCallAmount, handId, actionContext } = body;
     const userId = auth.userId;
 
     if (!tableId || !action) {
@@ -56,7 +57,10 @@ export async function handlePreaction(
       userId,
       action,
       maxCallAmount,
-      typeof handId === 'string' ? handId : undefined
+      typeof handId === 'string' ? handId : undefined,
+      // The decision the browser showed. An arm on the player's own turn that
+      // can put chips in acts only against that decision (PreActionOnOwnTurn).
+      typeof actionContext === 'string' ? actionContext : undefined
     );
     return sendJSON(res, result.success ? 200 : 400, result);
   } catch (err: unknown) {

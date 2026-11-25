@@ -98,18 +98,20 @@ export default function ClubDataReconciliation({
           </button>
         )}
       </details>
-      <div className={styles.status} aria-label="Reconciliation Drilldowns">
-        {onGames && (
-          <button type="button" className={styles.action} onClick={onGames}>
-            View Contributing Games
-          </button>
-        )}
-        {onPlayers && (
-          <button type="button" className={styles.action} onClick={onPlayers}>
-            View Player Totals
-          </button>
-        )}
-      </div>
+      {(onGames || onPlayers) && (
+        <div className={styles.status} role="group" aria-label="Reconciliation Drilldowns">
+          {onGames && (
+            <button type="button" className={styles.action} onClick={onGames}>
+              View Contributing Games
+            </button>
+          )}
+          {onPlayers && (
+            <button type="button" className={styles.action} onClick={onPlayers}>
+              View Player Totals
+            </button>
+          )}
+        </div>
+      )}
       <details className={styles.details}>
         <summary>How These Totals Reconcile</summary>
         <p className={styles.note}>

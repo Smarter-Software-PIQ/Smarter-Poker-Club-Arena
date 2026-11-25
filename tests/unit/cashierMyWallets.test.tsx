@@ -9,7 +9,12 @@ vi.mock('../../src/components/wallet/DynamicWallet', () => ({
       (props.onVisibleWalletCountChange as (count: number) => void)(5);
     }, [props.onVisibleWalletCountChange]);
     return (
-      <div data-testid="directory" data-role={String(props.role)} data-club={String(props.clubId)}>
+      <div
+        data-testid="directory"
+        data-role={String(props.role)}
+        data-artwork={String(props.showArtwork)}
+        data-club={String(props.clubId)}
+      >
         <button onClick={props.onOpenPlayerWallet as () => void}>Open Player Wallet</button>
         <button onClick={props.onOpenClubBank as () => void}>Open Club Bank</button>
         <button onClick={props.onOpenPromoWallet as () => void}>Open Promo Wallet</button>
@@ -40,10 +45,15 @@ vi.mock('../../src/services/HapticService', () => ({
 }));
 import CashierMyWallets from '../../src/components/wallet/CashierMyWallets';
 
-function mount() {
+function mount(consoleLayout = false) {
   return render(
     <MemoryRouter>
-      <CashierMyWallets userId="viewer" clubId="selected-club" role="owner" />
+      <CashierMyWallets
+        userId="viewer"
+        clubId="selected-club"
+        role="owner"
+        consoleLayout={consoleLayout}
+      />
     </MemoryRouter>
   );
 }
@@ -55,11 +65,22 @@ describe('the relocated Cashier wallet directory', () => {
     expect(screen.queryByRole('button', { name: 'Open Player Wallet' })).toBeNull();
     fireEvent.click(trigger);
     expect(screen.getByTestId('directory').getAttribute('data-role')).toBe('owner');
+    expect(screen.getByTestId('directory')).toHaveAttribute('data-artwork', 'true');
     expect(screen.getByTestId('directory').getAttribute('data-club')).toBe('selected-club');
     expect(screen.getByRole('button', { name: 'Open Player Wallet' })).toBeTruthy();
     fireEvent.click(trigger);
     expect(screen.queryByRole('button', { name: 'Open Player Wallet' })).toBeNull();
     expect(trigger.textContent).toContain('5 Balances');
+  });
+  it('opens the routed console with the selected club’s authorized balances visible', () => {
+    mount(true);
+    expect(screen.getByRole('button', { name: 'Wallet Balances 5 Balances' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Open Player Wallet' })).toBeVisible();
+    expect(screen.getByTestId('directory')).toHaveAttribute('data-club', 'selected-club');
+    expect(screen.getByTestId('directory')).toHaveAttribute('data-artwork', 'false');
   });
   it.each([
     ['Club Bank', 'club_bank'],

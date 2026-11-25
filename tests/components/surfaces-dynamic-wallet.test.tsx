@@ -233,6 +233,37 @@ describe('the wallet visibility law covers the Backup BBJ reserve too', () => {
     expect(keys(view.container)).not.toContain('backup_bbj');
   });
 
+  it('keeps the authorized amounts and actions when Cashier omits wallet artwork', async () => {
+    funded();
+    const open = vi.fn();
+    const props = {
+      ...base,
+      role: 'owner',
+      clubId: CLUB_A,
+      compactLobby: true,
+      onOpenPlayerWallet: open,
+    };
+    const view = render(<DynamicWallet {...props} />);
+    await flush();
+    const rowKeys = keys(view.container);
+    const amounts = values(view.container);
+    expect(rowKeys).toEqual(['diamonds', 'club_bank', 'player_wallet', 'backup_bbj']);
+    expect(view.container.querySelectorAll('picture.dw__row-picture > img')).toHaveLength(
+      rowKeys.length
+    );
+    expect(view.container.querySelector('img.dw__bbj-shell')).not.toBeNull();
+
+    view.rerender(<DynamicWallet {...props} showArtwork={false} />);
+    expect(
+      view.container.querySelectorAll('picture, img.dw__row-shell, img.dw__bbj-shell')
+    ).toHaveLength(0);
+    expect(keys(view.container)).toEqual(rowKeys);
+    expect(values(view.container)).toEqual(amounts);
+    expect(view.container.querySelector('.dw__bbj-amount')).toHaveTextContent('5,000.00');
+    fireEvent.click(view.getByRole('button', { name: 'Open Player Wallet' }));
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it('still shows the reserve to an owner on the lobby glance, where it belongs', async () => {
     funded();
     const view = render(

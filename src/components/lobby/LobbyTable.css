@@ -603,7 +603,7 @@ abbr.lt-variant[title] {
   cursor: pointer;
 }
 .lt-fav.is-on {
-  color: var(--warning-gold, #ffd700);
+  color: #92dfff;
 }
 
 /* Direct lobby row Invite To Game button (Spin, SNG, Satellite) */
@@ -1695,7 +1695,7 @@ abbr.lt-variant[title] {
 .lt-flag--featured {
   border-color: rgba(255, 199, 44, 0.5);
   background: rgba(255, 199, 44, 0.13);
-  color: var(--gold, #ffc72c);
+  color: #92dfff;
 }
 .lt-flag--vip {
   border-color: rgba(186, 128, 255, 0.5);
@@ -1732,7 +1732,7 @@ abbr.lt-variant[title] {
   border-radius: 999px;
   border: 1px solid rgba(255, 199, 44, 0.55);
   background: rgba(255, 199, 44, 0.12);
-  color: var(--gold, #ffc72c);
+  color: #92dfff;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;

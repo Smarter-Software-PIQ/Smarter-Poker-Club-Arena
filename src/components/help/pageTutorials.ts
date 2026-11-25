@@ -47,9 +47,9 @@ const TOURS: TourEntry[] = [
     match: /^\/clubs\/[^/]+\/cashier\/?$/,
     steps: [
       {
-        title: 'Simple Or Advanced',
-        body: 'Simple Shows Who You Can Send Chips To. Advanced Adds Requests, Tickets And The Full Ledger.',
-        target: '[aria-pressed][class*="modeToggle"]',
+        title: 'Requests, Tickets And Tools',
+        body: 'Open The Cashier Tools To See The Requests, Tickets And Ledger Controls Available To You.',
+        target: '[aria-controls="cashier-action-tabs"]',
       },
       {
         title: 'Your Balances',
