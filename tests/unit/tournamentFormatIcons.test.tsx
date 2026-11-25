@@ -109,7 +109,9 @@ describe('one tournament identity icon beside each headline', () => {
           const file = { PKO: 'progressive-ko', Mystery: 'mystery-chest', Turbo: 'turbo-wordmark' }[
             entry.name
           ];
-          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(file + '-v1.webp');
+          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(
+            file + (file === 'mystery-chest' ? '-v2.webp' : '-v1.webp')
+          );
         } else {
           expect(icons[0].querySelector('svg')).not.toBeNull();
         }

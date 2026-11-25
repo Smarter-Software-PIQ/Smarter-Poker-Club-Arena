@@ -219,10 +219,12 @@ it('defaults to a compact directory and restores the full workspace in Advanced'
     await vi.advanceTimersByTimeAsync(110);
   });
   expect(screen.getByRole('button', { name: 'Simple' })).toHaveAttribute('aria-pressed', 'true');
-  // No page hero in either mode (Dan 2026-10-17); Advanced adds the live totals to the page bar.
-  expect(screen.getByRole('heading', { level: 1, name: 'Player Management' })).toHaveClass(
-    'ca-page-bar__title'
-  );
+  // Both directory modes share the approved mast. Advanced also shows the live totals.
+  expect(
+    screen
+      .getByRole('heading', { level: 1, name: 'Player Management' })
+      .closest('.arena-workspace-mast')
+  ).toBeVisible();
   expect(screen.queryByText('Player Command')).not.toBeInTheDocument();
   expect(screen.queryByText('Total Members')).not.toBeInTheDocument();
   expect(screen.queryByRole('combobox', { name: 'Filter Players' })).not.toBeInTheDocument();
@@ -760,7 +762,7 @@ it('keeps workspace controls unavailable until the account workspace resolves, t
     </MemoryRouter>
   );
   await act(async () => {});
-  expect(screen.getByRole('button', { name: 'All', exact: true })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'All Players', exact: true })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Agents', exact: true })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Group By Role', exact: true })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));

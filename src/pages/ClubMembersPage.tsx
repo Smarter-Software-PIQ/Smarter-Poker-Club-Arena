@@ -1957,32 +1957,32 @@ export default function ClubMembersPage() {
               onRetry={retryLiveSync}
             />
           )}
-          {workspaceReady &&
-            !accessDenied &&
-            auditEnabled &&
-            canUseFinancialViews &&
-            resolvedClubId && (
-              <div>
-                <button
-                  type="button"
-                  className="members-export"
-                  aria-expanded={historyOpen}
-                  onClick={() => setHistoryOpen(!historyOpen)}
-                >
-                  Club Transaction History
-                </button>
-                {historyOpen && (
-                  <MemberTransactionHistory
-                    key={exportScopeKey}
-                    clubId={resolvedClubId}
-                    memberId={null}
-                    scope="club"
-                    revision={recordRevision}
-                  />
-                )}
-              </div>
-            )}
         </details>
+        {workspaceReady &&
+          !accessDenied &&
+          auditEnabled &&
+          canUseFinancialViews &&
+          resolvedClubId && (
+            <div>
+              <button
+                type="button"
+                className="members-export"
+                aria-expanded={historyOpen}
+                onClick={() => setHistoryOpen(!historyOpen)}
+              >
+                Club Transaction History
+              </button>
+              {historyOpen && (
+                <MemberTransactionHistory
+                  key={exportScopeKey}
+                  clubId={resolvedClubId}
+                  memberId={null}
+                  scope="club"
+                  revision={recordRevision}
+                />
+              )}
+            </div>
+          )}
         <p
           className="members-count"
           role="status"

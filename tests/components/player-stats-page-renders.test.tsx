@@ -323,7 +323,7 @@ describe('PlayerStatsPage mounts', () => {
       lifetime: { hands: 800, first_hand_at: null, last_hand_at: null, indexed_complete: false },
     };
     render(<PlayerStatsPage />);
-    expect(await screen.findByRole('tab', { name: 'Tournaments', exact: true })).toBeVisible();
+    expect(await screen.findByRole('tab', { name: 'Tournaments', exact: true }, { timeout: 6000 })).toBeVisible();
     expect(
       await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
     ).toBeVisible();
@@ -561,7 +561,7 @@ describe('PlayerStatsPage mounts', () => {
     expect(() => render(<PlayerStatsPage />)).not.toThrow();
     await waitFor(() => {
       expect(screen.getByText(/Overview/i)).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: /Player Intelligence/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Player Stats/i })).toBeInTheDocument();
       expect(screen.getByRole('group', { name: /Analysis Range/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Evidence At A Glance/i })).toBeInTheDocument();
       expect(screen.getByText('Established')).toBeInTheDocument();

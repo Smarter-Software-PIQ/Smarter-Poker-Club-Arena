@@ -1612,7 +1612,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return (
       <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
         {mast}
-        {mast}
         <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
           <span className="empty-description">
             {failed
@@ -1704,11 +1703,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ))}
         </div>
       )}
-      {/* ── PILL TABS ── */}
-      {/* A real tablist. This was eight buttons whose active state lived only in
-          a CSS class, so a screen reader could not tell which view was open,
-          and the swipe gesture had no keyboard equivalent - Arrow keys now do
-          what the swipe does. Roving tabindex per the WAI-ARIA tab pattern. */}
       <div
         className="stats-pill-tabs"
         role="tablist"
@@ -1755,14 +1749,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </button>
         ))}
       </div>
-      {/* ── STATS CONTENT ──
-          AnimatePresence keyed on `category` cross-fades the tab bodies.
-          mode="wait" so the outgoing tab finishes before the incoming one
-          starts and the page height never lurches mid-swap.
-          The swipe handlers stay spread on THIS element rather than moving to
-          a new outer wrapper: useSwipeTabs attaches touch listeners here, and
-          nesting them under a wrapper would leave the gesture reading a node
-          that no longer moves with the content. */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={category}

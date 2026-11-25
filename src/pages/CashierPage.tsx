@@ -307,7 +307,7 @@ function CashierContent() {
   const { diamondsPerChip: mintRate, failed: mintRateFailed } = useBridgeRate();
   const toast = useToast();
 
-  const [action, setActionState] = useState<CashierAction>('history');
+  const [action, setActionState] = useState<CashierAction>('send');
   const tableRouteOnly = !!tableId && (action === 'buyin' || action === 'cashout');
   const [amount, setAmountState] = useState('');
   const [cashoutNote, setCashoutNoteState] = useState('');
@@ -596,7 +596,7 @@ function CashierContent() {
   // ── CRITICAL: Reset per-club state when navigating between clubs ──
   // Prevents financial state (userRole, pending cashouts) from carrying over.
   useEffect(() => {
-    setAction('history');
+    setAction('send');
     setAmount('');
     setCashoutNote('');
     setIsProcessing(false);

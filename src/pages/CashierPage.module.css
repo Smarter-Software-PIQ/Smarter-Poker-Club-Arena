@@ -630,6 +630,6 @@
   padding: 6px 8px;
   border: 4px solid transparent;
   border-image: var(--arena-row) 13 / 6px stretch;
-  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  background: var(--arena-tile);
   min-height: 44px;
 }

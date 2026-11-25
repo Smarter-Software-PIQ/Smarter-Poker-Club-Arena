@@ -145,9 +145,7 @@ describe('the page and the footer say the same thing', () => {
 
   it('names the club in the header: "CLUB JAQK - CLUB DATA"', () => {
     expect(page).toContain("return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';");
-    expect(page).toContain(
-      '<span className={styles.titleClub}>{clubName.trim().toUpperCase()}</span>'
-    );
+    expect(page).toContain('context={clubName}');
   });
 
   it("an agent's page has no whole-club report door", () => {

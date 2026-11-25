@@ -156,24 +156,24 @@ export default function StatsHeadlineDeck(props: Props) {
                   </span>
                 </div>
               </div>
+              <details className="stats-secondary">
+                <summary>More Performance Figures</summary>
+                <HandsWonGauge handsWonPct={overall.total_hands > 0 ? handsWonPct : null} />
+                <div className="hero-stat">
+                  <span className="hero-stat-label">
+                    {rangeKey === 'all' && !overall.hands_capped
+                      ? 'Cash Profit'
+                      : 'Analysis Cash Result'}
+                  </span>
+                  <span
+                    className={`hero-stat-value ${overall.total_profit >= 0 ? 'positive' : 'negative'}`}
+                  >
+                    {overall.total_profit >= 0 ? '+' : ''}
+                    {compactChips(overall.total_profit)}
+                  </span>
+                </div>
+              </details>
             </div>
-            <details className="stats-secondary">
-              <summary>More Performance Figures</summary>
-              <HandsWonGauge handsWonPct={overall.total_hands > 0 ? handsWonPct : null} />
-              <div className="hero-stat">
-                <span className="hero-stat-label">
-                  {rangeKey === 'all' && !overall.hands_capped
-                    ? 'Cash Profit'
-                    : 'Analysis Cash Result'}
-                </span>
-                <span
-                  className={`hero-stat-value ${overall.total_profit >= 0 ? 'positive' : 'negative'}`}
-                >
-                  {overall.total_profit >= 0 ? '+' : ''}
-                  {compactChips(overall.total_profit)}
-                </span>
-              </div>
-            </details>
           </>
         )}
       </section>
