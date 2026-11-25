@@ -1,0 +1,936 @@
+/* The Arena workspaces use the same continuous, nine-slice metal as the MTT console.
+   The frame decorates real controls and content, so it grows with the ledger. */
+.arena-workspace.arena-workspace {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 7px 6px max(18px, env(safe-area-inset-bottom));
+  background: #050d17;
+  color: #f1f5fc;
+  --arena-frame: url('./console-art/chrome-case.webp');
+  --arena-row: url('./console-art/chrome-row.webp');
+  --arena-stat: url('./console-art/chrome-stat.webp');
+  --arena-active: url('./console-art/chrome-active.webp');
+  --arena-readout: url('./console-art/chrome-readout.webp');
+  --arena-panel:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  --arena-tile: linear-gradient(155deg, #12273b, #07111c 70%);
+}
+.arena-workspace .arena-workspace-mast {
+  display: flex;
+  flex-flow: column;
+  justify-content: center;
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  min-height: 103px;
+  box-sizing: border-box;
+  background: #07111c;
+  padding: 19px 18px 15px;
+  text-align: left;
+}
+.arena-workspace-mast::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-image: var(--arena-row) 13 / 9px stretch;
+  pointer-events: none;
+  z-index: 1;
+}
+.arena-workspace-mast .arena-mast-art {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  height: calc(100% - 6px);
+  width: 75%;
+  background-size: auto 155%;
+  background-repeat: no-repeat;
+  background-position: right 53%;
+  z-index: -2;
+}
+.arena-workspace-mast::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: linear-gradient(90deg, #030a14 0%, #061120 35%, transparent 80%);
+  z-index: -1;
+}
+.arena-workspace .arena-workspace-mast > span {
+  font:
+    700 10px/1.2 Arial,
+    sans-serif;
+  letter-spacing: 0.14em;
+  color: #80dcff;
+  text-transform: uppercase;
+}
+.arena-workspace .arena-workspace-mast h1 {
+  margin: 5px 0 0;
+  font:
+    800 33px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.65px;
+  color: #fff;
+  text-shadow: 1px 2px 2px #000;
+}
+.arena-workspace .arena-workspace-mast small {
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  color: #c4cfdb;
+  margin-top: 6px;
+}
+.arena-workspace .arena-case,
+.arena-workspace .members-console,
+.arena-workspace .members-list,
+.arena-workspace .mm-card,
+.arena-workspace .stats-command-deck,
+.arena-workspace .stats-content,
+.arena-workspace .stats-club-command,
+.arena-workspace .stats-intelligence-brief {
+  box-sizing: border-box;
+  position: relative;
+  background: var(--arena-panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px;
+  margin: 7px 0;
+}
+.arena-workspace .arena-case::before,
+.arena-workspace .members-console::before,
+.arena-workspace .members-list::before,
+.arena-workspace .mm-card::before,
+.arena-workspace .stats-command-deck::before,
+.arena-workspace .stats-content::before,
+.arena-workspace .stats-club-command::before,
+.arena-workspace .stats-intelligence-brief::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-image: var(--arena-frame) 41 / 19px stretch;
+  background: none;
+}
+.arena-workspace .arena-section-title,
+.arena-workspace .members-console__heading h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 30px;
+  margin: 0 0 6px;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+}
+.arena-section-title small {
+  font:
+    10px/1.35 Arial,
+    sans-serif;
+  color: #9aabba;
+}
+.arena-workspace .arena-switch,
+.arena-workspace .members-mode-toggle,
+.arena-workspace .members-simple-tabs,
+.arena-workspace .stats-range-row,
+.arena-workspace .stats-pill-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 7px 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.arena-workspace .arena-switch > :is(button, a),
+.arena-workspace .members-mode-toggle > :is(button, a),
+.arena-workspace .members-simple-tabs > :is(button, a),
+.arena-workspace .stats-range-row > :is(button, a),
+.arena-workspace .stats-pill-tabs > :is(button, a) {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  position: relative;
+  padding: 6px 5px;
+  line-height: 1.1;
+  color: #dce5ef;
+  background: linear-gradient(#152639, #06111e 65%);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  text-align: center;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  white-space: normal;
+}
+.arena-workspace .arena-switch > :is(button, a)::after,
+.arena-workspace .members-mode-toggle > :is(button, a)::after,
+.arena-workspace .members-simple-tabs > :is(button, a)::after,
+.arena-workspace .stats-range-row > :is(button, a)::after,
+.arena-workspace .stats-pill-tabs > :is(button, a)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-mode-toggle > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .members-simple-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-range-row > :is([aria-pressed='true'], [aria-selected='true'], .active),
+.arena-workspace .stats-pill-tabs > :is([aria-pressed='true'], [aria-selected='true'], .active) {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .members-mode-toggle
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .members-simple-tabs
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-range-row
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after,
+.arena-workspace
+  .stats-pill-tabs
+  > :is([aria-pressed='true'], [aria-selected='true'], .active)::after {
+  border-image-source: var(--arena-active);
+}
+.arena-workspace .arena-meter,
+.arena-workspace .ca-page-bar__metric,
+.arena-workspace .hero-stat {
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  text-align: center;
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+  padding: 5px 2px;
+}
+.arena-workspace .arena-ledger-row,
+.arena-workspace .member-row {
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  border-radius: 0;
+  box-shadow: none;
+}
+.arena-workspace .ca-page-bar {
+  min-height: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.arena-workspace .ca-page-bar__live {
+  flex: 1;
+  min-width: 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__live {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 6px;
+}
+.arena-workspace .members-mode-toggle,
+.arena-workspace .ca-page-bar__metrics {
+  grid-column: 1/-1;
+  width: 100%;
+}
+.arena-workspace .members-mode-toggle {
+  order: -2;
+}
+.arena-workspace .members-page-bar .ca-page-bar__metrics {
+  order: -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace .ca-page-bar__metric {
+  display: flex;
+  flex-direction: column;
+}
+.arena-workspace .ca-page-bar__metric dt {
+  font: 700 10px Arial;
+  color: #b6c8d6;
+}
+.arena-workspace .ca-page-bar__metric dd {
+  font: bold 20px Arial;
+  color: #f2f8ff;
+  margin: 3px 0 0;
+}
+.arena-workspace .ca-page-bar__metric[data-tone='live'] dd {
+  color: #74dfff;
+}
+.arena-roster-tools {
+  margin: 6px 0;
+}
+.arena-roster-tools > summary,
+.arena-workspace details.stats-secondary > summary {
+  min-height: 44px;
+  box-sizing: border-box;
+  align-content: center;
+  padding: 8px 4px;
+  color: #b6c8d6;
+  cursor: pointer;
+  font-size: 12px;
+}
+.arena-workspace .member-avatar {
+  height: 29px;
+  width: 29px;
+  min-width: 29px;
+}
+.arena-workspace .member-alias {
+  font:
+    700 14px/1.16 Arial,
+    sans-serif;
+}
+.arena-workspace .member-subline {
+  font-size: 10px;
+}
+.arena-workspace .member-row {
+  padding: 4px 6px;
+}
+.arena-workspace .member-row__open {
+  min-height: 42px;
+}
+.arena-workspace.arena-cashier > div > div {
+  gap: 0;
+}
+.arena-cashier .dw {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.arena-cashier .dw__rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-cashier .dw__rows .dw__row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: auto;
+  min-height: 52px;
+  aspect-ratio: auto;
+  padding: 8px;
+  gap: 3px;
+  color: #f1f5fc;
+  background: var(--arena-tile);
+  border: 4px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  box-shadow: none;
+}
+.arena-cashier .dw__row[data-wallet-key='player_wallet'] {
+  order: -1;
+  grid-column: 1/-1;
+  min-height: 87px;
+  border-image: var(--arena-readout) 21 / 11px stretch;
+  background: radial-gradient(ellipse at 50% 5%, #132e47, transparent 68%), #030b14;
+}
+.arena-cashier .dw__row[data-wallet-key='diamonds'] {
+  order: 1;
+  grid-column: 1/-1;
+  min-height: 35px;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 5px 12px;
+  gap: 8px;
+}
+.arena-cashier .dw__row .dw__row-value,
+.arena-cashier .dw__row .dw__row-label {
+  position: static;
+  inset: auto;
+  display: block;
+  transform: none;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+.arena-cashier .dw__row .dw__row-label {
+  font:
+    700 11px/1.2 Arial,
+    sans-serif;
+  color: #b6c8d6;
+}
+.arena-cashier .dw__row .dw__row-value {
+  font:
+    700 20px/1.15 Arial,
+    sans-serif;
+  color: #effaff;
+  text-shadow: none;
+}
+.arena-cashier .dw__row[data-wallet-key='player_wallet'] .dw__row-value {
+  font:
+    800 41px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: 0 0 13px #2878bc8c;
+}
+.arena-cashier .dw__row[data-wallet-key='diamonds'] .dw__row-value {
+  margin-left: auto;
+  font-size: 16px;
+}
+.arena-cashier .dw__row .dw__plus {
+  position: static;
+  width: 28px;
+  height: 28px;
+  transform: none;
+}
+.arena-cashier .dw__row .dw__row-picture,
+.arena-cashier .dw__row .dw__row-shell,
+.arena-cashier .dw__row .dw__row-hint,
+.arena-cashier .dw__row .dw__row-icon,
+.arena-cashier .dw__row .dw__row-chevron {
+  display: none;
+}
+.arena-cashier .cashier-workspace,
+.arena-cashier .cashier-workspace__content {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.arena-workspace.stats-page .stats-pill-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: visible;
+}
+.arena-workspace.stats-page .stats-hero {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+}
+.arena-workspace.stats-page .hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-workspace.stats-page .hero-stat-label {
+  font: 700 10px/1.2 Arial;
+  color: #b6c8d6;
+}
+.arena-workspace.stats-page .hero-stat-value {
+  font: bold 21px/1.2 Arial;
+}
+.arena-workspace.stats-page .stats-command-deck {
+  display: block;
+}
+.arena-workspace.stats-page .stats-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.arena-workspace .mm-credential {
+  background: var(--arena-panel);
+  border: 6px solid transparent;
+  border-image: var(--arena-row) 13 / 8px stretch;
+}
+.arena-workspace .mm-credential__art,
+.arena-workspace .mm-credential__shade {
+  display: none;
+}
+.arena-workspace .arena-switch > [aria-current='page'] {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  border: 5px solid transparent;
+  border-image: var(--arena-active) 11 / 6px stretch;
+  background: #084397;
+  color: white;
+}
+.arena-workspace .stats-secondary {
+  margin-top: 6px;
+}
+.arena-transfer-review .club-page-eyebrow,
+.arena-transfer-review .club-page-subtitle {
+  display: none;
+}
+.arena-transfer-review .club-page-heading {
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.arena-transfer-amount {
+  margin: 8px 0;
+  padding: 12px 8px;
+  text-align: center;
+  border: 7px solid transparent;
+  border-image: var(--arena-readout) 21 / 11px stretch;
+  background: #071421;
+}
+.arena-transfer-amount small {
+  color: #9ad8fb;
+}
+.arena-transfer-amount strong {
+  display: block;
+  font-size: 38px;
+  line-height: 1.2;
+  color: #effaff;
+}
+.arena-transfer-lines {
+  margin: 0;
+}
+.arena-transfer-lines > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #22364b;
+}
+.arena-transfer-lines dd {
+  margin: 0;
+  font-weight: 700;
+}
+.arena-transfer-review .club-page-actions button {
+  flex: 1;
+  min-height: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.arena-transfer-review .club-page-actions button:last-child {
+  border-image-source: var(--arena-active);
+  background: #084397;
+  color: white;
+}
+
+/* The page mast owns its help affordance. Keep the first screen for the directory and ledger. */
+.arena-workspace {
+  position: relative;
+}
+.arena-workspace .ca-page-bar > .ca-page-help {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  margin: 0;
+}
+.arena-workspace .ca-page-bar {
+  position: static;
+}
+.arena-workspace .ca-page-bar:not(:has(.ca-page-bar__live)) {
+  height: 0;
+  min-height: 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__live {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+}
+.arena-workspace .members-mode-toggle {
+  margin: 5px 0 0;
+}
+.arena-workspace .members-page-bar .ca-page-bar__metric {
+  min-height: 54px;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.arena-workspace.club-members-page .members-console {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 11px;
+}
+.arena-workspace.club-members-page .members-console__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-console__heading h2 {
+  flex: 1;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-result-count {
+  color: #9fbacc;
+  white-space: nowrap;
+  max-width: none;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+}
+.arena-workspace.club-members-page .members-search {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 8px;
+  margin: 0;
+  background: #040d17;
+  border: 1px solid #476079;
+}
+.arena-workspace.club-members-page .members-search > span {
+  display: none;
+}
+.arena-workspace.club-members-page .members-search input {
+  font:
+    13px/1.25 Arial,
+    sans-serif;
+  margin: 0;
+  min-height: 38px;
+  padding: 2px;
+  background: none;
+  border: 0;
+}
+.arena-workspace.club-members-page .members-simple-tabs {
+  order: 0;
+  display: flex;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-count[aria-label='Roster Operations'] {
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-list {
+  margin-top: 3px;
+  padding: 7px;
+}
+.arena-workspace.club-members-page .arena-roster-tools {
+  margin: 0;
+}
+.arena-workspace.club-members-page .members-export {
+  margin: 0;
+  min-height: 35px;
+}
+.arena-workspace.stats-page .stats-command-deck {
+  padding: 10px;
+}
+.arena-workspace.stats-page .stats-command-copy,
+.arena-workspace.stats-page .stats-range-control,
+.arena-workspace.stats-page .stats-hero {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-range-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.arena-workspace.stats-page .stats-range-row {
+  width: 100%;
+  margin: 3px 0;
+}
+.arena-workspace.stats-page .stats-range-label,
+.arena-workspace.stats-page .stats-last-updated {
+  font-size: 10px;
+  min-height: 0;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-hero .hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 2px;
+  min-height: 58px;
+}
+.arena-workspace.stats-page .hero-stat::before {
+  content: none;
+}
+.arena-workspace.stats-page .hero-stat .hero-stat-value {
+  font:
+    700 21px/1.12 Arial,
+    sans-serif;
+  margin: 0;
+}
+.arena-workspace.stats-page .stats-notice {
+  padding: 3px 4px;
+  margin: 3px 0;
+  font:
+    11px/1.25 Arial,
+    sans-serif;
+}
+.arena-workspace.stats-page .stats-notice-deck {
+  margin: 0;
+  gap: 0;
+}
+.arena-workspace.stats-page .stats-secondary > summary {
+  padding: 3px 4px;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0 3px 5px;
+  min-height: 44px;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__icon {
+  display: none;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.arena-trade .lobby-wallets-trigger .lobby-wallets-trigger__copy strong {
+  color: #eff8ff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.arena-trade .cashier-my-wallets .dw .dw__rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  gap: 4px;
+}
+.arena-trade .cashier-my-wallets .dw .dw__row {
+  display: flex;
+  flex-direction: column;
+  min-height: 50px;
+  height: auto;
+  width: auto;
+  aspect-ratio: auto;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 6px 3px;
+  overflow: visible;
+}
+.arena-trade .cashier-my-wallets .dw [data-wallet-key='player_wallet'] {
+  min-height: 77px;
+}
+.arena-trade .cashier-my-wallets .dw [data-wallet-key='diamonds'] {
+  min-height: 44px;
+  flex-direction: row;
+  padding-inline: 10px;
+}
+.arena-trade .cashier-my-wallets .dw .dw__row-label,
+.arena-trade .cashier-my-wallets .dw .dw__row-value {
+  position: static;
+  inset: auto;
+  transform: none;
+  max-width: 100%;
+  height: auto;
+}
+.arena-trade .arena-ledger-tools > summary {
+  min-height: 44px;
+  align-content: center;
+  color: #a8ccdf;
+  font-size: 12px;
+}
+.arena-trade .arena-cashier-tools-link {
+  position: absolute;
+  right: 15px;
+  top: 64px;
+  z-index: 2;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  color: #b3e2ff;
+  font:
+    700 11px/1.1 Arial,
+    sans-serif;
+  text-shadow: 0 1px 3px #000;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger {
+  aspect-ratio: auto;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy {
+  position: static;
+  width: 100%;
+  justify-content: space-between;
+  padding-right: 20px;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong,
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  position: static;
+  inset: auto;
+  clip: auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  text-transform: none;
+  transform: none;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
+  color: #bdd1df;
+  font:
+    11px/1.4 Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron {
+  right: 6px;
+  left: auto;
+  width: 7px;
+  height: 7px;
+}
+
+/* Every directory surface uses its shell's inner width. Keep content inside the chrome. */
+.arena-workspace.club-members-page {
+  --members-content: 100%;
+}
+.arena-workspace.club-members-page .members-console,
+.arena-workspace.club-members-page .members-list,
+.arena-workspace.club-members-page .members-live-now {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+}
+.arena-workspace.club-members-page .members-console {
+  padding: 14px;
+  top: auto;
+}
+.arena-workspace.club-members-page .members-console__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  border-bottom: 1px solid #253e57;
+  padding-bottom: 4px;
+}
+.arena-workspace.club-members-page .members-console__heading h2 {
+  flex: 0 1 auto;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+}
+.arena-workspace.club-members-page .members-live-now {
+  margin-block: 7px;
+}
+.arena-workspace.club-members-page .member-row {
+  box-sizing: border-box;
+  height: calc(var(--member-row-pitch, 151px) - 7px);
+  margin: 0 0 7px;
+  padding: 3px;
+}
+.arena-workspace.club-members-page .member-row__open {
+  box-sizing: border-box;
+  grid-template-columns: auto minmax(0, 1fr) 10px;
+  gap: clamp(5px, 1vw, 12px);
+  min-height: 0;
+  padding: 3px clamp(3px, 1vw, 10px);
+}
+.arena-workspace.club-members-page .member-avatar {
+  box-sizing: border-box;
+  width: clamp(32px, 6vw, 46px);
+  height: auto;
+  aspect-ratio: 1;
+}
+.arena-workspace.club-members-page .member-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  align-content: center;
+}
+.arena-workspace.club-members-page .member-simple-balance {
+  max-width: none;
+  gap: 2px;
+  line-height: 1.12;
+  align-self: center;
+}
+.arena-workspace.club-members-page .member-seated {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arena-workspace.club-members-page .members-tools-trigger,
+.arena-workspace.club-members-page .members-history-action {
+  width: 100%;
+  min-height: 44px;
+  padding: 5px 12px;
+  box-sizing: border-box;
+  cursor: pointer;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  color: #ecf6ff;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.arena-workspace.club-members-page .members-history-action {
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+  border-image-source: var(--arena-active);
+}
+.arena-workspace.club-members-page .members-history-action[aria-expanded='true'] {
+  filter: brightness(1.16);
+}
+.arena-workspace.club-members-page .members-history-action:active {
+  filter: brightness(0.86);
+}
+.arena-workspace.club-members-page .members-history-action:focus-visible,
+.arena-workspace.club-members-page .members-tools-trigger:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .arena-workspace.club-members-page .member-simple-balance {
+    max-width: 105px;
+  }
+  .arena-workspace.club-members-page .member-simple-balance > span {
+    line-height: 1.12;
+  }
+  .arena-workspace.club-members-page .member-subline {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 400px) {
+  .arena-workspace.club-members-page .member-main {
+    column-gap: 4px;
+  }
+  .arena-workspace.club-members-page .member-simple-balance {
+    max-width: 62px;
+  }
+  .arena-workspace.club-members-page .member-alias {
+    font-size: 13px;
+  }
+  .arena-workspace.club-members-page .member-row__open {
+    gap: 4px;
+  }
+}
+
+/* Select a record below its avatar without taking space from the name or ledger. */
+.arena-workspace.club-members-page .member-select {
+  position: absolute;
+  inset: auto auto 2px 5px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+}

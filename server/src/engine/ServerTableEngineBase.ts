@@ -1087,11 +1087,37 @@ export abstract class ServerTableEngineBase {
   private operatorFloorHoldRead = false;
   protected readonly operatorClosureOnlyId: string | null;
   private operatorFloorReadSequence = 0;
+  private preparedOperatorFloor: Promise<void> | null = null;
   protected operatorCloseRequest: {
     operation_id: string;
     actor_id: string;
     reason: string;
   } | null = null;
+
+  /**
+   * Overlap the pure read-only `fn_ca_operator_floor_state` RPC with
+   * `prepareNextHand()` so it never adds a serial PostgREST round trip to
+   * every hand (incident 1e532243). Consumed once by
+   * `passOperatorFloorBoundary()`.
+   */
+  protected startPreparedOperatorFloor(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    const raw = this.refreshOperatorFloor();
+    const work = wrap ? wrap(raw) : raw;
+    // Observed by passOperatorFloorBoundary(); prevent unhandled rejection if
+    // an earlier guard exits the iteration before the boundary is reached.
+    work.catch(() => undefined);
+    this.preparedOperatorFloor = work;
+  }
+
+  protected clearPreparedOperatorFloor(): void {
+    this.preparedOperatorFloor = null;
+  }
+
+  protected consumePreparedOperatorFloor(): Promise<void> | null {
+    const prepared = this.preparedOperatorFloor;
+    this.preparedOperatorFloor = null;
+    return prepared;
+  }
 
   /** Called by this table's existing boundary, never a second floor sweeper. */
   public async refreshOperatorFloor(): Promise<void> {
@@ -1126,7 +1152,8 @@ export abstract class ServerTableEngineBase {
   }
 
   protected async passOperatorFloorBoundary(): Promise<boolean> {
-    await this.refreshOperatorFloor();
+    const prepared = this.consumePreparedOperatorFloor();
+    await (prepared ?? this.refreshOperatorFloor());
     if (!this.operatorFloorPaused) return false;
     this.markProgress();
     if (
@@ -2656,6 +2683,8 @@ export abstract class ServerTableEngineBase {
         acceptedHand?: { handId: string; startedAt: number }
       ) => void)
     | null = null;
+  /** Hand number for which Settlement already invoked handCompleteCallback (prevents duplicate post-hold bust wake). */
+  protected handCompleteCallbackNotifiedHandNumber: number | null = null;
   /**
    * Exact hand-for-hand barrier signal. The tournament coordinator used to
    * rediscover this state by polling every table twice a second. Emitting at
@@ -3008,6 +3037,8 @@ export abstract class ServerTableEngineBase {
   private f06PermitFactory:
     | ((handNumber: string) => F06HandPermit | Promise<F06HandPermit>)
     | null = null;
+  private f06HandStatePrefetch: (() => Promise<void>) | null = null;
+  private f06HandStateClear: (() => void) | null = null;
   protected f06CurrentPermit: F06HandPermit | null = null;
   // Positive original-process acknowledgement, not a reconstructed no-start.
   // Captured with the banks only after stop has joined the dealing writer.
@@ -3019,6 +3050,36 @@ export abstract class ServerTableEngineBase {
     if (this.running || this.f06PermitFactory || this.f06MovementAdmission)
       throw new Error('f06_admission_install_too_late');
     this.f06PermitFactory = factory;
+  }
+  /**
+   * Optional pre-start F06 state prefetcher installed alongside `installF06HandAdmission`.
+   * Starts `fn_f06_hand_number_state` in parallel with `loadSeatedPlayers` inside
+   * `prepareNextHand()` so `reserveF06Hand()` does not pay an extra serial PostgREST
+   * round trip before `fn_f06_begin_hand`. Cleared on pause, abandon, allocator
+   * invalidation, or unstarted permit release.
+   */
+  installF06HandStatePrefetch(prefetch: () => Promise<void>, clear?: () => void): void {
+    if (this.running || this.f06MovementAdmission)
+      throw new Error('f06_admission_install_too_late');
+    this.f06HandStatePrefetch = prefetch;
+    this.f06HandStateClear = clear ?? null;
+  }
+  protected prefetchF06HandState(): void {
+    if (
+      !this.f06HandStatePrefetch ||
+      this.f06CurrentPermit ||
+      this.f06MovementAdmission ||
+      !this.running ||
+      this.isNextHandPaused() ||
+      this.isHandForHandReleaseBlocked() ||
+      this.dealHoldUntilMs > Date.now() ||
+      this.hasOpenBountyReveal()
+    )
+      return;
+    void this.f06HandStatePrefetch().catch(() => {});
+  }
+  protected clearPrefetchedF06HandState(): void {
+    this.f06HandStateClear?.();
   }
   /** This table reserves an F06 hand permit before every deal (tournament custody). */
   protected hasF06HandAdmission(): boolean {
@@ -3185,6 +3246,7 @@ export abstract class ServerTableEngineBase {
     }
     if (permit.recoveryState() !== 'reserved' && !permit.hasPreparedCancellation()) return false;
     await this.cancelF06PreparedHand();
+    this.clearPrefetchedF06HandState();
     return true;
   }
   /** The held F06 permit's local phase, or `none` (diagnostics only). */
@@ -5974,7 +6036,37 @@ export abstract class ServerTableEngineBase {
    * line keeps main's contract, everything below it keeps this lane's
    * invariant.
    */
-  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+  private preparedPendingSeatMoves: {
+    tableGen: number;
+    gameGen: number;
+    planGen: number;
+    promise: Promise<PendingSeatMove[] | null>;
+  } | null = null;
+
+  /**
+   * Overlap the read-only `pendingSeatMoves` query with `prepareNextHand()`
+   * on clustered cash tables (incident 1e532243). `announcePendingSeatMoves()`
+   * consumes this result only when all three move-plan generations are still
+   * unchanged; any plan committed in the meantime forces a fresh inline read.
+   */
+  protected startPreparedPendingSeatMoves(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    this.preparedPendingSeatMoves = null;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id || !this.lifecycleCanMutate())
+      return;
+    const tableGen = tableMovesPlannedGeneration(this.tableId);
+    const gameGen = gameWideMovesPlannedGeneration(this.tableInfo.cluster_id);
+    const planGen = movesPlannedGeneration(this.tableInfo.cluster_id);
+    const raw = this.fetchPendingSeatMoves();
+    const promise = wrap ? wrap(raw) : raw;
+    promise.catch(() => undefined);
+    this.preparedPendingSeatMoves = { tableGen, gameGen, planGen, promise };
+  }
+
+  protected clearPreparedPendingSeatMoves(): void {
+    this.preparedPendingSeatMoves = null;
+  }
+
+  private async fetchPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
     try {
       return await pendingSeatMoves(this.tableId);
     } catch (err) {
@@ -5983,9 +6075,29 @@ export abstract class ServerTableEngineBase {
     }
   }
 
+  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+    const prepared = this.preparedPendingSeatMoves;
+    this.preparedPendingSeatMoves = null;
+    if (
+      prepared &&
+      this.seatMoveTablePlanGenerationAtRead === prepared.tableGen &&
+      this.seatMoveGamePlanGenerationAtRead === prepared.gameGen &&
+      this.seatMovePlanGenerationAtRead === prepared.planGen
+    ) {
+      return prepared.promise;
+    }
+    return this.fetchPendingSeatMoves();
+  }
+
   protected async announcePendingSeatMoves(): Promise<boolean> {
-    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) return true;
-    if (!this.lifecycleCanMutate()) return false;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) {
+      this.clearPreparedPendingSeatMoves();
+      return true;
+    }
+    if (!this.lifecycleCanMutate()) {
+      this.clearPreparedPendingSeatMoves();
+      return false;
+    }
     // Captured BEFORE the read: a plan committed after this instant reaches
     // the synchronous check before dealHand even if this read missed it.
     this.seatMoveTablePlanGenerationAtRead = tableMovesPlannedGeneration(this.tableId);
@@ -9183,6 +9295,7 @@ export abstract class ServerTableEngineBase {
   /** Drop an unstarted controller without a table, seat, stack or wallet write. */
   protected discardPreparedHandForPause(): boolean {
     if (!this.isNextHandPaused()) return false;
+    this.f06HandStateClear?.();
     this.handController = null;
     this.currentHandDealtStacks.clear();
     if (this.handSpan) {

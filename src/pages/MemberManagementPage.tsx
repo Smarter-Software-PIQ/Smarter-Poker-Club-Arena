@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import ClubDataReturnLink from '../components/club/ClubDataReturnLink';
 import { lastDaysRange } from '../lib/clubDataDay';
 /**
@@ -856,8 +857,8 @@ export default function MemberManagementPage() {
 
   if (loading && !detail) {
     return (
-      <div className="member-mgmt-page">
-        <PageHeader onBack={() => navigate(-1)} />
+      <div className="member-mgmt-page arena-workspace">
+        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
         <PageSkeleton variant="settings" />
       </div>
     );
@@ -865,8 +866,8 @@ export default function MemberManagementPage() {
 
   if (loadError) {
     return (
-      <div className="member-mgmt-page">
-        <PageHeader onBack={() => navigate(-1)} />
+      <div className="member-mgmt-page arena-workspace">
+        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
         <div className="mm-empty" role="alert">
           <span className="mm-empty__mark" aria-hidden="true">
             ↻
@@ -900,8 +901,8 @@ export default function MemberManagementPage() {
 
   if (!found) {
     return (
-      <div className="member-mgmt-page">
-        <PageHeader onBack={() => navigate(-1)} />
+      <div className="member-mgmt-page arena-workspace">
+        <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
         <div className="mm-empty">
           <span className="mm-empty__mark" aria-hidden="true">
             ○
@@ -922,8 +923,8 @@ export default function MemberManagementPage() {
   const initial = alias[0]?.toUpperCase() ?? '?';
 
   return (
-    <div className="member-mgmt-page">
-      <PageHeader onBack={() => navigate(-1)} />
+    <div className="member-mgmt-page arena-workspace">
+      <PageHeader club={routeClubId} onBack={() => navigate(-1)} />
       <ClubDataReturnLink />
 
       {refreshFailed && (
@@ -960,7 +961,7 @@ export default function MemberManagementPage() {
         />
         <div className="mm-credential__shade" aria-hidden="true" />
         <div className="mm-credential__content">
-          <span className="mm-eyebrow">Audited Player Credential</span>
+          <span className="mm-eyebrow">Member Profile</span>
           <div className="mm-identity">
             <div className={`mm-avatar${avatarLit ? ' mm-avatar--online' : ''}`}>
               {identity!.avatar_url ? (
@@ -1459,17 +1460,22 @@ export default function MemberManagementPage() {
    HEADER
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function PageHeader({ onBack }: { onBack: () => void }) {
+function PageHeader({ onBack, club }: { onBack: () => void; club?: string }) {
   return (
-    <header className="mm-header">
-      <button type="button" className="mm-back" onClick={onBack} aria-label="Go Back">
-        ‹
-      </button>
-      <h1 className="mm-title">Player Record</h1>
-      {/* A spacer so the title is optically centred without absolute positioning,
-          which would overlap the back button on a 320px screen. */}
-      <span className="mm-header__spacer" aria-hidden="true" />
-    </header>
+    <>
+      <ArenaWorkspaceHeader
+        area="members"
+        title="Player Management"
+        context={club && !/^[0-9a-f]{8}-/i.test(club) ? club.replace(/[-_]/g, ' ') : undefined}
+        subtitle="Member Directory"
+      />
+      <nav className="arena-switch" aria-label="Member Navigation">
+        <button type="button" onClick={onBack}>
+          ‹ Directory
+        </button>
+        <span aria-current="page">Player Record</span>
+      </nav>
+    </>
   );
 }
 

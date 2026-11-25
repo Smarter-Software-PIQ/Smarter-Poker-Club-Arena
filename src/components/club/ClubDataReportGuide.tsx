@@ -12,13 +12,13 @@ export default function ClubDataReportGuide({ start, end, basis, union }: Props)
   return (
     <section className={styles.reconciliation} aria-label="Report Dates And Definitions">
       <p className={styles.note}>{clubDataCalendarLabel(start, end, basis)}</p>
-      <p className={styles.note}>
-        Reports Are Limited To The Past 90 Days. The End Date Is Included. The Chicago Boundary
-        Above Is Exclusive. Today Stops At The Current Time. Pacific And Chicago Clock Changes Can
-        Change The Displayed Boundary Hour.
-      </p>
       <details className={styles.details}>
         <summary>Metric Definitions</summary>
+        <p className={styles.note}>
+          Reports Are Limited To The Past 90 Days. The End Date Is Included. The Chicago Boundary
+          Above Is Exclusive. Today Stops At The Current Time. Pacific And Chicago Clock Changes Can
+          Change The Displayed Boundary Hour.
+        </p>
         <dl className={styles.rows}>
           <div className={styles.row}>
             <dt>Total Winnings</dt>

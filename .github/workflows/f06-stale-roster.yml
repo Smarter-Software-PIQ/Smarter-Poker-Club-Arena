@@ -1,0 +1,41 @@
+name: A busted player's stale table is not break custody
+
+# Migration 20261125020712. Runs
+# scripts/ci/test-a-busted-players-stale-table-is-not-break-custody.py against
+# a throwaway PostgreSQL 17 cluster, never production: the exact live
+# f06_source_guard (md5-pinned fixture) must refuse the measured rebuy shapes
+# first, and after the unmodified migration file admit them while every custody
+# shape (live chair, member, attempt, manifest, breaking destination, revive
+# outside the player's rebuy lane, chair writes) stays refused. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261125020712_a_busted_players_stale_table_is_not_break_custody.sql
+      - scripts/ci/fixtures/f06-stale-roster/**
+      - scripts/ci/test-a-busted-players-stale-table-is-not-break-custody.py
+      - tests/a-busted-players-stale-table-is-not-break-custody.law.test.ts
+      - .github/workflows/f06-stale-roster.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f06-stale-roster-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  f06-stale-roster:
+    name: A busted player's stale table is not break custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: The live guard refuses the stale roster before and admits it after
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-a-busted-players-stale-table-is-not-break-custody.py

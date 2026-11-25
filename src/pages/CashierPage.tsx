@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import {
@@ -92,7 +93,7 @@ import { retryFetch } from '../utils/retryFetch';
 import { reportError } from '../utils/errorReporter';
 import { formatPopupText } from '../utils/popupStyle';
 import { CashierWorkspace } from '../components/wallet/CashierWorkspace';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import { ClubPageSection } from '../components/club/ClubPageSection';
 import { compactChips, formatWalletChips } from '../utils/format';
 import { enumToTitleCase, titleCase } from '../utils/titleCase';
 
@@ -2388,10 +2389,25 @@ function CashierContent() {
   }
 
   return (
-    <StandardContentLayout className={styles.page}>
+    <StandardContentLayout className={`${styles.page} arena-workspace arena-cashier`}>
+      <ArenaWorkspaceHeader
+        area="cashier"
+        title="Cashier"
+        context={clubName}
+        subtitle={
+          roleUnknown
+            ? 'Club Wallets'
+            : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
+              ? 'Agent Wallets'
+              : 'Club Wallets'
+        }
+      />
       {/* ── Wallet Display: compact live balances using the cashier directory layout. ── */}
       {user?.id && clubId && (
-        <div className={styles.walletHeader}>
+        <section className={`${styles.walletHeader} arena-case`} aria-label="Wallet Balances">
+          <h2 className="arena-section-title">
+            Wallet Balances <small>Chips</small>
+          </h2>
           <DynamicWallet
             actionClassName={styles.wordAction}
             refreshKey={walletRevision}
@@ -2435,7 +2451,7 @@ function CashierContent() {
               returns 410 and the underlying RPCs have EXECUTE revoked from
               every application role, so this was the last of three layers.
               Do not reinstate without an explicit product decision. */}
-        </div>
+        </section>
       )}
 
       {/* Club Bank Cashier — the same modal the lobby opens. Role-gated inside,
@@ -2458,6 +2474,7 @@ function CashierContent() {
       )}
 
       <CashierWorkspace
+        hasVisibleTitle
         title="Cashier"
         summary="Move Chips Between Your Club Wallets, Answer Chip Requests, Redeem Tickets And Check Every Ledger Entry."
         context={titleCase(clubName || 'Club Wallet')}
@@ -2492,7 +2509,7 @@ function CashierContent() {
           {!contextError && (
             <nav
               ref={tabNavRef}
-              className={styles.tabNav}
+              className={`${styles.tabNav} arena-switch`}
               role="tablist"
               aria-label="Cashier Actions"
               aria-busy={roleUnknown || undefined}
@@ -2586,7 +2603,7 @@ function CashierContent() {
             panel with a permanently empty recipient dropdown. */}
           {action === 'send' && canSend && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-send"
               role="tabpanel"
               aria-labelledby="cashier-tab-send"
@@ -2851,7 +2868,7 @@ function CashierContent() {
           {/* ═══ DISTRIBUTE CHIPS ═══ */}
           {action === 'distribute' && canDistribute && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-distribute"
               role="tabpanel"
               aria-labelledby="cashier-tab-distribute"
@@ -3182,7 +3199,7 @@ function CashierContent() {
           {/* ═══ BUY-IN / CASH-OUT / MINT ═══ */}
           {(action === 'buyin' || action === 'cashout' || action === 'mint') && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id={`cashier-panel-${action}`}
               role="tabpanel"
               aria-labelledby={`cashier-tab-${action}`}
@@ -3453,7 +3470,7 @@ function CashierContent() {
           {/* ═══ TRANSACTION HISTORY ═══ */}
           {action === 'history' && !roleUnknown && (
             <section
-              className={styles.panel}
+              className={`${styles.panel} arena-case`}
               id="cashier-panel-history"
               role="tabpanel"
               aria-labelledby="cashier-tab-history"
@@ -3621,7 +3638,7 @@ function CashierContent() {
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
-            <SpadeConsole
+            <ClubPageSection
               onClose={
                 isProcessing
                   ? undefined
@@ -3635,7 +3652,7 @@ function CashierContent() {
               pill="Verify"
               pillInk="blue"
               foot="plates"
-              className={styles.console}
+              className="arena-case arena-transfer-review"
               plates={{
                 secondary: {
                   label: 'Cancel',
@@ -3676,11 +3693,34 @@ function CashierContent() {
               }}
             >
               <div className={styles.glass}>
-                <p className="sc-copy">
-                  You Are About To Send{' '}
-                  <strong className="sc-ink--silver">{chipFigure(sendConfirm.value)}</strong> Chips
-                  To <strong className="sc-ink--silver">{sendConfirm.recipientName}</strong>.
-                </p>
+                <div className="arena-transfer-amount">
+                  <small>Chip Amount</small>
+                  <strong>{chipFigure(sendConfirm.value)}</strong>
+                </div>
+                <dl className="arena-transfer-lines">
+                  <div>
+                    <dt>From</dt>
+                    <dd>Agent Wallet</dd>
+                  </div>
+                  <div>
+                    <dt>Recipient</dt>
+                    <dd>{sendConfirm.recipientName}</dd>
+                  </div>
+                  <div>
+                    <dt>Recipient Wallet</dt>
+                    <dd>
+                      {titleCase(
+                        (sendConfirm.destination ?? distributeDestination).replace(/_/g, ' ')
+                      )}
+                    </dd>
+                  </div>
+                  {myAgentWallet !== null && (
+                    <div>
+                      <dt>Available After Transfer</dt>
+                      <dd>{formatWalletChips(chipCents(myAgentWallet - sendConfirm.value))}</dd>
+                    </div>
+                  )}
+                </dl>
                 <p className="sc-copy sc-ink--red">
                   {/* THE SAME SCREEN SAYS "Claim Back Window: Ten Minutes" three
                   hundred lines up. This warning said the opposite - "This
@@ -3692,7 +3732,7 @@ function CashierContent() {
                   Amount And Recipient.
                 </p>
               </div>
-            </SpadeConsole>
+            </ClubPageSection>
           </div>
         </div>
       )}

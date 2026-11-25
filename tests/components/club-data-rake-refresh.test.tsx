@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -243,7 +244,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ clubId: routeState.clubId }),
-  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+  useSearchParams: () => useState(() => new URLSearchParams()),
 }));
 
 // Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would
@@ -397,7 +398,7 @@ it('does not amplify failed rake reads through successful ledger invalidations',
   });
   render(<ClubDataPage />);
   await screen.findByText('Shark Table One');
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
   await waitFor(() => expect(rakeCalls()).toHaveLength(1));
   expect(rakeCalls()[0][0]).toBe('ca_rake_snapshot_pacific_v2');
   await waitFor(() =>

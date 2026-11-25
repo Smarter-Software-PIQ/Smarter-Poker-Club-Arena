@@ -1,5 +1,3 @@
-import { titleArtStyle } from '../ArenaLobbyTitle';
-import type { LobbyTournamentRow } from '../lobbyEntries';
 import { useTournamentCardText } from './useTournamentCardText';
 import { memo, type CSSProperties, type ReactNode } from 'react';
 import { resolveArenaGameCardTemplate } from './arenaGameCardRegistry';
@@ -518,12 +516,7 @@ export const ArenaGameCard = memo(function ArenaGameCard({
       data-template-presentation={resolved.presentation}
       data-skin={resolved.skinId}
       data-state={dataState}
-      style={
-        data.source && data.source.kind !== 'cash'
-          ? { ...style, ...titleArtStyle(data.source.raw as LobbyTournamentRow, data.source.kind) }
-          : style
-      }
-      data-format-art={(data.source && data.source.kind !== 'cash') || undefined}
+      style={style}
       aria-label={summary}
       aria-busy={dataState === 'loading' || dataState === 'updating'}
     >

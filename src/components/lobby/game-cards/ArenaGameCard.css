@@ -116,7 +116,7 @@
 .agc-status--late-reg,
 .agc-status--waitlist {
   border-color: #8d6719;
-  color: #ffd66a;
+  color: #92dfff;
   background: linear-gradient(#4f3303, #1d1202);
 }
 
@@ -319,14 +319,14 @@
 .agc-rule--mystery,
 .agc-rule--rebuy {
   border-color: #91592a;
-  color: #ffc46d;
+  color: #92dfff;
 }
 
 .agc-rule--pko .agc-rule__icon,
 .agc-rule--bounty .agc-rule__icon,
 .agc-rule--mystery .agc-rule__icon,
 .agc-rule--rebuy .agc-rule__icon {
-  color: #ffc46d;
+  color: #92dfff;
 }
 
 .agc-rule--more {
@@ -337,7 +337,7 @@
 
 .agc-badge--gold {
   border-color: #8d6d17;
-  color: var(--agc-gold);
+  color: #92dfff;
   background: #271a03;
 }
 
@@ -726,7 +726,7 @@
 }
 
 .arena-game-card--mtt .agc-action--gold {
-  color: #fff2b8;
+  color: #92dfff;
   background:
     radial-gradient(circle at 50% 26%, rgb(255 213 95 / 48%), transparent 62%),
     linear-gradient(180deg, rgb(174 106 8 / 96%), rgb(69 31 1 / 99%));
@@ -834,7 +834,7 @@
   padding: 1.4cqw 6cqw;
   border: 1px solid #ad8423;
   background: linear-gradient(#704d06, #2e1c01);
-  color: #ffe08c;
+  color: #92dfff;
   font-family: 'Cinzel', Georgia, serif;
   font-size: clamp(10px, 3.2cqw, 16px);
   font-weight: 900;
@@ -860,7 +860,7 @@
 }
 
 .agc-spin-hero strong {
-  color: #f6d16e;
+  color: #92dfff;
   font-family: 'Cinzel', Georgia, serif;
   font-size: clamp(22px, 7.5cqw, 38px);
   text-align: center;
@@ -1663,7 +1663,7 @@
 
 .arena-game-card[data-skin$='-v2'] .agc-premium-status--late-reg,
 .arena-game-card[data-skin$='-v2'] .agc-premium-status--waitlist {
-  color: #ffd05b;
+  color: #92dfff;
 }
 
 .arena-game-card--plo[data-skin$='-v2'] .agc-premium-status--waitlist,
@@ -1930,7 +1930,7 @@
 }
 
 .arena-game-card[data-skin$='-v2'] .agc-action--gold {
-  color: #fff2b8;
+  color: #92dfff;
   --agc-action-fill:
     radial-gradient(circle at 50% 30%, rgb(255 202 66 / 34%), transparent 65%),
     linear-gradient(180deg, rgb(145 98 12 / 94%), rgb(55 32 2 / 98%));
@@ -2122,7 +2122,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  color: #ffe07a;
+  color: #92dfff;
   font-family: 'Roboto Condensed', Inter, sans-serif;
   font-size: clamp(9px, 3.2cqw, 17px);
   font-weight: 900;
@@ -2147,7 +2147,7 @@
 }
 
 .agc-premium-payout > span {
-  color: #ffe39a;
+  color: #92dfff;
   font-family: 'Roboto Condensed', Inter, sans-serif;
   font-size: clamp(9px, 3.4cqw, 17px);
   font-weight: 800;
@@ -2155,7 +2155,7 @@
 }
 
 .agc-premium-payout > strong {
-  color: #f4c852;
+  color: #92dfff;
   font-family: 'Roboto Condensed', 'Oswald', Impact, sans-serif;
   font-size: clamp(31px, 13cqw, 68px);
   font-weight: 900;

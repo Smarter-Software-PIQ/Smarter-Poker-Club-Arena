@@ -35,7 +35,11 @@ import {
   type TournamentTableBreakState,
 } from './tournamentTableBreakRpc.js';
 import { supabase } from '../services/supabase.js';
-import { type BalancerTable, type MoveInstruction } from '../engine/TableBalancer.js';
+import {
+  chooseOpenSeat,
+  type BalancerTable,
+  type MoveInstruction,
+} from '../engine/TableBalancer.js';
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import { reportError } from '../services/errorReporter.js';
 import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
@@ -57,6 +61,7 @@ import {
   moveTournamentPlayerAtomically,
   resolveCommittedTournamentSeatMove,
   TournamentSeatMoveOutcomeUnknownError,
+  TournamentSeatMoveRefusedError,
   type TournamentSeatMoveInput,
   type TournamentSeatMoveSourceMode,
   type VerifiedTournamentSeatMoveReceipt,
@@ -153,6 +158,15 @@ interface PendingTournamentSeatMoveOutcome {
  * `retireTournamentBreak` turns it back into a pending break.
  */
 class TournamentBreakAwaitsSeatsError extends Error {}
+
+/**
+ * A definite refusal because someone else sat in the chosen chair first.
+ * `fn_move_tournament_player` raises these after rolling back the whole move,
+ * so a fresh chair and a new request id are safe.
+ */
+function isLostChairRefusal(err: TournamentSeatMoveRefusedError): boolean {
+  return /destination (seat|roster) is occupied/i.test(err.message);
+}
 
 /** The two doors out of an unbegun park whose table keeps its players. */
 type NoStartExit = 'continue' | 'withdraw';
@@ -4454,6 +4468,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         const moves = this.tableBalancer.calculateMoves(freshTables);
         this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
         if (moves.length === 0) {
+          seedBalancedBoardForParkedSources(freshTables);
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
         }
         if (moves.length > 0) {
@@ -4469,11 +4484,13 @@ export class TournamentManager extends TournamentManagerEliminations {
           // A slow fresh board must not be discarded before it can act.
           // The existing source-boundary owner rereads the board and moves it;
           // fence only one source (preferring one already parked at the gate),
-          // then yield the spent admission.
+          // seed the freshly read board for the boundary drain so it does not
+          // pay a duplicate 5-query read (~950 ms), then yield the spent admission.
           if (this.balancePreparationOpen && this.eliminationWorkBudgetExpired()) {
             const preferred =
               sourceTables.find((t) => this.isParkedGapBalanceSource(t)) ?? sourceTables[0];
             this.fenceGapBalanceSource(preferred);
+            seedBalancedBoardForParkedSources(freshTables);
             this.balancePreparationOpen = false;
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
             return;
@@ -4496,6 +4513,14 @@ export class TournamentManager extends TournamentManagerEliminations {
               `[Tournament:${this.tournamentId.slice(0, 8)}] Deferring ${moves.length - safeMoves.length} rebalance move(s) - source table(s) still in-hand`
             );
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+          }
+          if (safeMoves.length === 0) {
+            // Every needed source was still mid-hand, so zero seats moved and
+            // freshTables is still valid at freshBoardEpoch. Hand it to any
+            // already-parked (e.g. unneeded) fenced source so
+            // onEliminationSweepSettled releases it without a duplicate 5-query
+            // Supabase board read (~950 ms).
+            seedBalancedBoardForParkedSources(freshTables);
           }
           if (safeMoves.length > 0) {
             const movedCount = await this.executePlayerMoves(safeMoves);
@@ -4639,7 +4664,8 @@ export class TournamentManager extends TournamentManagerEliminations {
     const engine = this.tableEngines.get(tableId);
     if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) return false;
     return (
-      engine.awaitsTournamentMoveClaim() || this.gapBalanceClaimedSources.get(tableId) === engine
+      engine.awaitsTournamentMoveClaim?.() === true ||
+      this.gapBalanceClaimedSources.get(tableId) === engine
     );
   }
 
@@ -4665,7 +4691,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.gapBalanceClaimedSources.delete(tableId);
       if (allowedTableIds && !allowedTableIds.has(tableId)) continue;
       if (
-        engine.awaitsTournamentMoveClaim() ||
+        engine.awaitsTournamentMoveClaim?.() === true ||
         this.gapBalanceClaimedSources.get(tableId) === engine
       ) {
         target.set(tableId, engine);
@@ -5286,6 +5312,42 @@ export class TournamentManager extends TournamentManagerEliminations {
     });
   }
 
+  /**
+   * The chair a planned move should ask for, read when the move is sent.
+   *
+   * The planner picks chairs from one snapshot, then moves players one at a
+   * time. Meanwhile late registration seats new entrants into the same new
+   * tables (lowest free chair), so the planned chair is often taken by the
+   * time the request lands, and the database refuses it ("destination seat is
+   * occupied"). Production 2026-11-25: every burst of that refusal coincided
+   * with freshly created tables being filled by late registrants.
+   *
+   * Keeps the planned chair when it is still free; otherwise picks a free
+   * chair by the same blind-position rule the planner uses. Returns null only
+   * when the read shows the destination full, and the caller waits for the
+   * next balance pass. A read that fails keeps the planned chair: the
+   * database door stays the authority and refuses a taken chair cleanly.
+   */
+  private async chairFreeAtTheDoor(move: MoveInstruction): Promise<number | null> {
+    let tables: BalancerTable[] | null = null;
+    try {
+      tables = await this.loadBalancerTables([move.toTableId], 'moveChairAtTheDoor');
+    } catch {
+      tables = null;
+    }
+    const table = tables?.find((t) => t.tableId === move.toTableId);
+    if (!table) return move.toSeat;
+    const taken = new Set<number>([
+      ...table.players.map((p) => p.seat),
+      ...(table.reservedSeats ?? []),
+    ]);
+    if (move.toSeat >= 1 && move.toSeat <= table.maxSeats && !taken.has(move.toSeat)) {
+      return move.toSeat;
+    }
+    const choice = chooseOpenSeat(table, { sourceHops: move.sourceHops ?? null });
+    return choice.seat >= 1 ? choice.seat : null;
+  }
+
   private async executePlayerMovesOwned(moves: MoveInstruction[]): Promise<number> {
     let moved = 0;
     const batch = moves.slice(0, TournamentManagerBase.SWEEP_MUTATION_BATCH_SIZE);
@@ -5328,48 +5390,78 @@ export class TournamentManager extends TournamentManagerEliminations {
         for (const move of batch) {
           if (move.fromTableId !== sourceTableId) continue;
           if (!this.eliminationMutationAllowed() || refusedSources.has(sourceTableId)) break;
-          const requestId = randomUUID();
-          const input: TournamentSeatMoveInput = {
-            requestId,
-            tournamentId: this.tournamentId,
-            userId: move.playerId,
-            sourceTableId: move.fromTableId,
-            destinationTableId: move.toTableId,
-            destinationSeatNumber: move.toSeat,
-            sourceMode: boundary.sourceMode,
-          };
-          try {
-            const receipt = await this.requestTournamentSeatMoveAtBoundary(input, boundary);
-            moved++;
-            // The destination may be waiting below its deal minimum on a
-            // backed-off roster read; it looks now rather than in a minute.
-            this.tableEngines.get(move.toTableId)?.wakeWaitingForPlayers();
-            // And it shows the chair now, even with a hand in the air.
-            this.committedSeatShow.moved(move.toTableId);
-            console.log(
-              `[Tournament:${this.tournamentId.slice(0, 8)}] Atomic move ${receipt.requestId.slice(0, 8)} certified for ${move.playerId.slice(0, 8)}: table ${move.fromTableId.slice(0, 8)} seat ${receipt.sourceSeatNumber} to table ${move.toTableId.slice(0, 8)} seat ${receipt.destinationSeatNumber}`
-            );
-          } catch (moveErr) {
-            if (moveErr instanceof TournamentSeatMoveOutcomeUnknownError) {
-              this.pendingTournamentSeatMoveOutcomes.set(requestId, {
-                move,
-                input,
-              });
-              retainedUnknownSources.add(sourceTableId);
-            } else {
-              refusedSources.add(sourceTableId);
-            }
-            reportError(moveErr, 'Tournament.atomic_move_refused_or_unknown', {
-              tournamentId: this.tournamentId,
-              requestId,
-              playerId: move.playerId,
-              sourceTableId: move.fromTableId,
-              destinationTableId: move.toTableId,
-              destinationSeat: move.toSeat,
-            });
+          // The chair is chosen at the door, not at planning time (2026-11-25).
+          // Late registrants and other movers fill the same destination
+          // between the snapshot and this request; a chair taken meanwhile
+          // is replaced by one that is free now. One definite "occupied"
+          // refusal (a clean rollback) gets one fresh read and a new request.
+          let chair = await this.chairFreeAtTheDoor(move);
+          if (chair === null) {
+            refusedSources.add(sourceTableId);
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
             break;
           }
+          let lostTheChair = false;
+          for (let doorAttempt = 0; doorAttempt < 2; doorAttempt++) {
+            const requestId = randomUUID();
+            const input: TournamentSeatMoveInput = {
+              requestId,
+              tournamentId: this.tournamentId,
+              userId: move.playerId,
+              sourceTableId: move.fromTableId,
+              destinationTableId: move.toTableId,
+              destinationSeatNumber: chair,
+              sourceMode: boundary.sourceMode,
+            };
+            try {
+              const receipt = await this.requestTournamentSeatMoveAtBoundary(input, boundary);
+              moved++;
+              // The destination may be waiting below its deal minimum on a
+              // backed-off roster read; it looks now rather than in a minute.
+              this.tableEngines.get(move.toTableId)?.wakeWaitingForPlayers();
+              // And it shows the chair now, even with a hand in the air.
+              this.committedSeatShow.moved(move.toTableId);
+              console.log(
+                `[Tournament:${this.tournamentId.slice(0, 8)}] Atomic move ${receipt.requestId.slice(0, 8)} certified for ${move.playerId.slice(0, 8)}: table ${move.fromTableId.slice(0, 8)} seat ${receipt.sourceSeatNumber} to table ${move.toTableId.slice(0, 8)} seat ${receipt.destinationSeatNumber}`
+              );
+              break;
+            } catch (moveErr) {
+              if (
+                doorAttempt === 0 &&
+                moveErr instanceof TournamentSeatMoveRefusedError &&
+                isLostChairRefusal(moveErr)
+              ) {
+                const fresh = await this.chairFreeAtTheDoor(move);
+                if (fresh !== null && this.eliminationMutationAllowed()) {
+                  chair = fresh;
+                  continue;
+                }
+                lostTheChair = true;
+              }
+              if (moveErr instanceof TournamentSeatMoveOutcomeUnknownError) {
+                this.pendingTournamentSeatMoveOutcomes.set(requestId, {
+                  move,
+                  input,
+                });
+                retainedUnknownSources.add(sourceTableId);
+              } else {
+                refusedSources.add(sourceTableId);
+              }
+              if (!lostTheChair) {
+                reportError(moveErr, 'Tournament.atomic_move_refused_or_unknown', {
+                  tournamentId: this.tournamentId,
+                  requestId,
+                  playerId: move.playerId,
+                  sourceTableId: move.fromTableId,
+                  destinationTableId: move.toTableId,
+                  destinationSeat: chair,
+                });
+              }
+              this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+              break;
+            }
+          }
+          if (refusedSources.has(sourceTableId) || retainedUnknownSources.has(sourceTableId)) break;
         }
       } finally {
         if (

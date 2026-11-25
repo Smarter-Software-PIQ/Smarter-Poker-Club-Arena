@@ -520,3 +520,89 @@ tests:
   - eval_time: 19m
     alertname: SpinFleetProducingNothing
     exp_alerts: []
+- name: P1 repeated Spin seat-first booking refusals fire after for:2m with exact reason label
+  interval: 1m
+  input_series:
+  - series: poker_spin_seat_first_booking_refused_total{reason="three_paid_seats_required"}
+    values: 0 3 6 9 12 15 18 21
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinSeatFirstBookingRefusedRepeatedly
+        severity: critical
+        component: spin
+        reason: three_paid_seats_required
+      exp_annotations:
+        summary: Spin seat-first booking refused 12 times in 5m (reason=three_paid_seats_required)
+        description: 'fn_seat_horse_in_seat_first_game raised an unexpected Spin booking
+
+          refusal at least three times in five minutes (excluding ordinary
+
+          four-table horse-capacity refusals). Check engine logs for
+
+          TournamentRecurring.seat_first_seat_rpc_failed and inspect
+
+          fn_spin_book_entry / fn_sync_seat_first_player_count for the named
+
+          reason.
+
+          '
+        runbook: docs/runbooks/spin-unfilled-backlog.md
+- name: P2 isolated one-off booking refusals below 3 in 5m stay silent
+  interval: 1m
+  input_series:
+  - series: poker_spin_seat_first_booking_refused_total{reason="other"}
+    values: 0 1 2 2 2 2 2 2 2 2
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts: []
+- name: P3 maintenance break suppresses SpinSeatFirstBookingRefusedRepeatedly
+  interval: 1m
+  input_series:
+  - series: poker_spin_seat_first_booking_refused_total{reason="three_paid_seats_required"}
+    values: 0 3 6 9 12 15 18 21
+  - series: poker_maintenance_break_active
+    values: 1x10
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts: []
+- name: P4 SpinSeatFirstBookingRefusedRepeatedly auto-resolves once refusals stop
+  interval: 1m
+  input_series:
+  - series: poker_spin_seat_first_booking_refused_total{reason="three_paid_seats_required"}
+    values: 0 4 8 12 12 12 12 12 12 12 12 12 12 12 12
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinSeatFirstBookingRefusedRepeatedly
+        severity: critical
+        component: spin
+        reason: three_paid_seats_required
+      exp_annotations:
+        summary: Spin seat-first booking refused 12 times in 5m (reason=three_paid_seats_required)
+        description: 'fn_seat_horse_in_seat_first_game raised an unexpected Spin booking
+
+          refusal at least three times in five minutes (excluding ordinary
+
+          four-table horse-capacity refusals). Check engine logs for
+
+          TournamentRecurring.seat_first_seat_rpc_failed and inspect
+
+          fn_spin_book_entry / fn_sync_seat_first_player_count for the named
+
+          reason.
+
+          '
+        runbook: docs/runbooks/spin-unfilled-backlog.md
+  - eval_time: 12m
+    alertname: SpinSeatFirstBookingRefusedRepeatedly
+    exp_alerts: []

@@ -216,10 +216,12 @@ describe('cash_bust hand-gap hardening', () => {
     });
     engine.fetchTimeBankExtras = fetchExtras;
 
-    // With no active rest armed, no speculative DB read is issued.
+    // While paused or closing out, no speculative DB read is issued.
+    engine.terminalCloseoutPaused = true;
     engine.prepareTimeBankReads(seats);
     expect(fetchExtras).not.toHaveBeenCalled();
     expect(readAutoTimeBankPreferences).not.toHaveBeenCalled();
+    engine.terminalCloseoutPaused = false;
 
     // Arm the between-hand rest and start preparation under it.
     engine.armNextHandRest(1_500);
@@ -327,8 +329,8 @@ describe('cash_bust hand-gap hardening', () => {
     // discardPreparedHandForPause clears prepared reads when paused.
     engine.maintenancePaused = true;
     expect(engine.discardPreparedHandForPause()).toBe(true);
-    expect(engine.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
-    expect(engine.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+    expect(engine.preparedTimeBankExtras).toBeNull();
+    expect(engine.preparedAutoTimeBankPreferences).toBeNull();
 
     // Re-arm and verify stop() clears prepared reads.
     engine.maintenancePaused = false;
@@ -336,8 +338,8 @@ describe('cash_bust hand-gap hardening', () => {
     engine.prepareTimeBankReads(seats);
     expect(fetchExtras).toHaveBeenCalledTimes(2);
     await engine.stop();
-    expect(engine.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
-    expect(engine.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+    expect(engine.preparedTimeBankExtras).toBeNull();
+    expect(engine.preparedAutoTimeBankPreferences).toBeNull();
 
     // Re-arm on a fresh engine and verify killForRestart() clears prepared reads.
     const engine2 = makeCashEngine();
@@ -346,7 +348,7 @@ describe('cash_bust hand-gap hardening', () => {
     engine2.prepareTimeBankReads(seats);
     expect(fetchExtras).toHaveBeenCalledTimes(3);
     engine2.killForRestart('audit_test_restart', false);
-    expect(engine2.takePreparedTimeBankExtras(['player-dedup-1'])).toBeNull();
-    expect(engine2.takePreparedAutoTimeBankPreferences(['player-dedup-1'])).toBeNull();
+    expect(engine2.preparedTimeBankExtras).toBeNull();
+    expect(engine2.preparedAutoTimeBankPreferences).toBeNull();
   });
 });

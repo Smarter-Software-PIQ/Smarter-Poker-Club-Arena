@@ -237,19 +237,21 @@ describe('the roster', () => {
 });
 
 describe('production roster mode readiness', () => {
-  it('chooses Simple through its control before asserting it, including saved Advanced mode', () => {
+  it('requires the single directory and opens its tools before checking live totals', () => {
     const helper = PRODUCTION_PLAYERS.slice(
       PRODUCTION_PLAYERS.indexOf('async function openMembers('),
       PRODUCTION_PLAYERS.indexOf('async function expectContainedControls(')
     );
-    const pageReady = helper.indexOf(`page.locator('[data-players-mode]')`);
-    const chooseSimple = helper.indexOf(
-      `getByRole('button', { name: 'Simple', exact: true }).click()`
+    const pageReady = helper.indexOf(`page.locator('[data-players-mode="simple"]')`);
+    const noModeSelector = helper.indexOf(
+      `getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0)`
     );
-    const assertSimple = helper.indexOf(`page.locator('[data-players-mode="simple"]')`);
+    const openTools = helper.indexOf(
+      `getByRole('button', { name: 'Sort And Roster Tools' }).click()`
+    );
     expect(pageReady).toBeGreaterThan(-1);
-    expect(chooseSimple).toBeGreaterThan(pageReady);
-    expect(assertSimple).toBeGreaterThan(chooseSimple);
+    expect(noModeSelector).toBeGreaterThan(pageReady);
+    expect(openTools).toBeGreaterThan(noModeSelector);
     expect(helper).not.toMatch(/(?:localStorage|sessionStorage)\.(?:clear|removeItem)/);
   });
 });

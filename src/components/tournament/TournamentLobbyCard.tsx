@@ -63,7 +63,6 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 import styles from './TournamentLobbyCard.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { runWithRequestDeadline } from '../../utils/requestDeadline';
-import { titleArtStyle } from '../lobby/ArenaLobbyTitle';
 import { formatTournamentTitle } from '../../utils/formatGameTitle';
 // Whole-number tournament money (Dan 2026-08-20).
 import { money } from '../../utils/buyIn';
@@ -906,7 +905,7 @@ function TournamentLobbyCardInner({
       <Section
         data-unframed={unframed || undefined}
         as="div"
-        className={`${styles.card} arena-format-card`}
+        className={styles.card}
         /* The recorded format names the card; a format nobody has recorded is
          plainly a Tournament, never a guess. */
         eyebrow={formatKnown ? getTypeLabel(displayType) : 'Tournament'}
@@ -916,16 +915,6 @@ function TournamentLobbyCardInner({
         pillInk={pillInk}
         onClick={() => navigate(`/tournaments/${tournament.id}`)}
         style={{
-          ...titleArtStyle({
-            tournament_type: displayType,
-            satellite_target_id: tournament.satellite_target_id,
-            is_pko: tournament.isPko,
-            is_mystery_bounty: tournament.isMysteryBounty,
-            is_bounty: tournament.isBounty,
-            is_rebuy: tournament.isRebuy,
-            all_in_or_fold: tournament.isAllInOrFold,
-            buy_in_amount: tournament.buyIn,
-          }),
           cursor: 'pointer',
           opacity: mounted ? 1 : 0,
           transform: mounted ? 'translateY(0)' : 'translateY(8px)',

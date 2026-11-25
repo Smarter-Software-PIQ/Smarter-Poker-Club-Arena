@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
 import ClubDataSourceDetails, {
   type ClubDataSourceRow,
@@ -617,8 +618,8 @@ export default function ClubDataSimplePage() {
 
   if (denied) {
     return (
-      <div className={styles.page}>
-        <Header onBack={() => navigate(-1)} clubName={clubName} />
+      <div className={`${styles.page} arena-workspace`}>
+        <Header clubName={clubName} />
         <div className={styles.empty}>
           <SpadeMark />
           <p className={styles.emptyText}>
@@ -630,7 +631,7 @@ export default function ClubDataSimplePage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       {sourceRow?.key === scopeKey && clubUuid && (
         <ClubDataSourceDetails
           row={sourceRow.row}
@@ -641,10 +642,9 @@ export default function ClubDataSimplePage() {
         />
       )}
       <Header
-        onBack={() => navigate(-1)}
         clubName={clubName}
         /* The full report is the whole club's; an agent's view is his own. */
-        onAdvanced={
+        onReport={
           visibleSnapshot?.scope === 'club'
             ? () =>
                 navigate(
@@ -659,222 +659,233 @@ export default function ClubDataSimplePage() {
       )}
       {isDownline && <div className={styles.agentScopeBanner}>You And Your Downline</div>}
 
-      <div className={styles.rangeBar}>
-        <button
-          type="button"
-          className={styles.arrow}
-          onClick={() => shift(-1)}
-          aria-label="Previous Period"
-          disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16 3 L5 12 L16 21 Z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className={styles.rangeChip}
-          aria-label="Select Date Range"
-          aria-expanded={editingDates}
-          aria-controls="club-data-date-range"
-          onClick={() => {
-            setEditingDates((open) => !open);
-          }}
-        >
-          <span>{windowLabel}</span>
-          <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
-        </button>
-        <button
-          type="button"
-          className={styles.arrow}
-          onClick={() => shift(1)}
-          disabled={isToday}
-          aria-label="Next Period"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 3 L19 12 L8 21 Z" />
-          </svg>
-        </button>
-      </div>
-
-      {reportRangeError && (
-        <p role="alert" className={styles.liveLine}>
-          {reportRangeError}
-        </p>
-      )}
-      <ClubDataReportGuide start={startDate} end={endDate} basis={answerBasis} union={unionBasis} />
-
-      {editingDates && (
-        <ClubDataRangeCalendar
-          start={startDate}
-          end={endDate}
-          today={today}
-          zoneLabel={
-            answerBasis === 'accounting'
-              ? 'Pacific Accounting Dates'
-              : answerBasis === 'pacific'
-                ? 'Pacific Calendar Dates'
-                : 'Chicago Calendar Dates'
-          }
-          onClose={() => setEditingDates(false)}
-          onApply={(first, last) => {
-            selectDates(first, last);
-            setEditingDates(false);
-          }}
-        />
-      )}
-      <div className={styles.segment} role="group" aria-label="Date Range">
-        {PRESETS.map((p) => (
+      <section className="arena-case">
+        <h2 className="arena-section-title">
+          Reporting Window <small>{CLUB_DATA_ZONE_LABEL}</small>
+        </h2>
+        <div className={styles.rangeBar}>
           <button
-            key={p}
             type="button"
-            aria-pressed={customStart === null && preset === p}
-            className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
+            className={styles.arrow}
+            onClick={() => shift(-1)}
+            aria-label="Previous Period"
+            disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 3 L5 12 L16 21 Z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={styles.rangeChip}
+            aria-label="Select Date Range"
+            aria-expanded={editingDates}
+            aria-controls="club-data-date-range"
             onClick={() => {
-              selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
-              setPreset(p);
-              setEditingDates(false);
+              setEditingDates((open) => !open);
             }}
           >
-            {p === 1 ? '1 Day' : `${p} Days`}
+            <span>{windowLabel}</span>
+            <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
           </button>
-        ))}
-      </div>
+          <button
+            type="button"
+            className={styles.arrow}
+            onClick={() => shift(1)}
+            disabled={isToday}
+            aria-label="Next Period"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 3 L19 12 L8 21 Z" />
+            </svg>
+          </button>
+        </div>
 
-      <dl className={styles.stats} aria-busy={loading} aria-label="Club Totals">
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>Games</dt>
-          <dd className={styles.statValue}>
-            {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
-          </dd>
-        </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
+        {reportRangeError && (
+          <p role="alert" className={styles.liveLine}>
+            {reportRangeError}
+          </p>
+        )}
+        <ClubDataReportGuide
+          start={startDate}
+          end={endDate}
+          basis={answerBasis}
+          union={unionBasis}
+        />
+
+        {editingDates && (
+          <ClubDataRangeCalendar
+            start={startDate}
+            end={endDate}
+            today={today}
+            zoneLabel={
+              answerBasis === 'accounting'
+                ? 'Pacific Accounting Dates'
+                : answerBasis === 'pacific'
+                  ? 'Pacific Calendar Dates'
+                  : 'Chicago Calendar Dates'
+            }
+            onClose={() => setEditingDates(false)}
+            onApply={(first, last) => {
+              selectDates(first, last);
+              setEditingDates(false);
+            }}
+          />
+        )}
+        <div className={`${styles.segment} arena-switch`} role="group" aria-label="Date Range">
+          {PRESETS.map((p) => (
             <button
+              key={p}
               type="button"
-              className={styles.statAction}
-              disabled={!summary}
-              onClick={() => setBreakdown('total_winnings')}
-              aria-label="View Total Winnings By Player"
+              aria-pressed={customStart === null && preset === p}
+              className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
+              onClick={() => {
+                selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
+                setPreset(p);
+                setEditingDates(false);
+              }}
             >
-              Total Winnings
+              {p === 1 ? '1 Day' : `${p} Days`}
             </button>
-          </dt>
-          <dd
-            className={`${styles.statValue} ${summary ? inkFor(summary.total_winnings) : ''}`}
-            title={summary ? formatMoney(summary.total_winnings) : undefined}
-            aria-label={summary ? formatMoney(summary.total_winnings) : undefined}
-          >
-            {summary ? formatTotal(summary.total_winnings) : '-'}
-          </dd>
+          ))}
         </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
-            <button
-              type="button"
-              className={styles.statAction}
-              disabled={!summary}
-              onClick={() => setBreakdown('mtt_winnings')}
-              aria-label="View MTT Winnings By Player"
-            >
-              MTT Winnings
-            </button>
-          </dt>
-          <dd
-            className={`${styles.statValue} ${summary ? inkFor(summary.mtt_winnings) : ''}`}
-            title={summary ? formatMoney(summary.mtt_winnings) : undefined}
-            aria-label={summary ? formatMoney(summary.mtt_winnings) : undefined}
-          >
-            {summary ? formatTotal(summary.mtt_winnings) : '-'}
-          </dd>
-        </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
-            {isDownline ? (
-              downlineAccountingFees ? (
-                'Downline Fees'
-              ) : (
-                'My Fees Earned'
-              )
-            ) : (
+      </section>
+      <section className="arena-case">
+        <h2 className="arena-section-title">Club Totals</h2>
+        <dl className={styles.stats} aria-busy={loading} aria-label="Club Totals">
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>Games</dt>
+            <dd className={styles.statValue}>
+              {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
+            </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
               <button
                 type="button"
                 className={styles.statAction}
                 disabled={!summary}
-                onClick={() => setBreakdown('fee')}
-                aria-label="View Fees By Player"
+                onClick={() => setBreakdown('total_winnings')}
+                aria-label="View Total Winnings By Player"
               >
-                Fee
+                Total Winnings
               </button>
-            )}
-          </dt>
-          <dd
-            className={styles.statValue}
-            ref={feeRef}
-            title={isDownline || summary ? feeText : undefined}
-            aria-label={isDownline || summary ? feeText : undefined}
-          >
-            {feeText}
-          </dd>
-        </div>
-      </dl>
-      {visibleSnapshot && !isDownline && (
-        <ClubDataReconciliation
-          basis={visibleSnapshot.accounting_basis}
-          coverage={visibleSnapshot.accounting_coverage}
-          range={visibleSnapshot.range}
-          reconciliation={summary?.reconciliation}
-          generatedAt={visibleSnapshot?.generated_at}
-          onPlayers={() => setBreakdown('total_winnings')}
-          onGames={() =>
-            navigate(
-              `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
-            )
-          }
-        />
-      )}
-      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
-        <ClubDataByClub
-          clubs={visibleSnapshot.clubs}
-          end={endDate}
-          start={startDate}
-          filters={{ game, stakes, search: searchInput }}
-        />
-      )}
-      {breakdown && visibleSnapshot && clubUuid && userId && (
-        <ClubDataTotalsBreakdown
-          key={scopeKey}
-          clubId={clubUuid}
-          start={startDate}
-          end={endDate}
-          basis={answerBasis}
-          game={game}
-          stakes={stakesApply ? stakes : 'ALL'}
-          search={search || null}
-          metric={breakdown}
-          onClose={() => setBreakdown(null)}
-        />
-      )}
-      {summary &&
-        summary.running_mtt_entries !== undefined &&
-        summary.running_mtt_entries !== null && (
-          <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-            <dt>Unfinished MTT Entries</dt>
+            </dt>
             <dd
-              className={inkFor(summary.running_mtt_entries)}
-              title={formatMoney(summary.running_mtt_entries)}
+              className={`${styles.statValue} ${summary ? inkFor(summary.total_winnings) : ''}`}
+              title={summary ? formatMoney(summary.total_winnings) : undefined}
+              aria-label={summary ? formatMoney(summary.total_winnings) : undefined}
             >
-              {formatMoney(summary.running_mtt_entries)}
+              {summary ? formatTotal(summary.total_winnings) : '-'}
             </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
+              <button
+                type="button"
+                className={styles.statAction}
+                disabled={!summary}
+                onClick={() => setBreakdown('mtt_winnings')}
+                aria-label="View MTT Winnings By Player"
+              >
+                MTT Winnings
+              </button>
+            </dt>
+            <dd
+              className={`${styles.statValue} ${summary ? inkFor(summary.mtt_winnings) : ''}`}
+              title={summary ? formatMoney(summary.mtt_winnings) : undefined}
+              aria-label={summary ? formatMoney(summary.mtt_winnings) : undefined}
+            >
+              {summary ? formatTotal(summary.mtt_winnings) : '-'}
+            </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
+              {isDownline ? (
+                downlineAccountingFees ? (
+                  'Downline Fees'
+                ) : (
+                  'My Fees Earned'
+                )
+              ) : (
+                <button
+                  type="button"
+                  className={styles.statAction}
+                  disabled={!summary}
+                  onClick={() => setBreakdown('fee')}
+                  aria-label="View Fees By Player"
+                >
+                  Fee
+                </button>
+              )}
+            </dt>
+            <dd
+              className={styles.statValue}
+              ref={feeRef}
+              title={isDownline || summary ? feeText : undefined}
+              aria-label={isDownline || summary ? feeText : undefined}
+            >
+              {feeText}
+            </dd>
+          </div>
+        </dl>
+        {visibleSnapshot && !isDownline && (
+          <ClubDataReconciliation
+            basis={visibleSnapshot.accounting_basis}
+            coverage={visibleSnapshot.accounting_coverage}
+            range={visibleSnapshot.range}
+            reconciliation={summary?.reconciliation}
+            generatedAt={visibleSnapshot?.generated_at}
+            onPlayers={() => setBreakdown('total_winnings')}
+            onGames={() =>
+              navigate(
+                `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
+              )
+            }
+          />
+        )}
+        {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+          <ClubDataByClub
+            clubs={visibleSnapshot.clubs}
+            end={endDate}
+            start={startDate}
+            filters={{ game, stakes, search: searchInput }}
+          />
+        )}
+        {breakdown && visibleSnapshot && clubUuid && userId && (
+          <ClubDataTotalsBreakdown
+            key={scopeKey}
+            clubId={clubUuid}
+            start={startDate}
+            end={endDate}
+            basis={answerBasis}
+            game={game}
+            stakes={stakesApply ? stakes : 'ALL'}
+            search={search || null}
+            metric={breakdown}
+            onClose={() => setBreakdown(null)}
+          />
+        )}
+        {summary &&
+          summary.running_mtt_entries !== undefined &&
+          summary.running_mtt_entries !== null && (
+            <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
+              <dt>Unfinished MTT Entries</dt>
+              <dd
+                className={inkFor(summary.running_mtt_entries)}
+                title={formatMoney(summary.running_mtt_entries)}
+              >
+                {formatMoney(summary.running_mtt_entries)}
+              </dd>
+            </dl>
+          )}
+        {unionBasis && summary && typeof summary.on_felt === 'number' && (
+          <dl className={styles.runningLine} aria-label="Chips On The Felt">
+            <dt>On The Felt Now</dt>
+            <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
           </dl>
         )}
-      {unionBasis && summary && typeof summary.on_felt === 'number' && (
-        <dl className={styles.runningLine} aria-label="Chips On The Felt">
-          <dt>On The Felt Now</dt>
-          <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
-        </dl>
-      )}
-
+      </section>
       <div className={styles.liveRow}>
         <div className={styles.liveLine} role="status">
           {error ? (
@@ -946,145 +957,150 @@ export default function ClubDataSimplePage() {
         </DataHelpTip>
       </div>
 
-      <label className={styles.search}>
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search Player, Game, Creator Or ID"
-          aria-label="Search Players And Games"
-        />
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.searchIcon}>
-          <circle cx="10.5" cy="10.5" r="6.5" />
-          <path d="M15.5 15.5 L21 21" />
-        </svg>
-      </label>
+      <section className="arena-case">
+        <h2 className="arena-section-title">Game Reports</h2>
+        <label className={styles.search}>
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search Player, Game, Creator Or ID"
+            aria-label="Search Players And Games"
+          />
+          <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.searchIcon}>
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="M15.5 15.5 L21 21" />
+          </svg>
+        </label>
 
-      {playerSearchReady &&
-        search &&
-        searchInput.trim() === search &&
-        playerResults?.key === scopeKey && (
-          <section aria-label="Matching Players">
-            {playerResults.failed ? (
-              <p role="status" className={styles.liveLine}>
-                Player Search Could Not Be Read.
-              </p>
-            ) : (
-              <ul className={styles.list}>
-                {playerResults.items.map((player) => (
-                  <li key={player.user_id}>
-                    <button
-                      type="button"
-                      className={`${styles.row} ${styles.playerResult}`}
-                      onClick={() =>
-                        navigate(
-                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
-                        )
-                      }
-                    >
-                      <span className={styles.rowName}>{titleCase(playerDisplayName(player))}</span>
-                      <span className={styles.rowFee}>View Player Data</span>
-                    </button>
-                  </li>
-                ))}
-                {playerResults.items.length === 0 && (
-                  <li className={styles.more}>No Matching Players In Your Data Scope.</li>
-                )}
-              </ul>
-            )}
-          </section>
-        )}
+        {playerSearchReady &&
+          search &&
+          searchInput.trim() === search &&
+          playerResults?.key === scopeKey && (
+            <section aria-label="Matching Players">
+              {playerResults.failed ? (
+                <p role="status" className={styles.liveLine}>
+                  Player Search Could Not Be Read.
+                </p>
+              ) : (
+                <ul className={styles.list}>
+                  {playerResults.items.map((player) => (
+                    <li key={player.user_id}>
+                      <button
+                        type="button"
+                        className={`${styles.row} ${styles.playerResult}`}
+                        onClick={() =>
+                          navigate(
+                            `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
+                          )
+                        }
+                      >
+                        <span className={styles.rowName}>
+                          {titleCase(playerDisplayName(player))}
+                        </span>
+                        <span className={styles.rowFee}>View Player Data</span>
+                      </button>
+                    </li>
+                  ))}
+                  {playerResults.items.length === 0 && (
+                    <li className={styles.more}>No Matching Players In Your Data Scope.</li>
+                  )}
+                </ul>
+              )}
+            </section>
+          )}
 
-      <div className={styles.tabs} role="group" aria-label="Game Type">
-        {GAME_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            aria-pressed={game === f.id}
-            className={`${styles.tab} ${game === f.id ? styles.tabActive : ''}`}
-            onClick={() => setGame(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {stakesApply && (
-        <div className={styles.stakes} role="group" aria-label="Stakes">
-          {STAKES_FILTERS.map((f) => (
+        <div className={styles.tabs} role="group" aria-label="Game Type">
+          {GAME_FILTERS.map((f) => (
             <button
               key={f.id}
               type="button"
-              aria-pressed={stakes === f.id}
-              className={`${styles.stake} ${stakes === f.id ? styles.stakeActive : ''}`}
-              onClick={() => setStakes((prev) => (prev === f.id ? 'ALL' : f.id))}
+              aria-pressed={game === f.id}
+              className={`${styles.tab} ${game === f.id ? styles.tabActive : ''}`}
+              onClick={() => setGame(f.id)}
             >
               {f.label}
             </button>
           ))}
         </div>
-      )}
 
-      {snapshot && rows.length === 0 ? (
-        <div className={styles.empty}>
-          <SpadeMark />
-          <p className={styles.emptyText}>No Data In This Period.</p>
-        </div>
-      ) : !snapshot && !loading ? (
-        <div className={styles.empty}>
-          <SpadeMark />
-          <p className={styles.emptyText}>{error ?? 'No Data In This Period.'}</p>
-          <button type="button" className={styles.retry} onClick={() => void load()}>
-            Try Again
-          </button>
-        </div>
-      ) : (
-        <ul className={styles.list} aria-label="Games">
-          {rows.map((row) => (
-            <li key={`${row.kind}-${row.id}`} className={styles.row}>
-              <div className={styles.rowMain}>
-                <div className={styles.rowTitle}>
-                  <button
-                    type="button"
-                    className={styles.sourceName}
-                    onClick={() => setSourceRow({ key: scopeKey, row })}
-                  >
-                    {row.name}
-                  </button>
-                  {row.live && <span className={styles.badgeLive}>Live</span>}
+        {stakesApply && (
+          <div className={styles.stakes} role="group" aria-label="Stakes">
+            {STAKES_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={stakes === f.id}
+                className={`${styles.stake} ${stakes === f.id ? styles.stakeActive : ''}`}
+                onClick={() => setStakes((prev) => (prev === f.id ? 'ALL' : f.id))}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {snapshot && rows.length === 0 ? (
+          <div className={styles.empty}>
+            <SpadeMark />
+            <p className={styles.emptyText}>No Data In This Period.</p>
+          </div>
+        ) : !snapshot && !loading ? (
+          <div className={styles.empty}>
+            <SpadeMark />
+            <p className={styles.emptyText}>{error ?? 'No Data In This Period.'}</p>
+            <button type="button" className={styles.retry} onClick={() => void load()}>
+              Try Again
+            </button>
+          </div>
+        ) : (
+          <ul className={styles.list} aria-label="Games">
+            {rows.map((row) => (
+              <li key={`${row.kind}-${row.id}`} className={`${styles.row} arena-ledger-row`}>
+                <div className={styles.rowMain}>
+                  <div className={styles.rowTitle}>
+                    <button
+                      type="button"
+                      className={styles.sourceName}
+                      onClick={() => setSourceRow({ key: scopeKey, row })}
+                    >
+                      {row.name}
+                    </button>
+                    {row.live && <span className={styles.badgeLive}>Live</span>}
+                  </div>
+                  <div className={styles.rowMeta}>
+                    <span className={styles.kind}>{kindLabel(row)}</span>
+                    {(row.kind === 'CASH' ? row.activity_at : row.started_at) && (
+                      <span>
+                        {startedLabel(row.kind === 'CASH' ? row.activity_at : row.started_at)}
+                      </span>
+                    )}
+                    {Number(row.players) > 0 && (
+                      <span>
+                        {Number(row.players).toLocaleString('en-US')} Player
+                        {Number(row.players) === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    {(gameHost || clubName) && <span>By {gameHost || clubName}</span>}
+                  </div>
                 </div>
-                <div className={styles.rowMeta}>
-                  <span className={styles.kind}>{kindLabel(row)}</span>
-                  {(row.kind === 'CASH' ? row.activity_at : row.started_at) && (
-                    <span>
-                      {startedLabel(row.kind === 'CASH' ? row.activity_at : row.started_at)}
-                    </span>
-                  )}
-                  {Number(row.players) > 0 && (
-                    <span>
-                      {Number(row.players).toLocaleString('en-US')} Player
-                      {Number(row.players) === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {(gameHost || clubName) && <span>By {gameHost || clubName}</span>}
+                <div className={styles.rowFigures}>
+                  <span className={`${styles.rowWin} ${inkFor(row.winnings)}`}>
+                    {formatMoney(row.winnings)}
+                  </span>
+                  <span className={styles.rowFee}>Fee {formatMoney(row.fee)}</span>
                 </div>
-              </div>
-              <div className={styles.rowFigures}>
-                <span className={`${styles.rowWin} ${inkFor(row.winnings)}`}>
-                  {formatMoney(row.winnings)}
-                </span>
-                <span className={styles.rowFee}>Fee {formatMoney(row.fee)}</span>
-              </div>
-            </li>
-          ))}
-          {rows.length >= ROW_LIMIT && summary && Number(summary.games) > rows.length && (
-            <li className={styles.more}>
-              Showing The {rows.length.toLocaleString('en-US')} Most Recent Of{' '}
-              {Number(summary.games).toLocaleString('en-US')} Games. Totals Above Cover Them All.
-            </li>
-          )}
-        </ul>
-      )}
+              </li>
+            ))}
+            {rows.length >= ROW_LIMIT && summary && Number(summary.games) > rows.length && (
+              <li className={styles.more}>
+                Showing The {rows.length.toLocaleString('en-US')} Most Recent Of{' '}
+                {Number(summary.games).toLocaleString('en-US')} Games. Totals Above Cover Them All.
+              </li>
+            )}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -1095,40 +1111,23 @@ export function headerTitle(clubName: string | null | undefined): string {
   return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';
 }
 
-function Header({
-  onBack,
-  onAdvanced,
-  clubName,
-}: {
-  onBack: () => void;
-  onAdvanced?: () => void;
-  clubName?: string | null;
-}) {
+function Header({ onReport, clubName }: { onReport?: () => void; clubName?: string | null }) {
   return (
-    <header className={styles.header}>
-      <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 5 L5 12 L12 19 M19 5 L12 12 L19 19" />
-        </svg>
-      </button>
-      <h1 className={styles.title} title={headerTitle(clubName)}>
-        {clubName ? (
-          <>
-            <span className={styles.titleClub}>{clubName.trim().toUpperCase()}</span>
-            <span className={styles.titleRest}>&nbsp;- CLUB DATA</span>
-          </>
-        ) : (
-          'Club Data'
-        )}
-      </h1>
-      {onAdvanced ? (
-        <button type="button" className={styles.headerAction} onClick={onAdvanced}>
-          Report
-        </button>
-      ) : (
-        <span className={styles.headerSpacer} />
+    <>
+      <ArenaWorkspaceHeader
+        area="data"
+        title="Club Data"
+        context={clubName}
+        subtitle="Club Reporting"
+      />
+      {onReport && (
+        <nav className="arena-switch" aria-label="Club Reports">
+          <button type="button" onClick={onReport}>
+            Open Club Report
+          </button>
+        </nav>
       )}
-    </header>
+    </>
   );
 }
 

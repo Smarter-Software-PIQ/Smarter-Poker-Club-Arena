@@ -210,7 +210,7 @@ describe('ClubDataSimplePage', () => {
     authState.current = { user: { id: 'agent-1' }, isHydrating: true };
     view.rerender(<ClubDataSimplePage />);
     expect(screen.queryByText('Shark Tank')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Advanced$/i })).not.toBeInTheDocument();
   });
 
   it('ignores a previous owner response after switching to an agent', async () => {
@@ -443,12 +443,10 @@ describe('ClubDataSimplePage', () => {
     });
     render(<ClubDataSimplePage />);
     const title = await screen.findByRole('heading', { level: 1 });
-    await waitFor(() =>
-      expect(title.textContent?.replace(/\u00a0/g, ' ')).toBe('CLUB JAQK - CLUB DATA')
-    );
-    expect(title.getAttribute('title')).toBe('CLUB JAQK - CLUB DATA');
+    expect(title).toHaveTextContent('Club Data');
+    await waitFor(() => expect(title.closest('header')).toHaveTextContent('Club JAQK'));
     expect(headerTitle(null)).toBe('Club Data');
-    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Club Report' }));
     expect(navigateMock).toHaveBeenCalledWith(
       `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
     );
@@ -461,7 +459,7 @@ describe('ClubDataSimplePage', () => {
     });
     render(<ClubDataSimplePage />);
     expect(await screen.findByText(/You And Your Downline/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Report' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Club Report' })).toBeNull();
   });
 });
 

@@ -36,7 +36,7 @@ const CASHIER_SURFACES: ReadonlyArray<{
     css: 'src/pages/CashierTradePage.module.css',
     consoles: 4,
   },
-  { tsx: 'src/pages/CashierPage.tsx', css: 'src/pages/CashierPage.module.css', consoles: 1 },
+  { tsx: 'src/pages/CashierPage.tsx', css: 'src/pages/CashierPage.module.css', consoles: 0 },
   {
     tsx: 'src/pages/CashierStatementsPage.tsx',
     css: 'src/pages/CashierStatementsPage.module.css',
@@ -134,6 +134,14 @@ describe('#ClubArenaConsole is the Cashier visual authority', () => {
       expect(consoleTags(source)).toHaveLength(consoles);
     }
   );
+
+  it('uses the workspace transfer review with the confirmed recipient and amount', () => {
+    const page = read('src/pages/CashierPage.tsx');
+    expect(page).toContain('className="arena-case arena-transfer-review"');
+    expect(page).toContain('chipFigure(sendConfirm.value)');
+    expect(page).toContain('{sendConfirm.recipientName}');
+    expect(page).toContain('handleAction(confirmed)');
+  });
 
   it('the table top-up uses the owner-supplied October 9 purchase master', () => {
     const source = read('src/components/table/CashierModal.tsx');

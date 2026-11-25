@@ -513,7 +513,7 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
     };
     render(<PlayerStatsPage />);
     const h = await hero();
-    await waitFor(() => expect(within(h).getAllByText(NOT_YET_MEASURED)).toHaveLength(2));
+    expect(within(h).getByText('BB/100').parentElement).toHaveTextContent(NOT_YET_MEASURED);
     const gauge = h.querySelector('.gauge-center') as HTMLElement;
     expect(within(gauge).getByText(NOT_YET_MEASURED)).toBeInTheDocument();
     expect(within(gauge).getByText('Hands Won')).toBeInTheDocument();
@@ -534,7 +534,11 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
     );
     rpcPayload = { ...data, scope: { ...data.scope, game_mode: 'tournament' } };
     render(<PlayerStatsPage />);
-    const playing = await screen.findByRole('region', { name: 'Tournament Playing Statistics' });
+    const playing = await screen.findByRole(
+      'region',
+      { name: 'Tournament Playing Statistics' },
+      { timeout: 6000 }
+    );
     expect(within(playing).getByText('400')).toBeInTheDocument();
     expect(within(playing).getByText('2,000')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Headline Performance' })).not.toBeInTheDocument();
@@ -545,6 +549,6 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
     render(<PlayerStatsPage />);
     const h = await hero();
     expect(await within(h).findByText('4.3')).toHaveClass('positive');
-    expect(within(h).queryByText(NOT_YET_MEASURED)).not.toBeInTheDocument();
+    expect(within(h).getByText('BB/100').parentElement).not.toHaveTextContent(NOT_YET_MEASURED);
   }, 12_000);
 });

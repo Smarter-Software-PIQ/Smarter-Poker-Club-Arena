@@ -1,4 +1,8 @@
 {
+  "cashierStatementToolEntry20261124": {
+    "reason": "The club cashier now has one view. Both weekly statement checks open Requests, Tickets And Tools when collapsed and then select the existing Settlement Record tab.",
+    "verification": "Reviewed both changed selectors. The authorized weekly funding, club payments, retained chips, failed reads and club-switch isolation assertions are preserved. The focused Cashier checks passed."
+  },
   "noticeCashoutClientAudit20261117": {
     "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
     "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
@@ -359,7 +363,7 @@
     "tests/fixtures/correction-document-authority/captured-references.json": "60b794f91a5d726c9302856a220b193eae52fbd95dc1e15ad4b95b312b092479",
     "tests/fixtures/correction-document-authority/captured-union-party.json": "9bc97fef36c4e3e3ec2766cb3596764513bb20fd8bce78e5fa1ee87337bb86f7",
     "tests/fixtures/correction-document-authority/regression.sql": "f70b287534ee6024469629a18fd38cb4074f528e906808c5bf6ebdb1464091f1",
-    "tests/cashier-weekly-statements.test.tsx": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a",
+    "tests/cashier-weekly-statements.test.tsx": "c387275458e342eaac86fe3395997fe3641d27cf1fccb5dd7f0998aec83f2217",
     "tests/helpers/clubWeeklyStatement.ts": "7061277bbc67933e1aba5bcd76ebd3cd4fec241ffe9545c39e0b0f10806b2d21",
     "tests/unit/ClubWeeklyAccountingReader.test.ts": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063",
     "tests/unit/FinancialExportService.test.ts": "a3870a8c151e21c7917687b6953dcd3d51cf82cc03071c655674111ad9556c16",
