@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   claimReasonText,
   dailyBonusService,
+  type DailyBonusBoost,
   type DailyBonusClaimResult,
   type DailyBonusStatus,
   type DailyBonusTile,
@@ -113,6 +114,28 @@ export function applyClaim(
   };
 }
 
+/**
+ * Derive remaining Mission Boost seconds from the server payload without letting
+ * device clock skew or a malformed timestamp produce NaN:NaN:NaN.
+ * Prefers server-computed `seconds_left`; falls back to `ends_at` only if valid.
+ */
+export function resolveBoostSecondsLeft(
+  boost: DailyBonusBoost | null | undefined,
+  now = Date.now()
+): number {
+  if (!boost || boost.active !== true) return 0;
+  if (typeof boost.seconds_left === 'number' && Number.isFinite(boost.seconds_left)) {
+    return Math.max(0, Math.floor(boost.seconds_left));
+  }
+  if (boost.ends_at) {
+    const parsed = Date.parse(boost.ends_at);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.ceil((parsed - now) / 1000));
+    }
+  }
+  return 0;
+}
+
 export function useDailyBonus(enabled: boolean) {
   const accountId = useUserStore((state) => state.user?.id ?? null);
   const [status, setStatus] = useState<DailyBonusStatus | null>(null);
@@ -173,7 +196,7 @@ export function useDailyBonus(enabled: boolean) {
         if (!mounted.current || version !== statusVersion.current) return;
         const seconds = Math.max(0, Number(next.seconds_to_reset) || 0);
         deadline.current = Date.now() + seconds * 1000;
-        const boostLeft = next.boost?.active ? Math.max(0, next.boost.seconds_left ?? 0) : 0;
+        const boostLeft = resolveBoostSecondsLeft(next.boost);
         boostEnds.current = boostLeft > 0 ? Date.now() + boostLeft * 1000 : null;
         setStatus(next);
         setSecondsToReset(seconds);
@@ -298,14 +321,13 @@ export function useDailyBonus(enabled: boolean) {
         inFlight.current = null;
         setLoading(false);
         setLoadError(null);
-        deadline.current = Date.now() + Math.max(0, receipt.status.seconds_to_reset) * 1000;
+        const seconds = Math.max(0, Number(receipt.status.seconds_to_reset) || 0);
+        deadline.current = Date.now() + seconds * 1000;
         setStatus(receipt.status);
-        setSecondsToReset(Math.max(0, receipt.status.seconds_to_reset));
-        const ends = receipt.status.boost?.ends_at;
-        boostEnds.current = ends ? Date.parse(ends) : null;
-        setBoostSecondsLeft(
-          Math.max(0, Math.ceil(((boostEnds.current ?? Date.now()) - Date.now()) / 1000))
-        );
+        setSecondsToReset(seconds);
+        const boostLeft = resolveBoostSecondsLeft(receipt.status.boost);
+        boostEnds.current = boostLeft > 0 ? Date.now() + boostLeft * 1000 : null;
+        setBoostSecondsLeft(boostLeft);
       } else {
         await load();
       }
@@ -341,7 +363,7 @@ export function useDailyBonus(enabled: boolean) {
 
 /** hh:mm:ss for the countdown. */
 export function formatCountdown(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const r = s % 60;

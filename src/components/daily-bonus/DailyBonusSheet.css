@@ -246,6 +246,12 @@
   text-transform: uppercase;
 }
 
+/* 3-digit Time Bank packs (+120SEC, +160SEC) stay cleanly inside the 15cqw column. */
+.dbs-row__render--compact {
+  font-size: 5cqw;
+  letter-spacing: -0.04em;
+}
+
 .dbs-row__lines {
   display: grid;
   gap: 0.8cqw;

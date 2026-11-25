@@ -39,3 +39,22 @@ it('progressive daily bonus ladder escalates across weeks, never repeats adjacen
   expect(sql).not.toContain('credit_player_wallet');
   expect(sql).not.toContain('fn_ca_mint');
 });
+
+it('daily bonus hardening pins boost window, week history, wallet label, and reveal/spin modal hold', () => {
+  const sql = read(
+    'supabase/migrations/20261125171024_daily_bonus_boost_window_and_week_history.sql'
+  );
+  expect(sql).toContain("GREATEST(now(), (p_date::timestamp AT TIME ZONE 'America/Chicago'))");
+  expect(sql).toContain('LEFT JOIN public.ca_daily_bonus_days saved');
+  expect(sql).not.toContain('atomic_credit_wallet_and_log');
+  expect(sql).not.toContain('credit_player_wallet');
+  expect(sql).not.toContain('fn_ca_mint');
+
+  const sheet = read('src/components/daily-bonus/DailyBonusSheet.tsx');
+  expect(sheet).toContain('shouldAutoCloseAfterClaim');
+  expect(sheet).toContain('isJackpotStreak');
+  expect(sheet).toContain('spinClubReqRef');
+
+  const wallet = read('src/components/wallet/DiamondWalletModal.tsx');
+  expect(wallet).toContain("daily_bonus_boost: { label: 'Daily Bonus Boost' }");
+});
