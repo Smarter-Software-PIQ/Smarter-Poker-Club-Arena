@@ -48,6 +48,7 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression
     expect(source).toContain("setLinkedState('error')");
     expect(source).toContain('Retry Linked Hand');
     expect(source).toContain("searchParams.get('source') === 'personal-assistant'");
+    expect(source).toContain("searchParams.get('source') === 'personal-assistant-loop'");
     expect(source).toContain('Return To Personal Assistant');
     expect(source).toContain('returnLeakId');
   });
@@ -78,6 +79,8 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression
     expect(leakPanelCss).toContain('#688299');
     expect(handHistoryCss).toContain('min-height: 44px;');
     expect(handHistoryCss).toContain('font-size: 12px;');
+    expect(handHistoryCss).toContain('flex-wrap: wrap;');
+    expect(pageSource).toContain('[user?.id, targetUserId, gameMode, toast]');
   });
 
   it('MultiTablePage OPEN_HUB_TAB guards native Capacitor builds and updates existing tab URLs for new hands', () => {

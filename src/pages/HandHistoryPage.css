@@ -184,11 +184,12 @@
 }
 
 /* ── Stats evidence banner ──────────────────────────────────────────────── */
-.hh-stats-drilldown {
+.hand-history-page .hh-stats-drilldown {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   margin: 0 16px 8px;
   padding: 8px 12px;
   border: 1px solid #688299;
@@ -201,10 +202,16 @@
   color: #f1f5fc;
 }
 
-.hh-stats-drilldown button {
+.hand-history-page .hh-stats-drilldown > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.hand-history-page .hh-stats-drilldown button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   min-height: 44px;
   padding: 0 14px;
   border-radius: 6px;
@@ -421,7 +428,7 @@
   color: var(--hha-muted);
 }
 
-.pot-value {
+.hand-history-page .pot-value {
   font-family: var(--hha-display);
   font-size: 17px;
   font-weight: 700;
