@@ -1,6 +1,6 @@
 import { lastDaysRange } from '../../src/lib/clubDataDay';
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -411,6 +411,23 @@ describe('Players detail surfaces', () => {
     expect(screen.queryByRole('option', { name: 'No Limit Holdem' })).not.toBeInTheDocument();
   });
 
+  it('renders the member portrait and falls back to an avatar for that member on image failure', async () => {
+    const url = 'https://images.example.test/river-shark.png';
+    state.getMemberDetail.mockResolvedValue({
+      ...memberDetail,
+      identity: { ...memberDetail.identity, avatar_url: url },
+    });
+    render(<MemberManagementPage />);
+    const identity = await screen.findByRole('region', { name: 'River Shark' });
+    const portrait = identity.querySelector<HTMLImageElement>('.mm-avatar img')!;
+    expect(portrait).toBeVisible();
+    expect(portrait).toHaveAttribute('src', url);
+    expect(identity.querySelectorAll('img')).toHaveLength(1);
+    fireEvent.error(portrait);
+    expect(portrait.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+    expect(within(identity).getByRole('heading', { name: 'River Shark' })).toBeVisible();
+  });
+
   it('renders the audited credential and wires every player destination', async () => {
     render(<MemberManagementPage />);
 
@@ -418,9 +435,10 @@ describe('Players detail surfaces', () => {
     expect(screen.getByText('Member Profile')).toBeVisible();
     expect(screen.getByText('At A Table')).toBeVisible();
     expect(screen.getByText('ID: 1042')).toBeVisible();
-    expect(document.querySelector<HTMLImageElement>('.mm-credential__art')?.src).toContain(
-      'member-credential-v1.webp'
-    );
+    const identity = screen.getByRole('region', { name: 'River Shark' });
+    expect(identity.querySelector('.mm-credential__art, .mm-credential__shade')).toBeNull();
+    expect(identity.querySelector('img')).toBeNull();
+    expect(identity.querySelector('.mm-avatar')).toHaveTextContent(/^R$/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Cyan Rail, Player' }));
     expect(state.navigate).toHaveBeenCalledWith(
@@ -504,7 +522,6 @@ describe('Players Casino Realism asset and interaction contracts', () => {
   const root = resolve(__dirname, '../..');
   const files = [
     'public/images/club-members/roster-ledger-desk-v2.webp',
-    'public/images/club-members/member-credential-v1.webp',
     'public/images/club-members/player-instrument-felt-v1.webp',
   ];
 
@@ -514,7 +531,7 @@ describe('Players Casino Realism asset and interaction contracts', () => {
     expect(statSync(path).size).toBeLessThan(200_000);
   });
 
-  it('keeps three distinct compositions and accessible responsive controls', () => {
+  it('keeps accessible responsive controls', () => {
     const member = readFileSync(resolve(root, 'src/pages/MemberManagementPage.css'), 'utf8');
     const stats = readFileSync(resolve(root, 'src/pages/PlayerStatisticsPage.css'), 'utf8');
     const roster = readFileSync(resolve(root, 'src/pages/ClubMembersPage.css'), 'utf8');
@@ -523,7 +540,6 @@ describe('Players Casino Realism asset and interaction contracts', () => {
       'utf8'
     );
 
-    expect(new Set(files).size).toBe(3);
     for (const css of [member, stats, roster, cashier]) {
       expect(css).toContain(':focus-visible');
       expect(css).toContain('prefers-reduced-motion');

@@ -2426,6 +2426,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
             Wallet Balances <small>Chips</small>
           </h2>
           <DynamicWallet
+            showArtwork={false}
             actionClassName={styles.wordAction}
             refreshKey={walletRevision}
             userId={user.id}
