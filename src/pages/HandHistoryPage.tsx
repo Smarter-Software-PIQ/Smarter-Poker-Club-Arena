@@ -878,9 +878,17 @@ export default function HandHistoryPage() {
 
   const returnToPersonalAssistant = () => {
     try {
-      const leakSuffix = returnLeakId ? `?leak=${encodeURIComponent(returnLeakId)}` : '';
+      const params = new URLSearchParams();
+      if (linkedHandId) {
+        params.set('hand', linkedHandId);
+        params.set('source', 'club-arena');
+      }
+      if (returnLeakId) {
+        params.set('leak', returnLeakId);
+      }
+      const query = params.toString();
       openPersonalAssistantPath(
-        `/hub/personal-assistant/leaks${leakSuffix}`,
+        `/hub/personal-assistant/leaks${query ? `?${query}` : ''}`,
         'Returning To Personal Assistant'
       );
     } catch (err) {
