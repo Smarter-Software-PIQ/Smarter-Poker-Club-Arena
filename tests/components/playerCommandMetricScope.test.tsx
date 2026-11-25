@@ -24,7 +24,6 @@ const state = vi.hoisted(() => ({
     { onPayload: (value: unknown) => void; onSubscriptionStatus?: (status: string) => void }
   >(),
   memberChannel: null as null | { onPayload: (value: unknown) => void },
-  walletChannel: null as null | { onPayload: (value: unknown) => void },
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -39,16 +38,26 @@ vi.mock('../../src/hooks/useMasterBusChannel', () => ({
     state.memberChannel = options;
   },
 }));
-vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
-  useMasterBusBroadcastChannel: (options: {
-    channelName?: string | null;
-    onPayload: (value: unknown) => void;
-    onSubscriptionStatus?: (status: string) => void;
-  }) => {
-    state.walletChannel = options;
-    if (options.channelName) state.broadcasts.set(options.channelName, options);
-  },
-}));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', async () => {
+  const { useEffect } = await import('react');
+  return {
+    useMasterBusBroadcastChannel: (options: {
+      channelName?: string | null;
+      enabled?: boolean;
+      onPayload: (value: unknown) => void;
+      onSubscriptionStatus?: (status: string) => void;
+    }) => {
+      useEffect(() => {
+        const { channelName, enabled } = options;
+        if (!channelName || enabled === false) return;
+        state.broadcasts.set(channelName, options);
+        return () => {
+          if (state.broadcasts.get(channelName) === options) state.broadcasts.delete(channelName);
+        };
+      }, [options]);
+    },
+  };
+});
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: state.viewerId }, isHydrating: false }),
 }));
@@ -177,19 +186,21 @@ beforeEach(() => {
   state.broadcasts.clear();
   state.viewerId = 'viewer-1';
   state.params = { clubId: 'shark-club', userId: '11111111-1111-4111-8111-111111111111' };
-  state.getMemberDetail.mockImplementation(async (_club, _user, range) => ({
+  state.getMemberDetail.mockReset().mockImplementation(async (_club, _user, range) => ({
     ...memberDetail,
     range: { ...range, is_overall: range.from === null && range.to === null },
   }));
   state.rpc.mockResolvedValue({ data: [], error: null });
   state.getDownline.mockResolvedValue([]);
   state.getGrantableRoles.mockResolvedValue([]);
-  state.getMemberStatistics.mockImplementation(async (_club, _user, variant, range) => ({
-    ...statistics,
-    ...range,
-    variant: variant ?? 'all',
-    is_overall: range.from === null && range.to === null,
-  }));
+  state.getMemberStatistics
+    .mockReset()
+    .mockImplementation(async (_club, _user, variant, range) => ({
+      ...statistics,
+      ...range,
+      variant: variant ?? 'all',
+      is_overall: range.from === null && range.to === null,
+    }));
 });
 afterEach(() => {
   cleanup();
@@ -568,7 +579,7 @@ it('shows agent, full downline and combined activity separately and refreshes al
     },
   });
   state.getMemberDetail.mockImplementation(async (_club, _member, range) => detailFor(range, 0));
-  render(<MemberManagementPage />);
+  const view = render(<MemberManagementPage />);
   const own = await screen.findByRole('region', { name: 'Agent Only' });
   const downline = screen.getByRole('region', { name: 'Downline Only' });
   const combined = screen.getByRole('region', { name: 'Agent + Downline' });
@@ -588,6 +599,7 @@ it('shows agent, full downline and combined activity separately and refreshes al
         deliver = () => resolve(detailFor(requestedRange, 5));
       })
   );
+  await waitFor(() => expect(state.broadcasts.has(statisticsTopic)).toBe(true));
   act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
   await waitFor(() => {
     expect(state.getMemberDetail).toHaveBeenCalledTimes(2);
@@ -614,6 +626,8 @@ it('shows agent, full downline and combined activity separately and refreshes al
   expect(renderErrors.mock.calls.some(([message]) => String(message).includes('same key'))).toBe(
     false
   );
+  view.unmount();
+  expect(state.broadcasts.has(statisticsTopic)).toBe(false);
 });
 
 it('keeps a player-only account on individual activity', async () => {
