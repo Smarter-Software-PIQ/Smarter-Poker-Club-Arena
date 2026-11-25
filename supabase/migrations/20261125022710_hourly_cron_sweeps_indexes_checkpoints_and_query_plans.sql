@@ -4,7 +4,7 @@
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
 -- HOURLY PG_CRON SWEEPS: PERMANENT INDEXES, SAFE-HORIZON CHECKPOINTS & QUERY PLANS
--- (Track 2 — 6 slowest hourly jobs running 38–51 s avg / 51–282 s max vs 60 s headroom)
+-- (Track 2 - 6 slowest hourly jobs running 38-51 s avg / 51-282 s max vs 60 s headroom)
 --
 -- Live read-only diagnosis (`EXPLAIN (ANALYZE, BUFFERS)` + `cron.job_run_details` 24h):
 --
@@ -15,7 +15,7 @@
 --        even though `fn_ca_launch_accounting_cutoff('club', p_club_id)` is constant per club and NULL
 --        for all union clubs.
 --      - `fn_ca_reporting_rollups_from_facts(date)` probed `rake_attributions_whole_hand_cover`
---        28,154 times by random UUID `rake_record_id` (102,683 heap fetches, 27,157 disk reads = 18.4–21.1 s).
+--        28,154 times by random UUID `rake_record_id` (102,683 heap fetches, 27,157 disk reads = 18.4-21.1 s).
 --        Two-phase window read via `idx_rake_attributions_club_created` over `[v_lo - 1h, v_hi + 24h)`
 --        with exact fallback for unmatched ids drops this to ~1.8 s (0 rows miss the window).
 --
@@ -47,7 +47,7 @@
 --        `chip_transactions`, preventing use of `idx_chip_tx_club_created (club_id, created_at DESC)` and
 --        forcing a 31,940-page B-tree scan (`19.15 s` per scan, up to 3x per run). Materializing
 --        `v_scope_clubs uuid[]` and filtering `ct.club_id = ANY (v_scope_clubs)` hits the index (<2 ms).
---      - Co-seating did a 3.2M-row Parallel Seq Scan of `table_seats` (74,685 disk reads = `1.8–2.6 s`)
+--      - Co-seating did a 3.2M-row Parallel Seq Scan of `table_seats` (74,685 disk reads = `1.8-2.6 s`)
 --        because `table_seats` had no index on `joined_at`. `idx_table_seats_joined_at_cover` turns it
 --        into a covering Index Only Scan (<10 ms).
 --
@@ -115,7 +115,7 @@ BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '240s';
 
--- ── 0. Installer role, concurrent index validity, and preimage/ACL guard ────
+-- -- 0. Installer role, concurrent index validity, and preimage/ACL guard ----
 DO $guard$
 DECLARE
   v_ix text;
@@ -189,7 +189,7 @@ BEGIN
   END LOOP;
 END $guard$;
 
--- ── 1. Internal safe-horizon checkpoint tables (append-only sums only) ──────
+-- -- 1. Internal safe-horizon checkpoint tables (append-only sums only) ------
 CREATE TABLE IF NOT EXISTS public.ca_bbj_reconcile_marks (
   pool_id uuid PRIMARY KEY,
   base_taken_at timestamp with time zone NOT NULL,
@@ -217,7 +217,7 @@ ALTER TABLE public.ca_bbj_promo_audit_mark ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.ca_bbj_promo_audit_mark FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.ca_bbj_promo_audit_mark TO service_role;
 
--- ── 2. Job 128: fn_club_rake_rollup_day(uuid,date) ──────────────────────────
+-- -- 2. Job 128: fn_club_rake_rollup_day(uuid,date) --------------------------
 CREATE OR REPLACE FUNCTION public.fn_club_rake_rollup_day(p_club_id uuid, p_day date)
  RETURNS integer
  LANGUAGE plpgsql
@@ -289,7 +289,7 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_club_rake_rollup_day(uuid, date) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_club_rake_rollup_day(uuid, date) TO service_role;
 
--- ── 3. Job 128: fn_ca_reporting_rollups_from_facts(date) ────────────────────
+-- -- 3. Job 128: fn_ca_reporting_rollups_from_facts(date) --------------------
 CREATE OR REPLACE FUNCTION public.fn_ca_reporting_rollups_from_facts(p_day date)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -462,7 +462,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_reporting_rollups_from_facts(date) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_reporting_rollups_from_facts(date) TO service_role;
 
--- ── 4. Job 231: fn_pay_backed_payout_shortfalls(boolean,integer) ────────────
+-- -- 4. Job 231: fn_pay_backed_payout_shortfalls(boolean,integer) ------------
 CREATE OR REPLACE FUNCTION public.fn_pay_backed_payout_shortfalls(p_apply boolean DEFAULT false, p_limit integer DEFAULT 500)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -699,7 +699,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_pay_backed_payout_shortfalls(boolean, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_pay_backed_payout_shortfalls(boolean, integer) TO service_role;
 
--- ── 5 & 6. Job 155: fn_bbj_reconcile(uuid) & fn_bbj_reconcile_all() ─────────
+-- -- 5 & 6. Job 155: fn_bbj_reconcile(uuid) & fn_bbj_reconcile_all() ---------
 -- Anchored live-source edits (never declaring new repair/reconcile functions;
 -- see 20260927141643_bbj_meter_separates_cumulative_banks_from_recent_flows.sql).
 DO $patch_bbj_reconcile$
@@ -1410,7 +1410,7 @@ GRANT EXECUTE ON FUNCTION public.fn_bbj_reconcile(uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_bbj_reconcile_all() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_bbj_reconcile_all() TO service_role;
 
--- ── 7. Job 155: fn_rake_bbj_invariants(integer) ─────────────────────────────
+-- -- 7. Job 155: fn_rake_bbj_invariants(integer) -----------------------------
 CREATE OR REPLACE FUNCTION public.fn_rake_bbj_invariants(p_hours integer DEFAULT 2)
  RETURNS TABLE(check_name text, violations bigint, detail jsonb)
  LANGUAGE plpgsql
@@ -1600,7 +1600,7 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_rake_bbj_invariants(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_rake_bbj_invariants(integer) TO service_role;
 
--- ── 8. Job 123: fn_union_integrity_sweep(uuid,integer) ──────────────────────
+-- -- 8. Job 123: fn_union_integrity_sweep(uuid,integer) ----------------------
 -- Anchored live-source edit (matches 20261119121500): materializes v_scope_clubs
 -- once and replaces the EXISTS(union_clubs) OR EXISTS(clubs) predicate on all 3
 -- chip_transactions scans with `ct.club_id = ANY (v_scope_clubs)` so PostgreSQL
@@ -1743,7 +1743,7 @@ BEGIN
   END IF;
 END $patch_union_sweep$;
 
--- ── 9. Job 214: fn_ca_completed_without_a_champion() ────────────────────────
+-- -- 9. Job 214: fn_ca_completed_without_a_champion() ------------------------
 CREATE OR REPLACE FUNCTION public.fn_ca_completed_without_a_champion()
  RETURNS integer
  LANGUAGE sql
@@ -1769,7 +1769,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_completed_without_a_champion() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_completed_without_a_champion() TO service_role;
 
--- ── 10. Job 214: fn_ca_undeclared_money_paths() ─────────────────────────────
+-- -- 10. Job 214: fn_ca_undeclared_money_paths() -----------------------------
 CREATE OR REPLACE FUNCTION public.fn_ca_undeclared_money_paths()
  RETURNS TABLE(proname text, tbl text, col text)
  LANGUAGE sql
@@ -1827,7 +1827,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_undeclared_money_paths() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_undeclared_money_paths() TO service_role;
 
--- ── 11. Job 233: fn_ca_ledger_audit_checkpoint_advance() ────────────────────
+-- -- 11. Job 233: fn_ca_ledger_audit_checkpoint_advance() --------------------
 CREATE OR REPLACE FUNCTION public.fn_ca_ledger_audit_checkpoint_advance()
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2026,7 +2026,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_ca_ledger_audit_checkpoint_advance() FROM PUBLIC, anon, authenticated, service_role;
 
--- ── 12. Job 233: fn_bbj_conservation_check() ────────────────────────────────
+-- -- 12. Job 233: fn_bbj_conservation_check() --------------------------------
 CREATE OR REPLACE FUNCTION public.fn_bbj_conservation_check()
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2194,7 +2194,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_bbj_conservation_check() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_bbj_conservation_check() TO service_role;
 
--- ── 13. Job 233: fn_bbj_promo_bank_check() ──────────────────────────────────
+-- -- 13. Job 233: fn_bbj_promo_bank_check() ----------------------------------
 CREATE OR REPLACE FUNCTION public.fn_bbj_promo_bank_check()
  RETURNS jsonb
  LANGUAGE sql
@@ -2281,7 +2281,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_bbj_promo_bank_check() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_bbj_promo_bank_check() TO service_role;
 
--- ── 14. Job 233: fn_ca_knockout_door_stalled(integer) ───────────────────────
+-- -- 14. Job 233: fn_ca_knockout_door_stalled(integer) -----------------------
 CREATE OR REPLACE FUNCTION public.fn_ca_knockout_door_stalled(p_stall_minutes integer DEFAULT 15)
  RETURNS TABLE(last_resolved_at timestamp with time zone, stalled_minutes numeric, pending_candidates bigint, pending_past_prompt bigint, oldest_expired_prompt_minutes numeric, detail text)
  LANGUAGE sql
@@ -2330,7 +2330,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_knockout_door_stalled(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_knockout_door_stalled(integer) TO service_role;
 
--- ── 15. Verify owner, SECURITY DEFINER, proconfig, and ACLs unchanged ───────
+-- -- 15. Verify owner, SECURITY DEFINER, proconfig, and ACLs unchanged -------
 DO $meta_check$
 DECLARE
   r record;
@@ -2351,7 +2351,7 @@ BEGIN
   END LOOP;
 END $meta_check$;
 
--- ── 16. Mandatory pre-commit runtime probes (subtransaction-unwound) ────────
+-- -- 16. Mandatory pre-commit runtime probes (subtransaction-unwound) --------
 -- @probe-for: public.fn_club_rake_rollup_day
 DO $probe_rollup_day$
 BEGIN
