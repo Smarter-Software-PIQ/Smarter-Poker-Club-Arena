@@ -645,11 +645,8 @@ jobs:
                 [ "${EVENT_ACTION:-}" = run-post-deploy-e2e ] \
                   || { echo '::error::This scoped client proof requires the existing post-deploy event.'; exit 1; }
               fi
-              node scripts/ci/client-navigation-certificate.mjs admit
+              node scripts/ci/client-navigation-certificate.mjs admit >> "$GITHUB_OUTPUT"
               echo 'client_navigation=true' >> "$GITHUB_OUTPUT"
-              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("keep_game_pages=" + (p.keep_game_pages === true));' >> "$GITHUB_OUTPUT"
-              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("cash_observation=" + (p.cash_observation === true));' >> "$GITHUB_OUTPUT"
-              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("club_data=" + (p.club_data === true));' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0

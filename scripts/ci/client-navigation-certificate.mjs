@@ -137,6 +137,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     else if (payload && Object.hasOwn(payload, 'cash_observation')) admitCashObservation(payload);
     else if (payload && Object.hasOwn(payload, 'keep_game_pages')) admitKeepGamePages(payload);
     else admitClientNavigation(payload);
+    for (const mode of ['keep_game_pages', 'cash_observation', 'club_data']) {
+      console.log(`${mode}=${payload[mode] === true}`);
+    }
   } else if (process.argv[2] === 'club-data-report' && process.argv.length === 4) {
     assertClubDataReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
     console.log('All eight Club Data cases passed once without skips or retries.');
