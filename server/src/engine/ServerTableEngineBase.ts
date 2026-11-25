@@ -791,14 +791,23 @@ export abstract class ServerTableEngineBase {
       }
       if (pending.size === 0) return;
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('table_seats')
           .select('user_id, stack')
           .eq('table_id', this.tableId)
           .in('user_id', Array.from(pending))
           .is('left_at', null);
-        for (const row of (data ?? []) as Array<{ user_id: string; stack: number | null }>) {
-          if (Number(row.stack ?? 0) > 0) pending.delete(String(row.user_id));
+        if (!error && Array.isArray(data)) {
+          const stillSeatedBusted = new Set<string>();
+          for (const row of data as Array<{ user_id: string; stack: number | null }>) {
+            if (Number(row.stack ?? 0) <= 0) stillSeatedBusted.add(String(row.user_id));
+          }
+          // A seat that rebought (stack > 0) or already left the table (absent
+          // from left_at IS NULL rows) has answered; never stall the felt for
+          // an empty chair. On a read error, fail open and keep waiting.
+          for (const id of Array.from(pending)) {
+            if (!stillSeatedBusted.has(id)) pending.delete(id);
+          }
         }
       } catch {
         /* A failed read must never SHORTEN the pause — fall through and wait. */
@@ -816,10 +825,24 @@ export abstract class ServerTableEngineBase {
       if (inFlight) for (const id of inFlight) pending.delete(id);
     };
 
+    let deadlineHit = false;
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadlineReached = new Promise<void>((resolve) => {
+      deadlineTimer = setTimeout(
+        () => {
+          deadlineHit = true;
+          this.rebuyPauseWake?.();
+          resolve();
+        },
+        Math.max(0, totalMs)
+      );
+      (deadlineTimer as { unref?: () => void }).unref?.();
+    });
+
     try {
-      while (Date.now() < deadline) {
-        await drainAnswered();
-        if (pending.size === 0) return;
+      while (!deadlineHit && Date.now() < deadline) {
+        await Promise.race([drainAnswered().catch(() => {}), deadlineReached]);
+        if (deadlineHit || pending.size === 0) return;
         const slice = Math.min(POLL_MS, Math.max(0, deadline - Date.now()));
         if (slice <= 0) return;
         await new Promise<void>((resolve) => {
@@ -836,6 +859,7 @@ export abstract class ServerTableEngineBase {
         });
       }
     } finally {
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
       this.rebuyPauseWake = null;
       for (const id of userIds) this.rejectedRebuys.delete(id);
     }
@@ -2306,6 +2330,32 @@ export abstract class ServerTableEngineBase {
   // tournamentChipConservation.ts and the persist gate in postHandTasks.
   protected currentHandDealtStacks: Map<string, number> = new Map();
   protected currentHandSeatGenerations: Map<string, HandSeatGeneration> = new Map();
+  /**
+   * Busted seats already cashed out and released during this hand's settlement
+   * (e.g. horse stop-loss or unfunded departure during post_hand_hold). Cleared
+   * at each new deal so post-hold rebuy eligibility never pauses 5s for a chair
+   * that is already empty.
+   */
+  protected releasedBustedSeatsThisHand: Set<string> = new Set();
+
+  protected recordBustedSeatReleasedThisHand(player: {
+    user_id: string;
+    occupancy_id?: string;
+  }): void {
+    const released = (this.releasedBustedSeatsThisHand ??= new Set());
+    released.add(player.occupancy_id ? `occ:${player.occupancy_id}` : `user:${player.user_id}`);
+  }
+
+  protected wasBustedSeatReleasedThisHand(player: {
+    user_id: string;
+    occupancy_id?: string;
+  }): boolean {
+    const released = this.releasedBustedSeatsThisHand;
+    if (!released || released.size === 0) return false;
+    return player.occupancy_id
+      ? released.has(`occ:${player.occupancy_id}`) || released.has(`user:${player.user_id}`)
+      : released.has(`user:${player.user_id}`);
+  }
   // Bible V8 §2.5: Action Record requires seat, userId, action, amount, timestamp, stage
   protected currentHandActions: {
     seat: number;
@@ -12885,6 +12935,8 @@ export abstract class ServerTableEngineBase {
     this.forgetTimeBank(player.user_id);
     this.straddleEngine.removePlayer(this.tableId, player.user_id);
     this.preActionEngine.removePlayer(this.tableId, player.user_id);
+    this.recordBustedSeatReleasedThisHand(player);
+    this.rebuyPauseWake?.();
     return true;
   }
 

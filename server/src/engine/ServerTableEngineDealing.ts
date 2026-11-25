@@ -1299,6 +1299,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           if (!this.lifecycleCanMutate()) return;
           this.prepareCashHandManifest(activePlayers);
         }
+        // New-arrival time-bank reads ride under the rest alongside the cash
+        // manifest so dealHand never pays an extra post-rest round trip when a
+        // fresh seat joins after a bust or table balance.
+        this.prepareTimeBankReads(activePlayers);
 
         // MUST-MOVE (Slice 2): a player with a planned move is told now, once,
         // that they move after this hand - HERE, immediately before the deal,
@@ -1662,6 +1666,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 `[ServerTableEngine:${this.tableId}] Rebuy pause (<=5s) for: ${justBustedPlayers.map((p) => p.username).join(', ')}`
               );
               this.setLoopPhase('rebuy_pause');
+              // Overlap independent next-hand inputs with the rebuy pause so a
+              // full 5s pause does not pay hand-number allocation or stale
+              // table-config reads sequentially after the pause ends.
+              this.ensurePreparedHandNumber();
+              void this.refreshRakeConfig().catch(() => {});
+              void this.refreshDealingHalt().catch(() => {});
               /* SNAP-CONTINUE 2026-08-27. Dan's rule has two halves and only
                  one of them was built: "...to allow the player to rebuy in,
                  without skipping the hand, OR SNAP CONTINUES IF THEY CLICK NO
@@ -2622,39 +2632,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         );
         this.preparedLeavePending = budgetedSweep;
       }
-      if (this.preparedHandNumber === null) {
-        const issuerEpoch = this.allocatorMeasurement?.capture();
-        const prepare = () => this.allocateGlobalHandNumber();
-        const allocation = this.allocatorMeasurement
-          ? this.allocatorMeasurement.job('preparation', issuerEpoch!, prepare)
-          : prepare();
-        /* A FAILED ALLOCATION IS ONE ATTEMPT (2026-09-26). The failure
-           travels inside this preparation's own outcome and is taken by the
-           one deal attempt it belongs to. It used to be written to a field
-           that nothing but the Manager's retry sweep ever cleared, so a single
-           statement timeout behind the tournament's settlement lane
-           (production, 03:45 UTC, release 92d59cfb) was re-thrown on every
-           later deal attempt while the allocator was answering again: table
-           16de0024 sat 183 s until the zombie watchdog rebuilt it. An
-           allocation claims no hand - custody begins at fn_f06_begin_hand -
-           so the next preparation simply allocates fresh; a lost reply costs
-           at most a burned number. */
-        this.preparedHandNumber = allocation
-          .then((n): PreparedHandNumberOutcome => {
-            this.allocatorMeasurement?.assertAdmission(issuerEpoch!);
-            return { n, at: Date.now(), epoch: this.f06AllocationEpoch, issuerEpoch };
-          })
-          .catch((err: unknown): PreparedHandNumberOutcome => {
-            const f06 = this.hasF06Allocator();
-            console.warn(
-              f06
-                ? `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; this deal attempt fails and the next one allocates fresh:`
-                : `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; dealHand will retry:`,
-              err instanceof Error ? err.message : err
-            );
-            return f06 ? { failure: err ?? new Error('f06_allocation_unproven') } : null;
-          });
-      }
+      this.ensurePreparedHandNumber();
       // A failed sibling read or elapsed step budget does not cancel a
       // transaction. Join the raw cashout before releasing engine ownership.
       // Read and cashout still start together; no new polling is introduced.
@@ -2680,8 +2658,126 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     }
   }
 
+  protected ensurePreparedHandNumber(): void {
+    if (this.preparedHandNumber !== null) return;
+    const issuerEpoch = this.allocatorMeasurement?.capture();
+    const prepare = () => this.allocateGlobalHandNumber();
+    const allocation = this.allocatorMeasurement
+      ? this.allocatorMeasurement.job('preparation', issuerEpoch!, prepare)
+      : prepare();
+    /* A FAILED ALLOCATION IS ONE ATTEMPT (2026-09-26). The failure
+       travels inside this preparation's own outcome and is taken by the
+       one deal attempt it belongs to. It used to be written to a field
+       that nothing but the Manager's retry sweep ever cleared, so a single
+       statement timeout behind the tournament's settlement lane
+       (production, 03:45 UTC, release 92d59cfb) was re-thrown on every
+       later deal attempt while the allocator was answering again: table
+       16de0024 sat 183 s until the zombie watchdog rebuilt it. An
+       allocation claims no hand - custody begins at fn_f06_begin_hand -
+       so the next preparation simply allocates fresh; a lost reply costs
+       at most a burned number. */
+    this.preparedHandNumber = allocation
+      .then((n): PreparedHandNumberOutcome => {
+        this.allocatorMeasurement?.assertAdmission(issuerEpoch!);
+        return { n, at: Date.now(), epoch: this.f06AllocationEpoch, issuerEpoch };
+      })
+      .catch((err: unknown): PreparedHandNumberOutcome => {
+        const f06 = this.hasF06Allocator();
+        console.warn(
+          f06
+            ? `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; this deal attempt fails and the next one allocates fresh:`
+            : `[ServerTableEngine:${this.tableId}] hand number pre-allocation failed; dealHand will retry:`,
+          err instanceof Error ? err.message : err
+        );
+        return f06 ? { failure: err ?? new Error('f06_allocation_unproven') } : null;
+      });
+  }
+
   private preparedLeavePending: ReturnType<typeof processLeavePending> | null = null;
   private preparedHandNumber: Promise<PreparedHandNumberOutcome> | null = null;
+  private preparedTimeBankReads: {
+    extrasKey: string | null;
+    extras: ReturnType<ServerTableEngineBase['fetchTimeBankExtras']> | null;
+    prefKey: string | null;
+    prefs: Promise<Map<string, boolean>> | null;
+  } | null = null;
+
+  /**
+   * Pre-warm new-player time-bank extras and auto-activate preferences under
+   * the between-hand rest (both cash and tournament) so dealHand pays zero
+   * post-rest PostgREST round-trip when a fresh seat joins after a bust or
+   * table balance.
+   */
+  protected prepareTimeBankReads(players: readonly SeatedPlayer[]): void {
+    const extrasIds = players
+      .filter((p) => !this.timeBankEngine.getPlayerBank(this.tableId, p.user_id))
+      .map((p) => p.user_id);
+    const prefIds = players
+      .filter((p) => !this.timeBankEngine.hasAutoActivatePreference(this.tableId, p.user_id))
+      .map((p) => p.user_id);
+    if (extrasIds.length === 0 && prefIds.length === 0) {
+      this.preparedTimeBankReads = null;
+      return;
+    }
+    const extras = extrasIds.length > 0 ? this.fetchTimeBankExtras(extrasIds) : null;
+    extras?.catch(() => {});
+    const prefs =
+      prefIds.length > 0
+        ? readAutoTimeBankPreferences(prefIds).catch((error) => {
+            reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
+            // Do not spend a paid bank on an unreadable opt-out. The player's
+            // next foreground heartbeat supplies the actual choice.
+            return new Map(prefIds.map((id) => [id, false]));
+          })
+        : null;
+    prefs?.catch(() => {});
+    this.preparedTimeBankReads = {
+      extrasKey: extras ? extrasIds.join(',') : null,
+      extras,
+      prefKey: prefs ? prefIds.join(',') : null,
+      prefs,
+    };
+  }
+
+  protected takePreparedTimeBankExtras(
+    userIds: string[]
+  ): ReturnType<ServerTableEngineBase['fetchTimeBankExtras']> | null {
+    const prepared = this.preparedTimeBankReads;
+    const key = userIds.join(',');
+    if (prepared && prepared.extras && prepared.extrasKey === key) {
+      const promise = prepared.extras;
+      prepared.extras = null;
+      prepared.extrasKey = null;
+      if (!prepared.prefs) this.preparedTimeBankReads = null;
+      return promise;
+    }
+    if (prepared) {
+      prepared.extras = null;
+      prepared.extrasKey = null;
+      if (!prepared.prefs) this.preparedTimeBankReads = null;
+    }
+    return null;
+  }
+
+  protected takePreparedAutoTimeBankPreferences(
+    preferenceIds: string[]
+  ): Promise<Map<string, boolean>> | null {
+    const prepared = this.preparedTimeBankReads;
+    const key = preferenceIds.join(',');
+    if (prepared && prepared.prefs && prepared.prefKey === key) {
+      const promise = prepared.prefs;
+      prepared.prefs = null;
+      prepared.prefKey = null;
+      if (!prepared.extras) this.preparedTimeBankReads = null;
+      return promise;
+    }
+    if (prepared) {
+      prepared.prefs = null;
+      prepared.prefKey = null;
+      if (!prepared.extras) this.preparedTimeBankReads = null;
+    }
+    return null;
+  }
   /** The failure of the last settled F06 preparation, taken by exactly one deal attempt. */
   private preparedF06AllocationError: unknown = null;
   private preparedHandNumberValue: {
@@ -4488,6 +4584,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandDealtStacks = new Map(
         hcPlayers.map((p) => [p.user_id, Number(p.stack) || 0] as [string, number])
       );
+      this.releasedBustedSeatsThisHand.clear();
 
       // ── ADDITIVE observability (#5): hands-dealt counter (always) + hand span (flag-gated) ──
       try {
@@ -4603,13 +4700,15 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         .map((p) => p.user_id);
       this.cashBreachSpan?.enter('deal_time_bank_reads');
       const [tbExtras, autoPreferences] = await Promise.all([
-        this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
-        readAutoTimeBankPreferences(preferenceIds).catch((error) => {
-          reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
-          // Do not spend a paid bank on an unreadable opt-out. The player's
-          // next foreground heartbeat supplies the actual choice.
-          return new Map(preferenceIds.map((id) => [id, false]));
-        }),
+        this.takePreparedTimeBankExtras?.(tbNewPlayers.map((p) => p.user_id)) ??
+          this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
+        this.takePreparedAutoTimeBankPreferences?.(preferenceIds) ??
+          readAutoTimeBankPreferences(preferenceIds).catch((error) => {
+            reportError(error, 'ServerTableEngine.time_bank_preferences_unreadable');
+            // Do not spend a paid bank on an unreadable opt-out. The player's
+            // next foreground heartbeat supplies the actual choice.
+            return new Map(preferenceIds.map((id) => [id, false]));
+          }),
       ]);
       this.cashBreachSpan?.enter('dealing');
       /**
@@ -5804,7 +5903,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     alreadyRead?: Map<string, number>
   ): Promise<boolean> {
     if (this.tableInfo?.arena?.asset === 'diamonds') return false;
-    if (busted.length === 0) return false;
+    const stillSeated = busted.filter((p) => !this.wasBustedSeatReleasedThisHand(p));
+    if (stillSeated.length === 0) return false;
 
     // The minimum the purchase itself enforces (atomic_table_rebuy).
     const minBuyIn = cashRebuyMinimum(this.tableInfo);
@@ -5817,7 +5917,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // that decides the reload itself - this used to hard-code `< 2`, which
     // held the felt for a nit that was leaving and did not hold it for a
     // gambler that was reloading (2026-09-09).
-    const horses = busted.filter((p) => p.is_horse);
+    const horses = stillSeated.filter((p) => p.is_horse);
     for (const horse of horses) {
       if (
         !rebuyStopLossReached(
@@ -5829,7 +5929,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return true;
     }
 
-    const humans = busted.filter((p) => !p.is_horse);
+    const humans = stillSeated.filter((p) => !p.is_horse);
     if (humans.length === 0) return false; // Every horse present is at stop-loss.
 
     /* The wallet each SEAT was bought from, not the table's club: a union

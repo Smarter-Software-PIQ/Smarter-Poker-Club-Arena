@@ -284,3 +284,55 @@ describe('what an answer says about the lane', () => {
     expect(classifyEventDbFailure(shortCallerTimeout, 2_000)).toBe('congested');
   });
 });
+
+describe('Prometheus exposition', () => {
+  it('emits zero-seeded bounded series on cold start and tracks load, timeouts, refusals and open state', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      maxPerEvent: 2,
+      minPerEvent: 1,
+      maxAllEvents: 4,
+      maxParked: 1,
+    });
+    const cold = bulkhead.toPrometheusLines().join('\n');
+    expect(cold).toContain('poker_event_db_bulkhead_open 0');
+    expect(cold).toContain('poker_event_db_bulkhead_in_flight 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_current 0');
+    expect(cold).toContain('poker_event_db_bulkhead_cooling_current 0');
+    expect(cold).toContain('poker_event_db_bulkhead_active_events 0');
+    expect(cold).toContain('poker_event_db_bulkhead_throttled_events 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_total 0');
+    expect(cold).toContain('poker_event_db_bulkhead_park_timeouts_total 0');
+    expect(cold).toContain('poker_event_db_bulkhead_refused_full_total 0');
+
+    // Fill 2 slots, park 1 with abort signal, refuse 1 on full queue, trigger congestion cooling.
+    const a = ask(bulkhead, STUCK);
+    const b = ask(bulkhead, STUCK);
+    const ac = new AbortController();
+    const parked = ask(bulkhead, STUCK, ac.signal);
+    expect(() => bulkhead.acquire(STUCK)).toThrow('supabase_timeout');
+
+    ac.abort(new Error('supabase_timeout'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(parked.error).toBeInstanceOf(Error);
+
+    bulkhead.release(a.permit!, 'congested');
+    const hot = bulkhead.toPrometheusLines().join('\n');
+    expect(hot).toContain('poker_event_db_bulkhead_open 0');
+    expect(hot).toContain('poker_event_db_bulkhead_in_flight 1');
+    expect(hot).toContain('poker_event_db_bulkhead_cooling_current 1');
+    expect(hot).toContain('poker_event_db_bulkhead_active_events 1');
+    expect(hot).toContain('poker_event_db_bulkhead_throttled_events 1');
+    expect(hot).toContain('poker_event_db_bulkhead_parked_total 1');
+    expect(hot).toContain('poker_event_db_bulkhead_park_timeouts_total 1');
+    expect(hot).toContain('poker_event_db_bulkhead_refused_full_total 1');
+    // Zero unbounded per-event labels in Prometheus exposition.
+    expect(hot).not.toContain(STUCK);
+
+    bulkhead.openForShutdown();
+    bulkhead.release(b.permit!, 'ok');
+    const afterOpen = bulkhead.toPrometheusLines().join('\n');
+    expect(afterOpen).toContain('poker_event_db_bulkhead_open 1');
+    expect(afterOpen).toContain('poker_event_db_bulkhead_in_flight 0');
+  });
+});
