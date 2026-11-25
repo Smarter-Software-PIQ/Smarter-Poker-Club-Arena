@@ -34,9 +34,11 @@ else:
     PG = next((p for p in [P('/usr/lib/postgresql/17/bin'), *installed] if (p / 'initdb').is_file()), None)
     if PG is None:
         raise SystemExit('PostgreSQL server binaries unavailable; provide PG_BIN')
-parent = P(os.environ.get('TMPDIR', str(ROOT / 'work')))
-parent.mkdir(exist_ok=True)
-w = P(tempfile.mkdtemp(prefix='promo-lightning-', dir=parent))
+# Keep the Unix socket path well below UNIX_PATH_MAX (104 bytes macOS / 108 bytes Linux):
+# prefer caller TMPDIR, then GitHub Actions RUNNER_TEMP, then a short prefix under ROOT/work.
+parent = P(os.environ.get('TMPDIR') or os.environ.get('RUNNER_TEMP') or str(ROOT / 'work'))
+parent.mkdir(parents=True, exist_ok=True)
+w = P(tempfile.mkdtemp(prefix='pl-', dir=parent))
 sock = w / 's'
 sock.mkdir()
 env = {'PATH': str(PG) + ':/usr/bin:/bin', 'LC_ALL': 'C', 'LANG': 'C'}
@@ -258,7 +260,11 @@ def check_no_later_migration_regresses():
 
 try:
     run([PG / 'initdb', '-D', w / 'd', '-U', 'postgres', '-A', 'trust', '--no-sync'])
-    run([PG / 'pg_ctl', '-D', w / 'd', '-o', f'-k {sock} -c listen_addresses=', '-l', w / 'log', '-w', 'start'])
+    try:
+        run([PG / 'pg_ctl', '-D', w / 'd', '-o', f'-k {sock} -c listen_addresses=', '-l', w / 'log', '-w', 'start'])
+    except RuntimeError as e:
+        pg_log = (w / 'log').read_text(errors='replace') if (w / 'log').is_file() else ''
+        raise RuntimeError(f'{e}\n--- postgres log ---\n{pg_log}') from e
     q(SCHEMA)
     q(PREIMAGES.read_text())
     scenarios(fixed=False)
