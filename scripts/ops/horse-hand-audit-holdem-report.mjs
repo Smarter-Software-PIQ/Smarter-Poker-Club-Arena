@@ -1,6 +1,7 @@
 /**
  * Report, CSV and window comparison for the Horse Hold'em hand audit (scripts/ops/horse-hand-audit-holdem.mjs).
  */
+import { correctedZ } from './horse-audit-multiple-tests.mjs';
 import { cardStr } from './horse-hand-audit-holdem-eval.mjs';
 import {
   EVENTS,
@@ -364,25 +365,53 @@ function personLine(H, seat) {
   return parts.join(' ') + (H.sd.has(seat) && H.sd.size >= 2 ? ' sd' : ' nsd');
 }
 
-export function compareWindows(curNodes, cmpNodes, { minN = 30, z = 2 } = {}) {
-  const worse = [];
+/**
+ * Leak nodes measurably worse than before (2026-11-26, after the false alarm of the 13:33Z daily audit).
+ *  - `prior` is one node map or a LIST of them (one per earlier window): the comparison is against all of them
+ *    pooled, never against the single window before (that flag was the comparison day being the low one of four).
+ *  - the z bar is corrected for the number of nodes actually compared in this run (correctedZ): z >= 2 on 47 nodes
+ *    flags by chance in most runs.
+ * Each row carries the bar, the number of comparisons and every earlier window's own rate, so a reader can see
+ * whether the earlier windows agree with each other. The returned list also has `.tests` and `.zBar`.
+ */
+export function compareWindows(curNodes, prior, { minN = 30, z = 2, correct = true } = {}) {
+  const priors = (Array.isArray(prior) ? prior : [prior]).filter(Boolean);
+  const tested = [];
   for (const [k, v] of curNodes) {
     if (!['over-fold', 'calls below the price', 'over-bluff'].includes(v.verdict)) continue;
-    const c = cmpNodes.get(k);
-    if (!c) continue;
     const bet = v.verdict === 'over-bluff';
-    const nv = bet ? v.bet : v.fold + v.call + v.raise;
-    const nc = bet ? c.bet : c.fold + c.call + c.raise;
+    const nOf = (c) => (bet ? c.bet : c.fold + c.call + c.raise);
+    const kOf = (c) => (bet ? c.worked : c.fold);
+    const each = priors
+      .map((m) => m.get(k))
+      .filter(Boolean)
+      .map((c) => ({ n: nOf(c), k: kOf(c) }));
+    const nv = nOf(v);
+    const nc = each.reduce((a, c) => a + c.n, 0);
     if (nv < minN || nc < minN) continue;
-    const pv = bet ? v.worked / v.bet : v.fold / nv;
-    const pc = bet ? c.worked / c.bet : c.fold / nc;
+    const pv = kOf(v) / nv;
+    const pc = each.reduce((a, c) => a + c.k, 0) / nc;
     const p = (pv * nv + pc * nc) / (nv + nc);
     const se = Math.sqrt(p * (1 - p) * (1 / nv + 1 / nc)) || 1;
     const zz = (pv - pc) / se;
-    const worseDir = v.verdict === 'over-fold' ? zz >= z : zz <= -z;
-    if (worseDir)
-      worse.push({ key: k, verdict: v.verdict, now: pv, before: pc, nNow: nv, nBefore: nc, z: zz });
+    tested.push({
+      key: k,
+      verdict: v.verdict,
+      now: pv,
+      before: pc,
+      nNow: nv,
+      nBefore: nc,
+      z: zz,
+      priorWindows: each.map((c) => ({ rate: c.n ? c.k / c.n : null, n: c.n })),
+    });
   }
+  const zBar = correct ? correctedZ(z, tested.length) : z;
+  const worse = tested
+    .filter((w) => (w.verdict === 'over-fold' ? w.z >= zBar : w.z <= -zBar))
+    .map((w) => ({ ...w, zBar, tests: tested.length }));
+  worse.tests = tested.length;
+  worse.zBar = zBar;
+  worse.priorWindows = priors.length;
   return worse;
 }
 
@@ -773,11 +802,16 @@ export function formatMarkdown(sum, opts = {}) {
     L.push('');
   }
   if (opts.worse) {
-    L.push('## Leak nodes worse than the comparison window');
+    L.push('## Leak nodes worse than the earlier windows pooled');
+    const w0 = opts.worse;
+    if (Number.isFinite(w0.tests))
+      L.push(
+        `${w0.tests} leak node(s) compared against ${w0.priorWindows ?? 1} earlier window(s) pooled; z bar ${r2(w0.zBar)} (corrected for the number compared).`
+      );
     if (!opts.worse.length) L.push('None.');
     for (const w of opts.worse)
       L.push(
-        `- ${w.key}: ${w.verdict}, now ${pct(w.now)} (n ${w.nNow}) vs before ${pct(w.before)} (n ${w.nBefore}), z ${r2(w.z)}`
+        `- ${w.key}: ${w.verdict}, now ${pct(w.now)} (n ${w.nNow}) vs before ${pct(w.before)} (n ${w.nBefore}), z ${r2(w.z)} against a bar of ${r2(w.zBar)}; each earlier window: ${(w.priorWindows ?? []).map((x) => `${pct(x.rate)} (n ${x.n})`).join(', ')}`
       );
     L.push('');
   }

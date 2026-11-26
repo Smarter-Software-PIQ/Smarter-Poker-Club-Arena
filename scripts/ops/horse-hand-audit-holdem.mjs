@@ -41,6 +41,7 @@ import {
   buildHandsSql,
   buildTournamentSql,
   chunks,
+  collectNodes,
   makeModel,
   measureBluffShares,
   measureFrequencies,
@@ -73,7 +74,8 @@ Options:
   --mode <${MODES.join('|')}>  Cash tables, tournaments (MTT, SNG, Spin, heads-up) or both (default all)
   --people-only         Only hands with a person seated (default)
   --all                 Every NLH hand, Horse-only tables included (slow)
-  --split-at <ISO>      Compare after this instant against before it (default: against the same length before --since)
+  --split-at <ISO>      Compare after this instant against before it (default: against the earlier windows pooled)
+  --compare-windows <n> Earlier windows of the same length before --since to pool for the comparison (default 3)
   --json                Emit the summary as JSON
   --csv <dir>           Also write decisions.csv and hands.csv into <dir>
   --from-json <file>    Grade saved query output ({"hands": [...], "entries": [...]}) instead of querying
@@ -81,7 +83,7 @@ Options:
   --supabase-workdir <dir>  Override the auto-resolved linked Supabase workdir
   -h, --help            Show this help text
 
-Exit codes: 0 clean; 1 a leak node is measurably worse than in the comparison window; 2 too few hands
+Exit codes: 0 clean; 1 a leak node is measurably worse than the earlier windows pooled (z bar corrected for the\nnumber of nodes compared); 2 too few hands
 (fewer than ${MIN_PERSON_HANDS} person-hands in the range); ${EXIT_USAGE} wrong argument; ${EXIT_FAILED} failed read.
 `;
 
@@ -92,6 +94,7 @@ export function parseArgs(argv) {
     mode: 'all',
     peopleOnly: true,
     splitAt: null,
+    compareWindows: null,
     json: false,
     csv: null,
     fromJson: null,
@@ -113,7 +116,11 @@ export function parseArgs(argv) {
     else if (a === '--since') o.since = parseInstant(a, need(++i, a));
     else if (a === '--until') o.until = parseInstant(a, need(++i, a));
     else if (a === '--split-at') o.splitAt = parseInstant(a, need(++i, a));
-    else if (a === '--mode') {
+    else if (a === '--compare-windows') {
+      o.compareWindows = Number(need(++i, a));
+      if (!Number.isInteger(o.compareWindows) || o.compareWindows < 1)
+        throw new Error('--compare-windows needs a whole number of at least 1');
+    } else if (a === '--mode') {
       o.mode = need(++i, a);
       if (!MODES.includes(o.mode)) throw new Error(`--mode must be one of ${MODES.join(', ')}`);
     } else if (a === '--csv') o.csv = need(++i, a);
@@ -205,9 +212,12 @@ export function runAudit(raw, plan, { matrix } = {}) {
       return t >= w.since && t < w.until;
     });
   const curRaw = inWin(plan.current);
-  const cmpRaw = inWin(plan.compare);
+  const priors = plan.priors ?? [plan.compare];
+  // The price model is measured on the audited window and the window right before it, as it always was: reading
+  // more earlier windows for the comparison must not change a single grade.
+  const nearRaw = inWin(priors[0]);
   const parsedCur = curRaw.map(parseHand).filter(Boolean);
-  const parsedAll = [...parsedCur, ...cmpRaw.map(parseHand).filter(Boolean)];
+  const parsedAll = [...parsedCur, ...nearRaw.map(parseHand).filter(Boolean)];
   const M =
     matrix ?? preflopMatrix({ samples: 1500, cacheDir: join(tmpdir(), 'horse-hand-audit-holdem') });
   const nash = JSON.parse(
@@ -220,16 +230,29 @@ export function runAudit(raw, plan, { matrix } = {}) {
     nash,
   });
   const cur = audit(curRaw, { model });
-  const cmp = cmpRaw.length ? audit(cmpRaw, { model }) : null;
+  // The earlier windows are only counted (fold / call / raise / bet per node), not graded: the comparison reads
+  // counts alone.
+  const priorNodes = priors
+    .map((w) => inWin(w).map(parseHand).filter(Boolean))
+    .filter((hands) => hands.length)
+    .map((hands) => collectNodes(hands, new Map()));
   const personHands = cur.handRows.reduce((a, hr) => a + hr.persons.length, 0);
-  const worse = cmp ? compareWindows(cur.nodes, cmp.nodes) : [];
+  const worse = priorNodes.length ? compareWindows(cur.nodes, priorNodes) : [];
   const exitCode =
     personHands < MIN_PERSON_HANDS ? EXIT_TOO_FEW : worse.length ? EXIT_WORSE : EXIT_OK;
   const summary = buildSummary(cur, {
     since: new Date(plan.current.since).toISOString(),
     until: new Date(plan.current.until).toISOString(),
   });
-  return { cur, cmp, worse, exitCode, personHands, summary, entries: entriesSummary(raw.entries) };
+  return {
+    cur,
+    priorNodes,
+    worse,
+    exitCode,
+    personHands,
+    summary,
+    entries: entriesSummary(raw.entries),
+  };
 }
 
 export function summaryJson(r) {
@@ -261,6 +284,11 @@ export function summaryJson(r) {
     },
     entries: m2o(r.entries),
     worse: r.worse,
+    compare: {
+      priorWindows: r.priorNodes.length,
+      tests: r.worse.tests ?? 0,
+      zBar: r.worse.zBar ?? null,
+    },
   };
 }
 

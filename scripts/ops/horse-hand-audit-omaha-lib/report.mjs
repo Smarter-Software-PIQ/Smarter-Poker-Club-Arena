@@ -59,6 +59,8 @@ export const DECISION_COLS = [
   'gain_bb',
   'tol_bb',
   'breach',
+  'note',
+  'nut_class',
   'nuts',
   'outs',
   'made',
@@ -302,6 +304,23 @@ export function markdownTables(S, { leakTop = 25, strengthTop = 12, nodeTop = 25
         ])
       )
   );
+  if ((S.notes ?? []).length)
+    o.push(
+      '### Counted apart, not breaches (tier A)\n' +
+        table(
+          ['What', 'Cases', 'With a person', 'Graded cost bb', 'Examples'],
+          S.notes.map((b) => [
+            b.note,
+            b.n,
+            b.vsPerson,
+            f1(b.costBb),
+            b.examples
+              .slice(0, 6)
+              .map((x) => x.slice(0, 8))
+              .join(' '),
+          ])
+        )
+    );
   const fn = S.nodes.filter((n) => n.key.includes('|facing') && !n.key.startsWith('preflop'));
   o.push(
     '### Tier B facing-bet nodes versus people, by estimated chips lost to over-folding (actual bettor ranges)\n' +

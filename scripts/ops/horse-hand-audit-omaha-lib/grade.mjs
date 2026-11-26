@@ -9,6 +9,7 @@ import {
   rangeEquity,
   rng,
   isNutsExact,
+  nutClass,
   outsToStraightPlus,
   preflopScore,
 } from './omaha.mjs';
@@ -296,8 +297,14 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
   }
   // taken action
   let taken;
-  const actTaken =
-    d.act === 'all_in'
+  // A raise or all-in over opponents who are ALL already all in is a call: nobody can put another chip in, so the
+  // chips above the call come straight back (hand 9fb142d2, 2026-11-26: an all-in for 494 bb over a person who was
+  // all in, 313 bb returned, was priced as a raise against a caller and listed as a 75 bb "raise without price").
+  const overAllIn =
+    d.isRaise && d.toCall > 0 && opps.length > 0 && opps.every((o) => (d.stacks?.[o] ?? 1) <= 1e-9);
+  const actTaken = overAllIn
+    ? 'call'
+    : d.act === 'all_in'
       ? d.isRaise
         ? d.toCall > 0 || st === 'preflop'
           ? 'raise'
@@ -343,19 +350,35 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
   const nuts = st === 'preflop' ? null : isNutsExact(hero, board);
   const outs = st === 'flop' || st === 'turn' ? outsToStraightPlus(hero, board) : 0;
   const madeCat = sc === null ? null : category(sc);
+  // the engine's own nut class ('nuts' | 'effective' | null), read only where the owner rule reads it
+  const nutCls = st === 'turn' || st === 'river' ? (nuts ? 'nuts' : nutClass(hero, board)) : null;
   const mtype =
     verdict === 'MISTAKE'
-      ? mistakeType(hand, d, actTaken, best, { nuts, outs, madeCat, eqNow: eqNow.eq, taken, hcost })
+      ? mistakeType(hand, d, actTaken, best, {
+          nuts,
+          nutCls,
+          outs,
+          madeCat,
+          eqNow: eqNow.eq,
+          taken,
+          hcost,
+        })
       : null;
   const mclass = mtype ? mistakeClass(mtype, st, best, d.oop) : null;
   const breach = [];
+  const notes = [];
   if (
     (actTaken === 'raise' || (actTaken === 'bet' && d.toCall > 0)) &&
     (st === 'turn' || st === 'river') &&
-    d.toCall > 0 &&
-    nuts === false
-  )
-    breach.push('non-nut raise turn/river');
+    d.toCall > 0
+  ) {
+    // The owner rule is "a hand that is not nut class never raises the turn or river", and the engine keeps a
+    // raise by its own nut-class test. The audit used the exact nuts here, so the two disagreed on every top full
+    // house on a paired board (hand 0bf48e08: tens full on 8-T-8-3, quad eights possible). Now the same test;
+    // "nut class but not the exact nuts" is counted on its own line, not as a breach.
+    if (nutCls === null) breach.push('non-nut raise turn/river');
+    else if (nutCls === 'effective') notes.push('nut-class raise turn/river, not the exact nuts');
+  }
   if (
     actTaken === 'raise' &&
     d.toCall > 0 &&
@@ -384,6 +407,8 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
     mtype,
     mclass,
     breach,
+    notes,
+    nutClass: nutCls,
     pos,
     into,
     specs: opps.map((o) => specLabel(specs.get(o))),
@@ -426,7 +451,10 @@ export function mistakeType(hand, d, actTaken, best, x) {
   if (actTaken === 'fold') return 'folded too strong';
   if (actTaken === 'call' && b.startsWith('raise')) return 'missed raise for value';
   if (actTaken === 'raise') {
-    if ((st === 'turn' || st === 'river') && x.nuts === false)
+    if (
+      (st === 'turn' || st === 'river') &&
+      (x.nutCls === undefined ? x.nuts === false : x.nutCls === null)
+    )
       return 'raised a non-nut hand on turn/river';
     if (d.oop && x.madeCat <= 1 && x.outs >= 4) return 'raised a draw out of position';
     return 'raise without price';
