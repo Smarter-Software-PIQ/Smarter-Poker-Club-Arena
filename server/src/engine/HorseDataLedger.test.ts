@@ -105,6 +105,9 @@ const BRAIN_FILES = [
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
   // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
   'engine/HorseOmahaBigDrawBetPriced.ts',
+  // Hold'em tournament raise defence (2026-11-24, default off): the wiring reads its three options and fires its
+  // own receipts where it answers.
+  'engine/HorseHoldemTournamentRaiseDefenceWiring.ts',
   // PLO-LEAD-6 (2026-11-24, default off): the out-of-position 3-bet range rule reads its two options and the cap and
   // fires its own receipts in its route.
   'engine/HorseOopReraiseRangeHoldsWiring.ts',

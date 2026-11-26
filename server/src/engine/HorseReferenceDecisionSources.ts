@@ -189,6 +189,20 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha tournament multiway pricing (HORSE DECISIONS lane 2026-11-19, omahaMultiwayIsPricedInTournaments): a preflop multiway call-off and a multiway own bet priced jointly against the callers; off returns the decision unchanged',
     'src/engine/HorseHoldemTournamentAllInCall.ts':
       "the default-off hold'em tournament all-in call (HORSE DECISIONS lane 2026-11-19, holdemTournamentAllInCallIsPriced): every all-in call decided by equity against the jammer's range at the exact price with the pay-jump factor; off returns the decision unchanged",
+    'src/engine/HorseHoldemTournamentRaiseDefence.ts':
+      "the default-off hold'em tournament raise defence price (2026-11-24, holdemTournamentHeadsUpBigBlindDefenceIsPriced / holdemTournamentBlindDefenceIsPriced / holdemTournamentCommittedRaiseIsPriced): fold, call or shove facing a non-all-in raise by expected value from a fixed class equity table and measured priors, no random draw; off it is never called",
+    'src/engine/HorseHoldemTournamentRaiseDefenceWiring.ts':
+      "the wiring of the default-off hold'em tournament raise defence into the reference end and the Phase 7 / Phase 8 refusal; off returns the decision unchanged",
+    'src/engine/HorseHoldemPreflopClassEquity.data.ts':
+      "the generated 169 x 169 preflop class equity table the default-off hold'em tournament raise defence reads (server/scripts/holdem-preflop-class-equity-gen.ts)",
+    'src/engine/HorseHoldemTournamentRaiseDefenceAnchored.ts':
+      "the default-off hold'em tournament raise defence v2 (2026-11-24): the solved equilibrium mix of the class, tilted by the opponent's own record, the measured population fold and the pay-jump factor, one seeded draw from the public spot and the Horse's cards; off it is never called",
+    'src/engine/HorseHoldemTournamentRaiseDefenceSolved.ts':
+      "the reader of the solved raise-defence tables (default-off hold'em tournament raise defence, and the all-in call price's jam range while one of those options is on); off it is never called",
+    'src/engine/HorseHoldemTournamentRaiseDefenceSolved.data.ts':
+      "the generated chip-EV equilibrium tables of the open / defend / re-raise game (server/scripts/holdem-tournament-raise-defence-solve/solve.py) the default-off hold'em tournament raise defence reads",
+    'src/engine/HorseHoldemTournamentRaiseDefencePriors.data.ts':
+      "the fitted population priors the default-off hold'em tournament raise defence reads (server/scripts/holdem-tournament-raise-defence-fit.ts)",
     'src/engine/HorseTournamentCrumbsCallFloor.ts':
       'the Omaha tournament crumbs call floor (HORSE DECISIONS lane 2026-11-19, plain bug fix): a preflop fold with the call all in and 2 bb or less behind, at a price no worse than min(0.34, 1/(opponents+1)), becomes the call',
     'src/engine/equity/SeededRandom.ts':

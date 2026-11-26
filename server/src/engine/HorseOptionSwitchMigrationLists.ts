@@ -757,6 +757,24 @@ const callSql = (call: OptionSwitchWhitelistCall) =>
         : `SELECT public.fn_ca_horse_option_unregister('${call.option}', '${call.migration}');`;
 
 /**
+ * The live proof of a register migration (tests/a-merged-migration-must-be-live.law.test.ts): it creates no object,
+ * so it states the boolean a reader runs to see it installed: every option it names has its whitelist row, and every
+ * option it holds off-only is held. A later register migration can only narrow a shadow level or add a hold, never
+ * remove a row or a hold without an approved migration of its own, so the proof stays true once installed.
+ */
+export function optionSwitchRegisterLiveProof(calls: readonly OptionSwitchWhitelistCall[]): string {
+  const quoted = (names: readonly string[]) => names.map((n) => `'${n}'`).join(', ');
+  const options = [...new Set(calls.map((c) => c.option))].sort();
+  const held = [
+    ...new Set(calls.filter((c) => c.fn === 'register' && c.offOnly).map((c) => c.option)),
+  ].sort();
+  const rows = `(SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN (${quoted(options)})) = ${options.length}`;
+  return held.length === 0
+    ? rows
+    : `(${rows} AND (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE off_only AND option IN (${quoted(held)})) = ${held.length})`;
+}
+
+/**
  * A register migration: one call per option, in one transaction. It creates nothing and switches nothing, and two of
  * them give the same whitelist in either install order.
  */
@@ -770,6 +788,7 @@ export function optionSwitchRegisterSql(
       throw new Error(`${name} holds register (and allow_shadow) calls of its own only`);
   const held = calls.filter((c) => c.fn === 'register' && c.offOnly).length;
   return `-- ${name}.sql
+-- @live-proof: ${optionSwitchRegisterLiveProof(calls)}
 --
 -- HORSE OPTION SWITCH: ${calls.length} OPTION${calls.length === 1 ? '' : 'S'} REGISTERED${held ? ` (${held} OFF-ONLY)` : ''}
 --

@@ -688,6 +688,39 @@ function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameConte
 }
 
 /**
+ * 2026-11-24: a six-handed Sit & Go (six entrants, two paid 65 / 35, no ante), for the hold'em tournament raise
+ * defence card in the Sit & Go format.
+ */
+function sixMaxSngContext(seats: number, stackBB: number): LeagueGameContext {
+  return {
+    gameMode: 'tournament',
+    format: 'sng',
+    ante: 0,
+    tournament: {
+      schemaVersion: 1,
+      contextStatus: 'complete',
+      contextIssues: [],
+      playersLeft: seats,
+      spotsPaid: 2,
+      entrants: seats,
+      avgStackChips: stackBB * BB,
+      medianStackChips: stackBB * BB,
+      seatsPerTable: seats,
+      nearBubble: false,
+      inMoney: false,
+      payoutPct: [65, 35],
+      currentSmallBlind: SB,
+      currentBigBlind: BB,
+      currentAnte: 0,
+      nextSmallBlind: SB * 2,
+      nextBigBlind: BB * 2,
+      nextAnte: 0,
+      nextBlindInMin: 10,
+    },
+  };
+}
+
+/**
  * 2026-11-13: the same MTT at its final table (every remaining player seated
  * here, all in the money), for the Omaha first-in cards: the rule acts only
  * when the whole field is at this table (HorseOmahaTournamentFirstIn.ts).
@@ -5755,6 +5788,65 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { holdemTournamentAllInCallIsPriced: true },
+    b: {},
+  },
+  // 2026-11-24 HOLD'EM TOURNAMENT RAISE DEFENCE (three options, default OFF;
+  // NLH-TOURNAMENT-SWEEP L1/L2/L4, HorseHoldemTournamentRaiseDefence.ts). Each
+  // card isolates one option, arm A on, arm B today's brain, with the live
+  // M state and the deal-seeded mood clock. Heads-up 18bb (a Spin endgame /
+  // heads-up SNG: winner-take-all, chip EV), six-handed 17bb big-blind-ante
+  // MTT (blinds facing steals), six-handed 22bb big-blind-ante MTT (re-raises
+  // after an open, the depth the sweep measured). Declared at 12bb first: the
+  // mirror league's openers jam or fold at 12bb, so nobody faced a non-all-in
+  // open and both cards were inert there (2026-11-24, v2 run). The options
+  // stay default OFF until their evidence is met.
+  {
+    name: 'hu_holdem_tournament_heads_up_big_blind_defence_is_priced_18bb',
+    seats: 2,
+    stackBB: 18,
+    context: winnerTakeAllSpinContext(2, 18),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentHeadsUpBigBlindDefenceIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'mtt6_holdem_tournament_blind_defence_is_priced_17bb',
+    seats: 6,
+    stackBB: 17,
+    context: bigBlindAnteMttWithMContext(6, 17),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentBlindDefenceIsPriced: true },
+    b: {},
+  },
+  // The six-handed Sit & Go format (2026-11-24): all three options together, 17bb, no ante, two paid.
+  {
+    name: 'sng6_holdem_tournament_raise_defence_is_priced_17bb',
+    seats: 6,
+    stackBB: 17,
+    context: sixMaxSngContext(6, 17),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {
+      holdemTournamentHeadsUpBigBlindDefenceIsPriced: true,
+      holdemTournamentBlindDefenceIsPriced: true,
+      holdemTournamentCommittedRaiseIsPriced: true,
+    },
+    b: {},
+  },
+  {
+    name: 'mtt6_holdem_tournament_committed_raise_is_priced_22bb',
+    seats: 6,
+    stackBB: 22,
+    context: bigBlindAnteMttWithMContext(6, 22),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentCommittedRaiseIsPriced: true },
     b: {},
   },
   // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF

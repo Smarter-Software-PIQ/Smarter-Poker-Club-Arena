@@ -2893,6 +2893,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'TourneyAllInPriced'
   ),
   flag(
+    'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: two dealt, the big blind facing the small blind's first raise, effective <= 25bb (sweep L1: 82% folds to a small open under 20bb, never a call).",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentBlindDefenceIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: three or more dealt, the small or big blind facing the first raise, effective <= 25bb (sweep L2: both blinds folded 74% to small late steals at 10-15bb).",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentCommittedRaiseIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: a re-raise faced after the Horse's own raise this hand, effective <= 40bb, and any raise that commits the Horse at any depth where the two blind options do not own the spot (sweep L4: 56-62% folds to a non-all-in 3-bet, 78% to a 4-bet, 76% to a raise to just under all in).",
+    "Hold'em Strategy"
+  ),
+  flag(
     'nashPushFoldIcm',
     "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; nashPushFoldIcm on implies the paid-bust valuation of icmBustPaysPlace for the decision (HorseLogic.decide, Hand Analysis D1), so the short stack never reads the cap of 5 from a zero-valued bust; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -9275,6 +9290,90 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (holdemTournamentAllInCallIsPriced)',
     "default-off holdemTournamentAllInCallIsPriced: a postflop call facing an all-in (a jam), with the call closing the action, became a fold: the engine's own equity was more than 5 points below the price; occurrence counter, named *_seen",
     'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_hu_bb_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off holdemTournamentHeadsUpBigBlindDefenceIsPriced: a heads-up big blind facing the small blind's non-all-in open was answered by the priced fold, call or shove; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_blind_defence_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off holdemTournamentBlindDefenceIsPriced: a blind (three or more dealt) facing one non-all-in open was answered by the priced fold, call or shove; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_committed_raise_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off holdemTournamentCommittedRaiseIsPriced: a re-raise after the Horse's own raise, or a raise that commits the Horse, was answered by the priced fold, call or shove; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_fold_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the fold; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_call_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the call; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_shove_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the shove (all in); occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_committed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the call left the Horse committed and was priced as the all-in it is; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_changed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence: the priced answer differs from the reference's answer (fold, call, all-in or a non-all-in raise) and replaced it; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_unpriced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: a spot in scope could not be priced (no pot, no possible combo); the paths it had decide; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_blanket_stood_aside_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence: the hold'em premium rules (premium never passive, dominated 3-bet fold, commit-under-pot call) met the priced answer and stood aside (HorseLogic.holdemPremiumAggression); occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_reraise_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence (v2, anchored): the answer was the non-all-in 3-bet or 4-bet the solved equilibrium mixes in for the class; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_mixed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence (v2, anchored): the class's played mix had two or more actions and the seeded draw picked one (mix and draw in the receipt); occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_moved_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence (v2, anchored): the population rate, the opponent's own record or the bubble factor moved the played mix off the solved equilibrium mix; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_reversal_refused_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the Phase 7 tournament utility arbiter or Phase 8 chose to change the priced answer; refused (tournamentUtilityRefusal / Phase 8 reason priced_raise_defence); occurrence counter, named *_seen',
+    "Hold'em Strategy"
   ),
   receipt(
     'nash_call_vs_jam',
