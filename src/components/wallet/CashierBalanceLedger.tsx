@@ -1,3 +1,5 @@
+import './CashierBalanceLedger.css';
+
 interface LedgerBalance {
   key: string;
   label: string;
