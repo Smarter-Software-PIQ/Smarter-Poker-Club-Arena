@@ -10,7 +10,7 @@ type ClubDataAccess = 'authorized' | 'restricted';
 function toolName(root: string) {
   if (root.includes('cashier')) return /^Requests, Tickets And Tools/;
   if (root.includes('players')) return /^Sort And Roster Tools$/;
-  return /^(Open|Close) Club Report$/;
+  return /^Close Club Report$/;
 }
 async function closeTools(page: Page, selector: string) {
   const trigger = page.getByRole('button', { name: toolName(selector) });
@@ -727,7 +727,10 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
             0
           );
           await expect(page.getByRole('heading', { name: 'Club Totals' })).toBeVisible();
-          await page.getByRole('button', { name: 'Open Club Report' }).click();
+          await page.goBack();
+          await expect(
+            page.getByRole('region', { name: 'Club Report', exact: true })
+          ).toBeVisible();
           await expect.poll(allJoined, { timeout: 80_000 }).toBe(true);
           observing = true;
         } else {

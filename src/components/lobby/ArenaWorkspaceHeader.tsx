@@ -11,7 +11,7 @@ interface Props {
   area: keyof typeof scene;
   title: string;
   context?: string | null;
-  subtitle: string;
+  subtitle?: string;
   id?: string;
 }
 
@@ -65,7 +65,7 @@ export default function ArenaWorkspaceHeader({ area, title, context, subtitle, i
       <div className="arena-mast-lettering">
         <span>{context || 'Club Arena'}</span>
         <h1 id={id}>{title}</h1>
-        <small>{subtitle}</small>
+        {subtitle && <small>{subtitle}</small>}
       </div>
     </header>
   );
