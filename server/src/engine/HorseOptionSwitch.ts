@@ -1135,12 +1135,12 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   holdemMultiwayOpeningBluffIsPriced: [
     HOLDEM,
     'NLH cash (table and Lightning), two or more opponents, turn/river, the first bet of the street',
-    "a check becomes a bluff only when it prices above the check against the field's joint fold (minimum defence shared across the field) and blockers or the range advantage over every opponent are the Horse's",
+    "a check becomes a bluff only when it prices above the check against the field's shared minimum-defence fold and blockers or range advantage are the Horse's",
   ],
   holdemMultiwayOpeningValueBetIsPriced: [
     HOLDEM,
     'NLH cash (table and Lightning), two or more opponents, turn/river, the first bet of the street',
-    'a check becomes a value bet when the chips the callers add are won on balance (the share of the joint calling range the hand beats) and it prices above the check',
+    'a check becomes a value bet when the chips the callers add are won on balance (share of the joint calling range beaten) and it prices above the check',
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,
