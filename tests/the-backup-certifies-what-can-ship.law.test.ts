@@ -81,8 +81,17 @@ function shell(script: string, env: NodeJS.ProcessEnv, cwd: string) {
 }
 
 const P = '20261126000707';
-/** main: s0 server (SERVING), s1 server (certifiable), m adds migration P, s2 server, d docs. */
-function repository() {
+/**
+ * main: s0 server (SERVING), s1 server, k release control (certifiable),
+ * m adds migration P, s2 server, d docs. With `controlAfter`, a release-control
+ * commit k2 follows m instead of k preceding it (k2 carries P).
+ */
+const PREQUAL = `import subprocess
+CONTROL_INPUTS = ["scripts/ci/select-daily-engine.py", "server/scripts"]
+def projection(sha):
+    return subprocess.check_output(["git", "ls-tree", "-r", sha, "--", *CONTROL_INPUTS], text=True)
+`;
+function repository(controlAfter = false) {
   const dir = temp('ship-repo-');
   const git = (...args: string[]) => {
     const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: cleanEnv() });
@@ -100,16 +109,21 @@ function repository() {
     git('commit', '-q', '-m', path);
     return git('rev-parse', 'HEAD');
   };
+  mkdirSync(resolve(dir, 'scripts/ci'), { recursive: true });
+  writeFileSync(resolve(dir, 'scripts/ci/read-engine-prequalification.py'), PREQUAL);
   commit('server/standby/standby-owners.sql', '-- owners\n');
   const s0 = commit('server/src/a.ts', '0\n');
   const s1 = commit('server/src/a.ts', '1\n');
+  const k = controlAfter ? '' : commit('scripts/ci/select-daily-engine.py', '# control 2\n');
   const m = commit(`supabase/migrations/${P}_held.sql`, 'select 1;\n');
+  const k2 = controlAfter ? commit('scripts/ci/select-daily-engine.py', '# control 3\n') : '';
   const s2 = commit('server/src/a.ts', '2\n');
   const d = commit('docs/x.md', 'x\n');
-  return { dir, shas: { s0, s1, m, s2, d } };
+  return { dir, shas: { s0, s1, k, m, k2, s2, d } };
 }
 const repo = repository();
-const { s0: SERVING, s1, m, s2, d } = repo.shas;
+const { s0: SERVING, s1, k, m, s2, d } = repo.shas;
+const lateControl = repository(true);
 
 function runDue(opts: {
   sha: string;
@@ -120,6 +134,7 @@ function runDue(opts: {
   serving?: string | 'FAIL';
   fakeGit?: boolean;
   env?: NodeJS.ProcessEnv;
+  cwd?: string;
 }) {
   const verdict = `due=true\nproduction=${'a'.repeat(64)}\npending=${opts.pending ?? P}\ncomparable=${'c'.repeat(64)}`;
   const health =
@@ -169,19 +184,20 @@ ${opts.fakeGit ? 'git() { echo "2026-11-26T07:00:00Z"; }' : ''}
       SEALED_SHA: '',
       ...opts.env,
     },
-    repo.dir
+    opts.cwd ?? repo.dir
   );
 }
 
 describe('the Backup certifies what can ship (2026-11-26)', () => {
-  it('a target carrying an uninstalled migration certifies the newest server commit behind it that carries none', () => {
+  it('a target carrying an uninstalled migration certifies the newest server or release-control commit behind it that carries none', () => {
     const r = runDue({ sha: s2 });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(
       `RETARGETED TO WHAT CAN SHIP: ${s2} carries uninstalled migration(s) (${P})`
     );
-    expect(r.stdout).toContain(`certifying ${s1}`);
-    expect(r.out).toContain(`sha=${s1}\n`);
+    // The release-control commit k, not the older server commit s1.
+    expect(r.stdout).toContain(`certifying ${k}`);
+    expect(r.out).toContain(`sha=${k}\n`);
     // The control stays the run's own commit, which the selector admits.
     expect(r.out).toContain(`control_sha=${s2}\n`);
     expect(r.out).not.toContain('deferred=1');
@@ -193,21 +209,40 @@ describe('the Backup certifies what can ship (2026-11-26)', () => {
   it('a push run whose own commit is the docs commit after it keeps its own commit as control', () => {
     const r = runDue({ sha: d, githubSha: d });
     expect(r.status, r.stderr).toBe(0);
-    expect(r.out).toContain(`sha=${s1}\n`);
+    expect(r.out).toContain(`sha=${k}\n`);
     expect(r.out).toContain(`control_sha=${d}\n`);
   });
 
   it('a target that carries none of the pending files is certified as planned, never deferred', () => {
-    const r = runDue({ sha: s1, control: s2, githubSha: s2, event: 'workflow_run' });
+    const r = runDue({ sha: k, control: s2, githubSha: s2, event: 'workflow_run' });
     expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toContain(`UNINSTALLED BUT NOT CARRIED: ${s1} holds none of ${P}`);
+    expect(r.stdout).toContain(`UNINSTALLED BUT NOT CARRIED: ${k} holds none of ${P}`);
+    // An older commit with other release controls keeps deferring.
+    const older = runDue({ sha: s1, control: s2, githubSha: s2, event: 'workflow_run' });
+    expect(older.stdout).toContain(
+      `${s1} holds none of ${P} but its release controls differ from ${s2}`
+    );
+    expect(older.out).toContain('deferred=1');
     expect(r.out).not.toContain('sha=');
     expect(r.out).not.toContain('deferred=1');
     expect(r.calls).not.toContain('LEASE_RELEASED');
   });
 
+  it('a commit whose release controls differ from the control is never a target (2026-11-26, c951436a6ead after #12038)', () => {
+    const { s1: old, s2: head } = lateControl.shas;
+    const r = runDue({ sha: head, cwd: lateControl.dir });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(
+      `the newest commit without the uninstalled files, ${old}, has release controls that differ from ${head}`
+    );
+    expect(r.stdout).toContain(
+      `DEFERRED: ${head} carries uninstalled ordinary migration(s) (${P})`
+    );
+    expect(r.out).not.toContain(`sha=${old}`);
+  });
+
   it.each([
-    ['nothing behind the target is ahead of the serving engine', { serving: s1 }],
+    ['nothing behind the target is ahead of the serving engine', { serving: k }],
     ['live /health is unreadable', { serving: 'FAIL' as const }],
     ['git cannot read the commits', { fakeGit: true }],
   ])('defers exactly as before when %s', (_label, extra) => {
@@ -215,13 +250,13 @@ describe('the Backup certifies what can ship (2026-11-26)', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(`DEFERRED: ${s2} carries uninstalled ordinary migration(s) (${P})`);
     expect(r.out).toContain('deferred=1');
-    expect(r.out).not.toContain(`sha=${s1}`);
+    expect(r.out).not.toContain(`sha=${k}`);
     expect(r.calls).toContain('LEASE_RELEASED');
   });
 
   it('the commit that adds the migration is never a target, and exempt runs are untouched', () => {
     const r = runDue({ sha: m });
-    expect(r.out).toContain(`sha=${s1}\n`);
+    expect(r.out).toContain(`sha=${k}\n`);
     for (const env of [{ FREEZE_BASELINE: '1' }, { PLAN_PRIORITY: 'booking' }, { MODE: 'force' }]) {
       const exempt = runDue({ sha: s2, env });
       expect(exempt.stdout).not.toContain('RETARGETED TO WHAT CAN SHIP');
@@ -302,12 +337,13 @@ gh() {
     expect(backup.on.schedule).toHaveLength(2);
   });
 
-  it("the window's last install plans main's newest server commit with an automatic refresh", () => {
+  it("the window's last install plans main's head with an automatic refresh", () => {
     const r = runPlan({ going: '0', newer: '0', head: s2 });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain('AFTER INSTALLS: Apply Merged Migration run 800 was the window');
-    expect(r.out).toBe(`sha=${s2}\nrefresh=auto\n`);
-    // Unreadable answers plan, and fall back to main's head.
+    // Main's head carries main's release controls; an older server commit may not.
+    expect(r.out).toBe(`sha=${d}\nrefresh=auto\n`);
+    expect(r.calls).not.toContain('commits?sha=');
     const blind = runPlan({});
     expect(blind.status, blind.stderr).toBe(0);
     expect(blind.out).toBe(`sha=${d}\nrefresh=auto\n`);

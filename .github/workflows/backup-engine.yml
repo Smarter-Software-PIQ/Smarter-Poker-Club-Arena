@@ -158,7 +158,7 @@ on:
     # (repository_dispatch) of apply-merged-migration.yml on this repository's
     # main, and only when no other Apply Merged Migration run is still going,
     # so the window's last install starts exactly one certification of main's
-    # newest server commit ("Backup after installs <run>"). No timer, no
+    # head ("Backup after installs <run>"). No timer, no
     # watcher, no retry: one event, one run.
     workflows: [Apply Merged Migration]
     types: [completed]
@@ -552,9 +552,9 @@ jobs:
           # THE WINDOW'S LAST INSTALL STARTS ONE CERTIFICATION (2026-11-26).
           # Only the last Apply Merged Migration run still going plans; a newer
           # after-install Backup run supersedes this one. The target is main's
-          # newest server commit when this run started (GITHUB_SHA is main's
-          # head for a workflow_run event); the refresh job certifies the
-          # newest one that carries no uninstalled migration. Unreadable
+          # head when this run started (GITHUB_SHA for a workflow_run event);
+          # the refresh job certifies the newest server or release-control
+          # commit that carries no uninstalled migration. Unreadable
           # answers plan, as a push run does (CLAUDE.md 10.86).
           if [ "$EVENT" = workflow_run ]; then
             api="repos/${GITHUB_REPOSITORY:-}/actions/workflows"
@@ -576,9 +576,11 @@ jobs:
               echo "refresh=" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            head=$(gh api "repos/${GITHUB_REPOSITORY:-}/commits?sha=$GITHUB_SHA&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
-            if [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then sha="$head"; fi
-            echo "AFTER INSTALLS: Apply Merged Migration run ${INSTALL_RUN:-unknown} was the window's last install; certifying $sha, main's newest server commit at $GITHUB_SHA, on a copy that holds the new installs."
+            # Main's head, not its newest server commit: an older server commit
+            # whose release controls differ from main's can never be selected
+            # (2026-11-26, c951436a6ead after #12038). The refresh job steps
+            # back from it when it carries an uninstalled migration.
+            echo "AFTER INSTALLS: Apply Merged Migration run ${INSTALL_RUN:-unknown} was the window's last install; certifying $sha, main's head, on a copy that holds the new installs."
             { echo "### Backup Engine"; echo ""; echo "- AFTER INSTALLS \`$sha\` (install run ${INSTALL_RUN:-unknown}; main at \`$GITHUB_SHA\`)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             echo "sha=$sha" >> "$GITHUB_OUTPUT"
             echo "refresh=auto" >> "$GITHUB_OUTPUT"
@@ -1167,6 +1169,13 @@ jobs:
           # 10.86).
           retargeted_down=''
           if [ -n "$pending_migrations" ] && { { { [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+            # A commit whose release controls differ from this run's control
+            # can never pass prequalification ("qualification inputs differ
+            # from selected control"; 2026-11-26, c951436a6ead after #12038),
+            # so it is not worth a soak. Unreadable is "differ".
+            same_controls() {
+              python3 -B -c 'import runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); sys.exit(0 if m["projection"](sys.argv[1]) == m["projection"](sys.argv[2]) else 1)' "$1" "$2" 2>/dev/null
+            }
             carries() { # carries <commit>: the pending versions its tree holds; fails when unreadable
               local listed
               [ "$(git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null)" = "$1" ] || return 1
@@ -1178,12 +1187,20 @@ jobs:
               return 0
             }
             if held=$(carries "$SHA"); then
-              if [ -z "$held" ]; then
+              if [ -z "$held" ] && same_controls "$SHA" "$CONTROL"; then
                 echo "UNINSTALLED BUT NOT CARRIED: $SHA holds none of $pending_migrations (only main after it does); the copy and production both lack them, so it is certified as planned."
                 pending_migrations=''
+              elif [ -z "$held" ]; then
+                echo "$SHA holds none of $pending_migrations but its release controls differ from $CONTROL; deferring as before."
               else
                 down=''
-                for c in $(git rev-list --first-parent --max-count=200 "$SHA" -- server 2>/dev/null); do
+                # The O13 rule: server/ or any release-control path, so a
+                # control commit with no migration is a target too (2026-11-26).
+                control_paths=()
+                while IFS= read -r control_path; do
+                  [ -n "$control_path" ] && control_paths+=("$control_path")
+                done < <(python3 -B -c 'import runpy; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print("\n".join(m["CONTROL_INPUTS"]))' 2>/dev/null || true)
+                for c in $(git rev-list --first-parent --max-count=200 "$SHA" -- server ${control_paths[@]+"${control_paths[@]}"} 2>/dev/null); do
                   if c_held=$(carries "$c"); then
                     if [ -z "$c_held" ]; then down="$c"; break; fi
                   else
@@ -1192,6 +1209,10 @@ jobs:
                 done
                 serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health 2>/dev/null | jq -r '.releaseSha // ""' 2>/dev/null) || serving=''
                 down_control=''
+                if [[ "$down" =~ ^[0-9a-f]{40}$ ]] && ! same_controls "$down" "$CONTROL"; then
+                  echo "the newest commit without the uninstalled files, $down, has release controls that differ from $CONTROL; it can never be selected."
+                  down=''
+                fi
                 if [[ "$down" =~ ^[0-9a-f]{40}$ ]] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$down" != "$serving" ] \
                    && git merge-base --is-ancestor "$serving" "$down" 2>/dev/null; then
                   if git merge-base --is-ancestor "$down" "$GITHUB_SHA" 2>/dev/null; then
