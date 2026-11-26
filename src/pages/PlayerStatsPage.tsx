@@ -328,43 +328,31 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       document.removeEventListener('visibilitychange', release);
     };
   }, [printing]);
+  const toast = useToast();
+  const isMounted = useIsMounted();
   const printTimerRef = useRef<number | null>(null);
   const printDossier = useCallback(async () => {
     setPrinting(true);
     // Preload idempotent lazy chunks before the 1200ms chart-layout window so
     // a cold-cache PDF never captures Suspense text. Do not clear printing on
     // a timer: mobile print() returns before its preview closes.
-    await Promise.all([
-      import('./stats/RakeTab'),
-      import('./stats/OverviewTab'),
-      import('./stats/PerformanceTab'),
-      import('./stats/PositionsTab'),
-      import('./stats/HandsTab'),
-      import('./stats/TrophiesTab'),
-      import('./stats/TournamentsTab'),
-      import('./stats/TournamentPlayingStats'),
-      import('./stats/AnalysisTab'),
-      import('../components/stats/StatsCharts'),
-      import('../components/stats/StatsPositionPiePlot'),
-      import('../components/stats/EVLuckChart'),
-      import('../components/stats/BankrollTracker'),
-      import('../components/stats/PositionWinRates'),
-      import('../components/stats/PositionalRadar'),
-      import('../components/stats/HoleCardHeatmap'),
-      import('../components/stats/NemesisPanel'),
-      import('../components/stats/BenchmarkPanel'),
-      import('../components/stats/TrophyRoom'),
-      import('../components/stats/StatsShareCard'),
-      import('../components/stats/SessionHistory'),
-      import('../components/stats/AdvancedStatsSummary'),
-      import('../components/agent/DownlineRakePanel'),
-    ]).catch(() => undefined);
+    try {
+      const { prepareStatsDossier } = await import('./statsDossierPrint');
+      await prepareStatsDossier();
+    } catch {
+      if (isMounted.current) {
+        setPrinting(false);
+        toast.error('Could Not Load The Complete Dossier. Please Try Again.');
+      }
+      return;
+    }
+    if (!isMounted.current) return;
     if (printTimerRef.current !== null) window.clearTimeout(printTimerRef.current);
     printTimerRef.current = window.setTimeout(() => {
       printTimerRef.current = null;
       window.print();
     }, 1200);
-  }, []);
+  }, [isMounted, toast]);
   useEffect(
     () => () => {
       if (printTimerRef.current !== null) window.clearTimeout(printTimerRef.current);
@@ -726,8 +714,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [changeCategory]
   );
-  const toast = useToast();
-  const isMounted = useIsMounted();
   const hasStatsRef = useRef(false);
   const statsLoadingRef = useRef(false);
   // A refresh arriving while one is in flight is remembered and replayed once
