@@ -1,6 +1,6 @@
 # holdemOpeningBluffIsPriced: Authority For The Live Switch
 
-**State: default OFF in source** (registered, never switched). Evidence NOT MET (the committed audited-decision scorer was not run; the lane's grades are below). Lane grade: READY for a live shadow trial, not for on: league mirror +49.7 ± 5.8 bb/100 per seat heads-up (60,000 hands) and +8.2 ± 3.6 six-max (20,000), exploit probes caller +3.5 ± 3.2, over-folder +30.4 ± 6.1, balanced bluffer +18.5 ± 7.4, real-hand audit replay fixed 6 / newly wrong 4 with opponent memory as of each decision (fixed decisions' recorded cost 54 bb, newly wrong 0 bb) but 1 / 2 with no opponent memory.
+**State: default OFF in source** (registered, never switched). Evidence NOT MET (the committed audited-decision scorer was not run; the lane's grades are below). Lane grade: READY for a live shadow trial only, not for on (it bleeds -10.5 ± 3.7 bb/100 to an always-caller when the opponent has no record; see With No Opponent Record): league mirror +49.7 ± 5.8 bb/100 per seat heads-up (60,000 hands) and +8.2 ± 3.6 six-max (20,000), exploit probes caller +3.5 ± 3.2, over-folder +30.4 ± 6.1, balanced bluffer +18.5 ± 7.4, real-hand audit replay fixed 6 / newly wrong 4 with opponent memory as of each decision (fixed decisions' recorded cost 54 bb, newly wrong 0 bb) but 1 / 2 with no opponent memory.
 
 ## What It Does
 
@@ -72,6 +72,26 @@ Both options together (superseded code with the weak-share fold cap): league mir
 | 6-max    | 4404 | 16,000 | +13.2 ± 4.5              |
 
 real-hand replay: fixed 17, newly wrong 8, changed but still not the audit's best 10 (right kind, size outside the tolerance or the wrong kind), changed ok to ok 5, unchanged 279, of 319 exact-tier postflop decisions placed (the base reproduces the recorded action kind in 241); recorded cost of the fixed decisions 212.1 bb.
+
+## Speed
+
+Per-decision cost of HorseLogic.decide where the option applies, measured as for the value option, turn and river only. 100 bb: 509 spots, ON p50 / p95 / max 0.95 / 1.99 / 4.20 ms (OFF 0.63 / 1.61 / 2.23). 300 bb: 511 spots, 0.91 / 2.07 / 2.82 ms (OFF 0.66 / 1.56 / 3.09). The stage bar is p95 <= 10 ms and max <= 25 ms.
+
+## With No Opponent Record (The Equilibrium-Anchored Case)
+
+With no record his fold to a bet B into pot P is B / (B + P), the bettor's break-even, so a pure bluff is worth exactly zero. The option bluffs only where the Horse's cards remove more of his calling part than of his folding part, which gives a small blocker edge. Range advantage alone never makes a zero-EV bluff pay.
+
+Probes with memory OFF (every read at its empty prior; heads-up 100 bb, 12,000 hands per arm, ON - OFF):
+
+| Probe            | Result                  |
+| ---------------- | ----------------------- |
+| Always-caller    | -10.5 ± 3.7 (it bleeds) |
+| Balanced bluffer | +10.5 ± 2.7             |
+| Over-folder      | +22.8 ± 2.4             |
+
+With memory on the caller probe is +3.5 ± 3.2: his record stops the bluffs. The real-hand replay with no memory is 1 fixed / 2 newly wrong.
+
+The gain depends on the opponent's own record, and people rarely have one yet. Against an unknown station it loses chips until his record builds. The league numbers are against today's over-folding Horses, the field the prior must not be anchored to. It may go to a shadow trial. It does not go on from league numbers alone.
 
 ## Limits
 

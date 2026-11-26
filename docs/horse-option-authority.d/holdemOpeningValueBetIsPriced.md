@@ -71,6 +71,16 @@ Both options together (superseded code with the weak-share fold cap): league mir
 
 real-hand replay: fixed 17, newly wrong 8, changed but still not the audit's best 10 (right kind, size outside the tolerance or the wrong kind), changed ok to ok 5, unchanged 279, of 319 exact-tier postflop decisions placed (the base reproduces the recorded action kind in 241); recorded cost of the fixed decisions 212.1 bb.
 
+## Speed
+
+Per-decision cost of HorseLogic.decide where the option applies: production options, heads-up league hands, every postflop spot where the production decision is a check or a turn bet with nothing to call, timed OFF and ON on the same state, the first 50 dropped. 100 bb: 947 spots, ON p50 / p95 / max 1.13 / 1.72 / 2.56 ms (OFF 0.62 / 1.47 / 2.10). 300 bb: 962 spots, 1.10 / 1.68 / 2.40 ms (OFF 0.63 / 1.47 / 2.21). The stage bar is p95 <= 10 ms and max <= 25 ms.
+
+## Why It Loses Heads-Up (Diagnosis)
+
+Two heads-up probes against a fixed production Horse (memory on, 15,000 hands per arm, ON - OFF) separate the cause. Against the plain production Horse the result is -17.1 ± 6.4 bb/100, the league loss reproduced. Against the same Horse with every postflop raise turned into a call it is -3.4 ± 5.8. The chips go to his raises of the Horse's new value bets. The bet's EV prices his folds and calls only.
+
+Fixing that needs his raise share facing a bet. No per-opponent counter of it exists in the read frame the live worker reads (ExploitCounters has none; HorseOpponentStyle lists it as not available). With no record, the raise share would need an equilibrium anchor that is not measured here. That is the next step: a memory counter and a read-frame field for postflop raises per opportunity, then the bet EV priced with his raise branch and the Horse's answer to it. Earlier root-cause fix, in this branch: the fold cap at his modelled weak share (river value bets -12.0 -> -1.7 bb/100).
+
 ## Limits
 
 - Heads-up only: multiway opening spots (several of the audit's missed bluffs and flop value bets were multiway) are not touched.
