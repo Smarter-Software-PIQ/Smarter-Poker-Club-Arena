@@ -14,10 +14,12 @@
  *     (ties included), and the river score built from the turn score equals the full river score.
  *  2. SAME ANSWERS: the committed fixture (32 real 4+-way flop decisions, public snapshot and the deciding Horse's own
  *     cards only, and 16 heads-up league decisions) gives the recorded EV and call, exactly.
- *  3. FAST: over the multiway fixture (PLO5 5-way included), after one warm-up pass, each decision's best of three
- *     runs has p95 at most 25 ms and max at most 60 ms on the owner's Mac. On another machine the bounds scale by the measured cost
- *     of a fixed scoring workload against its cost on that Mac (never below 1), so a slower runner is judged by the
- *     same work, not by its clock.
+ *  3. FAST, RELATIVELY (lead-7 2026-11-26; theServerSuiteAssertsNoTightWallClockBound forbids millisecond bounds):
+ *     the live tree scores the rank-only part of every hand from a per-board table of pair-ranks and only the
+ *     suited pairs against one-suit triples (anOmahaFlopCallTreeIsUnchanged: the same numbers). Over the multiway
+ *     fixture (PLO5 5-way included) it costs at most RATIO_TREE of the frozen tree it replaced
+ *     (__tests__/HorseOmahaFlopCallTree.frozen.test-support.ts), alternating rounds, the fastest round of each kept
+ *     (src/testing/relativeCost.ts). Measured 0.3-0.4 on Apple Silicon (fixture p95 17.2 -> 4.8 ms).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,6 +36,8 @@ import {
 import { omahaFlopCallTreeVerdict } from './HorseOmahaFlopCallTree.js';
 import { omahaFlopFacingBetEvSpot } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
+import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.test-support.js';
+import { measureRelativeCost } from '../testing/relativeCost.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { SeatPlayer } from '../types.js';
 
@@ -69,12 +73,12 @@ function bestFast(
   return omahaFastBestPre(pairs, 0, np, triples);
 }
 
-function verdictOf(row: FixtureRow) {
+function verdictOf(row: FixtureRow, tree = omahaFlopCallTreeVerdict) {
   const { gs, player } = row;
   const spot = omahaFlopFacingBetEvSpot(player, gs);
   if (!spot) return null;
   const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
-  return omahaFlopCallTreeVerdict(
+  return tree(
     {
       variant: String(gs.gameVariant),
       spot,
@@ -92,30 +96,8 @@ function verdictOf(row: FixtureRow) {
   );
 }
 
-/** Milliseconds of a fixed scoring workload (4,000 PLO5 holdings x 10 river triples, 5 passes). */
-function referenceWorkMs(): number {
-  const rnd = stream(7);
-  const board = DECK.slice(0, 5);
-  const triples = omahaFastTriplesPre(board.map(omahaFastCard));
-  const holdings: Card[][] = [];
-  for (let i = 0; i < 4000; i++) {
-    const picked = new Set<number>();
-    while (picked.size < 5) picked.add(5 + Math.floor(rnd() * 47));
-    holdings.push([...picked].map((x) => DECK[x]));
-  }
-  const pairs = new Int32Array(4000 * 10 * OMAHA_FAST_PAIR_STRIDE);
-  holdings.forEach((h, i) =>
-    omahaFastPairsInto(Int32Array.from(h.map(omahaFastCard)), 0, 5, pairs, i * 30)
-  );
-  let sink = 0;
-  const t0 = performance.now();
-  for (let pass = 0; pass < 5; pass++)
-    for (let i = 0; i < 4000; i++) sink += omahaFastBestPre(pairs, i * 30, 10, triples);
-  const ms = performance.now() - t0;
-  return sink > 0 ? ms : ms;
-}
-/** referenceWorkMs on the owner's Mac Studio (2026-11-24, Node 26, load 12, not niced: 16.2-18.9 ms). */
-const REFERENCE_WORK_MS_MAC = 16;
+/** The live tree's cost over the multiway fixture, at most this share of the frozen tree's (measured 0.3-0.4). */
+const RATIO_TREE = 0.6;
 
 describe('the flop call tree is fast enough to act, and its fast score changes no answer', () => {
   it('1. the fast score orders random PLO4 / PLO5 hands exactly as HorseEval, on flops, turns and rivers', () => {
@@ -158,35 +140,24 @@ describe('the flop call tree is fast enough to act, and its fast score changes n
     }
   }, 120_000);
 
-  it('3. a multiway decision takes p95 <= 25 ms and max <= 60 ms (scaled by the reference work)', () => {
+  it('3. over the multiway fixture the tree costs a bounded share of the frozen tree it replaced', () => {
     const multiway = FIXTURE.filter(
       (r) => (r.gs.players ?? []).filter((p) => !p.is_folded && !p.is_sitting_out).length >= 4
     );
     expect(multiway.length).toBeGreaterThanOrEqual(30);
-    for (const row of multiway) verdictOf(row); // warm-up
-    const ref = Math.min(referenceWorkMs(), referenceWorkMs(), referenceWorkMs());
-    const scale = Math.max(1, ref / REFERENCE_WORK_MS_MAC);
-    // each decision's own cost: the best of three runs (a pause of the thread, the collector or another process
-    // makes a run longer, never shorter), so a contended runner does not fail the law and a slower tree still does
-    const times = multiway.map((row) => {
-      let best = Infinity;
-      for (let pass = 0; pass < 3; pass++) {
-        const t0 = performance.now();
-        verdictOf(row);
-        best = Math.min(best, performance.now() - t0);
-      }
-      return best;
-    });
-    times.sort((a, b) => a - b);
-    const p95 = times[Math.floor(0.95 * (times.length - 1))];
-    const max = times[times.length - 1];
-    expect(
-      p95,
-      `p95 ${p95.toFixed(1)} ms, reference scale ${scale.toFixed(2)}`
-    ).toBeLessThanOrEqual(25 * scale);
-    expect(
-      max,
-      `max ${max.toFixed(1)} ms, reference scale ${scale.toFixed(2)}`
-    ).toBeLessThanOrEqual(60 * scale);
+    const cost = measureRelativeCost(
+      () => {
+        for (const row of multiway) verdictOf(row);
+      },
+      () => {
+        for (const row of multiway) verdictOf(row, frozenOmahaFlopCallTreeVerdict);
+      },
+      { warmupRounds: 1, rounds: 3 }
+    );
+    console.info(
+      `[flop call tree] live ${cost.subjectMs.toFixed(1)} ms, frozen ${cost.referenceMs.toFixed(1)} ms, ` +
+        `ratio ${cost.ratio.toFixed(3)} (limit ${RATIO_TREE}, fastest of ${cost.rounds})`
+    );
+    expect(cost.ratio).toBeLessThan(RATIO_TREE);
   }, 120_000);
 });

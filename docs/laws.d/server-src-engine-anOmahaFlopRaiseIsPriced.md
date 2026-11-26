@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaFlopRaiseIsPriced.law.test.ts
+
+The heads-up PLO4/PLO5 cash flop raise price (omahaFlopRaiseIsPriced, default OFF): the per-bin equities are card-seeded and the bins' pool shares sum to one; a hand far ahead of the continuing range prices the pot raise above a small raise and a hand behind it prices the call or the fold above every raise; only a raise is changed (a call, a fold or a check is returned as the same object, and off returns the raise as given), it never makes a raise; it is silent multiway, on the turn, in PLO6 and in tournaments, and another user id, name or person/Horse flag decides the same.

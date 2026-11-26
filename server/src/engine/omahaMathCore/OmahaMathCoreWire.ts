@@ -23,6 +23,11 @@
  *
  * PLO4 / PLO5 only: every adapter answers null for any other variant or hole count.
  */
+import {
+  HUD_ANCHOR_K_FLOOR,
+  HUD_ANCHOR_RAISE_SHARE,
+  anchorFold,
+} from '../HorseEquilibriumAnchor.js';
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { omahaTrapRate } from './OmahaMathCoreTrapRate.js';
 import { omahaCheckRaiseCell } from './OmahaMathCoreCheckRaise.js';
@@ -704,13 +709,44 @@ export function wiredValue(c: WireValueCtx): WireValueResult | null {
         const isRaiseLine = effLine === 'raise' || effLine === 'check_raise';
         nMin = Math.min(nMin, isRaiseLine ? r.exactN : r.n);
       }
+      // THE EQUILIBRIUM ANCHOR (2026-11-26, lane prior-anchor; the prior-anchor law): each responder folds at the
+      // indifference point of the wager he faces (joint minimum defence over the live responders, anchorFold),
+      // shrunk n / (n + 20) toward his own lifetime folds to a first wager of that size on this street where the
+      // provider has them; the pooled cell (83% Horse play in its window) is no longer his prior. The hero's
+      // blockers and the board texture keep moving the anchored fold by the ratio they move the pooled cell.
+      const nResp = Math.max(1, c.live.filter((x) => !x.allIn).length);
+      const aF = anchorFold(Math.max(0, frac), nResp);
+      const first = effLine !== 'raise' && effLine !== 'check_raise';
+      const rec = first && off === 0 ? o.firstWagerFolds?.[frac <= 0.7 ? 'sm' : 'bg'] : undefined;
+      const own =
+        rec && rec.opps > 0
+          ? (Math.max(0, Math.min(rec.opps, rec.folds)) + HUD_ANCHOR_K_FLOOR * aF) /
+            (rec.opps + HUD_ANCHOR_K_FLOOR)
+          : aF;
+      const pooled =
+        off === 0
+          ? wiredResponse(s.board, {
+              game,
+              mode,
+              street: stName,
+              line: effLine,
+              band,
+              players: playersNow,
+            })
+          : null;
+      const adj = r && pooled && pooled.fold > 1e-6 ? r.fold / pooled.fold : 1;
+      const foldA = clamp01(own * (Number.isFinite(adj) ? adj : 1));
       resp.push({
         seat: o.seat,
-        fold: r ? r.fold : 0,
-        raise: r ? r.raise : 0,
+        fold: foldA,
+        raise: Math.max(0, Math.min(1 - foldA, (1 - foldA) * HUD_ANCHOR_RAISE_SHARE)),
         callChips: 0,
-        source: r ? r.source : 'no measured cell: no fold credit',
+        source: `equilibrium anchor fold ${Math.round(aF * 100) / 100} at ${Math.round(frac * 100) / 100} pot x ${nResp}${
+          rec && rec.opps > 0 ? `, own ${rec.folds}/${rec.opps} k ${HUD_ANCHOR_K_FLOOR}` : ''
+        }${adj !== 1 ? `, blockers/texture x${Math.round(adj * 100) / 100}` : ''}`,
       });
+      measured = Math.max(measured, 1);
+      nMin = Math.min(nMin, (rec?.opps ?? 0) + HUD_ANCHOR_K_FLOOR);
     }
     if (resp.length === 0)
       return { fold: 0, raise: 0, callers: 0, source: 'every opponent all-in' };

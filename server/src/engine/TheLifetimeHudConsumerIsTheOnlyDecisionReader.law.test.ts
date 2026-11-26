@@ -74,8 +74,18 @@ describe('the lifetime-HUD consumer is the only decision reader, and it is defau
         if (/opts(\?)?\.omahaOpponentLifetimeHudDecides\b/.test(l)) reads.push(`${f.rel}:${i}`);
       });
     }
-    expect(reads.length).toBe(1);
-    expect(reads[0]).toMatch(/^HorseLogic\.ts:/);
+    // 2026-11-26 (lane prior-anchor): the equilibrium-anchor gate (HorseEquilibriumAnchor.hudAnchorOptionsOn) reads
+    // the consumer option to decide whether this decision's HUD reads shrink toward the anchor instead of the
+    // population row; it produces no read option and needs the store option too (asserted below).
+    const gate = reads.filter((r) => r.startsWith('HorseEquilibriumAnchor.ts:'));
+    expect(gate.length).toBe(1);
+    const gateSrc = readFileSync(join(ENGINE, 'HorseEquilibriumAnchor.ts'), 'utf8');
+    expect(gateSrc).toMatch(
+      /opts\.omahaOpponentLifetimeHud === true &&\s*\(opts\.omahaOpponentLifetimeHudDecides === true/
+    );
+    const decisionReads = reads.filter((r) => !r.startsWith('HorseEquilibriumAnchor.ts:'));
+    expect(decisionReads.length).toBe(1);
+    expect(decisionReads[0]).toMatch(/^HorseLogic\.ts:/);
     const src = readFileSync(join(ENGINE, 'HorseLogic.ts'), 'utf8');
     expect(src).toMatch(
       /\.\.\.\(opts\.omahaOpponentLifetimeHud === true &&\s*opts\.omahaOpponentLifetimeHudDecides === true &&/

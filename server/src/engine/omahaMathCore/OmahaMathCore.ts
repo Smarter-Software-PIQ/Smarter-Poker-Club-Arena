@@ -32,6 +32,11 @@
  * keyed by the request; deterministic for a given request.
  */
 import {
+  HUD_ANCHOR_K_FLOOR,
+  HUD_ANCHOR_RAISE_SHARE,
+  anchorFold,
+} from '../HorseEquilibriumAnchor.js';
+import {
   buildPool,
   equityVsPools,
   equityVsPoolsEquityLane,
@@ -103,6 +108,12 @@ export interface CoreOpponent {
   /** his lifetime public answers to a flop continuation bet (raw counts; all-ins count as raises), when the
    *  opponent-record provider has a record of him; absent = none (the pooled response prices him) */
   cbetAnswers?: { opps: number; raises: number } | null;
+  /** his lifetime public folds to the street's first wager by size (sm <= 0.7 pot, bg above), when the
+   *  opponent-record provider has a record of him (2026-11-26, equilibrium anchor); absent = the anchor alone */
+  firstWagerFolds?: {
+    sm: { opps: number; folds: number };
+    bg: { opps: number; folds: number };
+  } | null;
 }
 
 /**
@@ -119,6 +130,14 @@ export interface OmahaMathCoreOpponentRecords {
     game: 'plo4' | 'plo5',
     players: 'hu' | 'mw'
   ): { opps: number; raises: number } | null;
+  /** his lifetime folds to a street's first wager by size (optional; 2026-11-26 equilibrium anchor) */
+  firstWagerFolds?(
+    table: unknown,
+    seat: number,
+    game: 'plo4' | 'plo5',
+    street: 'flop' | 'turn' | 'river',
+    players: 'hu' | 'mw'
+  ): { sm: { opps: number; folds: number }; bg: { opps: number; folds: number } } | null;
 }
 let OPP_RECORDS: OmahaMathCoreOpponentRecords | null = null;
 export function setOmahaMathCoreOpponentRecords(p: OmahaMathCoreOpponentRecords | null): void {
@@ -1007,38 +1026,44 @@ export function decideOmahaMathCore(state: CoreState, clock: Clock): { receipt: 
         ? { p: c.p, r: 0, source: c.source }
         : { p: 0, r: 0, source: 'no measured cell: no fold credit' };
     }
-    const c = wiredHeroResponse(state.hole, state.board, state.seed, {
-      game,
-      mode,
-      street: street as Exclude<Street, 'preflop'>,
-      line: state.heroWagerLine,
-      band: sizeBand(frac, allIn),
-      players: playersNow,
-    } satisfies ResponseKey);
-    // one measured, pooled response rule for every responder (no person/Horse branch)
-    // a raise takes fold credit only from its exact street/line cell with n >= 30 (VALUE
-    // RAISE_FOLD_CREDIT_MIN_N; persons' answers to raises are thin and value-heavy: PROVE river C7)
-    if (
-      c &&
-      (state.heroWagerLine === 'raise' || state.heroWagerLine === 'check_raise') &&
-      c.exactN < RAISE_FOLD_CREDIT_MIN_N
-    )
+    // THE EQUILIBRIUM ANCHOR (2026-11-26, lane prior-anchor; the prior-anchor law): every responder is priced on
+    // the indifference point of the wager he faces (joint minimum defence, anchorFold) shrunk n / (n + 20) toward
+    // his own lifetime folds to a first wager of that size where the provider has them; never on the pooled
+    // public cells (83% Horse play in their window). The continuing part raises HUD_ANCHOR_RAISE_SHARE of the time,
+    // or his own c-bet raise share shrunk toward that where the c-bet read applies.
+    {
+      const m = Math.max(1, live.length);
+      const aF = anchorFold(Math.max(0, frac), m);
+      const first = state.heroWagerLine !== 'raise' && state.heroWagerLine !== 'check_raise';
+      const rec = first ? o.firstWagerFolds?.[frac <= 0.7 ? 'sm' : 'bg'] : undefined;
+      const k = HUD_ANCHOR_K_FLOOR;
+      const p =
+        rec && rec.opps > 0
+          ? (Math.max(0, Math.min(rec.opps, rec.folds)) + k * aF) / (rec.opps + k)
+          : aF;
+      const rA = (1 - p) * HUD_ANCHOR_RAISE_SHARE;
+      let r = rA;
+      let read = '';
+      if (
+        state.heroWagerLine === 'cbet' &&
+        OMAHA_MATH_CORE_CBET_RAISE_READ.streets[game]?.includes(street)
+      ) {
+        const own = cbetRaiseShare(rA, p, o.cbetAnswers);
+        if (own) {
+          r = own.r;
+          read = `; ${own.read}`;
+        }
+      }
       return {
-        p: 0,
-        r: Math.max(0, Math.min(1, c.raise)),
-        source: `${c.source}; no fold credit (raise line, exact n ${c.exactN} < ${RAISE_FOLD_CREDIT_MIN_N})`,
+        p,
+        r: Math.max(0, Math.min(1 - p, r)),
+        source: `equilibrium anchor: fold ${round2(aF)} at ${round2(frac)} pot, ${m} responder(s)${
+          rec && rec.opps > 0
+            ? `; own first-wager folds ${rec.folds}/${rec.opps} shrunk k ${k}`
+            : ''
+        }${read}`,
       };
-    if (
-      c &&
-      state.heroWagerLine === 'cbet' &&
-      OMAHA_MATH_CORE_CBET_RAISE_READ.streets[game]?.includes(street)
-    ) {
-      const own = cbetRaiseShare(c.raise, c.fold, o.cbetAnswers);
-      if (own) return { p: c.fold, r: own.r, source: `${c.source}; ${own.read}` };
     }
-    return c
-      ? { p: c.fold, r: Math.max(0, Math.min(1 - c.fold, c.raise)), source: c.source }
-      : { p: 0, r: 0, source: 'no measured cell: no fold credit' };
   };
 
   const evs: CoreActionEv[] = [];
