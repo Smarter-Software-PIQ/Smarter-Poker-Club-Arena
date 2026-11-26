@@ -60,6 +60,55 @@ import { dismissClubEntryMessage } from './global-setup';
 
 const css = (p: string) => readFileSync(p, 'utf8');
 
+test('Every tournament tab has a complete tappable chrome face', async ({ page }) => {
+  const labels = [
+    'Details',
+    'Satellites',
+    'Blinds',
+    'Ranking',
+    'Entries',
+    'Unions',
+    'Tables',
+    'Rewards',
+  ];
+  const styles = [
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const width of [320, 393, 900]) {
+    await page.setViewportSize({ width, height: 740 });
+    await page.setContent(`<style>${styles}</style><section class="tournament-details console-lobby">
+      <div class="details-tabs" role="tablist">${labels
+        .map(
+          (label, i) =>
+            `<button class="tab ${i === 0 ? 'active' : ''}" role="tab">${label}</button>`
+        )
+        .join('')}</div></section>`);
+    const tabs = page.getByRole('tab');
+    for (let i = 0; i < labels.length; i++) {
+      const face = await tabs.nth(i).evaluate((tab) => {
+        const rect = tab.getBoundingClientRect();
+        const host = tab.parentElement!.getBoundingClientRect();
+        return {
+          height: rect.height,
+          fits: rect.left >= host.left && rect.right <= host.right,
+          hittable: [rect.left + 3, rect.right - 3].every(
+            (x) => document.elementFromPoint(x, rect.top + rect.height / 2) === tab
+          ),
+          chrome: getComputedStyle(tab).borderImageSource,
+        };
+      });
+      expect(face.height, labels[i]).toBeGreaterThanOrEqual(44);
+      expect(face.fits && face.hittable, labels[i]).toBe(true);
+      expect(face.chrome).toContain(i === 0 ? 'chrome-active.webp' : 'chrome-row.webp');
+    }
+  }
+});
+
 test('Tournament Price Stays Centered Between Unequal Header Controls', async ({ page }) => {
   for (const width of [320, 393, 768]) {
     await page.setViewportSize({ width, height: 844 });

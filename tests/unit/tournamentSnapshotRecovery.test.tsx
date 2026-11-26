@@ -172,7 +172,6 @@ vi.mock('../../src/components/tournament/details/DetailOverviewTab', async (impo
     },
   };
 });
-vi.mock('../../src/components/tournament/details/BlindsTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/RankingTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/EntriesTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/UnionsTab', () => ({ default: () => null }));
@@ -186,6 +185,7 @@ vi.mock('../../src/components/tournament/MysteryBountyCelebration', () => ({
   default: () => null,
 }));
 
+import { __resetServerClock, recordServerTime } from '../../src/utils/serverClock';
 import TournamentDetails from '../../src/pages/tournament/TournamentDetails';
 import TournamentLobbyModal from '../../src/components/table/TournamentLobbyModal';
 const tournament = (id = 'a', extra: Record<string, unknown> = {}) => ({
@@ -280,6 +280,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  __resetServerClock();
   vi.useRealTimers();
 });
 
@@ -555,6 +556,149 @@ describe('Tournament details snapshot recovery', () => {
     fireEvent.click(button);
     expect(fixture.register).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, 'RUNNING'],
+    [true, 'RUNNING'],
+    [false, 'LATE_REGISTRATION'],
+    [true, 'LATE_REGISTRATION'],
+  ] as const)(
+    'opens live Details and keeps the level clock on engine time in the modal=%s caller for %s',
+    async (modal, status) => {
+      const now = Date.parse('2026-11-25T22:05:54Z');
+      vi.setSystemTime(now + 90_000);
+      recordServerTime(now);
+      fixture.realOverview = true;
+      const levels = Array.from({ length: 10 }, (_, i) => ({
+        level: i + 1,
+        smallBlind: 50 * (i + 1),
+        bigBlind: 100 * (i + 1),
+        ante: 100 * (i + 1),
+        durationMinutes: 8,
+      }));
+      const live = tournament('a', {
+        name: '40 Chip Bounty',
+        format_contract: 'mtt-v2',
+        status,
+        is_bounty: true,
+        bounty_amount: 10,
+        buy_in_amount: 40,
+        current_level: 7,
+        late_reg_levels: 10,
+        started_at: new Date(now - 3_600_000).toISOString(),
+        level_started_at: new Date(now - 228_000).toISOString(),
+        blind_structure: levels,
+        blind_level_state: { index: 7, small_blind: 400, big_blind: 800, ante: 800 },
+      });
+      fixture.getTournament.mockResolvedValue(live);
+      render(
+        modal ? (
+          <MemoryRouter>
+            <TournamentLobbyModal
+              isOpen
+              tournamentId="a"
+              onClose={() => {}}
+              requestedTab={{ tab: 'satellites', seq: 1 }}
+            />
+          </MemoryRouter>
+        ) : (
+          <Page embedded={false} search="?tab=satellites" />
+        )
+      );
+      await flush();
+      expect(screen.getByRole('tab', { name: 'Satellites' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      const open = (name: string) => {
+        fireEvent.click(screen.getByRole('tab', { name, exact: true }));
+        return within(screen.getByRole('tabpanel', { name, exact: true }));
+      };
+      const details = open('Details');
+      expect(details.getByRole('region', { name: 'Tournament Overview' })).toBeVisible();
+      expect(details.getByText('Late Reg Ends In')).toBeVisible();
+      expect(details.getByText('400 / 800')).toBeVisible();
+      expect(details.getByText('4:12')).toBeVisible();
+
+      const blinds = open('Blinds');
+      const clock = () =>
+        within(blinds.getByRole('heading', { name: 'Current Level' }).closest('section')!);
+      expect(clock().getByText('Level 8')).toBeVisible();
+      expect(clock().getByText('4:12')).toBeVisible();
+      expect(clock().getByText('3:48 Elapsed')).toBeVisible();
+      expect(blinds.getByText('49:06')).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(clock().getByText('4:10')).toBeVisible();
+      // A replay of this level cannot reset its clock or resurrect a previous level.
+      const notify = (displayLevel: number) =>
+        act(() => {
+          for (const cb of fixture.bus.get('BLIND_LEVEL_CHANGE') ?? []) {
+            cb({ payload: { tournamentId: 'a', level: displayLevel } });
+          }
+        });
+      notify(8);
+      notify(7);
+      expect(clock().getByText('Level 8')).toBeVisible();
+      expect(clock().getByText('4:10')).toBeVisible();
+      // The bus has no persisted anchor. The row read contains the clock the
+      // engine actually committed, including time between commit and delivery.
+      const advanced = {
+        ...live,
+        current_level: 8,
+        level_started_at: new Date(now - 1000).toISOString(),
+        blind_level_state: { index: 8, small_blind: 450, big_blind: 900, ante: 900 },
+      };
+      fixture.getTournament.mockResolvedValue(advanced);
+      notify(9);
+      expect(clock().getByText('Level 9')).toBeVisible();
+      expect(clock().getByText('Level Clock Not Published')).toBeVisible();
+      act(() => update());
+      await flush();
+      expect(clock().getByText('Level 9')).toBeVisible();
+      expect(clock().getByText('7:57')).toBeVisible();
+      const rowUpdate = fixture.channels
+        .flatMap((channel) => channel.bindings)
+        .find((binding) => binding.filter.table === 'tournaments').callback;
+      const patch = (columns: Record<string, unknown>) =>
+        act(() => {
+          rowUpdate({ eventType: 'UPDATE', new: { id: 'a', ...columns } });
+        });
+      const resumeAt = new Date(now + 5000).toISOString();
+      patch({ on_break: true, break_ends_at: resumeAt });
+      expect(blinds.getByText('0:03')).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      patch({ on_break: false, break_ends_at: null });
+      expect(blinds.getByText('Waiting For Play To Resume')).toBeVisible();
+      expect(blinds.queryByRole('heading', { name: 'Current Level' })).toBeNull();
+      patch({ level_started_at: new Date(now + 2000).toISOString() });
+      expect(clock().getByText('7:57')).toBeVisible();
+      const revisited = open('Details');
+      expect(revisited.getByText('450 / 900')).toBeVisible();
+      expect(revisited.getByText('7:57')).toBeVisible();
+      // Above a 25-chip buy-in the engine caps playable levels at 10 minutes.
+      // A separately published break retains its own duration.
+      patch({
+        blind_structure: levels.map((level, index) => ({
+          ...level,
+          durationMinutes: index === 8 ? 14 : 12,
+          isBreak: index === 9,
+        })),
+      });
+      expect(revisited.getByText('9:57')).toBeVisible();
+      const bounded = open('Blinds');
+      expect(clock().getByText('9:57')).toBeVisible();
+      expect(clock().getByText('10 Min Level')).toBeVisible();
+      expect(
+        within(
+          bounded.getByRole('heading', { name: 'Next Level' }).closest('section')!
+        ).getAllByText('12 Min').length
+      ).toBeGreaterThan(0);
+    }
+  );
 
   it.each([false, true])(
     'renders the actual break clock through row updates in the modal=%s caller',

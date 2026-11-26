@@ -302,10 +302,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.details-tabs .tab:first-child {
-  margin-left: -12px;
-}
-
 .details-tabs .tab::after {
   content: '';
   position: absolute;
