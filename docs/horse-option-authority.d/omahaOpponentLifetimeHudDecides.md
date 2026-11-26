@@ -1,6 +1,6 @@
 # omahaOpponentLifetimeHudDecides: Authority For The Live Switch
 
-Evidence NOT MET for a live switch-on: the consumer passed its sparring-bench record 2 (criteria CRITERIA-OPPONENT-HUD-8-RECORD-2.md sha256 31b1bc775a4cf3a5d6787b5d8cf4d970bcc3cb8ada28a6c39ee38bd441e41e31, seed 20261124) as omahaOpponentLifetimeHud on the graded tree lifetime-hud3 (wt4 0f011165c72); this rebuild on the list train inherits that verdict only if decision-identical on the record-2 replay (lead rulings 12:58 PM Chicago Nov 21, item 4). Its live trial follows the store being on and backfilled (EMERG/OPPONENT-HUD-ACTIVATION.md, consumer section). Grade of 2026-11-26 (lead-7 lane grading, "What Was Measured" below): not ready for live shadow; the prior is a 99.5% Horse population, 23 of the audit's protected strengths break in the real-hand replay and 2 decisions take over 50 ms (p95 21-22 ms whole, confirming the cost table of PR #12068): not ready until its cost fix lands.
+Evidence NOT MET for a live switch-on: the consumer passed its sparring-bench record 2 (criteria CRITERIA-OPPONENT-HUD-8-RECORD-2.md sha256 31b1bc775a4cf3a5d6787b5d8cf4d970bcc3cb8ada28a6c39ee38bd441e41e31, seed 20261124) as omahaOpponentLifetimeHud on the graded tree lifetime-hud3 (wt4 0f011165c72); this rebuild on the list train inherits that verdict only if decision-identical on the record-2 replay (lead rulings 12:58 PM Chicago Nov 21, item 4). Its live trial follows the store being on and backfilled (EMERG/OPPONENT-HUD-ACTIVATION.md, consumer section). Grade of 2026-11-26 (lead-7 lane grading, "What Was Measured" below): not ready for live shadow; the prior is a 99.5% Horse population, 23 of the audit's protected strengths break in the real-hand replay and 2 decisions take over 50 ms (p95 21-22 ms whole, confirming the cost table of PR #12068): not ready until its cost fix lands. After the prior-anchor build (same day): prior anchored; still not ready (replay 93 / 73 with 16 strengths broken, speed).
 
 ## What It Does
 
@@ -19,6 +19,8 @@ Set this option off (one switch row, lead only). The store keeps running on `oma
 ## Prior anchor
 
 NOT MET (grade of 2026-11-26). Every lifetime read is shrunk by n / (n + k) toward the population prior of the stored `'*'` row (`fitHudPriors`: the pooled rate over every stored profile, k by method of moments clamped to [2, 400]; a stake band's pooled rate replaces it with 200 or more opportunities). That population is the Horse field: in the stored rows read 2026-11-26, Horses hold 3,862,402 of 3,882,144 PLO5 preflop opportunities (99.5%; 1,019 Horse profiles against 40 person profiles) and 6,141,903 of 6,155,698 PLO4 (99.8%; 1,043 against 64). So an opponent with a short record is read as a Horse, not as equilibrium play. The opponent's own record does take over as it grows (weight n / (n + k), median k 116 PLO5, 170 PLO4), but on a few statistics k is so small that a thin record dominates: `pf.limp` k 4.4 (PLO5) and 2.6 (PLO4), `pf.f4bet` k 4.8 and 8.2, `pf.c4bet` k 8.0 (PLO5), `f.bsz.o` k 2 (PLO4): there 5 hands carry about half the weight. The exploit counters themselves are scaled to at most 300 hands and read by the consumers' own credibility rules.
+
+After the prior-anchor build (same day): MET at the read. With this option on, every read shrinks toward the equilibrium anchor (`HorseEquilibriumAnchor.ts`: indifference points and stated reference frequencies, never Horse data) with k >= 20, so 5 opportunities carry at most 20% and 300 at least 94%; recency stays in the blended counts.
 
 ## What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)
 
@@ -59,6 +61,35 @@ Speed (3,566 real postflop spots, one seed, two runs): whole decision p50 5.4 to
 
 Verdict: **NOT READY for live shadow until its cost fix lands**, regardless of chips. Also: prior anchored to a 99.5% Horse population, 23 protected strengths broken in the replay, 2 decisions over 50 ms. The league gains (+8.3 heads-up, +8.1 6-max, both under 2 SE) do not outweigh those.
 
+## After The Prior-Anchor Build (2026-11-26, Lead-7)
+
+What changed for this option: with it on (and the store on), every HUD read of the decision shrinks toward the equilibrium anchor with k >= 20 instead of the population row (`hudStat`), and the lifetime exploit counters' rates are shrunk the same way before any read's threshold sees them (`hudExploitCounters`: opportunities kept, hits moved toward the anchor), so a short record cannot pass a maniac or pressure threshold on its own. Same method, seeds and sets as the grade above, on the prior-anchor build (branch `agent/plo-lead7-01TLQer8/prior-anchor`; `HorseEquilibriumAnchor.ts`): flag-off check 0 differences in 28,000 decisions; tier-A replay on the audit EV table with resizes interpolated; speed one seed on the same 5,227 states.
+
+| cell                                           | game          | hands | option seats bb/100 vs production (± SE) | z     | hands parted | illegal + fallbacks |
+| ---------------------------------------------- | ------------- | ----- | ---------------------------------------- | ----- | ------------ | ------------------- |
+| league mirror                                  | PLO5 heads-up | 12000 | +4.38 ± 4.83                             | +0.91 | 1704         | 0                   |
+| league mirror                                  | PLO5 6-max    | 12000 | +8.08 ± 7.23                             | +1.12 | 4692         | 0                   |
+| always-caller                                  | PLO5 6-max    | 4000  | -19.99 ± 27.82                           | -0.72 | 2646         | 0                   |
+| over-folder                                    | PLO5 6-max    | 4000  | -10.92 ± 9.38                            | -1.16 | 1513         | 0                   |
+| habitual 3-bettor                              | PLO5 6-max    | 4000  | +25.41 ± 37.21                           | +0.68 | 2003         | 0                   |
+| always-caller                                  | PLO5 heads-up | 4000  | +9.69 ± 7.92                             | +1.22 | 1661         | 0                   |
+| over-folder                                    | PLO5 heads-up | 4000  | +2.72 ± 5.60                             | +0.49 | 270          | 0                   |
+| habitual 3-bettor                              | PLO5 heads-up | 4000  | -33.03 ± 18.43                           | -1.79 | 922          | 0                   |
+| tight opener                                   | PLO5 heads-up | 4000  | +0.75 ± 4.40                             | +0.17 | 122          | 0                   |
+| maniac (lifetime record built as tight opener) | PLO5 6-max    | 4000  | +115.21 ± 44.49                          | +2.59 | 1443         | 0                   |
+| maniac (lifetime record built as tight opener) | PLO5 heads-up | 4000  | +5.99 ± 24.48                            | +0.24 | 464          | 0                   |
+| tight opener (lifetime record built as maniac) | PLO5 heads-up | 4000  | +14.93 ± 7.66                            | +1.95 | 226          | 0                   |
+| league mirror                                  | PLO4 heads-up | 12000 | -3.23 ± 3.57                             | -0.91 | 1414         | 0                   |
+
+| measure                                                                  | before                     | after                       |
+| ------------------------------------------------------------------------ | -------------------------- | --------------------------- |
+| replay, committed scorer                                                 | 70 / 31                    | 62 / 22                     |
+| replay, audit EV table (strengths broken)                                | 97 / 92 (19)               | 93 / 73 (**16**)            |
+| misleading lifetime record (tight record, now a maniac) 6-max / heads-up | +98.0 ± 38.5 / -0.4 ± 24.1 | +115.2 ± 44.5 / +6.0 ± 24.5 |
+| speed, whole decision p95 / max (ms)                                     | 21.1 / 93.5                | 20.3 / 93.0 (1 over 50)     |
+
+Verdict after: **NOT READY.** Prior anchor met at the read (anchor, k >= 20; recency stays in the blended counts and the misleading-record probe does not beat it); chips met (no significant loss). Not met: the replay (93 fixed against 73 newly wrong, 16 protected strengths broken) and speed (p95 20 ms, one decision over 50 ms; the time is the Monte Carlo under `omahaHudPricedRaiseOverCall`, the speed lane's item). Cause of the replay result: the option swaps the presumed-aggressor read for each opponent's real read on every postflop decision, and the heads-up turn bets of the audit's strengths are sized and continued by rules keyed on that read; the anchor does not change which of those rules a long, real record reaches.
+
 ## Replay
 
-- Replay: fixed 70; newlyWrong 31; changed 224; unchanged 5003; unjudged 105; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm B vs off; replayed 5227 of 5227
+- Replay: fixed 62; newlyWrong 22; changed 204; unchanged 5023; unjudged 100; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm B vs off; replayed 5227 of 5227
