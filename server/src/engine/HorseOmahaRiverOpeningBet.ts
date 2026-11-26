@@ -15,6 +15,9 @@
  * scripts/ops/omaha-river-opening-range-fit.mjs from shown hands only, showdown bias corrected): after he checked the
  * river heads-up (`checkfirst`), or, when the Horse acts first, the in-position player's river range (`ipstart`), each
  * split by whether the turn had a wager. Strength is the share of holdings that beat his hand (0 = the nuts).
+ * PEOPLE ONLY (owner order 2026-11-26 12:21 PM Chicago): `cells` and `rates` are fit on people's shown hands and
+ * people's own river actions only (no Horse hand, no unshown card), each game cell shrunk to a random holding; the
+ * table's `heroCells` (the Horses' own hands) are never read here.
  * CARD REMOVAL is exact: the strength bins are cut on the board's own holdings (the cards he cannot see: the deck less
  * the board), and each bin's weight is moved by the share of its holdings the Horse's cards (and the known dead
  * cards) leave him: that is what a blocker is. The Horse's win and tie shares in every bin are exact counts.

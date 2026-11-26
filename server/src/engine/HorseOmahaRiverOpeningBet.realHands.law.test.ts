@@ -9,6 +9,12 @@
  * is read on every size that clears. Graded against the audit's best action on the 57 nodes: the bluff bets 29
  * (27 the audit's bet, 2 newly wrong); without his record 25 (23 / 2). The range-advantage bluff bets 6 (6 / 0; 4 / 0
  * before review t4 of 2026-11-26 refit his range on people only and the Horse's own range on Horses only).
+ * 2026-11-26 (river range people only): HorseOmahaRiverOpeningRangeTables.json v3-2026-11-26-people fits his river
+ * range and betting rate on people's shown hands only (was pooled with Horse hands). Re-graded on the same 57 nodes:
+ * the blocker bluff bets 25 (23 the audit's bet, 2 newly wrong; was 29 / 27 / 2), without his record 24 (22 / 2; was
+ * 25 / 23 / 2); the value option bets 4 (4 the audit's bet, 0 newly wrong; was 6 / 6 / 0): nodes 492c593d and ac3272e1
+ * (both the audit's bet) are now checks, so their pinned `expect.value` is re-pinned to the new decision. No
+ * threshold is changed.
  */
 import { describe, expect, it } from 'vitest';
 import {

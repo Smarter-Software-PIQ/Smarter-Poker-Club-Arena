@@ -19,6 +19,9 @@
  *     separate family of the Horses' own shown hands, and the engine reads each from its own family.
  *  8. (review t5) The people fold fit files each answer under the bettor's line exactly as the engine reads it (the
  *     LAST wager of the street before), and drops answers whose recorded origin is the Horse policy.
+ *  9. The river opening range (HorseOmahaRiverOpeningRangeTables.json: his range behind omahaRiverBluffIsPricedOnBlockers
+ *     and the river value bet, and his betting rate) is fit on PEOPLE's shown hands and actions only: a Horse's hand
+ *     never changes it, and an unshown hand counts only as not shown, never as cards.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,6 +36,7 @@ import {
   type OmahaTurnBluffEquity,
 } from './HorseOmahaOpeningBluff.js';
 import rangeTables from './HorseOmahaOpeningBluffRangeTables.json' with { type: 'json' };
+import riverTables from './HorseOmahaRiverOpeningRangeTables.json' with { type: 'json' };
 import { omahaPeopleFoldLineOf } from './HorseOmahaPeopleFold.js';
 import type { Card } from '../types.js';
 import { OMAHA_RIVER_OPENING_BIN_EDGES } from './HorseOmahaRiverOpeningBet.js';
@@ -260,6 +264,110 @@ describe('LAW: the PLO opening bluffs are priced on people, and only a check bec
       if (a === 'bet') bets++;
     }
     expect(bets).toBeGreaterThanOrEqual(1);
+  }, 120_000);
+
+  it('the river opening range (his range behind the river blocker bluff and value bet) admits no Horse hand and no unshown card', async () => {
+    const fitMod = (await import(
+      join(__dirname, '../../../scripts/ops/omaha-river-opening-range-fit.mjs')
+    )) as {
+      fitRiverOpeningRanges: (
+        rows: unknown[],
+        horses: string[]
+      ) => Promise<{
+        cells: Record<string, { hist: number[]; shown: number; n: number; notShown: number }>;
+        heroCells: Record<string, { hist: number[]; shown: number; n: number }>;
+        rates: Record<string, { n: number; rate: number }>;
+      }>;
+      WEAK_EDGE: number;
+      BIN_EDGES: number[];
+    };
+    const board = ['2clubs', '7diamonds', '9hearts', 'Kspades', '4clubs'];
+    const HOLE: Record<string, string[]> = {
+      a: ['Aclubs', 'Kclubs', 'Qdiamonds', 'Jhearts'],
+      b: ['Kdiamonds', 'Khearts', '3spades', '5spades'],
+    };
+    // a heads-up PLO4 river: `oop` checks, `ip` bets, `oop` calls; `show` the players whose cards were shown
+    const hand = (id: string, oop: string, ip: string, show: Record<string, 'a' | 'b'>) => {
+      const ac: unknown[][] = [];
+      const add = (seat: number, stage: string, act: string, amt: number) =>
+        ac.push([seat, stage, act, amt, null, 10, null, seat === 1 ? oop : ip]);
+      add(1, 'preflop', 'call', 2);
+      add(2, 'preflop', 'check', 0);
+      for (const st of ['flop', 'turn']) {
+        add(1, st, 'check', 0);
+        add(2, st, 'check', 0);
+      }
+      add(1, 'river', 'check', 0);
+      add(2, 'river', 'bet', 5);
+      add(1, 'river', 'call', 5);
+      return {
+        id,
+        created_at: '2026-11-26 10:00:00+00',
+        gv: 'plo4',
+        cc: board,
+        cc2: null,
+        rit: null,
+        bomb: false,
+        pl: [
+          [1, oop],
+          [2, ip],
+        ],
+        ac,
+        hc: Object.fromEntries(Object.entries(show).map(([u, k]) => [u, HOLE[k]])),
+      };
+    };
+    const person = hand('h-person', 'p1', 'h1', { p1: 'a', h1: 'b' });
+    const A = await fitMod.fitRiverOpeningRanges([person], ['h1', 'h2']);
+    expect(A.cells['plo4|checkfirst'].shown).toBe(1);
+    expect(A.cells['plo4|ipstart']).toBeUndefined(); // only the Horse was in position
+    expect(A.heroCells['plo4|ipstart'].shown).toBe(1);
+    expect(A.rates['fta|plo4']).toEqual({ n: 1, rate: 0 });
+    expect(A.rates['unopened|plo4'].n).toBe(1); // the Horse's unopened bet never enters the rate
+    // the test is sensitive: with no Horse list the Horse's hand would be in his range
+    const open = await fitMod.fitRiverOpeningRanges([person], []);
+    expect(open.cells['plo4|ipstart'].shown).toBe(1);
+    // a Horse's shown hand (Horse vs Horse) changes no opponent cell and no rate; it lands in heroCells only
+    const horseHand = hand('h-horse', 'h1', 'h2', { h1: 'b', h2: 'a' });
+    const B = await fitMod.fitRiverOpeningRanges([person, horseHand], ['h1', 'h2']);
+    expect(B.cells).toEqual(A.cells);
+    expect(B.rates).toEqual(A.rates);
+    expect(B.heroCells['plo4|checkfirst'].shown).toBe(1);
+    // an unshown hand (he mucked; the pull carries no card for him) is counted as not shown, never as cards
+    const mucked = hand('h-muck', 'p1', 'h1', { h1: 'b' });
+    const D = await fitMod.fitRiverOpeningRanges([person, mucked], ['h1', 'h2']);
+    const c = D.cells['plo4|checkfirst'];
+    expect(c.shown).toBe(1);
+    expect(c.n).toBe(2);
+    expect(c.notShown).toBe(1);
+    const strong = (h: number[]) =>
+      h.reduce((s, x, i) => s + (fitMod.BIN_EDGES[i] < fitMod.WEAK_EDGE ? x : 0), 0);
+    expect(strong(c.hist)).toBeLessThanOrEqual(strong(A.cells['plo4|checkfirst'].hist) + 1e-9);
+    // the pull keeps only showdown entries with mucked = false; the fit needs the Horse list
+    const pull = readFileSync(
+      join(__dirname, '../../../scripts/ops/omaha-facing-bet-range-fit.mjs'),
+      'utf8'
+    );
+    expect(pull).toContain("coalesce((s->>'mucked')::boolean, false) = false");
+    const fit = readFileSync(
+      join(__dirname, '../../../scripts/ops/omaha-river-opening-range-fit.mjs'),
+      'utf8'
+    );
+    expect(fit).toContain("arg('horses')");
+    expect(fit).toMatch(/HORSE\.has\(u\) \? families\.horse : families\.people/);
+    // the shipped table is the people-only fit, and the engine reads his range from `cells` only
+    const R = riverTables as unknown as {
+      note: string;
+      cells: Record<string, { shown: number }>;
+      heroCells: Record<string, { shown: number }>;
+    };
+    expect(R.note).toContain('cells and rates: PEOPLE only');
+    expect(Object.keys(R.cells).length).toBe(18);
+    expect(Object.keys(R.heroCells).length).toBe(18);
+    const src = readFileSync(join(__dirname, 'HorseOmahaRiverOpeningBet.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    expect(src).toContain('T.cells[');
+    expect(src).not.toContain('heroCells');
   }, 120_000);
 
   it('identity never enters the modules', () => {
