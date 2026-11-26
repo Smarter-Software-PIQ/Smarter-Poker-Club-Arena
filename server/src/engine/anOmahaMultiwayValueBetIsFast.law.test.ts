@@ -9,8 +9,11 @@
  * measured 40.5 ms on against 1.1 ms off per decision (ratio 36.9), and offline on the compiled build (the option
  * cost harness, 600 applicable league states of two to four opponents, deep stacks among them) the option cost
  * p50 74.9 / p95 125.8 / max 214.6 ms. After it, the same harness on the same states: p50 4.3 / p95 5.8 / max 8.5 ms
- * (added over the decision off: p50 1.1 / p95 2.3 / max 4.8). Here (vitest, source build, 2026-11-26): 2.8 ms on
- * against 1.2 off three-way (ratio 2.3), 3.7 against 1.3 four-way (ratio 2.9).
+ * (the harness keeps the best of three timings of a state, and the second and third find the hand's pool kept);
+ * timed once per state, the pool built inside the timing: p50 5.9 / p95 7.8 / max 17.0 ms. A sample of a hand not
+ * asked before costs 0.4 to 0.6 ms on a turn or river and 1.4 to 1.6 ms on a flop, against 5.7 to 14.5 ms before.
+ * Here (vitest, source build, 2026-11-26; every decision a hand not asked before): 2.8 ms on against 1.2 off
+ * three-way (ratio 2.3), 3.7 against 1.3 four-way (ratio 2.9).
  * Measured the way theServerSuiteAssertsNoTightWallClockBound requires (src/testing/relativeCost.ts): the decisions
  * with the option on cost at most RATIO times the same decisions with it off.
  */

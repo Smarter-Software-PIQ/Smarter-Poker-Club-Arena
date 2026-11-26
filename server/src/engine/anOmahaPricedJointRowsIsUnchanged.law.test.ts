@@ -2,7 +2,8 @@
  * LAW (PLO-OWNER lead-7 2026-11-26): THE FAST JOINT SAMPLE GIVES THE SAME NUMBERS AS THE SAMPLE IT REPLACED.
  *
  * omahaMultiwayValueBetIsPriced (M3: PLO4 / PLO5 cash, checked to the Horse by two to four players) cost p50 74.9 /
- * p95 125.8 / max 214.6 ms where it applied, and omahaFacingBetFieldIsJoint (M1) p95 12.6 ms: both price through
+ * p95 125.8 / max 214.6 ms where it applied, and omahaFacingBetFieldIsJoint (M1) p95 12.6 ms (timed once per state
+ * 16.3): both price through
  * omahaPricedJointRows, which rebuilt and re-scored the hand's 1,024-holding pool on every call (M3 calls it up to
  * thirteen times a decision) and scored every sampled holding over every pair and board triple on card objects. The
  * sample now keeps the hand's pool by card ids, scores with HorseOmahaFastScore through a table keyed by a pair's two
