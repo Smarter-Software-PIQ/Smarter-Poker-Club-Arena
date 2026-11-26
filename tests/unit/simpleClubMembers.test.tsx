@@ -770,7 +770,14 @@ it.each([
 });
 
 it('shows automatic name relevance during search and restores the selected manual order on clear', async () => {
-  f.page.mockResolvedValue({ items: [], has_more: false, next_cursor: null, filtered_total: 0 });
+  const roster = [
+    { user_id: 'player-1', alias: 'Burls', role: 'player' },
+    { user_id: 'player-2', alias: 'WooWoo', role: 'player' },
+  ];
+  f.page.mockImplementation(async (_club, { search }) => {
+    const items = roster.filter((player) => player.alias.includes(search));
+    return { items, has_more: false, next_cursor: null, filtered_total: items.length };
+  });
   render(
     <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
       <Routes>
@@ -794,14 +801,21 @@ it('shows automatic name relevance during search and restores the selected manua
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
+  expect(screen.getByText('1 Result', { exact: true })).toBeVisible();
   expect(sort).toHaveValue('search');
   expect(sort).toBeDisabled();
   expect(screen.getByRole('option', { name: 'Player Name Matches' })).toBeInTheDocument();
   expect(f.page.mock.calls.at(-1)?.[1]).toMatchObject({ search: 'Burls', sort: 'oldest' });
+  fireEvent.change(search, { target: { value: 'Unmatched' } });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+  });
+  expect(screen.getByText('0 Results', { exact: true })).toBeVisible();
   fireEvent.change(search, { target: { value: '' } });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
+  expect(screen.getByText('2 Results', { exact: true })).toBeVisible();
   expect(sort).toHaveValue('oldest');
   expect(sort).not.toBeDisabled();
   expect(f.page.mock.calls.at(-1)?.[1]).toMatchObject({ search: '', sort: 'oldest' });
