@@ -156,27 +156,33 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Why it broke:** GitHub delivered 8 of Stage's 96 scheduled runs a day on 2026-11-24 and 2026-11-25; every cycle owner on 2026-11-25 was created by a push. After a seal the post-seal Backup's completion starts the next election (O24, O25). After a kept-serving cycle nothing did: the 07:00 cycle kept serving, nobody pushed between 07:50 and 09:30 CST, and no Stage run was created between 13:32Z and 16:37Z. A kept-serving cycle also meant no new certification attempt until somebody merged a server change.
 - **How it was fixed:** `#12038`: Stage job `next-candidate-after-cycle` waits once in the owner run to the cycle start + 25 minutes, reads live `/health` and, when the cycle did not seal, dispatches one Backup of main on a fresh copy titled `Backup after keep-serving <cycle>`; Stage admits that completion as an election trigger. Decisions in `scripts/release/next-candidate-after-cycle.py`. The same job sends the owner one plain Messenger line per cycle that did not seal (`public.fn_ca_note_cycle_did_not_seal`, migration `20261126031810` in `#12043`).
 - **What stops it returning:** `tests/a-cycle-that-did-not-seal-starts-the-next-one.law.test.ts`; the Stage job inventory in `tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`.
-- **Live proof:** pending the first cycle that keeps serving after `#12038` merges.
+- **Live proof:** merged 2026-11-26T04:51Z (`a5e97180`); pending the first cycle that keeps serving after it. Its migration ships alone in `#12043`, which merges in an install window so it never blocks a certification (Backup refuses a commit carrying a merged migration production lacks).
 
 ### O21 Part 2: The Dispatcher Deferral Followed The Watch (#12027)
 
 - **Why it broke:** part 1 (`#11947`) moved the install watch to 150 minutes; part 2 was a local commit that was never pushed, so the dispatcher still held only 90 minutes and migrations merged 94 to 133 minutes before a cycle kept staling certified copies. Building part 2 found a second defect: `threeHourlyDeferralWindow` and `three-hourly-readiness.py` looked only 0 to 2 hours ahead, so the new constant alone would have deferred about 120 minutes while every constant said 150.
 - **How it was fixed:** `#12027` (merged 2026-11-26T02:57Z as `cc0b07eb`): constant 150, budgets 175 and 345, job timeout 360, look-ahead derived from the deferral in both places.
 - **What stops it returning:** `tests/an-ordinary-migration-waits-for-the-three-hourly-engine-cutover.law.test.ts` counts the admitted minutes of a whole CST and CDT day (exactly 135, in seven runs; 261 on the old look-ahead); `tests/the-install-watch-hour-starts-when-the-dispatcher-may-send.law.test.ts` requires equality with the SQL helper; `tests/operations/three-hourly-readiness.test.py`.
-- **Live proof:** `20261124171043` (merged 02:56Z, inside the 22:00 CST deferral) was held to 04:10Z.
+- **Live proof:** `20261124171043` (merged 02:56Z, inside the 22:00 CST deferral) was held and installed at 04:10:08Z, the cycle start + 10 minutes.
 
 ### A Held Migration Read As Overdue (#12041)
 
 - **Why it broke:** `check-migrations-are-live.mjs --min-age-hours 24` dated a file by its version stamp. `20261124171043`'s pull request sat a day, so the moment the deferral held it every pull request failed `Installed and merged migrations agree`.
 - **How it was fixed:** `#12041`: the grace counts from the later of the stamp and the commit that added the file to main; the job checks out 500 commits (trees only); an unanswerable history falls back to the stamp.
 - **What stops it returning:** `tests/a-merged-migration-must-be-live.law.test.ts`.
-- **Live proof:** pending.
+- **Live proof:** merged 2026-11-26T04:16Z (`895148a1`); pending the next held migration.
+
+### Fixed Cut-Off Per Cycle: Already Provided By O1 And O16
+
+- **Question:** does every new engine merge restart the certification queue, so a busy hour leaves nothing certified?
+- **Answer, read from the code on 2026-11-25:** no. `select-daily-engine.py` walks every first-parent commit from the cutoff control back to the serving build and ships the newest one with valid evidence, so an older certificate stays shippable when newer engine commits land. The mid-soak yield (O1, `backup-engine.yml`) fires only when the release-control projection (`read-engine-prequalification.py` `projection`, `CONTROL_INPUTS` only) diverged or production installed a migration the copy lacks (O16), inside 75 minutes of the cutoff: exactly the cases where the soaking candidate could not be selected. A server-only merge never stops a soak. A waiting run moves to the newest commit (O11), which contains everything older. No separate cut-off is built.
+- **What a lane must still respect:** a `CONTROL_INPUTS` merge inside 75 minutes of a cutoff stops the soak in flight. Merge release-control changes in the post-seal slot or before the next election window opens.
 
 ## Open Items
 
 | Item                                                                | Owner Lane                                                    | State                                                                              |
 | ------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| G: Messenger note to the owner for every keep-serving cycle         | Release custody                                               | Built in `#12038` with O27                                                         |
+| G: Messenger note to the owner for every keep-serving cycle         | Release custody                                               | Job merged with O27 (`#12038`); its migration `#12043` merges in an install window |
 | H: shorter certification                                            | Release custody, behind PLO-OWNER's hand-gap soundness change | Designed; memory growth must become a judged gate before the soak floor is lowered |
 | I: migration hold enforced in the database per 3-hour cycle         | Offered to C1                                                 | Not started                                                                        |
 | J: content-based staleness (catalog digest)                         | Release custody                                               | Deferred; safe only for a narrow class of migrations                               |
@@ -191,7 +197,7 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 | O24 live proof                                                      | Release custody                                               | Pending the first seal after 2026-11-24T18:32:29Z                                  |
 | O22 live proof                                                      | Release custody                                               | Pending the freeze starting 2026-11-25T05:45Z                                      |
 | O17 live proof                                                      | Release custody                                               | None recorded                                                                      |
-| O20 gap: no log when selection is blocked or no run owns the cycle  | Release custody                                               | No-owner cycles closed by O27 (`#12038`); a blocked selection is still unlogged    |
+| O20 gap: no log when selection is blocked or no run owns the cycle  | Release custody                                               | No-owner cycles closed by O27 (`#12038`); CR1 `#12049` records every outcome       |
 | No shadow-state writes from copy to verdict                         | Release custody, Horse SWITCH, PLO-OWNER                      | Posted rule; not enforced by code                                                  |
 | Post-Deploy E2E live-table job (132 px against a 140 px floor)      | Client lane                                                   | Owner decision pending                                                             |
 | Shallow shared clone detection                                      | Release custody                                               | No guard                                                                           |
