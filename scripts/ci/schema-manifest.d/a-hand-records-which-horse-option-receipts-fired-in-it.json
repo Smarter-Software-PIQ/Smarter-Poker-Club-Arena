@@ -1,0 +1,9 @@
+{
+  "_owner": "agent/coord-01TLQer6/feat/per-hand-option-receipts (migration 20261126004403)",
+  "_comment": "One row per (hand, Horse option receipt) for hands a person was dealt into; option name and action kinds only, service role only. Names are declarations, not production installation evidence.",
+  "tables": ["ca_horse_hand_receipts"],
+  "functions": [],
+  "columns": {
+    "ca_horse_hand_receipts": ["hand_id", "receipt", "decisions"]
+  }
+}

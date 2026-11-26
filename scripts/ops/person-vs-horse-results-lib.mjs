@@ -56,6 +56,9 @@ export const EXIT_USAGE = 64;
 export const EXIT_FAILED = 70;
 
 const GAME_RE = /^[a-z0-9_]{1,24}$/;
+/** A Horse option name as ca_horse_hand_receipts stores it in front of the colon. */
+export const OPTION_RECEIPT_RE = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+export const OPTION_RECEIPT_TABLE = 'ca_horse_hand_receipts';
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})$/;
 const DAY_MS = 86_400_000;
 
@@ -93,10 +96,28 @@ export function parseGames(raw) {
  * Resolve parsed arguments into a checked query plan. `nowMs` is injected so a run is repeatable.
  */
 export function resolvePlan(
-  { since = null, until = null, games = null, mode = 'all', splitAt = [], by = null } = {},
+  {
+    since = null,
+    until = null,
+    games = null,
+    mode = 'all',
+    splitAt = [],
+    by = null,
+    byOptionReceipt = null,
+  } = {},
   nowMs = Date.now()
 ) {
   if (!MODES.includes(mode)) throw new Error(`--mode must be one of ${MODES.join(', ')}`);
+  if (byOptionReceipt !== null) {
+    if (typeof byOptionReceipt !== 'string' || !OPTION_RECEIPT_RE.test(byOptionReceipt)) {
+      throw new Error('--by-option-receipt takes one option name, letters and digits only');
+    }
+    if (splitAt.length > 0) {
+      throw new Error(
+        '--by-option-receipt compares hands inside one range and cannot be combined with --split-at'
+      );
+    }
+  }
   if (by !== null && !BY_DIMENSIONS.includes(by)) {
     throw new Error(`--by must be one of ${BY_DIMENSIONS.join(', ')}`);
   }
@@ -121,6 +142,8 @@ export function resolvePlan(
     mode,
     games: games === null ? null : [...games],
     by,
+    // Present only when asked for, so a plan without it is exactly what it was.
+    ...(byOptionReceipt !== null ? { byOptionReceipt } : {}),
   };
 }
 
@@ -162,9 +185,21 @@ function dimensionSql(by) {
  * The ca_hand_facts lookup is a LATERAL primary-key probe on purpose: ca_hand_facts has over 100
  * million rows, and as a plain join the planner (which overestimates the seated rows a hundredfold)
  * hashes the whole table and runs past the statement timeout.
+ *
+ * With plan.byOptionReceipt the two "windows" are not times: window 0 holds the hands in which that
+ * option's receipt did not fire and window 1 the hands in which it did (a row of
+ * ca_horse_hand_receipts for the hand whose receipt starts with `<option>:`, probed by its primary
+ * key). Everything after that (sessions, sums, the completeness count) is the same query.
  */
 export function buildResultsSql(plan) {
   const { sinceMs, untilMs, splits, mode, games, by } = plan;
+  const byOptionReceipt = plan.byOptionReceipt ?? null;
+  if (byOptionReceipt !== null) {
+    if (typeof byOptionReceipt !== 'string' || !OPTION_RECEIPT_RE.test(byOptionReceipt)) {
+      throw new Error(`invalid option name: ${String(byOptionReceipt)}`);
+    }
+    if (splits.length > 0) throw new Error('an option receipt comparison takes no split');
+  }
   if (!(Number.isFinite(sinceMs) && Number.isFinite(untilMs) && sinceMs < untilMs)) {
     throw new Error('the query needs a time range');
   }
@@ -183,11 +218,17 @@ export function buildResultsSql(plan) {
     );
   }
   const windowSql =
-    splits.length === 0
-      ? '0'
-      : splits
-          .map((s) => `CASE WHEN m.created_at >= ${sqlInstant(s)} THEN 1 ELSE 0 END`)
-          .join(' + ');
+    byOptionReceipt !== null
+      ? `CASE WHEN EXISTS (
+             SELECT 1 FROM public.${OPTION_RECEIPT_TABLE} r
+             WHERE r.hand_id = m.hand_id
+               AND split_part(r.receipt, ':', 1) = '${byOptionReceipt}'
+           ) THEN 1 ELSE 0 END`
+      : splits.length === 0
+        ? '0'
+        : splits
+            .map((s) => `CASE WHEN m.created_at >= ${sqlInstant(s)} THEN 1 ELSE 0 END`)
+            .join(' + ');
   const agg = (cols) => `coalesce(jsonb_agg(jsonb_build_object(${cols})), '[]'::jsonb)`;
   return `WITH people AS MATERIALIZED (
   SELECT id, (status IS DISTINCT FROM 'deleted') AS counted
@@ -448,10 +489,18 @@ function dimensionSort(by) {
 export function buildReport(raw, plan) {
   const row = unwrapReportRow(raw);
   assertSourceComplete(row);
+  const byOptionReceipt = plan.byOptionReceipt ?? null;
   const bounds = [plan.sinceMs, ...plan.splits, plan.untilMs];
   const windows = [];
-  for (let i = 0; i < bounds.length - 1; i++) {
-    windows.push({ index: i + 1, from: isoUtc(bounds[i]), to: isoUtc(bounds[i + 1]) });
+  if (byOptionReceipt !== null) {
+    // Two groups of hands over the one range: without the option's receipt, then with it.
+    const range = { from: isoUtc(plan.sinceMs), to: isoUtc(plan.untilMs) };
+    windows.push({ index: 1, ...range, receipt: 'not_fired' });
+    windows.push({ index: 2, ...range, receipt: 'fired' });
+  } else {
+    for (let i = 0; i < bounds.length - 1; i++) {
+      windows.push({ index: i + 1, from: isoUtc(bounds[i]), to: isoUtc(bounds[i + 1]) });
+    }
   }
   const handCount = new Map();
   for (const h of Array.isArray(row.hands) ? row.hands : []) {
@@ -484,7 +533,7 @@ export function buildReport(raw, plan) {
       const comparisons = [];
       for (let w = 1; w < windows.length; w++) {
         comparisons.push({
-          splitAt: windows[w].from,
+          splitAt: byOptionReceipt !== null ? `receipt ${byOptionReceipt}` : windows[w].from,
           before: w,
           after: w + 1,
           ...compareWindows(perWindow[w - 1], perWindow[w]),
@@ -536,6 +585,7 @@ export function buildReport(raw, plan) {
     mode: plan.mode,
     gamesAsked: plan.games,
     by: plan.by,
+    byOptionReceipt,
     rules: {
       minPersonHandsPerWindow: MIN_HANDS_PER_WINDOW,
       maxTopPersonShare: MAX_TOP_PERSON_SHARE,
@@ -650,7 +700,21 @@ export function formatReportText(report, { gate = null } = {}) {
     `Luck: the SE and the 95% interval are clustered on person-session (one person, one game, hands no more than ${report.rules.sessionGapMinutes} minutes apart).`
   );
   lines.push('');
-  if (report.windows.length > 1) {
+  if (report.byOptionReceipt) {
+    lines.push(
+      `Option receipt: ${report.byOptionReceipt}. The two windows are groups of hands, not times:`
+    );
+    lines.push(
+      `- Window 1: hands in which no ${report.byOptionReceipt} receipt fired (the option did not change a Horse decision)`
+    );
+    lines.push(
+      `- Window 2: hands in which a ${report.byOptionReceipt} receipt fired (it changed at least one Horse decision)`
+    );
+    lines.push(
+      'Receipts exist only for hands played after per-hand option receipts shipped; an earlier hand counts as not fired, so start --since there. "Doing better / worse than before" below reads as: in the hands where it fired, against the hands where it did not. The two groups can share a sitting, and the option fires in particular spots, so a difference is not by itself the effect of the option.'
+    );
+    lines.push('');
+  } else if (report.windows.length > 1) {
     lines.push('Windows:');
     for (const w of report.windows) lines.push(`- Window ${w.index}: ${w.from} to ${w.to}`);
     lines.push('');
@@ -668,7 +732,7 @@ export function formatReportText(report, { gate = null } = {}) {
     lines.push('');
     for (const c of g.comparisons) {
       lines.push(
-        `Window ${c.after} against window ${c.before} (split at ${c.splitAt}): difference ${fmtSigned(c.diffPer100)} bb/100, SE ${fmtPlain(c.sePer100)}, z ${fmtSigned(c.z, 2)}.`
+        `Window ${c.after} against window ${c.before} (${report.byOptionReceipt ? c.splitAt : `split at ${c.splitAt}`}): difference ${fmtSigned(c.diffPer100)} bb/100, SE ${fmtPlain(c.sePer100)}, z ${fmtSigned(c.z, 2)}.`
       );
       lines.push(
         `Verdict for ${g.game} ${g.mode} at ${c.splitAt}: ${VERDICT_TEXT[c.verdict]} (${c.reason}).`

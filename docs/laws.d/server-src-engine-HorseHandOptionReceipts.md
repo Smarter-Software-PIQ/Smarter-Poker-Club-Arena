@@ -1,0 +1,3 @@
+# server/src/engine/HorseHandOptionReceipts.law.test.ts
+
+A hand's Horse option receipts carry no card and nothing is awaited for them: a receipt is a listed option's name and the kind of action before and after (six action words, closed), cards, strengths, equities and amounts are refused out of the worker, into the hand's count and into the rows; the receipt module imports nothing, the brain and the worker's FAST and DEEP executions hold no await, the table engine and the Lightning hand host count an accepted decision in one synchronous in-memory call, and the only database write is the hand save's detached one after its commit (the Lightning settlement's likewise), for hands a person was dealt into.

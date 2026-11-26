@@ -514,6 +514,13 @@ export interface FastHorseDecisionResult extends HorseDecisionFence {
   phase14Authority?: Readonly<
     Record<string, import('../HorseQualifiedAuthority.js').HorseAuthorityReceipt>
   >;
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, HorseHandOptionReceipts): each listed option that changed THIS
+   * decision, as its name and the kind of action before and after. Action kinds only: never a card, a strength,
+   * an equity or an amount. Absent when none changed it, so every other reply is byte for byte what it was.
+   * Measurement only; the table counts them into the hand it saves.
+   */
+  optionReceipts?: readonly import('../HorseHandOptionReceipts.js').HandOptionReceipt[];
 }
 
 /** P13.3: one worker authority receipt per Phase 13 joint variant. */
@@ -557,6 +564,8 @@ export interface DeepHorseDecisionResult extends HorseDecisionFence {
   phase14Authority?: Readonly<
     Record<string, import('../HorseQualifiedAuthority.js').HorseAuthorityReceipt>
   >;
+  /** As FastHorseDecisionResult.optionReceipts, for the second look's own decision. Absent when none. */
+  optionReceipts?: readonly import('../HorseHandOptionReceipts.js').HandOptionReceipt[];
 }
 
 export interface HorseDecisionWorkerAck extends HorseDecisionFence {

@@ -478,8 +478,17 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         1,
         'omahaBetReadIsPerOpponent receipt (lane CR2): the pure bluff-share arithmetic of the read already taken (no random draw, no telemetry, no memory), only to write the receipt amount',
       ],
+      gtoDefence: [
+        1,
+        'cashDefenceTrimColdCalls per-hand option receipt: the pure defence base (no random draw, no telemetry, no memory) on the same cards and spot with the trim taken out, read only by the rewound intent that names the receipt',
+      ],
+      clamp01: [1, 'pure arithmetic on the untrimmed defence base of that receipt'],
+      holdemPersonaContinueBar: [
+        1,
+        'pure arithmetic: the same persona shift the live base takes, on the untrimmed base of that receipt',
+      ],
       noteDecisionRuleReceipt: [
-        19,
+        21,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
       ],
     },
@@ -498,6 +507,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the tight-read counterfactual result (a local), read only to choose a receipt',
       ],
       v53IcmOff: [2, 'the v53 counterfactual result (a local), read only to choose a receipt'],
+      gtoDefend72TrimOff: [
+        1,
+        'the untrimmed defence base of the cashDefenceTrimColdCalls receipt (a local), read only by the rewound intent that names the receipt',
+      ],
       huDefendToPricePending: [
         1,
         'a per-decision pending receipt, reset at each decide, read only by noteFire',
