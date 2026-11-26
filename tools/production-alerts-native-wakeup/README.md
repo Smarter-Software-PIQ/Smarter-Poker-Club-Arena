@@ -43,6 +43,13 @@ oldest-first in pending and are queued once as a new operation. Any doubt,
 an `uncertain` wake or queue, or an unreadable store keeps the operation
 retained. Status reports `haltedReleases`. No timer is added.
 
+A turn the provider refuses for its usage limit (`codex_error_info:
+usage_limit_exceeded`, observed 2026-11-20 after the first release) ends in two
+seconds, so every later alert would release, requeue and be refused again. That
+ending is released only once an hour has passed since it completed; until then
+the operation is retained. A refused intake costs at most one turn per hour
+until the provider admits turns again, still only on an explicit event.
+
 ## Installation and proof
 
 Merge through protected main first. Install a pinned protected checkout with its
