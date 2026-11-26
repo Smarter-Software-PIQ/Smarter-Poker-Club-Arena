@@ -196,42 +196,142 @@ export function topLeaks(results, k = 5) {
   return out;
 }
 
-/** Regressions: every tool's own regression signal. */
-export function regressions(results) {
+/** Regressions: every tool's own regression signal, each with an identity that is the same in another run. */
+export function regressionRows(results) {
   const out = [];
   for (const [name, r] of Object.entries(results)) {
     const j = r.json;
     if (name === 'holdem-audit')
-      for (const w of arr(j?.worse))
-        out.push(
-          `NLH audit: ${w.key ?? w.node ?? JSON.stringify(w).slice(0, 120)} worse than the window before`
-        );
+      for (const w of arr(j?.worse)) {
+        const key = w.key ?? w.node ?? JSON.stringify(w).slice(0, 120);
+        out.push({
+          id: `nlh|${key}`,
+          text: `NLH audit: ${key} worse than the earlier windows pooled${Number.isFinite(w.z) && Number.isFinite(w.zBar) ? ` (z ${w.z.toFixed(2)} against a bar of ${w.zBar.toFixed(2)} for ${w.tests} nodes compared)` : ''}`,
+        });
+      }
     if (name === 'omaha-audit')
       for (const w of arr(j?.split?.worse))
-        out.push(`PLO audit: ${w.leak} ${n1(w.before)} -> ${n1(w.after)} bb/100`);
-    if (name.startsWith('exploit-report') && r.code === 1)
-      out.push(`exploit (${name}): ${j?.gate?.line ?? `gate finding (see ${r.out})`}`);
+        out.push({
+          id: `plo|${w.leak}`,
+          text: `PLO audit: ${w.leak} ${n1(w.before)} -> ${n1(w.after)} bb/100`,
+        });
+    if (name.startsWith('exploit-report') && r.code === 1) {
+      const gating = arr(j?.findings).filter((f) => f.gating);
+      // one row per gating cell and split when the tool lists them (identity: cell and split), else the gate line
+      const ids = gating.map((f) => `exploit|${f.key}|${f.splitAt ?? ''}`);
+      out.push({
+        id: ids.length ? ids.sort().join(' + ') : `exploit|${j?.gate?.line ?? name}`,
+        ids,
+        text: `exploit (${name}): ${j?.gate?.line ?? `gate finding (see ${r.out})`}`,
+      });
+    }
     if (name.startsWith('person-vs-horse') && r.code === 1)
-      out.push(`people vs Horses (${name}): people measurably better after a split (see ${r.out})`);
+      out.push({
+        id: `pvh|${name}`,
+        noRepeat: true,
+        text: `people vs Horses (${name}): people measurably better after a split (see ${r.out})`,
+      });
   }
   return out;
 }
 
+/** Owner-rule breach groups of the PLO audit, with every hand the tool lists. */
+export function breachRows(results) {
+  return arr(results['omaha-audit']?.json?.breaches).map((b) => ({
+    breach: b.breach,
+    n: b.n,
+    vsPerson: b.vsPerson,
+    costBb: b.costBb,
+    hands: [...new Set(arr(b.hands).length ? arr(b.hands) : arr(b.examples))],
+  }));
+}
+
+/**
+ * What the run before listed (2026-11-26): two runs whose 24-hour ranges overlap read the same hands twice, and
+ * the 13:33Z audit re-reported a breach hand the 05:00Z audit had already listed and explained.
+ *   prev = { folder, sinceMs, untilMs, results, breachHands?: string[] } (breachHands: also from its decisions.csv).
+ * A breach HAND is a repeat when the run before listed that hand. A regression FINDING is a repeat when the run
+ * before listed the same finding AND its range overlaps this one (without an overlap the same node flagging again
+ * is a second, independent measurement and is reported in full). People-vs-Horses findings are never repeats.
+ */
+export function previousListing(prev, sinceMs) {
+  if (!prev || !prev.results) return null;
+  const hands = new Set(arr(prev.breachHands));
+  for (const b of breachRows(prev.results)) for (const h of b.hands) hands.add(h);
+  const overlaps = Number.isFinite(prev.untilMs) && prev.untilMs > sinceMs;
+  const findings = new Set();
+  if (overlaps)
+    for (const r of regressionRows(prev.results)) {
+      if (r.noRepeat) continue;
+      findings.add(r.id);
+      for (const id of arr(r.ids)) findings.add(id);
+    }
+  return { folder: prev.folder, overlaps, hands, findings };
+}
+
+const repeatTag = (listing) => `repeat (already reported ${listing.folder})`;
+
+/** Regression lines; `count` = those that are not repeats of the run before. */
+export function regressionsMarked(results, listing = null) {
+  const lines = [];
+  let count = 0;
+  for (const r of regressionRows(results)) {
+    const ids = arr(r.ids).length ? r.ids : [r.id];
+    const repeat = !!listing && !r.noRepeat && ids.every((id) => listing.findings.has(id));
+    if (!repeat) count++;
+    lines.push(repeat ? `${r.text} -- ${repeatTag(listing)}` : r.text);
+  }
+  return { lines, count };
+}
+export function regressions(results, listing = null) {
+  return regressionsMarked(results, listing).lines;
+}
+
+/** Owner-rule breach lines; `count` = groups with at least one hand the run before did not list. */
+export function ownerRuleBreachesMarked(results, listing = null) {
+  const lines = [];
+  let count = 0;
+  for (const b of breachRows(results)) {
+    const old = listing ? b.hands.filter((h) => listing.hands.has(h)) : [];
+    const fresh = b.hands.filter((h) => !old.includes(h));
+    // hands the tool did not list by id (an older output keeps 8 examples) are new unless every listed one is old
+    const unlisted = Math.max(0, (b.n ?? 0) - b.hands.length);
+    const allRepeat = old.length > 0 && fresh.length === 0 && unlisted === 0;
+    if (!allRepeat) count++;
+    const eg = (allRepeat ? old : fresh.length ? fresh : b.hands).slice(0, 3).join(', ');
+    const mark = allRepeat
+      ? ` -- ${repeatTag(listing)}`
+      : old.length
+        ? ` -- ${fresh.length + unlisted} new, ${old.length} ${repeatTag(listing)}: ${old.slice(0, 3).join(', ')}`
+        : '';
+    lines.push(
+      `PLO ${b.breach}: ${b.n} (${b.vsPerson} versus a person, ${n1(b.costBb)} bb); e.g. ${eg}${mark}`
+    );
+  }
+  for (const x of arr(results['omaha-audit']?.json?.notes))
+    lines.push(
+      `(counted apart, not a breach) PLO ${x.note}: ${x.n} (${x.vsPerson} versus a person); e.g. ${arr(x.examples).slice(0, 3).join(', ')}`
+    );
+  return { lines, count };
+}
 /** Owner-rule breaches the audits grade (PLO: non-nut raise on turn/river, a draw raised out of position). */
-export function ownerRuleBreaches(results) {
-  return arr(results['omaha-audit']?.json?.breaches).map(
-    (b) =>
-      `PLO ${b.breach}: ${b.n} (${b.vsPerson} versus a person, ${n1(b.costBb)} bb); e.g. ${arr(b.examples).slice(0, 3).join(', ')}`
-  );
+export function ownerRuleBreaches(results, listing = null) {
+  return ownerRuleBreachesMarked(results, listing).lines;
 }
 
 /** The one-page summary. */
-export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder }) {
+export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, previous = null }) {
+  const listing = previousListing(previous, sinceMs);
   const L = [];
   L.push(`# Horse Daily Audit ${iso(sinceMs)} to ${iso(untilMs)}`);
   L.push('');
   L.push(`Folder: ${folder}. Read-only; every tool's own output is beside this file.`);
   L.push('');
+  if (listing)
+    L.push(
+      `Run before: ${listing.folder}${listing.overlaps ? ' (its range overlaps this one)' : ' (no overlap with this range)'}. A breach hand or a finding it already listed is marked "repeat" and does not count again.`,
+      ''
+    );
   L.push('## Splits');
   L.push('');
   if (!plan.splits.length) L.push('No switch change or engine build boundary inside the range.');
@@ -257,10 +357,10 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder })
     for (const x of rows) L.push(`- ${x}`);
     L.push('');
   };
-  section('Regressions', regressions(results), 'None measured.');
+  section('Regressions', regressions(results, listing), 'None measured.');
   section(
     'Owner-Rule Breaches',
-    ownerRuleBreaches(results),
+    ownerRuleBreaches(results, listing),
     'None graded in the PLO audit (the NLH audit grades no owner-rule class).'
   );
   section(
@@ -278,9 +378,11 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder })
   return L.join('\n');
 }
 
-/** The runner's exit code: 70 if a tool failed, else 1 on any regression or breach, else 0. */
-export function overallExit(runs, results) {
+/** The runner's exit code: 70 if a tool failed, else 1 on any regression or breach that is not a repeat, else 0. */
+export function overallExit(runs, results, previous = null, sinceMs = NaN) {
   if (runs.some((r) => [64, 70, null, undefined].includes(results[r.name]?.code))) return 70;
-  if (regressions(results).length || ownerRuleBreaches(results).length) return 1;
+  const listing = previousListing(previous, sinceMs);
+  if (regressionsMarked(results, listing).count || ownerRuleBreachesMarked(results, listing).count)
+    return 1;
   return 0;
 }
