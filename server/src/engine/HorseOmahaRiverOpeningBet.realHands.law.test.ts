@@ -7,7 +7,8 @@
  * 2026-11-26 (lead-7, owner order "the stats need to be used against human players, not horses"): the bluff's fold
  * is people's measured fold for the line and size moved by his record (HorseOmahaPeopleFold.ts), and the blocker leg
  * is read on every size that clears. Graded against the audit's best action on the 57 nodes: the bluff bets 29
- * (27 the audit's bet, 2 newly wrong); without his record 25 (23 / 2). The range-advantage bluff bets 4 (4 / 0).
+ * (27 the audit's bet, 2 newly wrong); without his record 25 (23 / 2). The range-advantage bluff bets 6 (6 / 0; 4 / 0
+ * before review t4 of 2026-11-26 refit his range on people only and the Horse's own range on Horses only).
  */
 import { describe, expect, it } from 'vitest';
 import {
