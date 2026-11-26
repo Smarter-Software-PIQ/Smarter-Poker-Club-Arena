@@ -422,11 +422,35 @@ describe('backed payout discovery is the same accounting question in a batch', (
           spinPath,
           ownerTicketPath,
           netGuaranteePromoPath,
+          'supabase/migrations/20261126160519_spin_cancellation_readers_count_fee_and_reserve_reversals.sql',
         ].some((path) => file === path.split('/').at(-1)) &&
         /pg_get_functiondef[\s\S]{0,180}fn_tournament_conservation_delta/.test(sql) &&
         /\bEXECUTE\b/i.test(stripComments(sql))
     );
     expect(laterDynamic.map(({ name: file }) => file)).toEqual([]);
+    // The reviewed Spin-only successor has its own required native proof,
+    // including the current whole-window batch and non-Spin/Diamond parity.
+    const spinCancellationReporting = read(
+      'supabase/migrations/20261126160519_spin_cancellation_readers_count_fee_and_reserve_reversals.sql'
+    );
+    expect(spinCancellationReporting).toContain(
+      "md5(conservation) <> 'f7a43ea11bb89a62f1a1e68aa078278d'"
+    );
+    expect(spinCancellationReporting).toContain(
+      "$old$l.kind IN ('contribution','jackpot_draw')$old$"
+    );
+    expect(spinCancellationReporting).toContain(
+      "$new$l.kind IN ('contribution','jackpot_draw','contribution_reversal','draw_reversal')$new$"
+    );
+    expect(spinCancellationReporting).toContain("='c4ecb7495d49fa87f97402023a82a589'");
+    const reportingNative = read('scripts/ci/test-spin-cancellation-reporting-postgres.py');
+    expect(reportingNative).toContain('batch excludes Spins');
+    expect(reportingNative).toContain('batch scalar parity');
+    expect(reportingNative).toContain('non-Spin batch parity');
+    expect(read('scripts/ci/test-undrawn-spin-cancellation.py')).toContain(
+      "str(ROOT/'scripts/ci/test-spin-cancellation-reporting-postgres.py')"
+    );
+
     // The reviewed dynamic successor is exactly its anchored swaps applied to
     // the declared scalar, and that is the maintained, qualified scalar.
     let maintained = ticketScalar;
