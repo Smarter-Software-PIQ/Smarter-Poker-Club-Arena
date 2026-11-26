@@ -1,6 +1,6 @@
 # omahaRiverBluffIsPricedOnBlockers: Authority For The Live Switch
 
-**Evidence MET: the audited replay bar passes in both audits (19 fixed / 3 newly wrong), the league mirror is positive on all four cards (6-max PLO4 +2.24 +/- 0.86 bb/100), and no exploit probe is a significant loss (the folder is exploited: +11.09 / +9.31). Default OFF, not switched on.** This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
+**Evidence MET: the audited replay bar passes in both audits (20 fixed / 4 newly wrong), the league mirror is positive on all four cards (heads-up PLO4 +4.87 +/- 1.92, 6-max PLO4 +2.14 +/- 0.86), and no exploit probe is a significant loss (the over-folder is exploited: +14.73 / +14.46). Default OFF, not switched on.** This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
 
 Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for the audit finding that Horse river bets take the pot 61-68% of the time against people while the Horses rarely bluff the river (daily audit 2026-11-25T230000Z Tier B first-to-act nodes: river under-bluff, in and out of position). The option is registered, default off (read `=== true`), switchable live and scopable per game (`horse.omahaGameScope.omahaRiverBluffIsPricedOnBlockers`).
 
@@ -21,18 +21,18 @@ All offline (no switch row, no database write); scratch folder `plo-lead7-01TLQe
 - Speed: 1,271 applicable real spots (531 at 200 bb or deeper), decide with both options on p50 2.35 / p95 3.40 / max 4.78 ms; added by the options p95 1.13 / max 1.88 ms; 0 over 50 ms.
 - Flag-off: see the PR (scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full).
 
-| card                       | bb/100 ON - OFF                  |
-| -------------------------- | -------------------------------- |
-| PLO4 heads-up              | +1.27 +/- 2.01                   |
-| PLO5 heads-up              | +1.68 +/- 3.09                   |
-| PLO4 6-max                 | +2.24 +/- 0.86                   |
-| PLO5 6-max                 | +1.49 +/- 0.83                   |
-| probe caller PLO4 / PLO5   | +0.12 +/- 0.19 / +0.04 +/- 0.04  |
-| probe folder PLO4 / PLO5   | +11.09 +/- 4.45 / +9.31 +/- 6.35 |
-| probe balanced PLO4 / PLO5 | +0.75 +/- 4.08 / +2.62 +/- 5.70  |
-| probe trapper PLO4 / PLO5  | -3.95 +/- 4.12 / +2.79 +/- 5.65  |
+| card                       | bb/100 ON - OFF                   |
+| -------------------------- | --------------------------------- |
+| PLO4 heads-up              | +4.87 +/- 1.92                    |
+| PLO5 heads-up              | +4.63 +/- 3.21                    |
+| PLO4 6-max                 | +2.14 +/- 0.86                    |
+| PLO5 6-max                 | +1.49 +/- 0.83                    |
+| probe caller PLO4 / PLO5   | +0.12 +/- 0.19 / +0.04 +/- 0.04   |
+| probe folder PLO4 / PLO5   | +14.73 +/- 4.55 / +14.46 +/- 6.75 |
+| probe balanced PLO4 / PLO5 | +0.75 +/- 4.08 / +5.32 +/- 6.01   |
+| probe trapper PLO4 / PLO5  | -3.38 +/- 4.17 / +2.79 +/- 5.65   |
 
-Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026-11-25 5 changed, 3 fixed / 0 newly wrong, +61.4 bb; 2026-11-20..24 21 changed, 17 fixed / 1 newly wrong, +126.7 bb. With no record (equilibrium prior) it bluffs only on a large blocker gain: on 14,576 real heads-up river states replayed without records it made no bluff. Untouched by construction: every call, fold and raise, every street but the river.
+Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026-11-25 5 changed, 3 fixed / 0 newly wrong, +61.4 bb; 2026-11-20..24 23 changed, 18 fixed / 1 newly wrong, +144.6 bb. (Grades are with v2's checking range, shared with omahaRiverValueBetInPositionIsPriced: his own river bet rate moves it.) With no record (equilibrium prior) it bluffs only on a large blocker gain: on 14,576 real heads-up river states replayed without records it made no bluff. Untouched by construction: every call, fold and raise, every street but the river.
 
 ## Prior anchor
 
@@ -44,5 +44,5 @@ Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026
 ## Replay
 
 - Replay: fixed 3; newlyWrong 2; changed 5; unchanged 864; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm bluff vs off; replayed 869 of 869
-- Replay: fixed 16; newlyWrong 1; changed 20; unchanged 2677; unjudged 3; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm bluff vs off; replayed 2697 of 2697
-- Note (2026-11-26): arm bluff is this option alone; sets are the PLO hand audits' tier-A postflop nodes placed at their node (scratch /Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py); verdict-only; the opponent's public river fold record as of the decision installed for every arm (/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/lead7-node-replay.ts --fold-events).
+- Replay: fixed 17; newlyWrong 2; changed 22; unchanged 2675; unjudged 3; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm bluff vs off; replayed 2697 of 2697
+- Note (v2, 2026-11-26 08:20Z: his checking range moved by his own river bet rate; the opponent's public river fold and unopened-wager records as of the decision installed for every arm): arm bluff is this option alone; sets are the PLO hand audits' tier-A postflop nodes placed at their node (scratch /Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py); verdict-only.
