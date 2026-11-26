@@ -54,7 +54,7 @@ jobs:
     # cycle+10m) in scripts/ci/merged-migration-dispatch.mjs), or up to 285
     # minutes for a merge held by the nightly release schema freeze (23:45 to
     # 04:15 Chicago, RELEASE_SCHEMA_FREEZE_CHICAGO).
-    timeout-minutes: 300
+    timeout-minutes: 360
     steps:
       - name: Checkout reviewed default-branch automation
         uses: actions/checkout@v4
