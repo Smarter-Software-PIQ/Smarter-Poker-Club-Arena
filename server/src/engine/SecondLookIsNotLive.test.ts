@@ -504,7 +504,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [50, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [
+        52,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper)',
+      ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,
@@ -569,8 +572,16 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
       ],
       'tele: boolean': [
-        5,
-        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced, riverNoBlockerBetRule and holdemAllInCallReference, read there only to count',
+        6,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced, riverNoBlockerBetRule, holdemAllInCallReference and horseSlowplayPricedDecision, read there only to count',
+      ],
+      'readonly tele: boolean;': [
+        1,
+        'the gate as a field of the v78CommitsWithoutJam priced context, read there only to name the v78 priced allow / veto receipt; the veto is the same either way',
+      ],
+      'tele: tele15,': [
+        2,
+        'the gate passed in the v78 priced context (v78NoCommittingBluffRaiseIsPriced), read there only to count',
       ],
       'tele: boolean,': [
         1,

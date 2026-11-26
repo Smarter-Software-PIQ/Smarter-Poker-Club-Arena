@@ -96,6 +96,9 @@ const BRAIN_FILES = [
   'engine/HorseOmahaPricedSites.ts',
   // The Omaha current-nuts raise (2026-11-06) reads its own option where it answers; registered 2026-11-20
   // (EMERG ledger L43).
+  // horseRunItTwiceIsPriced (2026-11-20, ledger-registered 2026-11-22, default off, OPTION_SWITCH_REFUSED):
+  // main-thread RIT switch reads opts.horseRunItTwiceIsPriced === true for ServerTableEngineRunout.horseRitRuns.
+  'engine/HorseRunItTwiceSwitch.ts',
   'engine/HorseOmahaCurrentNuts.ts',
   // Omaha bluff priced against the target (2026-11-19, default off): the outermost wager_rules
   // answer reads its own option and fires its own receipts where it answers.

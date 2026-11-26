@@ -21,10 +21,58 @@
       "verifiedOn": "2026-11-24"
     },
     {
+      "doc": "holdemCommittedNoPairIsPriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/committed-no-pair-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemFlopTurnBluffIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/flop-turn-bluff-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
       "doc": "holdemHeadsUpPostflopBalance.md",
       "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/HYDRATED-TIER1-RESULTS-20261122.md",
       "status": "found",
       "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "holdemPersonaPostflopIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/persona-v2/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemPersonaPostflopIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hs-enh2-151f9a34/persona-v2/CRITERIA-AMENDMENT-v2-empirical-priors.md",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemRiverBluffIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/river-bluff-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemRiverBluffMultiwayIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/river-bluff-multiway-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemRiverLeadRangeIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/river-lead-range-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "holdemTournamentAggressionIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/v57-tournament-aggression-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
     },
     {
       "doc": "holdemValueAndCallsArePriced.md",
@@ -61,6 +109,12 @@
       "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead6-01BNteGX/holdem-ablation/HOLDEM-SWITCH-ABLATION.md",
       "status": "found",
       "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "horseSlowplayIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/criteria/CRITERIA-H4-SLOWPLAY-PRICED.md",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
     },
     {
       "doc": "huBbDefendsUnreadToPrice.md",
@@ -218,6 +272,30 @@
       "path": "/Volumes/SmarterArchives/agent-evidence/extreme-archive/antigravity-coordinator-20261121/plo6-v2-declared-400f6-100m6/",
       "status": "found",
       "verifiedOn": "2026-11-24"
+    },
+    {
+      "doc": "v17PosIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/hd-abe2654e/criteria/CRITERIA-V17POS-PLAYERS-BEHIND-PRICED.md",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "v66BetRaisedOnePairIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "v67RiverBetRaisedOnePairIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/v67-river-bet-raised-one-pair-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "v87RiverBlockBetTrapIsPriced.UNREGISTERED.md",
+      "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/v87-trap-priced/",
+      "status": "found",
+      "verifiedOn": "2026-11-25"
     }
   ]
 }
