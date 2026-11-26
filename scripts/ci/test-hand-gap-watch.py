@@ -42,6 +42,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -63,6 +64,8 @@ OWED_WAITS_FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.
 OWED_WAITS_MIGRATION = ROOT / 'supabase' / 'migrations' / OWED_WAITS_FILE
 PARITY_FILE = '20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql'
 PARITY_MIGRATION = ROOT / 'supabase' / 'migrations' / PARITY_FILE
+WORST_FILE = '20261124171043_the_hand_gap_grade_names_its_worst_hands.sql'
+WORST_MIGRATION = ROOT / 'supabase' / 'migrations' / WORST_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -725,6 +728,99 @@ try:
           g48_chk and g48_chk['hands'] == 6 and g48_chk['owed_p50_ms'] == 5750
           and g48_chk['unintended_p95_ms'] == 2000 and g48_chk['over_budget'] == 6,
           {'g48_chk': g48_chk})
+
+    # Phase 6 (20261124171043_the_hand_gap_grade_names_its_worst_hands): the grade names its slowest hands, and Backup's
+    # sample judge (server/standby/standby-engine.sh check_soak_hand_gap_delay)
+    # reads them. The judge runs for real here, against this cluster, on hands
+    # written in the last few minutes (it grades the window ending now()).
+    STANDBY = ROOT / 'server' / 'standby' / 'standby-engine.sh'
+    plain_owed = 5750  # 1400 + 1500 + 1100 + 250 + 1500, as phase 5d proves
+
+    def insert_recent_pairs(gaps_ms, start):
+        tid = str(uuid.uuid4())
+        ids, cur = [], start
+        for i in range(len(gaps_ms) + 1):
+            hid = str(uuid.uuid4())
+            ids.append(hid)
+            st, en = cur, cur + dt.timedelta(seconds=10)
+            row_cad = f"'{plain_cadence}'::jsonb" if i > 0 else 'NULL'
+            run(f"""INSERT INTO hand_history(id, table_id, tournament_id, started_at, ended_at, created_at,
+                                             actions, players, pots, showdown, cadence)
+                    VALUES ('{hid}', '{tid}', NULL, '{st.isoformat()}', '{en.isoformat()}', '{en.isoformat()}',
+                            '{call_action}'::jsonb,
+                            '[{{"userId": "u1", "stack": 100}}, {{"userId": "u2", "stack": 100}}]'::jsonb,
+                            '[]'::jsonb, '[{{"user_id": "u1", "seat": 1}}, {{"user_id": "u2", "seat": 2}}]'::jsonb,
+                            {row_cad})""")
+            if i < len(gaps_ms):
+                cur = en + dt.timedelta(milliseconds=gaps_ms[i])
+        return tid, ids
+
+    def judge(since):
+        script = (f'set -Eeuo pipefail; source {shlex.quote(str(STANDBY))}; '
+                  f'psql_db() {{ {shlex.quote(str(pg / "psql"))} -X -v ON_ERROR_STOP=1 -h {shlex.quote(str(sock))} '
+                  f'-p {PORT} -U postgres -d postgres "$@"; }}; '
+                  f'check_soak_hand_gap_delay {since} 15')
+        r = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=env, timeout=120)
+        return r.returncode, (json.loads(r.stdout) if r.stdout.strip() else None), r.stderr
+
+    now = dt.datetime.now(dt.timezone.utc)
+    since = int((now - dt.timedelta(minutes=14)).timestamp())
+    # 2026-11-24 12:47Z refusal of 19203b9a1f0b: 14 cash showdown_checked_river
+    # pairs, 13 on time and ONE 1,422 ms late.
+    gaps_1247 = [plain_owed + 1] * 13 + [plain_owed + 1422]
+    t1247, ids1247 = insert_recent_pairs(gaps_1247, now - dt.timedelta(minutes=8))
+    rc, verdict, err = judge(since)
+    cell1247 = next((c for c in (verdict or {}).get('cells', [])
+                     if c['kind'] == 'cash' and c['shape'] == 'showdown_checked_river'), None)
+    check('judge on the grader before 20261124171043_the_hand_gap_grade_names_its_worst_hands: the 12:47Z sample (one 1,422 ms hand of 14) passes, ids unavailable',
+          rc == 0 and verdict['status'] == 'pass' and verdict['extremesAvailable'] is False
+          and cell1247 and cell1247['n'] == 14 and cell1247['overBudget'] == 1 and cell1247['maxMs'] is None,
+          {'rc': rc, 'verdict': verdict, 'stderr': err})
+
+    run(WORST_MIGRATION.read_text())
+    worst_proof = WORST_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261124171043_the_hand_gap_grade_names_its_worst_hands installs as written and its live proof holds',
+          run('SELECT ' + worst_proof) == 't', worst_proof)
+    run(WORST_MIGRATION.read_text())
+    check('migration 20261124171043_the_hand_gap_grade_names_its_worst_hands is idempotent', run('SELECT ' + worst_proof) == 't', worst_proof)
+    check('the grader keeps its security, owner grants and comment after the re-create',
+          run("SELECT prosecdef AND provolatile = 's' AND has_function_privilege('service_role', oid, 'EXECUTE')"
+              " AND NOT has_function_privilege('anon', oid, 'EXECUTE')"
+              " AND NOT has_function_privilege('authenticated', oid, 'EXECUTE')"
+              " FROM pg_proc WHERE oid = 'public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure") == 't')
+
+    g47_after = grade(47).get(('cash', 'showdown_checked_river'))
+    check('every existing column grades exactly as before; the new ones name the slowest hands',
+          g47_after and all(g47_after[k] == g47_chk[k] for k in g47_chk)
+          and g47_after['unintended_max_ms'] == 900 and len(g47_after['worst_hands']) == 5
+          and all(w['unintended_ms'] == 900 for w in g47_after['worst_hands']),
+          {'before': g47_chk, 'after': g47_after})
+
+    insert_custom_pairs(49, 6, actions_json=call_action, gap_ms=6250, cadence_json=plain_cadence)
+    history_before = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
+    watch(49)
+    history_after = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
+    check('fn_ca_hand_gap_watch still records its window through the re-created grader',
+          history_after > history_before, {'before': history_before, 'after': history_after})
+
+    rc, verdict, err = judge(since)
+    cell1247 = next((c for c in (verdict or {}).get('cells', [])
+                     if c['kind'] == 'cash' and c['shape'] == 'showdown_checked_river'), None)
+    check('judge after 20261124171043_the_hand_gap_grade_names_its_worst_hands: the 12:47Z sample still passes and now names its slowest hand',
+          rc == 0 and verdict['status'] == 'pass' and verdict['extremesAvailable'] is True
+          and cell1247 and cell1247['maxMs'] == 1422
+          and cell1247['worstHands'][0]['hand_id'] == ids1247[13]
+          and cell1247['worstHands'][0]['unintended_ms'] == 1422,
+          {'rc': rc, 'verdict': verdict, 'stderr': err, 'slow_hand': ids1247[13]})
+
+    tstall, idsstall = insert_recent_pairs([plain_owed + 2, plain_owed + 6100], now - dt.timedelta(minutes=9))
+    rc, verdict, err = judge(since)
+    check('judge after 20261124171043_the_hand_gap_grade_names_its_worst_hands: one 6,100 ms stall fails on the hard ceiling and the verdict names that hand',
+          rc == 1 and verdict['status'] == 'fail'
+          and [b['rule'] for b in verdict['breaches']] == ['hard_ceiling']
+          and 'kind=cash shape=showdown_checked_river n=16 rule=hard_ceiling max_ms=6100 > ceiling_ms=5000' in err
+          and f'{idsstall[1]}:6100ms' in err,
+          {'rc': rc, 'verdict': verdict, 'stderr': err, 'stall_hand': idsstall[1]})
 
     # Re-run diagnostic script against the final upgraded schema.
     run(SCRIPT_SQL.read_text())
