@@ -11,6 +11,9 @@
  * Two cells per game, heads-up rivers only (two players live at the first river action), no bomb pot, one board:
  *  checkfirst  the first river action was a CHECK by the player out of position: his strength;
  *  ipstart     the player in position, at the start of the river (before anyone acts): his strength.
+ *  oopstart    the player out of position, at the start of the river: his strength.
+ * And the heads-up river first-wager rates: `fta` (the first action is a wager) and `unopened` (every unopened
+ * opportunity: the first action, and the in-position player's after a check).
  * Each is also split by whether the turn had a wager (`|bet` / `|check`), shrunk to the game cell by SHRINK_K
  * pseudo-samples.
  *
@@ -79,6 +82,8 @@ async function fit() {
     return c;
   };
   let hands = 0, used = 0, from = null, to = null;
+  const rates = new Map();
+  const rate = (k, hit) => { const c = rates.get(k) ?? { n: 0, k: 0 }; c.n++; if (hit) c.k++; rates.set(k, c); };
   const dir = resolve(arg('in'));
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
     let rows;
@@ -142,6 +147,12 @@ async function fit() {
       };
       if (river[0].act === 'check') record(`checkfirst|${v}`, oop);
       record(`ipstart|${v}`, ip);
+      record(`oopstart|${v}`, oop);
+      // first-wager rates on the heads-up river: first to act (out of position), and every unopened opportunity
+      const W = (a) => a === 'bet' || a === 'raise' || a === 'all_in' || a === 'allin';
+      rate(`fta|${v}`, W(river[0].act));
+      rate(`unopened|${v}`, W(river[0].act));
+      if (river[0].act === 'check' && river[1] && river[1].u === ip) rate(`unopened|${v}`, W(river[1].act));
     }
   }
   const norm = (h) => {
@@ -157,7 +168,7 @@ async function fit() {
   };
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
   const out = {};
-  for (const kind of ['checkfirst', 'ipstart'])
+  for (const kind of ['checkfirst', 'ipstart', 'oopstart'])
     for (const v of ['plo4', 'plo5']) {
       const top = cells.get(`${kind}|${v}`);
       if (!top) continue;
@@ -179,6 +190,7 @@ async function fit() {
     weakEdge: WEAK_EDGE,
     shrinkK: SHRINK_K,
     cells: out,
+    rates: Object.fromEntries([...rates].map(([k, c]) => [k, { n: c.n, rate: Math.round((c.k / c.n) * 1e5) / 1e5 }])),
   };
   writeFileSync(resolve(arg('out')), JSON.stringify(tables, null, 1) + '\n');
   console.log(JSON.stringify({ hands, used, cells: Object.fromEntries(Object.entries(out).map(([k, c]) => [k, [c.n, c.shown, c.hist.map((x) => x.toFixed(3)).join(' ')]])) }, null, 1));

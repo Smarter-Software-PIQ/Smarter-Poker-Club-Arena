@@ -6,6 +6,7 @@
       "hand": "ce5dde8e",
       "audit": { "verdict": "CORRECT", "best": "bet100", "finding": null },
       "record": { "foldSmall": { "folds": 5, "opps": 11 }, "foldBig": { "folds": 10, "opps": 15 } },
+      "bet": { "bets": 17, "opps": 70 },
       "player": {
         "seat": 5,
         "user_id": "e01eeae8-5c84-49ca-840d-e36c71f1c1e7",
@@ -234,6 +235,7 @@
       "hand": "7846d1e2",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 5, "opps": 11 }, "foldBig": { "folds": 10, "opps": 15 } },
+      "bet": { "bets": 17, "opps": 72 },
       "player": {
         "seat": 2,
         "user_id": "2072ad2e-869c-4537-a3dd-0def0c889401",
@@ -470,6 +472,7 @@
       "hand": "0012bc19",
       "audit": { "verdict": "CORRECT", "best": "bet33", "finding": null },
       "record": { "foldSmall": { "folds": 5, "opps": 11 }, "foldBig": { "folds": 11, "opps": 16 } },
+      "bet": { "bets": 20, "opps": 80 },
       "player": {
         "seat": 2,
         "user_id": "2072ad2e-869c-4537-a3dd-0def0c889401",
@@ -776,6 +779,7 @@
       "hand": "e18e43ef",
       "audit": { "verdict": "CORRECT", "best": "bet100", "finding": null },
       "record": { "foldSmall": { "folds": 5, "opps": 11 }, "foldBig": { "folds": 12, "opps": 17 } },
+      "bet": { "bets": 22, "opps": 86 },
       "player": {
         "seat": 1,
         "user_id": "a666df27-5645-4d05-b628-090950eb8598",
@@ -1041,6 +1045,7 @@
         "foldSmall": { "folds": 79, "opps": 153 },
         "foldBig": { "folds": 151, "opps": 184 }
       },
+      "bet": { "bets": 364, "opps": 939 },
       "player": {
         "seat": 2,
         "user_id": "2930eb16-c2ad-4cb6-a1d6-7bb650e3cf08",
@@ -1312,6 +1317,7 @@
         "foldSmall": { "folds": 81, "opps": 155 },
         "foldBig": { "folds": 159, "opps": 194 }
       },
+      "bet": { "bets": 380, "opps": 977 },
       "player": {
         "seat": 5,
         "user_id": "67d92504-ee81-4d7f-99ca-f79c752cb265",
@@ -1595,6 +1601,7 @@
         "foldSmall": { "folds": 81, "opps": 155 },
         "foldBig": { "folds": 161, "opps": 197 }
       },
+      "bet": { "bets": 384, "opps": 989 },
       "player": {
         "seat": 6,
         "user_id": "bc1b7867-4e3a-468a-8b84-e80387a21778",
@@ -1863,6 +1870,7 @@
       "hand": "d44e5f33",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 4, "opps": 8 }, "foldBig": { "folds": 3, "opps": 8 } },
+      "bet": { "bets": 6, "opps": 18 },
       "player": {
         "seat": 1,
         "user_id": "0f40b50c-8ce5-41ec-9537-b58b12385937",
@@ -2055,6 +2063,7 @@
         "foldSmall": { "folds": 10, "opps": 17 },
         "foldBig": { "folds": 17, "opps": 21 }
       },
+      "bet": { "bets": 39, "opps": 83 },
       "player": {
         "seat": 6,
         "user_id": "be61d864-3269-46de-976b-06871c6ce271",
@@ -2291,13 +2300,14 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "value": "bet", "bluff": "check", "off": "check" }
+      "expect": { "value": "check", "bluff": "check", "off": "check" }
     },
     {
       "set": "daily-2026-11-25",
       "hand": "8160d3e5",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 7, "opps": 14 }, "foldBig": { "folds": 12, "opps": 19 } },
+      "bet": { "bets": 26, "opps": 97 },
       "player": {
         "seat": 4,
         "user_id": "7a720598-8e36-48e1-9826-7bc99a81bdb6",
@@ -2513,6 +2523,7 @@
         "foldSmall": { "folds": 41, "opps": 84 },
         "foldBig": { "folds": 52, "opps": 67 }
       },
+      "bet": { "bets": 141, "opps": 235 },
       "player": {
         "seat": 4,
         "user_id": "7a720598-8e36-48e1-9826-7bc99a81bdb6",
@@ -2764,6 +2775,7 @@
       "hand": "ad8e4f83",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 3, "opps": 4 }, "foldBig": { "folds": 4, "opps": 5 } },
+      "bet": { "bets": 5, "opps": 17 },
       "player": {
         "seat": 2,
         "user_id": "8d44aa1c-b7ff-4588-8dac-340d5aacb0c2",
@@ -3038,6 +3050,7 @@
       "hand": "63a9f02e",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 7, "opps": 14 }, "foldBig": { "folds": 12, "opps": 19 } },
+      "bet": { "bets": 28, "opps": 100 },
       "player": {
         "seat": 2,
         "user_id": "9da2d0b7-436d-4e47-826e-4c30077428a4",
@@ -3249,6 +3262,7 @@
       "hand": "9b732a5e",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 8, "opps": 17 }, "foldBig": { "folds": 12, "opps": 19 } },
+      "bet": { "bets": 32, "opps": 108 },
       "player": {
         "seat": 1,
         "user_id": "761b4352-ee05-4423-a791-65303d364989",
@@ -3506,6 +3520,7 @@
       "hand": "7ef1c8df",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 8, "opps": 17 }, "foldBig": { "folds": 12, "opps": 19 } },
+      "bet": { "bets": 34, "opps": 112 },
       "player": {
         "seat": 1,
         "user_id": "82861181-5a96-4e7b-bfa4-b75ca2bd145f",
@@ -3717,6 +3732,7 @@
       "hand": "f752e639",
       "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
       "record": { "foldSmall": { "folds": 7, "opps": 16 }, "foldBig": { "folds": 5, "opps": 10 } },
+      "bet": { "bets": 11, "opps": 36 },
       "player": {
         "seat": 4,
         "user_id": "f69a3498-00d1-4a3b-a31b-04edd9f421e9",
@@ -4003,264 +4019,6 @@
     },
     {
       "set": "daily-2026-11-25",
-      "hand": "7939c8fd",
-      "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
-      "record": { "foldSmall": { "folds": 1, "opps": 3 }, "foldBig": { "folds": 6, "opps": 9 } },
-      "player": {
-        "seat": 4,
-        "user_id": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-        "username": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-        "stack": 84.11,
-        "bet": 0,
-        "totalInvested": 7.84,
-        "deadInvested": 0,
-        "individualAnteInvested": 0,
-        "cards": [
-          { "rank": "4", "suit": "spades" },
-          { "rank": "3", "suit": "clubs" },
-          { "rank": "6", "suit": "clubs" },
-          { "rank": "7", "suit": "spades" }
-        ],
-        "is_folded": false,
-        "is_all_in": false,
-        "is_sitting_out": false,
-        "is_horse": true
-      },
-      "gs": {
-        "stateSchemaVersion": 1,
-        "players": [
-          {
-            "seat": 1,
-            "user_id": "a1bf8c9f-ad73-4e20-86cb-f061e3223083",
-            "username": "a1bf8c9f-ad73-4e20-86cb-f061e3223083",
-            "stack": 97.25,
-            "bet": 0,
-            "totalInvested": 0,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 2,
-            "user_id": "23ff3ff5-6bb1-4b48-baa2-fc116ac93172",
-            "username": "23ff3ff5-6bb1-4b48-baa2-fc116ac93172",
-            "stack": 101.87,
-            "bet": 0,
-            "totalInvested": 0.25,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 3,
-            "user_id": "7e2aea2c-a267-4cf5-b90c-546acbd4466c",
-            "username": "7e2aea2c-a267-4cf5-b90c-546acbd4466c",
-            "stack": 114.72,
-            "bet": 0,
-            "totalInvested": 0.5,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 4,
-            "user_id": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-            "username": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-            "stack": 84.11,
-            "bet": 0,
-            "totalInvested": 7.84,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": false,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 5,
-            "user_id": "5c9528bd-1166-4619-9d54-ee93fb315e7e",
-            "username": "5c9528bd-1166-4619-9d54-ee93fb315e7e",
-            "stack": 88.58,
-            "bet": 0,
-            "totalInvested": 0,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 6,
-            "user_id": "ec174028-bacb-4d30-b577-fc9243c574f7",
-            "username": "ec174028-bacb-4d30-b577-fc9243c574f7",
-            "stack": 17.16,
-            "bet": 0,
-            "totalInvested": 7.84,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": false,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": false
-          }
-        ],
-        "communityCards": [
-          { "rank": "4", "suit": "diamonds" },
-          { "rank": "K", "suit": "hearts" },
-          { "rank": "2", "suit": "spades" },
-          { "rank": "3", "suit": "hearts" },
-          { "rank": "7", "suit": "diamonds" }
-        ],
-        "boardCount": 1,
-        "bombPot": false,
-        "allInOrFold": false,
-        "fixedBetSize": null,
-        "wagersCapped": false,
-        "asset": "chips",
-        "vpipFloor": 0,
-        "rakeConfig": {
-          "cap": 1.25,
-          "percent": 10,
-          "noFlopNoDrop": true,
-          "playerCountCaps": [
-            { "players": 2, "cap": 0.63 },
-            { "players": 3, "cap": 1.25 },
-            { "players": 4, "cap": 1.25 }
-          ]
-        },
-        "bbjConfig": { "feeBB": 0.6, "enabled": true, "minPotBB": 10, "minPlayersDealt": 3 },
-        "pot": 16.43,
-        "currentBet": 0,
-        "toCall": 0,
-        "minRaiseTo": 0.5,
-        "maxRaiseTo": 16.43,
-        "legalActions": ["fold", "check", "bet", "all_in"],
-        "stage": "river",
-        "gameVariant": "plo4",
-        "gameMode": "cash",
-        "bettingStructure": "pot_limit",
-        "bigBlind": 0.5,
-        "smallBlind": 0.25,
-        "ante": 0,
-        "bigBlindAnte": false,
-        "dealerSeat": 1,
-        "dealtSeatIds": [1, 2, 3, 4, 5, 6],
-        "blindSeats": { "smallBlind": 2, "bigBlind": 3 },
-        "chipUnit": 0.01,
-        "heroSeat": 4,
-        "currentPlayerSeat": 4,
-        "humanUserIds": ["ec174028-bacb-4d30-b577-fc9243c574f7"],
-        "actionHistory": [
-          {
-            "stage": "preflop",
-            "seat": 4,
-            "userId": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-            "action": "raise",
-            "amount": 2.25,
-            "isFullRaise": true
-          },
-          {
-            "stage": "preflop",
-            "seat": 5,
-            "userId": "5c9528bd-1166-4619-9d54-ee93fb315e7e",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 6,
-            "userId": "ec174028-bacb-4d30-b577-fc9243c574f7",
-            "action": "call",
-            "amount": 1.75,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 1,
-            "userId": "a1bf8c9f-ad73-4e20-86cb-f061e3223083",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 2,
-            "userId": "23ff3ff5-6bb1-4b48-baa2-fc116ac93172",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 3,
-            "userId": "7e2aea2c-a267-4cf5-b90c-546acbd4466c",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "flop",
-            "seat": 4,
-            "userId": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-            "action": "bet",
-            "amount": 1.48,
-            "isFullRaise": true
-          },
-          {
-            "stage": "flop",
-            "seat": 6,
-            "userId": "ec174028-bacb-4d30-b577-fc9243c574f7",
-            "action": "call",
-            "amount": 1.48,
-            "isFullRaise": false
-          },
-          {
-            "stage": "turn",
-            "seat": 4,
-            "userId": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
-            "action": "bet",
-            "amount": 4.11,
-            "isFullRaise": true
-          },
-          {
-            "stage": "turn",
-            "seat": 6,
-            "userId": "ec174028-bacb-4d30-b577-fc9243c574f7",
-            "action": "call",
-            "amount": 4.11,
-            "isFullRaise": false
-          }
-        ]
-      },
-      "style": "grinder",
-      "mods": {
-        "tightness": 0.98,
-        "aggression": 1.18,
-        "bluffFreq": 0.91,
-        "sizingMultiplier": 0.94,
-        "referenceNlhOpenings": true
-      },
-      "expect": { "value": "check", "bluff": "check", "off": "check" }
-    },
-    {
-      "set": "daily-2026-11-25",
       "hand": "6cd330f2",
       "audit": {
         "verdict": "MISTAKE OPPORTUNITY",
@@ -4268,6 +4026,7 @@
         "finding": "missed bet (fold equity)"
       },
       "record": { "foldSmall": { "folds": 4, "opps": 8 }, "foldBig": { "folds": 14, "opps": 17 } },
+      "bet": { "bets": 11, "opps": 41 },
       "player": {
         "seat": 4,
         "user_id": "badcd43c-1a7c-4a71-82d2-a2315758d8ed",
@@ -4569,6 +4328,7 @@
         "foldSmall": { "folds": 11, "opps": 17 },
         "foldBig": { "folds": 26, "opps": 34 }
       },
+      "bet": { "bets": 57, "opps": 126 },
       "player": {
         "seat": 6,
         "user_id": "9b8e4658-9315-4b06-bba9-2d76d72a9f09",
@@ -4855,6 +4615,7 @@
         "foldSmall": { "folds": 84, "opps": 158 },
         "foldBig": { "folds": 163, "opps": 201 }
       },
+      "bet": { "bets": 389, "opps": 1012 },
       "player": {
         "seat": 4,
         "user_id": "2430ef3a-8445-4dbe-881a-f42489e485f8",
@@ -5030,6 +4791,7 @@
         "foldSmall": { "folds": 17, "opps": 28 },
         "foldBig": { "folds": 19, "opps": 25 }
       },
+      "bet": { "bets": 85, "opps": 125 },
       "player": {
         "seat": 4,
         "user_id": "2430ef3a-8445-4dbe-881a-f42489e485f8",
@@ -5345,6 +5107,7 @@
         "foldSmall": { "folds": 84, "opps": 158 },
         "foldBig": { "folds": 165, "opps": 204 }
       },
+      "bet": { "bets": 391, "opps": 1025 },
       "player": {
         "seat": 2,
         "user_id": "46394a29-9ca4-4280-952e-e201f4ff9517",
@@ -5648,6 +5411,7 @@
         "foldSmall": { "folds": 53, "opps": 113 },
         "foldBig": { "folds": 92, "opps": 110 }
       },
+      "bet": { "bets": 205, "opps": 516 },
       "player": {
         "seat": 2,
         "user_id": "7b05f19d-b546-46a7-aa12-982d78d6f802",
@@ -5886,6 +5650,7 @@
         "foldSmall": { "folds": 54, "opps": 115 },
         "foldBig": { "folds": 92, "opps": 110 }
       },
+      "bet": { "bets": 205, "opps": 519 },
       "player": {
         "seat": 2,
         "user_id": "e0f03a88-afc3-448f-835a-e8e323d09b57",
@@ -6171,6 +5936,7 @@
         "foldSmall": { "folds": 10, "opps": 25 },
         "foldBig": { "folds": 21, "opps": 28 }
       },
+      "bet": { "bets": 6, "opps": 43 },
       "player": {
         "seat": 2,
         "user_id": "93ecbb64-e602-47f1-a314-056504d6b3be",
@@ -6393,6 +6159,7 @@
         "foldSmall": { "folds": 24, "opps": 51 },
         "foldBig": { "folds": 19, "opps": 24 }
       },
+      "bet": { "bets": 14, "opps": 79 },
       "player": {
         "seat": 1,
         "user_id": "1576452b-3fc4-4fb2-a3c4-4356a6a7b421",
@@ -6696,6 +6463,7 @@
         "foldSmall": { "folds": 10, "opps": 22 },
         "foldBig": { "folds": 23, "opps": 38 }
       },
+      "bet": { "bets": 31, "opps": 117 },
       "player": {
         "seat": 5,
         "user_id": "66417bd4-c8e5-4666-af6f-3d85a43593d9",
@@ -6895,6 +6663,7 @@
         "foldSmall": { "folds": 26, "opps": 55 },
         "foldBig": { "folds": 24, "opps": 31 }
       },
+      "bet": { "bets": 18, "opps": 100 },
       "player": {
         "seat": 2,
         "user_id": "0ce13c54-930f-48b5-93a9-df7a38e90b7f",
@@ -7118,6 +6887,7 @@
         "foldSmall": { "folds": 26, "opps": 55 },
         "foldBig": { "folds": 25, "opps": 33 }
       },
+      "bet": { "bets": 18, "opps": 102 },
       "player": {
         "seat": 3,
         "user_id": "b83fa747-e51f-46c0-85d7-6a2f68417309",
@@ -7337,6 +7107,7 @@
         "foldSmall": { "folds": 31, "opps": 61 },
         "foldBig": { "folds": 27, "opps": 36 }
       },
+      "bet": { "bets": 24, "opps": 120 },
       "player": {
         "seat": 2,
         "user_id": "710c13a2-68e6-4530-a9a1-9f9f1274e9d5",
@@ -7616,6 +7387,7 @@
         "foldSmall": { "folds": 32, "opps": 62 },
         "foldBig": { "folds": 27, "opps": 36 }
       },
+      "bet": { "bets": 25, "opps": 123 },
       "player": {
         "seat": 2,
         "user_id": "710c13a2-68e6-4530-a9a1-9f9f1274e9d5",
@@ -7935,6 +7707,7 @@
         "foldSmall": { "folds": 33, "opps": 63 },
         "foldBig": { "folds": 32, "opps": 43 }
       },
+      "bet": { "bets": 27, "opps": 133 },
       "player": {
         "seat": 1,
         "user_id": "efe5c57a-4a17-4281-b26d-aa6efe782422",
@@ -8230,6 +8003,7 @@
         "foldSmall": { "folds": 37, "opps": 68 },
         "foldBig": { "folds": 33, "opps": 45 }
       },
+      "bet": { "bets": 30, "opps": 143 },
       "player": {
         "seat": 4,
         "user_id": "631a3049-dbb7-4668-8d52-c36efdb395d5",
@@ -8509,6 +8283,7 @@
         "foldSmall": { "folds": 38, "opps": 71 },
         "foldBig": { "folds": 34, "opps": 51 }
       },
+      "bet": { "bets": 33, "opps": 155 },
       "player": {
         "seat": 4,
         "user_id": "631a3049-dbb7-4668-8d52-c36efdb395d5",
@@ -8749,6 +8524,7 @@
         "foldSmall": { "folds": 38, "opps": 72 },
         "foldBig": { "folds": 34, "opps": 51 }
       },
+      "bet": { "bets": 34, "opps": 157 },
       "player": {
         "seat": 1,
         "user_id": "efe5c57a-4a17-4281-b26d-aa6efe782422",
@@ -9021,6 +8797,7 @@
         "finding": "missed bet (fold equity)"
       },
       "record": { "foldSmall": { "folds": 7, "opps": 10 }, "foldBig": { "folds": 6, "opps": 8 } },
+      "bet": { "bets": 19, "opps": 30 },
       "player": {
         "seat": 1,
         "user_id": "efe5c57a-4a17-4281-b26d-aa6efe782422",
@@ -9332,6 +9109,7 @@
         "foldSmall": { "folds": 14, "opps": 26 },
         "foldBig": { "folds": 31, "opps": 51 }
       },
+      "bet": { "bets": 53, "opps": 170 },
       "player": {
         "seat": 2,
         "user_id": "f6371734-a8d5-4902-b4f4-288e817660db",
@@ -9611,6 +9389,7 @@
         "foldSmall": { "folds": 56, "opps": 118 },
         "foldBig": { "folds": 94, "opps": 114 }
       },
+      "bet": { "bets": 209, "opps": 535 },
       "player": {
         "seat": 1,
         "user_id": "b886e793-7c9d-4ea0-8677-244cc06f3fc2",
@@ -9826,6 +9605,7 @@
         "foldSmall": { "folds": 15, "opps": 28 },
         "foldBig": { "folds": 32, "opps": 55 }
       },
+      "bet": { "bets": 62, "opps": 191 },
       "player": {
         "seat": 2,
         "user_id": "302ba66b-3b1e-4747-9458-84695c70f396",
@@ -10066,6 +9846,7 @@
         "foldSmall": { "folds": 15, "opps": 29 },
         "foldBig": { "folds": 33, "opps": 56 }
       },
+      "bet": { "bets": 62, "opps": 196 },
       "player": {
         "seat": 5,
         "user_id": "2e26ae7c-0d4a-42da-b8ee-90a498eb25dd",
@@ -10357,6 +10138,7 @@
         "foldSmall": { "folds": 57, "opps": 120 },
         "foldBig": { "folds": 96, "opps": 116 }
       },
+      "bet": { "bets": 217, "opps": 557 },
       "player": {
         "seat": 2,
         "user_id": "fb825ba4-09a8-44c6-a719-13c682893e04",
@@ -10600,6 +10382,7 @@
         "foldSmall": { "folds": 57, "opps": 120 },
         "foldBig": { "folds": 97, "opps": 117 }
       },
+      "bet": { "bets": 220, "opps": 567 },
       "player": {
         "seat": 2,
         "user_id": "97a78c88-d500-421b-bff0-992271e24b09",
@@ -10815,6 +10598,7 @@
         "foldSmall": { "folds": 58, "opps": 121 },
         "foldBig": { "folds": 98, "opps": 118 }
       },
+      "bet": { "bets": 220, "opps": 570 },
       "player": {
         "seat": 2,
         "user_id": "085524dc-e663-4dad-abc5-8442450cc9f1",
@@ -11070,291 +10854,6 @@
     },
     {
       "set": "first-2026-11-20-24",
-      "hand": "6284f08f",
-      "audit": { "verdict": "MISTAKE OPPORTUNITY", "best": "bet33", "finding": "missed value bet" },
-      "record": {
-        "foldSmall": { "folds": 58, "opps": 122 },
-        "foldBig": { "folds": 98, "opps": 118 }
-      },
-      "player": {
-        "seat": 5,
-        "user_id": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-        "username": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-        "stack": 763.6,
-        "bet": 0,
-        "totalInvested": 117,
-        "deadInvested": 0,
-        "individualAnteInvested": 0,
-        "cards": [
-          { "rank": "9", "suit": "clubs" },
-          { "rank": "K", "suit": "spades" },
-          { "rank": "Q", "suit": "hearts" },
-          { "rank": "Q", "suit": "diamonds" },
-          { "rank": "9", "suit": "diamonds" }
-        ],
-        "is_folded": false,
-        "is_all_in": false,
-        "is_sitting_out": false,
-        "is_horse": true
-      },
-      "gs": {
-        "stateSchemaVersion": 1,
-        "players": [
-          {
-            "seat": 1,
-            "user_id": "bc1b7867-4e3a-468a-8b84-e80387a21778",
-            "username": "bc1b7867-4e3a-468a-8b84-e80387a21778",
-            "stack": 395,
-            "bet": 0,
-            "totalInvested": 1,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 2,
-            "user_id": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "username": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "stack": 700.4,
-            "bet": 0,
-            "totalInvested": 119,
-            "deadInvested": 2,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": false,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": false
-          },
-          {
-            "seat": 3,
-            "user_id": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
-            "username": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
-            "stack": 804.4,
-            "bet": 0,
-            "totalInvested": 0,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 4,
-            "user_id": "aefbd1c7-a2db-4bd9-b24a-333e18edec16",
-            "username": "aefbd1c7-a2db-4bd9-b24a-333e18edec16",
-            "stack": 561.5,
-            "bet": 0,
-            "totalInvested": 0,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 5,
-            "user_id": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "username": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "stack": 763.6,
-            "bet": 0,
-            "totalInvested": 117,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": false,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          },
-          {
-            "seat": 6,
-            "user_id": "cbcc055c-3d51-4d15-b26b-529d215d137d",
-            "username": "cbcc055c-3d51-4d15-b26b-529d215d137d",
-            "stack": 400,
-            "bet": 0,
-            "totalInvested": 0,
-            "deadInvested": 0,
-            "individualAnteInvested": 0,
-            "cards": [],
-            "is_folded": true,
-            "is_all_in": false,
-            "is_sitting_out": false,
-            "is_horse": true
-          }
-        ],
-        "communityCards": [
-          { "rank": "4", "suit": "diamonds" },
-          { "rank": "6", "suit": "diamonds" },
-          { "rank": "7", "suit": "spades" },
-          { "rank": "9", "suit": "hearts" },
-          { "rank": "Q", "suit": "spades" }
-        ],
-        "boardCount": 1,
-        "bombPot": false,
-        "allInOrFold": false,
-        "fixedBetSize": null,
-        "wagersCapped": false,
-        "asset": "chips",
-        "rakeConfig": {
-          "cap": 5,
-          "percent": 10,
-          "noFlopNoDrop": true,
-          "playerCountCaps": [
-            { "players": 2, "cap": 2.5 },
-            { "players": 3, "cap": 5 },
-            { "players": 4, "cap": 5 }
-          ]
-        },
-        "bbjConfig": { "feeBB": 0.25, "enabled": true, "minPotBB": 10, "minPlayersDealt": 3 },
-        "pot": 237,
-        "currentBet": 0,
-        "toCall": 0,
-        "minRaiseTo": 2,
-        "maxRaiseTo": 237,
-        "legalActions": ["fold", "check", "bet", "all_in"],
-        "stage": "river",
-        "gameVariant": "plo5",
-        "gameMode": "cash",
-        "bettingStructure": "pot_limit",
-        "bigBlind": 2,
-        "smallBlind": 1,
-        "ante": 2,
-        "bigBlindAnte": true,
-        "dealerSeat": 6,
-        "dealtSeatIds": [1, 2, 3, 4, 5, 6],
-        "blindSeats": { "smallBlind": 1, "bigBlind": 2 },
-        "chipUnit": 0.01,
-        "heroSeat": 5,
-        "currentPlayerSeat": 5,
-        "humanUserIds": ["69f2cefa-017d-49f3-ac3e-61505633747c"],
-        "actionHistory": [
-          {
-            "stage": "preflop",
-            "seat": 3,
-            "userId": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 4,
-            "userId": "aefbd1c7-a2db-4bd9-b24a-333e18edec16",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 5,
-            "userId": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "action": "raise",
-            "amount": 8,
-            "isFullRaise": true
-          },
-          {
-            "stage": "preflop",
-            "seat": 6,
-            "userId": "cbcc055c-3d51-4d15-b26b-529d215d137d",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 1,
-            "userId": "bc1b7867-4e3a-468a-8b84-e80387a21778",
-            "action": "fold",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "preflop",
-            "seat": 2,
-            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "action": "raise",
-            "amount": 27,
-            "isFullRaise": true
-          },
-          {
-            "stage": "preflop",
-            "seat": 5,
-            "userId": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "action": "call",
-            "amount": 19,
-            "isFullRaise": false
-          },
-          {
-            "stage": "flop",
-            "seat": 2,
-            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "action": "bet",
-            "amount": 43,
-            "isFullRaise": true
-          },
-          {
-            "stage": "flop",
-            "seat": 5,
-            "userId": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "action": "call",
-            "amount": 43,
-            "isFullRaise": false
-          },
-          {
-            "stage": "turn",
-            "seat": 2,
-            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "action": "check",
-            "amount": 0,
-            "isFullRaise": false
-          },
-          {
-            "stage": "turn",
-            "seat": 5,
-            "userId": "9ecd6262-2315-4bc6-a77c-d842033c08bd",
-            "action": "bet",
-            "amount": 47,
-            "isFullRaise": true
-          },
-          {
-            "stage": "turn",
-            "seat": 2,
-            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "action": "call",
-            "amount": 47,
-            "isFullRaise": false
-          },
-          {
-            "stage": "river",
-            "seat": 2,
-            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
-            "action": "check",
-            "amount": 0,
-            "isFullRaise": false
-          }
-        ]
-      },
-      "style": "grinder",
-      "mods": {
-        "tightness": 0.98,
-        "aggression": 1.18,
-        "bluffFreq": 0.91,
-        "sizingMultiplier": 0.94,
-        "referenceNlhOpenings": true
-      },
-      "expect": { "value": "bet", "bluff": "check", "off": "check" }
-    },
-    {
-      "set": "first-2026-11-20-24",
       "hand": "b895ff7f",
       "audit": {
         "verdict": "MISTAKE OPPORTUNITY",
@@ -11365,6 +10864,7 @@
         "foldSmall": { "folds": 58, "opps": 122 },
         "foldBig": { "folds": 98, "opps": 118 }
       },
+      "bet": { "bets": 222, "opps": 575 },
       "player": {
         "seat": 4,
         "user_id": "636ef755-dd57-49c4-8623-038fc9a9c635",
@@ -11646,6 +11146,7 @@
         "foldSmall": { "folds": 65, "opps": 133 },
         "foldBig": { "folds": 110, "opps": 132 }
       },
+      "bet": { "bets": 260, "opps": 669 },
       "player": {
         "seat": 3,
         "user_id": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
@@ -11929,6 +11430,7 @@
         "foldSmall": { "folds": 17, "opps": 25 },
         "foldBig": { "folds": 17, "opps": 18 }
       },
+      "bet": { "bets": 53, "opps": 76 },
       "player": {
         "seat": 3,
         "user_id": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
@@ -12218,6 +11720,330 @@
     },
     {
       "set": "first-2026-11-20-24",
+      "hand": "624d433d",
+      "audit": {
+        "verdict": "MISTAKE OPPORTUNITY",
+        "best": "bet66",
+        "finding": "missed bet (fold equity)"
+      },
+      "record": {
+        "foldSmall": { "folds": 65, "opps": 133 },
+        "foldBig": { "folds": 114, "opps": 137 }
+      },
+      "bet": { "bets": 264, "opps": 680 },
+      "player": {
+        "seat": 6,
+        "user_id": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+        "username": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+        "stack": 894.15,
+        "bet": 0,
+        "totalInvested": 379,
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "cards": [
+          { "rank": "6", "suit": "clubs" },
+          { "rank": "A", "suit": "diamonds" },
+          { "rank": "J", "suit": "clubs" },
+          { "rank": "7", "suit": "diamonds" },
+          { "rank": "A", "suit": "clubs" }
+        ],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "is_horse": true
+      },
+      "gs": {
+        "stateSchemaVersion": 1,
+        "players": [
+          {
+            "seat": 1,
+            "user_id": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
+            "username": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
+            "stack": 568.05,
+            "bet": 0,
+            "totalInvested": 47,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 2,
+            "user_id": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "username": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "stack": 5015.98,
+            "bet": 0,
+            "totalInvested": 381,
+            "deadInvested": 2,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": false,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": false
+          },
+          {
+            "seat": 3,
+            "user_id": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
+            "username": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
+            "stack": 1317,
+            "bet": 0,
+            "totalInvested": 2,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 4,
+            "user_id": "3fe15f75-ba2d-4d29-9869-4ea6f2bff168",
+            "username": "3fe15f75-ba2d-4d29-9869-4ea6f2bff168",
+            "stack": 400,
+            "bet": 0,
+            "totalInvested": 0,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 5,
+            "user_id": "097fccb7-2ec3-4eff-8050-36862a080e24",
+            "username": "097fccb7-2ec3-4eff-8050-36862a080e24",
+            "stack": 424.25,
+            "bet": 0,
+            "totalInvested": 2,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 6,
+            "user_id": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "username": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "stack": 894.15,
+            "bet": 0,
+            "totalInvested": 379,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": false,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          }
+        ],
+        "communityCards": [
+          { "rank": "4", "suit": "diamonds" },
+          { "rank": "3", "suit": "spades" },
+          { "rank": "K", "suit": "hearts" },
+          { "rank": "2", "suit": "spades" },
+          { "rank": "7", "suit": "hearts" }
+        ],
+        "boardCount": 1,
+        "bombPot": false,
+        "allInOrFold": false,
+        "fixedBetSize": null,
+        "wagersCapped": false,
+        "asset": "chips",
+        "vpipFloor": 40,
+        "vpipWindowHands": 30,
+        "rakeConfig": {
+          "cap": 5,
+          "percent": 10,
+          "noFlopNoDrop": true,
+          "playerCountCaps": [
+            { "players": 2, "cap": 2.5 },
+            { "players": 3, "cap": 5 },
+            { "players": 4, "cap": 5 }
+          ]
+        },
+        "bbjConfig": { "feeBB": 0.25, "enabled": true, "minPotBB": 10, "minPlayersDealt": 3 },
+        "pot": 811,
+        "currentBet": 0,
+        "toCall": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 811,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "stage": "river",
+        "gameVariant": "plo5",
+        "gameMode": "cash",
+        "bettingStructure": "pot_limit",
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "ante": 2,
+        "bigBlindAnte": true,
+        "dealerSeat": 6,
+        "dealtSeatIds": [1, 2, 3, 4, 5, 6],
+        "blindSeats": { "smallBlind": 1, "bigBlind": 2 },
+        "chipUnit": 0.01,
+        "heroSeat": 6,
+        "currentPlayerSeat": 6,
+        "humanUserIds": ["69f2cefa-017d-49f3-ac3e-61505633747c"],
+        "actionHistory": [
+          {
+            "stage": "preflop",
+            "seat": 3,
+            "userId": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
+            "action": "call",
+            "amount": 2,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 4,
+            "userId": "3fe15f75-ba2d-4d29-9869-4ea6f2bff168",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 5,
+            "userId": "097fccb7-2ec3-4eff-8050-36862a080e24",
+            "action": "call",
+            "amount": 2,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 6,
+            "userId": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "action": "raise",
+            "amount": 13,
+            "isFullRaise": true
+          },
+          {
+            "stage": "preflop",
+            "seat": 1,
+            "userId": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
+            "action": "raise",
+            "amount": 47,
+            "isFullRaise": true
+          },
+          {
+            "stage": "preflop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 45,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 3,
+            "userId": "f0fd5368-3bac-4930-b0ea-a168dcf8d365",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 5,
+            "userId": "097fccb7-2ec3-4eff-8050-36862a080e24",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 6,
+            "userId": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "action": "raise",
+            "amount": 194,
+            "isFullRaise": true
+          },
+          {
+            "stage": "preflop",
+            "seat": 1,
+            "userId": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 147,
+            "isFullRaise": false
+          },
+          {
+            "stage": "flop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "flop",
+            "seat": 6,
+            "userId": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "action": "bet",
+            "amount": 185,
+            "isFullRaise": true
+          },
+          {
+            "stage": "flop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 185,
+            "isFullRaise": false
+          },
+          {
+            "stage": "turn",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "turn",
+            "seat": 6,
+            "userId": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "river",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          }
+        ]
+      },
+      "style": "grinder",
+      "mods": {
+        "tightness": 0.98,
+        "aggression": 1.18,
+        "bluffFreq": 0.91,
+        "sizingMultiplier": 0.94,
+        "referenceNlhOpenings": true
+      },
+      "expect": { "value": "check", "bluff": "bet", "off": "check" }
+    },
+    {
+      "set": "first-2026-11-20-24",
       "hand": "e355b667",
       "audit": {
         "verdict": "MISTAKE OPPORTUNITY",
@@ -12228,6 +12054,7 @@
         "foldSmall": { "folds": 65, "opps": 133 },
         "foldBig": { "folds": 115, "opps": 138 }
       },
+      "bet": { "bets": 264, "opps": 682 },
       "player": {
         "seat": 1,
         "user_id": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
@@ -12527,6 +12354,7 @@
         "foldSmall": { "folds": 66, "opps": 134 },
         "foldBig": { "folds": 115, "opps": 139 }
       },
+      "bet": { "bets": 266, "opps": 686 },
       "player": {
         "seat": 6,
         "user_id": "3a94c68d-2dd2-40b0-afea-96a238b505f2",
@@ -12794,6 +12622,7 @@
         "foldSmall": { "folds": 67, "opps": 135 },
         "foldBig": { "folds": 115, "opps": 140 }
       },
+      "bet": { "bets": 270, "opps": 696 },
       "player": {
         "seat": 1,
         "user_id": "43814ceb-db56-4d31-8bc4-522f0a8533bd",
@@ -13077,6 +12906,7 @@
         "foldSmall": { "folds": 67, "opps": 135 },
         "foldBig": { "folds": 122, "opps": 148 }
       },
+      "bet": { "bets": 285, "opps": 731 },
       "player": {
         "seat": 3,
         "user_id": "d49f4819-3a2e-4342-a15a-97edd5abfec5",
@@ -13321,6 +13151,7 @@
         "foldSmall": { "folds": 10, "opps": 14 },
         "foldBig": { "folds": 27, "opps": 30 }
       },
+      "bet": { "bets": 34, "opps": 62 },
       "player": {
         "seat": 4,
         "user_id": "d79b7f91-5f49-4138-8377-71621722400d",
@@ -13576,6 +13407,285 @@
     },
     {
       "set": "first-2026-11-20-24",
+      "hand": "b9041a1a",
+      "audit": { "verdict": "CORRECT", "best": "check", "finding": null },
+      "record": {
+        "foldSmall": { "folds": 67, "opps": 137 },
+        "foldBig": { "folds": 124, "opps": 150 }
+      },
+      "bet": { "bets": 288, "opps": 749 },
+      "player": {
+        "seat": 5,
+        "user_id": "d79b7f91-5f49-4138-8377-71621722400d",
+        "username": "d79b7f91-5f49-4138-8377-71621722400d",
+        "stack": 1129.9,
+        "bet": 0,
+        "totalInvested": 230,
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "cards": [
+          { "rank": "K", "suit": "spades" },
+          { "rank": "Q", "suit": "clubs" },
+          { "rank": "9", "suit": "diamonds" },
+          { "rank": "Q", "suit": "diamonds" },
+          { "rank": "J", "suit": "hearts" }
+        ],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "is_horse": true
+      },
+      "gs": {
+        "stateSchemaVersion": 1,
+        "players": [
+          {
+            "seat": 1,
+            "user_id": "d49f4819-3a2e-4342-a15a-97edd5abfec5",
+            "username": "d49f4819-3a2e-4342-a15a-97edd5abfec5",
+            "stack": 850.74,
+            "bet": 0,
+            "totalInvested": 1,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 2,
+            "user_id": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "username": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "stack": 318.5,
+            "bet": 0,
+            "totalInvested": 232,
+            "deadInvested": 2,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": false,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": false
+          },
+          {
+            "seat": 3,
+            "user_id": "be61d864-3269-46de-976b-06871c6ce271",
+            "username": "be61d864-3269-46de-976b-06871c6ce271",
+            "stack": 764.7,
+            "bet": 0,
+            "totalInvested": 0,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 4,
+            "user_id": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
+            "username": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
+            "stack": 400,
+            "bet": 0,
+            "totalInvested": 0,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": true,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          },
+          {
+            "seat": 5,
+            "user_id": "d79b7f91-5f49-4138-8377-71621722400d",
+            "username": "d79b7f91-5f49-4138-8377-71621722400d",
+            "stack": 1129.9,
+            "bet": 0,
+            "totalInvested": 230,
+            "deadInvested": 0,
+            "individualAnteInvested": 0,
+            "cards": [],
+            "is_folded": false,
+            "is_all_in": false,
+            "is_sitting_out": false,
+            "is_horse": true
+          }
+        ],
+        "communityCards": [
+          { "rank": "9", "suit": "clubs" },
+          { "rank": "4", "suit": "hearts" },
+          { "rank": "J", "suit": "clubs" },
+          { "rank": "5", "suit": "hearts" },
+          { "rank": "8", "suit": "hearts" }
+        ],
+        "boardCount": 1,
+        "bombPot": false,
+        "allInOrFold": false,
+        "fixedBetSize": null,
+        "wagersCapped": false,
+        "asset": "chips",
+        "rakeConfig": {
+          "cap": 5,
+          "percent": 10,
+          "noFlopNoDrop": true,
+          "playerCountCaps": [
+            { "players": 2, "cap": 2.5 },
+            { "players": 3, "cap": 5 },
+            { "players": 4, "cap": 5 }
+          ]
+        },
+        "bbjConfig": { "feeBB": 0.25, "enabled": true, "minPotBB": 10, "minPlayersDealt": 3 },
+        "pot": 463,
+        "currentBet": 0,
+        "toCall": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 463,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "stage": "river",
+        "gameVariant": "plo5",
+        "gameMode": "cash",
+        "bettingStructure": "pot_limit",
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "ante": 2,
+        "bigBlindAnte": true,
+        "dealerSeat": 5,
+        "dealtSeatIds": [1, 2, 3, 4, 5],
+        "blindSeats": { "smallBlind": 1, "bigBlind": 2 },
+        "chipUnit": 0.01,
+        "heroSeat": 5,
+        "currentPlayerSeat": 5,
+        "humanUserIds": ["69f2cefa-017d-49f3-ac3e-61505633747c"],
+        "actionHistory": [
+          {
+            "stage": "preflop",
+            "seat": 3,
+            "userId": "be61d864-3269-46de-976b-06871c6ce271",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 4,
+            "userId": "9b5d1b31-baef-4bf7-9ccb-4734199a1fa1",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 5,
+            "userId": "d79b7f91-5f49-4138-8377-71621722400d",
+            "action": "raise",
+            "amount": 8,
+            "isFullRaise": true
+          },
+          {
+            "stage": "preflop",
+            "seat": 1,
+            "userId": "d49f4819-3a2e-4342-a15a-97edd5abfec5",
+            "action": "fold",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "preflop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 6,
+            "isFullRaise": false
+          },
+          {
+            "stage": "flop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "flop",
+            "seat": 5,
+            "userId": "d79b7f91-5f49-4138-8377-71621722400d",
+            "action": "bet",
+            "amount": 8,
+            "isFullRaise": true
+          },
+          {
+            "stage": "flop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "raise",
+            "amount": 43,
+            "isFullRaise": true
+          },
+          {
+            "stage": "flop",
+            "seat": 5,
+            "userId": "d79b7f91-5f49-4138-8377-71621722400d",
+            "action": "raise",
+            "amount": 106,
+            "isFullRaise": true
+          },
+          {
+            "stage": "flop",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 63,
+            "isFullRaise": false
+          },
+          {
+            "stage": "turn",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          },
+          {
+            "stage": "turn",
+            "seat": 5,
+            "userId": "d79b7f91-5f49-4138-8377-71621722400d",
+            "action": "bet",
+            "amount": 116,
+            "isFullRaise": true
+          },
+          {
+            "stage": "turn",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "call",
+            "amount": 116,
+            "isFullRaise": false
+          },
+          {
+            "stage": "river",
+            "seat": 2,
+            "userId": "69f2cefa-017d-49f3-ac3e-61505633747c",
+            "action": "check",
+            "amount": 0,
+            "isFullRaise": false
+          }
+        ]
+      },
+      "style": "grinder",
+      "mods": {
+        "tightness": 0.98,
+        "aggression": 1.18,
+        "bluffFreq": 0.91,
+        "sizingMultiplier": 0.94,
+        "referenceNlhOpenings": true
+      },
+      "expect": { "value": "check", "bluff": "bet", "off": "check" }
+    },
+    {
+      "set": "first-2026-11-20-24",
       "hand": "ac3272e1",
       "audit": {
         "verdict": "MISTAKE OPPORTUNITY",
@@ -13586,6 +13696,7 @@
         "foldSmall": { "folds": 24, "opps": 38 },
         "foldBig": { "folds": 14, "opps": 16 }
       },
+      "bet": { "bets": 52, "opps": 89 },
       "player": {
         "seat": 5,
         "user_id": "d9025f02-260a-4c89-9311-e00b792d35c4",
@@ -13875,6 +13986,7 @@
         "foldSmall": { "folds": 73, "opps": 145 },
         "foldBig": { "folds": 132, "opps": 161 }
       },
+      "bet": { "bets": 307, "opps": 803 },
       "player": {
         "seat": 5,
         "user_id": "dec9ad0a-55c3-4dfe-9ece-5315f9a44544",
@@ -14142,6 +14254,7 @@
         "foldSmall": { "folds": 76, "opps": 149 },
         "foldBig": { "folds": 141, "opps": 170 }
       },
+      "bet": { "bets": 333, "opps": 864 },
       "player": {
         "seat": 5,
         "user_id": "bb01946f-5753-44d8-93f1-5c32062c3d6b",
@@ -14363,6 +14476,7 @@
         "foldSmall": { "folds": 43, "opps": 82 },
         "foldBig": { "folds": 37, "opps": 58 }
       },
+      "bet": { "bets": 40, "opps": 188 },
       "player": {
         "seat": 4,
         "user_id": "1589ecfd-7ce0-4be6-a3d3-69e324066fb5",
@@ -14639,6 +14753,7 @@
         "foldSmall": { "folds": 78, "opps": 152 },
         "foldBig": { "folds": 147, "opps": 177 }
       },
+      "bet": { "bets": 356, "opps": 918 },
       "player": {
         "seat": 4,
         "user_id": "b50221b0-f427-432a-8d84-0f5a76112205",

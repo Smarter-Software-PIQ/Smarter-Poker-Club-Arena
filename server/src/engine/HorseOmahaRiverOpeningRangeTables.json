@@ -1,5 +1,5 @@
 {
-  "version": "v1-2026-11-26",
+  "version": "v2-2026-11-26",
   "note": "Measured by scripts/ops/omaha-river-opening-range-fit.mjs from PLO4/PLO5 cash hand_history (shown cards only, showdown bias corrected). Strength = share of holdings of his size that beat his hand on the river (0 = the nuts).",
   "source": {
     "from": "2026-11-17 06:00:07.131553+00",
@@ -82,6 +82,60 @@
       "shown": 1191,
       "n": 5202,
       "notShown": 4011
+    },
+    "plo4|oopstart": {
+      "hist": [0.02036, 0.00468, 0.01374, 0.02947, 0.03364, 0.244, 0.31789, 0.33622],
+      "shown": 8469,
+      "n": 19648,
+      "notShown": 11179
+    },
+    "plo4|oopstart|bet": {
+      "hist": [0.02938, 0.00698, 0.01863, 0.03598, 0.04096, 0.27301, 0.32221, 0.27286],
+      "shown": 5729,
+      "n": 12439,
+      "notShown": 6710
+    },
+    "plo4|oopstart|check": {
+      "hist": [0.00489, 0.00074, 0.00536, 0.01829, 0.02108, 0.18857, 0.30819, 0.45287],
+      "shown": 2740,
+      "n": 7209,
+      "notShown": 4469
+    },
+    "plo5|oopstart": {
+      "hist": [0.02232, 0.00837, 0.01933, 0.02438, 0.02744, 0.23557, 0.27988, 0.3827],
+      "shown": 6215,
+      "n": 15052,
+      "notShown": 8837
+    },
+    "plo5|oopstart|bet": {
+      "hist": [0.03181, 0.01165, 0.02483, 0.03051, 0.03366, 0.26796, 0.2789, 0.32066],
+      "shown": 4224,
+      "n": 9850,
+      "notShown": 5626
+    },
+    "plo5|oopstart|check": {
+      "hist": [0.0045, 0.00221, 0.009, 0.01286, 0.01575, 0.17755, 0.28232, 0.49581],
+      "shown": 1991,
+      "n": 5202,
+      "notShown": 3211
+    }
+  },
+  "rates": {
+    "fta|plo4": {
+      "n": 19648,
+      "rate": 0.51873
+    },
+    "unopened|plo4": {
+      "n": 29104,
+      "rate": 0.52632
+    },
+    "fta|plo5": {
+      "n": 15052,
+      "rate": 0.54916
+    },
+    "unopened|plo5": {
+      "n": 21838,
+      "rate": 0.55138
     }
   }
 }

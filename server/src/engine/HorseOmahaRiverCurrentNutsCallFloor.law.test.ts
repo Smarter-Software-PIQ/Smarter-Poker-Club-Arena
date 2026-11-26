@@ -195,7 +195,7 @@ describe('omahaRiverCurrentNutsCallFloor: the decision', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'HorseLogic.ts'),
       'utf8'
     );
-    const floor = src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        opening.decision');
+    const floor = src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        tripsBoat');
     expect(floor).toBeGreaterThan(src.indexOf('const openMeasured = omahaOpenMeasuredRule('));
     expect(floor).toBeGreaterThan(src.indexOf('const firstToAct = omahaRiverFirstToActBetRule('));
     // STAB-DEFENCE 2026-11-20: the node now returns through omahaStrongHandCheckRule (default off), which takes the

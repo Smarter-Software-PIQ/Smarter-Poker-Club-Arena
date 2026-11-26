@@ -63,10 +63,43 @@ const T = tables as unknown as {
   version: string;
   binEdges: number[];
   cells: Record<string, RangeCell>;
+  rates?: Record<string, { n: number; rate: number }>;
 };
 export const OMAHA_RIVER_OPENING_RANGE_VERSION: string = T.version;
 export const OMAHA_RIVER_OPENING_BIN_EDGES: readonly number[] = Object.freeze([...T.binEdges]);
 const NB = OMAHA_RIVER_OPENING_BIN_EDGES.length - 1;
+
+/** The measured between-player prior of a river heads-up unopened-wager rate (HorseOmahaStabDefence, river|hu). */
+export const OMAHA_RIVER_OPENING_BET_RATE_PRIOR_OPPS = 33;
+
+/**
+ * HIS CHECKING RANGE, MOVED BY HIS OWN BET RATE. The measured checker range is the population's: players who bet
+ * the river first about half the time, so their checks are capped. A player who rarely bets checks his strong hands
+ * too. With the measured river range of the player out of position before he acts (pre), the measured checking range
+ * (check) and the measured first-to-act wager rate b, the hands he bets are bet = (pre - (1 - b) check) / b; a player
+ * who bets at rate b' (his own lifetime public unopened river wager rate over the population's, shrunk by k = 33
+ * answers, times b) checks (pre - b' bet) / (1 - b'). No record: the measured checking range exactly (the same array).
+ */
+export function omahaRiverOpeningCheckerHist(
+  variant: string,
+  prev: 'bet' | 'check',
+  record: { bets: number; opps: number } | null | undefined
+): readonly number[] | null {
+  const check = T.cells[`${variant}|checkfirst|${prev}`]?.hist;
+  if (!check) return null;
+  const pre = T.cells[`${variant}|oopstart|${prev}`]?.hist;
+  const bF = T.rates?.[`fta|${variant}`]?.rate;
+  const bU = T.rates?.[`unopened|${variant}`]?.rate;
+  if (!record || !pre || !fin(bF) || !fin(bU) || !(bF > 0 && bF < 1) || !(bU > 0)) return check;
+  if (!fin(record.bets) || !fin(record.opps) || !(record.opps > 0) || record.bets < 0) return check;
+  const k = OMAHA_RIVER_OPENING_BET_RATE_PRIOR_OPPS;
+  const him = (Math.min(record.bets, record.opps) + k * bU) / (record.opps + k);
+  const b2 = clamp((him / bU) * bF, 0, 0.95);
+  const bet = pre.map((x, i) => Math.max(0, (x - (1 - bF) * check[i]) / bF));
+  const out = pre.map((x, i) => Math.max(0, (x - b2 * bet[i]) / (1 - b2)));
+  const s = out.reduce((a, c) => a + c, 0);
+  return s > 0 ? out.map((x) => x / s) : check;
+}
 
 /** The equilibrium fold expectation the record is read against: small first wagers (<= 0.7 pot) and big ones. */
 export const OMAHA_RIVER_OPENING_EQ_FOLD = Object.freeze({ small: 1 / 3, big: 1 / 2, mean: 0.4 });
@@ -406,7 +439,9 @@ export function omahaRiverOpeningBetRule(
   on: OmahaRiverOpeningOptions,
   rake: number,
   legalize: (d: HorseDecision) => HorseDecision,
-  recordOf: (opponent: SeatPlayer) => OmahaRiverOpeningFoldRecord | null
+  recordOf: (opponent: SeatPlayer) => OmahaRiverOpeningFoldRecord | null,
+  /** his lifetime public unopened river wager record (bets, opportunities), or null */
+  betRecordOf: (opponent: SeatPlayer) => { bets: number; opps: number } | null = () => null
 ): OmahaRiverOpeningResult {
   const same: OmahaRiverOpeningResult = { decision, changed: false, kind: null };
   if ((!on.value && !on.bluff) || decision.action !== 'check') return same;
@@ -429,8 +464,21 @@ export function omahaRiverOpeningBetRule(
     } catch {
       record = null;
     }
+    let hist: readonly number[] = cell.hist;
+    if (spot.position === 'ip') {
+      let betRecord: { bets: number; opps: number } | null = null;
+      try {
+        betRecord = betRecordOf(spot.opponent);
+      } catch {
+        betRecord = null;
+      }
+      const prev = spot.cell.endsWith('|bet') ? 'bet' : 'check';
+      hist =
+        omahaRiverOpeningCheckerHist(String(gs.gameVariant ?? '').toLowerCase(), prev, betRecord) ??
+        cell.hist;
+    }
     const verdict = omahaRiverOpeningPrice(
-      cell.hist,
+      hist,
       bins,
       gs.pot,
       amounts,

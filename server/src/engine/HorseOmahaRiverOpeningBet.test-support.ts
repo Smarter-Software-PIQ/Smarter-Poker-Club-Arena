@@ -13,6 +13,7 @@ export interface RiverOpeningFixtureNode {
   hand: string;
   audit: { verdict: string; best: string; finding: string | null };
   record: { foldSmall: { folds: number; opps: number }; foldBig: { folds: number; opps: number } };
+  bet?: { bets: number; opps: number };
   player: SeatPlayer;
   gs: HorseGameStateV2;
   style: never;
@@ -43,7 +44,8 @@ export function riverOpeningDecide(
   HorseMind.setOmahaLifetimeStreetRecordProvider(
     withRecord
       ? ({
-          unopenedWagerRecord: () => null,
+          unopenedWagerRecord: (_u: string, _g: string, street: string, players: string) =>
+            street === 'river' && players === 'hu' && n.bet && n.bet.opps > 0 ? n.bet : null,
           stabSizeRecord: () => null,
           firstWagerFoldRecord: (
             _u: string,

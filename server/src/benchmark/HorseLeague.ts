@@ -3451,6 +3451,7 @@ export const OMAHA_LIVE_OPTIONS_20261126: HorseDecideOpts = Object.freeze({
 const PLO_RIVER_OPENING_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
   ['value', { omahaRiverValueBetInPositionIsPriced: true }],
   ['bluff', { omahaRiverBluffIsPricedOnBlockers: true }],
+  ['tripsboat', { omahaRiverTripsBoardBoatIsNotNutClass: true }],
 ];
 const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
   (variant) =>

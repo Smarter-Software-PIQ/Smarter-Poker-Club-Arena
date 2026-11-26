@@ -237,6 +237,15 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       'measured bet answer curve moved by his lifetime public fold record and check stab frequency/size shrunk n/(n+k)',
     price: 'the value bet beside the check, mixed by comparison standard error (held dark)',
   },
+  omahaRiverTripsBoardBoatIsNotNutClass: {
+    kind: 'priced',
+    range:
+      'every holding of the unseen cards (exact count, the Horse cards and dead cards removed)',
+    equity: 'whether any holding beats the full house (quads or a straight flush on a trips board)',
+    realization:
+      'the measured result of nut-class full house river raises on trips boards (-62 bb a raise, Nov 12-26)',
+    price: 'the raise becomes the call; the call itself stays with the facing-bet verdicts',
+  },
   omahaRiverValueBetInPositionIsPriced: {
     kind: 'priced',
     range: 'the measured strength histogram of a heads-up river checker, exact card removal',
@@ -795,6 +804,15 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_stab_defence_priced: FACING_BET_EV,
   omaha_strong_hand_check_priced: CARD_IMPACT,
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
+  omaha_river_trips_board_boat_called: {
+    kind: 'priced',
+    range:
+      'every holding of the unseen cards (exact count, the Horse cards and dead cards removed)',
+    equity: 'whether any holding beats the full house (quads or a straight flush on a trips board)',
+    realization:
+      'the measured result of nut-class full house river raises on trips boards (-62 bb a raise, Nov 12-26)',
+    price: 'the raise becomes the call; the call itself stays with the facing-bet verdicts',
+  },
   omaha_river_value_bet_priced: {
     kind: 'priced',
     range: 'the measured strength histogram of a heads-up river checker, exact card removal',

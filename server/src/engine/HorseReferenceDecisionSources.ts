@@ -129,6 +129,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off river fold record (EMERG lane STAB-DEFENCE-5 2026-11-21, omahaRiverBetFoldIsHisRecord): in PLO4/PLO5 cash on the river heads-up, the answer curve the two river bet rules price a bet with is the population's with its fold share moved by the opponent's own lifetime public river fold record, shrunk by its evidence; no record is the population curve exactly",
     'src/engine/HorseOmahaCbetRaisePriced.ts':
       "the default-off priced c-bet raise (EMERG lane CBET-DEFENCE 2026-11-21, omahaCbetRaiseIsPriced): in PLO4/PLO5 cash on the flop, the raise of the Horse's own continuation bet is ranged on the raiser's measured raise share (lifetime public record shrunk to the population's), and heads-up bluff c-bets carry that raise branch; a decision source the reference replay must be able to reach",
+    'src/engine/HorseOmahaTripsBoardBoat.ts':
+      'the default-off river trips-board full house rule (PLO-OWNER lead-7 2026-11-26, omahaRiverTripsBoardBoatIsNotNutClass): in PLO4/PLO5 cash on the river facing a wager, a raise with a full house on a trips board that quads or a straight flush can beat becomes the call; pure',
     'src/engine/HorseOmahaRiverOpeningRangeTables.json':
       'the measured PLO4/PLO5 cash heads-up river opening ranges (a checker after his river check, the in-position player before the river action), shown hands only, showdown bias corrected (scripts/ops/omaha-river-opening-range-fit.mjs; PLO-OWNER lead-7 2026-11-26)',
     'src/engine/HorseOmahaRiverOpeningBet.ts':

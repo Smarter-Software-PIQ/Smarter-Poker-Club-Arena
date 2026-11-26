@@ -1337,6 +1337,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverTripsBoardBoatIsNotNutClass',
+    "PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (lead decision on job 5). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, the river, facing a wager; default off (read === true). Where the rule chain raises with a full house (not quads) on a board holding three cards of one rank and some holding of the unseen cards beats it (exact count with the Horse's own cards and the known dead cards removed: holding the case card, or the straight-flush card, keeps the raise), the raise becomes the legal call: it may call, never raise. Evidence: every Horse river raise Nov 12-26 with a nut-class full house: paired boards +8,376 bb over 253 raises, trips boards -1,998 bb over 32 raises with 11 of 21 showdowns lost, all to quads or a straight flush. No identity. HorseOmahaTripsBoardBoat.ts",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_trips_board_boat_called',
+    'HorseLogic wager_rules (omahaTripsBoardBoatRule, omahaRiverTripsBoardBoatIsNotNutClass)',
+    'a PLO4/PLO5 cash river decision facing a wager in which a raise with a full house on a trips board that quads or a straight flush can beat became the call',
+    'V94'
+  ),
+  flag(
     'omahaRiverValueBetInPositionIsPriced',
     "PLO-OWNER lead-7 lane plo-postflop 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up river, the opponent checked to the Horse; default off (read === true). The final check becomes the best of the engine's bet sizes when that bet is a value bet (the Horse beats more than half of the hands that continue) and beats the check by more than the binomial error of his fold rate times d EV / d fold. His range is the measured strength histogram of a heads-up river checker (HorseOmahaRiverOpeningRangeTables.json, fit from shown hands only with the showdown bias corrected, split by whether the turn had a wager); card removal is exact (bins cut on the deck-less-board holdings, conditional counts with the Horse's cards and the known dead cards removed); he folds the weakest share of his range, the equilibrium B / (P + B) moved by his own lifetime public river fold record (OPPONENT-HUD x.foldToBet small and big) by m = (F + k g) / (E + k g), k = 75.9. No identity, no hand class, no size rule; never a raise. HorseOmahaRiverOpeningBet.ts",
     'V94'

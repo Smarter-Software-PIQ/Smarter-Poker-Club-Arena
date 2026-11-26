@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaCbetRaiseIsPriced: priced(
     "facing a raise of its own flop continuation bet, the Horse prices the call against the top W x rho of holdings, rho the raiser's lifetime public raise share facing a first flop c-bet shrunk to the population's by K; heads-up bluff and semi-bluff c-bets carry that raise branch"
   ),
+  omahaRiverTripsBoardBoatIsNotNutClass: priced(
+    'a river raise with a full house on a trips board that quads or a straight flush can beat (exact count, the Horse cards removed) becomes the call; it may call, never raise (default OFF; PLO-OWNER lead-7 2026-11-26)'
+  ),
   omahaRiverValueBetInPositionIsPriced: priced(
     "a heads-up river check after the opponent checked becomes the best-priced bet only where it is a value bet against the hands that continue (his measured checking range, exact card removal, his fold rate from equilibrium moved by his own record) and beats the check by more than his fold rate's error (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),

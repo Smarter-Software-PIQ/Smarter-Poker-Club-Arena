@@ -109,6 +109,7 @@ import {
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
+import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import {
   omahaRiverBetFoldRecordCurve,
   type OmahaRiverBetAnswerPoint,
@@ -3860,6 +3861,12 @@ export interface HorseDecideOpts {
    * continuing hands than of his folding ones (HorseOmahaRiverOpeningBet.ts). Only a check into a bet.
    */
   omahaRiverBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river facing a
+   * wager: a raise with a full house on a trips board that quads or a straight flush can beat (exact count, the
+   * Horse's own cards removed) becomes the call (HorseOmahaTripsBoardBoat.ts). It changes only such a raise.
+   */
+  omahaRiverTripsBoardBoatIsNotNutClass?: boolean;
   /**
    * EMERG lane STAB-DEFENCE-5 2026-11-21 (default off, read `=== true`): the two river bet rules above price the
    * opponent's answer with the population curve moved by his own lifetime PUBLIC fold record at a river's first
@@ -20045,6 +20052,13 @@ export class HorseLogic {
             String(gs.gameVariant ?? ''),
             'river',
             1
+          ),
+        (opponent) =>
+          HorseMind.omahaStabDefenceRecordOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            1
           )
       );
       if (opening.changed && tele) {
@@ -20064,20 +20078,30 @@ export class HorseLogic {
           );
         }
       }
-      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+      // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
+      // full house on a trips board that quads or a straight flush can beat may call, never raise
+      // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
+      const tripsBoat = omahaTripsBoardBoatRule(
         opening.decision,
+        player,
+        gs,
+        opts.omahaRiverTripsBoardBoatIsNotNutClass === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (tripsBoat !== opening.decision && tele) {
+        noteFire('omaha_river_trips_board_boat_called');
+        noteDecisionRuleReceipt('omaha_river_trips_board_boat_called', opening.decision, tripsBoat);
+      }
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        tripsBoat,
         player,
         gs,
         opts.omahaRiverCurrentNutsCallFloor === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (nutsFloored !== opening.decision && tele) {
+      if (nutsFloored !== tripsBoat && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
-        noteDecisionRuleReceipt(
-          'omaha_river_current_nuts_call_floor',
-          opening.decision,
-          nutsFloored
-        );
+        noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', tripsBoat, nutsFloored);
       }
       // EMERG lane STAB-DEFENCE-2 2026-11-20 (omahaStrongHandCheckIsPriced, default off): PLO4/PLO5 cash turn and
       // river, heads-up, the Horse acts first: a final value bet is priced beside the check on the opponent's stab
