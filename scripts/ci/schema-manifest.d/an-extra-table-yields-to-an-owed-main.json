@@ -1,0 +1,4 @@
+{
+  "_comment": "Both functions are installed in production (hourly cash table caps, 20261121174545 and later) and granted to service_role; the base snapshot predates them. HorseFleetManager reads them through server/src/services/supabase/cashHourlyTables.ts (readHourlyCashRoom) to decide whether owed starts fit under the cap.",
+  "functions": ["fn_cash_hourly_table_capacity_census", "fn_cash_hourly_table_range"]
+}
