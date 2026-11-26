@@ -201,6 +201,11 @@ import { buildLightningStatsFacts, type LightningFactsBuilder } from './Lightnin
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
 import { horseHoleCardsBasisContract } from '../services/HorseStatsBasisContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
+import { handWritesOptionReceipts, writeHorseHandReceipts } from '../services/HorseHandReceipts.js';
+import {
+  countHandOptionReceipts,
+  handOptionReceiptCounts,
+} from '../engine/HorseHandOptionReceipts.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
 import {
   lightningHorseVpipFloorInput,
@@ -594,6 +599,12 @@ export class LightningHandHost {
   private state: LightningHostState = 'created';
   private handId: string;
   private handNumber = 0;
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, engine/HorseHandOptionReceipts.ts): how many executed Horse decisions
+   * of this hand each listed option changed (action kinds only, never a card). One host plays one hand. Counted
+   * in memory when a Horse's action lands, written after the settlement commit. Nothing reads it to act.
+   */
+  private readonly optionReceipts: Map<string, number> = new Map();
   /** The first all-in runout's equity for runoutEquityHand (LightningRunoutEquity). */
   private runoutEquity: import('./LightningRunoutEquity.js').RunoutEquity | null = null;
   private runoutEquityHand: number | null = null;
@@ -2183,6 +2194,8 @@ export class LightningHandHost {
       }
     );
     if (!out.success) return false;
+    // PER-HAND OPTION RECEIPTS: this decision's fold landed. An in-memory count, total.
+    countHandOptionReceipts(this.optionReceipts, decision.fast?.optionReceipts);
     // Receipt (#7958, #7993): an already-folding horse pressed Lightning Fold
     // at a person's look-and-press time.
     noteFire('lightning_horse_fast_fold');
@@ -2906,6 +2919,8 @@ export class LightningHandHost {
         } else noteFire('lightning_phase15_plan_retired_inexact');
       }
       applied = r.success;
+      // PER-HAND OPTION RECEIPTS: this decision's action landed. An in-memory count, total.
+      if (r.success) countHandOptionReceipts(this.optionReceipts, fast?.optionReceipts);
       if (!r.success && this.hc) {
         intended = false;
         const auth = this.hc.getAuthoritativeActionState(userId);
@@ -3824,6 +3839,11 @@ export class LightningHandHost {
           results,
           handRow.actions as ReadonlyArray<Record<string, unknown>>
         );
+        // PER-HAND OPTION RECEIPTS (2026-11-25): one row per receipt for a committed hand a person was dealt
+        // into, as the table engine's hand save does. Not awaited: it can never hold the settled hand.
+        const optionReceipts = handOptionReceiptCounts(this.optionReceipts);
+        if (handWritesOptionReceipts(this.hasHumanParticipant(), optionReceipts))
+          void writeHorseHandReceipts(out.value.handHistoryId, optionReceipts);
         // BANK THE WIN ON LIGHTNING (owner 2026-11-10): the committed pool
         // hand feeds the same 4-6x / one orbit / before the big blind rule
         // the Classic settlement applies (LightningBankTheWin).

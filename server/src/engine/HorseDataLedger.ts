@@ -806,13 +806,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v87HoldemOverhaul',
-    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, SPR postflop gameplan, anti-LAG bully-breaker, river block-bet balance, Hollywood tank mix, and tournament bubble/PKO discipline; false only to ablate',
+    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, low-stakes multiway defence, straddle normalization, and master gate for V87 postflop sub-flags; false only to ablate',
     'V87'
   ),
   flag(
     'v87RiverBlockBetTrap',
     'V87 river nut-trap lead and re-raise policy; default enabled, false only for isolated offline ablation',
     'V87'
+  ),
+  flag(
+    'v87RiverBlockBetTrapIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for v87RiverBlockBetTrap on OOP heads-up river leads and facing-raise-after-block-bet spots in single-board 2-card NLH; compares EV(trap_block_lead) vs EV(normal_value_lead) vs EV(check) and EV(trap_reraise) vs EV(call) deterministically using pot/bet/stack/equity and measured NLH empirical response curves (holdemEmpiricalPriors, HorseHoldemV87RiverBlockBetTrapIsPriced); zero fastRandom or hash-unit coin flips, independent of v87RiverBlockBetTrap, zero PLO4/5/6 reach',
+    'Horse Switch'
   ),
   flag(
     'v87HollywoodTank',
@@ -822,6 +827,76 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'v87FlopStabCheckRaise',
     'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87RangeCbet',
+    'V87 heads-up IP dry-flop 30-36% range c-bet (decoupled from v87HoldemOverhaul); default on, false only for isolated ablation',
+    'V87'
+  ),
+  flag(
+    'v87LowSprCommit',
+    'V87 low-SPR (<=3.5) flop/turn commitment bet or jam with TPTK, overpair, two-pair+ or 12+ out flop combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87TurnTakeaway',
+    'V87 IP heads-up turn 62-72% takeaway bet after flop stabber checks turn (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpCheckbackTrap',
+    'V87 IP heads-up dry-flop check-back trap (~25%) with non-QQ+ sets, two pair, straights and flushes (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87OopStabTrap',
+    'V87 OOP flop check-trap into high-frequency flop stabber (~42%) with TPTK+ or 12+ out combo draw (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87MultiwayWetAirCheck',
+    'V87 multiway wet-flop air check without 8+ clean outs (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BubblePostflop',
+    'V87 tournament bubble/ITM postflop covered-medium pot-control check and cover-stack turn/river pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockBalance',
+    'V87 OOP river block-bet balance non-trap branches: LAG one-pair check, nut-blocker block bluff, and raised block-bet bare one-pair fold/maniac-skip (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DoubleBoardDeadHalfFold',
+    'V87 NLH double-board turn/river dead-half fold facing 60%+ pot pressure (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87DeepCashOnePairPotControl',
+    'V87 150bb+ deep cash bare one-pair river pot-control fold and maniacCallDown stack-off refusal (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87ComboDrawPump',
+    'V87 12+ clean-out NLH flop combo-draw semi-bluff raise/jam pump outside baseline HU owner (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87RiverBlockerBluffRaise',
+    'V87 V64-safe river air nut-blocker bluff-raise against observed non-station bettor (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87IpFlopFloat',
+    'V87 IP flop float facing <=55% pot stab from high-stab or turn-give-up opponent (decoupled from v87HoldemOverhaul); default on',
+    'V87'
+  ),
+  flag(
+    'v87BullyReadAdjust',
+    'V87 postflop bully-breaker read adjustments: turn/river give-up decay in maniacCallDown, V80 cap +0.05 vs LAG, and 3-way V53 pressure vs LAG/stabber (decoupled from v87HoldemOverhaul); default on',
     'V87'
   ),
   flag(
@@ -865,6 +940,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V57'
   ),
   flag(
+    'holdemTournamentAggressionIsPriced',
+    '2026-11-22 Horse Switch lane (Wave 10.1, dark in OPTION_SWITCH_REFUSED, zero SQL migrations): default OFF (read === true) deterministic EV + ICM priced postflop single-board 2-card NLH tournament replacement for v57TournamentAggression (planBarrel 0.50 coin-flip, v58_low_spr_stack_off blanket jam, initiativeTurn57 / V7 barrel continuation coin-flips, and v58_one_card_low_flush_fold unconditional fold) backed by holdemEmpiricalPriors.ts; preflop tournamentAggression, v58MadeHandCellSkip, cash, Lightning, Omaha, Short Deck, Fixed Limit, Pot Limit, multi-board, bomb pots, and All-In-or-Fold stay untouched',
+    'Horse Switch'
+  ),
+  flag(
     'v58MadeHandCellSkip',
     'Dan 2026-10-26 (#8144) made-hand solver-cell skip: when hero holds a set/trips, straight, flush or better (cat >= 4), skip the hand-class-mean gto_postflop_compact open cell so the value ladder bets it across cash, Lightning and tournaments; decoupled from v57TournamentAggression so tournament aggression no longer reaches cash/Lightning made-hand skips; default on',
     'V58'
@@ -880,9 +960,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V66'
   ),
   flag(
+    'v66BetRaisedOnePairIsPriced',
+    '2026-11-21 (Horse Switch lane, dark default OFF, read === true): priced replacement for V66 on flop/turn bet-then-raised one pair or bluff-catch hands with no real draw in single-board 2-card NLH; computes EV(call) vs EV(fold) = 0 from pot odds, SPR/street/position/scare-texture realization, and combo-level Monte-Carlo equity against the raiser narrowed line range (HorseHoldemV66RaisedOnePairIsPriced); independent of v66BetRaisedOnePair, zero fixed 0.42 floor, zero hardcoded class fold or jam, never enters PLO4/5/6',
+    'Horse Switch'
+  ),
+  flag(
     'v67RiverBetRaisedOnePair',
     '2026-10-31 Hold em river bet-then-raised one pair (or board-paired two pair): the raiser is sampled from a river raise stratum (10% bluff, otherwise 75/22/3 two pair+/top pair/weaker), the call carries the V63 shade plus 0.10 (cap 0.25) even under a V62 polar read, and the class calls or folds at that price without the 0.42 floor or a jam; measured 7-day review calls/jams won 11.9% cash (n=226) and 19.2% MTT (n=125) at an average raise of 0.72 pot; explicit off arm retained',
     'V67'
+  ),
+  flag(
+    'v67RiverBetRaisedOnePairIsPriced',
+    '2026-11-22 default OFF (read === true, dark in OPTION_SWITCH_REFUSED, Horse Switch lane): deterministic EV-priced single-board 2-card NLH river replacement for all three v67RiverBetRaisedOnePair blanket sites (river raise stratum, block-bet raised blanket fold, and v67Class/shade67 committed & V38 river overrides) via HorseV67RiverBetRaisedOnePairPriced backed by holdemEmpiricalPriors.ts; independent of v67RiverBetRaisedOnePair, zero PLO/flop/turn/multi-board reach, 100% bit-identical when OFF or unset',
+    'Horse Switch'
   ),
   flag(
     'v88CommitmentHonored',
@@ -1825,7 +1915,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v69TurnCallGaps',
-    '2026-10-31 Hold em single-board TURN call gaps left by V65/V68: one-pair calls lose the implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call, the V65 draw exemption counts only a draw a hole card is part of, and the opt-in V32 draw pass-through falls through to the normal line when there is no room to be paid; explicit off arm retained',
+    '2026-10-31 Hold em single-board TURN one-pair implied-odds no-room rule (V69 (1)): one-pair calls lose the 0.04 implied-odds bonus facing 0.7 pot or more with under 1.5x the pot behind after the call; decoupled from V69 (2) hole-card draw exemption (v69HoleDrawExemption) and V69 (3) V32 turn draw pass-through no-room check (v69V32DrawNoRoom); explicit off arm retained',
+    'V69'
+  ),
+  flag(
+    'v69HoleDrawExemption',
+    '2026-10-31 (#8902) Hold em turn one-pair shade draw exemption (V69 (2)): V65 and Pillar 2 turn one-pair shades count only a draw a hole card is part of (holdemHoleDrawPresent), so a board-only four-flush or four-rank window no longer exempts the hand; decoupled from v69TurnCallGaps so disabling one-pair implied-odds suppression never re-enables the board-only draw exemption defect; default on',
+    'V69'
+  ),
+  flag(
+    'v69V32DrawNoRoom',
+    '2026-10-31 (#8902) Hold em V32 turn draw pass-through no-room check (V69 (3)): when opt-in v32FacingDefense is on, a turn draw pass-through with no room to be paid (v68NoRoomToBePaid) falls through to the normal line instead of guaranteeing a turn call; decoupled from v69TurnCallGaps and v69HoleDrawExemption; default on',
     'V69'
   ),
   flag(
@@ -2638,6 +2738,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   flag(
+    'horseSlowplayIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (H4 monster slowplay mix priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket wetness < 0.5 && fastRandom() < params.slowplayFreq coin flip with deterministic EV pricing (HorseSlowplayPriced.priceMonsterSlowplay) using holdemEmpiricalPriors fold / betWhenCheckedTo shrinkage, continuous board-wetness free-card equity erosion, and heroBubbleFactor. Draws no random number. OFF / Omaha / Fixed-Limit: byte-identical.',
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemValueAndCallsArePriced',
     "NLH price lane 2026-11-19 (Auditor D hvh48-audit-01TLQer7J, NLH cash against people: value raises left to a random draw 348 bb, strong hands checked by the V11 gate and the slowplay mix ~300 bb, facing-bet calls priced against a preflop band ~340 bb, river thin and block bets 164 bb; owner 2026-11-17: every decision by range, equity and EV, no blanket rule, bet size never decides by itself). No-limit hold'em cash, table and Lightning, not tournaments, one board, heads-up, postflop; default off (read === true), unevaluated. The decision decidePostflop returns is priced against the bettor's line range (HorseHoldemValueAndCallsArePriced: his preflop band from HorseMind.bandFor re-weighted street by street: a wager keeps his strongest b(1 - beta) and weakest b * beta, a call his strongest (1 - f), a street of checks the HorseActionLinePosterior move) with his measured fold to a bet (carried along the minimum-defence line from the measured mean price 0.337) and bet share when checked to (statRead posteriors on the measured population cell); facing a wager the option of highest value among fold, call and a value raise at each legal priced size is taken and the random value-raise gate defers to it (holdem_priced_value_raise_deferred, no fastRandom draw); not facing one a made hand (at or above half the range's equity on the flop and turn; any made hand on the river) checks or bets at the legal priced size of highest value, the check carrying his bet and the Horse's call or check-raise. Bluff raises, hands without a made hand that bet, more than one opponent: the decision is kept. Off: byte-identical. No league or replay yet; do not switch on without a WIN.",
     'V94'
@@ -2668,6 +2773,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   flag(
+    'horseRunItTwiceIsPriced',
+    'HORSE DECISIONS lane (UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22; dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): main-thread all-in Run-It-Twice priced replacement (HorseRunItTwicePriced / HorseRunItTwiceSwitch / ServerTableEngineRunout.horseRitRuns). Replaces fixed HorseRunItTwice.horseRunItTwiceRuns thresholds with the EV-equal measured people-curve mix (role chooser/responder, normalized variance share e(1-e), ln potBB, compiled offline in HorseRunItTwicePeople.data.ts) plus bounded +/-0.5 logit own-persona tilt, deterministic FNV-1a hash draw, unknown-equity single-run fallback, and explicit owner lopsided cut (equity <= 0.25 or >= 0.75 always runs once). Emits horse_rit_priced_owner_cut / horse_rit_priced_equity_unknown / horse_rit_priced_three / horse_rit_priced_multi / horse_rit_priced_once. OFF path is byte-identical to horseRunItTwiceRuns.',
+    'RIT'
+  ),
+  flag(
+    'v17ShortDeckIsPriced',
+    'HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): replaces the fixed V17 Short Deck multiway overlay (mw += 0.015 + (oppCount - 1) * 0.012) with HorseShortDeckMultiwayPriced: delta = e - e^rho, rho = (1 + kappa_SD g) / (1 + kappa_NLH g), g = mean live-opponent f/(1-f), f = measured Short Deck fold-to-first-bet prior shrunk with each opponent own fold-to-bet record; kappa measured per street with the engine scorer for both decks (river: no measured difference, shift 0). Deterministic, zero draws, public info only. Criteria CRITERIA-V17-SHORTDECK-PRICED.md sha256 420f5649922688c9f2fa406be518e6f5fcca67dd00fe9a2afb5d89675df8b73d',
+    'V17'
+  ),
+  flag(
+    'v17PosIsPriced',
+    "HORSE DECISIONS lane 2026-11-22 (dark, default OFF read === true, held in OPTION_SWITCH_REFUSED / zero SQL migrations): priced replacement (HorsePlayersBehindBluffPriced.ts) for the unowned V17 players-behind bluff multiplier (x1.1 / 1.0 / 0.72 / 0.5) in single-board no-limit Hold'em flop and turn spots: the measured probability that the whole respondable field folds, by each opponent's seat relation (bettor in / out of position) and own fold-to-bet read, against the bubble-factor break-even at the reference size. Zero RNG, public info only. OFF, river, Omaha, Short Deck, Fixed Limit, pot-limit, pineapple, multi-board and bomb pots byte-identical.",
+    'V17'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -2691,6 +2811,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v78NoCommittingBluffRaise',
     '2026-11-02 (Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"; hand 6a30e154: A-T, 8-6-9-3, check-raised a 15 bet to 67 with 84 effective, then called the jam) a hold\'em postflop semi-bluff or check-raise bluff raise (the generic semi-bluff branch, which needs no real draw, and the V8 scare-card check-raise) that legalized is NOT all-in yet puts 40% or more of hero\'s remaining stack in is not made: a stack that small cannot fold to the re-shove, so the never-raise-to-fold rule turns it into a forced call-off; the hand falls through to the priced call / fold verdict and its barrel plan is withdrawn; all-in sizings, smaller raises and every value raise (two pair+, the value branch) untouched; every random roll consumed in its original order; explicit off arm keeps today',
     'V78'
+  ),
+  flag(
+    'v78NoCommittingBluffRaiseIsPriced',
+    "Hold'em Strategy / HORSE DECISIONS 2026-11-22 (dark, default OFF, read === true, OPTION_SWITCH_REFUSED, zero SQL migrations; criteria CRITERIA-V78-COMMITTING-BLUFF-RAISE-PRICED.md sha256 fd504c6f3cac198dda396fbe8e9dba4e3db08087011302c1e9797af324c6b8f0): replaces the blanket 40%-of-stack bluff-raise veto (v78NoCommittingBluffRaise) in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit, non-Pot Limit, non-bomb-pot, single board) with deterministic public-info EV pricing (HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise) over measured NLH empirical fold priors (holdemEmpiricalPriors.ts: river all-in vs non-all-in fold-to-raise, flop texture/SPR/size and turn size fold curves with HUD/ExploitCounters shrinkage) and tournament heroBubbleFactor: EV(bluffRaise) = F * pot + (1 - F) * u(e * (pot + add + callAdd) - add) vs baseline = max(0, u(e * (pot + toCall) - toCall)), allowing the raise iff EV(bluffRaise) > baseline and failing closed to veto on unpriceable inputs. Zero fastRandom() draws, zero opponent hole cards. Off / unset / false (and all Omaha, Short Deck, multi-board, and bomb-pot hands): byte-identical to origin/main.",
+    "Hold'em Strategy"
   ),
   flag(
     'v70FacingOpenZone',
@@ -2738,6 +2863,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaPostflop'
   ),
   flag(
+    'holdemPersonaPostflopIsPriced',
+    "Horse Switch lane 2026-11-21 (V2 empirical priors; owner orders 2026-11-20 15:27 and 2026-11-21 02:00 America/Chicago: no blanket rule in Horse decisions; each goes off one at a time, tested and validated). Default off (read === true), unevaluated, not carried by the option switch until a switch-list migration registers it (OPTION_SWITCH_REFUSED). In two-card no-limit hold'em, not All-In-Or-Fold, the four V87 spots holdemPersonaPostflop scales (heads-up in-position dry-flop range c-bet, turn takeaway, out-of-position flop check-trap into a stabber, flop check-raise into a stabber) are decided by EV instead of a fixed or persona frequency: heads-up against the opponent's line range (HorseHoldemValueAndCallsArePriced) using measured live NLH empirical priors (holdemEmpiricalPriors: street-, position-, texture-, and SPR-conditioned flop/turn fold rates and flop-specific betWhenCheckedTo, shrunk smoothly against opponent reads); the c-bet and takeaway bet at the site's mid size when EV(bet) > EV(check), the trap checks when EV(check) is at least every priced bet, the check-raise raises when its value-raise EV beats fold and call using villain's true incremental call pot fraction. More than one opponent, no cell or an empty range: the spot is declined. Independent of holdemPersonaPostflop: with this on the persona scales are not read at the four spots whatever that option's state. No random number. Off: byte-identical. HorseHoldemPersonaPostflopIsPriced.",
+    'PersonaPostflop'
+  ),
+  flag(
     'holdemPersonaPreflop',
     "2026-11-15 default OFF (plan lines 85 and 152; owner order 2026-11-15 08:05 Chicago to build the missing persona promises; range-width part needs the owner's decision under the preflop range hold, packet PACKET-PERSONA-PREFLOP-20261115.md): one option for the Hold'em persona's preflop layer (HorseHoldemPersonaPreflop), two-card no-limit hold'em only. (1) It turns on the persona re-raise mix (everything holdemPersonaReRaiseMix does: 3-bet and squeeze bluffs on the Horse's zero-draw per-hand unit, scaled by nlh3BetMix / 0.42143, held at min(1, scale) against a raiser the style read classifies as tight; four-bet reshoves are not persona-specific, owner decision R3-B). (2) On V87, V85 cash action tables deeper than 50bb, not All-In-Or-Fold, the seat's opening share (gtoOpen70, the iso bar over 1-2 limpers included) and the defender's continue share facing one open (gtoDefend72, before the V87 multiway widening) move by the archetype's fixed points: LAG Shark +4 / +1.5, Tricky Trap 0 / 0, TAG Crusher -1 / -2, Nit Hunter -3 / -3, times the V85 depth weight (0 at 50bb or less, full from 85bb); the continue share never goes below the value 3-bet share or above 88 percent; the value bar, the bluff probability, nlhOpeningTightness and referenceNlhOpenings (the Hybrid protection of calibrated opening widths) are not read or written; on a table with a VPIP floor a negative shift is withheld (counted by holdem_persona_floor_held_seen). (3) The Nit Hunter's described behaviour, preflop half: facing a raiser the existing exploit read holds credibly wide (one raise) or a limper it holds credibly loose (never a presumed read; needs opponent memory), a Nit Hunter's shift becomes +2 open (isolation) / 0 continue instead of -3 / -3 (the existing exploit layer's own wider value 3-bets and isolation against such players are unchanged and apply to every Horse); the postflop half ('stabs capped checked ranges') is not built. Tournaments, Omaha, short deck, pot limit, fixed limit, hi-lo and All-In-Or-Fold get no range shift; tournaments still get the re-raise mix. No draw is added, removed or moved; nothing reads a realised frequency. Measured, Horses against Horses, synthetic ids, preflop only: see docs/changelog/2026-11-15-holdem-persona-preflop.md; enabling it is a separate owner decision",
     'PersonaPreflop'
@@ -2761,6 +2891,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemTournamentAllInCallIsPriced',
     "2026-11-19 default OFF (Horse Decisions audit E: 1,522 NLH tournament hands with humans, 10,937 Horse decisions, 48 hours to 2026-11-19 18:45 CST; HorseHoldemTournamentAllInCall.ts): two-card no-limit hold'em tournament hands, one board, no straddle, no bomb pot. Preflop, every all-in call decision (All-In-Or-Fold or not, any seat, a lone jam, a jam over the Horse's own open, a re-jam, a multiway all-in, a jam with flat callers, or a call that is the Horse's whole stack) at an effective 25 big blinds or less, or by a committed stack (half or more of the chips it started the hand with already in) at any depth, is answered before the Nash caller table and the All-In-Or-Fold strength bar: call when EV(call) - EV(fold) = sum of p x (equity x W - BF x (1 - equity) x C) is above zero, else fold; equity by seeded Monte Carlo with exact card removal against each opponent's range (an open-jam: the Nash V2 jam range for his players behind, depth and dead ante; a jam over one raise: the top 18% at 8bb to 6% at 25bb; over two or more raises: 5% to 3.5%; a raise not all in: the open width by players behind, 3-bet 8% (14% six-handed or less), 4-bet 4%; a caller of an open-jam: the Nash first-caller range capped at 25%, of a re-jam the top half of the re-jam range), a player still to act behind priced as an overcaller with the top half of his calling range (nobody wakes up, or the widest one behind overcalls), W the contestable pot (dead money, side pots capped at the Horse's stack), C the call, BF the Horse's bubble factor where a pay jump is live (payJumpBubbleFactor; 1 in a PKO, a mystery bounty, a bounty-only event, with no pay jump or no context). The Phase 7 arbiter and Phase 8 may not reverse the priced call or fold when the margin (EV over W + BF x C, equity minus required equity with nobody behind) is beyond 5 equity points, any positive margin for a committed call (the arbiter's choice is refused with tournamentUtilityRefusal priced_all_in_call; Phase 8's ledger reason priced_all_in_call). Postflop, only facing an opponent's all-in (a jam) where the call closes the action: with the equity the engine already computed for the decision (Phase 7 equity evidence, against each opponent's preflop band, the closest proxy it has against a jam), a fold more than 5 points above the price becomes a call (any positive margin for a committed stack) and a call more than 5 points below it a fold; a river bet or a whole-stack call of a bet that is not all in is not priced (review N3: the band is not the bettor's line range there, and pricing it pushed river folds toward calls). A raise is never made or removed. Measured before (audit E): All-In-Or-Fold seats called a lone jam at 8bb or less 10-30% against a Nash 56-68%; fold vs jam too tight 191 decisions (101 CLEAR/LIKELY, 211 bb), jam overcall folds 99 (42.6 bb), committed-stack folds 11 (40.7 bb), postflop all-in folds at a good price 4 (54.1 bb), river calls too light 9 (25.9 bb). Switchable, default OFF: it changes preflop calling ranges, and the HORSE DECISIONS lead lifted the owner preflop range hold for this option on Dan's order of 2026-11-19 18:42 America/Chicago (\"nope, you need to investigate every single hand played against humans in the past 48 hours and trace back and investigate every single horse decision on every single street before you claim everything is operating perfectly because i've seen a shit ton of mistakes that need correcting!\"); it goes on only through its evidence. League card mtt6_holdem_tournament_all_in_call_is_priced_12bb (declared, not run); docs/horse-option-authority.d/holdemTournamentAllInCallIsPriced.md",
     'TourneyAllInPriced'
+  ),
+  flag(
+    'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: two dealt, the big blind facing the small blind's first raise, effective <= 25bb (sweep L1: 82% folds to a small open under 20bb, never a call).",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentBlindDefenceIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: three or more dealt, the small or big blind facing the first raise, effective <= 25bb (sweep L2: both blinds folded 74% to small late steals at 10-15bb).",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentCommittedRaiseIsPriced',
+    "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: a re-raise faced after the Horse's own raise this hand, effective <= 40bb, and any raise that commits the Horse at any depth where the two blind options do not own the spot (sweep L4: 56-62% folds to a non-all-in 3-bet, 78% to a 4-bet, 76% to a raise to just under all in).",
+    "Hold'em Strategy"
   ),
   flag(
     'nashPushFoldIcm',
@@ -2949,14 +3094,29 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Flop/turn bluff baseline'
   ),
   flag(
+    'holdemFlopTurnBluffIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for flopTurnBluffBaseline (A3, REVIEW-HOLDEM-OFFLIST-20261121.md §5) on unopened / checked-to flops and turns in single-board 2-card NLH; evaluates legal candidate bluff and semi-bluff bet sizes (0.33x, 0.55x, 0.75x, 1.0x pot / stack cap) vs realized EV(check) deterministically using empirical NLH flop/turn fold-to-bet curves, multiway discount, selection-bias surplus retention, and draw equity realization (HorseHoldemFlopTurnBluffIsPriced); zero fastRandom coin flips, independent of flopTurnBluffBaseline, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'riverBluffBaseline',
     'baseline heads-up river bluff range (HorseRiverBluffRange): air and missed draws on a coherent line bluff at the balanced rate for the bet size, blockers first, reads reshaping it and never zero without one; default on, false ablates (Dan 2026-11-06)',
     'River bluff baseline'
   ),
   flag(
+    'holdemRiverBluffIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for riverBluffBaseline (A2, REVIEW-HOLDEM-OFFLIST-20261121.md §5) on unopened / checked-to heads-up rivers in single-board 2-card NLH; evaluates legal candidate bluff sizes (0.33x, 0.55x, 0.75x, 1.0x, 1.25x pot / stack cap) vs EV(check) deterministically using estimateHoldemRiverFoldToBet and blocker/scare/line conditioning (HorseHoldemRiverBluffIsPriced); zero fastRandom coin flips, independent of riverBluffBaseline, zero PLO4/5/6 reach',
+    'Horse Switch'
+  ),
+  flag(
     'riverLeadRange',
     'out-of-position river leads (HorseRiverBluffRange): first to act on the river into the turn bettor, bluff-lead rivers that complete the caller draws (blockers first), rarely blanks, never into a credible station, and let value hands through the V11 gate on those rivers; Omaha paired boards never lead; default on, false ablates (2026-11-07)',
     'River lead range'
+  ),
+  flag(
+    'holdemRiverLeadRangeIsPriced',
+    '2026-11-22 (Horse Switch lane, dark default OFF, read === true): priced replacement for riverLeadRange (A4) on OOP heads-up river leads first-to-act into the turn aggressor in single-board 2-card NLH; deterministically prices candidate lead sizes (0.33x, 0.55x, 0.75x, 1.0x pot, stack-capped) vs EV(check) using measured NLH empirical betWhenCheckedTo, river fold-to-lead, exact call-range equity conditioning, and villain raise risk (holdemEmpiricalPriors, HorseHoldemRiverLeadRangeIsPriced); zero fastRandom coin flips, independent of riverLeadRange, zero PLO4/5/6 reach',
+    'Horse Switch'
   ),
   flag(
     'riverBluffHiLo',
@@ -2967,6 +3127,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'riverBluffMultiway',
     'multiway river bluffs (HorseMultiwayRiverBluff): two or three opponents, air with a nut blocker on a line that caps the whole field, frequency falling steeply per opponent and multiplying every opponent read (a station near zero), polarized pot-limit-legal size; default on, false ablates (Dan 2026-11-06)',
     'River bluff multiway'
+  ),
+  flag(
+    'holdemRiverBluffMultiwayIsPriced',
+    'dark priced replacement for riverBluffMultiway (A5, HorseHoldemRiverBluffMultiwayIsPriced): on single-board 2-card NLH unopened / checked-to multiway rivers (opponents >= 2) with air, nut blocker, and a capped-field story, deterministically prices candidate legal bluff sizes (0.50x, 0.75x, 1.00x, 1.25x pot / stack cap) against EV(check) via per-opponent empirical fold curves with EB shrinkage, exact multiway compounding pFoldAll = prod_i pFold_i, multiway called-range equity, strict calling-station veto, and ICM-protected risk margins; default OFF (read === true), dark in OPTION_SWITCH_REFUSED, zero HU or PLO4/5/6 reach (Horse Switch lane, 2026-11-22)',
+    'Horse Switch'
   ),
   flag(
     'riverFastCalldown',
@@ -7313,6 +7478,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_nlh'
   ),
   receipt(
+    'v78_committing_bluff_raise_priced_allowed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise allowed by EV pricing (EV(bluffRaise) > baseline) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
+    'decide_nlh'
+  ),
+  receipt(
+    'v78_committing_bluff_raise_priced_vetoed',
+    'HorseLogic.v78CommitsWithoutJam (v78NoCommittingBluffRaiseIsPriced)',
+    'single-board 2-card NLH committing bluff-raise vetoed by EV pricing (EV(bluffRaise) <= baseline or unpriceable) over holdemEmpiricalPriors and heroBubbleFactor',
+    "Hold'em Strategy",
+    'decide_nlh'
+  ),
+  receipt(
     'v77_seat_jam',
     'HorseLogic (V77)',
     "Hold'em facing exactly one open: the opener's V70 seat width was read for the push/fold jam tighten",
@@ -8897,6 +9076,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaPostflop'
   ),
   receipt(
+    'holdem_persona_postflop_priced_cbet_taken',
+    'HorseLogic V87 dry-board range c-bet (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the heads-up in-position dry-flop range c-bet was priced and its action was taken: EV beat the alternative against the line range and measured reads',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_cbet_declined',
+    'HorseLogic V87 dry-board range c-bet (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the heads-up in-position dry-flop range c-bet was priced and its action was declined: EV did not beat the alternative; the decision falls through to the rest of the engine',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_stab_taken',
+    'HorseLogic V87 turn takeaway (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the turn takeaway was priced and its action was taken: EV beat the alternative against the line range and measured reads',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_stab_declined',
+    'HorseLogic V87 turn takeaway (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the turn takeaway was priced and its action was declined: EV did not beat the alternative; the decision falls through to the rest of the engine',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_trap_taken',
+    'HorseLogic V87 flop check-trap (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the out-of-position flop check-trap into a stabber was priced and its action was taken: EV beat the alternative against the line range and measured reads',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_trap_declined',
+    'HorseLogic V87 flop check-trap (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the out-of-position flop check-trap into a stabber was priced and its action was declined: EV did not beat the alternative; the decision falls through to the rest of the engine',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_check_raise_taken',
+    'HorseLogic V87 flop check-raise into a stabber (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the flop check-raise into a stabber was priced and its action was taken: EV beat the alternative against the line range and measured reads',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_check_raise_declined',
+    'HorseLogic V87 flop check-raise into a stabber (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: the flop check-raise into a stabber was priced and its action was declined: EV did not beat the alternative; the decision falls through to the rest of the engine',
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_priced_unpriced',
+    'HorseLogic V87 postflop spots (holdemPersonaPostflopIsPriced)',
+    'default-off holdemPersonaPostflopIsPriced: one of the four spots could not be priced (more than one live opponent, no population cell, an empty range or an error); the spot is declined',
+    'PersonaPostflop'
+  ),
+  receipt(
     'tournament_utility_stack_scaled_margin_seen',
     'HorseLogic -> HorseTournamentUtility (tournamentUtilityStackScaledMargin)',
     'default-off tournamentUtilityStackScaledMargin: a tournament decision was selected by the utility comparison with the stack-scaled equity margin in force; an occurrence counter with no floor, named *_seen (how often the margin changed the selection shows in phase7_utility_override)',
@@ -9057,6 +9290,90 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (holdemTournamentAllInCallIsPriced)',
     "default-off holdemTournamentAllInCallIsPriced: a postflop call facing an all-in (a jam), with the call closing the action, became a fold: the engine's own equity was more than 5 points below the price; occurrence counter, named *_seen",
     'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_hu_bb_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off holdemTournamentHeadsUpBigBlindDefenceIsPriced: a heads-up big blind facing the small blind's non-all-in open was answered by the priced fold, call or shove; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_blind_defence_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off holdemTournamentBlindDefenceIsPriced: a blind (three or more dealt) facing one non-all-in open was answered by the priced fold, call or shove; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_committed_raise_priced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off holdemTournamentCommittedRaiseIsPriced: a re-raise after the Horse's own raise, or a raise that commits the Horse, was answered by the priced fold, call or shove; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_fold_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the fold; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_call_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the call; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_shove_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the priced answer was the shove (all in); occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_committed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the call left the Horse committed and was priced as the all-in it is; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_changed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence: the priced answer differs from the reference's answer (fold, call, all-in or a non-all-in raise) and replaced it; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_unpriced_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: a spot in scope could not be priced (no pot, no possible combo); the paths it had decide; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_blanket_stood_aside_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence: the hold'em premium rules (premium never passive, dominated 3-bet fold, commit-under-pot call) met the priced answer and stood aside (HorseLogic.holdemPremiumAggression); occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_reraise_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence (v2, anchored): the answer was the non-all-in 3-bet or 4-bet the solved equilibrium mixes in for the class; occurrence counter, named *_seen',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_mixed_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence (v2, anchored): the class's played mix had two or more actions and the seeded draw picked one (mix and draw in the receipt); occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_moved_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    "default-off raise defence (v2, anchored): the population rate, the opponent's own record or the bubble factor moved the played mix off the solved equilibrium mix; occurrence counter, named *_seen",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tournament_raise_defence_reversal_refused_seen',
+    'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
+    'default-off raise defence: the Phase 7 tournament utility arbiter or Phase 8 chose to change the priced answer; refused (tournamentUtilityRefusal / Phase 8 reason priced_raise_defence); occurrence counter, named *_seen',
+    "Hold'em Strategy"
   ),
   receipt(
     'nash_call_vs_jam',
@@ -9619,6 +9936,84 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V36'
   ),
   receipt(
+    'horse_slowplay_priced_checked',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose check (EV(check) > EV(bet)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_slowplay_priced_bet',
+    'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
+    'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'horse_rit_priced_owner_cut',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision enforced explicit owner lopsided cut (equity <= 0.25 or >= 0.75) and ran once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_equity_unknown',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision had unknown public all-in equity and fell back to running once',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_three',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced chooser decision selected 3 runs from the measured people curve (maxRuns === 3, inside non-lopsided band)',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_multi',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 2 runs from the measured people curve + bounded own-persona tilt',
+    'RIT'
+  ),
+  receipt(
+    'horse_rit_priced_once',
+    'ServerTableEngineRunout.horseRitRuns (horseRunItTwiceIsPriced)',
+    'all-in Run-It-Twice priced decision selected 1 run (measured single-run draw or maxRuns < 2)',
+    'RIT'
+  ),
+  receipt(
+    'v17_short_deck_priced_tighter',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift raised the multiway bars (delta > 0): this hand loses more against the continuing range in a 36-card deck than in the NLH terms the bars were built in',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_looser',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift lowered or kept the multiway bars (delta <= 0): the continuing range costs this hand less in a 36-card deck than in NLH terms (river: no measured difference, delta 0)',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_unpriceable',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift could not be priced (equity not finite, no live opponent, or a street other than flop/turn/river): delta 0, the fixed overlay is not re-applied',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_trim',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: two or more players behind and the field folds below the risk-adjusted price; bluffScale multiplied by the priced multiplier (< 1) instead of the fixed 0.72 / 0.5',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_neutral',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn: zero or one player behind, or the field still folds often enough to beat the risk-adjusted price; priced multiplier 1 (the fixed table would have used 1.1 / 1.0 / 0.72 / 0.5)',
+    'V17'
+  ),
+  receipt(
+    'v17_pos_priced_unpriced',
+    'HorseLogic V17 positional pressure bluffScale (v17PosIsPriced)',
+    'single-board NLH flop/turn spot the pricing could not read (no dealer seat, no respondable opponent, zero pot or stack); kept the fixed V17 table',
+    'V17'
+  ),
+  receipt(
     'holdem_priced_value_raise_deferred',
     'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
     "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
@@ -9725,6 +10120,264 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
     'V87'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_block_lead_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river nut trap chose the priced small block-bet lead because EV(trap_block_lead) beat EV(normal_value_lead) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river nut trap chose a priced normal value lead because EV(normal_value_lead) beat EV(trap_block_lead) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH OOP heads-up non-exact river nut trap chose a priced check-trap because EV(check) beat both block and normal value leads',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_reraise_seen',
+    'HorseLogic facing-raise river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH river nut trap facing a raise after hero block bet chose a priced 3-bet or jam because EV(trap_reraise) beat EV(call)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v87_river_block_bet_trap_priced_call_seen',
+    'HorseLogic facing-raise river (v87RiverBlockBetTrapIsPriced)',
+    'a single-board 2-card NLH river nut trap facing a raise after hero block bet flat-called because EV(call) beat or matched every legal priced 3-bet',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_bet_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff placed a priced bet because EV(bestBluff) beat EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_overbet_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff selected a priced polar overbet (> 1.0x pot)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff checked deterministically because no legal bluff size beat EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river air bluff checked deterministically against a confirmed calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverBluffIsPriced)',
+    'a single-board 2-card NLH heads-up river priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_bet_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff placed a priced bet because EV(bestBet) beat realized EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_semibluff_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn draw candidate (strongDraw, pairDraw, or weakDraw) placed a priced semi-bluff bet',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_air_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn non-draw candidate (backdoor, overcards, or blocker) placed a priced bluff bet',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_check_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff candidate checked deterministically because no legal bet size beat realized EV(check) by its risk-calibrated margin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn qualified bluff/semi-bluff candidate checked deterministically against a confirmed calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_flop_turn_bluff_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet flop/turn (holdemFlopTurnBluffIsPriced)',
+    'a single-board 2-card NLH flop or turn priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_bet_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate placed a priced bluff bet because EV(bestBluff) beat EV(check) by its risk-calibrated margin under exact multiway compounding pFoldAll = prod_i pFold_i',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_overbet_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate selected an overbet (> 1.0x pot) as its highest net-EV legal bluff size',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_check_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate checked deterministically because no legal bluff size beat EV(check) by its risk-calibrated margin (or a calling-station veto applied)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_station_check_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river qualified air+nut-blocker candidate checked deterministically because at least one live opponent was a confirmed river calling station',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_bluff_multiway_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet multiway river (holdemRiverBluffMultiwayIsPriced)',
+    'a single-board 2-card NLH multiway river priced bluff bet could not be legalized as a bet or all-in',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_plan_yes_seen',
+    'HorseLogic planBarrel (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament flop/turn bluff or semi-bluff deterministically planned a multi-street barrel because priced next-street EV(barrel) beat EV(give_up) under ICM',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_plan_no_seen',
+    'HorseLogic planBarrel (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament flop/turn bluff or semi-bluff deterministically declined a multi-street barrel plan because priced next-street EV(barrel) did not beat EV(give_up)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_jam_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand shoved all-in because ICM-weighted EV(all_in) beat EV(check) and non-jam bets',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_bet_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand chose a priced non-jam value/protection bet because ICM-weighted EV(bet) beat both EV(all_in) and EV(check)',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_low_spr_check_seen',
+    'HorseLogic low-SPR unopened flop/turn (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament low-SPR hand checked deterministically because EV(check) beat ICM-weighted EV(all_in) and non-jam bets',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_turn_cell_skip_seen',
+    'HorseLogic turn GTO open cell (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn with hero initiative skipped the non-initiative-aware compact turn cell so the priced barrel/value engine decides',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_barrel_bet_seen',
+    'HorseLogic V7 barrel continuation (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn/river barrel continuation selected its highest-EV legal bet size under ICM instead of the 0.66/0.42 coin-flip',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_barrel_check_seen',
+    'HorseLogic V7 barrel continuation (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament turn/river barrel continuation checked deterministically because no legal bet size beat EV(check) under ICM',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_one_card_flush_fold_seen',
+    'HorseLogic committed 4-flush call (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament one-card low flush on a 4-flush board folded deterministically because Bayesian + ICM EV(call) < 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_tourney_aggro_priced_one_card_flush_call_seen',
+    'HorseLogic committed 4-flush call (holdemTournamentAggressionIsPriced)',
+    'a single-board 2-card NLH tournament one-card flush on a 4-flush board called deterministically because Bayesian + ICM EV(call) >= 0 at the offered price',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_call_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand called by positive EV against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_fold_taken',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH flop/turn bet-then-raised one-pair or bluff-catch hand folded because EV(call) <= 0 against the raiser narrowed line range',
+    'Horse Switch'
+  ),
+  receipt(
+    'v66_bet_raised_one_pair_priced_unpriced',
+    'HorseLogic facing-raise flop/turn (v66BetRaisedOnePairIsPriced)',
+    'a flop/turn bet-then-raised one-pair spot could not be priced heads-up (multiway, side pot, or empty range); existing behavior ran unchanged',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced strong-value lead (equity >= 0.75) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_thin_value_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced thin-value lead (0.25 <= equity < 0.75) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_bluff_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead into the turn aggressor placed a priced air bluff lead (equity < 0.25) because EV(lead) cleared EV(check) + riskMargin',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_check_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a single-board 2-card NLH OOP heads-up river lead spot into the turn aggressor checked deterministically because EV(check) + riskMargin beat every legal priced lead size',
+    'Horse Switch'
+  ),
+  receipt(
+    'holdem_river_lead_range_priced_illegal_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverLeadRangeIsPriced)',
+    'a priced OOP river lead bet could not be placed as a legal bet or all-in by betSize',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_call_taken',
+    'HorseLogic facing-a-bet river (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river bet-then-raised bluff-catcher called deterministically because risk-adjusted EV(call) > 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_fold_taken',
+    'HorseLogic facing-a-bet river (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river bet-then-raised bluff-catcher folded deterministically because risk-adjusted EV(call) <= 0',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_block_bet_call_taken',
+    'HorseLogic facing-a-bet river block-bet site (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river block-bet-then-raised bluff-catcher called deterministically because risk-adjusted EV(call) > 0 (replacing the blanket block-bet fold)',
+    'Horse Switch'
+  ),
+  receipt(
+    'v67_river_bet_raised_one_pair_priced_block_bet_fold_taken',
+    'HorseLogic facing-a-bet river block-bet site (v67RiverBetRaisedOnePairIsPriced)',
+    'a single-board 2-card NLH river block-bet-then-raised bluff-catcher folded deterministically because risk-adjusted EV(call) <= 0',
+    'Horse Switch'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.

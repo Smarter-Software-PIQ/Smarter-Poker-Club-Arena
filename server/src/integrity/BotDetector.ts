@@ -150,20 +150,48 @@ export function computeTimingStats(
   };
 }
 
+export interface BotAccum {
+  latenciesByUser: Map<string, number[]>;
+  handsPerUser: Map<string, Set<string>>;
+}
+
+export function createBotAccum(): BotAccum {
+  return {
+    latenciesByUser: new Map<string, number[]>(),
+    handsPerUser: new Map<string, Set<string>>(),
+  };
+}
+
+/** Accumulate per-user decision latencies and hand participation from one hand. */
+export function accumulateBotHand(accum: BotAccum, hand: NormalizedHand): void {
+  for (const a of hand.actions) {
+    if (a.forced || !a.userId) continue;
+    // latencyMs is 0 for the first action in a hand — skip those (no clock signal).
+    if (a.latencyMs <= 0) continue;
+    let arr = accum.latenciesByUser.get(a.userId);
+    if (!arr) {
+      arr = [];
+      accum.latenciesByUser.set(a.userId, arr);
+    }
+    arr.push(a.latencyMs);
+  }
+  for (const p of hand.players) {
+    let set = accum.handsPerUser.get(p.userId);
+    if (!set) {
+      set = new Set<string>();
+      accum.handsPerUser.set(p.userId, set);
+    }
+    set.add(hand.handId);
+  }
+}
+
 /** Extract per-user voluntary decision latencies from a batch of hands. */
 export function extractDecisionLatencies(hands: NormalizedHand[]): Map<string, number[]> {
-  const out = new Map<string, number[]>();
+  const accum = createBotAccum();
   for (const hand of hands) {
-    for (const a of hand.actions) {
-      if (a.forced || !a.userId) continue;
-      // latencyMs is 0 for the first action in a hand — skip those (no clock signal).
-      if (a.latencyMs <= 0) continue;
-      const arr = out.get(a.userId) ?? [];
-      arr.push(a.latencyMs);
-      out.set(a.userId, arr);
-    }
+    accumulateBotHand(accum, hand);
   }
-  return out;
+  return accum.latenciesByUser;
 }
 
 /**
@@ -205,24 +233,11 @@ export function scoreFromStats(
   return Object.assign(reasons, { score: Math.min(1, score) });
 }
 
-/** Main entry: score every user in the batch and emit flags above threshold. */
-export function detectBots(
-  hands: NormalizedHand[],
-  opts: BotDetectorOptions = {}
-): IntegrityFlag[] {
+/** Score an already-accumulated per-user latency table and emit flags above threshold. */
+export function scoreBotAccum(accum: BotAccum, opts: BotDetectorOptions = {}): IntegrityFlag[] {
   const o = { ...DEFAULTS, ...opts };
-  const latenciesByUser = extractDecisionLatencies(hands);
-  const handsPerUser = new Map<string, Set<string>>();
-  for (const hand of hands) {
-    for (const p of hand.players) {
-      const set = handsPerUser.get(p.userId) ?? new Set<string>();
-      set.add(hand.handId);
-      handsPerUser.set(p.userId, set);
-    }
-  }
-
   const flags: IntegrityFlag[] = [];
-  for (const [userId, latencies] of latenciesByUser) {
+  for (const [userId, latencies] of accum.latenciesByUser) {
     if (latencies.length < o.minSamples) continue;
     const stats = computeTimingStats(userId, latencies, o);
     const scored = scoreFromStats(stats);
@@ -234,7 +249,7 @@ export function detectBots(
       score: scored.score,
       severity: severityFromScore(scored.score),
       reasons,
-      handsAnalyzed: handsPerUser.get(userId)?.size ?? 0,
+      handsAnalyzed: accum.handsPerUser.get(userId)?.size ?? 0,
       evidence: {
         sampleSize: stats.sampleSize,
         meanMs: Math.round(stats.meanMs),
@@ -246,4 +261,16 @@ export function detectBots(
     });
   }
   return flags.sort((a, b) => b.score - a.score);
+}
+
+/** Main entry: score every user in the batch and emit flags above threshold. */
+export function detectBots(
+  hands: NormalizedHand[],
+  opts: BotDetectorOptions = {}
+): IntegrityFlag[] {
+  const accum = createBotAccum();
+  for (const hand of hands) {
+    accumulateBotHand(accum, hand);
+  }
+  return scoreBotAccum(accum, opts);
 }

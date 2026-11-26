@@ -24,14 +24,14 @@ Whatever did not fit between the bar and the rail was paid for by the name
 plate, on the felt. Measured on the real components (carbon_red skin, wolf
 art; the felt window starts 8.9% down the table canvas, the rail station is 5%):
 
-| Phone layout                  | View    | Push down | Plate bottom before | After |
-| ----------------------------- | ------- | --------- | ------------------- | ----- |
-| 600x1298 (390x844)            | seated  | 44.6px    | 10.5%               | 5.0%  |
-| 600x1298 (390x844)            | watched | 46.2px    | 12.7%               | 5.0%  |
-| 600x1298, tournament          | watched | 46.2px    | 15.9%               | 5.0%  |
-| 600x1065 (320x568, 375x667)   | seated  | 44.6px    | 13.6%               | 5.0%  |
-| 600x1065                      | watched | 46.2px    | 16.0%               | 5.0%  |
-| 600x900 (toolbars showing)    | watched | 44.6px    | 19.2%               | 5.0%  |
+| Phone layout                | View    | Push down | Plate bottom before | After |
+| --------------------------- | ------- | --------- | ------------------- | ----- |
+| 600x1298 (390x844)          | seated  | 44.6px    | 10.5%               | 5.0%  |
+| 600x1298 (390x844)          | watched | 46.2px    | 12.7%               | 5.0%  |
+| 600x1298, tournament        | watched | 46.2px    | 15.9%               | 5.0%  |
+| 600x1065 (320x568, 375x667) | seated  | 44.6px    | 13.6%               | 5.0%  |
+| 600x1065                    | watched | 46.2px    | 16.0%               | 5.0%  |
+| 600x900 (toolbars showing)  | watched | 44.6px    | 19.2%               | 5.0%  |
 
 The tournament ticker strip moves the bar and the table down together, so it
 does not change these numbers. A watched table is worse than a seated one

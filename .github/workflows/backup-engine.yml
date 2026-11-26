@@ -1,5 +1,5 @@
 name: Backup Engine (Clone, Stage, Certify)
-run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || '' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || '' }}
 
 # THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
 # engine runs on its own Hetzner host against an isolated copy of the
@@ -167,6 +167,15 @@ on:
         required: false
         default: false
         type: boolean
+      after_cycle:
+        # O27 (2026-11-25): set only by Stage's next-candidate-after-cycle job
+        # for a cycle that did not seal. It names the run "Backup after
+        # keep-serving <cycle>", whose successful completion Stage admits as
+        # the next cycle's election trigger. It changes nothing else here.
+        description: 'Internal: the Chicago cycle (YYYY-MM-DD or YYYY-MM-DDTHH) that did not seal'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read

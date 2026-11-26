@@ -171,6 +171,7 @@ import {
   noteHorseStreetPrewarm,
   noteHorseTelemetryOpportunity,
 } from '../BrainTelemetry.js';
+import { handOptionReceiptsOf } from '../HorseHandOptionReceipts.js';
 import type { HorseDecision } from '../../types.js';
 import {
   admitHorsePhase8ReleaseAuthority,
@@ -3717,6 +3718,10 @@ export class HorseDecisionWorkerRuntime {
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');
     }
+    // PER-HAND OPTION RECEIPTS (2026-11-25): the listed options that changed this decision, action kinds only
+    // (HorseHandOptionReceipts). Read from the receipts the decision already recorded: synchronous, pure, total.
+    // Undefined when none, and the reply below then carries no such key.
+    const optionReceipts = handOptionReceiptsOf(decisionRuleReceiptsSoFar());
     // Reserve before promising issuance. The synchronous lane cannot run a
     // commit until send returns; a failed send relinquishes only this reservation.
     const planIssueDisposition = this.issuePlanBatch(
@@ -3757,6 +3762,7 @@ export class HorseDecisionWorkerRuntime {
         // Retain intent only when the reference wager survived every later
         // policy owner. The client separately binds its hand, horse and street.
         effects,
+        ...(optionReceipts ? { optionReceipts } : {}),
       });
     } catch (error) {
       const key = JSON.stringify([planBinding.generation, planBinding.fence]);
@@ -4529,6 +4535,8 @@ export class HorseDecisionWorkerRuntime {
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');
     }
+    // PER-HAND OPTION RECEIPTS (2026-11-25): the second look's own, for a table that executes its action.
+    const deepOptionReceipts = handOptionReceiptsOf(secondLook.ruleReceipts);
     this.send({
       type: 'DEEP_RESULT',
       requestId: request.requestId,
@@ -4546,6 +4554,7 @@ export class HorseDecisionWorkerRuntime {
       phase12Authority: this.phase12AuthorityReceipts(),
       phase13Authority: this.phase13AuthorityReceipts(),
       phase14Authority: this.phase14AuthorityReceipts(request),
+      ...(deepOptionReceipts ? { optionReceipts: deepOptionReceipts } : {}),
     });
     return decision.policyFallback === 'brain_exception' ? 'exception' : 'success';
   }

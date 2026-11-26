@@ -28,7 +28,7 @@ name: Stage Exact Club Arena Engine Release
 # a push Backup's, under the same run title (O25, 2026-11-24), so every reader
 # of the election still names the same runs. No trigger is added: it is the
 # workflow_run subscription below.
-run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
@@ -71,7 +71,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 315
@@ -1029,6 +1029,110 @@ jobs:
             "$cycle" "$serving" "$reason" "$deferred" "$RUN_URL")
           gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
           echo "Posted keep-serving cycle $cycle to issue #$LOG_ISSUE."
+
+  next-candidate-after-cycle:
+    # A CYCLE THAT DID NOT SEAL STARTS THE NEXT ONE (2026-11-25, O27).
+    # After a seal the receiver starts "Backup after seal", whose completion
+    # is the next cycle's election trigger (O24/O25). After a kept-serving
+    # cycle, or a selected cycle whose receiver did not seal, nothing did:
+    # GitHub delivered 8 of this workflow's 96 scheduled runs a day on
+    # 2026-11-24/25, so a cycle was prepared only if somebody pushed inside
+    # its window. On 2026-11-25 the 07:00 Chicago cycle kept serving and the
+    # 10:00 cycle had no Stage run at all.
+    # This owner run waits ONCE, to the cycle start + 25 minutes (after the
+    # post-cutover migration window opens at +10 and the nightly freeze
+    # releases at 04:15), reads live /health and, when the cycle did not
+    # seal, starts ONE Backup certification of main on a fresh copy, titled
+    # "Backup after keep-serving <cycle>". It completes about 60-70 minutes
+    # later, inside the next election window [start + 50m, start + 150m),
+    # where its successful completion is admitted like a push Backup. It
+    # never selects, offers or advances a release; the next cycle's own
+    # election and certificate gates decide. Decisions live in
+    # scripts/release/next-candidate-after-cycle.py.
+    if: needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Start The Next Cycle When This One Did Not Seal
+    needs: [detect, selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    # ci-main holds the service-role key the Messenger note uses (last step).
+    environment: ci-main
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect.outputs.protected_sha }}
+          sparse-checkout: |
+            scripts/release/next-candidate-after-cycle.py
+          sparse-checkout-cone-mode: false
+      - name: Download the daily selection artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
+          path: selection-artifact
+      - name: Wait once for the cycle's installs, then start one Backup if it did not seal
+        id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          SELECTED: ${{ needs.selection.outputs.send == 'true' }}
+        run: |
+          set -euo pipefail
+          plan=$(python3 -B scripts/release/next-candidate-after-cycle.py plan --cycle "$RELEASE_DATE")
+          wait=$(sed -n 's/^wait=//p' <<< "$plan")
+          [[ "$wait" =~ ^[0-9]+$ ]] || { echo "::error::No bounded wait for cycle $RELEASE_DATE ($plan)."; exit 1; }
+          echo "Waiting $wait s for cycle $RELEASE_DATE + 25 minutes."
+          sleep "$wait"
+          selection_serving=$(jq -r '.servingSha // ""' selection-artifact/daily-selection.json 2>/dev/null || true)
+          live=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -r '.releaseSha // ""') || live=unknown
+          verdict=$(python3 -B scripts/release/next-candidate-after-cycle.py decide --selected "$SELECTED" \
+            --selection-serving "$selection_serving" --live-serving "$live")
+          reason=$(sed -n 's/^reason=//p' <<< "$verdict")
+          if [ "$(sed -n 's/^dispatch=//p' <<< "$verdict")" != true ]; then
+            echo "Cycle $RELEASE_DATE: no Backup started ($reason)."
+            exit 0
+          fi
+          echo "did_not_seal=true" >> "$GITHUB_OUTPUT"
+          title="Backup after keep-serving $RELEASE_DATE"
+          sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" \
+            -f ref=main -f 'inputs[refresh]=true' -f "inputs[after_cycle]=$RELEASE_DATE" >/dev/null
+          backup_id=''
+          for _ in $(seq 1 12); do
+            backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=workflow_dispatch&per_page=30" |
+              jq -r --arg title "$title" --arg sent "$sent_at" \
+                '[.workflow_runs[] | select(.display_title == $title and .created_at >= $sent)][0].id // empty')
+            [ -z "$backup_id" ] || break
+            sleep 5
+          done
+          [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle may have no election run."; exit 1; }
+          echo "Cycle $RELEASE_DATE did not seal ($reason): Backup run $backup_id certifies main and starts the next election."
+          { echo "### Next Cycle"; echo ""; echo "- $reason: Backup run $backup_id (\`$title\`) certifies main and starts the next election."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      - name: Tell the owner in Messenger that this cycle did not seal
+        # One plain line per cycle, idempotent in the database
+        # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).
+        # No note when the cycle had nothing new to ship. Its failure never
+        # undoes or blocks the Backup started above.
+        if: steps.next.outputs.did_not_seal == 'true'
+        continue-on-error: true
+        env:
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          SELECTED: ${{ needs.selection.outputs.send == 'true' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          note=$(python3 -B scripts/release/next-candidate-after-cycle.py note --cycle "$RELEASE_DATE" \
+            --selected "$SELECTED" --selection selection-artifact/daily-selection.json | sed -n 's/^note=//p')
+          [ -n "$note" ] || { echo "Cycle $RELEASE_DATE had nothing new to ship; no note."; exit 0; }
+          jq -n --arg cycle "$RELEASE_DATE" --arg note "$note" '{p_cycle: $cycle, p_note: $note}' > note.json
+          curl -fsS --max-time 20 -X POST "$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' --data @note.json
+          echo
 
   signal:
     name: Dispatch The Exact Main SHA

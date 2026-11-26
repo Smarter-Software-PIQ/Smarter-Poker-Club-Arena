@@ -23,6 +23,9 @@ let storedHandRead: { data: unknown; error: unknown } | Error | undefined;
 let resumeReply: { data: unknown; error: unknown } = { data: null, error: null };
 /** Ordered replies for fn_ca_retain_hand_submission; empty means a fresh retention. */
 let retentionReplies: Array<{ data: unknown; error: unknown } | Error> = [];
+/** PER-HAND OPTION RECEIPTS: every ca_horse_hand_receipts write, and what the table answers ('hang' never answers). */
+const receiptWrites: { rows: Record<string, unknown>[]; options: unknown }[] = [];
+let receiptWriteReply: { error: unknown } | Error | 'hang' = { error: null };
 
 vi.mock('./client.js', () => ({
   supabase: {
@@ -43,6 +46,21 @@ vi.mock('./client.js', () => ({
           },
         };
         return read;
+      }
+      if (table === 'ca_horse_hand_receipts') {
+        const reply = receiptWriteReply;
+        return {
+          upsert: (rows: Record<string, unknown>[], options: unknown) => {
+            receiptWrites.push({ rows, options });
+            return {
+              abortSignal: () => {
+                if (reply === 'hang') return new Promise(() => {});
+                if (reply instanceof Error) return Promise.reject(reply);
+                return Promise.resolve(reply);
+              },
+            };
+          },
+        };
       }
       throw new Error(`unexpected legacy table write: ${table}`);
     },
@@ -98,12 +116,13 @@ vi.mock('./handProjection.js', () => ({
 }));
 
 const mockReportError = vi.fn();
+const mockReportThrottled = vi.fn();
 vi.mock('../errorReporter.js', () => ({
   reportError: (...args: unknown[]) => mockReportError(...args),
   // Reached only by a failed completed-hand profile read (the durable-read cases below).
   isOpponentMemoryBusyRefusal: (error: unknown) =>
     error instanceof Error && error.message === 'opponent memory unavailable: busy',
-  reportThrottled: vi.fn(),
+  reportThrottled: (...args: unknown[]) => mockReportThrottled(...args),
 }));
 // The completed-hand profile read, real by default; one case forces a schema and a failed read.
 const memoryMocks = vi.hoisted(() => ({
@@ -370,6 +389,9 @@ beforeEach(() => {
   atomicRpcResults = [];
   resumeReply = { data: null, error: null };
   mockReportError.mockReset();
+  mockReportThrottled.mockReset();
+  receiptWrites.length = 0;
+  receiptWriteReply = { error: null };
   mockWakeHandProjection.mockClear();
   mockGetLiveHorseDecisionWorker.mockClear();
   mockObserveCompletedHand.mockReset();
@@ -1341,6 +1363,139 @@ describe('logHandHistory - accepted-hand transaction', () => {
     acceptAtomicHand();
     await logHandHistory({ ...atomicParams(GLOBAL_HAND + 512), cadence: null });
     expect('cadence' in (rpcCalls[0].args.p_hand_row as Record<string, unknown>)).toBe(false);
+  });
+});
+
+describe('logHandHistory - per-hand option receipts (ca_horse_hand_receipts)', () => {
+  const RECEIPTS = {
+    'cashDefenceTrimColdCalls:call>fold': 2,
+    'holdemTournamentAllInCallIsPriced:fold>call': 1,
+  };
+  const withPerson = [
+    { userId: 'u1', isHorse: false },
+    { userId: 'u2', isHorse: true },
+  ];
+  const allHorses = [
+    { userId: 'u1', isHorse: true },
+    { userId: 'u2', isHorse: true },
+  ];
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  it('writes one row per receipt after the commit, for a hand a person was dealt into', async () => {
+    acceptAtomicHand();
+    const clock = { startedAt: 1_764_000_000_000, endedAt: 1_764_000_060_000 };
+    const result = await logHandHistory({
+      ...atomicParams(GLOBAL_HAND + 520),
+      ...clock,
+      roster: withPerson,
+      horseOptionReceipts: RECEIPTS,
+    });
+    await settle();
+    expect(result.handId).toBe(historyId);
+    expect(receiptWrites).toHaveLength(1);
+    expect(receiptWrites[0].options).toEqual({
+      onConflict: 'hand_id,receipt',
+      ignoreDuplicates: true,
+    });
+    expect(receiptWrites[0].rows).toEqual([
+      { hand_id: historyId, receipt: 'cashDefenceTrimColdCalls:call>fold', decisions: 2 },
+      { hand_id: historyId, receipt: 'holdemTournamentAllInCallIsPriced:fold>call', decisions: 1 },
+    ]);
+    // A row is three fields: the hand, the receipt text and a count. No card can be in it.
+    for (const row of receiptWrites[0].rows)
+      expect(Object.keys(row).sort()).toEqual(['decisions', 'hand_id', 'receipt']);
+    // The write follows the hand's own commit, and the committed request is the one a hand with no
+    // receipts sends: the receipts are not part of the hand row or its hash.
+    const withReceipts = JSON.stringify(rpcCalls[0].args);
+    expect(withReceipts).not.toContain('cashDefenceTrimColdCalls');
+    rpcCalls.length = 0;
+    acceptAtomicHand();
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 520), ...clock, roster: withPerson });
+    expect(JSON.stringify(rpcCalls[0].args)).toBe(withReceipts);
+  });
+
+  it('never writes for an all-Horse hand, an unknown roster, an empty count or an uncommitted hand', async () => {
+    acceptAtomicHand();
+    await logHandHistory({
+      ...atomicParams(GLOBAL_HAND + 521),
+      roster: allHorses,
+      horseOptionReceipts: RECEIPTS,
+    });
+    acceptAtomicHand();
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 522), horseOptionReceipts: RECEIPTS });
+    acceptAtomicHand();
+    await logHandHistory({
+      ...atomicParams(GLOBAL_HAND + 523),
+      roster: withPerson,
+      horseOptionReceipts: {},
+    });
+    acceptAtomicHand();
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 524), roster: withPerson });
+    // A refused commit: the save throws as it always did, and nothing is written for a hand that is not there.
+    atomicRpcResults = [{ data: { success: false, reason: 'refused_for_test' }, error: null }];
+    await expect(
+      logHandHistory({
+        ...atomicParams(GLOBAL_HAND + 525),
+        roster: withPerson,
+        horseOptionReceipts: RECEIPTS,
+      })
+    ).rejects.toThrow(/atomic hand commit refused/);
+    await settle();
+    expect(receiptWrites).toEqual([]);
+    expect(calls.map((c) => c.table)).not.toContain('ca_horse_hand_receipts');
+  });
+
+  it('a text that is not exactly an option and two action kinds is never sent', async () => {
+    acceptAtomicHand();
+    await logHandHistory({
+      ...atomicParams(GLOBAL_HAND + 526),
+      roster: withPerson,
+      horseOptionReceipts: {
+        'cashDefenceTrimColdCalls:AsKd>fold': 1,
+        'cashDefenceTrimColdCalls:call>fold:0.62': 1,
+        'someOtherOption:call>fold': 1,
+        'holdemTournamentAllInCallIsPriced:fold>all_in': 3,
+      },
+    });
+    await settle();
+    expect(receiptWrites.map((w) => w.rows)).toEqual([
+      [
+        {
+          hand_id: historyId,
+          receipt: 'holdemTournamentAllInCallIsPriced:fold>all_in',
+          decisions: 3,
+        },
+      ],
+    ]);
+  });
+
+  it.each([
+    [
+      'refuses the write',
+      { error: { message: 'relation "ca_horse_hand_receipts" does not exist' } },
+    ],
+    ['throws', new Error('fetch failed')],
+    ['never answers', 'hang' as const],
+  ])('the hand save neither fails nor waits when the table %s', async (_name, reply) => {
+    receiptWriteReply = reply;
+    acceptAtomicHand();
+    const result = await logHandHistory({
+      ...atomicParams(GLOBAL_HAND + 527),
+      roster: withPerson,
+      horseOptionReceipts: RECEIPTS,
+    });
+    expect(result).toMatchObject({ handId: historyId, settlementCommitted: true });
+    await settle();
+    expect(receiptWrites).toHaveLength(1);
+    // A lost receipt is one throttled line, never a hand-save error.
+    expect(
+      mockReportError.mock.calls.filter((c) => String(c[1]).includes('HorseHandReceipts'))
+    ).toEqual([]);
+    if (reply !== 'hang')
+      expect(mockReportThrottled).toHaveBeenCalledWith(
+        'HorseHandReceipts.write_failed',
+        expect.stringContaining('hand option receipts not written')
+      );
   });
 });
 

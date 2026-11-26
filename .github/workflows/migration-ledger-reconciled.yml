@@ -60,6 +60,11 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+          # check-migrations-are-live.mjs dates a held file from the commit that
+          # merged it (2026-11-25); 500 first-parent commits is about two days
+          # of main, trees only. Older merges fall back to the version stamp.
+          fetch-depth: 500
+          filter: blob:none
 
       - name: Use Node
         uses: actions/setup-node@v4

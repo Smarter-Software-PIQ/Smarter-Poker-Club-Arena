@@ -1,4 +1,4 @@
-import { tournamentEntryWindowOpen } from '../utils/tournamentEntryWindow';
+import { tournamentEntryWindowOpen, tournamentInPlay } from '../utils/tournamentEntryWindow';
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { levelClockNow, type LevelClockRow } from '../utils/maintenanceLevelClock';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
@@ -2288,7 +2288,7 @@ class TournamentService {
     // countdown below is measured at the instant the engine is crediting.
     nowMs = levelClockNow(tournament as unknown as LevelClockRow, nowMs);
 
-    if (tournament.status !== 'RUNNING' || !tournament.started_at) {
+    if (!tournamentInPlay(tournament.status) || !tournament.started_at) {
       return {
         currentLevel: blinds[0],
         nextLevel: blinds[1] || null,

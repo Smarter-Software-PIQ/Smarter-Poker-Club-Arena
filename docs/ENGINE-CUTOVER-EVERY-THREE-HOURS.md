@@ -96,3 +96,7 @@ What it reports without mutating git, dispatching workflows, or touching credent
 ## Rolling Back The Cadence
 
 Set `frequency` to `"daily"` in `server/src/maintenance/maintenanceSchedulePolicy.json`, merge, and let the next 04:00 release seal; the engine then breaks only at 04:00 again, and every cycle-aware surface follows the serving schedule.
+
+## A Cycle That Did Not Seal Starts The Next One (O27, 2026-11-25)
+
+GitHub delivers few of Stage's scheduled runs, so a cycle used to be prepared only when a push or a Backup completion created a Stage run inside its window. After a seal the post-seal Backup's completion does that. After a kept-serving cycle, or a selected cycle whose receiver did not seal, the cycle owner's Stage run now waits once to the cycle start + 25 minutes and starts one `Backup after keep-serving <cycle>` certification of main on a fresh copy (job `next-candidate-after-cycle`, decisions in `scripts/release/next-candidate-after-cycle.py`). Its successful completion lands inside the next election window and is admitted like a push Backup. Changelog: `docs/changelog/2026-11-25-o27-a-cycle-that-did-not-seal-starts-the-next-one.md`.

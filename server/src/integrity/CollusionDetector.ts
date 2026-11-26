@@ -57,7 +57,7 @@ export function computeContributions(hand: NormalizedHand): Map<string, number> 
   return out;
 }
 
-interface PairAccum {
+export interface PairAccum {
   a: string; // lexicographically-smaller user
   b: string;
   handsTogether: number;
@@ -94,89 +94,92 @@ function ensurePair(map: Map<string, PairAccum>, x: string, y: string): PairAccu
   return p;
 }
 
-/** Build the pairwise accumulator table across all hands. */
-export function buildPairTable(hands: NormalizedHand[]): Map<string, PairAccum> {
-  const pairs = new Map<string, PairAccum>();
+/** Accumulate pairwise signals from a single hand into `pairs`. */
+export function accumulatePairsFromHand(pairs: Map<string, PairAccum>, hand: NormalizedHand): void {
+  const participants = hand.players.map((p) => p.userId).filter(Boolean);
+  if (participants.length < 2) return;
 
-  for (const hand of hands) {
-    const participants = hand.players.map((p) => p.userId).filter(Boolean);
-    if (participants.length < 2) continue;
-
-    for (let i = 0; i < participants.length; i++) {
-      for (let j = i + 1; j < participants.length; j++) {
-        ensurePair(pairs, participants[i], participants[j]).handsTogether++;
-      }
+  for (let i = 0; i < participants.length; i++) {
+    for (let j = i + 1; j < participants.length; j++) {
+      ensurePair(pairs, participants[i], participants[j]).handsTogether++;
     }
+  }
 
-    // ── chip transfer: losers' contributions attributed to winners ──
-    const contrib = computeContributions(hand);
-    const totalWon = hand.winners.reduce((s, w) => s + Math.max(0, w.amount), 0);
-    const winnerSet = new Set(hand.winners.map((w) => w.userId));
-    if (totalWon > 0) {
-      for (const [loser, amt] of contrib) {
-        if (winnerSet.has(loser) || amt <= 0) continue;
-        for (const w of hand.winners) {
-          if (w.amount <= 0 || w.userId === loser) continue;
-          const share = amt * (w.amount / totalWon);
-          const p = ensurePair(pairs, loser, w.userId);
-          if (loser === p.a) p.flowAtoB += share;
-          else p.flowBtoA += share;
-        }
-      }
-    }
-
-    // ── per-street fold-to-aggression + soft-play (heads-up post-flop) ──
-    const byStreet = new Map<string, typeof hand.actions>();
-    for (const a of hand.actions) {
-      const arr = byStreet.get(a.street) ?? [];
-      arr.push(a);
-      byStreet.set(a.street, arr);
-    }
-
-    for (const [street, actions] of byStreet) {
-      let lastAggressor: string | null = null;
-      for (const a of actions) {
-        if (!a.userId) continue;
-        if (a.action === 'fold' && lastAggressor && lastAggressor !== a.userId) {
-          const p = ensurePair(pairs, a.userId, lastAggressor);
-          if (a.userId === p.a) {
-            p.foldToAB++;
-            p.facedAB++;
-          } else {
-            p.foldToBA++;
-            p.facedBA++;
-          }
-        } else if (
-          (a.action === 'call' || a.action === 'check') &&
-          lastAggressor &&
-          lastAggressor !== a.userId
-        ) {
-          const p = ensurePair(pairs, a.userId, lastAggressor);
-          if (a.userId === p.a) p.facedAB++;
-          else p.facedBA++;
-        }
-        if ((a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') && a.amount > 0) {
-          lastAggressor = a.userId;
-        }
-      }
-      // soft play: post-flop street contested by EXACTLY two players, no aggression
-      if (street !== 'preflop') {
-        const actors = new Set(actions.filter((a) => a.userId).map((a) => a.userId));
-        if (actors.size === 2) {
-          const [x, y] = [...actors];
-          const anyAggression = actions.some(
-            (a) =>
-              (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') && a.amount > 0
-          );
-          const anyFold = actions.some((a) => a.action === 'fold');
-          const p = ensurePair(pairs, x, y);
-          p.headsUpPostflop++;
-          if (!anyAggression && !anyFold) p.softPlayHands++;
-        }
+  // ── chip transfer: losers' contributions attributed to winners ──
+  const contrib = computeContributions(hand);
+  const totalWon = hand.winners.reduce((s, w) => s + Math.max(0, w.amount), 0);
+  const winnerSet = new Set(hand.winners.map((w) => w.userId));
+  if (totalWon > 0) {
+    for (const [loser, amt] of contrib) {
+      if (winnerSet.has(loser) || amt <= 0) continue;
+      for (const w of hand.winners) {
+        if (w.amount <= 0 || w.userId === loser) continue;
+        const share = amt * (w.amount / totalWon);
+        const p = ensurePair(pairs, loser, w.userId);
+        if (loser === p.a) p.flowAtoB += share;
+        else p.flowBtoA += share;
       }
     }
   }
 
+  // ── per-street fold-to-aggression + soft-play (heads-up post-flop) ──
+  const byStreet = new Map<string, typeof hand.actions>();
+  for (const a of hand.actions) {
+    const arr = byStreet.get(a.street) ?? [];
+    arr.push(a);
+    byStreet.set(a.street, arr);
+  }
+
+  for (const [street, actions] of byStreet) {
+    let lastAggressor: string | null = null;
+    for (const a of actions) {
+      if (!a.userId) continue;
+      if (a.action === 'fold' && lastAggressor && lastAggressor !== a.userId) {
+        const p = ensurePair(pairs, a.userId, lastAggressor);
+        if (a.userId === p.a) {
+          p.foldToAB++;
+          p.facedAB++;
+        } else {
+          p.foldToBA++;
+          p.facedBA++;
+        }
+      } else if (
+        (a.action === 'call' || a.action === 'check') &&
+        lastAggressor &&
+        lastAggressor !== a.userId
+      ) {
+        const p = ensurePair(pairs, a.userId, lastAggressor);
+        if (a.userId === p.a) p.facedAB++;
+        else p.facedBA++;
+      }
+      if ((a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') && a.amount > 0) {
+        lastAggressor = a.userId;
+      }
+    }
+    // soft play: post-flop street contested by EXACTLY two players, no aggression
+    if (street !== 'preflop') {
+      const actors = new Set(actions.filter((a) => a.userId).map((a) => a.userId));
+      if (actors.size === 2) {
+        const [x, y] = [...actors];
+        const anyAggression = actions.some(
+          (a) =>
+            (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') && a.amount > 0
+        );
+        const anyFold = actions.some((a) => a.action === 'fold');
+        const p = ensurePair(pairs, x, y);
+        p.headsUpPostflop++;
+        if (!anyAggression && !anyFold) p.softPlayHands++;
+      }
+    }
+  }
+}
+
+/** Build the pairwise accumulator table across all hands. */
+export function buildPairTable(hands: NormalizedHand[]): Map<string, PairAccum> {
+  const pairs = new Map<string, PairAccum>();
+  for (const hand of hands) {
+    accumulatePairsFromHand(pairs, hand);
+  }
   return pairs;
 }
 
@@ -246,13 +249,12 @@ class UnionFind {
   }
 }
 
-/** Main entry: score all pairs, cluster suspicious edges, emit one flag per cluster. */
-export function detectCollusion(
-  hands: NormalizedHand[],
+/** Score an already-accumulated pair table, cluster suspicious edges, and emit flags. */
+export function scoreCollusionPairs(
+  pairs: Map<string, PairAccum>,
   opts: CollusionDetectorOptions = {}
 ): IntegrityFlag[] {
   const o = { ...DEFAULTS, ...opts };
-  const pairs = buildPairTable(hands);
 
   const flaggedEdges: PairScore[] = [];
   for (const p of pairs.values()) {
@@ -324,4 +326,12 @@ export function detectCollusion(
     });
   }
   return flags.sort((a, b) => b.score - a.score);
+}
+
+/** Main entry: score all pairs, cluster suspicious edges, emit one flag per cluster. */
+export function detectCollusion(
+  hands: NormalizedHand[],
+  opts: CollusionDetectorOptions = {}
+): IntegrityFlag[] {
+  return scoreCollusionPairs(buildPairTable(hands), opts);
 }

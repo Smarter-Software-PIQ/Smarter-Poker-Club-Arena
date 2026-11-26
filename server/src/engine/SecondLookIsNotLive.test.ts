@@ -478,8 +478,17 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         1,
         'omahaBetReadIsPerOpponent receipt (lane CR2): the pure bluff-share arithmetic of the read already taken (no random draw, no telemetry, no memory), only to write the receipt amount',
       ],
+      gtoDefence: [
+        1,
+        'cashDefenceTrimColdCalls per-hand option receipt: the pure defence base (no random draw, no telemetry, no memory) on the same cards and spot with the trim taken out, read only by the rewound intent that names the receipt',
+      ],
+      clamp01: [1, 'pure arithmetic on the untrimmed defence base of that receipt'],
+      holdemPersonaContinueBar: [
+        1,
+        'pure arithmetic: the same persona shift the live base takes, on the untrimmed base of that receipt',
+      ],
       noteDecisionRuleReceipt: [
-        19,
+        21,
         'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
       ],
     },
@@ -498,13 +507,20 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the tight-read counterfactual result (a local), read only to choose a receipt',
       ],
       v53IcmOff: [2, 'the v53 counterfactual result (a local), read only to choose a receipt'],
+      gtoDefend72TrimOff: [
+        1,
+        'the untrimmed defence base of the cashDefenceTrimColdCalls receipt (a local), read only by the rewound intent that names the receipt',
+      ],
       huDefendToPricePending: [
         1,
         'a per-decision pending receipt, reset at each decide, read only by noteFire',
       ],
     },
     outside: {
-      'const tele = telemetryOn(opts);': [50, 'the local name of the gate'],
+      'const tele = telemetryOn(opts);': [
+        52,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper)',
+      ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
         2,
@@ -569,8 +585,16 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
       ],
       'tele: boolean': [
-        5,
-        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced, riverNoBlockerBetRule and holdemAllInCallReference, read there only to count',
+        6,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule, holdemRiverBoatLeadPriced, riverNoBlockerBetRule, holdemAllInCallReference and horseSlowplayPricedDecision, read there only to count',
+      ],
+      'readonly tele: boolean;': [
+        1,
+        'the gate as a field of the v78CommitsWithoutJam priced context, read there only to name the v78 priced allow / veto receipt; the veto is the same either way',
+      ],
+      'tele: tele15,': [
+        2,
+        'the gate passed in the v78 priced context (v78NoCommittingBluffRaiseIsPriced), read there only to count',
       ],
       'tele: boolean,': [
         1,
@@ -579,6 +603,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       'receiptWagerRuleStage(tele, stage, before, run);': [
         1,
         'passes the gate to receiptWagerRuleStage, which runs the stage either way and only counts with it',
+      ],
+      'decision = holdemRaiseDefenceReference(decision, player, gs, opts, tele, {': [
+        1,
+        'passes the gate to the tournament raise defence reference (HorseHoldemTournamentRaiseDefenceWiring), which only counts with it (its receipts); the fold, call, jam or re-raise is the same either way',
       ],
       'decision = holdemAllInCallReference(decision, player, gs, vi, opts, tele);': [
         1,
