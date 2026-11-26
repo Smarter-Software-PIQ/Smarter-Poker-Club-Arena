@@ -1,6 +1,7 @@
 import { TABLE_ART_MAX_COVER_MS } from '../../../src/hooks/useTableArt';
 import { AVATAR_CROWN_TOP } from '../../../src/components/table/avatarCrownBounds';
 import {
+  NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX,
   NINE_SEAT_PHONE_RAIL_BUST,
   PHONE_AVATAR_MIN_HEIGHT_PX,
   SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX,
@@ -46,6 +47,11 @@ export async function waitForMobileAvatarGrowth(page: Page) {
               // height-bound phone keeps the six-seat floor, never lower.
               const tallEnough = innerHeight / ratio >= floors.spectatorMinLayoutHeight;
               const watching = page.dataset.hero === 'false' && tallEnough;
+              // A full-ring portrait is a fixed share of the felt, and the felt is
+              // narrower on a page too short to give it its full width
+              // (mobileAvatarSize.ts NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX). That
+              // page keeps its own measured floor: absolute, and only there.
+              const nineHeightBound = innerHeight / ratio < floors.nineSeatMinLayoutHeight;
               const painted = Array.from(
                 page.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__avatar--bust')
               ).filter((avatar) => avatar.style.getPropertyValue('--sp-mobile-art-scale'));
@@ -58,7 +64,9 @@ export async function waitForMobileAvatarGrowth(page: Page) {
                 const floor = nine
                   ? hero
                     ? floors.nineSeatHero
-                    : floors.nineSeatOpponent
+                    : nineHeightBound
+                      ? floors.nineSeatOpponentHeightBound
+                      : floors.nineSeatOpponent
                   : watching
                     ? floors.sixSeatSpectator
                     : floors.sixSeat;
@@ -82,6 +90,7 @@ export async function waitForMobileAvatarGrowth(page: Page) {
             {
               ...PHONE_AVATAR_MIN_HEIGHT_PX,
               nineSeatRailBust: NINE_SEAT_PHONE_RAIL_BUST,
+              nineSeatMinLayoutHeight: NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX,
               spectatorMinLayoutHeight: SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX,
             }
           ),
