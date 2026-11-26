@@ -29,7 +29,8 @@ docker run --rm --network none --read-only \
   test rules fleet-throughput.test.yml break-does-not-silence-its-own-alarms.test.yml \
     fleet-relative-throughput.test.yml lightning-abandoned-and-engine-memory.test.yml \
     mtt-started-late.test.yml engine-release-owner.test.yml database-replies-lost.test.yml \
-    reliability-controller-health.test.yml hand-memory-domain-missing.test.yml
+    reliability-controller-health.test.yml hand-memory-domain-missing.test.yml \
+    event-db-bulkhead.test.yml
 
 # The Spin stall and human-wait rules against synthetic series (2026-11-11,
 # incident f1b14fca): below, at and above the ladder envelope, recovery, the
@@ -61,6 +62,10 @@ route --verify.receivers=codex-inbox \
 route --verify.receivers=codex-inbox,email-critical \
   alertname=DatabaseWriteRetriesExhausted severity=critical component=database \
   rpc=fn_f06_retain_hand_continuation
+route --verify.receivers=codex-inbox \
+  alertname=EventDbBulkheadSaturated severity=warning component=database
+route --verify.receivers=codex-inbox \
+  alertname=EventDbBulkheadOpen severity=warning component=database
 
 # The Reliability Controller's own critical health alerts must reach email
 # (2026-11-09): that route is the signal that does not pass through the

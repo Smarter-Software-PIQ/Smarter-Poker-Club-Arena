@@ -2207,7 +2207,7 @@ export default function CreateTournamentModal({
                 aria-controls="tournament-advanced-options"
                 onClick={() => setShowAdvanced((v) => !v)}
               >
-                {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
+                {showAdvanced ? 'Hide Tournament Options' : 'Show Tournament Options'}
               </button>
 
               {showAdvanced && (

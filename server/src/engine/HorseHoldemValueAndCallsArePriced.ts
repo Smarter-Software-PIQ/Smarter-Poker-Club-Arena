@@ -77,7 +77,7 @@ export const HOLDEM_PRICED_FLOP_RUNOUTS = 8;
 export const HOLDEM_PRICED_TURN_RUNOUTS = 12;
 
 /** The posterior's five buckets, strongest first. */
-export const enum HoldemLineBucket {
+export enum HoldemLineBucket {
   Nutted = 4,
   TopPair = 3,
   StrongDraw = 2,

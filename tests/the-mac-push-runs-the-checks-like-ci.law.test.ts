@@ -29,7 +29,7 @@ function fakeNode(dir: string, version: string) {
 }
 
 function runBlock(env: Record<string, string>, root: string) {
-  const script = `uname() { echo Darwin; }\ndf() { if [ "$2" = / ] || [ "\${TEST_INTERNAL_SCRATCH:-}" = yes ]; then echo internal; else echo "external /Volumes/test-ssd"; fi; }\n${darwinBlock}\necho "PATH=$PATH"\necho "TMPDIR=$TMPDIR"\n`;
+  const script = `uname() { echo Darwin; }\ndf() { if [ "$2" = / ] || [ "\${TEST_INTERNAL_SCRATCH:-}" = yes ]; then echo internal; else echo "external /Volumes/test-ssd"; fi; }\n${darwinBlock}\necho "PATH=$PATH"\necho "TMPDIR=$TMPDIR"\necho "VITEST_MAX_THREADS=\${VITEST_MAX_THREADS:-}"\n`;
   return spawnSync('bash', ['-c', script], {
     encoding: 'utf8',
     env: { ...env, PATH: `${join(root, 'shell-node')}:/usr/bin:/bin` },
@@ -180,5 +180,36 @@ describe('the Mac runs the push checks the way CI does', () => {
     });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout.trim()).toBe(process.cwd());
+  });
+
+  it('defaults VITEST_MAX_THREADS=4 on Darwin to prevent SSD thrashing while honoring caller overrides (2026-11-24)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mac-push-'));
+    try {
+      fakeNode(join(root, 'shell-node'), 'v22.23.3');
+      const defaulted = runBlock(
+        {
+          HOME: join(root, 'home'),
+          TMPDIR: 'boot-drive/T',
+          CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp'),
+        },
+        root
+      );
+      expect(defaulted.status, defaulted.stderr).toBe(0);
+      expect(defaulted.stdout).toContain('VITEST_MAX_THREADS=4');
+
+      const overridden = runBlock(
+        {
+          HOME: join(root, 'home'),
+          TMPDIR: 'boot-drive/T',
+          CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp'),
+          VITEST_MAX_THREADS: '8',
+        },
+        root
+      );
+      expect(overridden.status, overridden.stderr).toBe(0);
+      expect(overridden.stdout).toContain('VITEST_MAX_THREADS=8');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

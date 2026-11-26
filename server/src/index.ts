@@ -63,6 +63,7 @@ import {
   setBrainTelemetryGapSink,
   startBrainTelemetryFlush,
 } from './services/BrainTelemetryFlush.js';
+import { startHorseErrorLog } from './services/HorseErrorLog.js';
 import { handleHorseTelemetryGapEvent } from './services/horseTelemetryGapAlert.js';
 import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
@@ -340,6 +341,9 @@ async function startLeaderOwnedServices(handoffTakeover = false): Promise<void> 
   // pre-action purge events are counted in this process; the decision
   // workers run their own flush for the decisions they make.
   startHorseUpgradeEvidenceFlush();
+  // The Horse error log (2026-11-24): decision fallbacks, legalizer corrections and worker failures
+  // become durable horse_error_log rows from here on (rows recorded earlier in boot are sent now).
+  startHorseErrorLog();
   // 2026-11-05: every file the Horse phase digests hash must be readable in
   // this image, or every phase sits in shadow with no forced authority (the
   // Nov 5 releases). The image build refuses that; this names it at boot

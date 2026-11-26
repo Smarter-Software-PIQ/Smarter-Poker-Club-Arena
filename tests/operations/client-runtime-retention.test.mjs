@@ -774,11 +774,13 @@ test('focused cash verification requires the newest exact successful protected p
   assert.throws(() => focusedRetentionPublisher({}, target, '456'));
 });
 
-test('focused cash verification reuses exact retention proof before generic source alignment', () => {
+test('scoped cash and Club Data verification reuse exact retention proof before generic source alignment', () => {
   const workflow = readFileSync(resolve(' .github/workflows/post-deploy-e2e.yml'.trim()), 'utf8');
   const start = workflow.indexOf(
     "if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ]"
   );
+  const data = workflow.indexOf("FOCUSED_RETENTION='${{ needs.publication-gate.outputs.club_data }}'");
+  assert.ok(data > 0 && data < start);
   assert.ok(start > 0);
   const proof = workflow.indexOf(
     'node scripts/ci/client-runtime-retention.mjs focused-harness "$LIVE" "$HERE"',

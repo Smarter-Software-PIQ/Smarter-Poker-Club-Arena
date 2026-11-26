@@ -1,3 +1,5 @@
+import { readKingsClubDisplayTotals } from '../services/KingsClubDisplayService';
+import { SHARK_CLUB_ID } from '../lib/constants';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE — Clubs Page
@@ -189,6 +191,7 @@ export default function ClubsPage() {
   });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [kingsMembers, setKingsMembers] = useState<number | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   // A deep-linked code (or ?join=true) opens the Join modal on arrival.
@@ -255,6 +258,11 @@ export default function ClubsPage() {
       });
       const visibleUnions = unions.filter((u) => u.ownerId === authUser?.id);
 
+      if (displayedClubs.some(({ club }) => Number(club.club_id) === SHARK_CLUB_ID)) {
+        const totals = await readKingsClubDisplayTotals();
+        if (getIsMounted && !getIsMounted()) return;
+        if (totals?.member_total != null) setKingsMembers(totals.member_total);
+      }
       setMyClubs(displayedClubs);
       setMyUnions(visibleUnions);
       // SWR cache write
@@ -533,7 +541,9 @@ export default function ClubsPage() {
                                 Members
                               </dt>
                               <dd className={`${styles.factValue} sc-ink--silver`}>
-                                {compactChips(membership.club.member_count || 0)}
+                                {Number(membership.club.club_id) === SHARK_CLUB_ID
+                                  ? (kingsMembers?.toLocaleString() ?? '…')
+                                  : compactChips(membership.club.member_count || 0)}
                               </dd>
                             </div>
                             <div className={styles.fact}>

@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/coord-01TLQer6/fix/the-stale-inventory-pages-past-kept-identities",
+  "_comment": "Migration the_stale_certification_inventory_pages_past_kept_identities (2026-11-25): a keyset reader of the stale certification inventory.",
+  "functions": ["fn_ca_stale_certification_accounts_after"]
+}

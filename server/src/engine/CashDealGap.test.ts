@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { ServerTableEngine } from './ServerTableEngine.js';
 import {
   CashDealGapRecorder,
   CASH_NEXT_HAND_LIMIT_MS,
@@ -276,5 +277,95 @@ describe('the breach line is monotonic, complete, partitioned, never silent, and
     });
     expect(after[1]).toBe('x');
     expect(budget.admit(line, t + 60_001)).toEqual(['x']);
+  });
+
+  it('preserves per-branch prepareNextHand timings in prepareSpansMs without disturbing stages sum', () => {
+    const lines: string[] = [];
+    const span = new CashNextHandSpan('tbl-2', 88, 'post_hand_hold', 0);
+    span.enter('load_next_hand_inputs', null, 50);
+    span.recordSubSpan('load_seats', 180.4);
+    span.recordSubSpan('refresh_rake', 1620.6);
+    span.recordSubSpan('refresh_dealing_halt', 42.2);
+    span.recordSubSpan('leave_pending', 95.1);
+    span.enter('next_hand_rest', null, 1700);
+    span.restEnded = true;
+    span.enter('deal', null, 2100);
+    const { gapMs, stages } = span.close(2250);
+    expect(sum(stages)).toBe(gapMs);
+    expect(span.subSpansMs()).toEqual({
+      load_seats: 180,
+      refresh_rake: 1621,
+      refresh_dealing_halt: 42,
+      leave_pending: 95,
+    });
+    reportCashNextHandBreach(
+      {
+        tableId: 'tbl-2',
+        handNumber: 88,
+        nextHandNumber: 89,
+        gapMs,
+        at: 1_700_000_000_000,
+        stages,
+        prepareSpansMs: {
+          ...span.subSpansMs()!,
+          'holeCards:As Kd': 5,
+        },
+      },
+      (l) => lines.push(l),
+      new CashBreachLineBudget()
+    );
+    expect(lines).toHaveLength(1);
+    const rec = parse(lines[0]);
+    expect(sum(rec.stages)).toBe(rec.gapMs);
+    expect(rec.prepareSpansMs).toEqual({
+      load_seats: 180,
+      refresh_rake: 1621,
+      refresh_dealing_halt: 42,
+      leave_pending: 95,
+    });
+    expect(rec.stages).not.toHaveProperty('refresh_rake');
+    expect(lines[0]).not.toContain('holeCards');
+  });
+
+  it('preserves cashDealGapAnchorMs across a second dealing pass after seatBoundaryChangedUnderRest and clears on idle/rebuy/stop', async () => {
+    const engine = new ServerTableEngine('11111111-1111-1111-1111-111111111111') as any;
+    const anchor = Date.now() - 1600;
+    engine.isTournamentTable = () => false;
+    engine.lastCompletionAtMs = anchor;
+    engine.nextHandNotBeforeMs = null;
+    engine.gapSawIdle = false;
+    engine.gapHadRebuyPause = false;
+
+    // Pass 1 consumes lastCompletionAtMs and arms cashDealGapAnchorMs.
+    await engine.awaitNextHandRest();
+    expect(engine.lastCompletionAtMs).toBeNull();
+    expect(engine.cashDealGapAnchorMs).toBe(anchor);
+
+    // Pass 2 (after seatBoundaryChangedUnderRest() -> continue) must NOT wipe the
+    // anchor back to null, so /health cashDealGap still records the real total gap.
+    await engine.awaitNextHandRest();
+    expect(engine.cashDealGapAnchorMs).toBe(anchor);
+
+    // A genuine idle or rebuy pause on pass 2 MUST clear the anchor.
+    engine.gapSawIdle = true;
+    await engine.awaitNextHandRest();
+    expect(engine.cashDealGapAnchorMs).toBeNull();
+
+    engine.lastCompletionAtMs = anchor;
+    engine.gapSawIdle = false;
+    await engine.awaitNextHandRest();
+    expect(engine.cashDealGapAnchorMs).toBe(anchor);
+
+    engine.gapHadRebuyPause = true;
+    await engine.awaitNextHandRest();
+    expect(engine.cashDealGapAnchorMs).toBeNull();
+
+    // Settling an aborted breach span (stop / kill / finally) clears any open anchor.
+    engine.lastCompletionAtMs = anchor;
+    engine.gapHadRebuyPause = false;
+    await engine.awaitNextHandRest();
+    expect(engine.cashDealGapAnchorMs).toBe(anchor);
+    engine.settleCashBreachSpan('aborted', 'table_stopped');
+    expect(engine.cashDealGapAnchorMs).toBeNull();
   });
 });

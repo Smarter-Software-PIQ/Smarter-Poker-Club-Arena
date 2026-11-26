@@ -133,6 +133,7 @@ import {
   deliveredSwitchConfigsPrevious,
   horseDecisionReceiptRefusalForGates,
   omahaMathCoreGate,
+  oopReraiseRangeHoldsGate,
   omahaNonNutRaiseInLightningGate,
   omahaPricedRaiseGateCandidates,
   omahaPricedInLightningGateCandidates,
@@ -2231,6 +2232,11 @@ export class LiveHorseDecisionWorkerClient {
           player: active.request.player,
           gameState: active.request.gameState,
           omahaMathCore: omahaMathCoreGate(
+            active.request.opts as Readonly<Record<string, unknown>> | undefined,
+            this.deliveredSwitchConfigs.current,
+            previous
+          ),
+          oopReraiseRangeHolds: oopReraiseRangeHoldsGate(
             active.request.opts as Readonly<Record<string, unknown>> | undefined,
             this.deliveredSwitchConfigs.current,
             previous

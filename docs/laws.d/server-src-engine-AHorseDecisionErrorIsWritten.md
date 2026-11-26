@@ -1,0 +1,3 @@
+# server/src/engine/AHorseDecisionErrorIsWritten.law.test.ts
+
+A Horse decision that falls back (the production ServerTableEngine.scheduleHorseAction worker-fallback path) is one horse_error_log row with its public context, written by the real services/HorseErrorLog.ts writer into exactly production's columns: no card a message printed is stored, a storm is one row at once and one per minute with its count, rows recorded before the log starts are sent when it starts, a refused row is counted, shutdown writes an open minute, boot starts and shutdown waits for the log, and every legalizer correction on the turn path is also written.

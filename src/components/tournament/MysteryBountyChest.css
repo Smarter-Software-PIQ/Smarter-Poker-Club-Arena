@@ -116,7 +116,7 @@
 }
 
 .mbc__winner-name {
-  color: #ffd166;
+  color: #92dfff;
   font-weight: 800;
 }
 
@@ -870,7 +870,7 @@
   font-size: 15px;
   font-weight: 900;
   letter-spacing: 1.6px;
-  color: #ffd166;
+  color: #92dfff;
   text-shadow: 0 0 20px rgba(255, 209, 102, 0.65);
   animation: mbcPromptPulse 1.35s ease-in-out infinite;
 }

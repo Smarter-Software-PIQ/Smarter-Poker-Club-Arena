@@ -1,3 +1,4 @@
+import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
 import { tournamentEntryTerms } from './entryTerms';
 import { displayTotalPool } from '../../../utils/tournamentPrizeFunding';
 import {
@@ -12,6 +13,8 @@ import { useTournamentHandForHand } from '../../../hooks/useTournamentHandForHan
 import {
   readTournamentFormat,
   getTournamentEntryCapacity,
+  tournamentClosingStatus,
+  tournamentStartsWhenFull,
 } from '../../../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -79,7 +82,7 @@ import { tournamentService } from '../../../services/TournamentService';
 import { useMaintenanceBreak } from '../../../hooks/useMaintenanceBreak';
 import { serverNow } from '../../../utils/serverClock';
 import { reportError } from '../../../utils/errorReporter';
-import { formatBuyIn, money } from '../../../utils/buyIn';
+import { formatBuyIn, money, totalBuyIn } from '../../../utils/buyIn';
 import { formatPrizeAtUnit, moneySuffixAtUnit, moneyWordAtUnit } from '../../../utils/format';
 import {
   CHIP_UNIT_CENTS,
@@ -93,7 +96,6 @@ import { HandForHandBanner } from '../HandForHandBanner';
 import MultiDayStagePanel from './MultiDayStagePanel';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
-import { tournamentStartsWhenFull } from '../../../utils/tournamentPresentation';
 import {
   activationStatusLine,
   formatCents,
@@ -189,6 +191,7 @@ export default function DetailOverviewTab({
   tables,
   blindLevels,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
   isRegistered,
   mysteryBounty,
@@ -207,7 +210,13 @@ export default function DetailOverviewTab({
     retry: satRetry,
   } = useSatellites(tournament?.id, currentUserId);
   /* An agent's own players, on the first tab they land on (Dan 2026-11-08). */
-  const myPlayers = useMyPlayers(tournament, entries || [], tables || [], currentUserId);
+  const myPlayers = useMyPlayers(
+    tournament,
+    entries || [],
+    tables || [],
+    currentUserId,
+    viewerLinkClub
+  );
 
   /* ── The one-second heartbeat. Only runs when something on screen actually
         moves: a running level clock, or a countdown to a start time. ── */
@@ -215,20 +224,22 @@ export default function DetailOverviewTab({
   const status = String(tournament?.status || '').toUpperCase();
   const isRunning = status === 'RUNNING';
   const handForHand = useTournamentHandForHand(tournament.id, currentUserId, isRunning);
-  const isCompleted = status === 'COMPLETED';
+  const closingStatus = tournamentClosingStatus(status);
+  const isCompleted = closingStatus === 'Completed';
+  const isCompleting = closingStatus === 'Completing';
   /* CANCELLED IS ITS OWN STATE (2026-10-04 review pass). It is neither running
      nor completed, so it fell through to the pre-start branch: the hero band
      counted down "Starts In" to an event that will never start (or sat on
      0:00), ticking once a second, over tiles for Remaining, Blinds Up and
      Late Reg. The header and the footer both said Cancelled; this tab said
      the opposite. */
-  const isCancelled = status === 'CANCELLED';
+  const isCancelled = closingStatus === 'Cancelled';
   /* BAGGED (multi-day, between days): live, but no table and no clock. It is
      neither finished nor about to start, so it gets its own hero line and no
      one-second heartbeat. */
   const isBagged = isBaggedStatus(status);
   const startsWhenFull =
-    tournamentStartsWhenFull(tournament) && !isRunning && !isCompleted && !isCancelled && !isBagged;
+    tournamentStartsWhenFull(tournament) && !isRunning && !closingStatus && !isBagged;
   const { maintenanceBreak } = useMaintenanceBreak();
   const eventPaused = isRunning && tournament?.on_break === true;
   const [observedPause, setObservedPause] = useState<{
@@ -290,11 +301,11 @@ export default function DetailOverviewTab({
     startAtMs - Date.now() > -86_400_000;
 
   useEffect(() => {
-    if (isCompleted || isBagged || isCancelled || (startsWhenFull && !isRunning)) return;
+    if (closingStatus || isBagged || (startsWhenFull && !isRunning)) return;
     if (!isRunning && !startsWithinADay) return;
     const id = setInterval(() => setTick((n) => (n + 1) % 86_400), 1000);
     return () => clearInterval(id);
-  }, [isCompleted, isBagged, isCancelled, isRunning, startsWithinADay, startsWhenFull]);
+  }, [closingStatus, isBagged, isRunning, startsWithinADay, startsWhenFull]);
 
   /* Who is still in, counted ONCE. `field` below builds its figures from this
      same list, so the deal gate and the displayed count cannot disagree -- and
@@ -489,7 +500,7 @@ export default function DetailOverviewTab({
     /* A cancelled event has no field in play and no clock. It says how many
        had entered and what it would have cost, and nothing that implies it is
        still going to happen. */
-    if (isCancelled) {
+    if (closingStatus && !isCompleted) {
       return [
         { key: 'entries', label: 'Entries', value: chips(field.entries) },
         {
@@ -501,7 +512,7 @@ export default function DetailOverviewTab({
             tournament
           ),
         },
-        { key: 'state', label: 'Status', value: 'Cancelled', tone: 'warn' },
+        { key: 'state', label: 'Status', value: closingStatus, tone: 'warn' },
       ];
     }
     return [
@@ -555,7 +566,7 @@ export default function DetailOverviewTab({
     level,
     isRunning,
     isCompleted,
-    isCancelled,
+    closingStatus,
     clockPaused,
     lateRegText,
     prize,
@@ -682,11 +693,22 @@ export default function DetailOverviewTab({
         : []),
       {
         key: 'when',
-        label: isRunning ? 'Started' : isCompleted ? 'Ended' : isCancelled ? 'Was Due' : 'Starts',
+        label:
+          isRunning || isCompleting
+            ? 'Started'
+            : isCompleted
+              ? 'Ended'
+              : isCancelled
+                ? 'Was Due'
+                : 'Starts',
         value: startsWhenFull
           ? 'When Full'
           : shortDate(
-              isRunning ? t.started_at : isCompleted ? t.ended_at || t.started_at : t.start_time
+              isRunning || isCompleting
+                ? t.started_at
+                : isCompleted
+                  ? t.ended_at || t.started_at
+                  : t.start_time
             ),
       },
       { key: 'entries', label: 'Entries', value: chips(field.entries) },
@@ -782,6 +804,7 @@ export default function DetailOverviewTab({
     isRunning,
     isCompleted,
     isCancelled,
+    isCompleting,
     startsWhenFull,
     field.entries,
     mysteryBounty?.inventory,
@@ -1076,6 +1099,65 @@ export default function DetailOverviewTab({
             </>
           )}
         </div>
+      ) : isCompleting ? (
+        <section className="tl-panel dov-podium-panel" aria-label="Tournament Results">
+          <div className="tl-section-head">
+            <h3>Results Are Being Finalized</h3>
+          </div>
+        </section>
+      ) : status === 'REGISTERING' && !startsWhenFull ? (
+        <section className="console-countdown" aria-label="Tournament Starts In">
+          <h3>
+            Tournament <span className="dov-hero__eyebrow">{heroEyebrow}</span>
+          </h3>
+          <strong className="console-time dov-hero__time">{heroTime}</strong>
+          <small className="dov-hero__note">{heroNote}</small>
+          <dl className="console-facts">
+            <div>
+              <dt>Buy-In</dt>
+              <dd>
+                {money(
+                  totalBuyIn(Number(tournament.buy_in_amount), tournament.buy_in_fee, tournament)
+                )}{' '}
+                {tournamentRowUnitCents(tournament) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+              </dd>
+            </div>
+            {prize.guarantee > 0 && (
+              <div>
+                <dt>Guaranteed</dt>
+                <dd>{chips(prize.guarantee)}</dd>
+              </div>
+            )}
+          </dl>
+          <dl className="console-pair">
+            <div>
+              <dt>Entries</dt>
+              <dd>{field.entries}</dd>
+            </div>
+            <div>
+              <dt>Starting Stack</dt>
+              <dd>{chips(tournament.starting_chips)}</dd>
+            </div>
+          </dl>
+          <div className="mtt-instruments">
+            {[
+              ['Level', level.index + 1],
+              ['Blinds', level.amountsKnown ? `${level.sb} / ${level.bb}` : '-'],
+              [
+                'Next',
+                blindLevels[1] ? `${blindLevels[1].smallBlind} / ${blindLevels[1].bigBlind}` : '-',
+              ],
+              ['Late Reg', lateRegText],
+              ['Levels', level.duration ? `${level.duration / 60} Min` : '-'],
+              ['Tables', tables?.length ?? 0],
+            ].map(([label, value]) => (
+              <div key={label}>
+                {label}
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
       ) : (
         <div className="tl-panel dov-hero" aria-live="off">
           <div className="dov-hero__main">
@@ -1129,6 +1211,31 @@ export default function DetailOverviewTab({
                     : '-'}
                 </span>
               </div>
+            </div>
+          </div>
+          <dl className="arena-event-facts">
+            <div>
+              <dt>Buy-In</dt>
+              <dd>
+                {money(
+                  totalBuyIn(Number(tournament.buy_in_amount), tournament.buy_in_fee, tournament)
+                )}{' '}
+                {tournamentRowUnitCents(tournament) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+              </dd>
+            </div>
+            {prize.guarantee > 0 && (
+              <div>
+                <dt>Guaranteed</dt>
+                <dd>{chips(prize.guarantee)}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="mtt-pair">
+            <div>
+              Entries<strong>{field.entries}</strong>
+            </div>
+            <div>
+              Starting Stack<strong>{chips(Number(tournament.starting_chips) || 0)}</strong>
             </div>
           </div>
           {/* Decoration: the hero clock above it IS the value. */}

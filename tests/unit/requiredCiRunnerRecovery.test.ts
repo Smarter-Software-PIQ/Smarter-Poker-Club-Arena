@@ -54,6 +54,12 @@ const owedMainStep = {
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py',
 };
+const promoLightningStep = {
+  name: "A promo player's Lightning hand settles",
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  run: 'python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py',
+};
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
   expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
@@ -67,9 +73,13 @@ const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>
   // exactly, then removed with the other two so every original field stays fingerprinted.
   expect(job.steps[index + 2]).toStrictEqual(owedMainStep);
   expect(job.steps.filter((step) => step.name === owedMainStep.name)).toHaveLength(1);
-  expect(job.steps[index + 3]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // The promo Lightning settlement proof rides directly behind the owed-Main proof
+  // (20261124162105): pinned exactly, then removed with the other three.
+  expect(job.steps[index + 3]).toStrictEqual(promoLightningStep);
+  expect(job.steps.filter((step) => step.name === promoLightningStep.name)).toHaveLength(1);
+  expect(job.steps[index + 4]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
   // Pin these exact added proofs; every original engine job field stays fingerprinted.
-  job.steps.splice(index, 3);
+  job.steps.splice(index, 4);
 };
 
 const backupSequenceStep = {
@@ -455,6 +465,36 @@ const normalizeUndrawnSpinAddition = (job: { steps: Array<Record<string, unknown
   expect(job.steps[start + 2]?.name).toBe(
     'Retain cancellation admission and funded rollback evidence'
   );
+  job.steps.splice(start, 2);
+};
+
+// Incident 7e8dce13 (2026-11-24): a Spin's third paid seat is proven net of refunds, on a throwaway
+// PostgreSQL 17 directly after the undrawn Spin cancellation proof on shard 4.
+const spinNetOfRefundsSteps = [
+  {
+    name: "A Spin's third paid seat is proven net of refunds",
+    if: 'matrix.shard == 4',
+    run: 'python3 -B scripts/ci/test-spin-books-net-of-refunds.py \\\n  --evidence artifacts/spin-books-net-of-refunds \\\n  --work-root "$RUNNER_TEMP/spin-net-refund-work" \\\n  --socket-root "$RUNNER_TEMP/spin-net-refund-socket" \\\n  --pg-bin /usr/lib/postgresql/17/bin\n',
+  },
+  {
+    name: 'Retain Spin net-of-refunds booking evidence',
+    if: 'always() && matrix.shard == 4',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'spin-books-net-of-refunds-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/spin-books-net-of-refunds/',
+      'retention-days': 7,
+      'if-no-files-found': 'error',
+    },
+  },
+];
+const normalizeSpinNetOfRefundsAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === spinNetOfRefundsSteps[0].name);
+  for (const step of spinNetOfRefundsSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Retain undrawn Spin cancellation evidence');
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(spinNetOfRefundsSteps);
+  // Enforce the exact additional gate, preserving every historical job fingerprint.
   job.steps.splice(start, 2);
 };
 
@@ -1107,6 +1147,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Require the added Report regression exactly once, preserving every
     // historical command and gate fingerprint after this single addition.
     const reportBeat = browserJob.steps.find((step: { id?: string }) => step.id === 'css-beats');
+    expect(reportBeat.env.PLAYWRIGHT_WORKERS).toBe(
+      "${{ matrix.partition == 'general' && matrix.shard == 7 && '2' || '' }}"
+    );
+    delete reportBeat.env.PLAYWRIGHT_WORKERS;
     const reportSpec = 'tests/e2e/css/club-data-report.spec.ts ';
     expect(reportBeat.run.split(reportSpec)).toHaveLength(2);
     reportBeat.run = reportBeat.run.replace(reportSpec, '');
@@ -1227,6 +1271,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     normalized.jobs.server_shards['timeout-minutes'] = 25;
     normalizeHourlyCashAddition(normalized.jobs.server_shards);
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
+    normalizeSpinNetOfRefundsAddition(normalized.jobs.accounting_postgres);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);

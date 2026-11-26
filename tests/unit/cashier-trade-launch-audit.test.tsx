@@ -171,6 +171,7 @@ vi.mock('../../src/utils/clubIdResolver', async (importOriginal) => ({
 import { supabase } from '../../src/lib/supabase';
 import { engineChannelClient } from '../../src/services/EngineStateClient';
 import * as GameServerAPI from '../../src/services/GameServerAPI';
+import { UnionService } from '../../src/services/UnionService';
 import { useMasterBusChannel } from '../../src/hooks/useMasterBusChannel';
 import {
   restoreDurableCashierTransfers,
@@ -241,8 +242,10 @@ function mountCashier() {
 }
 
 async function synchronized() {
-  const advanced = screen.queryByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ });
-  if (advanced) fireEvent.click(advanced);
+  const advanced = screen.queryByRole('button', {
+    name: /^Requests, Tickets And Tools(?: \([\d,]+\))?$/,
+  });
+  if (advanced && advanced.getAttribute('aria-expanded') === 'false') fireEvent.click(advanced);
   await waitFor(() => expect(screen.getByText('Balances Synchronized')).toBeInTheDocument());
 }
 
@@ -614,7 +617,9 @@ describe('the deployed reconciliation witness belongs to the real cashier region
     // asserting that a string exists in two source files. The directory
     // layout moved this status out of the retired painted-console region.
     const spec = read('tests/e2e/routes/cashier-deep.spec.ts');
-    const regionName = spec.match(/getByRole\('region', \{ name: '([^']+)' \}\)/)?.[1];
+    const regionName = spec.match(
+      /const cashierStatus = page\.getByRole\('region', \{ name: '([^']+)' \}\)/
+    )?.[1];
     expect(regionName).toBeTruthy();
     const region = screen.getByRole('region', { name: regionName });
     const status = within(region).getByRole('status');
@@ -1055,15 +1060,30 @@ describe('P-04, P-12, P-15, L-03: the Trade page is reachable and truthful', () 
   });
 
   it("points the switcher's aria-controls at the listbox and prints its label in Title Case", async () => {
+    const directory = deferred<void>();
+    vi.mocked(UnionService.getOwnedUnions).mockImplementationOnce(async () => {
+      await directory.promise;
+      throw new Error('Roster directory unavailable');
+    });
     mountCashier();
     await synchronized();
     const trigger = screen.getByRole('button', { name: /Open Another Club Cashier/ });
     expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(trigger).not.toHaveAttribute('aria-controls');
     fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByRole('listbox', { name: 'Club Cashiers' })).toBeNull();
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    await act(async () => directory.resolve());
+    const failure = await screen.findByText('Could not load your club cashiers.');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
     const listbox = await screen.findByRole('listbox', { name: 'Club Cashiers' });
     expect(listbox.id).toBe(trigger.getAttribute('aria-controls'));
     expect(screen.getByText('Open Cashier For')).toBeInTheDocument();
     expect(TRADE).not.toContain('OPEN CASHIER FOR');
+    fireEvent.click(trigger);
+    expect(trigger).not.toHaveAttribute('aria-controls');
   });
 
   it('names the document', async () => {
@@ -1874,7 +1894,7 @@ it('Phase 7: the native player composer traps both Tab directions and returns fo
 });
 
 describe('Simple Cashier Default', () => {
-  it('defaults to the compact roster, keeps all three actions, and restores Advanced tools', async () => {
+  it('keeps one compact roster, all three actions and the same filter when tools reopen', async () => {
     const { container } = mountCashier();
     await waitFor(() => expect(screen.getByText('Balances Synchronized')).toBeInTheDocument());
     expect(container.querySelector('[data-cashier-mode="simple"]')).not.toBeNull();
@@ -1893,18 +1913,26 @@ describe('Simple Cashier Default', () => {
       )
     ).toBeInTheDocument();
     const css = readFileSync('src/pages/CashierTradePage.module.css', 'utf8');
-    expect(css).toContain('.page.simple .glass .rowSub:not(.simpleId)');
+    expect(css).toContain(
+      ".page.simple[data-cashier-tools='closed'] .glass .rowSub:not(.simpleId)"
+    );
     expect(css).not.toContain('.page.simple .rowSub:not(.simpleId)');
-    fireEvent.click(screen.getByRole('button', { name: /^Advanced/ }));
+    expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
     expect(screen.getByRole('tablist', { name: 'Cashier Actions' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reconcile Now' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: /Role/ }), {
-      target: { value: 'agent' },
+      target: { value: 'player' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Simple', exact: true }));
+    expect(screen.getByRole('combobox', { name: /Role/ })).toHaveValue('player');
+    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
     expect(container.querySelector('[data-cashier-mode="simple"]')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^Advanced/ }));
-    expect(screen.getByRole('combobox', { name: /Role/ })).toHaveValue('all');
+    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
+    expect(screen.getByRole('combobox', { name: /Role/ })).toHaveValue('player');
   });
 });
 
@@ -1984,7 +2012,8 @@ describe('Simple And Advanced Action Recovery Audit', () => {
       state.batch = async () => ({ data: null, error: { message: 'Connection Lost' } });
       mountCashier();
       await waitFor(() => expect(screen.getByText('Balances Synchronized')).toBeInTheDocument());
-      if (advanced) fireEvent.click(screen.getByRole('button', { name: /^Advanced/ }));
+      if (advanced)
+        fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
       let dialog = await openSendOut('10', 1);
       if (firstKind === 'ticket') {
         fireEvent.click(within(dialog).getByRole('button', { name: 'Send Ticket', exact: true }));
@@ -2041,7 +2070,8 @@ describe('Simple And Advanced Action Recovery Audit', () => {
       state.reversible = async () => ({ data: [recentSend], error: null });
       mountCashier();
       await waitFor(() => expect(screen.getByText('Balances Synchronized')).toBeInTheDocument());
-      if (advanced) fireEvent.click(screen.getByRole('button', { name: /^Advanced/ }));
+      if (advanced)
+        fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
       const originalRpc = vi.mocked(supabase.rpc).getMockImplementation()!;
       const firstReply = deferred<unknown>();
       const claimCalls: Array<Record<string, unknown>> = [];
@@ -2162,7 +2192,17 @@ it('background balance events and browser wake preserve a typed transfer', async
   expect(screen.getByRole('dialog', { name: 'Send Out' })).toBe(dialog);
 });
 
-it.each(['player', 'agent'])(
+it('withholds both personal cashout entries from an admin after the club role resolves', async () => {
+  state.myRole = 'admin';
+  mountCashier();
+  await synchronized();
+  const actions = screen.getByRole('group', { name: 'Wallet Actions' });
+  expect(within(actions).getByRole('button', { name: 'Send' })).toBeVisible();
+  expect(within(actions).queryByRole('button', { name: 'Cash-Out' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Request Cash Out' })).toBeNull();
+});
+
+it.each(['player', 'agent', 'owner'])(
   'Simple Cashier opens the amount-based cashout sheet for a %s',
   async (role) => {
     state.myRole = role;
@@ -2175,6 +2215,10 @@ it.each(['player', 'agent'])(
     expect(within(sheet).getByText('Balance')).toBeInTheDocument();
     expect(within(sheet).getByText('6,000.00 Chips')).toBeInTheDocument();
     expect(within(sheet).getByRole('textbox', { name: /Amount/i })).toBeInTheDocument();
+    const note = within(sheet).getByRole('textbox', { name: 'Note For Agent (Optional)' });
+    expect(note).toHaveAttribute('maxlength', '2000');
+    fireEvent.change(note, { target: { value: 'Please Review My Request' } });
+    expect(note).toHaveValue('Please Review My Request');
     expect(
       within(sheet).getByText(/Chips Will Be Locked Until Your Agent Approves/i)
     ).toBeInTheDocument();

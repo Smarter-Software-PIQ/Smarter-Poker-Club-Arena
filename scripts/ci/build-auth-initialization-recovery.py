@@ -46,10 +46,14 @@ def patch(text, source, commonjs):
   {'let initialization!: Promise<InitializeResult>;' if source else ''}
   {'initialization' if source else 'const initialization'} = (async () => {{
     try {{
-      return await this._acquireLock(this.lockAcquireTimeout, async () => {{
+      const result = await this._acquireLock(this.lockAcquireTimeout, async () => {{
         entered = true
         return await this._initialize()
       }})
+      // A completed initialization lets getSession() read a still-valid
+      // stored session without the cross-tab lock.
+      if (!result.error) this.sessionReadReady = true
+      return result
     }} catch (error{': any' if source else ''}) {{
       // An unacquired lock executed no initializer effects. Retire only this
       // failed generation; a later explicit API request may initialize anew.
@@ -74,10 +78,11 @@ def patch_admission(text, source):
   private pendingLockAcquisition: {
     timeout: number
     waiting: { fn: () => Promise<any>; resolve: (value: any) => void; reject: (reason: any) => void }[]
-  } | null = null"""
+  } | null = null
+  private sessionReadReady = false"""
     else:
         field = '        this.pendingInLock = [];'
-        replacement = field + '\n        this.pendingLockAcquisition = null;'
+        replacement = field + '\n        this.pendingLockAcquisition = null;\n        this.sessionReadReady = false;'
     assert text.count(field) == 1
     text = text.replace(field, replacement, 1)
     indent = '  ' if source else '    '
@@ -165,6 +170,73 @@ def patch_admission(text, source):
     return text[:start] + replacement + text[end:]
 
 
+SESSION_READ_NOTE = """/**
+ * Smarter.Poker (2026-11-24): reading a still-valid stored session is a read,
+ * not a rotation, so it takes no lock. The cross-tab lock serialises refresh
+ * token rotation. Holding it for every read meant any other same-origin tab
+ * that kept it past the acquire budget failed every request in this tab with
+ * "AbortError: signal is aborted without reason". Only after this client has
+ * initialized, only with plain storage, and only outside the expiry margin;
+ * everything else goes through the lock exactly as upstream.
+ */"""
+
+
+def patch_session_read(text, source, commonjs):
+    indent = '  ' if source else '    '
+    if source:
+        old = '  async getSession() {\n    await this.initialize()\n'
+        method = SESSION_READ_NOTE + """
+private async _readSessionWithoutLock(): Promise<Session | null> {
+  if (!this.sessionReadReady || this.userStorage || this.storage.isServer) {
+    return null
+  }
+  const maybeSession: unknown = await getItemAsync(this.storage, this.storageKey)
+  if (!maybeSession || !this._isValidSession(maybeSession) || !maybeSession.expires_at) {
+    return null
+  }
+  if (maybeSession.expires_at * 1000 - Date.now() < EXPIRY_MARGIN_MS) {
+    return null
+  }
+  return maybeSession
+}
+
+async getSession() {
+  const stored = await this._readSessionWithoutLock()
+  if (stored) {
+    return { data: { session: stored }, error: null }
+  }
+  await this.initialize()
+"""
+    else:
+        old = '    async getSession() {\n        await this.initialize();\n'
+        get_item = '(0, helpers_1.getItemAsync)' if commonjs else 'getItemAsync'
+        margin = 'constants_1.EXPIRY_MARGIN_MS' if commonjs else 'EXPIRY_MARGIN_MS'
+        method = SESSION_READ_NOTE + f"""
+async _readSessionWithoutLock() {{
+    if (!this.sessionReadReady || this.userStorage || this.storage.isServer) {{
+        return null;
+    }}
+    const maybeSession = await {get_item}(this.storage, this.storageKey);
+    if (!maybeSession || !this._isValidSession(maybeSession) || !maybeSession.expires_at) {{
+        return null;
+    }}
+    if (maybeSession.expires_at * 1000 - Date.now() < {margin}) {{
+        return null;
+    }}
+    return maybeSession;
+}}
+async getSession() {{
+    const stored = await this._readSessionWithoutLock();
+    if (stored) {{
+        return {{ data: {{ session: stored }}, error: null }};
+    }}
+    await this.initialize();
+"""
+    assert text.count(old) == 1
+    replacement = '\n'.join(indent + line if line.strip() else '' for line in method.splitlines()) + '\n'
+    return text.replace(old, replacement, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upstream', type=Path)
@@ -187,10 +259,11 @@ def main():
                         old = content.decode()
                         if entry.name.endswith('.d.ts'):
                             assert old.count('    protected pendingInLock: Promise<any>[];') == 1
-                            new = old.replace('    protected pendingInLock: Promise<any>[];', '    protected pendingInLock: Promise<any>[];\n    private pendingLockAcquisition;', 1)
+                            new = old.replace('    protected pendingInLock: Promise<any>[];', '    protected pendingInLock: Promise<any>[];\n    private pendingLockAcquisition;\n    private sessionReadReady;\n    private _readSessionWithoutLock;', 1)
                         else:
                             source = '/src/' in entry.name
-                            new = patch_admission(patch(old, source, '/dist/main/' in entry.name), source)
+                            commonjs = '/dist/main/' in entry.name
+                            new = patch_session_read(patch_admission(patch(old, source, commonjs), source), source, commonjs)
                         content = new.encode()
                         diffs.extend(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile='a/' + entry.name, tofile='b/' + entry.name, n=0))
                         changed.add(entry.name)
@@ -211,7 +284,7 @@ def main():
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-    print('Verified auth-js 2.90.1: three implementations and two private declarations changed; other archive entries retained')
+    print('Verified auth-js 2.90.1: three implementations (initialization recovery, lock admission, lock-free session read) and two private declarations changed; other archive entries retained')
 
 
 if __name__ == '__main__':

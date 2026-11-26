@@ -70,6 +70,14 @@ describe('public progress is bounded inside the real health snapshot', () => {
     const ordinary = server.getStatus();
     expect(ordinary).not.toHaveProperty('tableLiveness');
     expect(ordinary.tableLivenessSummary.tables).toBe(2);
+    expect(ordinary.eventDbBulkhead).toMatchObject({
+      open: false,
+      totalInFlight: expect.any(Number),
+      parkedTotal: expect.any(Number),
+      parkTimeoutsTotal: expect.any(Number),
+      refusedFullTotal: expect.any(Number),
+      events: expect.any(Array),
+    });
     source.mockClear();
     const { res, captured } = mockRes();
     await createRouter({ gameServer: server } as never)(

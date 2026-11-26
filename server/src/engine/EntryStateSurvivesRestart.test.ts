@@ -69,7 +69,7 @@ describe('the entry hold is written down', () => {
 
     // ENTERING the hold.
     expect(between(RAW_SEATING, 'public registerWaitForBB', 'noteTournamentArrival')).toMatch(
-      /this\.persistEntryHold\(userId, \{ hold: 'waiting' \}\);/
+      /this\.persistEntryHold\(userId, \{\s*hold: 'waiting',\s*\.\.\.\(postWhenClear \? \{ agreed: true \} : \{\}\),?\s*\}\);/
     );
 
     // AGREEING to post from a held seat, and POSTING for real.

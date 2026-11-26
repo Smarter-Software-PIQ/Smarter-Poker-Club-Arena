@@ -226,26 +226,25 @@ async function attachMembersProbe(page: Page, probe: MembersProbe, testInfo: Tes
   });
 }
 
+async function openRosterTools(page: Page) {
+  const trigger = page.getByRole('button', { name: 'Sort And Roster Tools', exact: true });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+}
+
+function directoryButton(page: Page) {
+  return page
+    .getByRole('navigation', { name: 'Member Navigation' })
+    .getByRole('button', { name: /Directory$/ });
+}
+
 async function openMembers(page: Page, probe: MembersProbe): Promise<number> {
   const startedAt = Date.now();
   await page.goto(MEMBERS_PATH, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
-  await expect(page.locator('[data-players-mode]')).toBeVisible({ timeout: 45_000 });
-  // A previous case may legitimately have saved Advanced mode for this actor.
-  // Choose the mode being checked through its real control, preserving preferences.
-  await page.getByRole('button', { name: 'Simple', exact: true }).click();
   await expect(page.locator('[data-players-mode="simple"]')).toBeVisible({ timeout: 45_000 });
-  const viewportWidth = page.viewportSize()?.width;
-  if (viewportWidth !== undefined && viewportWidth <= 430) {
-    await expect(page.getByRole('combobox', { name: 'Sort Players' })).toHaveCSS(
-      'font-size',
-      '16px'
-    );
-  }
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-  // The page hero is gone (Dan 2026-10-17); its title is a hidden h1 and the
-  // Advanced desk adds the live totals to the page bar.
-  await expect(page.locator('[data-players-mode="advanced"]')).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
+  await openRosterTools(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Player Management' })).toHaveCount(1);
   await expect(page.getByRole('list', { name: 'Club Member Directory' })).toBeVisible();
   await expect
@@ -651,7 +650,9 @@ test.describe('Production Kings Club Players', () => {
     // after a real scroll, without replacing the exact DOM return position.
     await expect.poll(() => directory.getByRole('listitem').count()).toBeLessThanOrEqual(16);
     await viewport.evaluate((node) => {
-      node.scrollTop = 1230;
+      const rows = node.querySelectorAll<HTMLElement>('[role="listitem"]');
+      const pitch = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+      node.scrollTop = Math.ceil(10 * pitch);
       node.dispatchEvent(new Event('scroll'));
     });
     await expect
@@ -671,7 +672,9 @@ test.describe('Production Kings Club Players', () => {
     // Locator clicks can scroll a nested roster before its click handler saves
     // the return position. Activate the actual button from keyboard focus while
     // preserving the position this case is intended to verify.
-    await row.getByRole('button').evaluate((node) => node.focus({ preventScroll: true }));
+    await row
+      .getByRole('button', { name: /^Open / })
+      .evaluate((node) => node.focus({ preventScroll: true }));
     await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBe(448);
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
@@ -682,8 +685,8 @@ test.describe('Production Kings Club Players', () => {
         .map((key) => JSON.parse(sessionStorage.getItem(key)!).viewportTop)
     );
     expect(savedPositions).toEqual([448]);
-    await page.locator('.mm-back').click();
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await directoryButton(page).click();
+    await openRosterTools(page);
     await expect(sort).toHaveValue('name');
     await expect
       .poll(() => viewport.evaluate((node) => node.scrollTop), { timeout: 30_000 })
@@ -711,8 +714,8 @@ test.describe('Production Kings Club Players', () => {
       .click();
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await expect(page.locator('#mm-player-name')).toContainText(alias);
-    await page.locator('.mm-back').click();
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await directoryButton(page).click();
+    await openRosterTools(page);
     await expect(search).toHaveValue(alias);
     await expect(sort).toHaveValue('search');
     await expect(sort).toBeDisabled();
@@ -860,6 +863,14 @@ test.describe('Production Kings Club Players', () => {
   test('wires the live Player Record and Statistics subpages without unsafe writes', async ({
     page,
   }) => {
+    const obsoleteArtRequests: string[] = [];
+    page.on('request', (request) => {
+      if (
+        new URL(request.url()).pathname.endsWith('/images/club-members/member-credential-v1.webp')
+      ) {
+        obsoleteArtRequests.push(request.url());
+      }
+    });
     const probe = observeMembersPath(page);
     await openMembers(page, probe);
 
@@ -881,11 +892,12 @@ test.describe('Production Kings Club Players', () => {
     await clubHistory.locator('summary').click();
 
     const directory = page.getByRole('list', { name: 'Club Member Directory' });
-    await directory
-      .getByRole('listitem')
-      .first()
-      .getByRole('button', { name: /^Open / })
-      .click();
+    const firstMember = directory.getByRole('listitem').first();
+    const alias = (await firstMember.locator('.member-alias').innerText()).trim();
+    const selectedMember = directory.getByRole('listitem').filter({
+      has: page.locator('.member-alias').and(page.getByText(alias, { exact: true })),
+    });
+    await selectedMember.getByRole('button', { name: /^Open / }).click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible({
       timeout: 45_000,
@@ -914,7 +926,7 @@ test.describe('Production Kings Club Players', () => {
       'Showing 2026-01-01 To 2026-01-31 Chicago Time'
     );
     // Leave via the real router, then return without reloading the application.
-    await page.locator('.mm-back').click();
+    await directoryButton(page).click();
     await expect(page).not.toHaveURL(memberRecordUrl);
     await page.goForward();
     await expect(page).toHaveURL(memberRecordUrl);
@@ -946,26 +958,36 @@ test.describe('Production Kings Club Players', () => {
     await activityGuide.locator('summary').click();
     await expect(activityGuide).toContainText('MTT Winnings Is Tournament Money');
 
-    const credentialArt = page.locator('.mm-credential__art');
-    await expect(credentialArt).toBeVisible();
+    const identity = page.getByRole('region', { name: alias, exact: true });
+    await expect(identity.getByRole('heading', { name: alias, exact: true })).toBeVisible();
+    await expect(identity.locator('.mm-player-id')).toBeVisible();
+    const avatar = identity.locator('.mm-avatar');
+    await avatar.scrollIntoViewIfNeeded();
+    await expect(avatar).toBeVisible();
     await expect
       .poll(() =>
-        credentialArt.evaluate(
-          (image: HTMLImageElement) => image.complete && image.naturalWidth > 0
-        )
+        avatar.evaluate((element, memberAlias) => {
+          const image = element.querySelector('img');
+          return image
+            ? image.complete && image.naturalWidth > 0
+            : element.textContent?.trim() === memberAlias[0]?.toUpperCase();
+        }, alias)
       )
       .toBe(true);
+    await expect(page.locator('.mm-credential__art, .mm-credential__shade')).toHaveCount(0);
+    expect(obsoleteArtRequests).toEqual([]);
 
     // The identity must remain readable beside a long role at phone widths.
     // These are real rendered boxes on the published page, not CSS string pins.
     const originalViewport = page.viewportSize();
     for (const width of [375, 393]) {
       await page.setViewportSize({ width, height: 812 });
-      const boxes = await Promise.all(
-        ['.mm-avatar', '.role-badge', '.mm-presence', '.mm-player-id', '#mm-player-name'].map(
-          (selector) => page.locator(`.mm-credential ${selector}`).boundingBox()
-        )
+      const fields = identity.locator(
+        '.mm-avatar, .role-badge, .mm-presence, .mm-player-id, #mm-player-name'
       );
+      await expect(identity.locator('.role-badge')).toBeVisible();
+      await expect(identity.locator('.mm-presence').first()).toBeVisible();
+      const boxes = await Promise.all((await fields.all()).map((field) => field.boundingBox()));
       for (let i = 0; i < boxes.length; i++) {
         expect(boxes[i], `identity field ${i} has no rendered box at ${width}px`).not.toBeNull();
         expect(boxes[i]!.x).toBeGreaterThanOrEqual(0);
@@ -1092,6 +1114,12 @@ test.describe('Production Kings Club Players', () => {
     ).toBe(0);
     expect(probe.pageErrorCount).toBe(0);
     expect(probe.criticalConsoleErrorCount).toBe(0);
+
+    // A bookmarked record has no prior directory history entry.
+    await page.goto(memberRecordUrl, { waitUntil: 'domcontentloaded' });
+    await directoryButton(page).click();
+    await expect(page).toHaveURL(/\/clubs\/kings-club\/members(?:[?#]|$)/i);
+    await expect(page.getByRole('searchbox', { name: 'Search Club Members' })).toBeVisible();
   });
 
   test('keeps linked Vault Help and section tabs keyboard accessible on phones', async ({
@@ -1103,7 +1131,7 @@ test.describe('Production Kings Club Players', () => {
       .getByRole('list', { name: 'Club Member Directory' })
       .getByRole('listitem')
       .first()
-      .getByRole('button')
+      .getByRole('button', { name: /^Open / })
       .click();
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /Promo Vault Review/ }).click();
@@ -1277,11 +1305,7 @@ test('account roster preferences survive logout and a cache-empty second device'
     await acknowledgePreferenceWelcome(writer.page);
     const route = `clubs/${clubId}/members`;
     await writer.page.goto(route, { waitUntil: 'domcontentloaded' });
-    await expect(
-      writer.page.getByRole('combobox', { name: 'Sort Players', exact: true })
-    ).toBeVisible({ timeout: 45_000 });
-    const advanced = writer.page.getByRole('button', { name: 'Advanced', exact: true });
-    if ((await advanced.getAttribute('aria-pressed')) !== 'true') await advanced.click();
+    await openRosterTools(writer.page);
     await writer.page
       .getByRole('combobox', { name: 'Sort Players', exact: true })
       .selectOption('name');
@@ -1307,6 +1331,7 @@ test('account roster preferences survive logout and a cache-empty second device'
     reader = await logoutAndOpenFreshPreferenceDevice(writer.page, baseURL, account);
     await reader.page.goto(route, { waitUntil: 'domcontentloaded' });
     await acknowledgePreferenceWelcome(reader.page);
+    await openRosterTools(reader.page);
     await expect(
       reader.page.getByRole('combobox', { name: 'Filter Players', exact: true })
     ).toHaveValue('online', { timeout: 45_000 });

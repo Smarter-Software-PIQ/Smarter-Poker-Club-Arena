@@ -44,3 +44,66 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
         run: node scripts/ci/certify-heads-up-rematch.mjs
+
+  # A PRODUCTION CERTIFICATE THAT KEEPS FAILING REACHES A PERSON (2026-11-24).
+  # Club Create Certification failed on every run for a week (2026-11-18 to
+  # 2026-11-24) and Rabbit Hunt Certification on every daily run that week, and
+  # each was only a red check run. This job rides the run: two failed
+  # certificate runs in a row on main open one ProductionCertificationFailing
+  # episode in public.operational_alert_events (later failures bump it), and a
+  # passing run that covers it closes it. One failed run stays a red check.
+  # Rules: scripts/ci/certification-failure-streak.mjs; route:
+  # scripts/ci/record-post-deploy-verdict.mjs; pinned by
+  # tests/unit/aProductionCertificateThatKeepsFailingReachesAPerson.test.ts.
+  certification-verdict:
+    needs: [certify]
+    if: ${{ always() && needs.certify.result != 'skipped' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    name: This certificate admits a failure streak to the operational inbox
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 8
+    permissions:
+      # actions: read lets the streak step read earlier runs and this run's own
+      # job record and log, and lets the recorder tell a replaced lane apart.
+      actions: read
+      contents: read
+    steps:
+      # Full commit history, no blobs: a pass closes an episode only when its
+      # release descends from every release the episode failed on.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Decide whether this run starts or continues a failure streak
+        id: streak
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_FILE: heads-up-rematch-certification.yml
+          CERT_JOB: certify
+          CERT_RESULT: ${{ needs.certify.result }}
+        run: node scripts/ci/certification-failure-streak.mjs
+      - name: Install the pinned database client
+        if: steps.streak.outputs.record == 'yes'
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+      - name: Record the certification verdict
+        if: steps.streak.outputs.record == 'yes'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WORKFLOW_LABEL: Heads-Up Rematch Certification
+          ALERT_SOURCE: club-arena.heads-up-rematch-certification
+          ALERT_NAME: ProductionCertificationFailing
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          LANES: |
+            ${{ needs.certify.result }}|certify
+          FAILURE_DETAIL: ${{ steps.streak.outputs.detail }}
+        run: node scripts/ci/record-post-deploy-verdict.mjs

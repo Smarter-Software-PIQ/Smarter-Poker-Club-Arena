@@ -64,12 +64,8 @@ export interface UserClub {
   [key: string]: unknown;
 }
 
-export interface KingsClubDisplayTotals {
-  member_total: number | null;
-  active_total: number | null;
-  member_addition: number;
-  active_addition: number;
-}
+export type { KingsClubDisplayTotals } from '../../services/KingsClubDisplayService';
+import type { KingsClubDisplayTotals } from '../../services/KingsClubDisplayService';
 
 export interface ClubStats {
   kingsDisplayTotals?: KingsClubDisplayTotals;
