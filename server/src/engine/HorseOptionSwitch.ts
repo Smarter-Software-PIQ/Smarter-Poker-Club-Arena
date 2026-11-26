@@ -385,6 +385,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
   'holdemOopReraiseRangeHoldsVsReraise',
+  // 2026-11-24 PLO-LEAD-6: the two rules above read the opener's own record of answering a 3-bet (ships dark)
+  'omahaOopReraiseRangeReadsOpenerRecord',
+  'holdemOopReraiseRangeReadsOpenerRecord',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
@@ -1088,6 +1091,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash tables, out of position facing one open (no caller)',
     "an out-of-position 3-bet stands only when priced at or above the call the brain's call bar admits and the Horse's own 4-bet answer is not a planned fold",
+  ],
+  holdemOopReraiseRangeReadsOpenerRecord: [
+    HOLDEM,
+    'NLH cash tables, out of position facing one open (no caller), with holdemOopReraiseRangeHoldsVsReraise on',
+    "the out-of-position 3-bet rule binds in proportion to this opener's own 4-bet record (0.10 baseline); rejected 3-bets stand at the seeded frequency 1 - w",
   ],
   holdemValueAndCallsArePriced: [
     HOLDEM,

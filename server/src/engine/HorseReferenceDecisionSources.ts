@@ -359,6 +359,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off priced call-or-raise facing a re-raise (omahaReraisedCallVsRaisePriced, 2026-11-18): EV(call) by the calling rule priced call against EV(raise) from the re-raiser own answers to a raise of his re-raise, his calling and re-raising bands on one set of samples and the realization at the stack-to-pot ratio left; raises only above twice the sampling error',
     'src/engine/HorseOmahaReraiseResponse.ts':
       "how a re-raiser answers a raise of his own re-raise (2026-11-18): the two nodes of the opponent's durable record, its validation and wire row, and the posterior the default-off option omahaReraisedCallVsRaisePriced prices a raise with",
+    'src/engine/HorseOpenerAnswersThreeBet.ts':
+      "how an opener answers a 3-bet of his own open (2026-11-24): the in-position and out-of-position cells of the opponent's durable record, its validation and wire row, and the anchored 4-bet read default-off options scale the planned-fold guard with",
     'src/engine/HorseOmahaFlopShown.ts':
       "what a flop bet showed and what calling it returned (2026-11-19): the class of a shown hand on a flop, the cells of the opponent's durable flop-shown record, its validation and wire row, and the readers HorseMind.omahaFlopShownOf serves; carried into Omaha decisions and read by none",
     'src/engine/HorsePlo45High.ts':

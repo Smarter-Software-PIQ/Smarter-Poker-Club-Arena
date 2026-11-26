@@ -37,6 +37,7 @@
  * Pure: no I/O, no opponent memory, no random stream. The planned-fold keep draw is a hash of the Horse's id, the pot
  * and its own cards (like plo3BetRoll), recorded with its frequency on the receipt.
  */
+import { plannedFoldGuardWeight, type OpenerFourBetRead } from './HorseOpenerAnswersThreeBet.js';
 import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 import {
   EXPLOIT_DECAY,
@@ -56,6 +57,9 @@ import {
 
 export const OMAHA_OOP_RERAISE_RANGE_HOLDS = 'omahaOopReraiseRangeHoldsVsReraise';
 export const HOLDEM_OOP_RERAISE_RANGE_HOLDS = 'holdemOopReraiseRangeHoldsVsReraise';
+/** The default-off companions that read the opener's own record (HorseOpenerAnswersThreeBet). */
+export const OMAHA_OOP_RERAISE_READS_OPENER_RECORD = 'omahaOopReraiseRangeReadsOpenerRecord';
+export const HOLDEM_OOP_RERAISE_READS_OPENER_RECORD = 'holdemOopReraiseRangeReadsOpenerRecord';
 
 /** The games each option acts in. */
 export type OopReraiseGame = 'plo4' | 'plo5' | 'nlh';
@@ -536,6 +540,9 @@ export interface OopReraiseInput {
   cap: number;
   /** the Horse's id, for the planned-fold keep draw */
   horseId: string;
+  /** holdem/omahaOopReraiseRangeReadsOpenerRecord (default OFF): this opener's own record of answering a 3-bet in
+   *  position (HorseOpenerAnswersThreeBet), anchored to its baseline. Absent: the rule exactly as without it. */
+  openerRecord?: OpenerFourBetRead | null;
 }
 
 export interface OopReraiseReceipt {
@@ -569,7 +576,21 @@ export interface OopReraiseReceipt {
   cap: number;
   bluffBreakEven: number;
   verdict: 'kept' | 'called' | 'folded';
-  reason: 'priced_continue' | 'blocker_planned_fold' | 'below_alternative' | 'planned_fold';
+  reason:
+    | 'priced_continue'
+    | 'blocker_planned_fold'
+    | 'below_alternative'
+    | 'planned_fold'
+    | 'opener_record_planned_fold'
+    | 'opener_record_price';
+  /** present only with the opener-record option on: his 4-bet read, and how hard the planned-fold guard bound */
+  openerRecord?: {
+    node: string;
+    raise: number;
+    answers: number;
+    source: 'measured' | 'baseline';
+    guardWeight: number;
+  };
 }
 
 const r4 = (x: number): number => Math.round(x * 10000) / 10000;
@@ -757,8 +778,13 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
   const [blo, bhi] =
     i.openBand && i.openBand[1] > i.openBand[0] ? i.openBand : OOP_RERAISE_PRIOR_OPEN_BAND;
   const W = bhi - blo;
-  const rho = clamp(i.answers.raise, 0, 1);
-  const kappa = clamp(i.answers.call, 0, 1 - rho);
+  // With the opener-record option and a measured record, the 4-bet share is his own (anchored) rate and the rest of
+  // what does not fold is a call; otherwise the population's split, as without the option.
+  const rec = i.openerRecord ?? null;
+  const measuredSplit = rec !== null && rec.source === 'measured';
+  const fold0 = clamp(i.answers.fold, 0, 1);
+  const rho = measuredSplit ? clamp(rec.raise, 0, 1 - fold0) : clamp(i.answers.raise, 0, 1);
+  const kappa = measuredSplit ? clamp(1 - fold0 - rho, 0, 1) : clamp(i.answers.call, 0, 1 - rho);
   const phi = clamp(1 - rho - kappa, 0, 1);
   const fourLo = bhi - rho * W;
   const callLo = bhi - (rho + kappa) * W;
@@ -808,24 +834,44 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
   const be = oopReraiseBluffBreakEven(spot, raiseTo, fourTo);
   const cap = clamp(Number.isFinite(i.cap) ? i.cap : RERAISE_FOLD_SHARE_CAP_DEFAULT, 0, be);
   let keep: OopReraiseReceipt['keep'] = null;
+  const guardWeight = rec !== null ? plannedFoldGuardWeight(rec) : 1;
   let verdict: OopReraiseReceipt['verdict'];
   let reason: OopReraiseReceipt['reason'];
   const called = (): OopReraiseReceipt['verdict'] =>
     i.callAdmitted && evCall !== null && evCall >= 0 ? 'called' : 'folded';
-  if (evThree < alternative) {
+  // With the opener-record option, the price test binds in proportion to this opener's own 4-bet record too: the rule
+  // exists for the 4-bet, and against an opener whose record shows he does not 4-bet a 3-bet priced below the call
+  // stands at the seeded frequency 1 - w (league probes 2026-11-24: the NLH price borrows the Omaha realization fit
+  // and, applied in full, cost 21 bb/100 heads-up against an opener who calls every 3-bet).
+  const priceRelaxed = rec !== null && oopReraiseKeepUnit(i.horseId, P0, hole) < 1 - guardWeight;
+  if (evThree < alternative && !priceRelaxed) {
     verdict = called();
     reason = 'below_alternative';
   } else if (!plannedFold) {
     verdict = 'kept';
-    reason = 'priced_continue';
+    reason = evThree < alternative ? 'opener_record_price' : 'priced_continue';
   } else if (blocker) {
     const bucket = oopReraiseKeepBucket(spot.game, spot.effBB, phi);
-    const frequency = oopReraiseKeepFrequency(cap, bucket);
+    // the guard binds in proportion to this opener's 4-bet record (1, as without the option, with none)
+    const relax = rec !== null ? 1 - guardWeight : 0;
+    const frequency = Math.max(oopReraiseKeepFrequency(cap, bucket), relax);
     const unit = oopReraiseKeepUnit(i.horseId, P0, hole);
     keep = { frequency: r4(frequency), unit: r4(unit), bucket };
     if (unit < frequency) {
       verdict = 'kept';
       reason = 'blocker_planned_fold';
+    } else {
+      verdict = called();
+      reason = 'planned_fold';
+    }
+  } else if (rec !== null && guardWeight < 1) {
+    // a planned fold without a blocker stands only as often as this opener's own record says he does not 4-bet
+    const relax = 1 - guardWeight;
+    const unit = oopReraiseKeepUnit(i.horseId, P0, hole);
+    keep = { frequency: r4(relax), unit: r4(unit), bucket: 'opener_record' };
+    if (unit < relax) {
+      verdict = 'kept';
+      reason = 'opener_record_planned_fold';
     } else {
       verdict = called();
       reason = 'planned_fold';
@@ -869,6 +915,17 @@ export function oopReraiseVerdict(i: OopReraiseInput): OopReraiseReceipt | null 
     bluffBreakEven: r4(be),
     verdict,
     reason,
+    ...(rec !== null
+      ? {
+          openerRecord: {
+            node: rec.node,
+            raise: r4(rec.raise),
+            answers: r4(rec.answers),
+            source: rec.source,
+            guardWeight: r4(guardWeight),
+          },
+        }
+      : {}),
   };
 }
 

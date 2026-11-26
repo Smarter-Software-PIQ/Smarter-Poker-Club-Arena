@@ -174,6 +174,17 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       "measured out-of-position realization by depth after the call and the call equity (omahaPreflopDefenceRealization); the 4-bet branch takes the Horse's own answer to the 4-bet, asked on the 4-bet frame",
     price: 'EV(3-bet) against EV(call) admitted by the calling rule and against 0, after deduction',
   },
+  omahaOopReraiseRangeReadsOpenerRecord: {
+    kind: 'priced',
+    range:
+      "the opener's band split by his answer to a 3-bet, the 4-bet share his own record in position (HorseOpenerAnswersThreeBet: his decayed 4-bets against a 0.10 baseline worth 6 answers)",
+    equity:
+      'seeded sampled equity of the exact hand against each band (omahaReraisedEquity over omahaPreflopPercentile), as omahaOopReraiseRangeHoldsVsReraise',
+    realization:
+      "as omahaOopReraiseRangeHoldsVsReraise (omahaPreflopDefenceRealization; the Horse's own answer to the 4-bet)",
+    price:
+      'EV(3-bet) against the admitted call and 0, binding with weight w = min(1, his 4-bet rate / 0.10); a rejected 3-bet stands at the seeded frequency 1 - w',
+  },
   omahaOpponentLifetimeHudDecides: exempt(
     'input',
     'OPPONENT-HUD-9 consumer flag: reads lifetime public HUD counters shrunk n/(n+k) into HorseMind.opponentRead; decides nothing by itself'
