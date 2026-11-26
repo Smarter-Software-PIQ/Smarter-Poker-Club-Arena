@@ -69,6 +69,19 @@ tournaments are untouched.
   (`OMAHA_TURN_SEMI_BLUFF_PRICE_SHARE`).
 - **Guard:** law `anOmahaOpeningBluffIsPricedOnPeople`.
 
+## P7: Two green PRs crossed and turned main red
+
+- **What broke:** the option cost gate (#12112) and the people prior option (#12116) were each green on their own
+  base and merged 14 minutes apart; neither CI run had seen the other, so main failed
+  aPricedOptionProvesItsDecisionCost. A merge-job check also counted the window keeper job (which runs for the
+  whole window) as a failing check, so migration PRs could never merge in the window.
+- **Root fix:** #12151 gave the option its cost law; the bluff options got theirs (turn and river cost laws, one
+  reasoned exemption), and the gate's self-test no longer assumes the exemption table is empty.
+- **Guards:** lead-7's merge job runs the option gate laws (cost, shadow stage, replay record, switch lists,
+  ledger, SecondLookIsNotLive) on current main merged with the PR head whenever main gained law, CI or option
+  registry files after the PR's base, and skips the merge if they fail. The keeper job is excluded from the
+  non-green count.
+
 ## Release Discipline For All Of The Above
 
 Every option ships default OFF with a flag-off check (0 differences), a shadow watch of at least 60 minutes
