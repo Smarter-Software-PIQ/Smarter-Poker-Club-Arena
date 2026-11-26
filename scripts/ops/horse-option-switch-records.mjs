@@ -96,6 +96,27 @@ export function insertAuthorityDocState(text, liveState, row = null) {
   return lines.join('\n');
 }
 
+/** Pure. True when the committed snapshot text holds the same schema, audit max and rows as `snapshot`. */
+function sameSwitchRows(currentStateText, snapshot) {
+  let current;
+  try {
+    current = JSON.parse(currentStateText);
+  } catch {
+    return false;
+  }
+  if (!current || typeof current !== 'object') return false;
+  const strip = (s) => JSON.parse(formatSwitchStateSnapshot({ ...s, asOfUtc: null }));
+  try {
+    return (
+      current.schema === snapshot.schema &&
+      JSON.stringify(strip(current)) === JSON.stringify(strip(snapshot)) &&
+      formatSwitchStateSnapshot(current) === currentStateText
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Pure. Everything the records PR must carry, from the live snapshot and the docs it judges.
  *   snapshot          snapshotFromRows() of the live rows
@@ -120,7 +141,12 @@ export function buildRecordsChange({
   releaseDefaultOn = new Set(),
   docsWithoutStateAllowed = AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
 }) {
-  const stateFileText = formatSwitchStateSnapshot(snapshot);
+  // The snapshot stamps the time it was read, so its text differs on every read. When the committed file
+  // already holds these rows and this audit max, it is in step with production: keep its text, so `records`
+  // can answer "matches" and opens no PR that changes nothing but a timestamp.
+  const stateFileText = sameSwitchRows(currentStateText, snapshot)
+    ? currentStateText
+    : formatSwitchStateSnapshot(snapshot);
   const docChanges = [];
   const unresolved = [];
   for (const d of findAuthorityDocStateDrift({ snapshot, docs })) {

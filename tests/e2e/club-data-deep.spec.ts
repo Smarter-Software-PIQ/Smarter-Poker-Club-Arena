@@ -11,7 +11,7 @@ function surfaceTools(page: Page, root: string) {
   if (root.includes('players'))
     return page.locator('summary').filter({ hasText: /^Metric Definitions$/ });
   return page.getByRole('button', {
-    name: root.includes('cashier') ? /^Requests, Tickets And Tools/ : /^(Open|Close) Club Report$/,
+    name: root.includes('cashier') ? /^Requests, Tickets And Tools/ : /^Close Club Report$/,
   });
 }
 
@@ -736,7 +736,10 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
             0
           );
           await expect(page.getByRole('heading', { name: 'Club Totals' })).toBeVisible();
-          await page.getByRole('button', { name: 'Open Club Report' }).click();
+          await page.goBack();
+          await expect(
+            page.getByRole('region', { name: 'Club Report', exact: true })
+          ).toBeVisible();
           await expect.poll(allJoined, { timeout: 80_000 }).toBe(true);
           observing = true;
         } else {
