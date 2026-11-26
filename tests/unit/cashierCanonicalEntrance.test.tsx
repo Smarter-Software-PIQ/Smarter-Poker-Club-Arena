@@ -192,6 +192,8 @@ describe('one mounted club cashier', () => {
     const tabs = await screen.findByRole('tablist', { name: 'Wallet Operations' });
     const history = await within(tabs).findByRole('tab', { name: 'History' });
     expect(tabs).not.toHaveAttribute('aria-busy', 'true');
+    const mast = screen.getByRole('heading', { level: 1, name: 'Cashier' }).closest('header')!;
+    expect(within(mast).getByText('Club Wallets')).toBeVisible();
     expect(within(tabs).queryByRole('tab', { name: 'Mint' })).toBeNull();
     expect(within(tabs).queryByRole('tab', { name: 'Distribute' })).toBeNull();
     fireEvent.click(history);
@@ -220,6 +222,10 @@ describe('one mounted club cashier', () => {
     mount('/clubs/' + fixture.club + '/cashier');
     const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
     const send = within(actions).getByRole('button', { name: 'Send' });
+    const mast = screen.getByRole('heading', { level: 1, name: 'Cashier' }).closest('header')!;
+    expect(mast.querySelector('small')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Cashier Tools' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Page Help' })).toBeVisible();
     const panelId = 'cashier-wallet-operations';
     const expectValidReferences = () => {
       for (const button of document.querySelectorAll(`button[aria-controls="${panelId}"]`)) {

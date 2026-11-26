@@ -278,8 +278,7 @@
   padding-right: 2px;
   text-align: left;
 }
-.arena-workspace:has(.ca-page-help) .arena-mast-lettering,
-.arena-trade .arena-mast-lettering {
+.arena-workspace:has(.ca-page-help) .arena-mast-lettering {
   padding-right: 48px;
 }
 .arena-workspace .arena-mast-lettering > span {
@@ -1030,20 +1029,6 @@
   align-content: center;
   color: #a8ccdf;
   font-size: 12px;
-}
-.arena-trade .arena-cashier-tools-link {
-  position: absolute;
-  right: 15px;
-  top: 64px;
-  z-index: 2;
-  min-height: 44px;
-  display: grid;
-  place-items: center;
-  color: #b3e2ff;
-  font:
-    700 11px/1.1 Arial,
-    sans-serif;
-  text-shadow: 0 1px 3px #000;
 }
 /* Every directory surface uses its shell's inner width. Keep content inside the chrome. */
 .arena-workspace.club-members-page {

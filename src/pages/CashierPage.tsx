@@ -2411,11 +2411,9 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
           title="Cashier"
           context={clubName}
           subtitle={
-            roleUnknown
-              ? 'Club Wallets'
-              : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
-                ? 'Agent Wallets'
-                : 'Club Wallets'
+            !roleUnknown && ['agent', 'sub_agent', 'super_agent'].includes(userRole)
+              ? undefined
+              : 'Club Wallets'
           }
         />
       )}
