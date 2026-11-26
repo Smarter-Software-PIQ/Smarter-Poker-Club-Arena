@@ -109,8 +109,10 @@ describe('LAW: the heads-up river opening bet is priced on his range', () => {
     );
     if (on.changed) {
       expect(on.kind).toBe('bluff');
-      expect(on.verdict!.blocker).toBe(true);
-      expect(on.verdict!.best!.fold).toBeGreaterThan(on.verdict!.best!.fold0);
+      // the bluff placed is the best row that clears AND blocks (bluffBest; 2026-11-26 the blocker leg is read on
+      // every size that clears, not only the best size overall)
+      const placed = on.verdict!.bluffBest ?? on.verdict!.best!;
+      expect(placed.fold).toBeGreaterThan(placed.fold0);
     }
     for (const n of nodes) {
       const r = omahaRiverOpeningBetRule(
@@ -122,7 +124,10 @@ describe('LAW: the heads-up river opening bet is priced on his range', () => {
         legal,
         () => n.record
       );
-      if (r.changed && r.kind === 'bluff') expect(r.verdict!.blocker).toBe(true);
+      if (r.changed && r.kind === 'bluff') {
+        const placed = r.verdict!.bluffBest ?? r.verdict!.best!;
+        expect(placed.fold).toBeGreaterThan(placed.fold0);
+      }
       if (r.changed && r.kind === 'value')
         expect(omahaRiverOpeningSpot(n.player, n.gs)!.position).toBe('ip');
       if (r.changed) expect(['bet', 'all_in']).toContain(r.decision.action);

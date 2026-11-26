@@ -20520,14 +20520,28 @@ export class HorseLogic {
           ),
       });
       if (openingBluff.changed && openingBluff.kind && tele) {
-        const receipt =
-          openingBluff.kind === 'turn_blockers'
-            ? 'omaha_turn_bluff_priced_on_blockers'
-            : openingBluff.kind === 'turn_range'
-              ? 'omaha_turn_bluff_priced_on_range'
-              : 'omaha_river_bluff_priced_on_range';
-        noteFire(receipt);
-        noteDecisionRuleReceipt(receipt, opening.decision, openingBluff.decision);
+        if (openingBluff.kind === 'turn_blockers') {
+          noteFire('omaha_turn_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_turn_bluff_priced_on_blockers',
+            opening.decision,
+            openingBluff.decision
+          );
+        } else if (openingBluff.kind === 'turn_range') {
+          noteFire('omaha_turn_bluff_priced_on_range');
+          noteDecisionRuleReceipt(
+            'omaha_turn_bluff_priced_on_range',
+            opening.decision,
+            openingBluff.decision
+          );
+        } else {
+          noteFire('omaha_river_bluff_priced_on_range');
+          noteDecisionRuleReceipt(
+            'omaha_river_bluff_priced_on_range',
+            opening.decision,
+            openingBluff.decision
+          );
+        }
       }
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise
