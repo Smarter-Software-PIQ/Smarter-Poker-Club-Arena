@@ -1049,7 +1049,7 @@ jobs:
     # never selects, offers or advances a release; the next cycle's own
     # election and certificate gates decide. Decisions live in
     # scripts/release/next-candidate-after-cycle.py.
-    if: needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result == 'success' && github.run_attempt == 1
+    if: needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Start The Next Cycle When This One Did Not Seal
     needs: [detect, selection]
     runs-on: ubuntu-latest
