@@ -7,6 +7,10 @@
  *  3. Only a raise is changed: a call, a fold or a check is returned as given (the same object), and off returns the
  *     raise as given. It never makes a raise.
  *  4. Out of its spot (multiway, the turn, PLO6, tournaments) it is silent; identity never enters.
+ *  5. WHICH SIZE (2026-11-26, daily audit root cause D2): once the answer is a raise, two raise sizes are compared on
+ *     the same footing, the same equity sample with no realization discount between them and no margin; the
+ *     discount and the margin stay on the raise-or-call-or-fold question, and a size is taken only if it survives
+ *     that question as the chain's own size did.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card, HorseDecision } from '../types.js';
@@ -94,6 +98,51 @@ describe('LAW: a heads-up flop raise is priced above the call and the fold', () 
       );
       expect(['raise', 'all_in', 'call', 'fold']).toContain(r.decision.action);
     }
+  });
+  it('which size: raise sizes are compared without the realization discount and without the margin', () => {
+    const bins = omahaFlopRaiseBinEquity(cards('8h8d6c5c'), cards('8s7h2c'), [])!;
+    const out = omahaFlopRaisePrice(HIST, bins, SPOT, [46, 84, 122], 1000, 0.75, 0.04)!;
+    const full = omahaFlopRaisePrice(HIST, bins, SPOT, [46, 84, 122], 1000, 1, 0.04)!;
+    for (const row of out.rows.filter((r) => r.action === 'raise')) {
+      // the size footing is the price at realization one, whatever the street's realization
+      const same = full.rows.find((r) => r.action === 'raise' && r.to === row.to)!;
+      expect(row.evSize!).toBeCloseTo(same.ev, 9);
+      expect(row.evSize!).toBeGreaterThanOrEqual(row.ev - 1e-9);
+    }
+    let insideMargin = 0;
+    let raises = 0;
+    for (const n of nodes) {
+      for (const realization of [0.75, 0.85]) {
+        const own = { action: 'raise', amount: n.gs.minRaiseTo ?? (n.gs.currentBet ?? 0) * 2 };
+        const r = omahaFlopRaisePricedRule(
+          own as HorseDecision,
+          n.player,
+          n.gs,
+          true,
+          0.04,
+          realization,
+          legal,
+          null
+        );
+        const v = r.verdict;
+        if (!v || r.changed === 'called' || r.changed === 'folded') continue;
+        raises++;
+        const rows = v.rows.filter((x) => x.action === 'raise');
+        let other = v.rows[0];
+        for (const x of v.rows) if (x.action !== 'raise' && x.ev > other.ev) other = x;
+        const alive = rows.filter((x) => !(other.ev - x.ev > v.margin));
+        const top = Math.max(...alive.map((x) => x.evSize!));
+        const took = rows.find((x) => Math.abs(x.to - Number(r.decision.amount)) < 0.011);
+        // the size taken is the survivor of highest same-footing price (the chain's own size when none survives)
+        if (took && alive.length) expect(took.evSize!).toBeGreaterThanOrEqual(top - 1e-6);
+        const mine = rows.find((x) => Math.abs(x.to - Number(own.amount)) < 0.011);
+        if (r.changed === 'resized' && took && mine && !(took.ev - mine.ev > v.margin))
+          insideMargin++;
+      }
+    }
+    expect(raises).toBeGreaterThanOrEqual(20);
+    // sizes the discounted gain could not move past the margin are moved now
+    expect(insideMargin).toBeGreaterThanOrEqual(5);
   });
   it('is silent out of its spot and never keys on identity', () => {
     expect(omahaFlopRaiseSpot(n0.player, n0.gs)).not.toBeNull();
