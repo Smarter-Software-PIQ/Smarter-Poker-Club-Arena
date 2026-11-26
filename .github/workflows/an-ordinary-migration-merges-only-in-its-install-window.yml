@@ -53,6 +53,7 @@ jobs:
             scripts/ci/merged-migration-dispatch.mjs
             scripts/ci/maintenance-window-migrations.mjs
             scripts/ci/migration-concurrent-preamble.mjs
+            scripts/ci/owner-window-migration.mjs
             server/src/maintenance/maintenanceSchedulePolicy.json
           sparse-checkout-cone-mode: false
       - name: Check out the proposed migration files (data only)
