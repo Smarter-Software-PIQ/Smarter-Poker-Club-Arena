@@ -25,6 +25,7 @@ export interface ClubPendingCashouts {
   /** Players with a pending request, for the roster flag. */
   playerIds: ReadonlySet<string>;
   loaded: boolean;
+  unavailable: boolean;
   reload: () => void;
 }
 
@@ -43,9 +44,16 @@ export function useClubPendingCashoutsRead(
   const { user } = useAuthUser();
   const viewerId = user?.id ?? null;
   const scope = enabled && clubUuid && viewerId ? `${viewerId}:${clubUuid}` : null;
-  const [state, setState] = useState<{ scope: string | null; requests: CashoutRequest[] }>({
+  const [state, setState] = useState<{
+    scope: string | null;
+    requests: CashoutRequest[];
+    loaded: boolean;
+    unavailable: boolean;
+  }>({
     scope: null,
     requests: [],
+    loaded: false,
+    unavailable: false,
   });
   const generation = useRef(0);
 
@@ -54,11 +62,20 @@ export function useClubPendingCashoutsRead(
     const mine = ++generation.current;
     try {
       const rows = await cashoutService.getAgentPendingCashouts(viewerId, clubUuid);
-      if (mine === generation.current) setState({ scope, requests: rows });
+      if (mine === generation.current)
+        setState({ scope, requests: rows, loaded: true, unavailable: false });
     } catch (err) {
       // A failed read keeps the last good answer for this scope; it never
       // invents an empty queue for a scope it could not read.
       reportError(err, 'useClubPendingCashouts.load');
+      if (mine === generation.current) {
+        setState((last) => ({
+          scope,
+          requests: last.scope === scope ? last.requests : EMPTY,
+          loaded: last.scope === scope && last.loaded,
+          unavailable: true,
+        }));
+      }
     }
   }, [scope, clubUuid, viewerId]);
 
@@ -93,7 +110,8 @@ export function useClubPendingCashoutsRead(
   return {
     requests,
     playerIds,
-    loaded: state.scope === scope && scope !== null,
+    loaded: state.scope === scope && scope !== null && state.loaded,
+    unavailable: state.scope === scope && scope !== null && state.unavailable,
     reload: () => void load(),
   };
 }

@@ -232,12 +232,16 @@ export default function WorkspaceTab({
     const baseline = Number(goalBaseline);
     if (!Number.isFinite(target) || !Number.isFinite(baseline))
       return setNotice('Enter A Valid Goal Baseline And Target.');
+    const existingGoal = workspace?.goals.find((goal) => goal.id === goalId);
+    if (goalId && !existingGoal) return setNotice('Choose A Current Goal To Edit.');
     const result = await guardedMutation(() =>
       statsWorkspaceService.saveGoal({
         id: goalId || null,
         title: goalTitle,
         metricKey: goalMetric,
-        direction: 'increase',
+        direction: existingGoal?.direction ?? 'increase',
+        status: existingGoal?.status ?? 'active',
+        endsAt: existingGoal?.endsAt ?? null,
         baseline,
         target,
       })

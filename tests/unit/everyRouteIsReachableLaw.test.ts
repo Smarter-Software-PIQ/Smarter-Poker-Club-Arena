@@ -293,7 +293,7 @@ describe('the reachability analysis itself is sound', () => {
 describe('every declared route is reachable, or explicitly justified', () => {
   it.each([
     ['clubs/:clubId/data/advanced', '<UnionReportRedirect />', 'clubs/:clubId/data'],
-    ['clubs/:clubId/cashier-classic', '<CashierEntrance legacy />', 'clubs/:clubId/cashier'],
+    ['clubs/:clubId/cashier-classic', '<CashierEntrance />', 'clubs/:clubId/cashier'],
   ])('keeps %s as a guarded redirect to a reachable workspace', (legacy, redirect, destination) => {
     const route = APP.split(`path="${legacy}"`)[1]?.split('<Route')[0];
     expect(route).toContain('<ClubMemberGuard>');

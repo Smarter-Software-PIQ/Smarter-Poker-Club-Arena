@@ -19,7 +19,8 @@
  * gathered yet", never "you have not played", and the copy below says so.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useStatsFactRead } from '../../hooks/useStatsFactRead';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   ComposedChart,
@@ -107,30 +108,11 @@ export default function EVLuckChart({
   const zeroStroke = still ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.18)';
   const reduceMotionPref = useReducedMotion();
   const reduceMotion = reduceMotionPref || still;
-  const [data, setData] = useState<EVCurvePayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [readError, setReadError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    StatsFactsService.getEVCurve(userId, scope, days, clubId)
-      .then((payload) => {
-        if (cancelled) return;
-        setData(payload);
-        setReadError(payload.error ?? null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, days, attempt, scope, clubId]);
+  const read = useCallback(
+    () => (userId ? StatsFactsService.getEVCurve(userId, scope, days, clubId) : null),
+    [userId, scope, days, clubId]
+  );
+  const { data, loading, error: readError, retry } = useStatsFactRead(read);
 
   const rows: Row[] = useMemo(() => {
     if (!data?.points?.length) return [];
@@ -168,7 +150,7 @@ export default function EVLuckChart({
         <h3 className="evluck-title">Luck: Actual Vs Expected</h3>
         <p className="evluck-empty-text">
           This Chart Could Not Be Loaded Right Now.{' '}
-          <button type="button" className="hand-retry" onClick={() => setAttempt((n) => n + 1)}>
+          <button type="button" className="hand-retry" onClick={retry}>
             Try Again
           </button>
         </p>

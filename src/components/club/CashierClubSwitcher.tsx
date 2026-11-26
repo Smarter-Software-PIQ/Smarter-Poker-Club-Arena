@@ -204,12 +204,11 @@ export default function CashierClubSwitcher({ clubId, clubName }: CashierClubSwi
       const slug = club.slug || club.id;
       // Literal targets, one per declared route, so check-route-targets can
       // match each of them against src/App.tsx.
-      const destination = cashierDestination(location.pathname, location.search);
-      if (destination === 'wallet-operations') navigate(`/clubs/${slug}/cashier?walletTools=open`);
-      else if (destination === 'cashier/statements') navigate(`/clubs/${slug}/cashier/statements`);
+      const destination = cashierDestination(location.pathname);
+      if (destination === 'cashier/statements') navigate(`/clubs/${slug}/cashier/statements`);
       else navigate(`/clubs/${slug}/cashier`);
     },
-    [closeMenu, currentClub, navigate, location.pathname, location.search]
+    [closeMenu, currentClub, navigate, location.pathname]
   );
 
   const handleMenuKeyDown = useCallback(

@@ -54,7 +54,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
@@ -285,6 +285,7 @@ export default function ClubDataSimplePage({
 }: { authorizedScope?: 'club' | 'downline' } = {}) {
   usePageTitle('Club Data');
   const navigate = useNavigate();
+  const { hash } = useLocation();
   const params = useParams<{ clubId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, isHydrating } = useAuthUser();
@@ -316,8 +317,16 @@ export default function ClubDataSimplePage({
   const [breakdown, setBreakdown] = useState<'total_winnings' | 'mtt_winnings' | 'fee' | null>(
     null
   );
-  const { game, setGame, stakes, setStakes, searchInput, setSearchInput } =
-    useClubDataFilters('club/ClubDataSimplePage');
+  const {
+    game,
+    setGame,
+    stakes,
+    effectiveStakes,
+    stakesApply,
+    setStakes,
+    searchInput,
+    setSearchInput,
+  } = useClubDataFilters('club/ClubDataSimplePage');
   const [search, setSearch] = useState(() => searchInput.trim());
   const [playerResults, setPlayerResults] = useState<{
     key: string;
@@ -342,7 +351,6 @@ export default function ClubDataSimplePage({
   const isToday = endDate >= today;
   const startDate = customStart ?? addDays(endDate, -(preset - 1));
   const calendarSelected = !!requestedRange || preset > 14;
-  const stakesApply = game === 'ALL' || game === 'HOLDEM' || game === 'OMAHA' || game === 'MIXED';
   const scopeKey = JSON.stringify([
     userId,
     clubParam,
@@ -454,7 +462,7 @@ export default function ClubDataSimplePage({
         p_start: startDate,
         p_end: endDate,
         p_game: game,
-        p_stakes: stakesApply ? stakes : 'ALL',
+        p_stakes: effectiveStakes,
         p_search: search || null,
         p_limit: ROW_LIMIT,
       });
@@ -509,7 +517,7 @@ export default function ClubDataSimplePage({
     endDate,
     game,
     stakes,
-    stakesApply,
+    effectiveStakes,
     search,
     scopeKey,
     identityKey,
@@ -621,11 +629,24 @@ export default function ClubDataSimplePage({
     !!userId &&
     (currentScope ?? authorizedScope) === 'club';
   const reportOpen = canOpenReport && searchParams.get('report') === 'open';
+  const reportSection = useRef<HTMLElement>(null);
+  const gameReportsHeading = useRef<HTMLHeadingElement>(null);
+  const returnToGameReports = useRef(false);
+  useLayoutEffect(() => {
+    if (reportOpen && hash === '#club-data-report') {
+      reportSection.current?.focus({ preventScroll: true });
+      reportSection.current?.scrollIntoView?.({ block: 'start' });
+    } else if (!reportOpen && returnToGameReports.current) {
+      gameReportsHeading.current?.querySelector('a')?.focus();
+      returnToGameReports.current = false;
+    }
+  }, [reportOpen, hash]);
   const reportQuery = new URLSearchParams(searchParams);
   reportQuery.set('dataGame', game);
   reportQuery.set('dataStakes', stakes);
   reportQuery.set('dataSearch', searchInput);
   const closeReport = () => {
+    returnToGameReports.current = true;
     const query = new URLSearchParams(searchParams);
     query.delete('report');
     query.delete('view');
@@ -666,7 +687,7 @@ export default function ClubDataSimplePage({
       <Header clubName={clubName} />
 
       {reportOpen && (
-        <section aria-label="Club Report" id="club-data-report">
+        <section ref={reportSection} tabIndex={-1} aria-label="Club Report" id="club-data-report">
           <div className="arena-switch">
             <button
               type="button"
@@ -679,7 +700,7 @@ export default function ClubDataSimplePage({
           </div>
           <div id="club-report-content">
             <Suspense fallback={<p role="status">Loading Club Report</p>}>
-              <ClubReport inline />
+              <ClubReport inline onClose={closeReport} />
             </Suspense>
           </div>
         </section>
@@ -834,7 +855,7 @@ export default function ClubDataSimplePage({
           end={endDate}
           basis={answerBasis}
           game={game}
-          stakes={stakesApply ? stakes : 'ALL'}
+          stakes={effectiveStakes}
           search={search || null}
           metric={breakdown}
           onClose={() => setBreakdown(null)}
@@ -912,7 +933,7 @@ export default function ClubDataSimplePage({
       </div>
 
       <section className="arena-case">
-        <h2 className="arena-section-title">
+        <h2 ref={gameReportsHeading} className="arena-section-title">
           {canOpenReport && !reportOpen ? (
             <Link
               className={styles.reportLink}
