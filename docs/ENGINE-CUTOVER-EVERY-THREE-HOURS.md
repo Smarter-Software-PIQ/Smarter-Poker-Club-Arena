@@ -112,3 +112,26 @@ The cadence is read from this revision's `server/src/maintenance/maintenanceSche
 This is the applier's rule, not a database trigger. World Hub shares the migration history, and its migrations do not stale a Club Arena copy (O23), so refusing every repository's DDL for most of the day would cost that lane its installs and protect nothing here.
 
 Law: `tests/a-hand-install-respects-the-release-freeze.law.test.ts`.
+
+## A Shorter Certification With A Judged Memory Gate (2026-11-26)
+
+**Why.** Two certification attempts should fit comfortably in one cycle. One attempt (refresh plus certify) took a median 67.9 minutes, so two used 136 of the 145 minutes between a break's end (start + 5) and the next cutoff (start + 150). The soak was 30 of those minutes and judged no memory.
+
+**Measured.** 73 certificates, 2026-11-21 02:51Z to 2026-11-26 05:09Z, 1800 s soaks, two `docker stats` readings each:
+
+| n = 73                  | Min    | Median | P95    | Max    |
+| ----------------------- | ------ | ------ | ------ | ------ |
+| Start (MiB)             | 608.5  | 969.6  | 1157.3 | 1243.1 |
+| End (MiB)               | 711.3  | 1144.8 | 1397.6 | 1689.6 |
+| Growth (MiB)            | -271.7 | 194.7  | 525.2  | 767.1  |
+| Growth per minute (MiB) | -9.1   | 6.5    | 17.5   | 25.6   |
+
+**The gate.** `judge_soak_memory_growth` in `server/standby/standby-engine.sh` samples the engine RSS (`/health` `memory.rssMb`, else `docker stats`) on every soak loop pass and refuses a build (`memory_growth_exceeded`) only when the median pairwise slope is above 141 MiB per minute over the whole soak and above half of that in each half. 141 = (26,624 MiB container limit minus the 1,243 MiB largest healthy start) / 180 minutes: growth that would reach the limit before the next cycle could replace the build. That is 5.5 times the largest healthy slope, 2.7 times the worst case of a healthy build's whole 30-minute growth landing inside the soak, and 6 times stricter than the out-of-memory kill the old soak relied on (854 MiB per minute). Too few readable samples is `memory_growth_unreadable`, which withholds the certificate and is never a pass. The certificate carries the whole check and its sample series as `memoryGrowthCheck`.
+
+**The soak.** 900 s on all three surfaces (`backup-engine.yml`, `standby-engine.sh`, `select-daily-engine.py`). The hand-gap judge already graded at most 15 minutes. The selector accepts a soak under 1800 s only with `memoryGrowthCheck.status == "pass"`; a certificate without the key (made before this change) still needs 1800 s.
+
+**The timetable.** Certify projects from a median 53.7 to about 38.7 minutes, one attempt from 67.9 to about 52.9, and two attempts from 136 to about 106 of the 145 minutes, leaving about 39 instead of 9.
+
+**What stops it regressing.** `tests/a-shorter-soak-judges-memory-growth.law.test.ts`, with the 73 real certificates embedded.
+
+**Not verified live.** The first real certification with the new judge is the live proof and is pending; the durations above are projections until then. Details, the limits of the measurement and the ceilings left at their old values: `docs/changelog/2026-11-26-shorter-certification-with-a-judged-memory-gate.md`.

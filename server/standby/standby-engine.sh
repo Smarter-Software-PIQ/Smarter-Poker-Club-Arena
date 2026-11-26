@@ -19,7 +19,7 @@
 #   standby-engine.sh seed    <seed_dir>      load the horse-only platform seed
 #   standby-engine.sh build   <sha>           build the exact engine image
 #   standby-engine.sh run     <sha>           (re)start the Backup Engine
-#   standby-engine.sh certify <sha> [soak_s]  build, boot, crash, soak, verdict
+#   standby-engine.sh certify <sha> [soak_s]  build, boot, crash, soak (900 s), verdict
 #   standby-engine.sh trial   <swap|break|table-kill|all> ...  simulations (standby-trials.sh)
 #   standby-engine.sh status
 set -Eeuo pipefail
@@ -839,6 +839,175 @@ sys.exit(0)
 PY_HAND_GAP
 }
 
+# Memory growth gate during Backup soak (2026-11-26, shorter certification).
+# The soak used to record two `docker stats` strings (memoryStart, memoryEnd)
+# and judge neither; a 30-minute soak only "noticed" a leak fast enough to get
+# the container OOM-killed inside it (26 GiB in 30 min, about 854 MiB/min).
+# The soak is now 900 s and memory growth is a judged gate.
+#
+# MEASURED (73 real certificates, Backup runs 2026-11-21 02:51Z to 2026-11-26
+# 05:09Z, 1800 s soaks, two `docker stats` readings each; 58 passed):
+#                   min     median    p95      max
+#   start MiB      608.5    969.6   1157.3   1243.1
+#   end MiB        711.3   1144.8   1397.6   1689.6
+#   growth MiB    -271.7    194.7    525.2    767.1
+#   MiB per min     -9.1      6.5     17.5     25.6
+# Warm-up dominates the first half hour, so a healthy build's early slope says
+# nothing about days of uptime (25.6 MiB/min for 24 h would be 36 GiB; the
+# serving engine held 11.0 GiB RSS after 22.5 h on 2026-11-25, 8 MiB/min).
+# The gate therefore refuses only a FAST, SUSTAINED leak:
+#   limit = (container limit 26,624 MiB - largest healthy start 1,243 MiB)
+#           / 180 min (one cutover cycle, the soonest a replacement can seal)
+#         = 141 MiB per minute.
+# That is 5.5 times the largest healthy 30-minute slope, 2.7 times the worst
+# case where a healthy build's whole 30-minute growth (767 MiB) lands inside
+# the 15-minute soak (51 MiB/min), and 6 times stricter than what the old soak
+# caught by OOM (854 MiB/min). Slower leaks are the serving engine's memory
+# governor's job (/health.memoryGovernor) and are replaced by the next seal.
+#
+# Samples are taken every loop pass (about 15 s): the engine's own process RSS
+# (/health memory.rssMb) and the container reading (`docker stats`). The judge
+# uses the engine series when it has enough samples, else the container
+# series. The slope is the median of all pairwise slopes (Theil-Sen), so one
+# garbage-collection spike or a burst at the end cannot move it, and a build
+# fails only when the whole soak AND each half of it exceed the limit (a
+# one-time step, such as a cache filling, is not a leak).
+# Fewer than MIN_SAMPLES readable samples, or samples covering under half the
+# soak, is "unreadable": a distinct status that withholds the certificate, as
+# every other unreadable check here does. It needs most of about 53 spaced
+# reads to fail, so one transient read failure never costs a cycle.
+# Prints the full check object (stdout) for the certificate in every case.
+# Returns 0 on pass, 1 on a breach, 2 when unreadable.
+judge_soak_memory_growth() {
+  local soak="$1" samples_file="$2"
+  [[ "$soak" =~ ^[0-9]+$ ]] || { printf '%s\n' '{"status": "unreadable", "reason": "soak_seconds_invalid"}'; return 2; }
+  python3 - "$soak" "$samples_file" <<'PY_MEMORY_GROWTH'
+import json, math, re, statistics, sys
+
+# The judge's constants; each is derived in the comment above the function.
+CONTAINER_LIMIT_MIB = 26 * 1024          # docker run --memory 26g
+HEALTHY_START_MAX_MIB = 1243             # largest start of 73 certificates
+HORIZON_MINUTES = 180                    # one three-hour cutover cycle
+SLOPE_LIMIT_MIB_PER_MIN = (CONTAINER_LIMIT_MIB - HEALTHY_START_MAX_MIB) // HORIZON_MINUTES
+MIN_SAMPLES = 8
+MIN_SPAN_FRACTION = 0.5
+MIN_ATTEMPTS = 3
+SERIES_SHOWN = 240
+
+UNIT_MIB = {
+    'b': 1 / 1024 ** 2, 'kib': 1 / 1024, 'mib': 1.0, 'gib': 1024.0, 'tib': 1024.0 ** 2,
+    'kb': 1000 / 1024 ** 2, 'mb': 1000 ** 2 / 1024 ** 2, 'gb': 1000 ** 3 / 1024 ** 2,
+    'tb': 1000 ** 4 / 1024 ** 2,
+}
+
+
+def parse_mib(token):
+    """A reading in MiB, or None. A bare number is MiB (/health memory.rssMb);
+    a number with a unit is a `docker stats` size (B, KiB, MiB, GiB, kB, MB, GB)."""
+    token = (token or '').strip()
+    m = re.fullmatch(r'([0-9]+(?:\.[0-9]+)?|\.[0-9]+)\s*([A-Za-z]*)', token)
+    if not m:
+        return None
+    unit = m[2].lower()
+    if unit and unit not in UNIT_MIB:
+        return None
+    value = float(m[1]) * (UNIT_MIB[unit] if unit else 1.0)
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def theil_sen(points):
+    """Median of all pairwise slopes, in MiB per minute."""
+    slopes = [(b[1] - a[1]) / ((b[0] - a[0]) / 60.0)
+              for i, a in enumerate(points) for b in points[i + 1:] if b[0] > a[0]]
+    return statistics.median(slopes) if slopes else None
+
+
+def describe(points, soak):
+    out = {'samples': len(points), 'spanSeconds': (points[-1][0] - points[0][0]) if points else 0}
+    out['sufficient'] = (len(points) >= MIN_SAMPLES and soak > 0
+                         and out['spanSeconds'] >= MIN_SPAN_FRACTION * soak)
+    if not out['sufficient']:
+        return out
+    third = max(1, len(points) // 3)
+    half = len(points) // 2
+    start = statistics.median(p[1] for p in points[:third])
+    end = statistics.median(p[1] for p in points[-third:])
+    slope = theil_sen(points)
+    out.update({
+        'startMib': round(start, 1), 'endMib': round(end, 1), 'growthMib': round(end - start, 1),
+        'minMib': round(min(p[1] for p in points), 1), 'maxMib': round(max(p[1] for p in points), 1),
+        'slopeMibPerMin': round(slope, 2),
+        'firstHalfSlopeMibPerMin': round(theil_sen(points[:half]), 2),
+        'secondHalfSlopeMibPerMin': round(theil_sen(points[half:]), 2),
+        'projectedMibAtHorizon': round(end + slope * HORIZON_MINUTES, 1),
+    })
+    return out
+
+
+soak = int(sys.argv[1])
+rules = {'containerLimitMib': CONTAINER_LIMIT_MIB, 'healthyStartMaxMib': HEALTHY_START_MAX_MIB,
+         'horizonMinutes': HORIZON_MINUTES, 'slopeLimitMibPerMin': SLOPE_LIMIT_MIB_PER_MIN,
+         'sustained': 'whole soak over the limit and each half over half the limit',
+         'minSamples': MIN_SAMPLES, 'minSpanFraction': MIN_SPAN_FRACTION, 'minAttempts': MIN_ATTEMPTS}
+summary = {'status': 'unreadable', 'soakSeconds': soak, 'attempts': 0, 'source': None, 'rules': rules}
+series = {'engine_rss': [], 'container': []}
+try:
+    with open(sys.argv[2], encoding='utf-8', errors='replace') as handle:
+        lines = [line.rstrip('\n').split('\t') for line in handle if line.strip()]
+except OSError as exc:
+    summary['reason'] = 'samples_file_unreadable'
+    print(json.dumps(summary))
+    print(f'standby-engine: memory_growth_unreadable: {exc}', file=sys.stderr)
+    sys.exit(2)
+for fields in lines:
+    if not fields or not re.fullmatch(r'[0-9]+', fields[0]):
+        continue
+    summary['attempts'] += 1
+    t = int(fields[0])
+    for name, index in (('engine_rss', 1), ('container', 2)):
+        value = parse_mib(fields[index]) if len(fields) > index else None
+        if value is not None:
+            series[name].append((t, value))
+for points in series.values():
+    points.sort()
+summary['sources'] = {name: describe(points, soak) for name, points in series.items()}
+chosen = next((name for name in ('engine_rss', 'container') if summary['sources'][name]['sufficient']), None)
+if chosen is None:
+    summary['reason'] = ('too_few_attempts' if summary['attempts'] < MIN_ATTEMPTS
+                         else 'too_few_readable_samples')
+    print(json.dumps(summary))
+    print(f"standby-engine: memory_growth_unreadable: {summary['reason']} "
+          f"(attempts={summary['attempts']}, engine_rss={len(series['engine_rss'])}, "
+          f"container={len(series['container'])}, need {MIN_SAMPLES} over "
+          f"{MIN_SPAN_FRACTION:.0%} of {soak}s)", file=sys.stderr)
+    sys.exit(2)
+
+judged = summary['sources'][chosen]
+points = series[chosen]
+step = max(1, math.ceil(len(points) / SERIES_SHOWN))
+breach = (judged['slopeMibPerMin'] > SLOPE_LIMIT_MIB_PER_MIN
+          and judged['firstHalfSlopeMibPerMin'] > SLOPE_LIMIT_MIB_PER_MIN / 2
+          and judged['secondHalfSlopeMibPerMin'] > SLOPE_LIMIT_MIB_PER_MIN / 2)
+summary.update({k: v for k, v in judged.items() if k != 'sufficient'})
+summary.update({
+    'status': 'fail' if breach else 'pass',
+    'source': chosen,
+    'limitMibPerMin': SLOPE_LIMIT_MIB_PER_MIN,
+    # [seconds since the first sample, MiB]: enough to re-derive the limit.
+    'series': [[p[0] - points[0][0], round(p[1], 1)] for p in points[::step]],
+})
+print(json.dumps(summary))
+if breach:
+    print(f"standby-engine: FAIL memory growth: source={chosen} slope={judged['slopeMibPerMin']} MiB/min "
+          f"(first half {judged['firstHalfSlopeMibPerMin']}, second half {judged['secondHalfSlopeMibPerMin']}) "
+          f"> limit {SLOPE_LIMIT_MIB_PER_MIN} MiB/min; {judged['startMib']} -> {judged['endMib']} MiB over "
+          f"{judged['spanSeconds']}s, n={judged['samples']}; at this rate the {CONTAINER_LIMIT_MIB} MiB "
+          f"container limit is reached inside one {HORIZON_MINUTES}-minute cycle", file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)
+PY_MEMORY_GROWTH
+}
+
 wait_auto_recovery() {
   local sha="$1" container_id="$2" before="$3" deadline=$(( $(date +%s) + $4 )) count h l
   [[ "$before" =~ ^[0-9]+$ ]] || return 1
@@ -857,7 +1026,7 @@ wait_auto_recovery() {
 }
 
 cmd_certify() {
-  local sha="$1" soak="${2:-1800}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
+  local sha="$1" soak="${2:-900}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
   local restart_before restart_after container_id seats
   valid_sha "$sha"
   started=$(date +%s)
@@ -922,21 +1091,28 @@ cmd_certify() {
     else record 'did_not_recover_from_crash'; boot2=-1; fi
   fi
 
-  # Soak: stays up, no restarts, no fatal errors, bounded memory growth.
+  # Soak: stays up, no restarts, no fatal errors, judged memory growth
+  # (judge_soak_memory_growth; sampled every pass of the loop below).
   local lifecycle_check='null' hand_gap_check='null' lc_rc hg_rc lc_count soak_started soak_window_min
+  local memory_growth_check='null' mg_rc mem_samples='' mem_rss mem_container soak_completed=0
   if [ "$verdict" = pass ]; then
     sleep 60
     soak_started=$(date +%s)
     rss0=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
     local end=$(( $(date +%s) + soak ))
     local dealt=0 h
+    mem_samples=$(mktemp)
     while [ "$(date +%s)" -lt "$end" ]; do
       [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || { record 'crashed_during_soak'; break; }
       h=$(health); l=$(printf '%s' "$h" | health_field liveness)
       [ "$l" = ok ] || [ "$l" = standby ] || { record "liveness_${l:-unreachable}_during_soak"; break; }
       n=$(printf '%s' "$h" | health_field dealRate.handsInWindow); [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$dealt" ] && dealt=$n
+      mem_rss=$(printf '%s' "$h" | health_field memory.rssMb)
+      mem_container=$(timeout 10 docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" 2>/dev/null | awk '{print $1}') || mem_container=''
+      printf '%s\t%s\t%s\n' "$(date +%s)" "${mem_rss:--}" "${mem_container:--}" >> "$mem_samples"
       sleep 15
     done
+    [ "$(date +%s)" -ge "$end" ] && soak_completed=1
     [ "$(docker inspect -f '{{.Id}}' "$CONTAINER")" = "$container_id" ] || record 'container_changed_during_soak'
     [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" = "$restart_after" ] || record 'restarted_during_soak'
     # The seeded horse tables must actually deal on this build.
@@ -958,6 +1134,22 @@ cmd_certify() {
       record 'hand_gap_check_unreadable'
     fi
     rss1=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
+    # Memory growth across the soak. A soak that ended early already failed
+    # for its own reason and is not judged on a partial series.
+    if [ "$soak_completed" -eq 1 ]; then
+      mg_rc=0
+      memory_growth_check=$(judge_soak_memory_growth "$soak" "$mem_samples") || mg_rc=$?
+      printf '%s' "$memory_growth_check" | python3 -c 'import json,sys; assert isinstance(json.load(sys.stdin), dict)' 2>/dev/null \
+        || { memory_growth_check='{"status": "unreadable", "reason": "judge_failed"}'; [ "$mg_rc" -ne 0 ] || mg_rc=2; }
+      if [ "$mg_rc" -eq 1 ]; then
+        record 'memory_growth_exceeded'
+      elif [ "$mg_rc" -ne 0 ]; then
+        record 'memory_growth_unreadable'
+      fi
+    else
+      memory_growth_check='{"status": "not_judged", "reason": "soak_incomplete"}'
+    fi
+    rm -f "$mem_samples"
   fi
   if [ "$verdict" = pass ]; then
     python3 /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py "$sha" >&2 \
@@ -980,7 +1172,7 @@ cmd_certify() {
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" "$memory_growth_check" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -989,6 +1181,7 @@ doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": 
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
        "lifecycleLogCheck": json.loads(sys.argv[6]), "handGapCheck": json.loads(sys.argv[7]),
+       "memoryGrowthCheck": json.loads(sys.argv[8]),
        "seed": json.load(open("$STATE_DIR/seed.json")) if __import__("os").path.exists("$STATE_DIR/seed.json") else None,
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
@@ -1016,7 +1209,7 @@ case "${1:-}" in
   seed)    cmd_seed "${2:?seed_dir}" ;;
   build)   cmd_build "${2:?sha}" ;;
   run)     cmd_run "${2:?sha}" ;;
-  certify) cmd_certify "${2:?sha}" "${3:-1800}" ;;
+  certify) cmd_certify "${2:?sha}" "${3:-900}" ;;
   trial)   shift; cmd_trial "$@" ;;
   status)  cmd_status ;;
   *) sed -n 2,22p "$0"; exit 64 ;;

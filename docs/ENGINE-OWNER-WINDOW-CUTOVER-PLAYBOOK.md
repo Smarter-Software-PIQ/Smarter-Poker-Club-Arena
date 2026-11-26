@@ -87,7 +87,7 @@ What the command changes (14 files):
 Timing rules for the booking (the command enforces the lead, the band, the 420 s fit, the six-hour bound and the 03:30 Chicago limit; the merge-time and certificate rules are yours):
 
 - `playerNoticeAt` at least 20 minutes before `notBefore`, and after the PR's merge time.
-- `notBefore` no earlier than the certificate can exist: booking merge plus about 65 minutes (Backup refresh about 8, certify about 55 including the 1800 s soak). The booking merge commit IS the target, because it carries the release controls, so it must be certified itself.
+- `notBefore` no earlier than the certificate can exist: booking merge plus about 65 minutes (Backup refresh about 8, certify about 55 with the 1800 s soak measured through 2026-11-25; the 900 s soak since 2026-11-26 projects to about 40, so keep 65 until the first 900 s certifications are measured). The booking merge commit IS the target, because it carries the release controls, so it must be certified itself.
 - `notAfter` before 03:30 Chicago (routine preparation).
 - An announcement is admitted only at 330 to 2940 seconds past the hour (:05:30 to :49:00) and only if announcement plus 420 s fits before `notAfter`; the break runs from announcement plus 120 s to announcement plus 420 s. An engine break can never cover :55 to :00; a stamp after :48:00 ends inside the tournament break.
 
