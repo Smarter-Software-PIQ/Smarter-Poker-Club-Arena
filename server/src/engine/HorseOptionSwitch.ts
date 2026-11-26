@@ -422,7 +422,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFlopRealizationIsPriced',
   'omahaFacingBetMinimumDefencePrior',
   // 2026-11-26 PLO-OWNER lead-7 lane PLO-DEFENCE: the bettor's non-value share anchored to the balanced share (ships dark)
-  'omahaFacingBetPriorIsEquilibriumAnchored',
+  'omahaFacingBetPriorIsPeopleMeasured',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',

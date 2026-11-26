@@ -1,5 +1,5 @@
--- 20261126175935_horse_option_register_plo_facing_bet_equilibrium_anchor.sql
--- @live-proof: (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('omahaFacingBetPriorIsEquilibriumAnchored')) = 1
+-- 20261126175935_horse_option_register_plo_facing_bet_people_measured.sql
+-- @live-proof: (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('omahaFacingBetPriorIsPeopleMeasured')) = 1
 --
 -- HORSE OPTION SWITCH: 1 OPTION REGISTERED
 --
@@ -29,6 +29,6 @@ BEGIN;
 -- One attempt, no retry.
 SET LOCAL lock_timeout = '3s';
 
-SELECT public.fn_ca_horse_option_register('omahaFacingBetPriorIsEquilibriumAnchored', 'plain', false, 'shadow', '20261126175935_horse_option_register_plo_facing_bet_equilibrium_anchor');
+SELECT public.fn_ca_horse_option_register('omahaFacingBetPriorIsPeopleMeasured', 'plain', false, 'shadow', '20261126175935_horse_option_register_plo_facing_bet_people_measured');
 
 COMMIT;

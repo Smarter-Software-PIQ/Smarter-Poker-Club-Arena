@@ -1352,8 +1352,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
-    'omahaFacingBetPriorIsEquilibriumAnchored',
-    "PLO-OWNER lead-7 2026-11-26 (audit-rootcause/REPORT.md section B; woowoo/REPORT.md gap 1). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up turn or river bettor's non-value share is the balanced share for the price (two streets on a turn bet with a river bet to come), moved only by his own shown bets; the population prior and the public field reads do not act; a raise and a multiway spot keep today's price. HorseOmahaEquilibriumAnchor.ts",
+    'omahaFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-7 2026-11-26 (audit-rootcause/REPORT.md section B; woowoo/REPORT.md gap 1). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters; a multiway spot keeps today's price. HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
     'V94'
   ),
   flag(
@@ -6164,21 +6164,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
-    'omaha_equilibrium_anchor_priced',
-    'HorseLogic omahaFacingBetEvRule (HorseOmahaEquilibriumAnchor)',
-    'the facing-bet verdict priced a heads-up first bet with the balanced non-value share for the price (omahaFacingBetPriorIsEquilibriumAnchored)',
+    'omaha_people_prior_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    'the facing-bet verdict priced a heads-up turn or river bet or raise on the people-only measured share (river: three measured regions) (omahaFacingBetPriorIsPeopleMeasured)',
     'V94'
   ),
   receipt(
-    'omaha_equilibrium_anchor_record_read',
-    'HorseLogic omahaFacingBetEvRule (HorseOmahaEquilibriumAnchor)',
-    "the balanced share was moved by the bettor's own shown bets of this street, size and line (omahaFacingBetPriorIsEquilibriumAnchored)",
+    'omaha_people_prior_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    "the people-measured share was moved by the bettor's own shown bets of this street, size and line (omahaFacingBetPriorIsPeopleMeasured)",
     'V94'
   ),
   receipt(
-    'omaha_equilibrium_anchor_changed',
-    'HorseLogic omahaFacingBetEvRule (HorseOmahaEquilibriumAnchor)',
-    'the verdict on the balanced share differs from the verdict on the population prior and the public reads (omahaFacingBetPriorIsEquilibriumAnchored)',
+    'omaha_people_prior_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    'the verdict on the people-measured share differs from the verdict on the old population prior and the public reads (omahaFacingBetPriorIsPeopleMeasured)',
     'V94'
   ),
   receipt(

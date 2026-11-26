@@ -213,9 +213,9 @@ import { omahaFlopCallTreeRule } from './HorseOmahaFlopCallTree.js';
 import { omahaMultiwayValueBetRule } from './HorseOmahaMultiwayValueBet.js';
 import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
 import {
-  omahaEquilibriumAnchoredShare,
-  type OmahaEquilibriumAnchorShare,
-} from './HorseOmahaEquilibriumAnchor.js';
+  omahaPeoplePriorShare,
+  type OmahaPeoplePriorShare,
+} from './HorseOmahaFacingBetPeoplePrior.js';
 import {
   classCapFloorKeepsTheCall,
   classCapRespectingEquity,
@@ -4484,7 +4484,7 @@ export interface HorseDecideOpts {
   /** PLO-OWNER lead-7 2026-11-26. PLO4/PLO5 cash, turn and river, heads-up, inside omahaFacingBetEv: the bettor's
    *  non-value share is the balanced share for the price (HorseOmahaEquilibriumAnchor), moved only by his own
    *  shown bets; OMAHA_EV_PRIOR_BLUFF and the public field reads do not act. Default OFF, read `=== true`. */
-  omahaFacingBetPriorIsEquilibriumAnchored?: boolean;
+  omahaFacingBetPriorIsPeopleMeasured?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14551,9 +14551,9 @@ function omahaFacingBetEvRule(
       if (ev.measured?.read) noteFire('omaha_facing_bet_value_share_measured');
       if (ev.measured?.ranged) noteFire('omaha_facing_bet_measured_range_priced');
       if (ev.anchored) {
-        noteFire('omaha_equilibrium_anchor_priced');
-        if (ev.anchored.shown > 0) noteFire('omaha_equilibrium_anchor_record_read');
-        if (ev.anchored.changed) noteFire('omaha_equilibrium_anchor_changed');
+        noteFire('omaha_people_prior_priced');
+        if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
+        if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
       // the corrected price (omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint) decided
       if (ev.priced) {
@@ -14599,7 +14599,7 @@ type OmahaFacingBetEvAnswer = {
    *  whether its call differs from today's verdict */
   priced?: OmahaPricedFacingVerdict;
   pricedChanged?: boolean;
-  /** omahaFacingBetPriorIsEquilibriumAnchored: the balanced share priced the bettor (his own shown bets read:
+  /** omahaFacingBetPriorIsPeopleMeasured: the balanced share priced the bettor (his own shown bets read:
    *  shown), and whether the verdict differs from the one the population prior gives */
   anchored?: { shown: number; changed: boolean };
 };
@@ -14644,7 +14644,7 @@ let omahaFacingBetEvCountMemo: {
   /** omahaStabDefenceIsPriced */
   stabDefence: boolean;
   valueShareMeasured: boolean;
-  /** omahaFacingBetPriorIsEquilibriumAnchored */
+  /** omahaFacingBetPriorIsPeopleMeasured */
   equilibriumAnchor: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
@@ -14862,9 +14862,9 @@ function omahaFacingBetEvCount(
     jointField: opts.omahaFacingBetFieldIsJoint === true,
     nutShare: opts.omahaMultiwayCallNeedsNutShare === true,
   };
-  // omahaFacingBetPriorIsEquilibriumAnchored (default off): PLO4/PLO5 cash only.
+  // omahaFacingBetPriorIsPeopleMeasured (default off): PLO4/PLO5 cash only.
   const equilibriumAnchor =
-    opts.omahaFacingBetPriorIsEquilibriumAnchored === true &&
+    opts.omahaFacingBetPriorIsPeopleMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const pricedOn =
@@ -14939,7 +14939,7 @@ function omahaFacingBetEvCount(
       : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
-    let equilibriumAnchored: OmahaEquilibriumAnchorShare | null = null;
+    let equilibriumAnchored: OmahaPeoplePriorShare | null = null;
     let readBeforeAnchor: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     let modeTurnRealization: number | null = null;
     if (mind) {
@@ -15028,20 +15028,24 @@ function omahaFacingBetEvCount(
           ? OMAHA_BET_READ_TURN_REALIZATION.inPosition
           : OMAHA_BET_READ_TURN_REALIZATION.outOfPosition;
     }
-    // omahaFacingBetPriorIsEquilibriumAnchored (default off): heads-up, the non-value share is the balanced share
+    // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, the non-value share is the balanced share
     // for the price, moved only by the bettor's own shown bets (HorseOmahaEquilibriumAnchor); no field read acts.
     // A first bet only: a raise keeps today's price (no per-opponent record of shown raises exists to move it).
-    if (equilibriumAnchor && !spot.isRaise && spot.callers + spot.allIns + spot.behind === 0) {
+    if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
         const variant = String(gs.gameVariant ?? '').toLowerCase();
-        const anchored = omahaEquilibriumAnchoredShare({
+        const anchored = omahaPeoplePriorShare({
+          street: spot.street,
+          potFrac: spot.potFrac,
+          isRaise: spot.isRaise === true,
+          multiway: false,
           paid: spot.paid,
           winnable: spot.winnable,
           rake: omahaFacingBetDeduction(player, gs, opts),
           twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
           record:
-            mind && bettor
+            mind && bettor && spot.isRaise !== true
               ? omahaBetReadOwnCellOf(
                   bettor.user_id,
                   variant,
@@ -15054,7 +15058,11 @@ function omahaFacingBetEvCount(
         });
         if (anchored) {
           readBeforeAnchor = read;
-          read = { ...OMAHA_EV_UNKNOWN_READ, pricedShare: anchored.share };
+          read = {
+            ...OMAHA_EV_UNKNOWN_READ,
+            pricedShare: anchored.share,
+            pricedRegions: anchored.regions,
+          };
           equilibriumAnchored = anchored;
         }
       } catch {

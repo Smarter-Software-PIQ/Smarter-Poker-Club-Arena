@@ -1,5 +1,5 @@
 /**
- * THE EQUILIBRIUM-ANCHORED BETTOR PRIOR (omahaFacingBetPriorIsEquilibriumAnchored; PLO-OWNER lead-7 2026-11-26;
+ * THE EQUILIBRIUM-ANCHORED BETTOR PRIOR (omahaFacingBetPriorIsPeopleMeasured; PLO-OWNER lead-7 2026-11-26;
  * audit-rootcause/REPORT.md section B and woowoo/REPORT.md gap 1). Pure arithmetic: no telemetry, no opponent
  * memory of its own (the caller passes the bettor's record), no random draw.
  *

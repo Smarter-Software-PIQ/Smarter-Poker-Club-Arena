@@ -1,7 +1,7 @@
 /**
  * LAW: THE EQUILIBRIUM-ANCHORED PRIOR IS CHEAP WHERE IT APPLIES (PLO-OWNER lead-7, 2026-11-26).
  *
- * omahaFacingBetPriorIsEquilibriumAnchored replaces one number of the facing-bet verdict (the bettor's non-value
+ * omahaFacingBetPriorIsPeopleMeasured replaces one number of the facing-bet verdict (the bettor's non-value
  * share) with arithmetic on the price and his own shown bets; with telemetry on it prices the spot once more on the
  * population prior for its "changed" receipt, on exact counts the verdict has already made. Measured on 986 real
  * heads-up turn and river decisions where it applies (plo-defence/BUILD.md): p50 1.29 / p95 2.53 / max 11.3 ms with
@@ -40,9 +40,9 @@ describe('LAW: the equilibrium-anchored prior is cheap where it applies', () => 
       for (const { st, prof } of spots) {
         const r = replayAt(st as never, prof as never, [1], {
           omahaFacingBetEv: true,
-          ...(on ? { omahaFacingBetPriorIsEquilibriumAnchored: true } : {}),
+          ...(on ? { omahaFacingBetPriorIsPeopleMeasured: true } : {}),
         } as never) as { receipts: Record<string, number> };
-        if (r.receipts.omaha_equilibrium_anchor_priced) priced++;
+        if (r.receipts.omaha_people_prior_priced) priced++;
       }
       return priced;
     };

@@ -4979,11 +4979,11 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the bettor's non-value share anchored to the balanced
   // share for the price, moved only by his own shown bets (HorseOmahaEquilibriumAnchor).
   ...(['plo4', 'plo5'] as const).map((variant) => ({
-    name: `${variant}_omaha_facing_bet_prior_is_equilibrium_anchored`,
+    name: `${variant}_omaha_facing_bet_prior_is_people_measured`,
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { omahaFacingBetEv: true, omahaFacingBetPriorIsEquilibriumAnchored: true },
+    a: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
