@@ -188,6 +188,9 @@ describe('an unintended delay between hands pages after 15 minutes and grades ca
     const harness = read('scripts', 'ci', 'test-hand-gap-watch.py');
     expect(harness).toContain(BASE_FILE);
     expect(harness).toContain(FILE);
+    expect(harness).toContain(
+      '20261126031922_hand_gap_tournament_break_predicate_requires_active_break.sql'
+    );
     expect(harness).toContain('3rd consecutive breached window (15 min) opens ONE critical alert');
     expect(harness).toContain('when the delay clears, the alert resolves and notifies owner ONCE');
     expect(harness).toContain('cash_bust with recorded cadence is graded');
@@ -196,5 +199,30 @@ describe('an unintended delay between hands pages after 15 minutes and grades ca
     expect(wf).toContain('python3 scripts/ci/test-hand-gap-watch.py');
     expect(wf).toContain(`supabase/migrations/${BASE_FILE}`);
     expect(wf).toContain('scripts/sql/hand-gap-unintended-delay.sql');
+  });
+
+  it('requires an active or gap-overlapping tournament break instead of COALESCE(break_ends_at, infinity) (incident 1e532243)', () => {
+    const breakFix = read(
+      'supabase',
+      'migrations',
+      '20261126031922_hand_gap_tournament_break_predicate_requires_active_break.sql'
+    );
+    expect(breakFix).toMatch(/^-- @live-proof:/m);
+    expect(breakFix).toContain('-- @probe-for: public.fn_ca_hand_gap_unintended_delay\n');
+    expect(breakFix).toContain(
+      '-- @probe-for: smarter_private.reliability_runbook_hand_gap_classification\n'
+    );
+    expect(breakFix).toContain('-- @probe-for: public.fn_ca_felt_latency\n');
+    expect(breakFix).toContain('t.on_break IS TRUE');
+    expect(breakFix).toMatch(/SET LOCAL lock_timeout = '3s';/);
+    expect(breakFix.trim().endsWith('COMMIT;')).toBe(true);
+    for (const sig of [
+      'public.fn_ca_hand_gap_unintended_delay(timestamptz, int)',
+      'smarter_private.reliability_runbook_hand_gap_classification(uuid, boolean, jsonb, timestamptz)',
+      'public.fn_ca_felt_latency(timestamptz, timestamptz)',
+    ]) {
+      expect(breakFix).toContain(`REVOKE ALL ON FUNCTION ${sig} FROM PUBLIC, anon, authenticated;`);
+      expect(breakFix).toContain(`GRANT EXECUTE ON FUNCTION ${sig} TO service_role;`);
+    }
   });
 });
