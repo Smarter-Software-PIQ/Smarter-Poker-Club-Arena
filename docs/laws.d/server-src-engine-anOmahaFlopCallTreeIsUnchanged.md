@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaFlopCallTreeIsUnchanged.law.test.ts
+
+The fast flop call tree (omahaFlopRealizationIsPriced) gives the same numbers as the tree it replaced: a holding's score, built from a per-board table of rank-only pair entries and its pairs of the one suit with three or more board cards, equals the full HorseOmahaFastScore score on random PLO4/PLO5 turns and rivers (flush-heavy boards included), and on the 48 fixture decisions and 288 re-dealt copies of them, with the companion options on and off, the live verdict equals the frozen copy of the old tree (server/src/engine/**tests**/HorseOmahaFlopCallTree.frozen.ts) field for field.
