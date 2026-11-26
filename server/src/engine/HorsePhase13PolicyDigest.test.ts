@@ -128,7 +128,9 @@ describe('P13.3 Phase 13 policy digest', () => {
     // OpponentHudProfile; option omahaOpponentLifetimeHud).
     // 101 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
     // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
-    expect(closure).toHaveLength(101);
+    // 102 since 2026-11-26: HorseLogic, OpponentHud, OpponentHudExploit and the math core read the equilibrium anchor
+    // (HorseEquilibriumAnchor; lane prior-anchor, readers default OFF).
+    expect(closure).toHaveLength(102);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
