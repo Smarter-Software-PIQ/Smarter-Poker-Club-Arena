@@ -97,21 +97,34 @@ COMMENT ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) IS
 REVOKE ALL ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) TO service_role;
 
--- Run the new body once, all of it (note row, owner conversation, message),
--- inside a subtransaction that is always undone (scripts/ci/templates/function-probe.sql).
+-- Run the new body once inside a subtransaction that is always undone
+-- (scripts/ci/templates/function-probe.sql). Where the reliability settings
+-- row exists (production) the whole path runs: note row, owner conversation,
+-- message, and a replay that must send nothing. On a schema-only copy (the
+-- pre-merge DDL-guard install) there is no row, so the body's own input
+-- refusal is exercised instead.
 -- @probe-for: public.fn_ca_note_cycle_did_not_seal
 DO $probe$
 DECLARE
   v_first jsonb;
   v_replay jsonb;
 BEGIN
-  v_first := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Probe note, undone with its subtransaction.');
-  IF NOT coalesce((v_first->>'sent')::boolean, false) OR (v_first->>'message_id') IS NULL THEN
-    RAISE EXCEPTION 'cutover note probe: the first call did not send (%)', v_first;
-  END IF;
-  v_replay := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Again.');
-  IF coalesce((v_replay->>'sent')::boolean, true) THEN
-    RAISE EXCEPTION 'cutover note probe: a replay sent a second message (%)', v_replay;
+  IF EXISTS (SELECT 1 FROM smarter_private.reliability_settings WHERE id) THEN
+    v_first := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Probe note, undone with its subtransaction.');
+    IF NOT coalesce((v_first->>'sent')::boolean, false) OR (v_first->>'message_id') IS NULL THEN
+      RAISE EXCEPTION 'cutover note probe: the first call did not send (%)', v_first;
+    END IF;
+    v_replay := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Again.');
+    IF coalesce((v_replay->>'sent')::boolean, true) THEN
+      RAISE EXCEPTION 'cutover note probe: a replay sent a second message (%)', v_replay;
+    END IF;
+  ELSE
+    BEGIN
+      PERFORM public.fn_ca_note_cycle_did_not_seal('not-a-cycle', 'x');
+      RAISE EXCEPTION 'cutover note probe: an invalid cycle was accepted';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM NOT LIKE 'cycle must be YYYY-MM-DD or YYYY-MM-DDTHH%' THEN RAISE; END IF;
+    END;
   END IF;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
