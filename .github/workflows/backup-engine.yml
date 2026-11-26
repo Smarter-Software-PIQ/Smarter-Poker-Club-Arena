@@ -640,7 +640,7 @@ jobs:
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
       deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
-      sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+      sha: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
       control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
     timeout-minutes: 180
     steps:
@@ -677,6 +677,7 @@ jobs:
             scripts/ci/ubuntu-apt-mirror.py
             scripts/ci/ubuntu-apt-mirrors.txt
             scripts/dr
+            scripts/release/step-down-past-held-migration.py
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
             server/scripts/engine-release-installed-migrations.py
@@ -1067,6 +1068,8 @@ jobs:
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
           POST_SEAL: ${{ needs.plan.outputs.post_seal }}
           SEALED_SHA: ${{ needs.plan.outputs.sealed_sha }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          AFTER_CYCLE: ${{ github.event.inputs.after_cycle }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -1102,7 +1105,58 @@ jobs:
           # sealed-build runs are exempt; unreadable production emits no pending=.
           # A post-seal next-candidate run (O24) follows the push rule although
           # its refresh is forced: its target is an ordinary candidate.
-          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+          held=0
+          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then held=1; fi
+          # A HELD MIGRATION DOES NOT BLOCK THE COMMIT BELOW IT (2026-11-26, O29).
+          # Run 45758112198 handed the host back for 6f062e8f0d1d (migration
+          # 20261126021630, held until 04:15 CST) while a5e971803865, one commit
+          # below with current release controls and nothing uninstalled, was
+          # never certified: the 01:00 CST cycle kept serving. Before handing
+          # back, ask ONCE for the newest shippable commit below the held
+          # migration (scripts/release/step-down-past-held-migration.py: ahead
+          # of the serving build (the sealed build after a seal, else /health's
+          # releaseSha), same release-control projection as CONTROL,
+          # nothing of its own uninstalled) and certify that instead; CONTROL
+          # never moves. A "Backup after keep-serving" run (O27: no sha input)
+          # asks too, and otherwise certifies main exactly as before. A run
+          # given an explicit sha is never stepped down. No fallback, or any
+          # unreadable answer: exactly the O7 hand-back below (CLAUDE.md 10.86).
+          step_why=''
+          if [ "$held" = 1 ] || { [ -n "$pending_migrations" ] && [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ] && [ -z "${INPUT_SHA:-}" ]; }; then
+            serving=''
+            if [ "${POST_SEAL:-}" = 1 ]; then serving="${SEALED_SHA:-}"; fi
+            step=$(python3 -B scripts/release/step-down-past-held-migration.py --sha "$SHA" --control "$CONTROL" \
+              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" --input-sha "${INPUT_SHA:-}" 2>/dev/null) && step_rc=0 || step_rc=$?
+            fallback=$(printf '%s\n' "$step" | sed -n 's/^fallback=//p')
+            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]]; then
+              if [ "$fallback" = "$SHA" ]; then
+                echo "NOT HELD: migration(s) ($pending_migrations) held until the dispatcher's window were added above $SHA, which carries none of them; certifying it."
+                { echo "### Backup Engine"; echo ""; echo "- NOT HELD \`$SHA\`: held migration(s) \`$pending_migrations\` were added above it; certified as planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              else
+                echo "STEPPED DOWN: $SHA carries held migration(s) ($pending_migrations) not installed until the dispatcher's window; certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: held migration(s) \`$pending_migrations\`; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              fi
+              SHA="$fallback"
+              echo "sha=$fallback" >> "$GITHUB_OUTPUT"
+              verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+                --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
+                --control "$CONTROL" --sha "$SHA" 2> due-reason.txt) || verdict='due=true'
+              contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+              comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
+              [ "$contents_due" = false ] || contents_due=true
+              pending_migrations=''
+              held=0
+            else
+              step_why=$(printf '%s\n' "$step" | sed -n 's/^reason=//p' | head -1)
+              if [ "$step_rc" = 1 ] && [ -n "$step_why" ]; then
+                step_why=" No commit below was certified: $step_why."
+              else
+                step_why=" No commit below was certified: could not tell${step_why:+ ($step_why)} (CLAUDE.md 10.86)."
+              fi
+              [ "$held" = 1 ] || echo "KEEP-SERVING BACKUP NOT STEPPED DOWN: $SHA carries uninstalled ordinary migration(s) ($pending_migrations); certifying it exactly as before.$step_why"
+            fi
+          fi
+          if [ "$held" = 1 ]; then
             sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
@@ -1120,7 +1174,7 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
-            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written."
+            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written.$step_why"
             { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             echo "due=false" >> "$GITHUB_OUTPUT"
             echo "deferred=1" >> "$GITHUB_OUTPUT"
@@ -1307,7 +1361,7 @@ jobs:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          SHA: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail

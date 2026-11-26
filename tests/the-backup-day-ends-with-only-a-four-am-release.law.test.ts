@@ -1666,11 +1666,12 @@ ${Object.entries(states)
         expect(due.env.CONTROL).toBe(
           '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
         );
+        // O29 (2026-11-26): a commit the due step stepped down to is preferred.
         expect(latePriority.env.SHA).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.sha).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.control_sha).toBe(
           '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
