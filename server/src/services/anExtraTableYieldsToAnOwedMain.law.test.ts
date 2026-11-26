@@ -30,6 +30,9 @@ import {
   varietyDrainingTables,
   varietyDrainTables,
   drainShortfall,
+  feederStartWaitsForVariety,
+  VARIETY_DRAIN_FRESH_MS,
+  VARIETY_DRAIN_NEW_TABLE_MS,
   varietyDrainTable,
   type DrainTable,
 } from './HorseVarietyFirst.js';
@@ -226,15 +229,78 @@ describe('which extra table yields', () => {
     publishVarietyDrain(['a-f', 'b-f'], 1_000);
     expect(varietyDrainingTables(1_000)).toEqual(['a-f', 'b-f']);
     expect(varietyDrainingTable(1_000)).toBe('a-f');
-    expect(varietyDrainingTables(1_000 + VARIETY_HOLD_FRESH_MS)).toEqual([]);
+    expect(varietyDrainingTables(1_000 + VARIETY_DRAIN_FRESH_MS)).toEqual([]);
     publishVarietyDrain([], 2_000);
     expect(varietyDrainingTables(2_000)).toEqual([]);
+  });
+
+  it('review 2026-11-26: an emptied released table covers no owed start; the ramp waits for the rotator', () => {
+    const floor = [
+      ...gameA().map((x) => (x.id === 'a-f' ? { ...x, seated: 0 } : x)),
+      t('b-m1', 'B', 'main', 1, 6, 0),
+      t('b-f', 'B', 'feeder', null, 2, 10),
+    ];
+    const many = (over: Partial<Parameters<typeof varietyDrainTables<T>>[0]> = {}) =>
+      varietyDrainTables<T>({
+        tables: floor,
+        seatedAt: (id) => floor.find((x) => x.id === id)?.seated ?? 0,
+        personSeatedAt: () => false,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(),
+        owedGames: ['short-deck'],
+        shortfall: 1,
+        current: ['a-f'],
+        ...over,
+      });
+    /* a-f has emptied but not closed: it stays released, and b-f is added for the one short start */
+    expect(many()).toEqual(['a-f', 'b-f']);
+    /* not yet a rotator cycle since the last new release: a-f only */
+    expect(many({ mayAddNew: false })).toEqual(['a-f']);
+    expect(VARIETY_DRAIN_NEW_TABLE_MS).toBe(90_000);
+    const rotator = read('./HorseSessionRotator.ts');
+    expect(rotator).toMatch(/const CYCLE_MS = 90_000;/);
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet).toContain(
+      'mayAddNew: Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS,'
+    );
+  });
+
+  it('review 2026-11-26: no Horse is moved onto a released table; a person or a break move never waits', () => {
+    __resetVarietyDrain();
+    const now = Date.now();
+    publishVarietyDrain(['tbl-f'], now, new Set(['horse-1']));
+    const move = (reason: string, player: string, to = 'tbl-f') =>
+      feederStartWaitsForVariety({
+        reason,
+        swap_move_id: null,
+        to_table_id: to,
+        player_id: player,
+      });
+    expect(move('balance', 'horse-1')).toBe(true);
+    expect(move('seat_change', 'horse-1')).toBe(true);
+    expect(move('must_move', 'horse-1')).toBe(true);
+    expect(move('break', 'horse-1')).toBe(false);
+    expect(move('balance', 'person-1')).toBe(false);
+    expect(move('balance', 'horse-1', 'tbl-other')).toBe(false);
+    __resetVarietyDrain();
+    expect(move('balance', 'horse-1')).toBe(false);
+  });
+
+  it('review 2026-11-26: an undecided cycle keeps released tables out of seating, and the publication is never cleared before the reads', () => {
+    const fleet = read('./HorseFleetManager.ts');
+    const hold = fleet.indexOf('for (const tableId of holdOnly) surplusTableIds.add(tableId);');
+    const claim = fleet.indexOf(': await this.claimOfferedSeats(');
+    expect(hold).toBeGreaterThan(-1);
+    expect(claim).toBeGreaterThan(hold);
+    expect(fleet).not.toContain('publishVarietyDrain(null, Date.now());');
+    expect(fleet).toContain('publishVarietyDrain(released, Date.now(), horseIdSet);');
+    expect(fleet).toContain('const released = drainDecided ? varietyDrain : holdOnly;');
   });
 
   it('a cycle that could not decide does not forget the table being released', () => {
     const fleet = read('./HorseFleetManager.ts');
     const keep = fleet.indexOf(
-      '(cashPlanLightningGames && this.humansWaitingReadComplete)\n      )\n        this.varietyDrainTableIds = varietyDrain;'
+      'if (drainDecided || (beat.varietyOwedGames.length === 0 && !cycleWithheld))\n        this.varietyDrainTableIds = varietyDrain;'
     );
     expect(keep).toBeGreaterThan(fleet.indexOf('varietyDrain = varietyDrainTables({'));
   });
@@ -263,8 +329,8 @@ describe('which extra table yields', () => {
   it('the publication is as fresh as the hold, and a stopped fleet drains nothing', () => {
     __resetVarietyDrain();
     publishVarietyDrain('a-f', 1_000);
-    expect(varietyDrainingTable(1_000 + VARIETY_HOLD_FRESH_MS - 1)).toBe('a-f');
-    expect(varietyDrainingTable(1_000 + VARIETY_HOLD_FRESH_MS)).toBeNull();
+    expect(varietyDrainingTable(1_000 + VARIETY_DRAIN_FRESH_MS - 1)).toBe('a-f');
+    expect(varietyDrainingTable(1_000 + VARIETY_DRAIN_FRESH_MS)).toBeNull();
     publishVarietyDrain(null, 2_000);
     expect(varietyDrainingTable(2_000)).toBeNull();
   });
@@ -273,13 +339,13 @@ describe('which extra table yields', () => {
 describe('the fleet keeps no Horse at the released table', () => {
   const fleet = read('./HorseFleetManager.ts');
   it('decides after the hold, clears before the hourly read, and joins surplusTableIds before any seating', () => {
-    const clear = fleet.indexOf('publishVarietyDrain(null, Date.now());');
+    const clear = fleet.indexOf('clearVarietyHolds();');
     const hourly = fleet.indexOf('const hourlyAdmissions = await readHourlyCashAdmissions();');
     const decide = fleet.indexOf('varietyDrain = varietyDrainTables({');
     const surplus = fleet.indexOf(
       'for (const tableId of varietyDrain) surplusTableIds.add(tableId);'
     );
-    const publish = fleet.indexOf('publishVarietyDrain(varietyDrain, Date.now());');
+    const publish = fleet.indexOf('publishVarietyDrain(released, Date.now(), horseIdSet);');
     const claim = fleet.indexOf(': await this.claimOfferedSeats(');
     expect(clear).toBeGreaterThan(-1);
     expect(hourly).toBeGreaterThan(clear);
