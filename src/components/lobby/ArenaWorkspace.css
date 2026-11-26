@@ -1182,6 +1182,11 @@
   .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-subline {
     grid-area: 2 / 1 / 3 / 3;
   }
+  /* Keep the ID readable when the phone falls back to a wider system font. */
+  .arena-workspace.club-members-page .member-number {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .arena-workspace.club-members-page .member-simple-balance {
     grid-area: 2 / 3 / 3 / 5;
   }

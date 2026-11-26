@@ -471,6 +471,9 @@ for (const rosterLoadsLast of [false, true]) {
         *, *::before, *::after { box-sizing: border-box; }
         html, body { margin: 0; background: #000; color: #fff; font-family: sans-serif; line-height: 1.6; }
         .application-shell { width: calc(100% - 32px); margin: auto; }
+        /* Reproduce the ordinary sans-serif fallback when condensed fonts are
+           unavailable, as on the hosted Chromium runner. */
+        @media (max-width: 320px) { .application-shell .member-number { font-family: Arial, sans-serif; } }
       </style>
       <main class="application-shell"><section class="club-members-page members-simple arena-workspace" style="--member-row-pitch:187px">
         <header class="arena-workspace-mast"></header>
@@ -517,10 +520,18 @@ for (const rosterLoadsLast of [false, true]) {
                 found.push(`outside its row: ${e.textContent}`);
             });
           const selection = row.querySelector('.member-select')!.getBoundingClientRect();
+          const subline = row.querySelector('.member-subline')!.getBoundingClientRect();
           for (const field of row.querySelectorAll('.member-subline > *')) {
             const text = document.createRange();
             text.selectNodeContents(field);
             for (const line of text.getClientRects()) {
+              if (
+                line.left < subline.left - 1 ||
+                line.right > subline.right + 1 ||
+                line.top < subline.top - 1 ||
+                line.bottom > subline.bottom + 1
+              )
+                found.push(`identity text crosses its column: ${field.textContent}`);
               if (
                 line.left < selection.right &&
                 line.right > selection.left &&
