@@ -3591,6 +3591,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // (killSchedule) persists across hands by design.
       this.currentHandKillRecord = null;
       this.currentHandKillCancellation = null;
+      // PER-HAND OPTION RECEIPTS: the count belongs to one hand.
+      this.currentHandOptionReceipts = new Map();
       this.currentHandWinnersByBoard = [];
       // SHOWDOWN POLISH 2026-08-25: per-pot award breakdown is per-hand.
       this.currentHandPerPotAwards = [];

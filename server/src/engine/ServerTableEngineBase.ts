@@ -11937,6 +11937,15 @@ export abstract class ServerTableEngineBase {
   /** hand_history.kill_pot for this hand, set at settlement. */
   protected currentHandKillRecord: KillPotRecord | null = null;
 
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, HorseHandOptionReceipts): how many executed Horse decisions of THIS hand
+   * each listed option changed, by receipt text (`<option>:<before>><after>`, action kinds only, never a card).
+   * Counted in memory when a Horse's action is accepted (ServerTableEngineTurns), cleared at the deal, copied
+   * into the settlement snapshot and written after the hand's own commit (services/HorseHandReceipts.ts).
+   * Nothing reads it to decide or to act.
+   */
+  protected currentHandOptionReceipts: Map<string, number> = new Map();
+
   /** The table row's kill configuration; `off` on any row without it. */
   protected killSettingsFromTable(): KillSettings {
     return readKillSettings(this.tableInfo as never);
