@@ -215,6 +215,10 @@ BEGIN
     END IF;
     v_def := replace(v_def, v_old, v_new);
 
+    IF strpos(v_def, 'max_degraded_run') = 0 THEN
+      RAISE EXCEPTION 'digest_attention lost horse max_degraded_run invariant';
+    END IF;
+
     EXECUTE v_def;
   END IF;
 END $migration$;
