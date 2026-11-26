@@ -371,6 +371,30 @@ python3() { cp "${stub}" daily-selection.json; return 0; }
     expect(quietKeepServing.outputs).toContain('send=false');
     expect(quietKeepServing.stdout).not.toContain('::error');
   });
+
+  it('emits ::error:: naming each refused candidate and its reason (2026-11-26)', () => {
+    const r = runFreeze({
+      schema: 1,
+      outcome: 'keep-serving',
+      targetSha: null,
+      controlSha: control,
+      servingSha: serving,
+      deferredCandidates: [],
+      refusedCandidates: [
+        {
+          sha: candidate,
+          reason: 'Backup certificate is failure: Backup Engine refused: hand_gap',
+        },
+      ],
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(
+      '::error title=Engine selection refused candidate(s) (keep-serving)::'
+    );
+    expect(r.stdout).toContain(
+      `${candidate.slice(0, 12)}: Backup certificate is failure: Backup Engine refused: hand_gap`
+    );
+  });
 });
 
 describe('O20: Stage posts keep-serving cycles to issue #11599 without altering release authority', () => {
@@ -475,6 +499,46 @@ gh() {
     expect(threeHourly.status, threeHourly.stderr).toBe(0);
     expect(threeHourly.posted).toContain('Cycle: 2026-11-23 01:00 CST');
     expect(threeHourly.posted).toContain('Deferred candidates: (none)');
+  });
+
+  it('names every refused candidate and its reason, and counts commits with no certificate (2026-11-26)', () => {
+    // 2026-11-25: the 1 PM to 7 PM cycles kept serving while 58227a1b,
+    // 6aa61507 and 4d88b3bf carried FAILURE certificates; the log said only
+    // "Deferred candidates: (none)".
+    const r = runComment('2026-11-25T13', {
+      schema: 1,
+      outcome: 'keep-serving',
+      reason: 'No newer protected candidate has complete current evidence by the cutoff.',
+      servingSha: serving,
+      targetSha: null,
+      deferredCandidates: [],
+      refusedCandidates: [
+        {
+          sha: candidate,
+          reason:
+            'Backup certificate is failure: Backup Engine refused: hand_gap_unintended_delay_exceeded',
+        },
+        { sha: serving, reason: 'Backup certificate is pending' },
+      ],
+      uncertifiedCommits: 4,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.posted).toContain(
+      'Refused candidates: c0706e2b3563: Backup certificate is failure: Backup Engine refused: hand_gap_unintended_delay_exceeded; 735299cd5fda: Backup certificate is pending'
+    );
+    expect(r.posted).toContain('Newer commits with no Backup certificate: 4');
+    // A selection written before the field existed still posts.
+    const older = runComment('2026-11-25T16', {
+      schema: 1,
+      outcome: 'keep-serving',
+      reason: 'current',
+      servingSha: serving,
+      targetSha: null,
+      deferredCandidates: [],
+    });
+    expect(older.status, older.stderr).toBe(0);
+    expect(older.posted).toContain('Refused candidates: (none)');
+    expect(older.posted).toContain('Newer commits with no Backup certificate: 0');
   });
 
   it('skips posting when outcome is selected or the selection artifact is missing', () => {
