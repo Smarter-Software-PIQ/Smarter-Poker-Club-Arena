@@ -1,4 +1,5 @@
 -- 20261126011611_horse_option_register_holdem_tournament_raise_defence.sql
+-- @live-proof: (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('holdemTournamentBlindDefenceIsPriced', 'holdemTournamentCommittedRaiseIsPriced', 'holdemTournamentHeadsUpBigBlindDefenceIsPriced')) = 3
 --
 -- HORSE OPTION SWITCH: 3 OPTIONS REGISTERED
 --
