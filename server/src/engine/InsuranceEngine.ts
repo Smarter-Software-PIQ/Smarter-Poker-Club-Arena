@@ -742,6 +742,22 @@ export class InsuranceEngine {
   }
 
   /**
+   * Latest live DeadlineScheduler expiry timestamp across still-'offered'
+   * insurance offers for this table, or 0 when no offer is awaiting response.
+   */
+  getActiveOfferDeadlineMs(tableId: string): number {
+    const offers = this.activeOffers.get(tableId);
+    if (!offers || offers.length === 0) return 0;
+    let latest = 0;
+    for (const offer of offers) {
+      if (offer.status !== 'offered') continue;
+      const deadline = this.scheduler.getDeadline(tableId, this.offerEventId(offer.playerId));
+      if (Number.isFinite(deadline) && deadline > latest) latest = deadline;
+    }
+    return latest;
+  }
+
+  /**
    * Per-HAND cleanup: drop this hand's offers and their expiry timers, KEEP
    * the table's configuration.
    *

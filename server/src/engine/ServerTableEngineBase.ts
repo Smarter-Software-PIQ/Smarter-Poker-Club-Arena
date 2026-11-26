@@ -3579,6 +3579,14 @@ export abstract class ServerTableEngineBase {
   protected watchdogTrips: number = 0;
 
   /**
+   * True after `forceArmTurnTimer()` re-arms a seat during recovery (rejected
+   * auto-action, Tier 1 watchdog, or throw fallback). Cleared ONLY by genuine
+   * `markProgress()`. While true, `hasLiveBoundedInHandClock()` refuses to
+   * defer stall reporting so a failing recovery loop can never mask itself.
+   */
+  protected turnRecoveryReArmed: boolean = false;
+
+  /**
    * Provenance for the recovery chain after an injected stall. A re-arm can
    * fail and escalate to a kill, so the class survives intermediate records
    * until genuine progress or terminal teardown ends that exact chain.
@@ -7704,12 +7712,127 @@ export abstract class ServerTableEngineBase {
   protected markProgress(): void {
     this.lastProgressAtMs = Date.now();
     this.watchdogTrips = 0;
+    this.turnRecoveryReArmed = false;
     this.pendingRecoveryEventClass = null;
   }
 
-  /** Ms since this table last did anything observable. */
+  /** Raw wall-clock ms since the last markProgress() (unadjusted for active clocks). */
+  protected rawMsSinceProgress(now = Date.now()): number {
+    return Math.max(0, now - this.lastProgressAtMs);
+  }
+
+  /** Overridden by ServerTableEngineRunout to expose an active RIT offer deadline. */
+  protected activeRitOfferDeadlineMs(): number {
+    return 0;
+  }
+
+  /**
+   * Hard per-turn / per-prompt wall-clock ceiling derived from this table's
+   * authoritative rules: action clock (15-120s) + reconnect/timer grace (7s) +
+   * time bank (20-60s) + VIP/table reconnect protection (45-60s) + 10s slack,
+   * strictly capped at 210s (well below TABLE_DEAD_STALL_MS = 300s).
+   * Once raw wall time exceeds this ceiling, live-clock deferral stops so no
+   * bug or extension loop can ever hide a genuinely stuck hand.
+   */
+  protected maxBoundedInHandWaitMs(): number {
+    const actionMs = Math.min(120, Math.max(15, this.actionClockSeconds())) * 1000;
+    const bankSec =
+      typeof this.timeBankEngine?.getSecondsPerUse === 'function'
+        ? this.timeBankEngine.getSecondsPerUse(this.tableId)
+        : 20;
+    const bankMs = Math.min(60_000, Math.max(20_000, Number(bankSec || 20) * 1000));
+    const disconnectSec = Math.min(
+      60,
+      Math.max(45, Number(this.tableInfo?.disconnect_timeout_seconds ?? 30))
+    );
+    return Math.min(210_000, actionMs + 7_000 + bankMs + disconnectSec * 1000 + 10_000);
+  }
+
+  /**
+   * Single authoritative predicate shared by `msSinceProgress()` and
+   * `runTableWatchdog()`: true ONLY while a live hand holds an active,
+   * bounded, server-owned deadline (turn clock, time bank, disconnect
+   * protection, deferred bank retention <= 15s, or seat<0 RIT/Insurance/
+   * Pineapple discard prompt) outside recovery and inside the hard turn ceiling.
+   */
+  protected hasLiveBoundedInHandClock(now = Date.now()): boolean {
+    if (!this.handController) return false;
+    if (this.watchdogTrips > 0 || this.turnRecoveryReArmed) return false;
+    if (this.rawMsSinceProgress(now) > this.maxBoundedInHandWaitMs()) return false;
+
+    const maxPhaseMs = Math.min(
+      135_000,
+      Math.max(90_000, this.actionClockSeconds() * 1000 + 15_000)
+    );
+    const isLive = (deadlineMs: number, capMs = maxPhaseMs): boolean =>
+      Number.isFinite(deadlineMs) && deadlineMs > now && deadlineMs <= now + capMs;
+
+    const state = this.handController.getState();
+    const seat = state.currentPlayerSeat;
+    if (seat >= 0) {
+      const actor = state.players.find((x) => x.seat === seat);
+      if (!actor) return false;
+      const primaryDeadline =
+        typeof this.preciseTimer?.getDeadline === 'function'
+          ? this.preciseTimer.getDeadline(this.tableId, actor.user_id)
+          : 0;
+      const disconnectDeadline =
+        typeof this.disconnectEngine?.armedAutoActionDeadlineMs === 'function'
+          ? this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, actor.user_id)
+          : 0;
+      const timeBankDeadline =
+        typeof this.preciseTimer?.getDeadline === 'function'
+          ? this.preciseTimer.getDeadline(this.tableId, `timebank:${actor.user_id}`)
+          : 0;
+      if (isLive(primaryDeadline) || isLive(disconnectDeadline) || isLive(timeBankDeadline)) {
+        return true;
+      }
+      const bank =
+        typeof this.timeBankEngine?.getPlayerBank === 'function'
+          ? this.timeBankEngine.getPlayerBank(this.tableId, actor.user_id)
+          : undefined;
+      if (
+        bank?.isActive &&
+        bank.pendingPublication &&
+        typeof bank.activatedAt === 'number' &&
+        Number.isFinite(bank.activatedAt) &&
+        now >= bank.activatedAt &&
+        now - bank.activatedAt <= 15_000
+      ) {
+        return true;
+      }
+      return false;
+    }
+
+    if (isLive(this.activeRitOfferDeadlineMs(), 60_000)) return true;
+
+    const insuranceDeadline =
+      typeof this.insuranceEngine?.getActiveOfferDeadlineMs === 'function'
+        ? this.insuranceEngine.getActiveOfferDeadlineMs(this.tableId)
+        : 0;
+    if (isLive(insuranceDeadline, 60_000)) return true;
+
+    if (this.pineappleDiscardDeadlines.size > 0) {
+      let maxDiscardDeadline = 0;
+      for (const deadline of this.pineappleDiscardDeadlines.values()) {
+        if (Number.isFinite(deadline) && deadline > maxDiscardDeadline) {
+          maxDiscardDeadline = deadline;
+        }
+      }
+      if (isLive(maxDiscardDeadline)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Ms since this table last made observable progress without an active,
+   * bounded, server-owned in-hand clock running.
+   */
   msSinceProgress(): number {
-    return Date.now() - this.lastProgressAtMs;
+    const now = Date.now();
+    if (this.hasLiveBoundedInHandClock(now)) return 0;
+    return this.rawMsSinceProgress(now);
   }
 
   /**

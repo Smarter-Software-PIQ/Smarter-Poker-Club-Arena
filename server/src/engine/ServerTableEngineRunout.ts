@@ -317,6 +317,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    */
   protected ritOfferDeadlineTs = 0;
 
+  protected override activeRitOfferDeadlineMs(): number {
+    return this.runItTwiceEngine?.isDecisionPending?.(this.tableId) ? this.ritOfferDeadlineTs : 0;
+  }
+
   /**
    * HORSES RUN IT TWICE SOMETIMES (Dan 2026-11-13): what a Horse reads at
    * this hand's run-it-twice offer, keyed by hand number (only the live hand
