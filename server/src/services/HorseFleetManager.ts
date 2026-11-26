@@ -3206,7 +3206,14 @@ export class HorseFleetManager {
           current: this.varietyDrainTableId,
         });
       }
-      this.varietyDrainTableId = varietyDrain;
+      /* A cycle that could not decide (an unread list, cap or Lightning set)
+         releases nothing but does not forget which table was being released:
+         the next readable cycle keeps that one instead of picking another. */
+      if (
+        beat.varietyOwedGames.length === 0 ||
+        (cashPlanLightningGames && this.humansWaitingReadComplete)
+      )
+        this.varietyDrainTableId = varietyDrain;
       beat.varietyDrainTable = varietyDrain;
       if (varietyDrain) {
         surplusTableIds.add(varietyDrain);
