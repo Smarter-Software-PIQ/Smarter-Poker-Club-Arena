@@ -36,6 +36,8 @@ export interface PageBarProps {
    *  prints no heading: for a page whose painted console already carries it. */
   titleAs?: 'h1' | 'h2' | false;
   titleId?: string;
+  /** The illustrated page header can own the same Help and tutorial. */
+  showHelp?: boolean;
 }
 
 export default function PageBar({
@@ -49,6 +51,7 @@ export default function PageBar({
   className,
   titleAs: Heading = 'h1',
   titleId,
+  showHelp = true,
 }: PageBarProps) {
   const hasLive = Boolean(status) || metrics.length > 0 || Boolean(children);
   return (
@@ -83,7 +86,7 @@ export default function PageBar({
           {title}
         </Heading>
       )}
-      <PageHelp title={title} summary={summary} steps={steps} />
+      {showHelp && <PageHelp title={title} summary={summary} steps={steps} />}
     </header>
   );
 }

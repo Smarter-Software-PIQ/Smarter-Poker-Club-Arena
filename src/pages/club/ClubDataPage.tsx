@@ -114,7 +114,6 @@ import type { ConsoleInk } from '../../components/console/SpadeConsole';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import { titleCase } from '../../utils/titleCase';
 import { compactChips } from '../../utils/format';
-import PageHelp from '../../components/help/PageHelp';
 import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
@@ -3542,13 +3541,6 @@ export default function ClubDataPage({
                 Report Tools
               </button>
             </div>
-            {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
-            the painted "?", top right of the header. The header itself stays
-            exactly as it reads. */}
-            <PageHelp
-              title="Club Data"
-              summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
-            />
           </header>
         </>
       )}

@@ -275,11 +275,8 @@
 }
 .arena-workspace .arena-mast-lettering {
   min-width: 0;
-  padding-right: 2px;
-  text-align: left;
-}
-.arena-workspace:has(.ca-page-help) .arena-mast-lettering {
   padding-right: 48px;
+  text-align: left;
 }
 .arena-workspace .arena-mast-lettering > span {
   display: block;
@@ -306,26 +303,10 @@
   letter-spacing: -0.035em;
   color: #f4f9ff;
   overflow-wrap: break-word;
-  text-shadow: none;
-}
-@supports (background-clip: text) {
-  .arena-workspace .arena-workspace-mast h1 {
-    width: fit-content;
-    max-width: 100%;
-    padding-right: 0.13em;
-    background: linear-gradient(
-      #ffffff 5%,
-      #e1f2ff 38%,
-      #a2bace 48%,
-      #edf8ff 54%,
-      #c9deed 76%,
-      #97aec5 94%
-    );
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 1px 0 #0b1623) drop-shadow(1px 2px 1px #0009);
-  }
+  width: fit-content;
+  max-width: 100%;
+  padding-right: 0.13em;
+  text-shadow: 0 1px 2px #020812;
 }
 .arena-workspace .arena-mast-lettering small {
   display: block;
@@ -338,9 +319,8 @@
 }
 @media (forced-colors: active) {
   .arena-workspace .arena-workspace-mast h1 {
-    background: none;
     color: CanvasText;
-    filter: none;
+    text-shadow: none;
   }
 }
 .arena-workspace .arena-case,
@@ -775,7 +755,7 @@
 .arena-workspace {
   position: relative;
 }
-.arena-workspace .ca-page-bar > .ca-page-help {
+.arena-workspace .arena-workspace-mast > .ca-page-help {
   position: absolute;
   top: 8px;
   right: 10px;

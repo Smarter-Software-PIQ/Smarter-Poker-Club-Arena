@@ -1458,7 +1458,7 @@ function PageHeader({ onBack, club }: { onBack: () => void; club?: string }) {
   return (
     <>
       <ArenaWorkspaceHeader
-        area="members"
+        area="record"
         title="Player Record"
         context={club && !/^[0-9a-f]{8}-/i.test(club) ? club.replace(/[-_]/g, ' ') : undefined}
         subtitle="Player Management"
