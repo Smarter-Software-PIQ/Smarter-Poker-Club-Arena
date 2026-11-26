@@ -6,11 +6,11 @@ Date: 2026-11-26 (Chicago). Lane: release custody (engine cutover every three ho
 
 After the 07:00 CST seal three Backup certifications in a row were refused with the same reason, `rollback_rehearsal_failed_to_132ef19f0770`:
 
-| Run | Commit | Rehearsal Window (CST) | What The Timing Shows |
-| --- | --- | --- | --- |
-| `45827343954` | `9b35df50813b` | 07:57 to 08:48 | The candidate dealt, the rollback to the serving build ran at 08:01, then 47 minutes passed: the 30-minute thaw wait and the 20-minute dealing wait both ran out |
-| `45827378798` | `9b35df50813b` | 08:50 to 09:11 | Exactly 1200 s before any swap: the copy was never in open play |
-| `45845308550` | `2b7b5fccb7eb` | 09:12 to 09:33 | Exactly 1200 s again |
+| Run           | Commit         | Rehearsal Window (CST) | What The Timing Shows                                                                                                                                            |
+| ------------- | -------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `45827343954` | `9b35df50813b` | 07:57 to 08:48         | The candidate dealt, the rollback to the serving build ran at 08:01, then 47 minutes passed: the 30-minute thaw wait and the 20-minute dealing wait both ran out |
+| `45827378798` | `9b35df50813b` | 08:50 to 09:11         | Exactly 1200 s before any swap: the copy was never in open play                                                                                                  |
+| `45845308550` | `2b7b5fccb7eb` | 09:12 to 09:33         | Exactly 1200 s again                                                                                                                                             |
 
 Two defects in the certification itself made this worse than one refusal:
 
