@@ -14,10 +14,12 @@
  *   his fold, who folds, his calling part, the Horse's equity against it, blockers, range advantage
  *                  exactly the opening-side model (holdemOpeningPrice: his record first, shrunk to the equilibrium
  *                  anchor where his fold equals the bettor's break-even; his range from his public line only)
- *   payout risk    EV(bet B) = f' P + (1 - f') (r eqCall (P + B') - BF(B) (1 - r eqCall) B)
+ *   payout risk    EV(bet B) = f' P + (1 - f') (r eqCall (P + B') - BF (1 - r eqCall) B)
  *                  EV(check) = r eqAll P
- *                  with BF(B) the Horse's bubble factor for risking B (HorseLogic.payJumpBubbleFactor: the Phase 7
- *                  IcmModel bubble factor, weighted by the share of the award paid by place); BF = 1 (chip EV)
+ *                  with BF the Horse's bubble factor (HorseLogic.payJumpBubbleFactor: the Phase 7 IcmModel bubble
+ *                  factor, weighted by the share of the award paid by place) read once per decision at the largest
+ *                  risk a bluff candidate takes (the conservative read for every smaller size; a read per size cost
+ *                  up to 29 ms cold on a 600-left field); BF = 1 (chip EV)
  *                  where no pay jump is live (far from the money, heads-up, winner-take-all). Where a pay jump is
  *                  live and the context cannot price it (no trusted stacks/payouts, a satellite, a PKO or a mystery
  *                  bounty) the option stands down: unknown is not "no pay jump".

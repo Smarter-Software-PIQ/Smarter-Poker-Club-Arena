@@ -31,7 +31,10 @@ import {
   holdemOpeningPrice,
   holdemRangeAdvantage,
 } from './HorseHoldemOpeningIsPriced.js';
-import { holdemTournamentBestBluff } from './HorseHoldemTournamentLateIsPriced.js';
+import {
+  holdemTournamentBestBluff,
+  holdemTournamentWagerParts,
+} from './HorseHoldemTournamentLateIsPriced.js';
 import {
   priceCommittingBluffRaise,
   type CommittingBluffRaiseOpponent,
@@ -35210,11 +35213,17 @@ export class HorseLogic {
       );
       // a hand with a value size is not a bluff (left to the brain)
       if (holdemOpeningBest(priced.bets, true)) return decision;
-      const best = holdemTournamentBestBluff(
-        late,
-        priced.bets,
-        payout === 'chips' ? () => 1 : payout
-      );
+      // one bubble-factor read per decision, at the largest risk a bluff candidate takes (a factor read per size cost
+      // up to 29 ms cold on a 600-left field; the factor at the largest risk weights every smaller size's losses at
+      // least as much as its own, so the read is the conservative one)
+      let bf = 1;
+      if (payout !== 'chips') {
+        let risk = 0;
+        for (const b of priced.bets)
+          if (!b.value) risk = Math.max(risk, holdemTournamentWagerParts(late, b.to).matched);
+        bf = risk > 0 ? payout(risk) : 1;
+      }
+      const best = holdemTournamentBestBluff(late, priced.bets, () => bf);
       if (!best || !(best.ev > priced.check + 1e-9)) return decision;
       let edge = best.bet.fold > best.bet.foldBase + 1e-9;
       if (!edge) {
