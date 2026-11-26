@@ -235,7 +235,10 @@ describe('the client opens with the reader and counts only when signed in', () =
 
   it('counts through the signed-in door, behind a local session', () => {
     const count = SERVICE.slice(SERVICE.indexOf('export async function countSharedHandView'));
-    expect(count).toMatch(/if \(!valid \|\| !hasLocalSession\(\)\) return;/);
-    expect(count).toContain("supabase.rpc('fn_ca_shared_hand_count_view', { p_token: valid })");
+    // A signed-out open is counted by World Hub's server route instead
+    // (a-signed-out-shared-hand-open-is-counted.law.test.ts).
+    expect(count).toMatch(
+      /if \(hasLocalSession\(\)\) \{[^}]*supabase\.rpc\('fn_ca_shared_hand_count_view', \{ p_token: valid \}\);\s*return;\s*\}/
+    );
   });
 });

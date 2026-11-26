@@ -16,8 +16,9 @@ wrote for anybody.
 Migration 20261126054024 splits the read from the write. The reader keeps its
 signature and answers, is STABLE and writes nothing; `fn_ca_shared_hand_count_view`
 is the only writer and only authenticated and service_role can execute it. The
-client counts a view only for a signed-in opener; a signed-out visit has no
-server hop in Club Arena that could record it honestly.
+client counts a signed-in opener's view through that writer; a signed-out
+open is counted by World Hub's server route with the service role (see
+`tests/a-signed-out-shared-hand-open-is-counted.law.test.ts`).
 
 The law pins the migration's shape, the client's two calls, and the lists that
 record the reader as deliberate public surface. It also pins rule 5 of the gate,

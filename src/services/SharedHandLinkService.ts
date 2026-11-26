@@ -10,7 +10,8 @@
  *              opened so the Link tap never waits on the network
  *   markSent   the sender tapped Link or Share with it (fire and forget)
  *   open       anyone holding the link, signed in or not; reads only
- *   countView  a signed-in opener counts one view (fire and forget)
+ *   countView  one view per open (fire and forget): signed in through the
+ *              RPC, signed out through World Hub's server route
  *   revoke     the sender stops sharing; the next share gets a new token
  *
  * OPENING NEVER WRITES (2026-11-26, migration 20261126054024, issue #9828).
@@ -18,8 +19,16 @@
  * SECURITY DEFINER function a caller with no account can execute and that
  * writes is the one shape the live definer-exposure audit refuses outright.
  * The view count is its own door, fn_ca_shared_hand_count_view, which only
- * authenticated and service_role can execute. Club Arena has no server hop
- * in front of this page, so a signed-out visit is not counted.
+ * authenticated and service_role can execute.
+ *
+ * A SIGNED-OUT OPEN IS COUNTED TOO (2026-11-26). A signed-in opener counts
+ * with their own session through the RPC. A signed-out opener has no session
+ * that may reach the writer, so the client posts the token to World Hub's
+ * POST /api/club-arena/shared-hand-view, which counts it with the service
+ * role (one per visitor per link per ten minutes, crawlers and Bearer
+ * requests refused). The signed-out branch never names the RPC and the
+ * signed-in branch never posts, so no open is counted twice. Link-preview
+ * crawlers never run this code, so they are never counted.
  *
  * Any failure falls back to the long link, which needs no server at all.
  */
@@ -130,16 +139,32 @@ export type OpenedSharedHand =
   | { status: 'missing' }
   | { status: 'unreachable' };
 
+/** World Hub's route that counts a signed-out open with the service role. */
+export const SIGNED_OUT_VIEW_PATH = '/api/club-arena/shared-hand-view';
+
 /**
- * One view of an opened link, by a signed-in opener. The database skips the
- * sender's own opens, revoked links and deleted senders. Fire and forget: a
- * view that is not recorded never stands between anybody and the hand.
+ * One view of an opened link. The database skips the sender's own opens,
+ * revoked links and deleted senders. Fire and forget: a view that is not
+ * recorded never stands between anybody and the hand.
  */
 export async function countSharedHandView(token: string): Promise<void> {
   const valid = normalizeSharedHandToken(token);
-  if (!valid || !hasLocalSession()) return;
+  if (!valid) return;
   try {
-    await supabase.rpc('fn_ca_shared_hand_count_view', { p_token: valid });
+    if (hasLocalSession()) {
+      // Signed in: the opener's own session counts through the writer.
+      await supabase.rpc('fn_ca_shared_hand_count_view', { p_token: valid });
+      return;
+    }
+    // Signed out: no session may reach the writer, so World Hub counts it.
+    // No Authorization header: the route refuses to count a Bearer request.
+    await fetch(new URL(SIGNED_OUT_VIEW_PATH, publicOrigin()).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: valid }),
+      credentials: 'omit',
+      keepalive: true,
+    });
   } catch {
     // Counting is bookkeeping, never part of opening the hand.
   }
