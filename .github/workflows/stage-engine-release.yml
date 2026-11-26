@@ -28,7 +28,19 @@ name: Stage Exact Club Arena Engine Release
 # a push Backup's, under the same run title (O25, 2026-11-24), so every reader
 # of the election still names the same runs. No trigger is added: it is the
 # workflow_run subscription below.
-run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
+#
+# THE ELECTION NEEDS AN EVENT, NOT A CERTIFICATE (O32, 2026-11-26). A Backup
+# completion used to count only when the Backup succeeded. On 2026-11-26 the
+# 10:00 Chicago cycle had no owner: the only events inside its window were
+# the completions of two failed push Backups (Stage runs 45842790604 and
+# 45846574486), refused by that clause. Nothing downstream reads the Backup
+# that woke the run: the owner binds protected main at the cutoff and the
+# selector picks the newest certified commit or keeps serving and says so.
+# A first-attempt push Backup on main that failed or timed out now elects
+# exactly like one that succeeded, under the same run title. And every Stage
+# run looks back once (job cycle-look-back): a cycle whose election closed
+# with no owner is said on the cutover log and to the owner, never silent.
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
@@ -71,7 +83,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || ((github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after seal ')) || (github.event.workflow_run.event == 'workflow_dispatch' && startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving '))) && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out')))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 315
@@ -970,6 +982,112 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  cycle-look-back:
+    # EVERY CYCLE HAS AN OWNER OR SAYS SO (2026-11-26, O32). A cycle is
+    # prepared only by the run that claims it inside its election window, and
+    # a window with no push, no delivered schedule and no Backup completion
+    # leaves the cycle with no owner. Until now that was silent: on
+    # 2026-11-26 the 10:00 Chicago cycle had no selection, no line on the
+    # cutover log and no note to anybody.
+    # Every Stage run, whatever started it, looks back ONCE here (no trigger,
+    # timer or watcher is added; the job does not wait). For each scheduled
+    # cycle of the last 26 hours whose election has closed and that has no
+    # result on issue #11599 and no record on the outcome ledger, it replays
+    # the election from this workflow's run list and posts one line:
+    # NO OWNER (no run claimed it; said from the moment the window closes) or
+    # NO OUTCOME (a run held it and recorded nothing; said 30 minutes after
+    # the start). That line is the cycle's result, so later runs post
+    # nothing. A read that fails is "could not tell": nothing is posted.
+    # Decisions live in scripts/release/cycle-without-outcome.py.
+    # REPORTING ONLY: it never selects, dispatches, retries, certifies or
+    # advances a release, holds no secret, and cannot fail the run, because
+    # the election reads a failed earlier run as one that keeps its cycle.
+    if: github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Say So When A Cycle Had No Owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    outputs:
+      notes: ${{ steps.look.outputs.notes }}
+      gaps: ${{ steps.look.outputs.gaps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/release/cycle-without-outcome.py
+            scripts/ci/cutover-outcome-ledger-seed.json
+            server/src/maintenance/maintenanceSchedulePolicy.json
+          sparse-checkout-cone-mode: false
+      - name: Look back once over the cycles whose election has closed
+        id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/release/cycle-without-outcome.py run --repo "$REPO" \
+            --policy server/src/maintenance/maintenanceSchedulePolicy.json \
+            --seed scripts/ci/cutover-outcome-ledger-seed.json \
+            --run-id "$GITHUB_RUN_ID" --run-url "$RUN_URL" --out cycle-look-back.json --post
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f cycle-look-back.json ]; then
+            jq -r '(.announce[]? | "- **\(.label):** \(.verdict)"), (.unknown[]? | "- **\(.label):** could not tell (\(.why))")' \
+              cycle-look-back.json >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+  cycle-without-outcome-note:
+    # The owner's Messenger note for a cycle the look-back found without an
+    # owner or without a result (O32). It runs only when the look-back posted
+    # one, so the service-role key is not loaded on an ordinary run. One note
+    # per cycle, idempotent in the database (the same function and key as the
+    # owner run's own note: public.fn_ca_note_cycle_did_not_seal). Three
+    # immediate attempts, no pause. Its failure changes nothing else.
+    if: needs.cycle-look-back.outputs.notes != '' && github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Tell The Owner A Cycle Had No Owner
+    needs: cycle-look-back
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    continue-on-error: true
+    environment: ci-main
+    permissions: {}
+    steps:
+      - name: Send one Messenger note per cycle
+        env:
+          NOTES: ${{ needs.cycle-look-back.outputs.notes }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r row; do
+            cycle=$(jq -r '.cycle // ""' <<< "$row")
+            if ! [[ "$cycle" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2})?$ ]]; then
+              echo "::warning title=CYCLE NOTE::An unreadable cycle was not sent."
+              failed=1
+              continue
+            fi
+            jq -c '{p_cycle: .cycle, p_note: .note}' <<< "$row" > note.json
+            answered=false
+            for _ in 1 2 3; do
+              if answer=$(curl -fsS --max-time 20 -X POST "$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal" \
+                -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+                -H 'Content-Type: application/json' --data @note.json); then
+                answered=true
+                echo "Cycle $cycle: $(jq -c '{sent, reason}' <<< "$answer" 2>/dev/null || echo answered)"
+                break
+              fi
+            done
+            if [ "$answered" != true ]; then
+              echo "::warning title=CYCLE NOTE UNKNOWN::The owner note for cycle $cycle could not be sent; the cutover log still holds the line."
+              failed=1
+            fi
+          done < <(jq -c '.[]' <<< "$NOTES")
+          exit "$failed"
+
   cutover-log-keep-serving:
     # KEEP-SERVING CYCLES ARE LOGGED TOO (2026-11-23, O20/D3).
     # auto-deploy-hetzner.yml posts to issue #11599 when a receiver runs
@@ -1217,14 +1335,17 @@ jobs:
     # or the committed Nov 18-24 seed), and fails naming the gate when this
     # cycle and the previous one refused on the same gate. A seal, a selection
     # or a different gate resets it; a ledger it cannot read fails as "could not
-    # tell". It also opens one issue, because Stage runs four times an hour and
+    # tell". O32 (2026-11-26): the same record also writes the cycles this
+    # run's look-back found with no owner or no result (--gaps), so the ledger
+    # has no silent hole; a gap is neither a refusal nor a reset.
+    # It also opens one issue, because Stage runs four times an hour and
     # the non-admitted runs finish green within minutes, so the red-main
     # detector's latest-verdict rule would never see this failure. DETECTION
     # ONLY: it never dispatches, retries, certifies or advances a release, and
     # `signal` does not wait for it.
     if: always() && needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result != 'skipped' && github.run_attempt == 1
     name: Record The Cycle Outcome And Fail On A Repeated Refusal
-    needs: [detect, selection]
+    needs: [detect, selection, cycle-look-back]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1270,13 +1391,16 @@ jobs:
         env:
           CYCLE: ${{ needs.detect.outputs.daily_preparation_date }}
           PREVIOUS: ${{ steps.previous.outputs.path }}
+          GAPS: ${{ needs.cycle-look-back.outputs.gaps }}
         run: |
           set -uo pipefail
           [ -f selection-artifact/daily-selection.json ] || {
             echo "::error title=Cutover outcome record could not tell::this cycle produced no daily-selection.json"; exit 2; }
+          printf '%s' "${GAPS:-[]}" > look-back-gaps.json
           python3 -B scripts/ci/cutover-outcome-ledger.py record \
             --selection selection-artifact/daily-selection.json --cycle "$CYCLE" --run-id "$GITHUB_RUN_ID" \
             --previous-ledger "$PREVIOUS" --seed scripts/ci/cutover-outcome-ledger-seed.json \
+            --gaps look-back-gaps.json \
             --output cutover-outcome-ledger.json --verdict cutover-outcome-verdict.json
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
