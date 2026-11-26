@@ -377,6 +377,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverCurrentNutsCallFloor',
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
   'omahaFourBetFoldPricedCall',
+  // 2026-11-24 PLO lead-6 (audit leaks 1-4, 6, 9): calls and re-raises facing a 3-bet or more priced against the whole
+  // field by position, depth and players (ships dark)
+  'omahaReraisedPotCallIsPriced',
+  'omahaReraisedPotReraiseIsPriced',
   // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
