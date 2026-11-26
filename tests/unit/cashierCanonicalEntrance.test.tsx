@@ -1,9 +1,11 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Suspense } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CashierEntrance from '../../src/components/navigation/CashierEntrance';
 import CashierTradePage from '../../src/pages/CashierTradePage';
+// Preload the actual wallet module so cold compilation happens outside the UI assertions.
+import '../../src/pages/CashierPage';
 import { supabase } from '../../src/lib/supabase';
 
 const fixture = vi.hoisted(() => ({
@@ -15,9 +17,17 @@ const fixture = vi.hoisted(() => ({
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: fixture.actor }, isHydrating: false }),
 }));
+vi.mock('../../src/core/IdentityDNA', async (original) => ({
+  ...(await original<typeof import('../../src/core/IdentityDNA')>()),
+  getIdentityDNAStatus: () => ({ loaded: true, authenticated: true, userId: fixture.actor }),
+}));
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: vi.fn() }));
 vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
+}));
+vi.mock('../../src/services/GameServerAPI', async (original) => ({
+  ...(await original<typeof import('../../src/services/GameServerAPI')>()),
+  getServerStatus: vi.fn(async () => null),
 }));
 vi.mock('../../src/services/UnionService', () => ({
   UnionService: { getOwnedUnions: vi.fn(async () => []) },
@@ -67,9 +77,32 @@ beforeEach(() => {
     slug: 'fixture-club',
     club_id: 101,
     is_union: false,
-    owner_id: fixture.actor,
+    get owner_id() {
+      return fixture.role === 'owner' ? fixture.actor : '65cc263c-7c01-4819-a421-dc5d75dfc891';
+    },
   };
-  vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null } as never);
+  vi.mocked(supabase.rpc).mockImplementation((name, args) => {
+    if (name === 'get_my_full_profile') return supabase.from('profiles') as never;
+    if (name === 'fn_club_money_panel') {
+      const data = {
+        authorized: true,
+        scope: fixture.role === 'owner' ? 'club' : 'member',
+        in_union: false,
+        club_treasury: 0,
+        club_promo_wallet: 0,
+        bbj: { main: 0, backup: 0 },
+      };
+      return { abortSignal: async () => ({ data, error: null }) } as never;
+    }
+    if (name === 'fn_cashier_history_summary') {
+      const data =
+        args?.p_scope === 'club'
+          ? { mode: 'club', entries: 0, volume: 0, cashouts_paid: 0, complete: true }
+          : { mode: 'wallet', incoming: 0, outgoing: 0, net: 0 };
+      return Promise.resolve({ data, error: null }) as never;
+    }
+    return Promise.resolve({ data: [], error: null }) as never;
+  });
   vi.mocked(supabase.from).mockImplementation((table: string) => {
     let columns = '';
     const q: Record<string, unknown> = {};
@@ -88,6 +121,7 @@ beforeEach(() => {
       'not',
       'match',
       'filter',
+      'abortSignal',
     ])
       q[key] = () => q;
     q.select = (value: string) => {
@@ -106,7 +140,9 @@ beforeEach(() => {
             ? { status: 'active', agent_wallet_balance: 500 }
             : table === 'clubs'
               ? club
-              : null,
+              : table === 'profiles'
+                ? { id: fixture.actor, diamonds: 8 }
+                : null,
       error: null,
     });
     q.then = (resolve: (value: unknown) => unknown, reject: (err: unknown) => unknown) =>
@@ -189,15 +225,29 @@ describe('one mounted club cashier', () => {
     mount('/clubs/' + fixture.club + '/cashier?origin=directory');
     fireEvent.click(await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Wallet Operations' }));
-    const tabs = await screen.findByRole('tablist', { name: 'Wallet Operations' });
-    const history = await within(tabs).findByRole('tab', { name: 'History' });
+    const operations = within(await screen.findByRole('region', { name: 'Wallet Operations' }));
+    const tabs = await operations.findByRole('tablist', { name: 'Wallet Operations' });
+    const initial = await operations.findByRole('tabpanel', { name: 'Cash-Out' });
+    expect(within(tabs).getByRole('tab', { name: 'Cash-Out', selected: true })).toHaveAttribute(
+      'aria-controls',
+      initial.id
+    );
+    const balances = within(screen.getByRole('region', { name: 'Wallet Balances' }));
+    const playerWallet = balances.getByRole('button', { name: 'Open Player Wallet' });
+    expect(playerWallet).toBeVisible();
+    await waitFor(() => expect(playerWallet).toHaveAccessibleDescription('250.00 Chips'));
     expect(tabs).not.toHaveAttribute('aria-busy', 'true');
     const mast = screen.getByRole('heading', { level: 1, name: 'Cashier' }).closest('header')!;
     expect(within(mast).getByText('Club Wallets')).toBeVisible();
     expect(within(tabs).queryByRole('tab', { name: 'Mint' })).toBeNull();
     expect(within(tabs).queryByRole('tab', { name: 'Distribute' })).toBeNull();
-    fireEvent.click(history);
-    expect(await screen.findByRole('tabpanel', { name: 'History' })).toBeVisible();
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'History' }));
+    const history = await operations.findByRole('tabpanel', { name: 'History' });
+    expect(history).toBeVisible();
+    expect(within(tabs).getByRole('tab', { name: 'History', selected: true })).toHaveAttribute(
+      'aria-controls',
+      history.id
+    );
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByLabelText('Current Address')).toHaveTextContent('origin=directory');
     const actions = screen.getByRole('tablist', { name: 'Cashier Actions' });
