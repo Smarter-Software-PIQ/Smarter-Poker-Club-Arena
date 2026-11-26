@@ -80,7 +80,7 @@ it('binds issuance to the selected bank and serializes club admission with minti
     started = true;
 
     const path =
-      'supabase/migrations/20261126030501_chip_mints_bind_to_the_selected_standalone_club_or_union_bank.sql';
+      'supabase/migrations/20261126030501_chip_mints_bind_to_the_selected_club_or_union_bank.sql';
     const source = readFileSync(resolve(root, path), 'utf8');
     const migration = stalePinGuardSQL(path, source, source);
     const original = (file: string, name: string) => {

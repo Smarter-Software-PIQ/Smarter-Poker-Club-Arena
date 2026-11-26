@@ -264,7 +264,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM supabase_migrations.schema_migrations
      WHERE version = '20261126030501'
-       AND name = 'chip_mints_bind_to_the_selected_standalone_club_or_union_bank'
+       AND name = 'chip_mints_bind_to_the_selected_club_or_union_bank'
   ) THEN
     RAISE EXCEPTION 'cashier bank-target mint migration history missing';
   END IF;
