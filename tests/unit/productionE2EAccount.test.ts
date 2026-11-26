@@ -18,6 +18,7 @@ import {
   DEFAULT_E2E_LIGHTNING_CLUB_ID,
   DEFAULT_E2E_TEMPLATE_CLUB_ID,
   STALE_ACCOUNT_AGE_MS,
+  STALE_INVENTORY_PAGE,
   retireCertificationClubWithRetry,
   retireProductionCreateClubFixtures,
   RETIREMENT_REFUSAL_CLUB_HAS_HISTORY,
@@ -223,7 +224,7 @@ describe('post-deploy production account', () => {
       const retired: string[] = [];
       const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        if (url.endsWith('/rpc/fn_ca_stale_certification_accounts')) {
+        if (url.endsWith('/rpc/fn_ca_stale_certification_accounts_after')) {
           return Response.json([
             {
               id: otherId,
@@ -1217,9 +1218,13 @@ describe('post-deploy production account', () => {
       })
     ).resolves.toBe(1);
     const query = decodeURIComponent(String(fetchMock.mock.calls[0]?.[0]));
-    expect(query).toContain('/rpc/fn_ca_stale_certification_accounts');
+    expect(query).toMatch(/\/rpc\/fn_ca_stale_certification_accounts_after$/);
     const request = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(request[1]?.body))).toEqual({ p_before: '2026-09-04T21:18:00.000Z' });
+    expect(JSON.parse(String(request[1]?.body))).toEqual({
+      p_before: '2026-09-04T21:18:00.000Z',
+      p_after_created_at: null,
+      p_after_id: null,
+    });
   });
 
   it('keeps the ordinary job ceiling and grants only explicit natural observations their extra time', () => {
@@ -2560,6 +2565,26 @@ describe('stale certification residue drains', () => {
     email: `ca-customization-cert-postdeploy-${n}-x@example.invalid`,
     created_at: '2026-10-30T00:00:00.000Z',
   });
+  type InventoryRow = { id: string; email: string; created_at: string };
+  /** fn_ca_stale_certification_accounts_after as installed: ordered, strictly after the position, 21 a page. */
+  const readerPage = (rows: InventoryRow[], init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as {
+      p_after_created_at: string | null;
+      p_after_id: string | null;
+    };
+    const order = (a: InventoryRow, b: InventoryRow) =>
+      a.created_at === b.created_at
+        ? a.id.localeCompare(b.id)
+        : a.created_at.localeCompare(b.created_at);
+    const after =
+      body.p_after_created_at && body.p_after_id
+        ? { created_at: body.p_after_created_at, id: body.p_after_id, email: '' }
+        : null;
+    return [...rows]
+      .sort(order)
+      .filter((row) => !after || order(row, after) > 0)
+      .slice(0, STALE_INVENTORY_PAGE);
+  };
 
   function backlog(count: number, refuse: Set<string> = new Set()) {
     const live = new Map(
@@ -2568,9 +2593,9 @@ describe('stale certification residue drains', () => {
     let inventoryReads = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('/rest/v1/rpc/fn_ca_stale_certification_accounts')) {
+      if (url.endsWith('/rest/v1/rpc/fn_ca_stale_certification_accounts_after')) {
         inventoryReads += 1;
-        return Response.json([...live.values()]);
+        return Response.json(readerPage([...live.values()], init));
       }
       if (url.includes('/rest/v1/clubs?')) return Response.json([]);
       if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account')) {
@@ -2599,8 +2624,117 @@ describe('stale certification residue drains', () => {
     ) as unknown as [string, RequestInit];
     expect(JSON.parse(String(inventoryCall[1].body))).toEqual({
       p_before: new Date(NOW - STALE_ACCOUNT_AGE_MS).toISOString(),
+      p_after_created_at: null,
+      p_after_id: null,
     });
     expect(STALE_ACCOUNT_AGE_MS).toBe(162 * 60_000);
+    // 429 identities at 21 a page: every page is read once, each from the last identity of the page before.
+    expect(reads()).toBe(Math.ceil(429 / STALE_INVENTORY_PAGE));
+    const pages = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('fn_ca_stale_certification_accounts_after'))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(pages[1]).toEqual({
+      p_before: new Date(NOW - STALE_ACCOUNT_AGE_MS).toISOString(),
+      p_after_created_at: '2026-10-30T00:00:00.000Z',
+      p_after_id: staleId(STALE_INVENTORY_PAGE),
+    });
+  });
+
+  /* 2026-11-25: the listing held 21 identities and every stale one was kept
+     for good (17 owners of record of retired fixtures, 2 players of record).
+     The first reader returns only the 21 oldest, so one more kept owner, due
+     the next day from the daily Rabbit Hunt Certification, would have hidden
+     every newer stale identity: 2026-11-14 and 2026-10-31 again. */
+  it('walks past a full page of identities it keeps for good and recovers the newer one behind them', async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => void logs.push(String(line)));
+    const env = {
+      ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-kept-page-'))),
+      DATABASE_URL: 'postgres://synthetic',
+    };
+    const kept = Array.from({ length: STALE_INVENTORY_PAGE }, (_, i) => staleRow(i + 1));
+    const newer = { ...staleRow(900), created_at: '2026-10-30T06:00:00.000Z' };
+    const live = new Map([...kept, newer].map((row) => [row.id, row]));
+    const clubOf = (ownerId: string) => `c1${ownerId.slice(2)}`;
+    const doorCalls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input));
+      if (url.endsWith('/rest/v1/rpc/fn_ca_stale_certification_accounts_after')) {
+        return Response.json(readerPage([...live.values()], init));
+      }
+      if (url.includes('/rest/v1/clubs?')) {
+        const owner = kept.find((row) => url.includes(row.id));
+        return Response.json(
+          owner
+            ? [
+                {
+                  id: clubOf(owner.id),
+                  name: 'Cert RH 17004387',
+                  owner_id: owner.id,
+                  lifecycle_status: 'retired',
+                },
+              ]
+            : []
+        );
+      }
+      if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account')) {
+        const id = JSON.parse(String(init?.body)).p_user_id as string;
+        doorCalls.push(id);
+        live.delete(id);
+        return Response.json({ success: true });
+      }
+      if (url.includes('/auth/v1/admin/users/')) return new Response(null, { status: 404 });
+      return new Response('unexpected request ' + url, { status: 500 });
+    });
+    await expect(
+      cleanupStaleProductionE2EAccounts({
+        environment: env,
+        fetchImpl: fetchMock,
+        now: NOW,
+        databaseClientFactory: async () => ({
+          query: vi.fn(async () => ({ rows: [] })),
+          connect: vi.fn(),
+          end: vi.fn(),
+        }),
+      })
+    ).resolves.toBe(1);
+    // Every kept owner is named, none is sent to the account door, and the one behind them is recovered.
+    expect(
+      logs.filter((line) => /as the owner of record of retired fixture/.test(line))
+    ).toHaveLength(STALE_INVENTORY_PAGE);
+    expect(doorCalls).toEqual([newer.id]);
+    expect([...live.keys()]).toEqual(kept.map((row) => row.id));
+  });
+
+  it('refuses an inventory page that does not move forward instead of reading it for ever', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const env = environment(mkdtempSync(join(tmpdir(), 'production-e2e-stuck-page-')));
+    const rows = Array.from({ length: STALE_INVENTORY_PAGE }, (_, i) => staleRow(i + 1));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      // A reader that ignores the position, as the first reader would.
+      if (url.includes('fn_ca_stale_certification_accounts')) return Response.json(rows);
+      if (url.includes('/rest/v1/clubs?')) return Response.json([]);
+      if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account'))
+        return Response.json({ success: false, reason: 'refused_for_test' });
+      return new Response('unexpected request', { status: 500 });
+    });
+    await expect(
+      cleanupStaleProductionE2EAccounts({ environment: env, fetchImpl: fetchMock, now: NOW })
+    ).rejects.toThrow('Stale account inventory returned a page that does not advance.');
+  });
+
+  it('the paged reader is the one migration 20261125235742 installs', () => {
+    expect(STALE_INVENTORY_PAGE).toBe(21);
+    const migration = readFileSync(
+      resolve(
+        process.cwd(),
+        'supabase/migrations/20261125235742_the_stale_certification_inventory_pages_past_kept_identities.sql'
+      ),
+      'utf8'
+    );
+    expect(migration).toContain('FUNCTION public.fn_ca_stale_certification_accounts_after(');
+    expect(migration).toContain('ORDER BY p.created_at, p.id LIMIT 21');
   });
 
   it('stops at its time budget without failing, and says how many remain', async () => {
@@ -2619,7 +2753,9 @@ describe('stale certification residue drains', () => {
       })
     ).resolves.toBeLessThan(50);
     expect(live.size).toBeGreaterThan(0);
-    expect(logs.some((line) => /remain for the next sweep/.test(line))).toBe(true);
+    expect(
+      logs.some((line) => /or more stale account\(s\) remain for the next sweep/.test(line))
+    ).toBe(true);
   });
 
   it('tries a refused identity once, finishes the rest, then reports the refusal', async () => {
