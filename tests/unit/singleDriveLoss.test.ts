@@ -214,7 +214,7 @@ describe('a worktree registration survives its drive dropping off the bus', () =
     for (const top of ['scripts', '.husky', 'operations']) walk(join(ROOT, top));
     expect(offenders).toEqual([]);
     for (const f of ['scripts/prune-stale-worktrees.sh', 'scripts/agent-tree-janitor.sh']) {
-      expect(readFileSync(join(ROOT, f), 'utf8')).toContain('scripts/ops/safe-worktree-prune.mjs');
+      expect(readFileSync(join(ROOT, f), 'utf8')).toContain('/ops/safe-worktree-prune.mjs');
     }
   }, 180_000);
 });

@@ -48,6 +48,23 @@ for a in "$@"; do
   esac
 done
 
+# THE HELPERS COME FROM BESIDE THIS SCRIPT, NEVER FROM $CLONE (2026-11-26).
+# The scheduled job runs this script once per clone (club-arena,
+# Smarter-Poker-World-Hub, smarter-poker-workers, ...). It used to run
+# "$CLONE/scripts/prune-stale-worktrees.sh" and
+# "$CLONE/scripts/ops/safe-worktree-prune.mjs": whatever bytes that clone
+# happened to have checked out. The shared club-arena checkout was from before
+# the safe pruner existed and every other clone has never had it, so each
+# scheduled run still reached a bare `git worktree prune`, the command that
+# deleted the registrations of every tree on SSD1 when it dropped (2026-11-22).
+# Both helpers are now resolved relative to this file, so the scheduled runner
+# (~/bin/ca-tree-janitor-run, which extracts this script and scripts/ops/
+# from origin/main) runs current main's helpers against every clone. If the
+# safe pruner is not beside this script, nothing is pruned (fail closed).
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SAFE_PRUNE="$SELF_DIR/ops/safe-worktree-prune.mjs"
+STALE_PRUNER="$SELF_DIR/prune-stale-worktrees.sh"
+
 cd "$CLONE" || { echo "no clone at $CLONE" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 human() { awk -v b="$1" 'BEGIN{ split("B KiB MiB GiB TiB",u," "); i=1; while(b>=1024 && i<5){b/=1024;i++} printf "%.1f %s", b, u[i] }'; }
@@ -72,7 +89,7 @@ say "clone: $CLONE"
 # Registered worktrees, minus the clone itself and anything locked.
 # bash 3.2 on macOS has no mapfile, and a pipe would put the loop in a subshell
 # where every counter it increments dies with it. A temp list keeps it here.
-TREE_LIST=$(mktemp -t catrees)
+TREE_LIST=$(mktemp "${TMPDIR:-/tmp}/catrees.XXXXXX")
 trap 'rm -f "$TREE_LIST"' EXIT
 git worktree list --porcelain | awk '/^worktree /{p=substr($0,10)} /^locked/{p=""} /^$/{ if (p != "") print p; p="" } END{ if (p != "") print p }' > "$TREE_LIST"
 
@@ -152,13 +169,27 @@ done < "$TREE_LIST"
 # TIER 2 — the repo's own pruner: clean, pushed and idle trees only.
 if [ "$APPLY" = 1 ]; then
   say "-- prune-stale-worktrees.sh"
-  IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$CLONE/scripts/prune-stale-worktrees.sh" 2>&1 | grep -E "^(PRUNE|SQUASHED|Removed|removed)" | sed 's/^/  /'
+  if [ -f "$STALE_PRUNER" ] && [ -f "$SAFE_PRUNE" ]; then
+    # cwd is $CLONE: the pruner works on the repository it is run in.
+    IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$STALE_PRUNER" 2>&1 | grep -E "^(PRUNE|SQUASHED|Removed|removed)" | sed 's/^/  /'
+  else
+    say "  SKIPPED: $STALE_PRUNER or $SAFE_PRUNE is missing; no tree removed and nothing pruned (fail closed)"
+  fi
   T2=$(git worktree list | wc -l | tr -d ' ')
   # Never a bare prune: a tree on an unmounted drive is not a deleted tree (2026-11-22).
-  node "$CLONE/scripts/ops/safe-worktree-prune.mjs" --repo "$CLONE" || true
+  if [ -f "$SAFE_PRUNE" ]; then
+    node "$SAFE_PRUNE" --repo "$CLONE" || true
+  else
+    say "  PRUNE REFUSED: $SAFE_PRUNE is missing; registrations left untouched (fail closed)"
+  fi
 else
   say "-- prune-stale-worktrees.sh --dry-run"
-  IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$CLONE/scripts/prune-stale-worktrees.sh" --dry-run 2>&1 | grep -cE "^PRUNE" | sed 's/^/  prunable trees: /'
+  if [ -f "$STALE_PRUNER" ] && [ -f "$SAFE_PRUNE" ]; then
+    IDLE_HOURS=$(( IDLE_DAYS * 24 )) bash "$STALE_PRUNER" --dry-run 2>&1 | grep -cE "^PRUNE" | sed 's/^/  prunable trees: /'
+    node "$SAFE_PRUNE" --repo "$CLONE" --dry-run || true
+  else
+    say "  SKIPPED: $STALE_PRUNER or $SAFE_PRUNE is missing (a real run would prune nothing)"
+  fi
 fi
 
 say "-- summary"
