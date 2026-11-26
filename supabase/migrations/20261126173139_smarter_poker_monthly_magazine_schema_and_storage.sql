@@ -9,14 +9,14 @@
 -- Smarter.Poker Magazine (online 2-page spread flipbook, mobile reader,
 -- 8.375"x10.875" 4-page signature print renderer, and national poker-room bulk
 -- distribution waitlist), alongside the continuing Tuesday Weekly Wire:
---   1. public.magazine_issues             — published & staged monthly issues
---   2. public.magazine_vault_items        — continuously harvested stories,
+--   1. public.magazine_issues             - published & staged monthly issues
+--   2. public.magazine_vault_items        - continuously harvested stories,
 --                                           permanently vaulted 300-DPI/web
 --                                           images, POY snapshots, strategy
 --                                           spots, trivia, and tour results
---   3. public.magazine_room_subscriptions — brick-and-mortar poker room print
+--   3. public.magazine_room_subscriptions - brick-and-mortar poker room print
 --                                           distribution bundle requests
---   4. storage.buckets ('magazine-assets') — permanent content-addressed image
+--   4. storage.buckets ('magazine-assets') - permanent content-addressed image
 --                                           masters & print-ready PDFs
 --
 -- Zero functions created, zero foreign keys or locks on existing gameplay or
