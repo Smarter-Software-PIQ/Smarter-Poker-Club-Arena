@@ -1666,14 +1666,15 @@ ${Object.entries(states)
         expect(due.env.CONTROL).toBe(
           '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
         );
+        // 2026-11-26: the due step may retarget to what can ship (its outputs first).
         expect(latePriority.env.SHA).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.sha).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.control_sha).toBe(
-          '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
+          '${{ steps.due.outputs.control_sha || steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
         );
         expect(backup.jobs.certify.env.CONTROL_SHA).toBe(
           '${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}'
@@ -3246,7 +3247,11 @@ git() { echo "2026-11-22T10:15:00Z"; }
       )
     ).toBe(true);
     expect(backup.on.push.paths).toContain('server/**');
-    expect(backup.on.workflow_run).toBeUndefined();
+    // The one chained trigger is the window's last install (2026-11-26).
+    expect(backup.on.workflow_run).toEqual({
+      workflows: ['Apply Merged Migration'],
+      types: ['completed'],
+    });
     expect(backup.on.repository_dispatch.types).toEqual([
       'run-post-deploy-e2e',
       'refresh-sealed-engine-backup',

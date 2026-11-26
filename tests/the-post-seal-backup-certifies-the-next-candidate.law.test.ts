@@ -198,8 +198,12 @@ describe('the post-seal Backup certifies the next candidate (O24)', () => {
     expect(stepOf(refresh, 'late_retarget').if).toMatch(/^github\.event_name == 'push' && /);
     expect(planJob.outputs.control_sha).toBe('${{ steps.plan.outputs.control_sha || github.sha }}');
     expect(run(next)).not.toContain('control_sha=');
-    // No timer, no chained trigger: the receiver's one existing event starts it.
-    expect(backup.on.workflow_run).toBeUndefined();
+    // No timer: the receiver's one existing event starts it. The only chained
+    // trigger is the window's last install (2026-11-26), never a Backup run.
+    expect(backup.on.workflow_run).toEqual({
+      workflows: ['Apply Merged Migration'],
+      types: ['completed'],
+    });
     expect(backup.on.schedule).toHaveLength(2);
     expect(backup.on.repository_dispatch.types).toEqual([
       'run-post-deploy-e2e',
@@ -320,7 +324,47 @@ describe('the post-seal Backup certifies the next candidate (O24)', () => {
       expect(planned.out).toContain('freeze_baseline=1');
     });
 
-    it.each(['claimed', 'done', 'served', 'refused', 'unselectable'])(
+    it.each(['claimed', 'done'])(
+      '`%s`: re-certifies the baseline after the seal, without a new claim status (2026-11-26, 187d1ee1b4cf)',
+      (state) => {
+        // 45565107439 (07:03Z 2026-11-25) read `claimed` for 187d1ee1b4cf,
+        // whose certification spanned the 07:00Z seal and rehearsed against
+        // the outgoing engine; it printed NOTHING TO CERTIFY and the build was
+        // unselectable for good.
+        const r = runNext({ githubSha: c5, baseline: `state=${state}\nbaseline=${c3}` });
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('NOTHING TO CERTIFY AFTER THE SEAL');
+        expect(r.stdout).toContain(
+          `FREEZE BASELINE RE-CERTIFIED AFTER THE SEAL: ${c3} answers ${state}`
+        );
+        expect(r.out).toContain(`sha=${c3}\n`);
+        expect(r.out).toContain('freeze_baseline=1');
+        // post_seal=1 makes the refresh job judge the standing certificate's
+        // rehearsal against the sealed build before it soaks anything.
+        expect(r.out).toContain('post_seal=1');
+        // Never a second claim over the standing claim or success.
+        expect(r.calls).not.toContain('/statuses/');
+        const planned = runPlan({ SEALED_SHA: SEALED, NEXT_SHA: c3, NEXT_FREEZE_BASELINE: '1' });
+        expect(planned.out).toContain(`sha=${c3}\n`);
+        expect(planned.out).toContain('refresh=force');
+        expect(planned.out).toContain('freeze_baseline=1');
+      }
+    );
+
+    it.each(['claimed', 'done'])(
+      '`%s` for a baseline that is not ahead of the sealed build certifies nothing',
+      (state) => {
+        for (const baseline of [SEALED, c0]) {
+          const r = runNext({ githubSha: c5, baseline: `state=${state}\nbaseline=${baseline}` });
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stdout).toContain('NOTHING TO CERTIFY AFTER THE SEAL');
+          expect(r.out).toBe('sha=\n');
+          expect(r.calls).not.toContain('/statuses/');
+        }
+      }
+    );
+
+    it.each(['served', 'refused', 'unselectable'])(
       '`%s`: certifies nothing, takes no host and never writes over the baseline claim',
       (state) => {
         const r = runNext({ githubSha: c5, baseline: `state=${state}\nbaseline=${c3}` });
@@ -493,6 +537,29 @@ git() { echo "2026-11-24T07:00:00Z"; }
       expect(certifyJob.if).toContain("needs.refresh.outputs.deferred != '1'");
       // The other order: a push run behind this one reads its success and stops.
       expect(stepOf(refresh, 'late_inherit').run).toContain('if [ "$self_state" = success ]; then');
+    });
+
+    it('a freeze baseline planned again after the seal: rehearsed against the sealed build hands the host back, the previous engine certifies, and it waits for nothing (2026-11-26)', () => {
+      const env = { FREEZE_BASELINE: '1', SHA: c3 };
+      const line = `success|https://github.example/o/r/actions/runs/555|Certified on the Backup Engine; installed migrations ${digest}`;
+      const kept = runDue(installed, env, { line, zip: zipOf(SEALED) });
+      expect(kept.status, kept.stderr).toBe(0);
+      expect(kept.stdout).toContain(
+        `ALREADY CERTIFIED: ${c3} already carries backup-engine/certified = success from run 555`
+      );
+      expect(kept.out).toContain('deferred=1');
+      expect(kept.calls).toContain('LEASE_RELEASED');
+      expect(kept.calls).not.toContain('--wait 1500');
+      const spanned = runDue(installed, env, { line, zip: zipOf(c0) });
+      expect(spanned.status, spanned.stderr).toBe(0);
+      expect(spanned.stdout).not.toContain('ALREADY CERTIFIED');
+      expect(spanned.out).toContain('due=true');
+      expect(spanned.out).not.toContain('deferred=1');
+      expect(spanned.calls).not.toContain('LEASE_RELEASED');
+      expect(spanned.calls).not.toContain('--wait 1500');
+      // The freeze baseline keeps its O7 exemption.
+      const pending = runDue(`due=true\nproduction=${'a'.repeat(64)}\npending=20261124160000`, env);
+      expect(pending.stdout).not.toContain('DEFERRED:');
     });
 
     it.each([

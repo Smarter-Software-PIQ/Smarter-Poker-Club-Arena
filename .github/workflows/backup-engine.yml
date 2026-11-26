@@ -1,5 +1,5 @@
 name: Backup Engine (Clone, Stage, Certify)
-run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || '' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || github.event_name == 'workflow_run' && format('Backup after installs {0}', github.event.workflow_run.id) || '' }}
 
 # THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
 # engine runs on its own Hetzner host against an isolated copy of the
@@ -111,7 +111,10 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # select-daily-engine.py admits a retargeted control from push runs only.
 # Inside tonight's freeze certification window the baseline rule
 # (scripts/ci/backup-freeze-baseline.py) alone decides: `due` certifies the
-# baseline exactly as a push run would, any other in-window answer certifies
+# baseline exactly as a push run would; `claimed` or `done` certifies it again
+# (2026-11-26: a certificate made before or across the seal rehearsed against
+# the outgoing engine, 187d1ee1b4cf), unless the standing success already
+# rehearsed against the sealed build; any other in-window answer certifies
 # nothing. A next-candidate run is treated as a push run by late supersession
 # while waiting (O11), the uninstalled-migration guard (O7) and the mid-soak
 # yield (O1/O16); it waits (bounded, 25 minutes, in the existing `due` read)
@@ -149,6 +152,19 @@ on:
       - 'scripts/ci/record-engine-deploy-attempt.mjs'
       - 'scripts/ci/record-engine-deploy-exit.mjs'
       - 'scripts/ci/record-engine-release-alert.mjs'
+  workflow_run:
+    # THE WINDOW'S LAST INSTALL STARTS ONE CERTIFICATION (2026-11-26). Every
+    # install stales every Backup copy, and nothing certified again after a
+    # post-cutover install window: on 2026-11-25 the 10:15Z and 19:10Z
+    # installs left b7948ca90719 stale for good while no run followed them.
+    # The plan job admits only a successful dispatcher install
+    # (repository_dispatch) of apply-merged-migration.yml on this repository's
+    # main, and only when no other Apply Merged Migration run is still going,
+    # so the window's last install starts exactly one certification of main's
+    # head ("Backup after installs <run>"). No timer, no
+    # watcher, no retry: one event, one run.
+    workflows: [Apply Merged Migration]
+    types: [completed]
   schedule:
     # Nightly refresh after midnight America/Chicago (05 UTC is CDT, 06 UTC
     # is CST). GitHub has delivered schedules hours late or not at all, so
@@ -203,7 +219,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '')
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '') && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.path == '.github/workflows/apply-merged-migration.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'))
     permissions:
       contents: read
       actions: read
@@ -350,7 +366,33 @@ jobs:
               fi
               nothing "tonight's freeze baseline ${baseline:-unknown} is due but is not a build ahead of the sealed build on this run's commit"
               ;;
-            claimed|done|served|refused|unselectable)
+            claimed|done)
+              # A CERTIFICATE THAT SPANS THE SEAL IS RE-CERTIFIED (2026-11-26).
+              # On 2026-11-25 the freeze baseline 187d1ee1b4cf was certified
+              # 06:33-07:26Z, across the 07:00Z seal, so its rollback rehearsal
+              # named the outgoing engine d2833d21 and the selector refused it
+              # for good ("serving rollback rehearsal unavailable"); this run
+              # (45565107439, 07:03Z) read `claimed` and certified nothing.
+              # A baseline that is claimed (its run started before this seal)
+              # or done (certified before it, or while it happened) is now
+              # planned again, without a new claim status, so that it is never
+              # left without a certificate the new engine can roll back to. The
+              # refresh job's standing-certificate check hands the host back,
+              # with no soak, when the standing success already rehearsed
+              # against the sealed build and names production's current set.
+              if [[ "$baseline" =~ ^[0-9a-f]{40}$ ]] && [ "$baseline" != "$sealed" ] \
+                 && git merge-base --is-ancestor "$sealed" "$baseline" 2>/dev/null \
+                 && git merge-base --is-ancestor "$baseline" "$GITHUB_SHA" 2>/dev/null; then
+                echo "FREEZE BASELINE RE-CERTIFIED AFTER THE SEAL: $baseline answers $baseline_state, so its certificate rehearsed (or will rehearse) its rollback against the engine before $sealed; this run certifies it again with the rollback rehearsed against $sealed, unless the standing success already names $sealed."
+                { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\` ($baseline_state) re-certified after the seal of \`$sealed\` (refresh forced; host handed back if its standing success already rehearsed against \`$sealed\`)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                echo "sha=$baseline" >> "$GITHUB_OUTPUT"
+                echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"
+                echo "post_seal=1" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              nothing "tonight's freeze baseline ${baseline:-unknown} answers $baseline_state but is not a build ahead of the sealed build on this run's commit"
+              ;;
+            served|refused|unselectable)
               nothing "inside tonight's release schema freeze the baseline rule decides the one shippable build and answers $baseline_state${baseline:+ for $baseline}"
               ;;
           esac
@@ -387,6 +429,7 @@ jobs:
           SEALED_SHA: ${{ steps.seal.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
+          INSTALL_RUN: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           sha="${INPUT_SHA:-$GITHUB_SHA}"
@@ -535,6 +578,43 @@ jobs:
             echo "priority=$priority" >> "$GITHUB_OUTPUT"
             echo "inherit_eligible=true" >> "$GITHUB_OUTPUT"
           fi
+          # THE WINDOW'S LAST INSTALL STARTS ONE CERTIFICATION (2026-11-26).
+          # Only the last Apply Merged Migration run still going plans; a newer
+          # after-install Backup run supersedes this one. The target is main's
+          # head when this run started (GITHUB_SHA for a workflow_run event);
+          # the refresh job certifies the newest server or release-control
+          # commit that carries no uninstalled migration. Unreadable
+          # answers plan, as a push run does (CLAUDE.md 10.86).
+          if [ "$EVENT" = workflow_run ]; then
+            api="repos/${GITHUB_REPOSITORY:-}/actions/workflows"
+            going=$(gh api "$api/apply-merged-migration.yml/runs?per_page=100" \
+              --jq "[.workflow_runs[] | select(.id != ${INSTALL_RUN:-0} and .status != \"completed\")] | length" 2>/dev/null || echo unreadable)
+            if [[ "$going" =~ ^[0-9]+$ ]] && [ "$going" -gt 0 ]; then
+              echo "NOT THE LAST INSTALL: $going other Apply Merged Migration run(s) are still going after install run ${INSTALL_RUN:-unknown}; the last one to finish starts the certification. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- NOT THE LAST INSTALL: $going other install run(s) still going; nothing planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            newer=$(gh api "$api/backup-engine.yml/runs?event=workflow_run&per_page=100" \
+              --jq "[.workflow_runs[] | select(.id > $RUN_ID)] | length" 2>/dev/null || echo unreadable)
+            if [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt 0 ]; then
+              echo "SUPERSEDED AFTER INSTALLS: $newer newer after-install Backup run(s) exist; the newest certifies main after the last install. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- SUPERSEDED AFTER INSTALLS: $newer newer after-install run(s); nothing planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # Main's head, not its newest server commit: an older server commit
+            # whose release controls differ from main's can never be selected
+            # (2026-11-26, c951436a6ead after #12038). The refresh job steps
+            # back from it when it carries an uninstalled migration.
+            echo "AFTER INSTALLS: Apply Merged Migration run ${INSTALL_RUN:-unknown} was the window's last install; certifying $sha, main's head, on a copy that holds the new installs."
+            { echo "### Backup Engine"; echo ""; echo "- AFTER INSTALLS \`$sha\` (install run ${INSTALL_RUN:-unknown}; main at \`$GITHUB_SHA\`)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "refresh=auto" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The refresh job decides from the standby's restore stamp whether a
           # refresh is due: forced, a new Chicago date, or a migration newer
           # than the copy. A schedule event certifies main after refreshing.
@@ -640,8 +720,8 @@ jobs:
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
       deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
-      sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
-      control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
+      sha: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+      control_sha: ${{ steps.due.outputs.control_sha || steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
     timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
@@ -1084,7 +1164,9 @@ jobs:
           # minutes (one wait, no second one) for a next-candidate run. Still
           # uninstalled afterwards: the O7 rule below hands the host back.
           refresh_wait=()
-          if [ "${POST_SEAL:-}" = 1 ]; then refresh_wait=(--wait 1500); fi
+          # A freeze baseline re-certified after a seal waits for nothing: the
+          # freeze holds every later migration until 04:15.
+          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ]; then refresh_wait=(--wait 1500); fi
           verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
             --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
             --control "$CONTROL" --sha "$SHA" --wait 240 ${refresh_wait[@]+"${refresh_wait[@]}"} 2> due-reason.txt) || verdict='due=true'
@@ -1102,7 +1184,91 @@ jobs:
           # sealed-build runs are exempt; unreadable production emits no pending=.
           # A post-seal next-candidate run (O24) follows the push rule although
           # its refresh is forced: its target is an ordinary candidate.
-          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+          # THE BACKUP CERTIFIES WHAT CAN SHIP (2026-11-26). A migration merged
+          # outside the post-cutover install window sits uninstalled on main for
+          # up to 150 minutes, and every later commit carries it. On 2026-11-25
+          # this guard therefore deferred every push run until the next window
+          # while the newest certifiable build (c951436a6ead) lost its run to
+          # supersession. Before deferring, the run now certifies the newest
+          # first-parent server commit at or behind its target whose tree holds
+          # none of the uninstalled files, when that commit is ahead of the
+          # serving engine. Its control stays this run's own commit (or, for a
+          # push run retargeting forward, the target itself), which is what
+          # select-daily-engine.py admits. A target whose tree holds none of the
+          # pending files is not deferred at all: the copy and production both
+          # lack them. Anything unreadable defers exactly as before (CLAUDE.md
+          # 10.86).
+          retargeted_down=''
+          if [ -n "$pending_migrations" ] && { { { [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+            # A commit whose release controls differ from this run's control
+            # can never pass prequalification ("qualification inputs differ
+            # from selected control"; 2026-11-26, c951436a6ead after #12038),
+            # so it is not worth a soak. Unreadable is "differ".
+            same_controls() {
+              python3 -B -c 'import runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); sys.exit(0 if m["projection"](sys.argv[1]) == m["projection"](sys.argv[2]) else 1)' "$1" "$2" 2>/dev/null
+            }
+            carries() { # carries <commit>: the pending versions its tree holds; fails when unreadable
+              local listed
+              [ "$(git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null)" = "$1" ] || return 1
+              listed=$(git ls-tree --name-only "$1" -- supabase/migrations/ 2>/dev/null) || return 1
+              local v
+              for v in ${pending_migrations//,/ }; do
+                grep -q "^supabase/migrations/${v}_" <<< "$listed" && printf '%s\n' "$v"
+              done
+              return 0
+            }
+            if held=$(carries "$SHA"); then
+              if [ -z "$held" ] && same_controls "$SHA" "$CONTROL"; then
+                echo "UNINSTALLED BUT NOT CARRIED: $SHA holds none of $pending_migrations (only main after it does); the copy and production both lack them, so it is certified as planned."
+                pending_migrations=''
+              elif [ -z "$held" ]; then
+                echo "$SHA holds none of $pending_migrations but its release controls differ from $CONTROL; deferring as before."
+              else
+                down=''
+                # The O13 rule: server/ or any release-control path, so a
+                # control commit with no migration is a target too (2026-11-26).
+                control_paths=()
+                while IFS= read -r control_path; do
+                  [ -n "$control_path" ] && control_paths+=("$control_path")
+                done < <(python3 -B -c 'import runpy; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print("\n".join(m["CONTROL_INPUTS"]))' 2>/dev/null || true)
+                for c in $(git rev-list --first-parent --max-count=200 "$SHA" -- server ${control_paths[@]+"${control_paths[@]}"} 2>/dev/null); do
+                  if c_held=$(carries "$c"); then
+                    if [ -z "$c_held" ]; then down="$c"; break; fi
+                  else
+                    down=''; break
+                  fi
+                done
+                serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health 2>/dev/null | jq -r '.releaseSha // ""' 2>/dev/null) || serving=''
+                down_control=''
+                if [[ "$down" =~ ^[0-9a-f]{40}$ ]] && ! same_controls "$down" "$CONTROL"; then
+                  echo "the newest commit without the uninstalled files, $down, has release controls that differ from $CONTROL; it can never be selected."
+                  down=''
+                fi
+                if [[ "$down" =~ ^[0-9a-f]{40}$ ]] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$down" != "$serving" ] \
+                   && git merge-base --is-ancestor "$serving" "$down" 2>/dev/null; then
+                  if git merge-base --is-ancestor "$down" "$GITHUB_SHA" 2>/dev/null; then
+                    down_control="$GITHUB_SHA"
+                  elif [ "$EVENT" = push ] && git merge-base --is-ancestor "$GITHUB_SHA" "$down" 2>/dev/null \
+                     && git diff --quiet "$GITHUB_SHA" "$down" -- .github/workflows/backup-engine.yml 2>/dev/null; then
+                    down_control="$down"
+                  fi
+                fi
+                held_list=$(printf '%s' "$held" | tr '\n' ',')
+                if [ -n "$down_control" ]; then
+                  echo "RETARGETED TO WHAT CAN SHIP: $SHA carries uninstalled migration(s) ($held_list); certifying $down, the newest server commit behind it that carries none and is ahead of the serving engine $serving (control $down_control)."
+                  { echo "### Backup Engine"; echo ""; echo "- RETARGETED TO WHAT CAN SHIP \`$SHA\` -> \`$down\`: the target carries uninstalled migration(s) \`$held_list\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                  SHA="$down"; CONTROL="$down_control"; retargeted_down=1
+                  echo "sha=$down" >> "$GITHUB_OUTPUT"
+                  echo "control_sha=$down_control" >> "$GITHUB_OUTPUT"
+                else
+                  echo "no certifiable commit behind $SHA (newest without the uninstalled files: ${down:-none or unreadable}; serving: ${serving:-unreadable}); deferring as before."
+                fi
+              fi
+            else
+              echo "the migrations $SHA carries are unreadable; deferring as before (CLAUDE.md 10.86)."
+            fi
+          fi
+          if [ -n "$pending_migrations" ] && [ -z "$retargeted_down" ] && { { { [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
             sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
@@ -1136,8 +1302,10 @@ jobs:
           # set AND its retained certificate rehearsed the rollback against the
           # build that just sealed; a certificate rehearsed against the previous
           # engine cannot be selected, so it is certified again. Any unreadable
-          # answer certifies (CLAUDE.md 10.86).
-          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
+          # answer certifies (CLAUDE.md 10.86). Since 2026-11-26 this also
+          # judges a freeze baseline the post-seal run plans again because it
+          # was claimed or done before the seal.
+          if [ "${POST_SEAL:-}" = 1 ] \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]] && [[ "${SEALED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
             standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
               --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
@@ -1191,7 +1359,7 @@ jobs:
           # Stale copies (due=true), forced runs, freeze baselines, mismatched
           # digests, or unreadable statuses proceed normally (CLAUDE.md 10.86).
           if [ "$due" = false ] && [ "$MODE" != force ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
-             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ]; } \
+             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
             standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
               --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)\t\(.description // \"\")\"" 2>/dev/null) || standing_line=''
@@ -1307,7 +1475,7 @@ jobs:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          SHA: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail
