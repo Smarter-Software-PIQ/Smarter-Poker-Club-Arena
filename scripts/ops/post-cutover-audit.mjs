@@ -20,6 +20,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -49,6 +50,8 @@ Options:
   --exploit-split-at <ISO>      Also run horse-exploit-report --split-at <ISO> --gate over the 24 h
                                 before it to now, and print its verdict (a warning unless strict)
   --strict-exploit              Fail overall verdict on an exploit-report finding or failed read
+  --strict-records              Fail overall verdict when docs/horse-option-switch-state.json does not
+                                hold the live switch rows (a warning otherwise)
   --supabase-workdir <dir>      Override auto-resolved linked Supabase workdir
   --json                        Emit machine-readable JSON output
   -h, --help                    Show this help text
@@ -152,6 +155,11 @@ export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir } = {}) {
             ? null
             : (res.stderr || '').trim().slice(0, 300),
       };
+    },
+
+    /** The committed switch snapshot of this checkout (docs/horse-option-switch-state.json). */
+    readCommittedSwitchState() {
+      return readFileSync(path.join(REPO_ROOT, 'docs/horse-option-switch-state.json'), 'utf8');
     },
 
     isGitAncestor(ancestorSha, descendantSha) {
