@@ -201,7 +201,7 @@ function terminalFinishLanesClosure(): Promise<void> {
 export function closeTerminalFinishLanes(): void {
   if (terminalFinishLanesClosed) return;
   terminalFinishLanesClosed = true;
-  terminalFinishLanesClosure();
+  void terminalFinishLanesClosure();
   signalTerminalFinishLanesClosed?.();
 }
 

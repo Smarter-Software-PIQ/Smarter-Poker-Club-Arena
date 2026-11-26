@@ -1701,7 +1701,8 @@ export abstract class TournamentManagerBase {
     for (const engine of this.tableEngines.values()) {
       engine.fenceForEngineLeaseLoss('tournament_lease_lost', false);
     }
-    this.applyStopFence();
+    // The lifecycle operation this fence returns is awaited by whoever started it.
+    void this.applyStopFence();
   }
 
   protected lifecycleIsCurrent(token = this.lifecycleEpoch.current()): boolean {
@@ -10657,7 +10658,8 @@ export abstract class TournamentManagerBase {
   beginServerShutdownDrain(): void {
     if (this.teardownPromise || this.stopFenceApplied || this.shutdownDrainFenceApplied) return;
     this.shutdownDrainFenceApplied = true;
-    this.applyManagerMutationFence(false);
+    // The lifecycle operation this fence returns is awaited by whoever started it.
+    void this.applyManagerMutationFence(false);
   }
 
   private tournamentAbortBoundary: TournamentAbortBoundary | null = null;
@@ -11078,7 +11080,8 @@ export abstract class TournamentManagerBase {
   /** Final shutdown fence, applied only after the between-hands drain. */
   fenceForServerShutdown(): void {
     if (this.teardownPromise) return;
-    this.applyStopFence();
+    // The lifecycle operation this fence returns is awaited by whoever started it.
+    void this.applyStopFence();
   }
 
   private applyStopFence(): Promise<void> | null {

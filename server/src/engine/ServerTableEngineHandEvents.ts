@@ -176,7 +176,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             timestamp: Date.now(),
           })
         );
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         break;
 
       case 'BOMB_POT_TRIGGERED' as any: {
@@ -796,7 +796,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             })
           );
         }
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         break;
 
       case 'COMMUNITY_CARDS':
@@ -928,7 +928,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
               /* idle street prewarm is advisory only */
             }
           }
-          this.broadcastCurrentState();
+          void this.broadcastCurrentState();
           break;
         }
 
@@ -937,7 +937,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // Each player must discard 1 of their 3 hole cards within the action timer.
         // ServerTableEngine starts a discard timer; auto-discards (last card) on expiry.
         this.handlePineappleDiscard(event);
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         break;
 
       case 'ALL_IN_RUNOUT':
@@ -1000,7 +1000,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
           })
         );
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         // ── ADDITIVE event-sourcing shadow (#1): record ShowdownRevealed ──
         if (this.shadowRecorder && this.handController) {
           const sdState = this.handController.getState();
@@ -1179,7 +1179,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           }));
           this.shadowRecorder.recordPotAwarded(awPayouts);
         }
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         // AUDIT FIX 2026-07-19: emit the hole-card reveal HERE (winners now
         // known) and respect auto-muck — reveal cards only for winners, players
         // who voluntarily showed, or when auto-muck is disabled for the table.

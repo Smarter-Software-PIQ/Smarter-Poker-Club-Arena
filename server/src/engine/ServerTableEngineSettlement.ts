@@ -1267,7 +1267,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
         // Re-broadcast so clients see the bounty-adjusted stacks immediately
         // (the WINNERS snapshot went out before these transfers were applied).
-        if (sdAnyApplied) this.broadcastCurrentState();
+        if (sdAnyApplied) void this.broadcastCurrentState();
       }
     }
 
