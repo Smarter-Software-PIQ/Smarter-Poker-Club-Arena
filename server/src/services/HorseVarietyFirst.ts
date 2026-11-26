@@ -331,7 +331,7 @@ export interface VarietyDrainInput<T extends DrainTable> {
 export function varietyDrainTable<T extends DrainTable>(
   input: VarietyDrainInput<T>
 ): string | null {
-  if (input.owedGames.length === 0 || input.owedStartsFit) return null;
+  if (input.owedGames.length === 0) return null;
   const owed = new Set(input.owedGames);
   const seated = (t: T): number => {
     const n = input.seatedAt(String(t.id));
@@ -352,7 +352,6 @@ export function varietyDrainTable<T extends DrainTable>(
     /* A game breaking a table is mid-move: it waits until the break is done. */
     if (all.some((t) => t.lifecycle === 'breaking')) continue;
     const live = all.filter((t) => (t.lifecycle ?? 'live') === 'live');
-    if (live.filter((t) => seated(t) > 0).length < 2) continue;
     const mains = live
       .filter((t) => t.role === 'main')
       .sort((a, b) => Number(a.main_index ?? 999) - Number(b.main_index ?? 999));
@@ -363,11 +362,22 @@ export function varietyDrainTable<T extends DrainTable>(
     const top = feeders.length > 0 ? feeders[0] : mains[mains.length - 1];
     if (!top || top === lowestMain || (top.role === 'main' && Number(top.main_index) === 1))
       continue;
-    if (seated(top) === 0 || input.personSeatedAt(String(top.id))) continue;
+    if (input.personSeatedAt(String(top.id))) continue;
+    /* The game keeps playing: another of its tables is occupied. */
+    if (!live.some((t) => t !== top && seated(t) > 0)) continue;
+    /* A RELEASED TABLE STAYS RELEASED (2026-11-26). The table already being
+       released is kept while any start is owed and it is still the top of a
+       Horse-only ladder: also once it is empty, and also in a cycle where the
+       owed starts fit again. Un-naming it for one cycle let the fleet walk
+       Horses straight back in (production 2026-11-26 04:05-04:16 CST, NLH
+       0.05/0.10 Classic Feeder: seven Horses left and four re-joined in twelve
+       minutes, every re-join in a cycle the table was not named). */
+    if (top.id === input.current) return top.id;
+    if (seated(top) === 0) continue;
     candidates.push(top);
   }
-  if (candidates.length === 0) return null;
-  if (input.current && candidates.some((t) => t.id === input.current)) return input.current;
+  /* A new table is released only when the cap has no free slot (owedStartsFit). */
+  if (candidates.length === 0 || input.owedStartsFit) return null;
   candidates.sort(
     (a, b) =>
       seated(a) - seated(b) ||
@@ -378,8 +388,8 @@ export function varietyDrainTable<T extends DrainTable>(
 }
 
 /**
- * Do the owed starts fit? The database's own sum (fn_cash_hourly_feeder_admissible):
- * counted tables + empty opening feeders + owed starts against the cap. An owed
+ * Is there a free slot for an owed start? Counted tables + empty opening
+ * feeders against the cap (the census fn_cash_hourly_feeder_admissible sums). An owed
  * start the hourly projection already admits means there is room (or the policy
  * is off), so nothing is drained. Unknown (a failed read) fits: nothing drains.
  */
@@ -392,7 +402,16 @@ export function owedStartsFit(room: {
 }): boolean {
   if (room.anOwedStartAdmitted) return true;
   if (room.cap === null || room.counted === null) return true;
-  return room.counted + room.openingFeeders + room.owedStarts <= room.cap;
+  /* A FREE SLOT FITS THE NEXT OWED START (2026-11-26). The feeder opener's sum
+     (counted + opening + every owed start <= cap) is the right question for
+     opening ANOTHER table, and the wrong one for emptying one: with a free
+     slot under the cap the owed start can take it now, and emptying a table
+     frees nothing an owed game is waiting for. Production 2026-11-26 04:15
+     CST: cap 10, 6 counted, 30 owed (too few Horses on shift to start them),
+     and a table was being emptied all the same. Only a cap with no free slot
+     releases a table. */
+  if (room.owedStarts <= 0) return true;
+  return room.counted + room.openingFeeders < room.cap;
 }
 
 let publishedDrain: { tableId: string; atMs: number } | null = null;

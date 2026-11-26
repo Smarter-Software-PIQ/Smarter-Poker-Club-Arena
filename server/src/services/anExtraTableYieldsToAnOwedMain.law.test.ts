@@ -138,7 +138,35 @@ describe('which extra table yields', () => {
     expect(pick(sat, { current: 'a-f' })).toBe('c-f');
   });
 
-  it("the owed starts fit by the database's own sum; unknown fits; an admitted owed start fits", () => {
+  it('a released table stays released: empty, or in a cycle the owed starts fit, until no start is owed', () => {
+    const floor = gameA();
+    /* named last cycle; this cycle an owed start was admitted (fits): still named, no walk back in */
+    expect(pick(floor, { current: 'a-f', owedStartsFit: true })).toBe('a-f');
+    /* its Horses have gone home and it has not closed yet: still named, nobody is seated there */
+    const emptied = floor.map((x) => (x.id === 'a-f' ? { ...x, seated: 0 } : x));
+    expect(pick(emptied, { current: 'a-f' })).toBe('a-f');
+    expect(pick(emptied, { current: 'a-f', owedStartsFit: true })).toBe('a-f');
+    /* an empty table is never NEWLY released, and a fit never starts a release */
+    expect(pick(emptied)).toBeNull();
+    expect(pick(floor, { owedStartsFit: true })).toBeNull();
+    /* no start owed, a person sat down or joined the list, or the table closed: released no longer */
+    expect(pick(emptied, { current: 'a-f', owedGames: [] })).toBeNull();
+    expect(pick(floor, { current: 'a-f', personWaitingGames: new Set(['A']) })).toBeNull();
+    const sat = floor.map((x) => (x.id === 'a-f' ? { ...x, person: true } : x));
+    expect(pick(sat, { current: 'a-f' })).toBeNull();
+    const closed = floor.map((x) => (x.id === 'a-f' ? { ...x, lifecycle: 'closed' } : x));
+    expect(pick(closed, { current: 'a-f', owedStartsFit: true })).toBeNull();
+  });
+
+  it('a cycle that could not decide does not forget the table being released', () => {
+    const fleet = read('./HorseFleetManager.ts');
+    const keep = fleet.indexOf(
+      '(cashPlanLightningGames && this.humansWaitingReadComplete)\n      )\n        this.varietyDrainTableId = varietyDrain;'
+    );
+    expect(keep).toBeGreaterThan(fleet.indexOf('varietyDrain = varietyDrainTable({'));
+  });
+
+  it('a table is released only at a cap with no free slot; unknown fits; an admitted owed start fits', () => {
     const base = {
       cap: 17,
       counted: 17,
@@ -148,7 +176,13 @@ describe('which extra table yields', () => {
     };
     expect(owedStartsFit(base)).toBe(false);
     expect(owedStartsFit({ ...base, counted: 10, owedStarts: 7 })).toBe(true);
-    expect(owedStartsFit({ ...base, counted: 10, owedStarts: 7, openingFeeders: 1 })).toBe(false);
+    /* A free slot under the cap fits the next owed start, however many are owed
+       (production 2026-11-26 04:15 CST: cap 10, 6 counted, 30 owed). */
+    expect(owedStartsFit({ ...base, counted: 10, owedStarts: 7, openingFeeders: 1 })).toBe(true);
+    expect(owedStartsFit({ ...base, cap: 10, counted: 6, owedStarts: 30 })).toBe(true);
+    /* No free slot: counted tables plus empty opening feeders reach the cap. */
+    expect(owedStartsFit({ ...base, counted: 16, openingFeeders: 1, owedStarts: 1 })).toBe(false);
+    expect(owedStartsFit({ ...base, owedStarts: 0 })).toBe(true);
     expect(owedStartsFit({ ...base, cap: null })).toBe(true);
     expect(owedStartsFit({ ...base, anOwedStartAdmitted: true })).toBe(true);
   });
