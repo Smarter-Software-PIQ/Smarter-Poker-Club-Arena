@@ -94,6 +94,9 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaRiverCurrentNutsCallFloor',
   // EMERG lane PREFLOP-UNCONTESTED 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaFourBetFoldPricedCall',
+  // PLO lead-6 2026-11-24: PLO4/PLO5 cash, default OFF
+  'omahaReraisedPotCallIsPriced',
+  'omahaReraisedPotReraiseIsPriced',
   // EMERG lane CBET-DEFENCE 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaCbetRaiseIsPriced',
   // EMERG lane OFFENCE-BUILD 2026-11-20: PLO4/PLO5 cash, default OFF

@@ -78,6 +78,10 @@ import {
   omahaRundownMeasuredAdmitsCall,
 } from '../HorseOmahaRundownReraiseMeasured.js';
 import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
+import {
+  omahaReraisedPotPricedAdmitsCall,
+  omahaReraisedPotPricedAdmitsRaise,
+} from '../HorseOmahaReraisedPotPricedRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import {
@@ -2023,6 +2027,32 @@ function policyGraphIsValidInScope(
         context.gameState,
         transition.after.amount
       );
+    // PLO lead-6 2026-11-24 (HorseOmahaReraisedPotPricedRule, options omahaReraisedPotCallIsPriced and
+    // omahaReraisedPotReraiseIsPriced, default off): facing a 3-bet or more preflop in PLO4/PLO5 cash a fold or a
+    // re-raise becomes the call where the priced EV of the call is the largest. The price reads the opponent memory,
+    // which the request does not carry, so the call is admitted only with the request, only in the rule's own spot
+    // re-derived from it and only for the exact chips the call puts in. (Its call -> fold and re-raise -> fold are the
+    // PLO fold admission above; the whole-stack call is an all-in, a wager action.)
+    const omahaReraisedPotPricedCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaReraisedPotPricedAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // ... and a call that became the pot-size re-raise (omahaReraisedPotReraiseIsPriced), only at the largest legal
+    // raise-to in the rule's own spot re-derived from the request (the all-in is a wager action).
+    const omahaReraisedPotPricedRaised =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'raise' &&
+      previous !== null &&
+      previous.action === 'call' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaReraisedPotPricedAdmitsRaise(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
     // draw out of position, or in position with a bare flush draw, becomes a
     // call. Admitted only with the request, where the bar re-run on it agrees.
@@ -2081,6 +2111,8 @@ function policyGraphIsValidInScope(
       !omahaFacingEquityCalled &&
       !omahaRiverNutsFloorCalled &&
       !omahaFourBetFoldCalled &&
+      !omahaReraisedPotPricedCalled &&
+      !omahaReraisedPotPricedRaised &&
       !plo6FacingBetPricedCalled &&
       !plo6FacingBetPricedV2Called &&
       !omahaRaiseNeedsNutsCalled &&

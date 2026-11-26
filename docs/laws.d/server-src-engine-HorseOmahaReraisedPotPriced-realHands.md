@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaReraisedPotPriced.realHands.law.test.ts
+
+Five real PLO5 cash decisions from the PLO lead-6 decision audit of 2026-11-24 (hands with a person, Nov 20-24), each a Horse facing a 3-bet or more whose cards were shown at showdown (only the deciding Horse's cards are in the fixture; seats anonymised), replayed from the recorded public snapshot with production's live decide options and no opponent memory at seeds 1, 7 and 42: four out-of-position multiway calls of a 3-bet that main makes become folds with omahaReraisedPotCallIsPriced and omahaReraisedPotReraiseIsPriced on (their priced EV against the whole field is negative), and an out-of-position multiway call of a 4-bet with suited aces is never folded.

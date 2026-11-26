@@ -566,8 +566,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'a counting callback (one noteFire) handed to withIcmBustPaysPlace, called once after the decision returns; the decision is the same either way',
       ],
       'telemetry: telemetryOn(opts),': [
-        7,
-        'passes the gate to a module that counts with it (2026-11-24: also omahaMultiwayValueBetRule and omahaFlopCallTreeRule, which only noteFire with it)',
+        8,
+        'passes the gate to a module that counts with it (2026-11-24: also omahaMultiwayValueBetRule and omahaFlopCallTreeRule, which only noteFire with it; and the re-raised pot price rule)',
       ],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
       tele: [
