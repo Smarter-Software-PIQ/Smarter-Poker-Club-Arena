@@ -8,6 +8,7 @@
  * conditions that gate the tab (`showTab`, `hasData`, `isOwnProfile`) stay in
  * the page, where `printing` can override them for the dossier.
  */
+import './StatsReadouts.css';
 import { Suspense, lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
@@ -65,7 +66,7 @@ export default function PerformanceTab({
   const threeBetMeasured = Boolean(exactThreeBet && exactThreeBet.opportunities > 0);
   const cbetMeasured = Boolean(exactCbet && exactCbet.opportunities > 0);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="stats-workbench stats-readouts">
       {/* Luck first. Every number below it is a rate the player can act
           on; this is the one that tells them whether the results they are
           staring at were earned or dealt. Owner only: it is derived from
@@ -101,14 +102,14 @@ export default function PerformanceTab({
       )}
 
       {/* Preflop */}
-      <div>
+      <section className="stats-workbench-surface stats-rate-report" aria-label="Preflop">
         <div className="stats-section-header">
           <h3>Preflop</h3>
         </div>
         {/* STATS CONTRACT TRUTH (2026-09-20): every grid on this tab mixes
             cash-only money with counts over every hand, so each row carries
             its scope, and an empty sample says Not Yet Measured. */}
-        <div className="stats-grid">
+        <div className="stats-rate-grid">
           <StatRow
             label="VPIP"
             value={ratioOrUnmeasured(
@@ -116,7 +117,7 @@ export default function PerformanceTab({
               overall.total_hands,
               (v) => `${(v * 100).toFixed(1)}%`
             )}
-            color="#00d4ff"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(overall.vpip, overall.total_hands)}
           />
@@ -127,7 +128,7 @@ export default function PerformanceTab({
               overall.total_hands,
               (v) => `${(v * 100).toFixed(1)}%`
             )}
-            color="#55b4ed"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(overall.pfr, overall.total_hands)}
           />
@@ -142,7 +143,7 @@ export default function PerformanceTab({
                   ? NOT_YET_MEASURED
                   : `${(overall.three_bet_percent * 100).toFixed(1)}%`
             }
-            color="#86c9e8"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               exactThreeBet && threeBetMeasured
@@ -159,7 +160,7 @@ export default function PerformanceTab({
                 ? NOT_YET_MEASURED
                 : `${(overall.fold_to_three_bet * 100).toFixed(1)}%`
             }
-            color="#ef4444"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               overall.fold_to_three_bet,
@@ -168,13 +169,13 @@ export default function PerformanceTab({
             )}
           />
         </div>
-      </div>
+      </section>
       {/* Postflop */}
-      <div>
+      <section className="stats-workbench-surface stats-rate-report" aria-label="Postflop">
         <div className="stats-section-header">
           <h3>Postflop</h3>
         </div>
-        <div className="stats-grid">
+        <div className="stats-rate-grid">
           <StatRow
             label="C-Bet Flop"
             value={
@@ -186,7 +187,7 @@ export default function PerformanceTab({
                   ? NOT_YET_MEASURED
                   : `${(overall.cbet_flop * 100).toFixed(1)}%`
             }
-            color="#55b4ed"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               exactCbet && cbetMeasured
@@ -203,7 +204,7 @@ export default function PerformanceTab({
                 ? NOT_YET_MEASURED
                 : `${(overall.wtsd * 100).toFixed(1)}%`
             }
-            color="#99bde6"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               overall.wtsd,
@@ -221,7 +222,7 @@ export default function PerformanceTab({
                     v.toFixed(1)
                   )
             }
-            color="#86c9e8"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatSampleEvidence(
               metricAvailability?.aggression_factor_denominator,
@@ -233,7 +234,7 @@ export default function PerformanceTab({
           <StatRow
             label="Showdown Win %"
             value={showdownWinRate}
-            color="#22c55e"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               overall.showdowns_won / overall.showdowns_total,
@@ -241,64 +242,64 @@ export default function PerformanceTab({
             )}
           />
         </div>
-      </div>
+      </section>
       {/* Results */}
-      <div>
+      <section className="stats-workbench-surface stats-rate-report" aria-label="Results">
         <div className="stats-section-header">
           <h3>Results</h3>
         </div>
-        <div className="stats-grid">
+        <div className="stats-rate-grid">
           <StatRow
             label="Cash Profit"
             value={compactChips(overall.total_profit)}
-            color="#22c55e"
+            color="#c0e7ff"
             highlight
           />
           <StatRow
             label="BB/100"
             value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
-            color="#80baff"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
             evidence={formatSampleEvidence(overall.cash_hands, 'Cash Hand')}
           />
           <StatRow
             label="Total Won"
             value={compactChips(overall.total_winnings)}
-            color="#10b981"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
           <StatRow
             label="Total Invested"
             value={compactChips(overall.total_invested)}
-            color="#06b6d4"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
           <StatRow
             label="Biggest Pot Won"
             value={compactChips(overall.biggest_pot_won)}
-            color="#10b981"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
           <StatRow
             label="Biggest Hand Loss"
             value={compactChips(overall.biggest_hand_loss)}
-            color="#ef4444"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
           <StatRow
             label="Hands Won"
             value={overall.hands_won.toLocaleString()}
-            color="#22c55e"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
           <StatRow
             label="Hands Lost"
             value={overall.hands_lost.toLocaleString()}
-            color="#ef4444"
+            color="#c0e7ff"
             scope={SCOPE_CASH}
           />
         </div>
-      </div>
+      </section>
     </div>
   );
 }

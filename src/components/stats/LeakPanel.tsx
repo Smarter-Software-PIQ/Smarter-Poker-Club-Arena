@@ -49,7 +49,7 @@ export default function LeakPanel({
   );
 
   return (
-    <div className="leak-card">
+    <div className="stats-workbench-surface leak-card">
       {!analysed ? (
         <>
           <h3 className="leak-title">What To Work On</h3>

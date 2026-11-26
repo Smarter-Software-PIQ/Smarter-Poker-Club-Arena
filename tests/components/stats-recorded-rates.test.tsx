@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { EMPTY_OVERALL } from '../../src/pages/stats/playerStatsPageModel';
 import OverviewTab from '../../src/pages/stats/OverviewTab';
 import { playerStyleFromStats } from '../../src/components/stats/playerStyleFromStats';
@@ -57,7 +57,7 @@ describe('recorded rates remain distinct from unavailable values', () => {
         }}
       />
     );
-    const card = screen.getByText('Hourly Rate').closest('[role="button"]') as HTMLElement;
+    const card = screen.getByText('Hourly Rate').closest('button') as HTMLElement;
     await waitFor(() => expect(within(card).getByText('+50')).toBeInTheDocument(), {
       timeout: 2000,
     });
@@ -74,7 +74,7 @@ describe('recorded rates remain distinct from unavailable values', () => {
         }}
       />
     );
-    const card = screen.getByText('Hourly Rate').closest('[role="button"]') as HTMLElement;
+    const card = screen.getByText('Hourly Rate').closest('button') as HTMLElement;
     expect(within(card).getByText('Not Yet Measured')).toBeInTheDocument();
   });
   it('does not coach from unmeasured advanced rates', () => {
@@ -137,6 +137,23 @@ describe('recorded rates remain distinct from unavailable values', () => {
     expect(values).toHaveProperty('three_bet');
   });
 
+  it('shows the settled hourly result to chip precision and opens its definition', () => {
+    render(
+      <AdvancedStatsSummary
+        initialData={{
+          total_profit: 505.01,
+          cash_hours_played: 6,
+          metric_availability: { cash_hours_played: true },
+        }}
+      />
+    );
+    const rate = screen.getByRole('button', { name: /Hourly Rate/i });
+    expect(rate).toHaveTextContent('+84.17');
+    fireEvent.click(rate);
+    expect(rate).toHaveAttribute('aria-expanded', 'true');
+    expect(rate).toHaveTextContent('Cash Profit Per Recorded Cash Hand Hour');
+  });
+
   it('shows unavailable advanced rates without numeric zeroes or hourly units', () => {
     render(
       <AdvancedStatsSummary
@@ -156,7 +173,7 @@ describe('recorded rates remain distinct from unavailable values', () => {
       />
     );
     for (const label of ['3-Bet %', 'C-Bet Frequency', 'Aggression Factor', 'Hourly Rate']) {
-      const card = screen.getByText(label).closest('[role="button"]') as HTMLElement;
+      const card = screen.getByText(label).closest('button') as HTMLElement;
       expect(within(card).getByText('Not Yet Measured')).toBeInTheDocument();
       expect(within(card).queryByText('0.0%')).not.toBeInTheDocument();
     }

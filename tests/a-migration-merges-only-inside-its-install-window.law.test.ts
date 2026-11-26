@@ -61,7 +61,9 @@ describe('a migration merges only inside its install window', () => {
     // 22:54 CST = 04:54Z: inside the 01:00 cycle hold, before the 23:45 freeze.
     const v = verdict('2026-11-26T04:54:00Z', [mig(ORDINARY)]);
     expect(v.state).toBe('failure');
-    expect(v.description).toMatch(/next 4:15 AM CST$/);
+    expect(v.description).toMatch(
+      /next 4:15 AM CST\. Open: gh workflow run migration-merge-window\.yml -f mode=keep$/
+    );
   });
 
   it('opens exactly where the applier admits: 10-30 minutes after a cycle and 4:15-4:30 AM', () => {
@@ -135,7 +137,19 @@ describe('a migration merges only inside its install window', () => {
     });
   });
 
+  it('no window depends on the schedule: a held run closes its own window, for one pull request or all', async () => {
+    const src = read('scripts/ci/migration-merge-window.mjs');
+    expect(src).toContain('export async function keep({ repo, number = null,');
+    expect(src).toContain('sweep({ repo, number, nowMs: t, cadence, targetUrl, log });');
+    expect(src).toMatch(
+      /if \(t >= closes \|\| t - started > KEEPER_MAX_MINUTES \* MINUTE\) break;/
+    );
+  });
+
   it('every description fits the 140-character status limit', () => {
+    for (const iso of ['2026-11-26T22:31:00Z', '2026-11-26T18:31:00Z']) {
+      expect(verdict(iso, [mig(ORDINARY)]).description.length).toBeLessThanOrEqual(140);
+    }
     for (const iso of ['2026-11-26T04:54:00Z', '2026-11-26T19:20:00Z', '2026-11-26T07:20:00Z']) {
       expect(verdict(iso, [mig(ORDINARY)]).description.length).toBeLessThanOrEqual(140);
     }
@@ -177,7 +191,8 @@ describe('a migration merges only inside its install window', () => {
     expect(run).toContain(
       'if [ "$SCHEDULE" = \'10 * * * *\' ]; then node scripts/ci/migration-merge-window.mjs keep'
     );
-    expect(run).toContain('node scripts/ci/migration-merge-window.mjs sweep --pr "$PR_NUMBER"');
+    // GitHub's schedule drops most ticks here: a pull request event holds its own window.
+    expect(run).toContain('node scripts/ci/migration-merge-window.mjs keep --pr "$PR_NUMBER"');
     expect(MERGE_WINDOW_CONTEXT).toBe('Migration merge window');
   });
 });

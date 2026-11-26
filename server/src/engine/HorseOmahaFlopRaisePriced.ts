@@ -11,10 +11,12 @@
  * chain's answer is a RAISE: the raise is priced at each candidate raise-to (the legal minimum, the chain's own size,
  * half way to the pot raise and the pot raise) beside the call and the fold, against the bettor's MEASURED flop range
  * (HorseOmahaMeasuredBettorRange: the shown strength of a player who made this street's wager on his line and size,
- * showdown bias corrected; his own shown record shrunk toward it). The best stands: a larger or smaller raise, or the
- * call (or the fold) when no raise prices above them by more than the equity estimate's error. It never makes a raise
- * out of a call or a fold, so the owner rules on draws (never raised out of position; in position only combo draws)
- * keep holding: they run after this rule, on its answer.
+ * showdown bias corrected; his own shown record shrunk toward it). RAISE OR NOT: the call (or the fold) replaces the
+ * raise only when it prices above it by more than the equity estimate's error. WHICH SIZE (2026-11-26): when the raise
+ * stays, the sizes are compared with each other on the same footing, the same equity sample with no realization
+ * discount between two raises and no margin, among the sizes that survive the raise-or-not question. It never makes a
+ * raise out of a call or a fold, so the owner rules on draws (never raised out of position; in position only combo
+ * draws) keep holding: they run after this rule, on its answer.
  *
  *   EV(fold) = 0;  EV(call) = R x eq x (P + C) x (1 - rake) - C
  *   EV(raise to T) = f x P x (1 - rake) + (1 - f) x (R' x e_c x (P + A + X) x (1 - rake) - A)
@@ -207,6 +209,8 @@ export interface OmahaFlopRaiseRow {
   ev: number;
   fold?: number;
   eqCall?: number;
+  /** A raise row only: the same price with no realization discount, the footing two raise sizes are compared on. */
+  evSize?: number;
 }
 export interface OmahaFlopRaiseVerdict {
   eq: number;
@@ -258,7 +262,8 @@ export function omahaFlopRaisePrice(
     const allIn = T >= stackCap - 0.005;
     const Rr = allIn ? 1 : R;
     const ev = f * P * (1 - r) + (1 - f) * (Rr * eqCall * (P + A + X) * (1 - r) - A);
-    rows.push({ action: 'raise', to: T, ev, fold: f, eqCall });
+    const evSize = f * P * (1 - r) + (1 - f) * (eqCall * (P + A + X) * (1 - r) - A);
+    rows.push({ action: 'raise', to: T, ev, fold: f, eqCall, evSize });
   }
   let best = rows[0];
   for (const row of rows) if (row.ev > best.ev) best = row;
@@ -341,13 +346,27 @@ export function omahaFlopRaisePricedRule(
         x.action === 'raise' && Math.abs(x.to - rnd(clamp(own, Math.min(min, max), max))) < 0.01
     );
     const ownEv = ownRow ? ownRow.ev : -Infinity;
-    if (v.best.action === 'raise') {
-      if (Math.abs(v.best.to - (ownRow?.to ?? -1)) < 0.01 || !(v.best.ev - ownEv > v.margin))
-        return { ...same, verdict: v };
+    // RAISE OR NOT (the realization discount and the error margin stay): the best of the call and the fold replaces
+    // the chain's raise only when it prices above it by more than the equity estimate's error.
+    let other = v.rows[0];
+    for (const row of v.rows) if (row.action !== 'raise' && row.ev > other.ev) other = row;
+    const leaves = v.best.action !== 'raise' && v.best.ev - ownEv > v.margin;
+    if (!leaves) {
+      // WHICH SIZE (the decision is a raise): two sizes of the same raise are compared on the same footing, the same
+      // equity sample with no realization discount between them and no margin (the sample's error is common to both
+      // sizes). A size is a candidate only if it survives the raise-or-not question the chain's own size survived:
+      // the call or the fold must not price above it by more than the margin.
+      let pick: OmahaFlopRaiseRow | undefined = ownRow;
+      for (const row of v.rows) {
+        if (row.action !== 'raise' || !fin(row.evSize)) continue;
+        if (other.ev - row.ev > v.margin) continue;
+        if (!pick || (row.evSize as number) > (pick.evSize as number) + 1e-9) pick = row;
+      }
+      if (!pick || !ownRow || Math.abs(pick.to - ownRow.to) < 0.01) return { ...same, verdict: v };
       const legal = legalize({
         ...decision,
-        action: v.best.to >= stackCap - 0.005 ? 'all_in' : 'raise',
-        amount: v.best.to,
+        action: pick.to >= stackCap - 0.005 ? 'all_in' : 'raise',
+        amount: pick.to,
       });
       if (legal.action !== 'raise' && legal.action !== 'all_in') return { ...same, verdict: v };
       return {
@@ -356,7 +375,6 @@ export function omahaFlopRaisePricedRule(
         verdict: v,
       };
     }
-    if (!(v.best.ev - ownEv > v.margin)) return { ...same, verdict: v };
     if (v.best.action === 'call') {
       const legal = legalize({ ...decision, action: 'call', amount: spot.toCall });
       if (legal.action !== 'call' && legal.action !== 'all_in') return { ...same, verdict: v };

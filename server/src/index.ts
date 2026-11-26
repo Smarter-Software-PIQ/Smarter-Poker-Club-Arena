@@ -202,6 +202,10 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 );
 
 const httpServer = createEngineHttpServer(
+  // createRouter's listener awaits the route inside its own try/catch and
+  // answers 500 on any error (router.ts, "ONE REQUEST CANNOT RESTART THE
+  // ENGINE"), so http.createServer ignoring its promise drops nothing.
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
 const internalLivenessServer =

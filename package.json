@@ -52,7 +52,8 @@
     "check:stats-budgets": "node scripts/ci/check-stats-performance-budgets.mjs",
     "probe:cluster": "bash scripts/dev/probe-cluster-boards.sh",
     "horse:status": "node scripts/ops/horse-fleet-status.mjs",
-    "horse:qualify": "node scripts/ops/horse-qualification-pipeline.mjs"
+    "horse:qualify": "node scripts/ops/horse-qualification-pipeline.mjs",
+    "lint:engine-promises": "cd server && eslint --no-config-lookup -c eslint.promises.config.mjs src"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",

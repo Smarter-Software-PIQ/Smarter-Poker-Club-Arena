@@ -11,8 +11,9 @@
  * the field; this one just shows the numbers, for the window they cover.
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { aggressionFactorLabel } from '../../pages/stats/format';
+import { chipCents } from '../../utils/cashierAmount';
 import { compactChips } from '../../utils/format';
 import './AdvancedStatsSummary.css';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
@@ -58,34 +59,6 @@ interface AdvancedStatsSummaryProps {
 
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-// Animated number component
-const AnimatedNumber: React.FC<{
-  target: number;
-  format: (val: number) => string;
-  duration?: number;
-}> = ({ target, format, duration = 600 }) => {
-  const [display, setDisplay] = useState(0);
-
-  useEffect(() => {
-    let startTime: number;
-    let rafId: number;
-    const animate = (now: number) => {
-      if (!startTime) startTime = now;
-      const progress = Math.min((now - startTime) / duration, 1);
-      setDisplay(target * progress);
-      if (progress < 1) {
-        rafId = requestAnimationFrame(animate);
-      } else {
-        setDisplay(target);
-      }
-    };
-    rafId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafId);
-  }, [target, duration]);
-
-  return <>{format(display)}</>;
-};
-
 function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
   const totalHands = n(d.total_hands);
   const hoursPlayed = n(d.cash_hours_played);
@@ -101,7 +74,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: d.metric_availability?.cash_hours_played === true && hoursPlayed > 0,
       label: 'Hourly Rate',
       value: hourlyRate,
-      format: (val) => `${val >= 0 ? '+' : ''}${compactChips(val)}`,
+      format: (val) => `${val >= 0 ? '+' : ''}${compactChips(chipCents(val))}`,
       unit: '/hr',
       description:
         'Cash Profit Per Recorded Cash Hand Hour In This Window. Overlapping Tables Count Once.',
@@ -169,26 +142,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
 
 const AdvancedStatsSummary: React.FC<AdvancedStatsSummaryProps> = ({ initialData, rangeLabel }) => {
   const stats = useMemo(() => buildStats(initialData ?? {}), [initialData]);
-  const [visibleStats, setVisibleStats] = useState<Set<number>>(new Set());
   const [selectedStat, setSelectedStat] = useState<string | null>(null);
-  const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  useEffect(() => {
-    staggerTimersRef.current.forEach(clearTimeout);
-    staggerTimersRef.current = [];
-    setVisibleStats(new Set());
-    stats.forEach((_, i) => {
-      const timer = setTimeout(() => {
-        setVisibleStats((prev) => new Set([...prev, i]));
-      }, i * 60);
-      staggerTimersRef.current.push(timer);
-    });
-    return () => {
-      staggerTimersRef.current.forEach(clearTimeout);
-      staggerTimersRef.current = [];
-    };
-  }, [stats]);
-
   const getTrendColor = (val: number) => {
     if (val > 0) return '#10b981';
     if (val < 0) return '#ef4444';
@@ -196,7 +150,7 @@ const AdvancedStatsSummary: React.FC<AdvancedStatsSummaryProps> = ({ initialData
   };
 
   return (
-    <div className="advanced-stats-summary">
+    <div className="stats-workbench-surface advanced-stats-summary">
       <div className="stats-header">
         <h3>Betting And Showdown Statistics</h3>
         <p className="stats-subtitle">
@@ -206,76 +160,57 @@ const AdvancedStatsSummary: React.FC<AdvancedStatsSummaryProps> = ({ initialData
       </div>
 
       <div className="advanced-stats-grid">
-        {stats.map((stat, i) => {
-          const isVisible = visibleStats.has(i);
+        {stats.map((stat) => {
           const isSelected = selectedStat === stat.id;
 
           return (
-            <div
+            <button
+              type="button"
               key={stat.id}
               className={`advanced-stat-card ${isSelected ? 'selected' : ''}`}
-              style={{
-                opacity: isVisible ? 1 : 0,
-                transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
-                transition: `all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) ${i * 40}ms`,
-              }}
-              role="button"
-              tabIndex={0}
               aria-expanded={isSelected}
               onClick={() => setSelectedStat(isSelected ? null : stat.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSelectedStat(isSelected ? null : stat.id);
-                }
-              }}
             >
-              <div className="card-top">
+              <span className="card-top">
                 <span className="stat-title">{stat.label}</span>
-              </div>
-
-              <div className="card-value">
-                <span className="value-main" style={{ color: getTrendColor(stat.value) }}>
-                  {stat.measured === false ? (
-                    NOT_YET_MEASURED
-                  ) : (
-                    <AnimatedNumber target={stat.value} format={stat.format} />
-                  )}
+              </span>
+              <span className="card-value">
+                <span
+                  className="value-main"
+                  style={{
+                    color:
+                      stat.id === 'hourly' && stat.measured ? getTrendColor(stat.value) : undefined,
+                  }}
+                >
+                  {stat.measured === false ? NOT_YET_MEASURED : stat.format(stat.value)}
                 </span>
                 {stat.unit && stat.measured !== false && (
                   <span className="value-unit">{stat.unit}</span>
                 )}
-              </div>
-
-              {isSelected && (
-                <div
-                  className="card-description"
-                  style={{
-                    animation: 'animationsSlideDown 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  }}
-                >
-                  <p>{stat.description}</p>
-                </div>
-              )}
-            </div>
+              </span>
+              {isSelected && <span className="card-description">{stat.description}</span>}
+            </button>
           );
         })}
       </div>
 
-      <div className="stats-legend">
-        <div className="legend-item">
-          <span className="legend-label">BB/100</span>
-          <p>Big Blinds Won Per 100 Hands - Primary Win Rate Metric</p>
+      <details className="metric-glossary">
+        <summary>Metric Definitions</summary>
+        <div className="stats-legend">
+          <div className="legend-item">
+            <span className="legend-label">BB/100</span>
+            <p>Big Blinds Won Per 100 Hands - Primary Win Rate Metric</p>
+          </div>
+          <div className="legend-item">
+            <span className="legend-label">C-Bet</span>
+            <p>Continuation Bet - Betting On The Flop After Raising Preflop</p>
+          </div>
+          <div className="legend-item">
+            <span className="legend-label">AF</span>
+            <p>Aggression Factor - Ratio Of Aggressive To Passive Actions</p>
+          </div>
         </div>
-        <div className="legend-item">
-          <span className="legend-label">C-Bet</span>
-          <p>Continuation Bet - Betting On The Flop After Raising Preflop</p>
-        </div>
-        <div className="legend-item">
-          <span className="legend-label">AF</span>
-          <p>Aggression Factor - Ratio Of Aggressive To Passive Actions</p>
-        </div>
-      </div>
+      </details>
     </div>
   );
 };

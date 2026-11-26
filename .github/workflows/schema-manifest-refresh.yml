@@ -557,6 +557,84 @@ jobs:
           gh issue comment "$N" --repo "$REPO" --body "Recovered. Every call the World Hub makes agrees with the register. Closing." || true
           gh issue close "$N" --repo "$REPO" || true
 
+  cashier-writers-unchanged:
+    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+    name: The live cashout writers are the audited bodies
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 12
+    # A HAND PATCH TO A CASHOUT WRITER IS SEEN WITHIN THE HOUR (2026-11-26).
+    #
+    # The four cashout functions (fn_cashout_request_v2, _approve_v2,
+    # _release_v2, _operation_receipt_v2) were installed from
+    # supabase/accounting/weekly-v3/components/20260914164700_... and, by
+    # decision, have no mirror in supabase/migrations. Their only repo-side
+    # proof is scripts/verification-harness/cashier-release-contract.sql,
+    # which pins each body by md5 along with the cashier ACLs, RLS, triggers
+    # and indexes. Until now it ran only after a publish, so a body changed
+    # straight in production stayed unseen until the next client release.
+    # The contract is READ ONLY and rolls back; it writes nothing.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install the pinned database client
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Ask production whether the cashout writers are the audited bodies
+        id: contract
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -o pipefail
+          node scripts/verification-harness/certify-cashier-contract.mjs 2>&1 | tee /tmp/cashier-contract.log
+
+      - name: Raise the alarm
+        if: failure() && steps.contract.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          TITLE="Cashier contract: a live cashout writer, grant or guard differs from the audited contract"
+          N=$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title \
+                --jq "[.[] | select(.title == \"$TITLE\")] | .[0].number // empty" 2>/dev/null)
+          BODY=$(printf '%s\n' \
+            "The hourly read-only cashier contract failed against production." \
+            "" \
+            "Either a cashout writer body no longer matches its pinned md5, or a cashier grant, policy, trigger or index changed. Find who changed it before anyone pays out." \
+            "" \
+            '```' \
+            "$(sed -e 's/\x1b\[[0-9;]*m//g' /tmp/cashier-contract.log | grep -v -i 'password' | head -40)" \
+            '```' \
+            "" \
+            "This issue closes itself on the next clean run." \
+            "" \
+            "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          if [ -n "${N:-}" ]; then
+            gh issue comment "$N" --repo "$REPO" --body "$BODY" || echo "::error::could not comment on #$N"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" || echo "::error::could not open the issue"
+          fi
+
+      - name: Close the alarm when the contract holds again
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          TITLE="Cashier contract: a live cashout writer, grant or guard differs from the audited contract"
+          N=$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title \
+                --jq "[.[] | select(.title == \"$TITLE\")] | .[0].number // empty" 2>/dev/null)
+          [ -n "${N:-}" ] || exit 0
+          gh issue comment "$N" --repo "$REPO" --body "Recovered. The live cashout writers match the audited contract again. Closing." || true
+          gh issue close "$N" --repo "$REPO" || true
+
   definer-exposure:
     if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     name: No unaccounted DEFINER writer is reachable from a browser

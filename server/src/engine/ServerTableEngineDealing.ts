@@ -248,7 +248,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           timestamp: Date.now(),
         });
       }
-      this.broadcastCurrentState();
+      void this.broadcastCurrentState();
       console.log(
         `[CashHourlyCap] Closed ${this.tableId} after its hand; ${departed.length} occupancy receipts`
       );
@@ -1563,7 +1563,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
-          this.broadcastCurrentState(); // Sends clean state (no hand in progress)
+          void this.broadcastCurrentState(); // Sends clean state (no hand in progress)
           // Phase 3: THE REST (Dan 2026-09-07: "THE NEXT HAND 2 SECONDS AFTER
           // THE HAND IS COMPLETED"). One number, HAND_COMPLETION.NEXT_HAND_REST_MS,
           // between completion and the next deal. The board clear

@@ -27,6 +27,9 @@ import {
   publishVarietyDrain,
   VARIETY_HOLD_FRESH_MS,
   varietyDrainingTable,
+  varietyDrainingTables,
+  varietyDrainTables,
+  drainShortfall,
   varietyDrainTable,
   type DrainTable,
 } from './HorseVarietyFirst.js';
@@ -158,12 +161,82 @@ describe('which extra table yields', () => {
     expect(pick(closed, { current: 'a-f', owedStartsFit: true })).toBeNull();
   });
 
+  it('the drain scales with the backlog: one new table per cycle while released tables are fewer than the shortfall', () => {
+    const floor = [
+      ...gameA(),
+      t('b-m1', 'B', 'main', 1, 6, 0),
+      t('b-f', 'B', 'feeder', null, 2, 10),
+      t('c-m1', 'C', 'main', 1, 6, 0),
+      t('c-f', 'C', 'feeder', null, 3, 45),
+    ];
+    const many = (shortfall: number, current: string[] = []) =>
+      varietyDrainTables<T>({
+        tables: floor,
+        seatedAt: (id) => floor.find((x) => x.id === id)?.seated ?? 0,
+        personSeatedAt: (id) => !!floor.find((x) => x.id === id)?.person,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(['L']),
+        owedGames: ['short-deck', 'pineapple', 'flo8'],
+        shortfall,
+        current,
+      });
+    /* cycle 1: nothing released yet, three short: the fewest Horses first */
+    expect(many(3)).toEqual(['b-f']);
+    /* cycle 2: b-f kept, one more added (never two in one cycle) */
+    expect(many(3, ['b-f'])).toEqual(['b-f', 'c-f']);
+    expect(many(3, ['b-f', 'c-f'])).toEqual(['b-f', 'c-f', 'a-f']);
+    /* released tables already cover the shortfall: nothing new */
+    expect(many(2, ['b-f', 'c-f'])).toEqual(['b-f', 'c-f']);
+    /* a free slot (shortfall 0): released tables stay released, none is added */
+    expect(many(0, ['b-f'])).toEqual(['b-f']);
+    expect(many(0)).toEqual([]);
+    /* no start owed: everything is released no longer */
+    expect(
+      varietyDrainTables<T>({
+        tables: floor,
+        seatedAt: (id) => floor.find((x) => x.id === id)?.seated ?? 0,
+        personSeatedAt: () => false,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(),
+        owedGames: [],
+        shortfall: 5,
+        current: ['b-f', 'c-f'],
+      })
+    ).toEqual([]);
+  });
+
+  it('the shortfall is every owed start at a cap with no free slot, and zero whenever the starts fit', () => {
+    const full = {
+      cap: 16,
+      counted: 16,
+      openingFeeders: 0,
+      owedStarts: 19,
+      anOwedStartAdmitted: false,
+    };
+    expect(drainShortfall(full)).toBe(19);
+    expect(drainShortfall({ ...full, counted: 15 })).toBe(0);
+    expect(drainShortfall({ ...full, counted: 15, openingFeeders: 1 })).toBe(19);
+    expect(drainShortfall({ ...full, cap: null })).toBe(0);
+    expect(drainShortfall({ ...full, anOwedStartAdmitted: true })).toBe(0);
+    expect(drainShortfall({ ...full, owedStarts: 0 })).toBe(0);
+  });
+
+  it('every released table is published, and each is still dropped when it goes stale', () => {
+    __resetVarietyDrain();
+    publishVarietyDrain(['a-f', 'b-f'], 1_000);
+    expect(varietyDrainingTables(1_000)).toEqual(['a-f', 'b-f']);
+    expect(varietyDrainingTable(1_000)).toBe('a-f');
+    expect(varietyDrainingTables(1_000 + VARIETY_HOLD_FRESH_MS)).toEqual([]);
+    publishVarietyDrain([], 2_000);
+    expect(varietyDrainingTables(2_000)).toEqual([]);
+  });
+
   it('a cycle that could not decide does not forget the table being released', () => {
     const fleet = read('./HorseFleetManager.ts');
     const keep = fleet.indexOf(
-      '(cashPlanLightningGames && this.humansWaitingReadComplete)\n      )\n        this.varietyDrainTableId = varietyDrain;'
+      '(cashPlanLightningGames && this.humansWaitingReadComplete)\n      )\n        this.varietyDrainTableIds = varietyDrain;'
     );
-    expect(keep).toBeGreaterThan(fleet.indexOf('varietyDrain = varietyDrainTable({'));
+    expect(keep).toBeGreaterThan(fleet.indexOf('varietyDrain = varietyDrainTables({'));
   });
 
   it('a table is released only at a cap with no free slot; unknown fits; an admitted owed start fits', () => {
@@ -202,8 +275,10 @@ describe('the fleet keeps no Horse at the released table', () => {
   it('decides after the hold, clears before the hourly read, and joins surplusTableIds before any seating', () => {
     const clear = fleet.indexOf('publishVarietyDrain(null, Date.now());');
     const hourly = fleet.indexOf('const hourlyAdmissions = await readHourlyCashAdmissions();');
-    const decide = fleet.indexOf('varietyDrain = varietyDrainTable({');
-    const surplus = fleet.indexOf('surplusTableIds.add(varietyDrain);');
+    const decide = fleet.indexOf('varietyDrain = varietyDrainTables({');
+    const surplus = fleet.indexOf(
+      'for (const tableId of varietyDrain) surplusTableIds.add(tableId);'
+    );
     const publish = fleet.indexOf('publishVarietyDrain(varietyDrain, Date.now());');
     const claim = fleet.indexOf(': await this.claimOfferedSeats(');
     expect(clear).toBeGreaterThan(-1);
@@ -213,6 +288,7 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(publish).toBeGreaterThan(surplus);
     expect(claim).toBeGreaterThan(publish);
     expect(fleet).toContain('variety_drain_table: beat.varietyDrainTable,');
+    expect(fleet).toContain('variety_drain_tables: beat.varietyDrainTables,');
   });
   it('releases a table only on a fully read waiting list (an unread list is never "no person waiting")', () => {
     const reset = fleet.indexOf('this.humansWaitingReadComplete = false;');
@@ -222,7 +298,7 @@ describe('the fleet keeps no Horse at the released table', () => {
     // set only after every early return and the catch of the read
     expect(set).toBeGreaterThan(catchAt);
     const gate = fleet.indexOf('this.humansWaitingReadComplete\n');
-    const decide = fleet.indexOf('varietyDrain = varietyDrainTable({');
+    const decide = fleet.indexOf('varietyDrain = varietyDrainTables({');
     expect(gate).toBeGreaterThan(-1);
     expect(decide).toBeGreaterThan(gate);
   });
@@ -234,7 +310,9 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(body).toContain('this.handController?.getState()');
     expect(body).toContain('!self.is_folded');
     const rotator = read('./HorseSessionRotator.ts');
-    const drain = rotator.slice(rotator.indexOf('const drainTableId = varietyDrainingTable('));
+    const drain = rotator.slice(
+      rotator.indexOf('for (const drainTableId of varietyDrainingTables(')
+    );
     expect(drain.slice(0, drain.indexOf('engine.leaveTable(uid)'))).toContain(
       'engine.liveInHand?.(uid) !== true'
     );
@@ -440,6 +518,24 @@ describe("the released table's Horses go home through the ordinary door", () => 
     db.tables[2] = breaking;
     db.table_seats = db.table_seats.map((x) => (x.table_id === F ? { ...x, tables: breaking } : x));
     expect((await run(db)).filter((l) => l.tableId === F)).toEqual([]);
+  });
+
+  it('two released tables: the Horses of both go home in the same cycle, Main 1 keeps its own', async () => {
+    publishVarietyDrain([F, M2], Date.now());
+    const leaves = await run(floor());
+    expect(
+      leaves
+        .filter((l) => l.tableId === F)
+        .map((l) => l.userId)
+        .sort()
+    ).toEqual([...HORSES.slice(12, 18)].sort());
+    expect(
+      leaves
+        .filter((l) => l.tableId === M2)
+        .map((l) => l.userId)
+        .sort()
+    ).toEqual([...HORSES.slice(6, 12)].sort());
+    expect(leaves.filter((l) => l.tableId === M1)).toEqual([]);
   });
 
   it('a stale publication releases nothing', async () => {

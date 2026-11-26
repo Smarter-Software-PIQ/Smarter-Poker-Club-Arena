@@ -123,6 +123,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
   );
   const [visiblePositions, setVisiblePositions] = useState<Set<number>>(new Set());
   const [hoveredPosition, setHoveredPosition] = useState<number | null>(null);
+  const [pinnedPosition, setPinnedPosition] = useState<number | null>(null);
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Stagger the entrance once per data set; a new range restarts it.
@@ -131,6 +132,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
     staggerTimersRef.current = [];
     setVisiblePositions(new Set());
     setHoveredPosition(null);
+    setPinnedPosition(null);
     statsData.forEach((_, i) => {
       const timer = setTimeout(() => {
         setVisiblePositions((prev) => new Set([...prev, i]));
@@ -150,12 +152,13 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
     eligibleCount: calloutEligibleCount,
   } = useMemo(() => selectPositionCallouts(statsData), [statsData]);
 
-  const hovered = hoveredPosition !== null ? statsData[hoveredPosition] : null;
+  const inspected = pinnedPosition ?? hoveredPosition;
+  const hovered = inspected !== null ? statsData[inspected] : null;
   const anyPerOpp = statsData.some((p) => p.threeBetPerOpp);
   const allPerOpp = statsData.every((p) => p.threeBetPerOpp);
 
   return (
-    <div className="position-win-rates">
+    <div className="stats-workbench-surface position-win-rates">
       <div className="position-header">
         <h3>Win Rate By Position</h3>
         <p className="position-subtitle">
@@ -191,7 +194,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
               const y = 160 + radius * Math.sin(angle);
 
               const isVisible = visiblePositions.has(i);
-              const isHovered = hoveredPosition === i;
+              const isHovered = inspected === i;
 
               return (
                 <g key={pos.position}>
@@ -220,11 +223,12 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                     onMouseLeave={() => setHoveredPosition(null)}
                     onFocus={() => setHoveredPosition(i)}
                     onBlur={() => setHoveredPosition(null)}
-                    onClick={() => setHoveredPosition((cur) => (cur === i ? null : i))}
+                    aria-pressed={pinnedPosition === i}
+                    onClick={() => setPinnedPosition((cur) => (cur === i ? null : i))}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        setHoveredPosition((cur) => (cur === i ? null : i));
+                        setPinnedPosition((cur) => (cur === i ? null : i));
                       }
                     }}
                   />
