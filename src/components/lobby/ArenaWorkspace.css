@@ -360,8 +360,6 @@
 .arena-workspace .members-list,
 .arena-workspace .mm-card,
 .arena-workspace .stats-command-deck,
-.arena-workspace .stats-content,
-.arena-workspace .stats-club-command,
 .arena-workspace .stats-intelligence-brief {
   box-sizing: border-box;
   position: relative;
@@ -377,8 +375,6 @@
 .arena-workspace .members-list::before,
 .arena-workspace .mm-card::before,
 .arena-workspace .stats-command-deck::before,
-.arena-workspace .stats-content::before,
-.arena-workspace .stats-club-command::before,
 .arena-workspace .stats-intelligence-brief::before {
   content: '';
   position: absolute;

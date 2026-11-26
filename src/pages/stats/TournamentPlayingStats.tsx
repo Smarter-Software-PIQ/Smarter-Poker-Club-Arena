@@ -15,12 +15,15 @@ export default function TournamentPlayingStats({
 }) {
   return (
     <>
-      <section aria-label="Tournament Playing Statistics">
+      <section
+        className="stats-workbench-surface tournament-playing"
+        aria-label="Tournament Playing Statistics"
+      >
         <div className="stats-section-header">
           <h3>Tournament Playing Statistics</h3>
         </div>
         {(onOpenHands || onOpenLeakFinder) && (
-          <div className="stats-club-actions">
+          <div className="stats-club-actions tournament-study-actions">
             {onOpenHands && (
               <button type="button" onClick={onOpenHands}>
                 Review Tournament Hands
@@ -96,12 +99,18 @@ export default function TournamentPlayingStats({
         </div>
       </section>
       {(full?.positions.length ?? 0) > 0 && (
-        <section aria-label="Tournament Position Statistics">
+        <section
+          className="stats-workbench-surface tournament-playing"
+          aria-label="Tournament Position Statistics"
+        >
           <div className="stats-section-header">
             <h3>Tournament Positions</h3>
           </div>
           <div className="stats-club-table-wrap">
-            <table className="stats-club-table">
+            <table
+              className="stats-club-table tournament-positions-table"
+              aria-label="Tournament Positions"
+            >
               <thead>
                 <tr>
                   <th>Position</th>

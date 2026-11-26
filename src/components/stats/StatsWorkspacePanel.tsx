@@ -87,13 +87,14 @@ export default function StatsWorkspacePanel({
       aria-label="Private Study Workspace"
     >
       <div className="stats-workspace">
-        <div className="stats-workspace__intro">
+        <div className="stats-workspace__intro stats-workbench-surface">
           <p className="stats-section-copy">
             Reports Are Player-Authored Or Generated From Versioned Rules, Not A Model.
           </p>
           <button
             type="button"
             className="stats-workspace__word-action"
+            aria-pressed={workspace.preferences.privacyPresentationMode}
             onClick={() => onPrivacyModeChange?.(!workspace.preferences.privacyPresentationMode)}
           >
             {workspace.preferences.privacyPresentationMode
@@ -114,7 +115,10 @@ export default function StatsWorkspacePanel({
           </p>
         )}
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-reports-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-reports-title"
+        >
           <h3 id="workspace-reports-title" className="stats-section-label">
             Saved Analysis Reports
           </h3>
@@ -132,7 +136,10 @@ export default function StatsWorkspacePanel({
           )}
         </section>
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-leaks-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-leaks-title"
+        >
           <div className="stats-workspace__intro">
             <h3 id="workspace-leaks-title" className="stats-section-label">
               Leak Lifecycle
@@ -174,7 +181,10 @@ export default function StatsWorkspacePanel({
           )}
         </section>
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-goals-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-goals-title"
+        >
           <h3 id="workspace-goals-title" className="stats-section-label">
             Goals And Progress
           </h3>
@@ -195,7 +205,10 @@ export default function StatsWorkspacePanel({
           )}
         </section>
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-study-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-study-title"
+        >
           <h3 id="workspace-study-title" className="stats-section-label">
             Study Collections
           </h3>
@@ -216,7 +229,10 @@ export default function StatsWorkspacePanel({
           )}
         </section>
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-layout-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-layout-title"
+        >
           <h3 id="workspace-layout-title" className="stats-section-label">
             Saved Dashboard
           </h3>
@@ -228,7 +244,10 @@ export default function StatsWorkspacePanel({
           </div>
         </section>
 
-        <section className="stats-workspace__section" aria-labelledby="workspace-alerts-title">
+        <section
+          className="stats-workspace__section stats-workbench-surface"
+          aria-labelledby="workspace-alerts-title"
+        >
           <h3 id="workspace-alerts-title" className="stats-section-label">
             Controlled Alerts
           </h3>

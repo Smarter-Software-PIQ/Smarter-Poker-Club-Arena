@@ -65,7 +65,7 @@ export default function ExactCashSessionsPanel(props: Props) {
         eyebrow="Cash Session Evidence"
         title="Opening Exact Session Ledger..."
         status="Verifying"
-        className="exact-session-shell is-loading"
+        className="stats-workbench-surface exact-session-shell is-loading"
         aria-busy="true"
       />
     );
@@ -75,7 +75,7 @@ export default function ExactCashSessionsPanel(props: Props) {
         eyebrow="Cash Session Evidence"
         title="Session Evidence Could Not Be Verified"
         status="Interrupted"
-        className="exact-session-shell is-error"
+        className="stats-workbench-surface exact-session-shell is-error"
         role="alert"
       >
         <section className="exact-session-console">
@@ -98,7 +98,7 @@ export default function ExactCashSessionsPanel(props: Props) {
       title="Exact Session Ledger"
       titleId="exact-session-title"
       status={`${report?.coverage.total_sessions ?? 0} Sessions`}
-      className="exact-session-shell"
+      className="stats-workbench-surface exact-session-shell"
       aria-labelledby="exact-session-title"
     >
       <section className="exact-session-console">

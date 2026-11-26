@@ -289,7 +289,7 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression
     for (const cls of [
       'hero-stat-sub',
       'gauge-label',
-      'stats-brief-index',
+      'stats-brief-label',
       'stats-last-updated',
       'stats-evidence-unavailable',
     ]) {

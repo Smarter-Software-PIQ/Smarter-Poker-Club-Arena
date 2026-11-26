@@ -78,6 +78,7 @@ import StatsLiveRecords from './stats/StatsLiveRecords';
 import { resolvedTimeZone } from '../lib/localTime';
 import { useSwipeTabs } from '../hooks/useSwipeTabs';
 import './PlayerStatsPage.css';
+import './stats/StatsWorkbench.css';
 import { reportError } from '../utils/errorReporter';
 import { AgentRakeService, type AgentRoleRow } from '../services/AgentRakeService';
 import type { CashOpportunityStats, PlayerRakeStats } from '../services/StatsFactsService';
@@ -1545,7 +1546,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return (
       <div className="stats-page arena-workspace">
         {mast}
-        <div className="stats-empty-state">
+        <div className="stats-empty-state stats-workbench-surface">
           <span className="empty-status">Readout Unavailable</span>
           <span className="empty-title">Couldn't Load Your Stats</span>
           <span className="empty-description">
@@ -1570,7 +1571,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return (
       <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
         {mast}
-        <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
+        <div
+          className="stats-empty-state stats-workbench-surface"
+          role={failed ? 'alert' : 'status'}
+        >
           <span className="empty-description">
             {failed
               ? 'Your Privacy Preference Could Not Be Verified. Private Detail Remains Hidden.'
@@ -1590,7 +1594,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   }
   const hasData = overall.total_hands > 0 || (gameMode === 'tournament' && tourn.entries > 0);
   const emptyState = (
-    <div className="stats-empty-state">
+    <div className="stats-empty-state stats-workbench-surface">
       <span className="empty-status">Awaiting Hand Ledger</span>
       <span className="empty-title">No Stats Yet</span>
       <span className="empty-description">
@@ -1711,7 +1715,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           role="tabpanel"
           id={`stats-panel-${category}`}
           aria-labelledby={`stats-tab-${category}`}
-          className="stats-content"
+          className="stats-content stats-workbench"
           variants={reduceMotion ? undefined : tabTransition}
           initial="initial"
           animate="animate"
@@ -1921,9 +1925,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
             </div>
           </div>
           <div className="stats-brief-grid">
-            {intelligenceBrief.map((item, index) => (
+            {intelligenceBrief.map((item) => (
               <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
-                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
                 <span className="stats-brief-label">{item.label}</span>
                 <strong>{item.value}</strong>
                 <p>{item.detail}</p>

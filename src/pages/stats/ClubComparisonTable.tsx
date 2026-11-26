@@ -101,13 +101,12 @@ export default function ClubComparisonPanel({
 }: PanelProps) {
   return (
     <section
-      className="stats-club-comparison"
+      className="stats-club-comparison stats-workbench-surface"
       id="stats-club-comparison"
       aria-labelledby="stats-club-comparison-title"
     >
       <div className="stats-club-comparison-head">
         <div>
-          <span className="stats-section-kicker">One Read // Every Authorized Club</span>
           <h2 id="stats-club-comparison-title">Club Comparison</h2>
         </div>
         <div className="stats-club-sort" role="group" aria-label="Sort Club Comparison">
@@ -143,6 +142,9 @@ export default function ClubComparisonPanel({
           tournament={tournament}
           changeClub={changeClub}
         />
+      )}
+      {!comparisonLoading && !comparisonError && sortedComparisonRows.length === 0 && (
+        <p role="status">No Club Records In This Window.</p>
       )}
       <p className="stats-club-comparison-footnote">
         Club Hours Are Unavailable Because The Per-Club Facts Contract Does Not Retain Session

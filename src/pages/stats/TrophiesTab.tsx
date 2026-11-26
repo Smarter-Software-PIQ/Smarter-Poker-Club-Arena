@@ -35,7 +35,7 @@ export default function TrophiesTab({
   clubId = null,
 }: TrophiesTabProps) {
   return (
-    <div>
+    <div className="stats-workbench player-study-console study-trophies">
       <PanelBoundary name="Trophy Room" resetKey={panelResetKey}>
         {/* Trophies are LIFETIME achievements. They read the all-time
                 payload, never the range-windowed one, so switching to

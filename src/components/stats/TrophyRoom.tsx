@@ -23,6 +23,7 @@
  * below the threshold this shows "Style Forming" and a hands-to-go count.
  */
 
+import trophyCup from '../lobby/console-art/glyph-cup.webp';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StatsPersonalRevision } from '../../hooks/useStatsFactRead';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -323,7 +324,7 @@ export default function TrophyRoom({
 
   if (!overall || (overall.total_hands === 0 && lifetimeHands === 0)) {
     return (
-      <div className="trophy-card trophy-empty">
+      <div className="stats-workbench-surface trophy-card trophy-empty">
         <h3 className="trophy-title">Trophy Room</h3>
         <p className="trophy-empty-text">
           Play Some Hands And Your Trophies, And A Read On Your Playing Style, Will Appear Here.
@@ -341,7 +342,7 @@ export default function TrophyRoom({
   return (
     <div className="trophy-wrap">
       {/* ── Playstyle ── */}
-      <div className="trophy-card">
+      <div className="trophy-card stats-workbench-surface">
         <h3 className="trophy-title">Your Style</h3>
         {styleConfident && style ? (
           <div className="trophy-style">
@@ -371,7 +372,7 @@ export default function TrophyRoom({
 
       {/* ── Next up ── */}
       {nextUp.length > 0 && (
-        <div className="trophy-card">
+        <div className="trophy-card stats-workbench-surface">
           <h3 className="trophy-title">Closest To Unlocking</h3>
           <ul className="trophy-next">
             {nextUp.map((m) => (
@@ -382,7 +383,14 @@ export default function TrophyRoom({
                   </span>
                   <span className="trophy-next-detail">{titleCase(m.detail)}</span>
                 </div>
-                <div className="trophy-progress">
+                <div
+                  className="trophy-progress"
+                  role="progressbar"
+                  aria-label={`${m.name} Progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(m.progress * 100)}
+                >
                   <span
                     className="trophy-progress-fill"
                     style={{
@@ -398,9 +406,11 @@ export default function TrophyRoom({
       )}
 
       {/* ── All trophies ── */}
-      <div className="trophy-card">
+      <div className="trophy-card stats-workbench-surface">
         <div className="trophy-head-row">
-          <h3 className="trophy-title">Trophies</h3>
+          <h3 className="trophy-title">
+            <img src={trophyCup} width="28" height="28" alt="" /> Trophies
+          </h3>
           <span className="trophy-count">
             {unlocked.length} Of {milestones.length}
           </span>
@@ -423,21 +433,13 @@ export default function TrophyRoom({
               role="listitem"
               className={`trophy-item${m.unlocked ? ' is-unlocked' : ''}`}
               variants={reduceMotion ? undefined : fadeUp}
-              style={
-                m.unlocked
-                  ? {
-                      borderColor: `${RARITY_COLORS[m.rarity]}66`,
-                      background: `linear-gradient(145deg, ${RARITY_COLORS[m.rarity]}1f, transparent)`,
-                    }
-                  : undefined
-              }
             >
               <span
                 className="trophy-rarity"
                 style={{ color: RARITY_COLORS[m.rarity] }}
                 title={m.rarity}
               >
-                {m.rarity}
+                {m.rarity} · {m.unlocked ? 'Unlocked' : 'In Progress'}
               </span>
               <span className="trophy-name">{m.name}</span>
               <span className="trophy-desc">{m.description}</span>
@@ -447,6 +449,7 @@ export default function TrophyRoom({
                   type="button"
                   className="stats-evidence-action"
                   aria-expanded={evidenceFor === m.id}
+                  aria-controls={evidenceFor === m.id ? `trophy-proof-${m.id}` : undefined}
                   onClick={() => setEvidenceFor((current) => (current === m.id ? null : m.id))}
                 >
                   {evidenceFor === m.id ? 'Close Evidence' : 'Review Evidence'}
@@ -467,7 +470,14 @@ export default function TrophyRoom({
                 />
               )}
               {!m.unlocked && (
-                <div className="trophy-progress">
+                <div
+                  className="trophy-progress"
+                  role="progressbar"
+                  aria-label={`${m.name} Progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(m.progress * 100)}
+                >
                   <span
                     className="trophy-progress-fill"
                     style={{
@@ -569,7 +579,13 @@ function TrophyEvidence({
   }
 
   return (
-    <div className="trophy-evidence" role="region" aria-label={`${name} Evidence`}>
+    <div
+      id={`trophy-proof-${milestoneId}`}
+      className="trophy-evidence"
+      role="region"
+      aria-label={`${name} Evidence`}
+    >
+      <h4>{name} Evidence</h4>
       {evidenceLoading && evidenceHands.length === 0 && <span>Loading Evidence...</span>}
       {evidenceError && (
         <span role="alert">

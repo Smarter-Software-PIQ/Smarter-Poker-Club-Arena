@@ -796,7 +796,10 @@ describe('PlayerStatsPage mounts', () => {
 
     expect(await screen.findByText('Mystery Sunday')).toBeVisible();
     expect(screen.getByText(/Mystery Bounty/)).toBeVisible();
-    expect(screen.getByText(/Prize 40.*1 KO 20.*Total 60/)).toBeVisible();
+    const breakdown = screen.getByLabelText('Prize Breakdown');
+    expect(breakdown).toHaveTextContent('Prize40');
+    expect(breakdown).toHaveTextContent('1 Knockout20');
+    expect(breakdown).toHaveTextContent('Total Won60');
     expect(document.querySelector('.tournament-item-net')).toHaveTextContent('+35');
   });
 

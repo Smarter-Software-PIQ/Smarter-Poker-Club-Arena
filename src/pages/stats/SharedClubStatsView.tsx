@@ -180,15 +180,13 @@ export default function SharedClubStatsView(props: Props) {
         <PageBar title="Player Intelligence" summary={sharedStatsHelp} />
       )}
       {visibleClubs.length > 0 && (
-        <section className="stats-club-command" aria-labelledby="shared-club-title">
-          <img
-            src={`${import.meta.env.BASE_URL}images/stats/player-intelligence-console-v1.webp`}
-            alt=""
-            aria-hidden="true"
-          />
+        <section
+          className="stats-club-command stats-club-picker stats-workbench-surface"
+          aria-labelledby="shared-club-title"
+        >
           <div className="stats-club-command-copy">
             <h2 id="shared-club-title">{clubLabel}</h2>
-            <p>No All-Clubs, Private Financial, Hand, Note, Or Opponent Data Is Exposed.</p>
+            <p>Shared Club Statistics</p>
             <div className="stats-club-selector" role="group" aria-label="Shared Statistics Club">
               {visibleClubs.map((c) => (
                 <button
@@ -245,7 +243,10 @@ export default function SharedClubStatsView(props: Props) {
         </div>
       )}
       {displayState === 'ready' && readyPayload && o && t && (
-        <section className="stats-club-comparison" aria-label="Shared Club Public Aggregates">
+        <section
+          className="stats-club-comparison stats-workbench-surface"
+          aria-label="Shared Club Public Aggregates"
+        >
           <div className="stats-club-comparison-head">
             <div>
               <h2>{tournament ? 'Tournament Performance' : 'Cash Performance'}</h2>
