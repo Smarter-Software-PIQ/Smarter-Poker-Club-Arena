@@ -460,7 +460,7 @@ describe('hardening: the gaps cannot reopen', () => {
         env: { ...env, CA_CLONE: repo },
         encoding: 'utf8',
       });
-      expect(r.status, r.stderr).toBe(0);
+      expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
       expect(r.stdout).toContain('[safe-worktree-prune] dry run');
       const list = spawnSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], {
         env,

@@ -195,4 +195,5 @@ fi
 say "-- summary"
 say "  build folders swept: $T1   freed: $(human $FREED)"
 say "  trees archived+removed: $T3   trees left registered: $(git worktree list | wc -l | tr -d ' ')   busy trees kept: $KEPT"
-df -g "$HOME" /Volumes/SmarterWork 2>/dev/null | awk 'NR==1 || /\//{printf "  %s\n", $0}'
+# The free-space line is informational: a df without -g (GNU) must not fail the run.
+df -g "$HOME" /Volumes/SmarterWork 2>/dev/null | awk 'NR==1 || /\//{printf "  %s\n", $0}' || true
