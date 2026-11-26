@@ -711,6 +711,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Normalize only the authenticated fixture input; every prior command,
     // permission, assertion and job fingerprint remains independently pinned.
     delete hostingSteps[0].env.GH_TOKEN;
+    // Pin the additive reporting regression before comparing all historical CI fields.
+    const spinReportingStep = {
+      name: 'Spin cancellation reporting reads signed fee and reserve reversals',
+      if: 'matrix.shard == 4',
+      run: 'python3 -B scripts/ci/test-spin-cancellation-reporting-postgres.py --scratch "$RUNNER_TEMP"',
+    };
+    const spinReportingSteps = normalized.jobs.accounting_postgres.steps;
+    const spinReportingIndex = spinReportingSteps.findIndex(
+      (step: { name: string }) => step.name === spinReportingStep.name
+    );
+    expect(
+      spinReportingSteps.filter((step: { name: string }) => step.name === spinReportingStep.name)
+    ).toHaveLength(1);
+    expect(spinReportingSteps[spinReportingIndex]).toStrictEqual(spinReportingStep);
+    expect(spinReportingSteps[spinReportingIndex + 1].name).toBe(
+      'Undrawn Spin cancellation returns exact gross entries atomically'
+    );
+    spinReportingSteps.splice(spinReportingIndex, 1);
     normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
     normalizeRootInstallAddition(normalized.jobs.accounting_postgres);
     normalizeBackupSequenceAddition(normalized.jobs.accounting_postgres);

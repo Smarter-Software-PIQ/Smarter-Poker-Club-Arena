@@ -2,7 +2,7 @@
 -- No financial writer is mocked or invoked by this reporting-only proof.
 CREATE SCHEMA smarter_private;
 CREATE TABLE smarter_private.owner_retirement_pool_transfers(tournament_id uuid,asset text,prize numeric,bounty numeric,refund_fee_reserved numeric);
-CREATE TABLE tournaments(id uuid PRIMARY KEY,club_id uuid,union_id uuid,ended_at timestamptz,variant text,tournament_type text,buy_in_amount numeric,buy_in_fee numeric,bounty_amount numeric,is_bounty boolean,is_pko boolean,is_mystery_bounty boolean);
+CREATE TABLE tournaments(id uuid PRIMARY KEY,name text,status text,club_id uuid,union_id uuid,ended_at timestamptz,variant text,tournament_type text,buy_in_amount numeric,buy_in_fee numeric,bounty_amount numeric,is_bounty boolean,is_pko boolean,is_mystery_bounty boolean);
 CREATE TABLE clubs(id uuid,asset text,is_platform boolean,union_id uuid);
 CREATE TABLE wallet_transactions(related_entity_id uuid,type text,category text,amount numeric,user_id uuid);
 CREATE TABLE rake_records(tournament_id uuid,is_tournament boolean,rake_amount numeric,pot_size numeric,source text,metadata jsonb);

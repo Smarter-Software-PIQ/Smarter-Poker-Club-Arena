@@ -40,6 +40,11 @@ try:
  for n,prize,draw in ((30,20,-20),(31,100,-100),(32,100,-99)):
   tid=event(n);q(f"INSERT INTO tournaments(id,variant,tournament_type) VALUES('{tid}','spin','SPIN'); INSERT INTO wallet_transactions VALUES('{tid}','debit','tournament_buyin',30,NULL),('{tid}','credit','prize',{prize},NULL); INSERT INTO rake_records VALUES('{tid}',true,3,30,'fn_spin_book_entry','{{}}'); INSERT INTO spin_reserve_ledger VALUES('{tid}','contribution',27),('{tid}','jackpot_draw',{draw}),('{tid}','seed_return',-999);")
  tid=event(40);q(f"INSERT INTO clubs VALUES('{event(400)}','diamonds',true,NULL); INSERT INTO tournaments(id,club_id) VALUES('{tid}','{event(400)}');")
+ q("UPDATE tournaments SET name=id::text,status='CANCELLED',ended_at=now()-interval '1 hour',buy_in_amount=100 WHERE variant IS DISTINCT FROM 'spin';")
+ batch_sql="SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM fn_tournament_conservation_deltas(now()-interval '2 hours',now()) x;"
+ batch_before=q(batch_sql)
+ assert len(json.loads(batch_before))==4,'batch excludes Spins'
+ assert q("SELECT count(*) FROM fn_tournament_conservation_deltas(now()-interval '2 hours',now()) x WHERE x.delta IS DISTINCT FROM fn_tournament_conservation_delta(x.id);")=='0'
  before={n:result(n) for n in (20,21,22,30,31,32,40)}
  q("CREATE ROLE reporting_reader; REVOKE ALL ON FUNCTION fn_ca_tournament_escrow_chips(uuid),fn_tournament_conservation_delta(uuid) FROM PUBLIC; GRANT EXECUTE ON FUNCTION fn_ca_tournament_escrow_chips(uuid),fn_tournament_conservation_delta(uuid) TO reporting_reader;")
  catalog=q("SELECT json_agg(json_build_array(oid,proowner,prosecdef,provolatile,proconfig,proacl) ORDER BY oid) FROM pg_proc WHERE oid IN ('fn_ca_tournament_escrow_chips(uuid)'::regprocedure,'fn_tournament_conservation_delta(uuid)'::regprocedure);")
@@ -50,6 +55,8 @@ try:
  assert q('SELECT '+proof)== 't','exact installed postimages'
  for n in range(1,9):assert result(n)=={'prize':0,'fee':0,'delta':0},(n,result(n))
  assert before=={n:result(n) for n in before},'non-Spin and played-Spin parity'
+ assert batch_before==q(batch_sql),'non-Spin batch parity'
+ assert q("SELECT count(*) FROM fn_tournament_conservation_deltas(now()-interval '2 hours',now()) x WHERE x.delta IS DISTINCT FROM fn_tournament_conservation_delta(x.id);")=='0','batch scalar parity'
  assert catalog==q("SELECT json_agg(json_build_array(oid,proowner,prosecdef,provolatile,proconfig,proacl) ORDER BY oid) FROM pg_proc WHERE oid IN ('fn_ca_tournament_escrow_chips(uuid)'::regprocedure,'fn_tournament_conservation_delta(uuid)'::regprocedure);"),'authority preserved'
  q('DELETE FROM tournament_spin_cancellation_unwinds WHERE tournament_id=\''+event(1)+"';")
  assert result(1)['fee']==.24,'no receipt must keep fee mismatch visible'
