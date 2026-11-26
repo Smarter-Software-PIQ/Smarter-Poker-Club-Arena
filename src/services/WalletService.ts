@@ -12,7 +12,6 @@
  * MINT RATE (Dan 2026-08-21, BINDING): 100 Diamonds = 10,000 Chips.
  */
 
-import { readCashierMintScope } from './cashierMintScope';
 import { supabase, getAuthUser } from '../lib/supabase';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { retryAsync } from '../utils/retryAsync';
@@ -254,6 +253,7 @@ export const WalletService = {
       requestingUserId ?? (await import('../lib/authUtils')).readLocalSession()?.userId;
     if (!callerId) throw new Error('Authentication required to mint chips');
     const resolvedClubId = await resolveClubUUID(clubId);
+    const { readCashierMintScope } = await import('./cashierMintScope');
     if (!resolvedClubId || (await readCashierMintScope(resolvedClubId)) !== 'club') {
       throw new Error('Minting Requires An Authorized Standalone Club Bank.');
     }
