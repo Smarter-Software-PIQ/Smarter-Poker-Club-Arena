@@ -38,6 +38,7 @@ const MIG2 = read(
   'supabase/migrations/20260904224726_stats_phase_3_ev_coverage_counts_runouts_only.sql'
 );
 const PAGE = read('src/pages/PlayerStatsPage.tsx');
+const REFRESH = read('src/pages/stats/useStatsRefreshInputs.ts');
 const ANALYSIS = read('src/pages/stats/AnalysisTab.tsx');
 const HOOK = read('src/hooks/useStatsPulse.ts');
 const LOCAL_TIME = read('src/lib/localTime.ts');
@@ -198,8 +199,9 @@ describe('phase 3 page: live from any tab, by asking', () => {
     expect(PAGE).not.toMatch(/useVisibilityRefresh/);
     // A played hand reaches the same scheduler. A wallet receipt first passes
     // through the personal tournament and scope checks.
-    expect(PAGE).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
-    expect(PAGE).toContain("masterBus.subscribe('BALANCE_UPDATED', ({ payload })");
+    expect(PAGE).toContain('useStatsRefreshInputs({');
+    expect(REFRESH).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
+    expect(REFRESH).toContain("masterBus.subscribe('BALANCE_UPDATED', ({ payload })");
   });
 
   it('the hook polls while visible, baselines the first sample, and owns the tab return', () => {

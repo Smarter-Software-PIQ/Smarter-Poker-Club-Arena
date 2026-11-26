@@ -3093,9 +3093,9 @@
     padding: 0.45rem 0.15rem;
     gap: 0.3rem;
   }
-  .stats-page.arena-workspace
-    .stats-content
-    :is(.stats-club-table-wrap, .heatmap-scroll, .dlr-table-wrap) {
+  .stats-page .stats-content .heatmap-scroll,
+  .stats-page.arena-workspace .stats-content .stats-club-table-wrap,
+  .stats-page.arena-workspace .stats-content .dlr-table-wrap {
     max-inline-size: 100%;
     overflow-x: auto;
   }

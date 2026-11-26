@@ -31,6 +31,10 @@ import { resolve } from 'node:path';
 
 const PAGE_PATH = resolve(__dirname, '../src/pages/PlayerStatsPage.tsx');
 const PAGE = readFileSync(PAGE_PATH, 'utf8');
+const REFRESH = readFileSync(
+  resolve(__dirname, '../src/pages/stats/useStatsRefreshInputs.ts'),
+  'utf8'
+);
 
 /**
  * ONE LAZY CHUNK PER TAB (Stats Page Programme phase 2, 2026-09-04). The tab
@@ -249,9 +253,10 @@ describe('the stats RPC is asked for once per event, not five times', () => {
      * CHIPS_DISTRIBUTED within milliseconds - three windows, three multi-second
      * scans of a 10GB table, per hand.
      */
-    expect(CODE).not.toMatch(/subscribeDebounced/);
-    expect(CODE).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
-    expect(CODE.match(/refreshTimerRef\.current = setTimeout/g)).toHaveLength(1);
+    expect(PAGE).toContain('useStatsRefreshInputs({');
+    expect(REFRESH).not.toMatch(/subscribeDebounced/);
+    expect(REFRESH).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
+    expect(REFRESH.match(/refreshTimerRef\.current = setTimeout/g)).toHaveLength(1);
   });
 
   it('replays through a ref, so a stale range cannot overwrite a newer one', () => {
