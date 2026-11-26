@@ -34,3 +34,10 @@ No migration, no cron, watcher or repair loop. Waiting lists for people (#11773)
 ## Method for the next agent
 
 After a fix: look for the state the fix does not reach (here, tables opened before it served), find which existing loop keeps that state alive (the fleet's refill), and release it through the existing doors rather than a new loop. Then pin each rule with a test that fails on the old code.
+
+## 2026-11-25: The Two Functions The Fleet Reads Are Declared
+
+**File:** `scripts/ci/schema-manifest.d/an-extra-table-yields-to-an-owed-main.json`
+**What changed:** `fn_cash_hourly_table_range` and `fn_cash_hourly_table_capacity_census` are declared in this change's own manifest fragment. Both are installed in production and granted to service_role, but the base schema snapshot predates the hourly cash caps, so the hosted phantom-reference gate refused the two literal `.rpc()` names.
+**Why it broke:** the local pre-push run has database credentials, asks the live schema and passes a stale snapshot; the hosted run on a pull request has none and judges the snapshot alone. The same change therefore passed locally and failed on GitHub.
+**How to check before pushing:** `env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node scripts/ci/check-phantom-tables.mjs` must print 0 phantoms whenever a change adds a literal `.rpc()` or `.from()` name.
