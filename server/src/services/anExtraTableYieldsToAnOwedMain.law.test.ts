@@ -11,8 +11,8 @@
  * Now, while a start is owed and the owed starts do not fit under the cap,
  * ONE Horse-only extra table at a time (the top of its game's ladder) stops
  * being kept: the fleet seats nobody there (surplusTableIds) and answers no
- * seat call there, and HorseSessionRotator stands its Horses up one per cycle
- * through engine.leaveTable, the ordinary door (cashed out at the end of the
+ * seat call there, and HorseSessionRotator stands up every Horse not holding
+ * cards in the same cycle (one leave sweep) through engine.leaveTable, the ordinary door (cashed out at the end of the
  * hand; stay clocks and owed hands first). Never a table with a person, never
  * Main 1, never a game with a person on its list, never Lightning.
  */
@@ -192,6 +192,19 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(gate).toBeGreaterThan(-1);
     expect(decide).toBeGreaterThan(gate);
   });
+  it('the engine answers liveInHand the way leaveTable reads a live seat, and the drain asks it', () => {
+    const base = read('../engine/ServerTableEngineBase.ts');
+    const at = base.indexOf('public liveInHand(userId: string): boolean {');
+    expect(at).toBeGreaterThan(-1);
+    const body = base.slice(at, base.indexOf('\n  }\n', at));
+    expect(body).toContain('this.handController?.getState()');
+    expect(body).toContain('!self.is_folded');
+    const rotator = read('./HorseSessionRotator.ts');
+    const drain = rotator.slice(rotator.indexOf('const drainTableId = varietyDrainingTable('));
+    expect(drain.slice(0, drain.indexOf('engine.leaveTable(uid)'))).toContain(
+      'engine.liveInHand?.(uid) !== true'
+    );
+  });
   it('a surplus table is neither walked into nor answered by a seat call (the existing doors)', () => {
     expect(fleet).toContain('if (surplusTableIds.has(table.id)) {');
     expect(fleet).toContain('if (surplusTableIds.has(String(offer.table_id))) continue;');
@@ -314,7 +327,11 @@ describe("the released table's Horses go home through the ordinary door", () => 
     vi.restoreAllMocks();
   });
 
-  const run = async (db: ReturnType<typeof floor>, owed: Record<string, number> = {}) => {
+  const run = async (
+    db: ReturnType<typeof floor>,
+    owed: Record<string, number> = {},
+    live: ReadonlySet<string> = new Set()
+  ) => {
     fakeDb(db);
     const leaves: Array<{ tableId: string; userId: string }> = [];
     const engine = (tableId: string): RotatorEngine => ({
@@ -323,6 +340,7 @@ describe("the released table's Horses go home through the ordinary door", () => 
         return { success: true };
       },
       hitRunHandsOwed: (userId: string) => owed[userId] ?? 0,
+      liveInHand: (userId: string) => live.has(userId),
       sitOut: () => ({ success: true }),
     });
     const rot = new HorseSessionRotator(engine) as any;
@@ -336,7 +354,7 @@ describe("the released table's Horses go home through the ordinary door", () => 
     expect((await run(floor())).filter((l) => l.tableId === F)).toEqual([]);
   });
 
-  it('the released table: exactly one Horse a cycle leaves it, Main 1 and Main 2 keep theirs', async () => {
+  it('the released table: every Horse that can go leaves in the same cycle (one sweep), Main 1 and Main 2 keep theirs', async () => {
     const baseline = await run(floor());
     vi.restoreAllMocks();
     vi.spyOn(Math, 'random').mockReturnValue(0.999999);
@@ -345,8 +363,7 @@ describe("the released table's Horses go home through the ordinary door", () => 
     publishVarietyDrain(F, Date.now());
     const leaves = await run(floor());
     const atF = leaves.filter((l) => l.tableId === F);
-    expect(atF).toHaveLength(1);
-    expect(HORSES.slice(12, 18)).toContain(atF[0].userId);
+    expect(atF.map((l) => l.userId).sort()).toEqual([...HORSES.slice(12, 18)].sort());
     expect(leaves.filter((l) => l.tableId !== F)).toEqual(baseline.filter((l) => l.tableId !== F));
   });
 
@@ -355,6 +372,26 @@ describe("the released table's Horses go home through the ordinary door", () => 
     const owed = Object.fromEntries(HORSES.slice(12, 17).map((h) => [h, 3]));
     const atF = (await run(floor(), owed)).filter((l) => l.tableId === F);
     expect(atF).toEqual([{ tableId: F, userId: HORSES[17] }]);
+  });
+
+  it('a Horse still holding cards in the hand being played is never folded out: one that has folded goes', async () => {
+    publishVarietyDrain(F, Date.now());
+    const live = new Set(HORSES.slice(12, 17));
+    const atF = (await run(floor(), {}, live)).filter((l) => l.tableId === F);
+    expect(atF).toEqual([{ tableId: F, userId: HORSES[17] }]);
+  });
+
+  it('the Horses not in the hand go together now; the ones in the hand stay for the next cycle', async () => {
+    publishVarietyDrain(F, Date.now());
+    const live = new Set(HORSES.slice(12, 14));
+    const atF = (await run(floor(), {}, live)).filter((l) => l.tableId === F);
+    expect(atF.map((l) => l.userId).sort()).toEqual([...HORSES.slice(14, 18)].sort());
+  });
+
+  it('every Horse at the released table is in the hand: nobody leaves this cycle', async () => {
+    publishVarietyDrain(F, Date.now());
+    const live = new Set(HORSES.slice(12, 18));
+    expect((await run(floor(), {}, live)).filter((l) => l.tableId === F)).toEqual([]);
   });
 
   it('a person at the table stops the release at once', async () => {

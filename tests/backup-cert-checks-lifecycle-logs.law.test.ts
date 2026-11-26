@@ -269,6 +269,53 @@ describe('check_soak_hand_gap_delay judges a sample, not a single hand (item 1b,
     expect(standby).toContain('HARD_CEILING_MS = 5000');
   });
 
+  // The three Backup refusals of 2026-11-25 (runs 45645919909, 45660681382,
+  // 45669035764) on byte-identical engine code, as the legacy grader reported them
+  // (no unintended_max_ms / worst_hands on that copy).
+  const legacyCell = (shape: string, hands: number, over: number, p95: number, p99: number) => ({
+    kind: 'cash',
+    shape,
+    graded: true,
+    hands,
+    unintended_p50_ms: 1,
+    unintended_p95_ms: p95,
+    unintended_p99_ms: p99,
+    over_budget: over,
+    budget_ms: 250,
+  });
+
+  it('the 2026-11-25 refusals of identical engine code: noise passes, a 7.6 s stall still fails', () => {
+    const run45669035764 = run(graded([legacyCell('fold', 208, 11, 1046, 1615)], false));
+    expect(run45669035764.status, run45669035764.stderr).toBe(0);
+    const run45660681382 = run(graded([legacyCell('fold', 167, 13, 1609, 1621)], false));
+    expect(run45660681382.status, run45660681382.stderr).toBe(0);
+    const run45645919909 = run(
+      graded(
+        [
+          legacyCell('fold', 159, 15, 4586, 7632),
+          legacyCell('showdown_checked_river', 9, 1, 2759, 4229),
+        ],
+        false
+      )
+    );
+    expect(run45645919909.status).toBe(1);
+    expect(run45645919909.stderr).toContain('rule=hard_ceiling p99_ms(lower bound of max)=7632');
+    expect(run45645919909.stderr).toContain('rule=over_budget_share over_budget=15/159');
+  });
+
+  it('judges a cell of thousands of hands without overflowing the binomial tail', () => {
+    const big = (n: number, over: number) =>
+      cell('cash', 'fold', Array.from({ length: n }, (_, i) => (i < over ? 900 : 3)));
+    const healthy = run(graded([big(2400, 120)]));
+    expect(healthy.status, healthy.stderr).toBe(0);
+    expect(healthy.stderr).not.toContain('Traceback');
+    expect(JSON.parse(healthy.stdout).cells[0].pValue).toBeGreaterThan(0.05);
+    const shifted = run(graded([big(2400, 160)]));
+    expect(shifted.status, shifted.stderr).toBe(1);
+    expect(shifted.stderr).not.toContain('Traceback');
+    expect(shifted.stderr).toContain('rule=over_budget_share over_budget=160/2400');
+  });
+
   it('passes when fn_ca_hand_gap_unintended_delay is not installed (not_armed)', () => {
     const res = run({
       status: 'not_armed',

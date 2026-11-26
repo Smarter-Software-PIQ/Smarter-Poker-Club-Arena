@@ -604,4 +604,132 @@ describe('people vs Horses results', () => {
       expect(assertReadOnlySql(out)).toBe(out);
     });
   });
+
+  describe('--by-option-receipt: hands where an option receipt fired against hands where it did not', () => {
+    const RECEIPT_ARGS = [
+      '--since',
+      '2026-11-20T00:00:00Z',
+      '--until',
+      '2026-11-23T00:00:00Z',
+      '--mode',
+      'cash',
+      '--by-option-receipt',
+      'cashDefenceTrimColdCalls',
+    ];
+
+    it('the query stays one read-only SELECT and groups hands by the receipt, with the same filters', () => {
+      const plan = resolvePlan({
+        since: SINCE,
+        until: UNTIL,
+        mode: 'cash',
+        games: ['nlh'],
+        byOptionReceipt: 'cashDefenceTrimColdCalls',
+      });
+      const sql = buildResultsSql(plan);
+      expect(assertReadOnlySql(sql)).toBe(sql);
+      expect(sql).toContain('FROM public.ca_horse_hand_receipts r');
+      expect(sql).toContain('WHERE r.hand_id = m.hand_id');
+      expect(sql).toContain("split_part(r.receipt, ':', 1) = 'cashDefenceTrimColdCalls'");
+      // Nothing else of the query moves: without the option it is the same text but for that one expression.
+      const plain = buildResultsSql({ ...plan, byOptionReceipt: null });
+      expect(plain).not.toContain('ca_horse_hand_receipts');
+      const [head, rest] = sql.split('CASE WHEN EXISTS (');
+      const tail = rest.slice(rest.indexOf('THEN 1 ELSE 0 END AS w') + 'THEN 1 ELSE 0 END'.length);
+      expect(`${head}0${tail}`).toBe(plain);
+      expect(sql).toContain('AND h.tournament_id IS NULL');
+      expect(sql).toContain("IN ('nlh')");
+      // The receipt text is never selected: no receipt, hand id or card leaves the query.
+      expect(sql.match(/r\.receipt/g)).toHaveLength(1);
+    });
+
+    it('refuses anything that is not one plain option name, a split, and the gate', () => {
+      for (const bad of [
+        "x'; DROP TABLE y; --",
+        'a b',
+        '',
+        'opt:call>fold',
+        '9lives',
+        'a'.repeat(65),
+      ]) {
+        expect(() => resolvePlan({ since: SINCE, until: UNTIL, byOptionReceipt: bad })).toThrow(
+          /--by-option-receipt takes one option name/
+        );
+        expect(() =>
+          buildResultsSql({
+            sinceMs: SINCE,
+            untilMs: UNTIL,
+            splits: [],
+            mode: 'all',
+            games: null,
+            by: null,
+            byOptionReceipt: bad,
+          })
+        ).toThrow(/invalid option name/);
+      }
+      expect(() =>
+        resolvePlan({ since: SINCE, until: UNTIL, splitAt: [SPLIT], byOptionReceipt: 'someOption' })
+      ).toThrow(/cannot be combined with --split-at/);
+      expect(() => parseArgs([...RECEIPT_ARGS, '--gate'])).toThrow(
+        /cannot be combined with --by-option-receipt/
+      );
+      const usage = run([...RECEIPT_ARGS, '--split-at', '2026-11-22T03:13:56Z']);
+      expect(usage.exitCode).toBe(EXIT_USAGE);
+      expect(parseArgs(RECEIPT_ARGS).byOptionReceipt).toBe('cashDefenceTrimColdCalls');
+      expect(run(['--by-option-receipt']).exitCode).toBe(EXIT_USAGE);
+    });
+
+    it('reports the two groups with the same clustered error and the same too-few-hands rules', () => {
+      const { exitCode, out } = run(RECEIPT_ARGS);
+      expect(exitCode).toBe(0);
+      expect(out).toContain('Option receipt: cashDefenceTrimColdCalls.');
+      expect(out).toContain('Window 1: hands in which no cashDefenceTrimColdCalls receipt fired');
+      expect(out).toContain('Window 2: hands in which a cashDefenceTrimColdCalls receipt fired');
+      expect(out).toContain('Window 2 against window 1 (receipt cashDefenceTrimColdCalls):');
+      expect(out).not.toContain('split at');
+      // The fixture's two windows, read as not fired / fired: plo5 can be judged, nlh cannot.
+      const report = buildReport(
+        fixtureRows(),
+        resolvePlan({
+          since: SINCE,
+          until: UNTIL,
+          mode: 'cash',
+          byOptionReceipt: 'cashDefenceTrimColdCalls',
+        })
+      );
+      expect(report.byOptionReceipt).toBe('cashDefenceTrimColdCalls');
+      expect(report.windows.map((w) => w.receipt)).toEqual(['not_fired', 'fired']);
+      expect(report.windows.every((w) => w.from === report.since && w.to === report.until)).toBe(
+        true
+      );
+      const plo5 = report.games.find((g) => g.game === 'plo5');
+      const nlh = report.games.find((g) => g.game === 'nlh');
+      // Exactly what the split comparison computes from the same cells: one statistic, reused.
+      const split = buildReport(
+        fixtureRows(),
+        resolvePlan({ since: SINCE, until: UNTIL, mode: 'cash', splitAt: [SPLIT] })
+      );
+      const splitPlo5 = split.games.find((g) => g.game === 'plo5');
+      expect(plo5.windows).toEqual(splitPlo5.windows);
+      expect({ ...plo5.comparisons[0], splitAt: null }).toEqual({
+        ...splitPlo5.comparisons[0],
+        splitAt: null,
+      });
+      expect(plo5.comparisons[0].splitAt).toBe('receipt cashDefenceTrimColdCalls');
+      expect(plo5.comparisons[0].verdict).toBe('better');
+      expect(plo5.comparisons[0].sePer100).toBeGreaterThan(0);
+      expect(nlh.comparisons[0].verdict).toBe('too_few');
+      expect(nlh.comparisons[0].reason).toMatch(/person-hands .* needed/);
+      // A report without the option says nothing of receipts.
+      expect(split.byOptionReceipt).toBeNull();
+      expect(formatReportText(split)).not.toContain('Option receipt');
+    });
+
+    it('a source holding fewer person-hands than hand_history still fails loudly', () => {
+      const short = fixtureRows();
+      short[0].report.source.found = 100;
+      const { exitCode, err } = run(RECEIPT_ARGS, () => short);
+      expect(exitCode).toBe(EXIT_FAILED);
+      expect(err).toMatch(/refusing to report on part of the hands/);
+    });
+  });
 });

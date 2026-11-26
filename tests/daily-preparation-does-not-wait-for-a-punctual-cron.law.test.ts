@@ -508,6 +508,9 @@ describe('the workflow adds chances, not authority', () => {
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'cutover-log-keep-serving',
       'detect',
+      // O27 (2026-11-25): a cycle that did not seal starts the next one;
+      // pinned by tests/a-cycle-that-did-not-seal-starts-the-next-one.law.test.ts.
+      'next-candidate-after-cycle',
       'selection',
       'signal',
       'window-migrations',
@@ -1637,7 +1640,9 @@ describe('the owner says what the cycle will find while there is still time (O25
       'schedule',
     ]);
     expect(stage.on.schedule.length).toBe(2);
-    expect(Object.keys(stage.jobs).length).toBe(5);
+    // Six since O27 (next-candidate-after-cycle), which waits once after the
+    // selection, never in the admission.
+    expect(Object.keys(stage.jobs).length).toBe(6);
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });

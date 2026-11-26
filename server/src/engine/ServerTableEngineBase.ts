@@ -3806,6 +3806,17 @@ export abstract class ServerTableEngineBase {
    * pot before it may leave (one full orbit). The horse rotator asks before
    * choosing who stands up, so no horse leaves the hand after a big pot.
    */
+  /**
+   * A DRAINING HORSE IS NEVER FOLDED OUT OF A LIVE HAND (2026-11-25): this seat
+   * holds unfolded cards in the hand being played, read exactly as leaveTable
+   * reads it (the hand controller's state; none between hands). The horse
+   * rotator's variety drain asks before choosing which Horse stands up.
+   */
+  public liveInHand(userId: string): boolean {
+    const self = this.handController?.getState()?.players.find((p) => p.user_id === userId);
+    return Boolean(self && !self.is_folded);
+  }
+
   public bigPotOrbitHandsOwed(userId: string): number {
     // Durable first (the session row, 20261111174148); memory only before it exists.
     const row = this.chipContinuity?.row(userId);
@@ -11937,6 +11948,15 @@ export abstract class ServerTableEngineBase {
   /** hand_history.kill_pot for this hand, set at settlement. */
   protected currentHandKillRecord: KillPotRecord | null = null;
 
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, HorseHandOptionReceipts): how many executed Horse decisions of THIS hand
+   * each listed option changed, by receipt text (`<option>:<before>><after>`, action kinds only, never a card).
+   * Counted in memory when a Horse's action is accepted (ServerTableEngineTurns), cleared at the deal, copied
+   * into the settlement snapshot and written after the hand's own commit (services/HorseHandReceipts.ts).
+   * Nothing reads it to decide or to act.
+   */
+  protected currentHandOptionReceipts: Map<string, number> = new Map();
+
   /** The table row's kill configuration; `off` on any row without it. */
   protected killSettingsFromTable(): KillSettings {
     return readKillSettings(this.tableInfo as never);
@@ -12113,6 +12133,61 @@ export abstract class ServerTableEngineBase {
    * with no rule, and after a failed read - the brain then plays its prior.
    */
   protected nitStatus: Map<string, NitSeatStatus> = new Map();
+  private preparedNitStatus: Promise<Map<string, NitSeatStatus>> | null = null;
+
+  /** Optional timing wrapper overridden by ServerTableEngineDealing for cash breach spans. */
+  protected timeCashNitBranch<T>(_name: string, work: Promise<T>): Promise<T> {
+    return work;
+  }
+
+  /**
+   * Overlap the pure read-only `fn_nit_status` RPC with `prepareNextHand()` on
+   * `nit_game = true` cash tables so it never adds a serial PostgREST round
+   * trip after the seat reload (incident 1e532243). Consumed once by
+   * `evictExpiredSitOuts()`.
+   */
+  protected startPreparedNitStatus(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    const raw = collectNitStatus(this.tableId);
+    const work = wrap ? wrap(raw) : raw;
+    // Observed by evictExpiredSitOuts(); prevent unhandled rejection if an
+    // earlier guard exits the iteration before eviction runs.
+    work.catch(() => new Map<string, NitSeatStatus>());
+    this.preparedNitStatus = work;
+  }
+
+  protected clearPreparedNitStatus(): void {
+    this.preparedNitStatus = null;
+  }
+
+  protected consumePreparedNitStatus(): Promise<Map<string, NitSeatStatus>> | null {
+    const prepared = this.preparedNitStatus;
+    this.preparedNitStatus = null;
+    return prepared;
+  }
+
+  /**
+   * `fn_nit_enforce` only mutates `ca_nit_warnings` or returns evictions when
+   * (a) the table's floor is off (`required <= 0`, clearing stale warnings),
+   * (b) a seated player is under the floor (`evict === true`), or (c) a seated
+   * player has an open warning (`warned === true`). When `fn_nit_status`
+   * already returned a clean row for every currently seated player, calling
+   * `fn_nit_enforce` is a guaranteed no-op round trip. Any missing seat,
+   * failed/empty read, zero floor, under-floor flag, or open warning falls
+   * through to `collectNitEnforce(this.tableId)`.
+   */
+  protected canSkipNitEnforce(
+    status: Map<string, NitSeatStatus>,
+    seatedIds: readonly string[]
+  ): boolean {
+    if (!(status instanceof Map) || status.size === 0 || seatedIds.length === 0) return false;
+    for (const userId of seatedIds) {
+      if (!status.has(userId)) return false;
+    }
+    for (const row of status.values()) {
+      if (row.required <= 0 || row.evict || row.warned) return false;
+    }
+    return true;
+  }
 
   /** The three floor inputs handed to a Horse decision for `userId`, and
    * written beside that decision's stored public node. One source for both,
@@ -13123,8 +13198,15 @@ export abstract class ServerTableEngineBase {
         // The board every seat is judged on, kept for the brain (Dan
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
-        this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEnforce(this.tableId);
+        // Overlapped with prepareNextHand() on the dealing path (incident
+        // 1e532243); falls back to an inline read whenever no prepared read is
+        // pending (startup wait loop, retry, direct call).
+        const preparedNit = this.consumePreparedNitStatus();
+        this.nitStatus = await (preparedNit ??
+          this.timeCashNitBranch('nit_status', collectNitStatus(this.tableId)));
+        const nits = this.canSkipNitEnforce(this.nitStatus, seatedIds)
+          ? []
+          : await this.timeCashNitBranch('nit_enforce', collectNitEnforce(this.tableId));
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +
@@ -13132,6 +13214,8 @@ export abstract class ServerTableEngineBase {
           );
           nitEvictable.push(n.userId);
         }
+      } else {
+        this.clearPreparedNitStatus();
       }
 
       // 2026-09-04: a seat nobody is behind for five minutes, never sat out and

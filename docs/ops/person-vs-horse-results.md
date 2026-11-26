@@ -29,6 +29,10 @@ node scripts/ops/person-vs-horse-results.mjs --games plo5 --mode cash \
 # The gate a switch runbook calls
 node scripts/ops/person-vs-horse-results.mjs --games plo5 --mode cash \
   --split-at 2026-11-22T03:13:56Z --gate
+
+# Hands where an option changed a Horse decision, against hands where it did not
+node scripts/ops/person-vs-horse-results.mjs --games nlh --mode cash \
+  --since 2026-11-27T00:00:00Z --by-option-receipt cashDefenceTrimColdCalls
 ```
 
 | Option                                      | Meaning                                                                                               |
@@ -38,6 +42,7 @@ node scripts/ops/person-vs-horse-results.mjs --games plo5 --mode cash \
 | `--mode cash\|tournament\|all`              | Cash tables, tournaments, or both. They are always reported apart.                                    |
 | `--split-at <ISO>[,<ISO>...]`               | Cut the range into windows at these instants and compare each window with the one before it. Up to 8. |
 | `--by day\|hour\|player\|stake\|table-size` | Add a breakdown under each game. Days and hours are UTC.                                              |
+| `--by-option-receipt <option>`              | Compare the hands where that option's receipt fired against the hands where it did not, see below.    |
 | `--json`                                    | The same report as JSON.                                                                              |
 | `--gate`                                    | Exit code for a runbook, see below. Needs `--split-at`.                                               |
 | `--sql`                                     | Print the query and stop.                                                                             |
@@ -192,6 +197,33 @@ the answer 2.
   in 2.5 s; every game, cash and tournaments, with `--by player` in 9.4 s.
 - No name, full account id, hand id or card leaves the database. A person appears as the first
   four characters of the account id, and only with `--by player`.
+
+## By option receipt (2026-11-25)
+
+`--by-option-receipt <option>` answers: in the hands where this Horse option changed a decision,
+did people do better or worse than in the hands where it did not? Same range, games and mode, same
+counting. The two "windows" of the report are then groups of hands, not times: window 1 is the
+hands with no receipt of that option, window 2 the hands with one. The clustered standard error
+and the "too few hands to judge" rules are the ones above, unchanged. It cannot be combined with
+`--split-at` or `--gate`.
+
+A receipt is one row of `public.ca_horse_hand_receipts (hand_id, receipt, decisions)`, written by
+the engine after the hand's own save, only for hands a person was dealt into: the option's name,
+the kind of action before and after it acted (`cashDefenceTrimColdCalls:call>fold`) and how many
+decisions of the hand. Never a card, a strength or an amount. Options that record one are listed
+in `server/src/engine/HorseHandOptionReceipts.ts` (`holdemTournamentAllInCallIsPriced`,
+`cashDefenceTrimColdCalls`).
+
+Read it with these in mind:
+
+- Receipts exist only for hands played after the feature shipped. An earlier hand counts as "did
+  not fire", so start `--since` at or after that release.
+- The option fires in particular spots (an overcall, an all-in call). Hands with a receipt differ
+  from hands without one in more than the option, so a difference is not by itself its effect.
+- A receipt says the option changed a Horse's decision in the hand, not that the person was in the
+  pot with that Horse.
+- The two groups can share a sitting, so they are less independent than two windows in time.
+- Table hands and Lightning hands both record receipts; each is written after its own hand save.
 
 ## Limits
 

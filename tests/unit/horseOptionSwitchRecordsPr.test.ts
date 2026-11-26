@@ -5,6 +5,8 @@
 // held audit max 189: the law that compares the two only sees what someone commits. These tests pin that
 // the records change is computed from the live rows, produced after a verified write and never after a dry
 // run or a refused write, and that it keeps the machine-read phrases other tools parse.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
@@ -20,6 +22,7 @@ import {
   buildRecordsChange,
   formatRecordsPr,
   insertAuthorityDocState,
+  recordsWorkRoot,
   rewriteAuthorityDocState,
 } from '../../scripts/ops/horse-option-switch-records.mjs';
 import { runCli } from '../../scripts/ops/horse-option-switch.mjs';
@@ -445,5 +448,48 @@ describe('set opens the records PR after a verified write, and only then', () =>
     expect(dry.exitCode).toBe(0);
     expect(d.openRecordsPr).not.toHaveBeenCalled();
     expect(dry.data.dryRun).toBe(true);
+  });
+});
+
+// 2026-11-26: the records worktree defaulted to the system temp folder, which on the operations Mac is the
+// internal disk agents never write to, and its commit skipped the repository's hooks.
+describe('the records worktree goes where agents may write, and its commit runs the hooks', () => {
+  it('uses CA_RECORDS_ROOT when set, the external volume that holds the checkout on the Mac, and refuses otherwise', () => {
+    expect(
+      recordsWorkRoot({
+        env: { CA_RECORDS_ROOT: '/x/y' },
+        platform: 'darwin',
+        repoRoot: '/srv/repo',
+      })
+    ).toBe('/x/y');
+    expect(
+      recordsWorkRoot({
+        env: {},
+        platform: 'darwin',
+        repoRoot: '/Volumes/SmarterWork/agent-work/extreme-capacity/lane/wt',
+      })
+    ).toBe('/Volumes/SmarterWork/agent-work/extreme-capacity/lane');
+    expect(() =>
+      recordsWorkRoot({
+        env: {},
+        platform: 'darwin',
+        repoRoot: '/srv/club-arena',
+      })
+    ).toThrow(/CA_RECORDS_ROOT/);
+    expect(() => recordsWorkRoot({ env: {}, platform: 'darwin', repoRoot: '/Volumes/wt' })).toThrow(
+      /CA_RECORDS_ROOT/
+    );
+    expect(
+      typeof recordsWorkRoot({ env: {}, platform: 'linux', repoRoot: '/opt/runner/repo' })
+    ).toBe('string');
+  });
+
+  it('never bypasses the commit hooks', () => {
+    const src = readFileSync(
+      resolve(__dirname, '../../scripts/ops/horse-option-switch-records.mjs'),
+      'utf8'
+    );
+    expect(src).not.toMatch(/--no-verify/);
+    expect(src).not.toMatch(/\|\|\s*tmpdir\(\)/);
   });
 });

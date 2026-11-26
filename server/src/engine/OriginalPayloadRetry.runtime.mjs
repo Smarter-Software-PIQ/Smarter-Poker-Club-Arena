@@ -118,6 +118,11 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     // The extracted logHandHistory feeds the accepted hand to the opponent HUD store (fire and forget,
     // never throws); this VM models the commit boundary only, so the store is an inert receiver here.
     opponentHudOnAcceptedHand: () => {},
+    // The extracted logHandHistory writes a hand's Horse option receipts after the commit (detached, never
+    // throws, only for a hand with a person and a count); this VM models the commit boundary only, so the
+    // gate and the writer are inert receivers here.
+    handWritesOptionReceipts: () => false,
+    writeHorseHandReceipts: async () => 0,
     // postHandTasks counts each settled hand's memory domain once (evidence only).
     noteFire,
     handStackBefore,

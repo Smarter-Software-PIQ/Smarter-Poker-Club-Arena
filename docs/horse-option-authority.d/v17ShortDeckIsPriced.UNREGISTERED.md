@@ -13,14 +13,15 @@ The unowned fixed V17 Short Deck overlay in `server/src/engine/HorseLogic.ts` `d
 Pure module `server/src/engine/HorseShortDeckMultiwayPriced.ts` (`priceShortDeckMultiwayShift`): zero `fastRandom()` draws, public records and the hero's own simulated equity only, no opponent hole cards, no `opponentHud/` import.
 
 - `f_i` = live opponent i's fold-to-a-bet probability on this street: measured Short Deck pool prior (production `hand_history`, 2026-11-14T22:00Z..2026-11-22T22:00Z, responses to a street's first bet up to the first raise: flop 442/1,280, turn 514/1,266, river 423/785; Horses only) shrunk with prior strength 6 onto that opponent's own fold-to-bet record (`HorseMind.foldToBetCountersOf`, mind on only). All-in or no chips behind: `f = 0`.
-- `g` = mean `f_i / (1 - f_i)`; `rho = (1 + kappa_SD g) / (1 + kappa_NLH g)`; shift `delta = e - e^rho` replaces the fixed increment (`> 0` tightens, `< 0` loosens).
+- `g` = mean `f_i / (1 - f_i)`; `rho = (1 + kappa_SD g) / (1 + kappa_NLH g)`; shift `delta = e - e^rho` replaces the fixed increment (`> 0` tightens, `< 0` loosens, `0` neutral).
+- **Direction (a measured property, kept):** the priced shift never tightens on the flop or turn (measured Short Deck continuation sharpness is lower than NLH there, so it loosens for `0 < e < 1`), and is zero on the river. The old fixed overlay always tightened. Switching this option on therefore loosens Short Deck flop and turn bars relative to today and removes the river increment.
 - `kappa` (continuation sharpness of the `conditionEquityAgainstRaiseCallRange` kernel) measured for both decks by the same Monte Carlo with the engine's own scorer (pinned run 500 spots, K 120, R2 24, exact river): flop NLH 0.3151 / SD 0.2396, turn 0.4068 / 0.3432, river 0.9415 / 0.9305. Flop and turn differ by 8.4 and 4.0 SE with the same sign in all four runs, so the priced shift loosens there; the river difference (0.85 SE, sign changes) is treated as none, so the river shift is 0.
 - Unpriceable input (equity not finite, no live opponent, other street): `delta = 0`, receipt `v17_short_deck_priced_unpriceable`. The fixed increment is never re-applied by this option.
 - OFF / unset / false: the original line runs unchanged. Every non-Short-Deck hand: byte-identical.
 
 ## Receipts & Tests
 
-- Receipts (`HorseDataLedger.ts`): `v17_short_deck_priced_tighter`, `v17_short_deck_priced_looser`, `v17_short_deck_priced_unpriceable`.
+- Receipts (`HorseDataLedger.ts`): `v17_short_deck_priced_tighter` (`delta > 0`), `v17_short_deck_priced_looser` (`delta < 0`), `v17_short_deck_priced_neutral` (`delta === 0`: the river, every opponent all-in (all fold probabilities 0), or equity at 0 or 1), `v17_short_deck_priced_unpriceable`. Until 2026-11-23 a zero shift was counted as `looser`; the replay below predates that fix, so its "all `looser`" count includes the river nodes (46 of 190), which are `neutral` under the current receipts.
 - Law: `server/src/engine/AV17ShortDeckIsPriced.law.test.ts` (`docs/laws.d/server-src-engine-AV17ShortDeckIsPriced.md`).
 - League card: `shortdeck_v17_priced` (Horse-vs-Horse, informational only).
 
