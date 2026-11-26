@@ -1,5 +1,11 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import {
+  SWITCH_STATE_FILE,
+  buildSwitchStateSnapshotSql,
+  formatSwitchStateSnapshot,
+  snapshotFromRows,
+} from './horse-option-switch-lib.mjs';
 
 export const DEFAULT_HEALTH_URL = 'https://engine.smarter.poker/health';
 export const DEFAULT_COMPARE_HOURS = 1;
@@ -60,6 +66,7 @@ export function parseCliArgs(argv) {
   let strictLatency = false;
   let exploitSplitAt = null;
   let strictExploit = false;
+  let strictRecords = false;
   let help = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -72,6 +79,8 @@ export function parseCliArgs(argv) {
       strictLatency = true;
     } else if (arg === '--strict-exploit') {
       strictExploit = true;
+    } else if (arg === '--strict-records') {
+      strictRecords = true;
     } else if (arg === '--exploit-split-at') {
       const next = args[++i];
       if (!next)
@@ -130,6 +139,7 @@ export function parseCliArgs(argv) {
     strictLatency,
     exploitSplitAt,
     strictExploit,
+    strictRecords,
     help,
   };
 }
@@ -182,6 +192,64 @@ export function evaluateExploitReport(result, { strict = false, splitAt, since, 
   return strict
     ? { ...base, status: 'fail', failures: [msg] }
     : { ...base, status: 'unknown', warnings: [msg] };
+}
+
+/**
+ * Check: the committed switch snapshot (docs/horse-option-switch-state.json in this checkout) holds the rows
+ * production holds. A write made through a private wrapper opens no records PR, so the snapshot went stale
+ * three times on 2026-11-24..26 (audits #197/#198, #199/#200) and was only noticed when someone happened to run
+ * `horse-option-switch.mjs records --dry-run`. The audit already reads the switch table after every cutover, so
+ * it says so here. A row in shadow is a watch in progress and is reported as such. Drift never fails the audit
+ * unless --strict-records: the engine is not affected by it, the records are.
+ */
+export function evaluateSwitchRecords({ committedText, liveRows, strict = false } = {}) {
+  const base = { name: 'switch_records', failures: [], warnings: [] };
+  let committed;
+  try {
+    committed = JSON.parse(String(committedText ?? ''));
+  } catch {
+    committed = null;
+  }
+  if (!committed || typeof committed !== 'object' || !committed.rows) {
+    return {
+      ...base,
+      status: 'unknown',
+      warnings: [`${SWITCH_STATE_FILE} could not be read in this checkout`],
+      details: null,
+    };
+  }
+  const live = snapshotFromRows(liveRows, null);
+  const strip = (s) => formatSwitchStateSnapshot({ ...s, asOfUtc: null });
+  const differing = [];
+  for (const option of new Set([...Object.keys(committed.rows), ...Object.keys(live.rows)])) {
+    const c = committed.rows[option]?.state ?? 'default';
+    const l = live.rows[option]?.state ?? 'default';
+    if (c !== l) differing.push({ option, committed: c, live: l });
+  }
+  differing.sort((x, y) => x.option.localeCompare(y.option));
+  const inShadow = Object.entries(live.rows)
+    .filter(([, r]) => r.state === 'shadow' || r.state === 'on_shadow')
+    .map(([option]) => option)
+    .sort();
+  const details = {
+    committedAuditMax: committed.auditMax ?? null,
+    liveAuditMax: live.auditMax,
+    differing,
+    inShadow,
+  };
+  if (strip(committed) === strip(live)) return { ...base, status: 'pass', details };
+  const msg =
+    `${SWITCH_STATE_FILE} holds audit max ${details.committedAuditMax ?? '?'}, production ${details.liveAuditMax ?? '?'}` +
+    (differing.length > 0
+      ? `; rows differ: ${differing.map((d) => `${d.option} ${d.committed} -> ${d.live}`).join(', ')}`
+      : '; the states agree, an audit id or time differs') +
+    (inShadow.length > 0
+      ? ` (${inShadow.join(', ')} in shadow: a watch in progress, record it when it settles)`
+      : '') +
+    '. Run: node scripts/ops/horse-option-switch.mjs records';
+  return strict
+    ? { ...base, status: 'fail', failures: [msg], details }
+    : { ...base, status: 'warn', warnings: [msg], details };
 }
 
 export function resolveLinkedSupabaseWorkdir({
@@ -805,6 +873,7 @@ export async function runPostCutoverAudit(options, deps) {
     strictLatency = false,
     exploitSplitAt = null,
     strictExploit = false,
+    strictRecords = false,
   } = options;
   validateCompareHours(compareHours);
   const validatedExpectShas = expectShas.map((s) => validateHexSha(s, 'expectSha'));
@@ -980,6 +1049,27 @@ export async function runPostCutoverAudit(options, deps) {
       }
     }
     checks.push(evaluateExploitReport(result, { strict: strictExploit, ...window }));
+  }
+  // 8. The committed switch records against the live rows (only when the caller can read the committed file;
+  // read-only, a warning unless strict)
+  if (typeof deps.readCommittedSwitchState === 'function') {
+    let recordsCheck;
+    try {
+      const committedText = deps.readCommittedSwitchState();
+      const liveRows = await queryDb(buildSwitchStateSnapshotSql().trim().replace(/;$/, ''));
+      recordsCheck = evaluateSwitchRecords({ committedText, liveRows, strict: strictRecords });
+    } catch (err) {
+      recordsCheck = {
+        name: 'switch_records',
+        status: 'unknown',
+        failures: [],
+        warnings: [
+          `the switch records could not be compared: ${err instanceof Error ? err.message : String(err)}`,
+        ],
+        details: null,
+      };
+    }
+    checks.push(recordsCheck);
   }
   const failedChecks = checks.filter((c) => c.status === 'fail');
   const overallStatus = failedChecks.length === 0 ? 'PASS' : 'FAIL';

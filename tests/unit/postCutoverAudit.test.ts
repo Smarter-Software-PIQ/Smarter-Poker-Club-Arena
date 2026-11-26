@@ -22,6 +22,7 @@ import {
   summarizeLatencyRows,
   validateCompareHours,
   validateHexSha,
+  evaluateSwitchRecords,
 } from '../../scripts/ops/post-cutover-audit-lib.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -591,5 +592,138 @@ describe('post-cutover-audit-lib', () => {
       );
       expect(future.checks.find((c) => c.name === 'horse_exploit_report')?.status).toBe('fail');
     });
+  });
+});
+
+// 2026-11-26: a switch written through a private wrapper opens no records PR, so the committed snapshot went
+// stale three times in two days and was only noticed by a hand-run dry run. The audit that already reads the
+// switch table after every cutover now says so.
+describe('switch_records: the committed snapshot against the live switch rows', () => {
+  const LIVE = [
+    {
+      option: 'v87HoldemOverhaul',
+      state: 'on',
+      updated_at: '2026-11-20T06:01:05Z',
+      audit_id: 155,
+      audit_max: 200,
+    },
+    {
+      option: 'omahaOopReraiseRangeHoldsVsReraise',
+      state: 'off',
+      updated_at: '2026-11-26T03:06:44Z',
+      audit_id: 200,
+      audit_max: 200,
+    },
+  ];
+  const committed = (rows: typeof LIVE, auditMax = 200) =>
+    JSON.stringify({
+      schema: 'horse-option-switch-state/v1',
+      asOfUtc: '2026-11-26T08:05:41.000Z',
+      auditMax,
+      rows: Object.fromEntries(
+        rows.map((r) => [
+          r.option,
+          { state: r.state, auditId: r.audit_id, changedAt: new Date(r.updated_at).toISOString() },
+        ])
+      ),
+    });
+
+  it('passes when the rows and the audit max agree, whatever time each was read', () => {
+    const check = evaluateSwitchRecords({ committedText: committed(LIVE), liveRows: LIVE });
+    expect(check.status).toBe('pass');
+    expect(check.details.differing).toEqual([]);
+  });
+
+  it('warns, names each differing row and the command, and fails only when strict', () => {
+    const live = [
+      LIVE[0],
+      { ...LIVE[1], state: 'shadow', audit_id: 201, audit_max: 201 },
+      {
+        option: 'cashDefenceTrimColdCalls',
+        state: 'on',
+        updated_at: '2026-11-26T17:10:00Z',
+        audit_id: 199,
+        audit_max: 201,
+      },
+    ];
+    const check = evaluateSwitchRecords({ committedText: committed(LIVE), liveRows: live });
+    expect(check.status).toBe('warn');
+    expect(check.failures).toEqual([]);
+    expect(check.details.differing).toEqual([
+      { option: 'cashDefenceTrimColdCalls', committed: 'default', live: 'on' },
+      { option: 'omahaOopReraiseRangeHoldsVsReraise', committed: 'off', live: 'shadow' },
+    ]);
+    expect(check.warnings[0]).toContain('audit max 200, production 201');
+    expect(check.warnings[0]).toContain('omahaOopReraiseRangeHoldsVsReraise in shadow');
+    expect(check.warnings[0]).toContain('horse-option-switch.mjs records');
+    const strict = evaluateSwitchRecords({
+      committedText: committed(LIVE),
+      liveRows: live,
+      strict: true,
+    });
+    expect(strict.status).toBe('fail');
+    expect(strict.failures).toHaveLength(1);
+  });
+
+  it('a cleared row and an unreadable file are reported, never guessed', () => {
+    const cleared = evaluateSwitchRecords({
+      committedText: committed(LIVE),
+      liveRows: [{ ...LIVE[0], audit_max: 201 }],
+    });
+    expect(cleared.details.differing).toEqual([
+      { option: 'omahaOopReraiseRangeHoldsVsReraise', committed: 'off', live: 'default' },
+    ]);
+    for (const text of ['', '{', '{"schema":"x"}']) {
+      expect(evaluateSwitchRecords({ committedText: text, liveRows: LIVE }).status).toBe('unknown');
+    }
+  });
+
+  it('runs inside the audit only when the caller can read the committed file, and never fails it by default', async () => {
+    const deps = {
+      now: () => Date.parse('2026-11-26T17:00:00Z'),
+      fetchHealth: async () => ({ status: 200, body: HEALTHY_BODY }),
+      isGitAncestor: () => ({ ok: true, reason: null }),
+      querySupabase: vi.fn(async (sql: string) => {
+        if (sql.includes('ca_horse_option_registry_serving'))
+          return [
+            { release_sha: HEALTHY_BODY.releaseSha, age_sec: 8.2, seen_at: '2026-11-26T16:59:50Z' },
+          ];
+        if (sql.includes('audit_max')) return [{ ...LIVE[0], audit_max: 201 }];
+        if (sql.includes('ca_horse_style_switch'))
+          return [{ option: 'v87HoldemOverhaul', state: 'on', refusal: null }];
+        return [];
+      }),
+    };
+    const without = await runPostCutoverAudit({ compareHours: 1 }, deps);
+    expect(without.checks.map((c: { name: string }) => c.name)).not.toContain('switch_records');
+
+    const withRecords = await runPostCutoverAudit(
+      { compareHours: 1 },
+      { ...deps, readCommittedSwitchState: () => committed(LIVE) }
+    );
+    const rec = withRecords.checks.find((c: { name: string }) => c.name === 'switch_records');
+    expect(rec.status).toBe('warn');
+    expect(withRecords.passed).toBe(true);
+    expect(formatAuditReportText(withRecords)).toContain('switch_records');
+
+    const strict = await runPostCutoverAudit(
+      { compareHours: 1, strictRecords: true },
+      { ...deps, readCommittedSwitchState: () => committed(LIVE) }
+    );
+    expect(strict.passed).toBe(false);
+
+    const unreadable = await runPostCutoverAudit(
+      { compareHours: 1 },
+      {
+        ...deps,
+        readCommittedSwitchState: () => {
+          throw new Error('ENOENT');
+        },
+      }
+    );
+    expect(
+      unreadable.checks.find((c: { name: string }) => c.name === 'switch_records').status
+    ).toBe('unknown');
+    expect(unreadable.passed).toBe(true);
   });
 });
