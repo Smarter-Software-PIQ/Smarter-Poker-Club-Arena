@@ -17,7 +17,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import tables from './HorseOmahaPeopleFoldTables.json' with { type: 'json' };
-import { omahaPeopleFoldMultiplier } from './HorseOmahaPeopleFold.js';
+import { omahaPeopleFoldMultiplier, omahaPeopleRiverCurve } from './HorseOmahaPeopleFold.js';
+import { OMAHA_RIVER_FIRST_TO_ACT_RESPONSE } from './HorseOmahaRiverFirstToActBet.js';
 import { OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS } from './HorseOmahaStrongHandCheck.js';
 import { omahaTurnBluffPrice, type OmahaTurnBluffEquity } from './HorseOmahaOpeningBluff.js';
 import { OMAHA_RIVER_OPENING_BIN_EDGES } from './HorseOmahaRiverOpeningBet.js';
@@ -59,6 +60,27 @@ describe('LAW: the PLO opening bluffs are priced on people, and only a check bec
     );
     expect(omahaPeopleFoldMultiplier('plo6', 'river', 'agg', 0.9)).toEqual({ m: 1, n: 0 });
     expect(omahaPeopleFoldMultiplier('nlh', 'turn', null, 0.9)).toEqual({ m: 1, n: 0 });
+  });
+
+  it("omahaRiverBetFoldIsPeopleMeasured: the river bet rules' curve is re-measured on people, his record shrinks to it", () => {
+    const pop = OMAHA_RIVER_FIRST_TO_ACT_RESPONSE.plo5;
+    const ppl = omahaPeopleRiverCurve('plo5', 'agg', pop);
+    expect(ppl.length).toBe(pop.length);
+    for (let i = 0; i < pop.length; i++) {
+      const s = pop[i].share;
+      const m = omahaPeopleFoldMultiplier('plo5', 'river', 'agg', s);
+      expect(ppl[i].share).toBe(s);
+      expect(1 - ppl[i].cont).toBeCloseTo(Math.max(0.01, Math.min(0.97, (m.m * s) / (1 + s))), 10);
+      expect(ppl[i].raise).toBeLessThanOrEqual(ppl[i].cont);
+      expect(ppl[i].n).toBe(m.n);
+    }
+    // outside PLO4 / PLO5 there is no people cell: the curve is unchanged
+    expect(omahaPeopleRiverCurve('plo6', 'agg', pop)).toEqual(pop.map((p) => ({ ...p })));
+    const src = readFileSync(join(__dirname, 'HorseLogic.ts'), 'utf8');
+    expect(src).toContain(
+      'const riverPeopleCurve = opts.omahaRiverBetFoldIsPeopleMeasured === true;'
+    );
+    expect(src).toMatch(/omahaRiverBetFoldRecordCurve\(\s*variant,\s*base,/);
   });
 
   it('the turn price never bets a pure bluff; a semi-bluff with fold equity is bet', () => {
