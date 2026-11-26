@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaOpeningBluffIsPricedOnPeople.law.test.ts
+
+The PLO4/PLO5 opening bluffs (omahaTurnBluffIsPricedOnBlockers, omahaTurnBluffIsPricedOnRangeAdvantage, omahaRiverBluffIsPricedOnRangeAdvantage) and the people-measured river answer curve (omahaRiverBetFoldIsPeopleMeasured), each default OFF, are priced on people's fold rates only (the fold table is people-only and its fit drops every Horse answer), people's multiplier is the cell shrunk to equilibrium by the street's k, the turn price never bets a pure bluff, on real audited river nodes every change is a check into a bet and off changes nothing, and no identity input exists in the modules.
