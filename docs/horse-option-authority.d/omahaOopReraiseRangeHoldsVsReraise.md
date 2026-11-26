@@ -1,6 +1,6 @@
 # omahaOopReraiseRangeHoldsVsReraise: Authority For The Live Switch
 
-Built 2026-11-24 by PLO-LEAD-6 from the trace of hand a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778 (OOP-3BET-FOLD-TRACE.md). Evidence NOT MET: the audited-decision scorer was not run; the generated-state replay and the league runs below (mirror and heads-up exploit probes) are the only grades. This file does not authorize switching the option on.
+**State: OFF since audit #200, 2026-11-26T03:06:44Z.** Built 2026-11-24 by PLO-LEAD-6 from the trace of hand a6f9206d-3a5e-4a7f-8c7c-65c67fcb2778 (OOP-3BET-FOLD-TRACE.md). Evidence NOT MET: the audited-decision scorer was not run; the generated-state replay and the league runs below (mirror and heads-up exploit probes) are the only grades. This file does not authorize switching the option on.
 
 ## What It Does
 
