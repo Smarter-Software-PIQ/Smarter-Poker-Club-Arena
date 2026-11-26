@@ -1001,6 +1001,125 @@ export async function prepareProductionE2ELightningMembership({
   return member;
 }
 
+/** The certification clubs that play by design; retired, their games are history. */
+const PLAYED_CERTIFICATION_CLUB_NAME_PREFIXES = [
+  RABBIT_HUNT_CLUB_NAME_PREFIX,
+  HEADS_UP_CLUB_NAME_PREFIX,
+];
+const TERMINAL_TOURNAMENT_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'CANCELED']);
+const isZero = (value) => Number(value || 0) === 0;
+
+/*
+ * A PLAYER OF A RETIRED CERTIFICATION CLUB'S FINISHED GAME IS HISTORY (2026-11-25).
+ *
+ * The heads-up rematch certificate plays one real Sit & Go. Retiring its club
+ * keeps that completed game, and with it each player's tournament entry and
+ * closed seat: immutable history, exactly like the club itself. The account
+ * door refuses any identity that still has a tournament entry
+ * (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY), which is right for a
+ * live game and can never clear for a finished one. Manual run 45506954667
+ * (2026-11-24 23:05Z) left two such players; from the moment they aged into
+ * the stale inventory every Club Create Certification failed on them, for 20
+ * hours and 32 runs, while club creation itself was fine.
+ *
+ * The owner of a retired fixture is already kept as its owner of record. A
+ * player is kept the same way, and only when everything it still holds is
+ * proved terminal here, from the rows themselves:
+ *   - the door's refusal was exactly the authority-or-custody one;
+ *   - it owns no club and is no agent;
+ *   - every membership is a zero-balance player row of a RETIRED club that
+ *     plays by design ('Cert RH ' / 'Cert HU ');
+ *   - it has at least one tournament entry, and every entry is a COMPLETED or
+ *     CANCELLED game of one of those retired clubs;
+ *   - it sits at no table and every wallet is empty.
+ * Anything else stays a failed recovery. Returns the retired club ids, or null.
+ */
+export async function participantOfRetiredFixtureHistory({
+  environment = process.env,
+  fetchImpl = fetch,
+  account,
+  error,
+} = {}) {
+  const message = String(error?.message || error || '');
+  if (!message.includes('CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY')) return null;
+  if (!account?.id || !reserved(account.email || '')) return null;
+  const configuration = requireEnvironment(environment);
+  const id = encodeURIComponent(account.id);
+  const read = async (path) => {
+    const rows = await serviceRequest(configuration, `/rest/v1/${path}`, {}, fetchImpl);
+    if (!Array.isArray(rows))
+      throw new Error(`Retained history read of ${path} returned a non-array body.`);
+    return rows;
+  };
+  const list = (ids) => `(${[...ids].map((value) => encodeURIComponent(value)).join(',')})`;
+
+  if ((await read(`clubs?select=id&owner_id=eq.${id}&limit=1`)).length) return null;
+  if ((await read(`agents?select=user_id&user_id=eq.${id}&limit=1`)).length) return null;
+
+  const memberships = await read(
+    'club_members?select=club_id,role,chip_balance,promo_balance,held_chips,locked_chips,' +
+      `credit_used,credit_limit,parent_agent_id&user_id=eq.${id}`
+  );
+  if (!memberships.length) return null;
+  if (
+    !memberships.every(
+      (row) =>
+        row.role === 'player' &&
+        row.parent_agent_id == null &&
+        isZero(row.chip_balance) &&
+        isZero(row.promo_balance) &&
+        isZero(row.held_chips) &&
+        isZero(row.locked_chips) &&
+        isZero(row.credit_used) &&
+        isZero(row.credit_limit)
+    )
+  ) {
+    return null;
+  }
+  const clubIds = new Set(memberships.map((row) => row.club_id));
+  const clubs = await read(`clubs?select=id,name,lifecycle_status&id=in.${list(clubIds)}`);
+  if (
+    clubs.length !== clubIds.size ||
+    !clubs.every(
+      (club) =>
+        clubIds.has(club.id) &&
+        club.lifecycle_status === 'retired' &&
+        PLAYED_CERTIFICATION_CLUB_NAME_PREFIXES.some((prefix) =>
+          String(club.name || '').startsWith(prefix)
+        )
+    )
+  ) {
+    return null;
+  }
+
+  const entries = await read(`tournament_players?select=tournament_id&user_id=eq.${id}`);
+  if (!entries.length) return null;
+  const tournamentIds = new Set(entries.map((row) => row.tournament_id));
+  const tournaments = await read(
+    `tournaments?select=id,status,club_id&id=in.${list(tournamentIds)}`
+  );
+  if (
+    tournaments.length !== tournamentIds.size ||
+    !tournaments.every(
+      (game) =>
+        tournamentIds.has(game.id) &&
+        clubIds.has(game.club_id) &&
+        TERMINAL_TOURNAMENT_STATUSES.has(String(game.status || '').toUpperCase())
+    )
+  ) {
+    return null;
+  }
+
+  if ((await read(`table_seats?select=table_id&user_id=eq.${id}&left_at=is.null&limit=1`)).length) {
+    return null;
+  }
+  const wallets = await read(`wallets?select=balance,locked_balance&user_id=eq.${id}`);
+  if (!wallets.every((wallet) => isZero(wallet.balance) && isZero(wallet.locked_balance))) {
+    return null;
+  }
+  return [...clubIds].sort();
+}
+
 export async function cleanupStaleProductionE2EAccounts({
   environment = process.env,
   fetchImpl = fetch,
@@ -1052,6 +1171,7 @@ export async function cleanupStaleProductionE2EAccounts({
   const attempted = new Set();
   const failures = [];
   const keptOwners = [];
+  const keptPlayers = [];
   let recovered = 0;
   let seen = 0;
   let remaining = 0;
@@ -1106,6 +1226,29 @@ export async function cleanupStaleProductionE2EAccounts({
         });
         recovered += 1;
       } catch (error) {
+        // A player of a retired fixture's finished game is kept like its owner
+        // (participantOfRetiredFixtureHistory); a failed proof read keeps the
+        // door's own refusal as the failure.
+        let retainedHistory = null;
+        try {
+          retainedHistory = await participantOfRetiredFixtureHistory({
+            environment,
+            fetchImpl,
+            account,
+            error,
+          });
+        } catch {
+          retainedHistory = null;
+        }
+        if (retainedHistory) {
+          keptPlayers.push(account.id);
+          console.log(
+            `[production-e2e-account] kept stale identity ${account.id} as a player of record of ` +
+              `retired fixture(s) ${retainedHistory.join(', ')}: its finished games keep immutable ` +
+              'history and are never deleted.'
+          );
+          continue;
+        }
         failures.push(error);
       }
     }
