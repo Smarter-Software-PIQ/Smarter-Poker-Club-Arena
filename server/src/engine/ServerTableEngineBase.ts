@@ -3806,6 +3806,17 @@ export abstract class ServerTableEngineBase {
    * pot before it may leave (one full orbit). The horse rotator asks before
    * choosing who stands up, so no horse leaves the hand after a big pot.
    */
+  /**
+   * A DRAINING HORSE IS NEVER FOLDED OUT OF A LIVE HAND (2026-11-25): this seat
+   * holds unfolded cards in the hand being played, read exactly as leaveTable
+   * reads it (the hand controller's state; none between hands). The horse
+   * rotator's variety drain asks before choosing which Horse stands up.
+   */
+  public liveInHand(userId: string): boolean {
+    const self = this.handController?.getState()?.players.find((p) => p.user_id === userId);
+    return Boolean(self && !self.is_folded);
+  }
+
   public bigPotOrbitHandsOwed(userId: string): number {
     // Durable first (the session row, 20261111174148); memory only before it exists.
     const row = this.chipContinuity?.row(userId);
