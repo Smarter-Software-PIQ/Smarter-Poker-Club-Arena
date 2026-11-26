@@ -169,4 +169,59 @@ BEGIN
   END IF;
 END $function$;
 
+-- The probes run each new body once as a signed-in caller whose session is not
+-- live (the migration has no session of its own), so each returns session_gone
+-- after reading auth.sessions; plpgsql_check covers the enrolled paths. The
+-- first probe also proves the new key: one browser holds a row per account, and
+-- the writers' conflict target finds its own row instead of the other account's.
+
+-- @probe-for: public.ca_claim_active_login
+DO $probe$
+DECLARE r jsonb; n int;
+BEGIN
+  INSERT INTO public.ca_browser_bindings(browser_token,user_id,device_id)
+    VALUES ('probe-browser', gen_random_uuid(), gen_random_uuid()),
+           ('probe-browser', gen_random_uuid(), gen_random_uuid());
+  INSERT INTO public.ca_browser_bindings(browser_token,user_id,device_id)
+    SELECT browser_token, user_id, gen_random_uuid() FROM public.ca_browser_bindings
+     WHERE browser_token = 'probe-browser'
+    ON CONFLICT (browser_token,user_id) DO UPDATE SET device_id=excluded.device_id, last_seen=clock_timestamp();
+  SELECT count(*) INTO n FROM public.ca_browser_bindings WHERE browser_token = 'probe-browser';
+  IF n <> 2 THEN RAISE EXCEPTION 'probe: one browser should hold two account bindings, found %', n; END IF;
+
+  PERFORM set_config('request.jwt.claims',
+    jsonb_build_object('sub', gen_random_uuid(), 'session_id', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  r := public.ca_claim_active_login('probe-browser', 'Probe');
+  IF r->>'why' IS DISTINCT FROM 'session_gone' THEN RAISE EXCEPTION 'probe: claim answered %', r; END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.ca_register_new_device
+DO $probe$
+DECLARE r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    jsonb_build_object('sub', gen_random_uuid(), 'session_id', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  r := public.ca_register_new_device('probe-browser', 'Probe');
+  IF r->>'why' IS DISTINCT FROM 'session_gone' THEN RAISE EXCEPTION 'probe: register answered %', r; END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.ca_resolve_pairing
+DO $probe$
+DECLARE r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    jsonb_build_object('sub', gen_random_uuid(), 'session_id', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  r := public.ca_resolve_pairing(gen_random_uuid(), true, 'probe-browser');
+  IF r->>'why' IS DISTINCT FROM 'session_gone' THEN RAISE EXCEPTION 'probe: resolve answered %', r; END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
