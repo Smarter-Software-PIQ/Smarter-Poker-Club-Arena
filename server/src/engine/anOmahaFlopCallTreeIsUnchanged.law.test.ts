@@ -32,7 +32,7 @@ import {
 } from './HorseOmahaFastScore.js';
 import { omahaFlopCallTreeVerdict } from './HorseOmahaFlopCallTree.js';
 import { omahaFlopFacingBetEvSpot } from './HorseOmahaFlopFacingBetEv.js';
-import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
+import { omahaMeasuredLineOf, type OmahaMeasuredRecord } from './HorseOmahaMeasuredBettorRange.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.js';
 
@@ -123,7 +123,7 @@ describe('LAW: the fast flop call tree gives the same numbers as the tree it rep
         board: gs.communityCards ?? [],
         dead: [] as Card[],
         line: omahaMeasuredLineOf(gs.actionHistory, 'flop', spot!.bettorSeat, spot!.isRaise),
-        record: null,
+        record: null as OmahaMeasuredRecord | null,
         readFactor: 1,
         rake: 0.05,
         left: Math.min(player.stack - spot!.paid, bettor?.stack ?? Infinity),
