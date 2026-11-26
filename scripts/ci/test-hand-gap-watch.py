@@ -42,6 +42,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -63,6 +64,12 @@ OWED_WAITS_FILE = '20261122054826_mystery_bounty_and_addon_break_are_owed_waits.
 OWED_WAITS_MIGRATION = ROOT / 'supabase' / 'migrations' / OWED_WAITS_FILE
 PARITY_FILE = '20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql'
 PARITY_MIGRATION = ROOT / 'supabase' / 'migrations' / PARITY_FILE
+WORST_FILE = '20261124171043_the_hand_gap_grade_names_its_worst_hands.sql'
+WORST_MIGRATION = ROOT / 'supabase' / 'migrations' / WORST_FILE
+FELT_FILE = '20261120000047_player_felt_latency_is_recorded_hourly.sql'
+FELT_MIGRATION = ROOT / 'supabase' / 'migrations' / FELT_FILE
+BREAK_PREDICATE_FILE = '20261126031922_hand_gap_tournament_break_predicate_requires_active_break.sql'
+BREAK_PREDICATE_MIGRATION = ROOT / 'supabase' / 'migrations' / BREAK_PREDICATE_FILE
 SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -114,7 +121,7 @@ CREATE INDEX idx_hand_history_table_created ON hand_history(table_id, created_at
 CREATE TABLE lightning_hand(hand_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hand_history_id uuid);
 CREATE INDEX idx_lightning_hand_hand_history_id ON lightning_hand(hand_history_id);
 CREATE TABLE engine_maintenance_break_log(break_started_at timestamptz PRIMARY KEY, break_ended_at timestamptz);
-CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz,
+CREATE TABLE tournaments(id uuid PRIMARY KEY, on_break boolean DEFAULT false, break_started_at timestamptz, break_ends_at timestamptz,
   addon_period_started_at timestamptz, addon_period_ends_at timestamptz,
   addon_break_minutes integer NOT NULL DEFAULT 1,
   is_rebuy boolean DEFAULT false, is_reentry boolean DEFAULT false,
@@ -726,9 +733,207 @@ try:
           and g48_chk['unintended_p95_ms'] == 2000 and g48_chk['over_budget'] == 6,
           {'g48_chk': g48_chk})
 
+    # Phase 6 (20261124171043_the_hand_gap_grade_names_its_worst_hands): the grade names its slowest hands, and Backup's
+    # sample judge (server/standby/standby-engine.sh check_soak_hand_gap_delay)
+    # reads them. The judge runs for real here, against this cluster, on hands
+    # written in the last few minutes (it grades the window ending now()).
+    STANDBY = ROOT / 'server' / 'standby' / 'standby-engine.sh'
+    plain_owed = 5750  # 1400 + 1500 + 1100 + 250 + 1500, as phase 5d proves
+
+    def insert_recent_pairs(gaps_ms, start):
+        tid = str(uuid.uuid4())
+        ids, cur = [], start
+        for i in range(len(gaps_ms) + 1):
+            hid = str(uuid.uuid4())
+            ids.append(hid)
+            st, en = cur, cur + dt.timedelta(seconds=10)
+            row_cad = f"'{plain_cadence}'::jsonb" if i > 0 else 'NULL'
+            run(f"""INSERT INTO hand_history(id, table_id, tournament_id, started_at, ended_at, created_at,
+                                             actions, players, pots, showdown, cadence)
+                    VALUES ('{hid}', '{tid}', NULL, '{st.isoformat()}', '{en.isoformat()}', '{en.isoformat()}',
+                            '{call_action}'::jsonb,
+                            '[{{"userId": "u1", "stack": 100}}, {{"userId": "u2", "stack": 100}}]'::jsonb,
+                            '[]'::jsonb, '[{{"user_id": "u1", "seat": 1}}, {{"user_id": "u2", "seat": 2}}]'::jsonb,
+                            {row_cad})""")
+            if i < len(gaps_ms):
+                cur = en + dt.timedelta(milliseconds=gaps_ms[i])
+        return tid, ids
+
+    def judge(since):
+        script = (f'set -Eeuo pipefail; source {shlex.quote(str(STANDBY))}; '
+                  f'psql_db() {{ {shlex.quote(str(pg / "psql"))} -X -v ON_ERROR_STOP=1 -h {shlex.quote(str(sock))} '
+                  f'-p {PORT} -U postgres -d postgres "$@"; }}; '
+                  f'check_soak_hand_gap_delay {since} 15')
+        r = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=env, timeout=120)
+        return r.returncode, (json.loads(r.stdout) if r.stdout.strip() else None), r.stderr
+
+    now = dt.datetime.now(dt.timezone.utc)
+    since = int((now - dt.timedelta(minutes=14)).timestamp())
+    # 2026-11-24 12:47Z refusal of 19203b9a1f0b: 14 cash showdown_checked_river
+    # pairs, 13 on time and ONE 1,422 ms late.
+    gaps_1247 = [plain_owed + 1] * 13 + [plain_owed + 1422]
+    t1247, ids1247 = insert_recent_pairs(gaps_1247, now - dt.timedelta(minutes=8))
+    rc, verdict, err = judge(since)
+    cell1247 = next((c for c in (verdict or {}).get('cells', [])
+                     if c['kind'] == 'cash' and c['shape'] == 'showdown_checked_river'), None)
+    check('judge on the grader before 20261124171043_the_hand_gap_grade_names_its_worst_hands: the 12:47Z sample (one 1,422 ms hand of 14) passes, ids unavailable',
+          rc == 0 and verdict['status'] == 'pass' and verdict['extremesAvailable'] is False
+          and cell1247 and cell1247['n'] == 14 and cell1247['overBudget'] == 1 and cell1247['maxMs'] is None,
+          {'rc': rc, 'verdict': verdict, 'stderr': err})
+
+    run(WORST_MIGRATION.read_text())
+    worst_proof = WORST_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261124171043_the_hand_gap_grade_names_its_worst_hands installs as written and its live proof holds',
+          run('SELECT ' + worst_proof) == 't', worst_proof)
+    run(WORST_MIGRATION.read_text())
+    check('migration 20261124171043_the_hand_gap_grade_names_its_worst_hands is idempotent', run('SELECT ' + worst_proof) == 't', worst_proof)
+    check('the grader keeps its security, owner grants and comment after the re-create',
+          run("SELECT prosecdef AND provolatile = 's' AND has_function_privilege('service_role', oid, 'EXECUTE')"
+              " AND NOT has_function_privilege('anon', oid, 'EXECUTE')"
+              " AND NOT has_function_privilege('authenticated', oid, 'EXECUTE')"
+              " FROM pg_proc WHERE oid = 'public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)'::regprocedure") == 't')
+
+    g47_after = grade(47).get(('cash', 'showdown_checked_river'))
+    check('every existing column grades exactly as before; the new ones name the slowest hands',
+          g47_after and all(g47_after[k] == g47_chk[k] for k in g47_chk)
+          and g47_after['unintended_max_ms'] == 900 and len(g47_after['worst_hands']) == 5
+          and all(w['unintended_ms'] == 900 for w in g47_after['worst_hands']),
+          {'before': g47_chk, 'after': g47_after})
+
+    insert_custom_pairs(49, 6, actions_json=call_action, gap_ms=6250, cadence_json=plain_cadence)
+    history_before = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
+    watch(49)
+    history_after = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
+    check('fn_ca_hand_gap_watch still records its window through the re-created grader',
+          history_after > history_before, {'before': history_before, 'after': history_after})
+
+    rc, verdict, err = judge(since)
+    cell1247 = next((c for c in (verdict or {}).get('cells', [])
+                     if c['kind'] == 'cash' and c['shape'] == 'showdown_checked_river'), None)
+    check('judge after 20261124171043_the_hand_gap_grade_names_its_worst_hands: the 12:47Z sample still passes and now names its slowest hand',
+          rc == 0 and verdict['status'] == 'pass' and verdict['extremesAvailable'] is True
+          and cell1247 and cell1247['maxMs'] == 1422
+          and cell1247['worstHands'][0]['hand_id'] == ids1247[13]
+          and cell1247['worstHands'][0]['unintended_ms'] == 1422,
+          {'rc': rc, 'verdict': verdict, 'stderr': err, 'slow_hand': ids1247[13]})
+
+    tstall, idsstall = insert_recent_pairs([plain_owed + 2, plain_owed + 6100], now - dt.timedelta(minutes=9))
+    rc, verdict, err = judge(since)
+    check('judge after 20261124171043_the_hand_gap_grade_names_its_worst_hands: one 6,100 ms stall fails on the hard ceiling and the verdict names that hand',
+          rc == 1 and verdict['status'] == 'fail'
+          and [b['rule'] for b in verdict['breaches']] == ['hard_ceiling']
+          and 'kind=cash shape=showdown_checked_river n=16 rule=hard_ceiling max_ms=6100 > ceiling_ms=5000' in err
+          and f'{idsstall[1]}:6100ms' in err,
+          {'rc': rc, 'verdict': verdict, 'stderr': err, 'stall_hand': idsstall[1]})
+
+    # Phase 7 (20261126031922, incident 1e532243): TournamentManagerBase.resumeFromBreak()
+    # clears on_break=false and break_ends_at=NULL while leaving break_started_at set.
+    # Prove fail-before and pass-after across fn_ca_hand_gap_unintended_delay,
+    # reliability_runbook_hand_gap_classification, and fn_ca_felt_latency for all
+    # 4 tournament break states.
+    felt_src = FELT_MIGRATION.read_text()
+    felt_start = felt_src.index('CREATE OR REPLACE FUNCTION public.fn_ca_felt_latency(')
+    felt_end = felt_src.index('$function$;', felt_start) + len('$function$;')
+    run(felt_src[felt_start:felt_end])
+
+    w52_start = T0 + dt.timedelta(minutes=5 * 51)
+    w52_end = T0 + dt.timedelta(minutes=5 * 52)
+    tour_resumed = str(uuid.uuid4())
+    tour_active_open = str(uuid.uuid4())
+    tour_countdown = str(uuid.uuid4())
+    tour_short_resumed = str(uuid.uuid4())
+    # 1. Resumed 25 minutes earlier: on_break=false, break_ends_at=NULL, old break_started_at
+    run(f"""INSERT INTO tournaments(id, on_break, break_started_at, break_ends_at)
+            VALUES ('{tour_resumed}', false, '{(w52_start - dt.timedelta(minutes=25)).isoformat()}', NULL)""")
+    # 2. Active pre-countdown break: on_break=true, break_ends_at=NULL, started 2 minutes ago
+    run(f"""INSERT INTO tournaments(id, on_break, break_started_at, break_ends_at)
+            VALUES ('{tour_active_open}', true, '{(w52_start - dt.timedelta(minutes=2)).isoformat()}', NULL)""")
+    # 3. Active countdown break: break_ends_at IS NOT NULL covering window 52
+    run(f"""INSERT INTO tournaments(id, on_break, break_started_at, break_ends_at)
+            VALUES ('{tour_countdown}', true, '{(w52_start - dt.timedelta(minutes=1)).isoformat()}',
+                    '{(w52_end + dt.timedelta(minutes=1)).isoformat()}')""")
+    # 4. Short (<60s) break that already resumed: on_break=false, break_ends_at=NULL,
+    #    break_started_at stamped inside the hand gap
+    short_h1_start = w52_start + dt.timedelta(seconds=10)
+    short_h1_end = short_h1_start + dt.timedelta(seconds=10)
+    short_break_at = short_h1_end + dt.timedelta(seconds=2)
+    short_h2_start = short_h1_end + dt.timedelta(seconds=25)
+    short_h2_end = short_h2_start + dt.timedelta(seconds=10)
+    run(f"""INSERT INTO tournaments(id, on_break, break_started_at, break_ends_at)
+            VALUES ('{tour_short_resumed}', false, '{short_break_at.isoformat()}', NULL)""")
+
+    t_resumed = table('fold', lambda k: 1200, [52], tournament=tour_resumed)
+    t_active_open = table('showdown_checked_river', lambda k: 2200, [52], tournament=tour_active_open)
+    t_countdown = table('showdown_river_chips', lambda k: 2400, [52], tournament=tour_countdown)
+    t_short = str(uuid.uuid4())
+    run(f"""INSERT INTO hand_history(id, table_id, tournament_id, created_at, started_at, ended_at, actions, players, pots, showdown)
+            VALUES
+              ('{uuid.uuid4()}', '{t_short}', '{tour_short_resumed}', '{short_h1_end.isoformat()}', '{short_h1_start.isoformat()}', '{short_h1_end.isoformat()}', '[]'::jsonb, '[{{"userId":"{U1}","stack":100}},{{"userId":"{U2}","stack":100}}]'::jsonb, '[]'::jsonb, '[]'::jsonb),
+              ('{uuid.uuid4()}', '{t_short}', '{tour_short_resumed}', '{short_h2_end.isoformat()}', '{short_h2_start.isoformat()}', '{short_h2_end.isoformat()}', '[]'::jsonb, '[{{"userId":"{U1}","stack":100}},{{"userId":"{U2}","stack":100}}]'::jsonb, '[]'::jsonb, '[]'::jsonb)""")
+
+    # Fail-before proof: BEFORE 20261126031922, all 3 functions treat tour_resumed as on break forever!
+    g52_before = grade(52)
+    felt_before = int(run(
+        f"SELECT count(*) FROM public.fn_ca_felt_latency('{w52_start.isoformat()}', '{w52_end.isoformat()}') "
+        f"WHERE table_id = '{t_resumed}' AND excluded = 'break'"))
+    run("UPDATE financial_alerts SET resolved = true WHERE source = 'fn_ca_hand_gap_watch' AND NOT resolved")
+    fa_resumed = run(
+        "INSERT INTO financial_alerts(severity, source, message, context) VALUES "
+        "('critical', 'fn_ca_hand_gap_watch', 'gap', "
+        f"jsonb_build_object('kind', 'tournament', 'shape', 'fold', 'window_end', '{w52_end.isoformat()}', 'budget_ms', 250)) "
+        "RETURNING id")
+    rb_before = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', true, '{{}}'::jsonb, now())"))
+    check('before 20261126031922: resumed post-break tournament is falsely excluded/classified as break across all 3 functions',
+          ('tournament', 'fold') not in g52_before
+          and felt_before > 0
+          and rb_before['alerts'][0]['by_class'].get('tournament_break', 0) > 0
+          and rb_before['alerts'][0]['by_class'].get('other') is None,
+          {'g52_before': list(g52_before.values()), 'felt_before': felt_before, 'rb_before': rb_before})
+
+    # Install 20261126031922 and verify @live-proof + idempotency.
+    run(BREAK_PREDICATE_MIGRATION.read_text())
+    break_proof = BREAK_PREDICATE_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('migration 20261126031922 installs as written and its live proof holds',
+          run('SELECT ' + break_proof) == 't', break_proof)
+    run(BREAK_PREDICATE_MIGRATION.read_text())
+    check('migration 20261126031922 is idempotent',
+          run('SELECT ' + break_proof) == 't', break_proof)
+
+    # Pass-after proof: resumed tournament is NOW graded and classified 'other' (alert stays open),
+    # while active pre-countdown break, active countdown break, and short resumed break remain excluded.
+    g52_after = grade(52)
+    resumed_pairs_15m = int(run(f"SELECT count(*) - 1 FROM hand_history WHERE table_id = '{t_resumed}'"))
+    felt_resumed_after = json.loads(run(
+        f"SELECT jsonb_build_object("
+        f"'graded', count(*) FILTER (WHERE excluded IS NULL), "
+        f"'break', count(*) FILTER (WHERE excluded = 'break')) "
+        f"FROM public.fn_ca_felt_latency('{w52_start.isoformat()}', '{w52_end.isoformat()}') "
+        f"WHERE table_id = '{t_resumed}'"))
+    felt_active_break = int(run(
+        f"SELECT count(*) FROM public.fn_ca_felt_latency('{w52_start.isoformat()}', '{w52_end.isoformat()}') "
+        f"WHERE table_id IN ('{t_active_open}', '{t_countdown}', '{t_short}') AND excluded IS NULL"))
+    rb_after = json.loads(run(
+        f"SELECT smarter_private.reliability_runbook_hand_gap_classification('{uuid.uuid4()}', false, '{{}}'::jsonb, now())"))
+    al_after = rb_after['alerts'][0]
+    check('after 20261126031922: resumed post-break tournament is graded, classified other (alert stays open), and included in felt latency',
+          ('tournament', 'fold') in g52_after
+          and g52_after[('tournament', 'fold')]['unintended_p95_ms'] == 1200
+          and al_after['by_class'].get('other', 0) == resumed_pairs_15m
+          and al_after['by_class'].get('tournament_break') == 1  # only tour_short_resumed's 1 in-gap break hand
+          and not al_after['all_intended']
+          and run(f"SELECT resolved FROM financial_alerts WHERE id = '{fa_resumed}'") == 'f'
+          and felt_resumed_after['graded'] > 0 and felt_resumed_after['break'] == 0,
+          {'g52_after': list(g52_after.values()), 'al_after': al_after, 'felt_resumed_after': felt_resumed_after})
+    check('after 20261126031922: active open-ended break, countdown break, and short in-gap resumed break remain excluded across grader and felt latency',
+          ('tournament', 'showdown_checked_river') not in g52_after
+          and ('tournament', 'showdown_river_chips') not in g52_after
+          and felt_active_break == 0,
+          {'g52_after': list(g52_after.values()), 'felt_active_break': felt_active_break})
+
     # Re-run diagnostic script against the final upgraded schema.
     run(SCRIPT_SQL.read_text())
-    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly after 20261122095254', True)
+    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly after 20261126031922', True)
 
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True

@@ -13,6 +13,8 @@ import './CashierWorkspace.css';
  */
 export function CashierWorkspace({
   compact = false,
+  inline = false,
+  hasVisibleTitle = false,
   title,
   summary,
   context,
@@ -22,6 +24,8 @@ export function CashierWorkspace({
   children,
 }: {
   compact?: boolean;
+  inline?: boolean;
+  hasVisibleTitle?: boolean;
   title: string;
   /** What this desk is for. Shown behind the "?", never on the page. */
   summary: string;
@@ -33,13 +37,20 @@ export function CashierWorkspace({
   className?: string;
   children: ReactNode;
 }) {
+  if (inline) return <div className={className}>{children}</div>;
   const status = [context, pill].filter(Boolean).join(' · ') || undefined;
   return (
     <div
       className={`cashier-workspace ${compact ? 'cashier-workspace--compact' : ''} ${className || ''}`}
       data-cashier-layout="directory"
     >
-      <PageBar title={title} summary={summary} status={status} statusTone={pillTone} />
+      <PageBar
+        titleAs={hasVisibleTitle ? false : 'h1'}
+        title={title}
+        summary={summary}
+        status={status}
+        statusTone={pillTone}
+      />
       <div className="cashier-workspace__content">{children}</div>
     </div>
   );

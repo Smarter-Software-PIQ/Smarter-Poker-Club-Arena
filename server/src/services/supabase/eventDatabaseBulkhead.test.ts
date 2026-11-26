@@ -135,8 +135,12 @@ describe('a stuck event', () => {
 
   it('gets its full bound back from good answers', async () => {
     const bulkhead = quiet();
+    // Sustained slowness (slowStreak >= 2) halves 24 -> 12, then after 1 s -> 6.
     let call = ask(bulkhead, STUCK);
     bulkhead.release(call.permit!, 'slow');
+    call = ask(bulkhead, STUCK);
+    bulkhead.release(call.permit!, 'slow');
+    expect(bulkhead.snapshot().events[0].limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
     await vi.advanceTimersByTimeAsync(1_000);
     call = ask(bulkhead, STUCK);
     bulkhead.release(call.permit!, 'slow');
@@ -149,9 +153,85 @@ describe('a stuck event', () => {
     // Idle at the full bound again, so the event is forgotten.
     expect(bulkhead.snapshot().events).toHaveLength(0);
   });
+
+  it('does not halve a healthy event bound on a single isolated slow outlier, but halves on sustained slow streak >= 2 (1e532243)', async () => {
+    const bulkhead = quiet();
+    // Single slow call at inFlight=0 (e.g. vacuum tick or single rebuy): keeps full bound 24.
+    const quietSlow = ask(bulkhead, 'quiet-slow');
+    bulkhead.release(quietSlow.permit!, 'slow');
+    expect(bulkhead.snapshot().events.find((e) => e.key === 'quiet-slow')!.limit).toBe(
+      EVENT_DB_MAX_IN_FLIGHT
+    );
+    // A following ok answer resets slowStreak so the idle event is forgotten.
+    const quietOk = ask(bulkhead, 'quiet-slow');
+    bulkhead.release(quietOk.permit!, 'ok');
+    expect(bulkhead.snapshot().events).toHaveLength(0);
+
+    // Single slow call on an active 40-table tournament (20 inFlight): keeps full bound 24.
+    const active = Array.from({ length: 20 }, () => ask(bulkhead, 'active-40-tables'));
+    bulkhead.release(active[0].permit!, 'slow');
+    expect(bulkhead.snapshot().events.find((e) => e.key === 'active-40-tables')!.limit).toBe(
+      EVENT_DB_MAX_IN_FLIGHT
+    );
+    // An ok answer resets the slow streak so another isolated outlier later still does not halve.
+    bulkhead.release(active[1].permit!, 'ok');
+    bulkhead.release(active[2].permit!, 'slow');
+    expect(bulkhead.snapshot().events.find((e) => e.key === 'active-40-tables')!.limit).toBe(
+      EVENT_DB_MAX_IN_FLIGHT
+    );
+
+    // Two consecutive slow answers DO halve 24 -> 12.
+    bulkhead.release(active[3].permit!, 'slow');
+    expect(bulkhead.snapshot().events.find((e) => e.key === 'active-40-tables')!.limit).toBe(
+      Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2)
+    );
+  });
+
+  it('does not halve the bound on a single isolated congested refusal at low concurrency, but halves on streak >= 2 or active load', async () => {
+    const bulkhead = quiet();
+    // Isolated 40001 at inFlight=0: cools one slot, keeps full bound 24.
+    const lone = ask(bulkhead, 'quiet-event');
+    bulkhead.release(lone.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    expect(bulkhead.snapshot().events[0].cooling).toBe(1);
+    await vi.advanceTimersByTimeAsync(EVENT_DB_BACKOFF_MAX_MS);
+    expect(bulkhead.snapshot().events).toHaveLength(0);
+
+    // Two consecutive congested refusals at low concurrency DO halve 24 -> 12.
+    const c1 = ask(bulkhead, 'streak-event');
+    bulkhead.release(c1.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(EVENT_DB_MAX_IN_FLIGHT);
+    const c2 = ask(bulkhead, 'streak-event');
+    bulkhead.release(c2.permit!, 'congested');
+    expect(bulkhead.snapshot().events[0].limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+
+    // Active concurrency (>= minPerEvent still in flight) halves on the first congested answer.
+    const active = Array.from({ length: EVENT_DB_MIN_IN_FLIGHT + 1 }, () =>
+      ask(bulkhead, 'busy-event')
+    );
+    bulkhead.release(active[0].permit!, 'congested');
+    const busy = bulkhead.snapshot().events.find((e) => e.key === 'busy-event')!;
+    expect(busy.limit).toBe(Math.floor(EVENT_DB_MAX_IN_FLIGHT / 2));
+  });
 });
 
 describe('parked calls', () => {
+  it('logs the true parked queue depth (parked=1, never parked=0) when parking the first call', () => {
+    const lines: string[] = [];
+    const bulkhead = new EventDatabaseBulkhead({
+      log: (line) => lines.push(line),
+      now,
+      maxPerEvent: 1,
+      minPerEvent: 1,
+    });
+    const first = ask(bulkhead, STUCK);
+    void bulkhead.acquire(STUCK);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('is parking calls');
+    expect(lines[0]).toContain('parked=1');
+    expect(lines[0]).not.toContain('parked=0');
+    bulkhead.release(first.permit!, 'ok');
+  });
   it('leave in the order they arrived', async () => {
     const bulkhead = new EventDatabaseBulkhead({ log: () => {}, maxPerEvent: 1, minPerEvent: 1 });
     const order: number[] = [];
@@ -199,6 +279,42 @@ describe('parked calls', () => {
     expect(bigParked.filter((c) => c.permit).length).toBe(1);
     expect(bulkhead.snapshot().totalInFlight).toBe(4);
   });
+
+  it('gives the very first freed global slot to a starved zero-in-flight tournament ahead of saturated MTTs (incident 1e532243)', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      maxPerEvent: 24,
+      minPerEvent: 6,
+      maxAllEvents: 48,
+    });
+    // Two large MTTs saturate all 48 global slots and park deep queues first.
+    const big1Active = Array.from({ length: 24 }, () => ask(bulkhead, 'mtt-1'));
+    const big2Active = Array.from({ length: 24 }, () => ask(bulkhead, 'mtt-2'));
+    const big1Parked = Array.from({ length: 5 }, () => ask(bulkhead, 'mtt-1'));
+    const big2Parked = Array.from({ length: 5 }, () => ask(bulkhead, 'mtt-2'));
+    // Two small tournaments arrive later with 0 in-flight slots.
+    const smallA = ask(bulkhead, 'small-a');
+    const smallB = ask(bulkhead, 'small-b');
+    expect(smallA.permit).toBeNull();
+    expect(smallB.permit).toBeNull();
+
+    // Release ONE slot from mtt-1: small-a (inFlight=0) MUST take it immediately,
+    // not mtt-1 (inFlight=23) or mtt-2 (inFlight=24) even though they parked earlier.
+    bulkhead.release(big1Active[0].permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(smallA.permit).not.toBeNull();
+    expect(smallB.permit).toBeNull();
+    expect(big1Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(big2Parked.some((c) => c.permit !== null)).toBe(false);
+
+    // Release ONE slot from mtt-2: small-b (inFlight=0) takes it next.
+    bulkhead.release(big2Active[0].permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(smallB.permit).not.toBeNull();
+    expect(big1Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(big2Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(bulkhead.snapshot().totalInFlight).toBe(48);
+  });
 });
 
 describe('shutdown', () => {
@@ -239,5 +355,57 @@ describe('what an answer says about the lane', () => {
     );
     expect(classifyEventDbFailure(shortCallerTimeout, 1_500)).toBe('neutral');
     expect(classifyEventDbFailure(shortCallerTimeout, 2_000)).toBe('congested');
+  });
+});
+
+describe('Prometheus exposition', () => {
+  it('emits zero-seeded bounded series on cold start and tracks load, timeouts, refusals and open state', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      maxPerEvent: 2,
+      minPerEvent: 1,
+      maxAllEvents: 4,
+      maxParked: 1,
+    });
+    const cold = bulkhead.toPrometheusLines().join('\n');
+    expect(cold).toContain('poker_event_db_bulkhead_open 0');
+    expect(cold).toContain('poker_event_db_bulkhead_in_flight 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_current 0');
+    expect(cold).toContain('poker_event_db_bulkhead_cooling_current 0');
+    expect(cold).toContain('poker_event_db_bulkhead_active_events 0');
+    expect(cold).toContain('poker_event_db_bulkhead_throttled_events 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_total 0');
+    expect(cold).toContain('poker_event_db_bulkhead_park_timeouts_total 0');
+    expect(cold).toContain('poker_event_db_bulkhead_refused_full_total 0');
+
+    // Fill 2 slots, park 1 with abort signal, refuse 1 on full queue, trigger congestion cooling.
+    const a = ask(bulkhead, STUCK);
+    const b = ask(bulkhead, STUCK);
+    const ac = new AbortController();
+    const parked = ask(bulkhead, STUCK, ac.signal);
+    expect(() => bulkhead.acquire(STUCK)).toThrow('supabase_timeout');
+
+    ac.abort(new Error('supabase_timeout'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(parked.error).toBeInstanceOf(Error);
+
+    bulkhead.release(a.permit!, 'congested');
+    const hot = bulkhead.toPrometheusLines().join('\n');
+    expect(hot).toContain('poker_event_db_bulkhead_open 0');
+    expect(hot).toContain('poker_event_db_bulkhead_in_flight 1');
+    expect(hot).toContain('poker_event_db_bulkhead_cooling_current 1');
+    expect(hot).toContain('poker_event_db_bulkhead_active_events 1');
+    expect(hot).toContain('poker_event_db_bulkhead_throttled_events 1');
+    expect(hot).toContain('poker_event_db_bulkhead_parked_total 1');
+    expect(hot).toContain('poker_event_db_bulkhead_park_timeouts_total 1');
+    expect(hot).toContain('poker_event_db_bulkhead_refused_full_total 1');
+    // Zero unbounded per-event labels in Prometheus exposition.
+    expect(hot).not.toContain(STUCK);
+
+    bulkhead.openForShutdown();
+    bulkhead.release(b.permit!, 'ok');
+    const afterOpen = bulkhead.toPrometheusLines().join('\n');
+    expect(afterOpen).toContain('poker_event_db_bulkhead_open 1');
+    expect(afterOpen).toContain('poker_event_db_bulkhead_in_flight 0');
   });
 });

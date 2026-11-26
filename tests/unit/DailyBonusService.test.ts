@@ -366,3 +366,27 @@ it('a delayed reward receipt cannot announce or update the next account', async 
   expect((await claim).success).toBe(true);
   expect(mocks.emit).not.toHaveBeenCalled();
 });
+it('claimAll normalizes partial status payloads and emits zero bus events on replay or refusal', async () => {
+  mocks.emit.mockReset();
+  mocks.userId = 'first';
+  mocks.rpc.mockResolvedValueOnce({
+    data: {
+      success: true,
+      results: [
+        {
+          success: true,
+          idempotent: true,
+          granted: { kind: 'diamonds', diamonds: 10, balance_after: 10 },
+        },
+      ],
+      status: { eligible: true, today: '2026-10-10', tiles: [] },
+    },
+    error: null,
+  });
+  const res = await dailyBonusService.claimAll('2026-10-10');
+  expect(res.status?.shield).toEqual({ held: 0, expires_at: null });
+  expect(res.status?.boost).toEqual({ active: false });
+  expect(res.status?.week).toEqual([]);
+  expect(res.status?.tomorrow).toEqual([]);
+  expect(mocks.emit).not.toHaveBeenCalled();
+});

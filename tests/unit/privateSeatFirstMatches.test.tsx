@@ -236,30 +236,35 @@ describe('Player-created Private Heads-Up & Private Spin matches (offered boards
     const onCloseMatch = vi.fn();
 
     render(
-      <PrivateMatchTopBar
-        format="heads_up"
-        canCreate
-        activeMatches={[
-          {
-            info: {
-              tournamentId: 'priv-hu-1',
-              tableId: 'tbl-hu-1',
-              format: 'heads_up',
-              isCreator: true,
-              inviteToken: 'tok_abcdefghijklmnop',
-              sourceTournamentId: 'hu-nlh-10-deep',
-              status: 'open',
-            },
-            name: '10 Chip Heads-Up NLH',
-            seatsLabel: '1/2 Seated',
-          },
-        ]}
-        closingId={null}
-        onOpenCreate={onOpenCreate}
-        onOpenMatch={() => {}}
-        onShareLink={onShareLink}
-        onCloseMatch={onCloseMatch}
-      />
+      <table>
+        <tbody>
+          <PrivateMatchTopBar
+            colSpan={4}
+            format="heads_up"
+            canCreate
+            activeMatches={[
+              {
+                info: {
+                  tournamentId: 'priv-hu-1',
+                  tableId: 'tbl-hu-1',
+                  format: 'heads_up',
+                  isCreator: true,
+                  inviteToken: 'tok_abcdefghijklmnop',
+                  sourceTournamentId: 'hu-nlh-10-deep',
+                  status: 'open',
+                },
+                name: '10 Chip Heads-Up NLH',
+                seatsLabel: '1/2 Seated',
+              },
+            ]}
+            closingId={null}
+            onOpenCreate={onOpenCreate}
+            onOpenMatch={() => {}}
+            onShareLink={onShareLink}
+            onCloseMatch={onCloseMatch}
+          />
+        </tbody>
+      </table>
     );
 
     fireEvent.click(document.querySelector('[data-testid="create-private-hu-btn"]') as HTMLElement);

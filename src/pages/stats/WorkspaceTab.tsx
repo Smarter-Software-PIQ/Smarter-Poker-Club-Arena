@@ -8,7 +8,7 @@ import {
 } from '../../lib/tableSettingIntents';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import StatsWorkspacePanel from '../../components/stats/StatsWorkspacePanel';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+import StatsSection from '../../components/stats/StatsSection';
 import {
   statsWorkspaceService,
   type StatsWorkspaceSnapshot,
@@ -30,6 +30,7 @@ interface Props {
   isOwnProfile: boolean;
   onPresentationModeChange?: (enabled: boolean) => void;
   onDashboardLayoutChange?: (layout: string[]) => void;
+  onOpenLeakFinder?: () => void;
   ruleReport?: {
     title: string;
     sourceVersion: string;
@@ -58,6 +59,7 @@ export default function WorkspaceTab({
   isOwnProfile,
   onPresentationModeChange,
   onDashboardLayoutChange,
+  onOpenLeakFinder,
   ruleReport = null,
 }: Props) {
   const owner = useUserStore((state) => state.user?.id ?? 'guest');
@@ -414,9 +416,10 @@ export default function WorkspaceTab({
         onPrivacyModeChange={(enabled) => void changePrivacy(enabled)}
         onLeakStatusChange={(id, status) => void changeLeakStatus(id, status)}
         onAlertToggle={(id, enabled) => void toggleAlert(id, enabled)}
+        onOpenLeakFinder={onOpenLeakFinder}
       />
       {isOwnProfile && workspace && (
-        <SpadeConsole eyebrow="Private Controls" title="Workspace Builder" pill="Saved" foot="foot">
+        <StatsSection eyebrow="Private Controls" title="Workspace Builder" status="Saved">
           <fieldset
             className="stats-workspace-composer"
             aria-label="Workspace Builder"
@@ -631,7 +634,7 @@ export default function WorkspaceTab({
               {notice}
             </p>
           </fieldset>
-        </SpadeConsole>
+        </StatsSection>
       )}
     </>
   );

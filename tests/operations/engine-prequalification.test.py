@@ -149,9 +149,44 @@ class Selection(unittest.TestCase):
              patch.object(reader, "projection", side_effect=["old", "new"] if controls else ["same", "same"]), \
              patch.object(reader, "owner_selection_policy") as policy, \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
-            reader.verify_selection(repo, "22", cutoff, qualification, owner_id)
+            serving = reader.verify_selection(repo, "22", cutoff, qualification, owner_id)
             if owner:
                 policy.assert_called_once_with(qualification["targetSha"], run["head_sha"], owner_id, cutoff)
+            return serving
+
+    def test_selection_exposes_protected_serving_sha_and_refuses_invalid(self):
+        repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
+        cutoff = int(datetime(2026, 11, 25, 9, 30, tzinfo=timezone.utc).timestamp())
+        serving_sha = "d07cd7d7feec0165fa07008aa46338f57946d2f0"
+        qualification = {"targetSha": "a"*40, "controlSha": "b"*40, "qualificationRunId": 21}
+        run = dict(id=22, run_attempt=1, event="schedule", actor={"type": "User"},
+                   created_at="2026-11-25T09:30:05Z", head_branch="main", status="in_progress",
+                   path=".github/workflows/stage-engine-release.yml", head_sha="b"*40,
+                   repository={"full_name": repo}, head_repository={"full_name": repo},
+                   display_title="Daily engine reservation")
+        job = dict(name="Record the daily release evidence", run_id=22, run_attempt=1,
+                   head_sha="b"*40, status="completed", conclusion="success",
+                   started_at="2026-11-25T09:30:10Z", completed_at="2026-11-25T09:31:00Z")
+        for candidate_serving, should_pass in ((serving_sha, True), ("not-a-sha", False)):
+            receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff,
+                           servingSha=candidate_serving, qualification=qualification,
+                           stageSha="b"*40, targetSha="a"*40, controlSha="b"*40)
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as bundle:
+                bundle.writestr("daily-selection.json", json.dumps(receipt))
+            archive = data.getvalue()
+            artifact = dict(id=7, name="daily-engine-selection-2026-11-25", expired=False,
+                            size_in_bytes=len(archive),
+                            digest="sha256:" + hashlib.sha256(archive).hexdigest())
+            with patch.object(reader, "api", side_effect=[run, {"total_count": 1, "jobs": [job]}, {"total_count": 1, "artifacts": [artifact]}]), \
+                 patch.object(reader, "git", side_effect=lambda *a: qualification["controlSha"] if a[0] == "rev-list" else ""), \
+                 patch.object(reader, "projection", return_value="same"), \
+                 patch.object(reader.subprocess, "check_output", return_value=archive):
+                if should_pass:
+                    self.assertEqual(reader.verify_selection(repo, "22", cutoff, qualification), serving_sha)
+                else:
+                    with self.assertRaises(reader.Unqualified):
+                        reader.verify_selection(repo, "22", cutoff, qualification)
 
     def test_owner_requires_original_protected_exact_stage_and_bound_artifact(self):
         self.verify(owner=True)

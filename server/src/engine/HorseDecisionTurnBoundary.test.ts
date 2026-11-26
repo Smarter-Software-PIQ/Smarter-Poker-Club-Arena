@@ -90,7 +90,7 @@ function turnHarness(
   };
   engine.disconnectEngine = {
     onPlayerTurn: () => options.playerCanAct ?? true,
-    armedAutoActionDeadlineMs: () => Date.now() + 30_000,
+    armedAutoActionDeadlineMs: () => (options.playerCanAct === false ? Date.now() + 30_000 : 0),
     isInReconnectGrace: () => false,
   };
   engine.startTurnTimer = startTurnTimer;

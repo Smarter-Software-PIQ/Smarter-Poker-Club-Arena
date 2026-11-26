@@ -33,6 +33,8 @@ const latchClears: string[] = [];
 function enclosingName(node: ts.Node): string {
   for (let n: ts.Node | undefined = node; n; n = n.parent) {
     if (ts.isJsxAttribute(n)) return n.name.getText(source);
+    if (ts.isVariableDeclaration(n) && n.name.getText(source) === 'confirmTournamentRebuy')
+      return 'confirmTournamentRebuy';
   }
   return '';
 }
@@ -42,14 +44,8 @@ function visit(node: ts.Node) {
     if (name === 'handleHoleCardPayload') cardDoor = node.initializer.arguments[0].getText(source);
     if (name === 'applySeatRemoved') seatRemoved = node.initializer.arguments[0].getText(source);
   }
-  if (
-    ts.isJsxAttribute(node) &&
-    node.name.getText(source) === 'onConfirmRebuy' &&
-    node.initializer &&
-    ts.isJsxExpression(node.initializer) &&
-    node.initializer.expression
-  )
-    rebuyReceipt = node.initializer.expression.getText(source);
+  if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'confirmTournamentRebuy')
+    rebuyReceipt = node.initializer?.getText(source) ?? '';
   if (
     ts.isBinaryExpression(node) &&
     node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
@@ -262,7 +258,8 @@ describe('a tournament rebuy is taking a seat again', () => {
   });
 
   it('every paid seat receipt on the page clears the latch, and the rebuy receipt is one of them', () => {
-    expect(latchClears).toContain('onConfirmRebuy');
+    expect(source.getFullText()).toContain('onConfirmRebuy={confirmTournamentRebuy}');
+    expect(latchClears).toContain('confirmTournamentRebuy');
     expect(latchClears.length).toBeGreaterThanOrEqual(3);
   });
 });

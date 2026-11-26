@@ -71,7 +71,7 @@ describe('an average stack is whole chips', () => {
 
   it('every average stack is truncated where it is shown', () => {
     expect(read('src/components/tournament/details/RankingTab.tsx')).toContain(
-      '{stackChips(avgStack)}'
+      "{isRegistering && !totalChips ? '-' : stackChips(avgStack)}"
     );
     const tables = read('src/components/tournament/details/TablesTab.tsx');
     expect(tables).toContain('{stackChips(fieldAvg)}');

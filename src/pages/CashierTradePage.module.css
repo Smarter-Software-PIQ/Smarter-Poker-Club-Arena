@@ -375,7 +375,7 @@
   text-transform: uppercase;
 }
 
-.securityDotWarning {
+.simpleStatus.securityDotWarning {
   color: var(--ink-red);
   text-shadow: var(--ink-red-glow);
 }
@@ -421,7 +421,7 @@
   min-width: 44px;
   min-height: 44px;
   padding: 0 min(1cqw, 5px);
-  color: var(--ink-gold);
+  color: #92dfff;
   text-shadow: var(--ink-gold-glow);
 }
 
@@ -512,7 +512,7 @@
 
 .tabBadge {
   margin-left: min(1.2cqw, 6px);
-  color: var(--ink-gold);
+  color: #92dfff;
   text-shadow: var(--ink-gold-glow);
 }
 
@@ -785,7 +785,7 @@ arrow says the direction in force. */
 
 .rowYou {
   margin-left: min(1.6cqw, 8px);
-  color: var(--ink-gold);
+  color: #92dfff;
   font-size: min(2.6cqw, 13px);
   letter-spacing: 0.14em;
   text-shadow: var(--ink-gold-glow);
@@ -967,7 +967,7 @@ arrow says the direction in force. */
 
 /* "Waiting 2h 5m" on a cash-out request nobody has decided yet. */
 .waitTag {
-  color: var(--ink-gold, #e8c46a);
+  color: #92dfff;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1561,12 +1561,12 @@ arrow says the direction in force. */
   padding: 0;
 }
 .page.simple .heroContent,
-.page.simple .heroMetrics,
-.page.simple .strip,
-.page.simple .filterRow,
-.page.simple .recoveryConsole,
+.page.simple[data-cashier-tools='closed'] .heroMetrics,
+.page.simple[data-cashier-tools='closed'] .strip,
+.page.simple[data-cashier-tools='closed'] .filterRow,
+.page.simple[data-cashier-tools='closed'] .recoveryConsole,
 .page.simple .sectionEyebrow,
-.page.simple .glass .rowSub:not(.simpleId) {
+.page.simple[data-cashier-tools='closed'] .glass .rowSub:not(.simpleId) {
   display: none;
 }
 .page.simple .sectionHeading {
@@ -1658,7 +1658,10 @@ arrow says the direction in force. */
   margin-top: 4px;
 }
 /* The full operations rail belongs to Advanced; the global navigation remains. */
-:global(body:has([data-cashier-mode='simple']) nav[aria-label='Club Operations Sections']) {
+:global(
+  body:has([data-cashier-mode='simple']):not(:has([data-cashier-tools='open']))
+    nav[aria-label='Club Operations Sections']
+) {
   display: none;
 }
 
@@ -1774,7 +1777,7 @@ arrow says the direction in force. */
 
 .console .playerCardBalance strong,
 .console .walletRowValue {
-  color: var(--ink-gold);
+  color: #92dfff;
   font:
     800 6.4cqw/1.1 'Roboto Condensed',
     Inter,
@@ -2714,4 +2717,142 @@ arrow says the direction in force. */
   .walletSortShort {
     display: inline;
   }
+}
+
+.page:global(.arena-trade) .glass {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+}
+.page:global(.arena-trade) .console > :global(.cashier-workspace__content) {
+  width: 100%;
+  padding-inline: 0;
+  box-sizing: border-box;
+}
+.page:global(.arena-trade) .console {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.page:global(.arena-trade) .glass > :global(.cashier-my-wallets) {
+  box-sizing: border-box;
+  max-width: 100%;
+  order: -4;
+  margin: 6px 0;
+  padding: 5px 14px 6px;
+}
+@media (max-width: 500px) {
+  .page:global(.arena-trade) .glass > :global(.cashier-my-wallets) {
+    padding: 4px 10px 5px;
+  }
+}
+.page:global(.arena-trade) .glass > :global(.arena-switch),
+.page:global(.arena-trade) .tabs:not([hidden]) {
+  order: -3;
+  margin: 3px 0;
+}
+.page:global(.arena-trade) .tabs:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.page:global(.arena-trade) .tabs .tab {
+  flex: 1;
+  min-width: 60px;
+  border: 4px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  color: #edf4ff;
+  padding: 2px;
+}
+.page:global(.arena-trade) .tabs .tab[aria-selected='true'] {
+  border-image-source: var(--arena-active);
+  background: #084397;
+}
+.page:global(.arena-trade) .glass > .sectionShell {
+  order: -1;
+  padding: 12px;
+  margin: 2px 0;
+  background: var(--arena-panel);
+}
+.page:global(.arena-trade) .sectionHeading {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  min-height: 32px;
+  padding: 0 2px 3px;
+  border-bottom: 1px solid #284159;
+}
+.page:global(.arena-trade) .sectionTitle {
+  font:
+    800 20px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  color: #eff6ff;
+}
+.page:global(.arena-trade) .sectionEyebrow {
+  display: none;
+}
+.page:global(.arena-trade) .sectionShell .receiptRow {
+  margin: 3px 0;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: var(--arena-tile);
+}
+.page:global(.arena-trade) .receiptRow .rowName {
+  color: #eff8ff;
+  font:
+    bold 14px/1.15 Arial,
+    sans-serif;
+}
+.page:global(.arena-trade) .receiptRow .rowSub {
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  color: #aec4d8;
+}
+/* Existing security notices stay ahead of the ledger; the cashier selector and support actions follow it. */
+.page:global(.arena-trade) .glass > [role='alert'],
+.page:global(.arena-trade) .glass > [aria-label='Interrupted Wallet Transfers'] {
+  order: -2;
+}
+.page:global(.arena-trade) .hero {
+  padding: 8px;
+  background: var(--arena-panel);
+}
+
+.page .toolsTrigger {
+  order: -3;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 12px;
+  color: #ecf6ff;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
+}
+.page .toolsTrigger[aria-expanded='true'] {
+  border-image-source: var(--arena-active);
+  background: #084397;
+}
+.page .toolsTrigger:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.page .walletTools {
+  order: -2;
+  width: 100%;
+  min-width: 0;
 }

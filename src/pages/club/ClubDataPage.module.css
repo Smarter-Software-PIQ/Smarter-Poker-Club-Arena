@@ -168,7 +168,9 @@
   font-size: 16px;
   font-weight: 700;
   text-align: right;
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .lineLabel {
@@ -564,7 +566,7 @@
   }
 }
 
-/* Simple mode keeps the verified ledger, with extended tools in Advanced. */
+/* The ledger stays in place while the operator opens reporting tools. */
 .advancedOnly {
   display: contents;
 }
@@ -587,17 +589,6 @@
 .simpleHeader .word,
 .simpleStatus .word {
   color: #45adff;
-}
-.modeSwitch {
-  display: flex;
-  gap: 4px;
-}
-.modeSwitch button {
-  color: #9aa5b3;
-}
-.modeSwitch button[aria-pressed='true'] {
-  color: #45adff;
-  border-bottom: 2px solid #45adff;
 }
 .simpleStatus {
   display: flex;
@@ -644,8 +635,8 @@
 .simple .console > :global(.club-page-body) {
   padding: 0;
 }
-.simple .blockLabel,
-.simple .figureMeta {
+.simple[data-report-tools='closed'] .blockLabel,
+.simple[data-report-tools='closed'] .figureMeta {
   display: none;
 }
 .simple .rows[aria-label='Club Performance Summary'] {
@@ -678,11 +669,15 @@
 .simple .rangeChip {
   order: 0;
   flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
   font-size: 12px;
   gap: 4px;
 }
 .simple .rangeBar {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .simple .searchInput {
@@ -691,6 +686,88 @@
 .simple :global(.club-page-section) {
   border: 0;
 }
-:global(body:has([data-club-data-mode='simple']) nav[aria-label='Club Operations Sections']) {
+:global(
+  body:has([data-club-data-mode='simple']):not(:has([data-report-tools='open']))
+    nav[aria-label='Club Operations Sections']
+) {
   display: none;
+}
+.simpleHeader > :global(.arena-switch) {
+  flex: 1;
+}
+.page:global(.arena-workspace) .console {
+  position: relative;
+  border: 9px solid transparent;
+  border-image: var(--arena-frame) 41 / 18px stretch;
+  background: var(--arena-panel);
+  padding: 3px;
+  margin: 7px 0;
+}
+.page:global(.arena-workspace) .console > :global(.club-page-heading) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-height: 31px;
+  padding: 3px 2px 6px;
+  background: none;
+  border-bottom: 1px solid #253e57;
+}
+.page:global(.arena-workspace) .console :global(.club-page-heading) :is(h2, h3) {
+  margin: 0;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  color: white;
+}
+.page:global(.arena-workspace) .console :global(.club-page-eyebrow),
+.page:global(.arena-workspace) .console :global(.club-page-subtitle) {
+  display: none;
+}
+.page:global(.arena-workspace) .console > :global(.club-page-body) {
+  padding: 6px 1px;
+  background: none;
+}
+.page:global(.arena-workspace) .console :global(.club-page-action) {
+  min-height: 44px;
+  border: 4px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.page:global(.arena-workspace) [aria-label='Club Performance Summary'] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.page:global(.arena-workspace) .figureRow {
+  display: flex;
+  flex-flow: column nowrap;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+.page:global(.arena-workspace) .figureRow :is(.dataLabel, .figureMeta) {
+  flex: 0 1 auto;
+  max-width: 100%;
+  text-align: center;
+}
+.page:global(.arena-workspace) .figureRow .delta {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.page:global(.arena-workspace) .row {
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: var(--arena-tile);
+}
+
+/* The daily Data page already owns the outer gutter and footer clearance. */
+.page:global(.arena-workspace)[data-inline-report] {
+  min-height: 0;
+  padding: 0;
 }

@@ -652,3 +652,27 @@ test('a gate that failed with everything below it skipped says nothing was verif
   assert.match(out.payload.summary, /^Post-Deploy E2E run 7 on an unnamed release did not complete verification \(failed: /);
   assert.match(out.payload.description, /Nothing about production was verified/);
 });
+
+test('a production certificate names its failed step and first error in the alert (FAILURE_DETAIL)', () => {
+  const base = {
+    WORKFLOW_LABEL: 'Club Create Certification',
+    ALERT_SOURCE: 'club-arena.club-create-certification',
+    ALERT_NAME: 'ProductionCertificationFailing',
+    RUN_ID: '45356259304',
+    LANES: 'failure|certify',
+  };
+  const parsed = readVerdict({
+    ...base,
+    HEAD_SHA: '3302e0a948f26c4fc1dd0bccfde43f0a10c7354c',
+    FAILURE_DETAIL:
+      'Failed steps: Run The Create Club Browser Certificate\nFirst error: Error: expect(locator).toBeVisible() failed\n\nPrevious failed run: https://github.com/o/r/actions/runs/45353422965',
+  });
+  assert.equal(parsed.detail.length, 3);
+  const out = decide(parsed);
+  assert.equal(out.action, 'fire');
+  assert.match(out.payload.description, /Failed steps: Run The Create Club Browser Certificate/);
+  assert.match(out.payload.description, /First error: Error: expect\(locator\)/);
+  assert.match(out.payload.description, /Previous failed run: https:\/\/github.com\/o\/r\/actions\/runs\/45353422965/);
+  // Without it the description is exactly what it always was.
+  assert.doesNotMatch(decide(readVerdict(base)).payload.description, /First error/);
+});

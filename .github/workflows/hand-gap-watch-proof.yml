@@ -13,6 +13,10 @@ name: Hand gap unintended-delay watch (PostgreSQL proof)
 # (kind hand_delay) and a flap is held, not pushed.
 # Since 20261121000757 it proves the alert names where the delay comes from
 # (after a bust, after a tournament seat move, both) on production's own text.
+# Since 20261124171043_the_hand_gap_grade_names_its_worst_hands it proves the grade names each cell's
+# maximum and slowest hands, and runs Backup's sample judge
+# (server/standby/standby-engine.sh check_soak_hand_gap_delay) against this
+# cluster before and after that edit.
 # No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
 on:
   pull_request:
@@ -24,6 +28,11 @@ on:
       - supabase/migrations/20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql
       - supabase/migrations/20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql
       - scripts/ci/fixtures/owner-page-route-preimage-20261120.sql
+      - supabase/migrations/20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql
+      - supabase/migrations/20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql
+      - supabase/migrations/20261124171043_the_hand_gap_grade_names_its_worst_hands.sql
+      - supabase/migrations/20261126031922_hand_gap_tournament_break_predicate_requires_active_break.sql
+      - server/standby/standby-engine.sh
       - scripts/sql/hand-gap-unintended-delay.sql
       - scripts/ci/test-hand-gap-watch.py
       - .github/workflows/hand-gap-watch-proof.yml

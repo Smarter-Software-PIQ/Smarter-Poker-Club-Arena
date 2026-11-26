@@ -489,7 +489,7 @@ describe('the add-on rule says what the engine does', () => {
 describe('chat stays off for multi-table tournaments', () => {
   it('sends banChat true and shows the rule locked', async () => {
     const { container } = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Show Advanced Options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show Tournament Options' }));
     expect(screen.getByText('Chat: Off')).toBeVisible();
     expect(screen.queryByRole('switch', { name: /Chat/ })).toBeNull();
     const config = await submit(container);
@@ -503,7 +503,7 @@ describe('chat stays off for multi-table tournaments', () => {
     'a %s starts with chat on and keeps the host switch',
     async (f) => {
       const { container } = mount(f);
-      fireEvent.click(screen.getByRole('button', { name: 'Show Advanced Options' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Show Tournament Options' }));
       expect(screen.queryByText('Chat: Off')).toBeNull();
       const toggle = screen.getByRole('switch', { name: 'Ban Chat' }) as HTMLInputElement;
       expect(toggle.checked).toBe(false);

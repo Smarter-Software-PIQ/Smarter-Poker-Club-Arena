@@ -117,8 +117,6 @@ const tree = (entry = '/clubs/club-a/members') => (
   </MemoryRouter>
 );
 async function settle() {
-  const advanced = screen.queryByRole('button', { name: 'Advanced' });
-  if (advanced) fireEvent.click(advanced);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(300);
   });
@@ -615,7 +613,6 @@ it('defaults to this week and Active Now and retains an oldest choice', async ()
   expect(screen.getByRole('option', { name: 'Active Now' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: 'Newest Players First' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: 'Oldest Players First' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Simple', exact: true }));
   expect(screen.getByRole('combobox', { name: 'Win And Loss Period' })).toHaveValue('week');
   fireEvent.change(sort(), { target: { value: 'oldest' } });
   await settle();
@@ -646,15 +643,14 @@ it('adopts Active Now on upgrade while retaining the old workspace search and co
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).toBeChecked();
 });
 
-it('opens a single club transaction history from the simple and advanced player directory', async () => {
+it('opens and closes a single club transaction history from the player directory', async () => {
   render(tree());
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: 'Simple' }));
+  expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
   const toggle = screen.getByRole('button', { name: 'Club Transaction History' });
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(toggle);
   expect(screen.getByRole('region', { name: 'Transaction History' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
   fireEvent.click(screen.getByRole('button', { name: 'Club Transaction History' }));
   expect(screen.queryByRole('region', { name: 'Transaction History' })).toBeNull();
 });

@@ -66,6 +66,7 @@
 .hh-search__input {
   flex: 1;
   min-width: 0;
+  min-height: 44px;
   padding: 8px 10px;
   border-radius: 4px;
   border: 1px solid var(--hha-gunmetal);
@@ -76,6 +77,7 @@
 
 .hh-search__select,
 .hh-search__date {
+  min-height: 44px;
   padding: 7px 8px;
   border-radius: 4px;
   border: 1px solid var(--hha-gunmetal);
@@ -88,6 +90,7 @@
 
 .hh-search__clear,
 .hh-search__export {
+  min-height: 44px;
   padding: 8px 12px;
   border-radius: 4px;
   border: 1px solid var(--hha-gunmetal);
@@ -140,76 +143,99 @@
   display: none;
 }
 
-.hh-filter-chip {
+/* MTT metallic steel bevel (#688299 / #aec0d0 hairline over obsidian navy), the
+   same chassis as .hh-stats-drilldown below. Scoped under the page so no other
+   stylesheet's bare class can reach these controls. */
+.hand-history-page .hh-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 8px 14px;
-  border-radius: 4px;
-  border: 1px solid var(--hha-gunmetal);
-  background: linear-gradient(180deg, var(--hha-panel-raised), var(--hha-panel));
-  color: var(--hha-steel);
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  background: linear-gradient(180deg, #152639 0%, #06111e 65%);
+  color: #dce5ef;
   font-family: var(--hha-display);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(185, 202, 215, 0.12);
+  box-shadow: inset 0 1px 0 rgba(174, 192, 208, 0.18);
 }
 
-.hh-filter-chip.active {
-  background: linear-gradient(180deg, #1f7fd6, #145ea3);
-  border-color: rgba(58, 168, 255, 0.6);
-  color: #f4f9ff;
+.hand-history-page .hh-filter-chip.active {
+  background: linear-gradient(180deg, #087cfa 0%, #0044ac 55%, #002b68 100%);
+  border-color: #56d8ff;
+  border-top-color: #b3eaff;
+  color: #ffffff;
 }
 
-.hh-filter-chip:active,
-.export-btn:active,
-.load-more-btn:active,
-.replay-btn:active,
-.analyze-btn:active,
-.share-btn:active {
+.hand-history-page .hh-filter-chip:active,
+.hand-history-page .export-btn:active,
+.hand-history-page .load-more-btn:active,
+.hand-history-page .replay-btn:active,
+.hand-history-page .analyze-btn:active,
+.hand-history-page .share-btn:active {
   transform: translateY(1px);
+  filter: brightness(1.12);
 }
 
-.hh-filter-chip:focus-visible,
-.export-btn:focus-visible,
-.load-more-btn:focus-visible,
-.replay-btn:focus-visible,
-.analyze-btn:focus-visible,
-.share-btn:focus-visible,
-.hand-card__summary:focus-visible,
-.hh-stats-drilldown button:focus-visible {
+.hand-history-page .hh-filter-chip:focus-visible,
+.hand-history-page .export-btn:focus-visible,
+.hand-history-page .load-more-btn:focus-visible,
+.hand-history-page .replay-btn:focus-visible,
+.hand-history-page .analyze-btn:focus-visible,
+.hand-history-page .share-btn:focus-visible,
+.hand-history-page .hand-card__summary:focus-visible,
+.hand-history-page .hh-stats-drilldown button:focus-visible {
   outline: 2px solid var(--hha-blue);
   outline-offset: 2px;
 }
 
 /* ── Stats evidence banner ──────────────────────────────────────────────── */
-.hh-stats-drilldown {
+.hand-history-page .hh-stats-drilldown {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   margin: 0 16px 8px;
   padding: 8px 12px;
-  border: 1px solid rgba(214, 173, 82, 0.4);
-  border-radius: 4px;
-  background: rgba(214, 173, 82, 0.08);
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #13253a 0%, #060e18 100%);
   font-family: var(--hha-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--hha-brass);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #f1f5fc;
 }
 
-.hh-stats-drilldown button {
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(214, 173, 82, 0.5);
-  background: transparent;
-  color: var(--hha-brass);
+.hand-history-page .hh-stats-drilldown > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.hand-history-page .hh-stats-drilldown button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #56d8ff;
+  border-top-color: #b3eaff;
+  background: linear-gradient(180deg, #087cfa 0%, #0044ac 55%, #002b68 100%);
+  color: #ffffff;
   font-family: var(--hha-display);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -253,7 +279,7 @@
 
 .hh-summary .stat-label {
   font-family: var(--hha-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--hha-muted);
@@ -262,14 +288,15 @@
 .hh-summary-scope {
   margin: 0 16px 12px;
   font-family: var(--hha-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--hha-muted);
 }
 
-.export-btn {
+.hand-history-page .export-btn {
   align-self: center;
+  min-height: 44px;
   padding: 10px 14px;
   border-radius: 4px;
   border: 1px solid var(--hha-gunmetal);
@@ -381,7 +408,7 @@
 
 .hand-num {
   font-family: var(--hha-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--hha-blue);
   letter-spacing: 0.06em;
 }
@@ -389,7 +416,7 @@
 .hand-date {
   margin-left: auto;
   font-family: var(--hha-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--hha-muted);
   white-space: nowrap;
 }
@@ -409,13 +436,13 @@
 
 .pot-label {
   font-family: var(--hha-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--hha-muted);
 }
 
-.pot-value {
+.hand-history-page .pot-value {
   font-family: var(--hha-display);
   font-size: 17px;
   font-weight: 700;
@@ -425,7 +452,7 @@
 
 .pot-rake {
   font-family: var(--hha-mono);
-  font-size: 9px;
+  font-size: 11px;
   color: var(--hha-muted);
   white-space: nowrap;
 }
@@ -439,10 +466,10 @@
 
 .hand-tag {
   font-family: var(--hha-mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px 5px;
+  padding: 2px 6px;
   border-radius: 3px;
   border: 1px solid rgba(58, 168, 255, 0.35);
   color: var(--hha-blue-hot);
@@ -480,7 +507,7 @@
   gap: 10px;
   margin-top: 6px;
   font-family: var(--hha-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--hha-muted);
 }
 
@@ -513,11 +540,12 @@
   padding: 10px 2px 0;
 }
 
-.replay-btn,
-.analyze-btn,
-.share-btn,
-.load-more-btn {
-  padding: 8px 12px;
+.hand-history-page .replay-btn,
+.hand-history-page .analyze-btn,
+.hand-history-page .share-btn,
+.hand-history-page .load-more-btn {
+  min-height: 44px;
+  padding: 8px 14px;
   border-radius: 4px;
   border: 1px solid var(--hha-gunmetal);
   background: linear-gradient(180deg, var(--hha-panel-raised), var(--hha-panel));
@@ -531,20 +559,41 @@
   box-shadow: inset 0 1px 0 rgba(185, 202, 215, 0.12);
 }
 
-.replay-btn {
+.hand-history-page .replay-btn {
   border-color: rgba(58, 168, 255, 0.6);
   background: linear-gradient(180deg, #1f7fd6, #145ea3);
   color: #f4f9ff;
 }
 
-.load-more-btn {
+/* Steel bevel for the secondary actions. Analyze carries the crisp royal-blue
+   edge the stats banner button uses, so the route into Leak Finder reads as the
+   primary of the pair without competing with Replay's fill. */
+.hand-history-page .analyze-btn,
+.hand-history-page .share-btn {
+  border-radius: 6px;
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  background: linear-gradient(180deg, #152639 0%, #06111e 65%);
+  color: #dce5ef;
+}
+
+.hand-history-page .analyze-btn {
+  border-color: #56d8ff;
+  border-top-color: #b3eaff;
+  color: #b3eaff;
+  box-shadow:
+    inset 0 1px 0 rgba(179, 234, 255, 0.28),
+    0 0 0 1px rgba(8, 124, 250, 0.35);
+}
+
+.hand-history-page .load-more-btn {
   display: block;
   margin: 12px 16px 0;
   width: calc(100% - 32px);
   padding: 12px;
 }
 
-.load-more-btn:disabled {
+.hand-history-page .load-more-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -613,7 +662,7 @@
     flex-basis: 30%;
   }
 
-  .export-btn {
+  .hand-history-page .export-btn {
     flex: 1 1 100%;
   }
 

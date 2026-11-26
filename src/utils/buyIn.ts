@@ -438,6 +438,14 @@ export function formatBuyIn(
   return `${moneyExact(total)} (${moneyExact(total - shownFee)} + ${moneyExact(shownFee)})`;
 }
 
+/** Label the booked amount with its arena denomination; retain the disclosed fee split. */
+export function lobbyBuyInLabel(formatted: string, unit: 'Chips' | 'Diamonds'): string {
+  const match = /^([\d,.]+)(?: \(([^)]+)\))?$/.exec(formatted);
+  if (!match) return formatted;
+  const [, total, split] = match;
+  return split ? `${total} ${unit} · ${split}` : `${total} ${unit}`;
+}
+
 /** Compact form for a narrow lobby card: just the total. */
 export function formatBuyInShort(
   prize: number,

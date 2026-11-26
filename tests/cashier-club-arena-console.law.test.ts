@@ -36,7 +36,7 @@ const CASHIER_SURFACES: ReadonlyArray<{
     css: 'src/pages/CashierTradePage.module.css',
     consoles: 4,
   },
-  { tsx: 'src/pages/CashierPage.tsx', css: 'src/pages/CashierPage.module.css', consoles: 1 },
+  { tsx: 'src/pages/CashierPage.tsx', css: 'src/pages/CashierPage.module.css', consoles: 0 },
   {
     tsx: 'src/pages/CashierStatementsPage.tsx',
     css: 'src/pages/CashierStatementsPage.module.css',
@@ -135,6 +135,14 @@ describe('#ClubArenaConsole is the Cashier visual authority', () => {
     }
   );
 
+  it('uses the workspace transfer review with the confirmed recipient and amount', () => {
+    const page = read('src/pages/CashierPage.tsx');
+    expect(page).toContain('className="arena-case arena-transfer-review"');
+    expect(page).toContain('chipFigure(sendConfirm.value)');
+    expect(page).toContain('{sendConfirm.recipientName}');
+    expect(page).toContain('handleAction(confirmed)');
+  });
+
   it('the table top-up uses the owner-supplied October 9 purchase master', () => {
     const source = read('src/components/table/CashierModal.tsx');
     expect(source).toContain('<PurchaseConsole');
@@ -220,10 +228,15 @@ describe('#ClubArenaConsole is the Cashier visual authority', () => {
     }
   });
 
-  it('keeps both routed Cashier pages behind the console authority', () => {
+  it('consolidates the old wallet entry under the authorized club Cashier', () => {
     const app = read('src/App.tsx');
     expect(app).toContain('path="clubs/:clubId/cashier"');
     expect(app).toContain('path="clubs/:clubId/cashier-classic"');
+    expect(app).toContain('<CashierEntrance legacy />');
+    expect(read('src/pages/CashierTradePage.tsx')).toContain(
+      '<WalletOperations embeddedClubId={clubUuid}'
+    );
+    expect(read('src/pages/CashierPage.tsx')).toContain('inline={Boolean(embeddedClubId)}');
     expect(app).toContain('path="clubs/:clubId/cashier/statements"');
     expect(read('src/pages/CashierTradePage.tsx')).toContain('title="Cashier"');
     expect(read('src/pages/CashierPage.tsx')).toContain('title="Cashier"');

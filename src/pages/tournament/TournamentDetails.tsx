@@ -13,10 +13,12 @@ import {
   tournamentEntryWindowOpen,
   type TournamentEntryWindowRow,
 } from '../../utils/tournamentEntryWindow';
+import { readClubContextParam } from '../../utils/clubScopedPath';
 import { serverNow } from '../../utils/serverClock';
 import {
   isSeatFirstTournamentFormat,
   isTournamentEntryUnavailable,
+  tournamentClosingStatus,
   tournamentStartsWhenFull,
 } from '../../utils/tournamentPresentation';
 /**
@@ -76,6 +78,7 @@ import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import type { Tournament } from '../../types/database.types';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import './TournamentDetails.css';
+import { MttEventHeader } from '../../components/tournament/details/MttEventHeader';
 import { TournamentRegisterButton } from '../../components/tournament/TournamentRegisterButton';
 import { useToast } from '../../components/common/Toast';
 import PageErrorBoundary from '../../components/common/PageErrorBoundary';
@@ -100,10 +103,11 @@ import type {
   TournamentTabProps,
 } from '../../components/tournament/details/types';
 import { normaliseTabId, tabsFor } from '../../components/tournament/details/types';
+import { playableLevelSeconds } from '../../utils/tournamentPlayableClock';
 import { blindLevelMinutes } from '../../components/lobby/tournamentFigures';
 import { reportError } from '../../utils/errorReporter';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
-import { formatBuyIn } from '../../utils/buyIn';
+import { formatBuyIn, lobbyBuyInLabel } from '../../utils/buyIn';
 import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
@@ -907,32 +911,9 @@ export default function TournamentDetails({
     // Revive through tournamentEventBridge (the t-break pattern) if wanted;
     // the tables list already refreshes from server truth on poll/visibility.
 
-    // ── Blind level changes: update tournament state immediately ──
-    const unsubBlind = masterBus.subscribeDebounced(
-      'BLIND_LEVEL_CHANGE',
-      (event) => {
-        if (event.payload.tournamentId !== tournamentId || !isCurrent()) return;
-        /**
-         * `- 1`: THE PAYLOAD IS THE DISPLAY LEVEL, THE COLUMN IS AN INDEX.
-         *
-         * This wrote the 1-based payload straight into `current_level`, which
-         * is contractually the 0-based index the engine uses on
-         * `blindStructure[]`. It is the worst of the three places that had this
-         * wrong, because it does not merely mis-render one component: it
-         * corrupts the shared `tournament` object that EVERY tab reads off this
-         * page, so between an advance and the next poll the Detail hero, the
-         * Blinds tab and anything else reading the row were all one level
-         * ahead, consistently, from a single bad write. See MasterBus's
-         * BLIND_LEVEL_CHANGE for the contract.
-         */
-        const displayLevel = Number(event.payload.level);
-        if (!Number.isFinite(displayLevel) || displayLevel < 1) return;
-        patchTournament((prev) =>
-          prev ? ({ ...prev, current_level: displayLevel - 1 } as Tournament) : prev
-        );
-      },
-      300
-    );
+    // A level_up also emits TOURNAMENT_UPDATED. Its quiet read below gets the
+    // committed index, blinds and start timestamp together; the broadcast
+    // alone cannot pair a new level with its engine clock.
 
     // ── Tournament break notifications ──
     const unsubBreak = masterBus.subscribeDebounced(
@@ -956,7 +937,6 @@ export default function TournamentDetails({
     return () => {
       masterBus.removeRegisteredChannel(channelKey);
       unsubElim();
-      unsubBlind();
       unsubBreak();
       unsubBreakEnd();
     };
@@ -1828,7 +1808,8 @@ export default function TournamentDetails({
   const handleRegisterRef = useRef(handleRegister);
   handleRegisterRef.current = handleRegister;
   const sitAndGoInviteToken = useMemo(
-    () => (tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken),
+    () =>
+      tournamentIdOverride ? null : parseTournamentInviteParams(tournamentId, search).inviteToken,
     [tournamentIdOverride, tournamentId, search]
   );
   const sitAndGoHeldParam = useMemo(() => {
@@ -1919,16 +1900,23 @@ export default function TournamentDetails({
     const rows = raw as Parameters<typeof blindLevelMinutes>[0];
     return raw.map((row: Record<string, unknown>, i: number) => {
       const level = Number(row.level ?? i + 1);
+      const isBreak = Boolean(row.isBreak ?? row.is_break ?? false);
+      const duration =
+        playableLevelSeconds(
+          blindLevelMinutes(rows, level) * 60,
+          tournament?.buy_in_amount,
+          isBreak
+        ) / 60;
       return {
         level,
         smallBlind: Number(row.smallBlind ?? row.small_blind ?? 0),
         bigBlind: Number(row.bigBlind ?? row.big_blind ?? 0),
         ante: Number(row.ante ?? 0),
-        duration: blindLevelMinutes(rows, level),
-        isBreak: Boolean(row.isBreak ?? row.is_break ?? false),
+        duration,
+        isBreak,
       };
     });
-  }, [tournament?.blind_structure]);
+  }, [tournament?.blind_structure, tournament?.buy_in_amount]);
 
   /**
    * The tab contract, built once. Every tab takes exactly this and nothing
@@ -1941,6 +1929,7 @@ export default function TournamentDetails({
    */
   const satelliteAwards = useSatelliteAwards(tournament, entries, undefined, user?.id);
 
+  const viewerLinkClub = readClubContextParam(search);
   const tabProps = useMemo<TournamentTabProps | null>(
     () =>
       tournament
@@ -1959,6 +1948,7 @@ export default function TournamentDetails({
             tables: isWatchable ? tables : NO_TABLES,
             blindLevels,
             currentUserId: user?.id,
+            viewerLinkClub,
             isRegistered,
             /* `isWatchable`, not `isRunning`: during LATE_REG the event is
                dealing and every one of these rows points at a live table, but
@@ -1975,6 +1965,7 @@ export default function TournamentDetails({
       tables,
       blindLevels,
       user?.id,
+      viewerLinkClub,
       isRegistered,
       /* `isWatchable`, not `isRunning`: the BODY reads isWatchable (LATE_REG
          counts as watchable, RUNNING alone does not cover it), so listing the
@@ -2095,11 +2086,12 @@ export default function TournamentDetails({
   /* What state the event is in, in the words the footer already uses for it.
      One reading of `status`, so the pill in the header and the badge in the
      footer cannot name two different states for one event. */
+  const closingStatus = tournamentClosingStatus(tournament.status);
   const lobbyStatus: { label: string; tone: 'open' | 'live' | 'done' | 'cancelled' } = (() => {
     const raw = String(tournament.status || '').toUpperCase();
     if (isBaggedStatus(raw)) return { label: DAY_COMPLETE_LABEL, tone: 'live' };
-    if (raw === 'COMPLETED') return { label: 'Completed', tone: 'done' };
-    if (raw === 'CANCELLED') return { label: 'Cancelled', tone: 'cancelled' };
+    if (closingStatus)
+      return { label: closingStatus, tone: closingStatus === 'Cancelled' ? 'cancelled' : 'done' };
     if (isWatchable) {
       return { label: lateRegCountdown ? 'Late Registration' : 'Running', tone: 'live' };
     }
@@ -2283,11 +2275,14 @@ export default function TournamentDetails({
         <span className="tournament-status-badge running">{DAY_COMPLETE_LABEL}</span>
       );
     }
-    if (tournament.status === 'COMPLETED') {
-      return footer ? null : <span className="tournament-status-badge completed">Completed</span>;
-    }
-    if (tournament.status === 'CANCELLED') {
-      return footer ? null : <span className="tournament-status-badge cancelled">Cancelled</span>;
+    if (closingStatus) {
+      return footer ? null : (
+        <span
+          className={`tournament-status-badge ${closingStatus === 'Cancelled' ? 'cancelled' : 'completed'}`}
+        >
+          {closingStatus}
+        </span>
+      );
     }
 
     /* A SEAT-FIRST GAME (Heads-Up Sit N Go / Spin) IS SAT AT, NEVER REGISTERED
@@ -2341,6 +2336,8 @@ export default function TournamentDetails({
        label ran out of it and off the screen. It prints on the same plate
        Register does, in the header and in the footer, so the two states are
        the same control with a different word. */
+    // Standard pre-start registration has one primary control in the shared footer.
+    if (!footer) return null;
     if (isRegistered) {
       return (
         <RegisterButton
@@ -2375,7 +2372,7 @@ export default function TournamentDetails({
   return (
     <PageErrorBoundary pageName="TournamentDetails">
       <div
-        className="tournament-details"
+        className="tournament-details console-lobby"
         ref={shellRef}
         data-active-tab={activeTab}
         data-embedded={isEmbedded}
@@ -2427,41 +2424,38 @@ export default function TournamentDetails({
             strip and, in the popup, a third header above both. The rule
             badges (Freezeout, Rebuy, Bounty ...) stay in DetailOverviewTab,
             which is the only place they have ever been drawn. */}
-        <header className="details-header">
-          <div className="details-header__top">
-            <span className={`details-status details-status--${lobbyStatus.tone}`}>
-              {lobbyStatus.label}
-            </span>
-            <span className="tournament-id">ID:{tournament.id.slice(0, 8)}</span>
-            <div className="details-header__actions">
-              <TournamentRegisterButton
-                className="btn-invite-game"
-                data-testid="tournament-invite-btn"
-                onClick={() => void inviteToGame()}
-              >
-                Invite To Game
-              </TournamentRegisterButton>
-              {tournamentAction('header')}
-            </div>
-            {closeButton}
-          </div>
-          <h1 className="tournament-name">{formatTournamentTitle(tournament.name)}</h1>
-          <div className="tournament-desc">
-            {/* Whole chips only (Dan 2026-08-20) - formatBuyIn leads with the
-                total the player actually pays and never prints a decimal. */}
+        <MttEventHeader
+          name={formatTournamentTitle(tournament.name)}
+          format={tournament}
+          status={lobbyStatus.label}
+          price={
             <p className="tournament-buyin">
-              {formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament)}{' '}
-              {tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
-                ? 'Diamonds'
-                : 'Chips'}{' '}
-              Buy-In
+              {lobbyBuyInLabel(
+                formatBuyIn(tournament.buy_in_amount, tournament.buy_in_fee, tournament),
+                tournamentRowUnitCents(tabProps.tournament) === DIAMOND_UNIT_CENTS
+                  ? 'Diamonds'
+                  : 'Chips'
+              )}
             </p>
-            {/* Owner-written short description (2026-08-22). No tab renders it:
-                it is the event's own identity copy, not a figure, so it belongs
-                beside the name on every tab rather than inside one. */}
-            {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
-          </div>
-        </header>
+          }
+          terms={[
+            tournament.starting_chips &&
+              `${Number(tournament.starting_chips).toLocaleString()} Starting Stack`,
+            tabProps.blindLevels?.[0]?.duration && `${tabProps.blindLevels[0].duration} Min Levels`,
+            tournament.late_reg_levels && `Late Reg Through Lv ${tournament.late_reg_levels}`,
+          ]
+            .filter(Boolean)
+            .join('　·　')}
+          info={
+            <>
+              {shortDescription && <p className="tournament-blurb">{shortDescription}</p>}
+              <small>ID: {tournament.id.slice(0, 8)}</small>
+            </>
+          }
+          onInvite={() => void inviteToGame()}
+          close={closeButton}
+          actions={tournamentAction('header')}
+        />
 
         {/* Tabs */}
         {/* A tablist is a ROVING focus widget, not seven tab stops. Declaring

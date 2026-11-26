@@ -131,31 +131,6 @@
 .members-search input::-webkit-search-cancel-button {
   filter: invert(1) opacity(0.55);
 }
-.members-filter-rail {
-  position: relative;
-  margin-top: 12px;
-  padding-right: 22px;
-  overflow: hidden;
-}
-
-.members-filter-rail::after {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  display: grid;
-  width: 28px;
-  height: 44px;
-  place-items: center end;
-  padding-right: 3px;
-  pointer-events: none;
-  color: var(--members-cyan);
-  content: '\203A';
-  background: linear-gradient(90deg, transparent, var(--members-carbon) 58%);
-  font-family: Rajdhani, sans-serif;
-  font-size: 1.4rem;
-}
-
 .members-filters {
   display: flex;
   min-width: 0;
@@ -279,13 +254,13 @@
   list-style: none;
 }
 
+.members-toolbar > .members-columns[open] {
+  grid-column: 1 / -1;
+}
+
 .members-columns__menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 5px);
-  right: 0;
   display: grid;
-  min-width: 190px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   gap: 9px;
   padding: 12px;
   border: 1px solid var(--members-steel);
@@ -316,7 +291,7 @@
   border: 1px solid rgb(214 173 82 / 45%);
   border-left: 3px solid var(--members-gold);
   border-radius: 4px;
-  color: #e0c27f;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.72rem;
@@ -350,7 +325,7 @@
   min-height: 44px;
   border: 1px solid rgba(255, 201, 60, 0.42);
   border-radius: 4px;
-  color: #e0c27f;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.72rem;
@@ -411,7 +386,7 @@
   border: 1px solid rgb(214 173 82 / 45%);
   border-left: 3px solid var(--members-gold);
   border-radius: 4px;
-  color: #d9c79e;
+  color: #92dfff;
   background: #151108;
   font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
   font-size: 0.76rem;
@@ -961,11 +936,6 @@
     grid-column: 1 / -1;
     width: 100%;
   }
-  .members-columns__menu {
-    right: auto;
-    left: 0;
-    width: 100%;
-  }
   .members-bulk {
     position: relative;
     top: auto;
@@ -1027,7 +997,7 @@
   }
 }
 
-.club-members-page:not(.diamond-players) .members-console {
+.club-members-page:not(.diamond-players, .arena-workspace) .members-console {
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -1075,8 +1045,7 @@
   outline-offset: 3px;
 }
 
-/* Simple directory keeps management one tap away; Advanced owns the full desk.
-   The mode toggle and, in Advanced, the live totals sit in the page bar. */
+/* The directory header carries its live totals. */
 .ca-page-bar.members-page-bar {
   width: var(--members-content);
   margin: 0 auto 12px;
@@ -1266,9 +1235,6 @@
 .members-group-role:focus-visible {
   outline: 2px solid #45adff;
   outline-offset: 2px;
-}
-body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'] {
-  display: none;
 }
 .members-active-view {
   min-height: 44px;
@@ -1518,4 +1484,17 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.members-simple .members-display-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.members-roster-footer {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }

@@ -41,6 +41,40 @@ export function horseRebuyFailureClass(error: unknown): string {
   if (/fetch|network|transport/i.test(message)) return 'transport';
   return 'unknown';
 }
+const DEDUPED_POLLING_PHASES: ReadonlySet<HorseRebuyDecisionDiagnostic['phase']> = new Set([
+  'choice',
+  'deferred',
+  'expired',
+  'capacity_deferred',
+  'purchase_pending',
+]);
+
+/**
+ * Deduplicate repetitive polling-phase diagnostics (`choice`, `deferred`,
+ * `purchase_pending`, `capacity_deferred`, `expired`) per `(userId, handNumber,
+ * phase)` across frequent elimination sweeps while always emitting active
+ * purchase attempts and outcomes (`purchase_started`, `purchased`,
+ * `purchase_unproven`). Bounded at `maxEntries` so memory never grows with
+ * tournament duration (incident 1e532243).
+ */
+export function shouldEmitHorseRebuyDiagnostic(
+  seen: Set<string>,
+  userId: string,
+  handNumber: number | string | null | undefined,
+  phase: HorseRebuyDecisionDiagnostic['phase'],
+  maxEntries = 512
+): boolean {
+  if (!DEDUPED_POLLING_PHASES.has(phase)) return true;
+  const key = `${userId}:${handNumber ?? 'unknown'}:${phase}`;
+  if (seen.has(key)) return false;
+  if (seen.size >= maxEntries) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) seen.delete(oldest);
+  }
+  seen.add(key);
+  return true;
+}
+
 export function reportHorseRebuyDecision(input: HorseRebuyDecisionDiagnostic): void {
   try {
     const { error, choiceShare, ...identity } = input;

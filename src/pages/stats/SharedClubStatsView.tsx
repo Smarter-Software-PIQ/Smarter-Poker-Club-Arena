@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   SharedClubStatsService,
   type SharedClubStatsPayload,
@@ -11,6 +11,7 @@ import { RANGES } from './types';
 import PageBar from '../../components/help/PageBar';
 
 interface Props {
+  renderMast?: (context: string) => ReactNode;
   targetUserId: string;
   asset: string;
   gameMode?: 'cash' | 'tournament';
@@ -167,9 +168,14 @@ export default function SharedClubStatsView(props: Props) {
   const tournament = props.gameMode === 'tournament';
   const o = readyPayload?.overview ?? null;
   const t = readyPayload?.tournaments ?? null;
+  const clubLabel = titleCase(
+    visibleClubs.find((club) => club.id === displayClubId)?.name ?? 'Shared Club'
+  );
   return (
-    <div className="stats-page">
+    <>
+      {props.renderMast?.(clubLabel)}
       <PageBar
+        titleAs={props.renderMast ? false : 'h1'}
         title="Player Intelligence"
         summary="An Authorized Shared-Club Readout: Public Performance Aggregates From A Club You Both Currently Share."
       />
@@ -181,9 +187,7 @@ export default function SharedClubStatsView(props: Props) {
             aria-hidden="true"
           />
           <div className="stats-club-command-copy">
-            <h2 id="shared-club-title">
-              {titleCase(visibleClubs.find((c) => c.id === displayClubId)?.name ?? 'Shared Club')}
-            </h2>
+            <h2 id="shared-club-title">{clubLabel}</h2>
             <p>No All-Clubs, Private Financial, Hand, Note, Or Opponent Data Is Exposed.</p>
             <div className="stats-club-selector" role="group" aria-label="Shared Statistics Club">
               {visibleClubs.map((c) => (
@@ -293,6 +297,6 @@ export default function SharedClubStatsView(props: Props) {
           </div>
         </section>
       )}
-    </div>
+    </>
   );
 }

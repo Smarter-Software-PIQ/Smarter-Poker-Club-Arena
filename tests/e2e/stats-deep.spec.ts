@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Request } from '@playwright/test';
 import { mountStatsPaneBeforeDebounce } from './support/statsClock';
 import { recordNonVerdict } from './support/nonVerdict';
+import { expectStatsPanelLayout, expectStatsTabLabelsFit } from './support/statsPanelLayout';
 
 test.describe('Player Stats production experience', () => {
   // The overview rollup is intentionally exhaustive and can take several
@@ -34,7 +35,7 @@ test.describe('Player Stats production experience', () => {
       .toBe(true);
     test.skip(page.url().includes('/auth'), 'authenticated Stats session is not configured');
     await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByRole('heading', { name: 'Player Intelligence' })).toBeAttached({
+    await expect(page.getByRole('heading', { name: 'Player Stats' })).toBeVisible({
       timeout: 30_000,
     });
   });
@@ -331,6 +332,7 @@ test.describe('Player Stats production experience', () => {
       .poll(() => receipts.some((r) => r.mode === 'tournament' && r.cash === 0))
       .toBe(true);
     await expect(page.getByRole('tab', { name: 'Analysis', exact: true })).toHaveCount(0);
+    await expectStatsPanelLayout(page.getByRole('tabpanel', { name: 'Tournaments', exact: true }));
     const review = page.getByRole('button', { name: 'Review Tournament Hands', exact: true });
     if (await review.count()) {
       await review.click();
@@ -359,6 +361,15 @@ test.describe('Player Stats production experience', () => {
   test('traverses every owner Stats surface and preserves club and range scope', async ({
     page,
   }) => {
+    const mast = page.locator('header[data-mast="stats"]');
+    await expect(mast.getByRole('heading', { name: 'Player Stats', exact: true })).toBeVisible();
+    await expect(mast.locator('small')).toHaveCount(0);
+    await expect(page.getByText(/This Club Ledger Begins/i)).toHaveCount(0);
+    const navigation = page.getByRole('tablist', { name: 'Statistics Sections' });
+    for (const width of [480, 500]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectStatsTabLabelsFit(navigation);
+    }
     for (const tabName of [
       'Performance',
       'Positions',
@@ -373,7 +384,27 @@ test.describe('Player Stats production experience', () => {
       await expect(tab, `${tabName} must remain available`).toBeVisible();
       await tab.click();
       await expect(tab).toHaveAttribute('aria-selected', 'true');
-      await expect(page.locator(`#stats-panel-${tabName.toLowerCase()}`)).toBeVisible();
+      const panel = page.getByRole('tabpanel', { name: tabName, exact: true });
+      for (const width of [393, 1280]) {
+        await page.setViewportSize({ width, height: 852 });
+        await expectStatsPanelLayout(panel);
+        if (tabName === 'Overview') {
+          const range = page.getByRole('group', { name: 'Analysis Range' });
+          await expect(range.getByRole('button')).toHaveCount(4);
+          const fits = await range.evaluate((rail) => {
+            const allocated = rail.getBoundingClientRect();
+            const buttons = [...rail.querySelectorAll('button')].map((button) =>
+              button.getBoundingClientRect()
+            );
+            return (
+              buttons.every((box) => Math.abs(box.top - buttons[0].top) < 1) &&
+              Math.abs(buttons[0].left - allocated.left) < 2 &&
+              Math.abs(buttons[3].right - allocated.right) < 2
+            );
+          });
+          expect(fits, 'The four analysis windows share the available range rail').toBe(true);
+        }
+      }
     }
 
     const clubGroup = page.getByRole('group', { name: 'Statistics Club' });
@@ -408,7 +439,7 @@ test.describe('Player Stats production experience', () => {
       await page.setViewportSize({ width, height: 844 });
       await page.reload();
       await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole('heading', { name: 'Player Intelligence' })).toBeAttached();
+      await expect(page.getByRole('heading', { name: 'Player Stats' })).toBeVisible();
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth

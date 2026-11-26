@@ -457,10 +457,11 @@ function LobbyArtSymbol({ kind }: { kind: 'target' }) {
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
-  const label = TOURNAMENT_ICON_LABELS[kind];
+  // The Spin board paints the rotor for every structure, including Deep Stack.
+  const label = entry.kind === 'spin' ? 'Spin Tournament' : TOURNAMENT_ICON_LABELS[kind];
   const badgeFiles: Partial<Record<TournamentFormatIcon, string>> = {
     pko: 'progressive-ko-v1.webp',
-    mystery: 'mystery-chest-v1.webp',
+    mystery: 'mystery-chest-v2.webp',
     turbo: 'turbo-wordmark-v1.webp',
   };
   const badge = badgeFiles[kind];
@@ -2198,6 +2199,7 @@ export function columnsFor(category: LobbyCategory): ColumnDef[] {
 
 // ─── The table ─────────────────────────────────────────────────────────────
 interface LobbyTableProps {
+  renderPinnedRows?: (colSpan: number) => React.ReactNode;
   entries: LobbyEntry[];
   /** Raw data snapshot identity; a reconnect may leave visible counters unchanged. */
   tournamentSnapshot?: readonly unknown[];
@@ -2246,6 +2248,7 @@ interface LobbyTableProps {
 
 export default function LobbyTable({
   entries: suppliedEntries,
+  renderPinnedRows,
   tournamentSnapshot,
   category,
   selectedId,
@@ -2699,7 +2702,7 @@ export default function LobbyTable({
     COL_STATUS,
   ];
 
-  const hasTournamentHeadings = sorted.length > 0;
+  const hasTournamentHeadings = sorted.length > 0 || Boolean(renderPinnedRows);
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
     const rows = mobileCardsRef.current;
@@ -2772,6 +2775,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody role="rowgroup">
+            {renderPinnedRows?.(4)}
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
@@ -2988,6 +2992,7 @@ export default function LobbyTable({
             </tr>
           </thead>
           <tbody ref={bodyRef} role="rowgroup">
+            {renderPinnedRows?.(browseColumns.length)}
             {loading &&
               entries.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (

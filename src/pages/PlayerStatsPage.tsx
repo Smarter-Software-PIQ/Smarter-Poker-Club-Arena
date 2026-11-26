@@ -25,7 +25,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { tabTransition, instant } from '../components/stats/statsMotion';
 import { statsGameMode, type StatsGameMode } from '../services/statsGameMode';
-import StatsGameModeControl from './stats/StatsGameModeControl';
+import StatsWorkspaceHeader from './stats/StatsWorkspaceHeader';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { findClubByParam, readClubContextParam } from '../utils/clubScopedPath';
 import { supabase } from '../lib/supabase';
@@ -41,6 +41,8 @@ import {
   type StatsCacheIdentity,
 } from '../lib/statsCache';
 import { masterBus } from '../core/MasterBus';
+import { WEB_ORIGIN } from '../lib/appBase';
+import { openInBrowser } from '../lib/openExternal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { retryFetch } from '../utils/retryFetch';
@@ -69,6 +71,7 @@ const WorkspaceTab = lazy(() => import('./stats/WorkspaceTab'));
 import { ratioOrUnmeasured } from './stats/format';
 import { RANGES, num, str, type FullStats, type HandMode, type HandRow } from './stats/types';
 import PageSkeleton from '../components/common/PageSkeleton';
+import { useStatsRefreshInputs } from './stats/useStatsRefreshInputs';
 import { useStatsPulse } from '../hooks/useStatsPulse';
 import StatsLiveRecords from './stats/StatsLiveRecords';
 import { resolvedTimeZone } from '../lib/localTime';
@@ -163,7 +166,6 @@ export default function PlayerStatsPage() {
   const mode = statsGameMode(params.get('gameMode'));
   return (
     <>
-      <StatsGameModeControl />
       <SeparatedPlayerStatsPage key={mode} gameMode={mode} />
     </>
   );
@@ -551,7 +553,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   // was never read here, so a fault rendered as "Rake Ledger Empty".
   const [rakeError, setRakeError] = useState(false);
   const [rakeReload, setRakeReload] = useState(0);
-  const [liveRevision, setLiveRevision] = useState(0);
+  const { liveRevision, rakeRevision, loadRef, scheduleRefresh, scheduleRakeRefresh } =
+    useStatsRefreshInputs({ loadScopeKey, targetUserId, isOwnProfile, gameMode, selectedClubId });
+  const loadedRakeScope = useRef<string | null>(null);
+  const loadedOpportunityScope = useRef<string | null>(null);
   useEffect(() => {
     setRakeError(false);
     if (gameMode !== 'cash' || !isOwnProfile || !user?.id) {
@@ -560,8 +565,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       return;
     }
     let cancelled = false;
-    setRakeLoading(true);
-    setRakeStats(null);
+    if (loadedRakeScope.current !== loadScopeKey) {
+      loadedRakeScope.current = null;
+      setRakeLoading(true);
+      setRakeStats(null);
+    }
     const fail = (err: unknown) => {
       if (cancelled) return;
       reportError(err, 'PlayerStatsPage.rpc_ca_player_rake_stats', { days: windowDays });
@@ -579,7 +587,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       .then((r) => {
         // `error` is set only when the read FAILED; an empty ledger has none.
         if (r?.error) fail(r.error);
-        else if (!cancelled) setRakeStats(r);
+        else if (!cancelled && r) {
+          loadedRakeScope.current = loadScopeKey;
+          setRakeStats(r);
+        }
       })
       .catch(fail)
       .finally(() => {
@@ -588,7 +599,16 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return () => {
       cancelled = true;
     };
-  }, [isOwnProfile, user?.id, windowDays, rakeReload, statsScope, selectedClubId, liveRevision]);
+  }, [
+    isOwnProfile,
+    user?.id,
+    windowDays,
+    rakeReload,
+    statsScope,
+    selectedClubId,
+    loadScopeKey,
+    rakeRevision,
+  ]);
   const [cashOpportunityStats, setCashOpportunityStats] = useState<CashOpportunityStats | null>(
     null
   );
@@ -603,8 +623,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       return;
     }
     let cancelled = false;
-    setCashOpportunityLoading(true);
-    setCashOpportunityStats(null);
+    if (loadedOpportunityScope.current !== loadScopeKey) {
+      loadedOpportunityScope.current = null;
+      setCashOpportunityLoading(true);
+      setCashOpportunityStats(null);
+    }
     setCashOpportunityError(null);
     void import('../services/StatsFactsService')
       .then(({ StatsFactsService }) => {
@@ -623,6 +646,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           setCashOpportunityError(result.error);
           return;
         }
+        loadedOpportunityScope.current = loadScopeKey;
         setCashOpportunityStats(result as CashOpportunityStats);
       })
       .catch((error) => {
@@ -644,6 +668,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     selectedClubId,
     statsTimezone,
     cashOpportunityReload,
+    loadScopeKey,
     liveRevision,
   ]);
   const openCashEvidence = useCallback(
@@ -803,11 +828,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [updateStatsUrl, location.search]
   );
-  /**
-   * The CURRENT loader. Both the shared debouncer and the in-flight replay
-   * below read it, so neither can fire a copy captured under an older range.
-   */
-  const loadRef = useRef<((opts?: { fresh?: boolean }) => Promise<void>) | null>(null);
   const openHandEvidence = useCallback(
     (filters: { variant?: string; position?: string; bigBlind?: number } = {}) => {
       const params = new URLSearchParams({ source: 'stats', gameMode, statsAsset: statsScope });
@@ -826,11 +846,22 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [navigate, windowDays, selectedClubId, gameMode, statsScope]
   );
+  const openLeakFinder = useCallback(() => {
+    const formatQuery =
+      gameMode === 'cash' || gameMode === 'tournament' ? `&format=${gameMode}` : '';
+    const path = `/hub/personal-assistant/leaks?source=club-arena-stats${formatQuery}`;
+    if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
+      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
+      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
+    } else {
+      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
+    }
+  }, [user?.id, targetUserId, gameMode, toast]);
   // The index refresh is a WRITE. Un-throttled it fired on every bus refresh and
   // every tab-visibility change, i.e. repeatedly during active play.
   // ── Single RPC pulls everything from hand_history server-side ──
   const loadAllData = useCallback(
-    async (opts?: { fresh?: boolean }): Promise<void> => {
+    async (opts?: { fresh?: boolean; background?: boolean }): Promise<void> => {
       if (!targetUserId || !isOwnProfile) return;
       const loadStartedAt = performance.now();
       if (statsLoadingRef.current) {
@@ -862,7 +893,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       statsLoadingRef.current = true;
       if (!hasStatsRef.current) {
         setLoading(true);
-      } else {
+      } else if (!opts?.background) {
         setRefreshing(true);
       }
       try {
@@ -1005,7 +1036,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           // loadRef, not the closed-over loadAllData: if the user changed the
           // range while a load was in flight, replaying the old closure refetched
           // the PREVIOUS window and overwrote the newer data with it.
-          void loadRef.current?.({ fresh: true });
+          void loadRef.current?.({ fresh: true, background: true });
         } else if (isMounted.current) {
           setRefreshing(false);
         }
@@ -1121,28 +1152,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   useLayoutEffect(() => {
     activeClubIdRef.current = selectedClubId;
   }, [selectedClubId]);
-  /** One debounce window collapses the several events emitted by one hand and
-   * the pulse fallback into one read. The committed loadRef prevents an old
-   * range closure from overwriting the current window. */
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRefresh = useCallback(() => {
-    // Keep the first deadline: a busy table must not postpone the read forever.
-    if (refreshTimerRef.current) return;
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      // Rake and opportunities are separate reads, so an overview refresh alone
-      // cannot update them. Invalidate them even when the overview read fails.
-      clearStatsRangeMemo();
-      setLiveRevision((revision) => revision + 1);
-      void loadRef.current?.({ fresh: true });
-    }, 2000);
-  }, []);
-  useEffect(
-    () => () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    },
-    []
-  );
   /**
    * LIVE FROM ANY TAB, AND THE TAB RETURN (phase 3, 2026-09-04). masterBus
    * only carries events for the tables THIS tab is watching, so a player
@@ -1196,24 +1205,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   useEffect(() => {
     if (targetUserId && isOwnProfile && !clubsLoading) void loadAllData();
   }, [targetUserId, isOwnProfile, clubsLoading, loadAllData]);
-  /**
-   * ── Bus listeners for same-tab hands, into the shared debounce window ───
-   * The five events one completed hand emits all land in scheduleRefresh, so
-   * they cost one refetch between them (see the debouncer above).
-   */
-  useEffect(() => {
-    const REFRESH_EVENTS = [
-      'HAND_COMPLETED',
-      'BALANCE_UPDATED',
-      'CHIPS_DISTRIBUTED',
-      'CASHOUT_APPROVED',
-      'CREDIT_UPDATED',
-    ] as const;
-    const unsubs = REFRESH_EVENTS.map((e) => masterBus.subscribe(e as never, scheduleRefresh));
-    return () => {
-      unsubs.forEach((u) => u());
-    };
-  }, [scheduleRefresh]);
   /**
    * ALL-TIME PAYLOAD FOR LIFETIME READOUTS (2026-09-03).
    *
@@ -1525,27 +1516,38 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         />
       </Suspense>
     ) : null;
+  const mast = <StatsWorkspaceHeader context={clubLabel} />;
   if (!isOwnProfile) {
     return (
-      <Suspense fallback={<PageSkeleton variant="stats" />}>
-        <SharedClubStatsView
-          targetUserId={targetUserId!}
-          asset={statsScope}
-          gameMode={gameMode}
-          timezone={statsTimezone}
-          rangeKey={rangeKey}
-          windowDays={windowDays}
-          initialClubId={searchParams.get('statsClub')}
-          onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
-          onRangeChange={changeRange}
-        />
-      </Suspense>
+      <div className="stats-page arena-workspace">
+        <Suspense
+          fallback={
+            <>
+              <StatsWorkspaceHeader context="Shared Club" />
+              <PageSkeleton variant="stats" />
+            </>
+          }
+        >
+          <SharedClubStatsView
+            renderMast={(context) => <StatsWorkspaceHeader context={context} />}
+            targetUserId={targetUserId!}
+            asset={statsScope}
+            gameMode={gameMode}
+            timezone={statsTimezone}
+            rangeKey={rangeKey}
+            windowDays={windowDays}
+            initialClubId={searchParams.get('statsClub')}
+            onClubChange={(clubId, replace) => updateStatsUrl({ statsClub: clubId }, replace)}
+            onRangeChange={changeRange}
+          />
+        </Suspense>
+      </div>
     );
   }
   if (loading) {
     return (
-      <div className="stats-page stats-page-loading" aria-busy="true">
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace stats-page-loading" aria-busy="true">
+        {mast}
         <p className="stats-state-line" role="status">
           Opening Your Performance Dossier...
         </p>
@@ -1560,7 +1562,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   // that they had never played.
   if (loadError && !full) {
     return (
-      <div className="stats-page">
+      <div className="stats-page arena-workspace">
+        {mast}
         <div className="stats-empty-state">
           <span className="empty-status">Readout Unavailable</span>
           <span className="empty-title">Couldn't Load Your Stats</span>
@@ -1584,8 +1587,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   if (isOwnProfile && preferencesState !== 'ready') {
     const failed = preferencesState === 'error';
     return (
-      <div className="stats-page" aria-busy={failed ? undefined : true}>
-        <h1 className="sr-only">Player Intelligence</h1>
+      <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
+        {mast}
         <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
           <span className="empty-description">
             {failed
@@ -1618,19 +1621,23 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     </div>
   );
   return (
-    <div className={`stats-page${privacyPresentationMode ? ' stats-page--presentation' : ''}`}>
+    <div
+      className={`stats-page arena-workspace${privacyPresentationMode ? ' stats-page--presentation' : ''}`}
+    >
       <StatsLiveRecords
         userId={targetUserId}
         clubIds={[
           ...(selectedClubId ? [selectedClubId] : clubs.map((club) => club.id)),
           ...(agentRoles ?? []).map((role) => role.club_id),
         ]}
-        enabled={isOwnProfile && !clubsLoading}
-        onChange={scheduleRefresh}
+        enabled={isOwnProfile && !clubsLoading && gameMode === 'cash' && showTab('rake')}
+        onChange={scheduleRakeRefresh}
       />
+      {mast}
+
       <PageBar
+        titleAs={false}
         title="Player Intelligence"
-        titleId="stats-page-title"
         summary="Your Recorded Analysis Sample, Distilled Into Patterns You Can Use At The Next Table."
         status={statsScope === DIAMOND_STATS ? 'Figures In Diamonds' : undefined}
         steps={STATS_TOUR}
@@ -1640,26 +1647,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ? 'Cash Games Only. Tournament Hands And Stacks Are Excluded.'
           : 'Tournament Hands And Results Only. Tournament Stacks Are Not Cash Profit.'}
       </div>
-      <ClubScopeConsole
-        gameMode={gameMode}
-        statsScope={statsScope}
-        clubLabel={clubLabel}
-        selectedClub={selectedClub}
-        selectedClubId={selectedClubId}
-        changeClub={changeClub}
-        clubs={clubs}
-        clubsLoading={clubsLoading}
-        clubsError={clubsError}
-        onRetryClubs={() => setClubsReload((value) => value + 1)}
-        comparisonOpen={comparisonOpen}
-        setComparisonOpen={setComparisonOpen}
-        onRetryComparison={() => void loadClubComparison()}
-        comparisonSort={effectiveComparisonSort}
-        changeComparisonSort={changeComparisonSort}
-        comparisonLoading={comparisonLoading}
-        comparisonError={comparisonError}
-        sortedComparisonRows={sortedComparisonRows}
-      />
       {gameMode === 'cash' && (
         <StatsHeadlineDeck
           refreshing={refreshing}
@@ -1674,39 +1661,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           privacyPresentationMode={privacyPresentationMode}
           category={category}
           hasData={hasData}
-          selectedClubId={selectedClubId}
           servingCache={servingCache}
         />
-      )}
-      {hasData && gameMode === 'cash' && (
-        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
-          <div className="stats-brief-head">
-            <div>
-              <h2 id="stats-brief-title">Evidence At A Glance</h2>
-            </div>
-          </div>
-          <div className="stats-brief-grid">
-            {intelligenceBrief.map((item, index) => (
-              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
-                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
-                <span className="stats-brief-label">{item.label}</span>
-                <strong>{item.value}</strong>
-                <p>{item.detail}</p>
-              </article>
-            ))}
-          </div>
-          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
-            <button type="button" onClick={() => selectSection('analysis', true)}>
-              Open Deep Analysis
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
-            >
-              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
-            </button>
-          </div>
-        </section>
       )}
       {gameMode === 'tournament' && (
         <div className="stats-range-row" role="group" aria-label="Tournament Analysis Range">
@@ -1723,11 +1679,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ))}
         </div>
       )}
-      {/* ── PILL TABS ── */}
-      {/* A real tablist. This was eight buttons whose active state lived only in
-          a CSS class, so a screen reader could not tell which view was open,
-          and the swipe gesture had no keyboard equivalent - Arrow keys now do
-          what the swipe does. Roving tabindex per the WAI-ARIA tab pattern. */}
       <div
         className="stats-pill-tabs"
         role="tablist"
@@ -1774,14 +1725,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </button>
         ))}
       </div>
-      {/* ── STATS CONTENT ──
-          AnimatePresence keyed on `category` cross-fades the tab bodies.
-          mode="wait" so the outgoing tab finishes before the incoming one
-          starts and the page height never lurches mid-swap.
-          The swipe handlers stay spread on THIS element rather than moving to
-          a new outer wrapper: useSwipeTabs attaches touch listeners here, and
-          nesting them under a wrapper would leave the gesture reading a node
-          that no longer moves with the content. */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={category}
@@ -1808,7 +1751,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
               <>
                 {showTab('rake') && (
                   <RakeTab
-                    liveRevision={liveRevision}
+                    liveRevision={rakeRevision}
                     viewerId={user?.id}
                     rakeLoading={rakeLoading}
                     rakeStats={rakeStats}
@@ -1899,6 +1842,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                       overall={overall}
                       full={full}
                       onOpenHands={() => openHandEvidence()}
+                      onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}
                     />
                     <TournamentsTab
                       tourn={tourn}
@@ -1936,6 +1880,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                     handsError={handsError}
                     setHandsReload={setHandsReload}
                     openHandEvidence={openHandEvidence}
+                    onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}
                     clubId={selectedClubId}
                     exactSessionPanel={exactSessionPanel}
                   />
@@ -1945,6 +1890,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                     isOwnProfile
                     onPresentationModeChange={setPrivacyPresentationMode}
                     onDashboardLayoutChange={setDashboardLayout}
+                    onOpenLeakFinder={openLeakFinder}
                     ruleReport={{
                       title: `${clubLabel} ${rangeLabel === 'All' ? 'All Time' : rangeLabel} Review`,
                       sourceVersion: 'stats-intelligence-brief-v1',
@@ -1967,6 +1913,56 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           </Suspense>
         </motion.div>
       </AnimatePresence>
+      <ClubScopeConsole
+        gameMode={gameMode}
+        statsScope={statsScope}
+        clubLabel={clubLabel}
+        selectedClub={selectedClub}
+        selectedClubId={selectedClubId}
+        changeClub={changeClub}
+        clubs={clubs}
+        clubsLoading={clubsLoading}
+        clubsError={clubsError}
+        onRetryClubs={() => setClubsReload((value) => value + 1)}
+        comparisonOpen={comparisonOpen}
+        setComparisonOpen={setComparisonOpen}
+        onRetryComparison={() => void loadClubComparison()}
+        comparisonSort={effectiveComparisonSort}
+        changeComparisonSort={changeComparisonSort}
+        comparisonLoading={comparisonLoading}
+        comparisonError={comparisonError}
+        sortedComparisonRows={sortedComparisonRows}
+      />
+      {hasData && gameMode === 'cash' && (
+        <section className="stats-intelligence-brief" aria-labelledby="stats-brief-title">
+          <div className="stats-brief-head">
+            <div>
+              <h2 id="stats-brief-title">Evidence At A Glance</h2>
+            </div>
+          </div>
+          <div className="stats-brief-grid">
+            {intelligenceBrief.map((item, index) => (
+              <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
+                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="stats-brief-label">{item.label}</span>
+                <strong>{item.value}</strong>
+                <p>{item.detail}</p>
+              </article>
+            ))}
+          </div>
+          <div className="stats-brief-actions" aria-label="Dossier Shortcuts">
+            <button type="button" onClick={() => selectSection('analysis', true)}>
+              Open Deep Analysis
+            </button>
+            <button
+              type="button"
+              onClick={() => selectSection(isOwnProfile ? 'hands' : 'positions', true)}
+            >
+              {isOwnProfile ? 'Review Hand Patterns' : 'Inspect Positions'}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

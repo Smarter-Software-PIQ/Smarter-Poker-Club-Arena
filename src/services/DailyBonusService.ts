@@ -121,7 +121,13 @@ export interface DailyBonusWeekDay {
   streak: number;
   diamonds: number | null;
   extras: string | null;
-  /** Today's entry on a chest day (streak 14, 30): the strip shows the chest, not the cycle row. */
+  /** Primary hero reward kind for this day on the progressive 7-day strip. */
+  primary_kind?: DailyBonusTileKind | null;
+  /** Primary hero reward quantity for non-diamond days on the 7-day strip. */
+  primary_quantity?: number | null;
+  /** Tenth-day milestone awarding a Mint-funded 100 Diamond Bonus Spin. */
+  has_spin?: boolean;
+  /** Milestone chest day (streak 14, 21, 30): the strip highlights the chest. */
   chest?: boolean;
   state: 'done' | 'today' | 'upcoming';
 }
@@ -234,6 +240,36 @@ function newUuid(): string {
   });
 }
 
+/** Normalize status payloads from both fn_ca_daily_bonus_status and fn_ca_daily_bonus_claim_all. */
+export function normalizeDailyBonusStatus(status: DailyBonusStatus): DailyBonusStatus {
+  return {
+    ...status,
+    eligible: status.eligible === true,
+    shown_today: status.shown_today === true,
+    unclaimed: Number(status.unclaimed) || 0,
+    seconds_to_reset: Math.max(0, Number(status.seconds_to_reset) || 0),
+    tiles: Array.isArray(status.tiles) ? status.tiles : [],
+    week: Array.isArray(status.week) ? status.week : [],
+    tomorrow: Array.isArray(status.tomorrow) ? status.tomorrow : [],
+    caps: status.caps ?? null,
+    // Phase 3 fields: a status from before the ledger learned them reads as
+    // nothing held, nothing running, nothing protected.
+    shield: {
+      held: Math.max(0, Number(status.shield?.held) || 0),
+      expires_at: status.shield?.expires_at ?? null,
+    },
+    boost:
+      status.boost && status.boost.active === true
+        ? {
+            ...status.boost,
+            active: true,
+            seconds_left: Math.max(0, Number(status.boost.seconds_left) || 0),
+          }
+        : { active: false },
+    streak_protected: status.streak_protected === true,
+  };
+}
+
 class DailyBonusServiceClass {
   private requestIds = new Map<string, string>();
 
@@ -286,32 +322,7 @@ class DailyBonusServiceClass {
         payloadKind
       );
     }
-    return {
-      ...status,
-      eligible: status.eligible === true,
-      shown_today: status.shown_today === true,
-      unclaimed: Number(status.unclaimed) || 0,
-      seconds_to_reset: Math.max(0, Number(status.seconds_to_reset) || 0),
-      tiles: Array.isArray(status.tiles) ? status.tiles : [],
-      week: Array.isArray(status.week) ? status.week : [],
-      tomorrow: Array.isArray(status.tomorrow) ? status.tomorrow : [],
-      caps: status.caps ?? null,
-      // Phase 3 fields: a status from before the ledger learned them reads as
-      // nothing held, nothing running, nothing protected.
-      shield: {
-        held: Math.max(0, Number(status.shield?.held) || 0),
-        expires_at: status.shield?.expires_at ?? null,
-      },
-      boost:
-        status.boost && status.boost.active === true
-          ? {
-              ...status.boost,
-              active: true,
-              seconds_left: Math.max(0, Number(status.boost.seconds_left) || 0),
-            }
-          : { active: false },
-      streak_protected: status.streak_protected === true,
-    };
+    return normalizeDailyBonusStatus(status);
   }
 
   /**
@@ -352,11 +363,18 @@ class DailyBonusServiceClass {
     ) {
       throw new Error('Could Not Read The Bonus Receipt, Try Again');
     }
-    if (data.success && accountId === (useUserStore.getState().user?.id ?? null)) {
-      masterBus.emit('BALANCE_UPDATED', { source: 'daily_bonus' });
-      for (const result of (data.results ?? []) as DailyBonusClaimResult[]) {
-        if (!result.success || !result.granted || result.idempotent) continue;
-        const g = result.granted;
+    const normalized = data.status
+      ? { ...data, status: normalizeDailyBonusStatus(data.status as DailyBonusStatus) }
+      : data;
+    if (normalized.success && accountId === (useUserStore.getState().user?.id ?? null)) {
+      const freshGrants = ((normalized.results ?? []) as DailyBonusClaimResult[]).filter(
+        (result) => result.success && result.granted && !result.idempotent
+      );
+      if (freshGrants.length > 0) {
+        masterBus.emit('BALANCE_UPDATED', { source: 'daily_bonus' });
+      }
+      for (const result of freshGrants) {
+        const g = result.granted!;
         if (g.kind === 'diamonds' && typeof g.balance_after === 'number') {
           masterBus.emit('DIAMOND_BALANCE_CHANGED', {
             newBalance: g.balance_after,
@@ -371,7 +389,7 @@ class DailyBonusServiceClass {
         });
       }
     }
-    return data;
+    return normalized;
   }
 
   async claim(today: string, slot: number): Promise<DailyBonusClaimResult> {

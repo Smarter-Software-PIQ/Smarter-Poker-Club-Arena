@@ -37,6 +37,21 @@ export function scoreFiveCards(cards: Card[]): number {
     cards[2].suit === suit &&
     cards[3].suit === suit &&
     cards[4].suit === suit;
+  return fiveCardScoreOfMasks(once, twice, thrice, four, flush);
+}
+
+/**
+ * The score of five cards from their rank masks (bit r set: rank r appears at least once / twice / three / four
+ * times) and whether all five share a suit. scoreFiveCards is this of its own masks; the Omaha id evaluator
+ * (HorseEval scoreOmahaHiOfIdsOnRun) builds the masks from a board triple and a hole pair.
+ */
+export function fiveCardScoreOfMasks(
+  once: number,
+  twice: number,
+  thrice: number,
+  four: number,
+  flush: boolean
+): number {
   const runs = once & (once >> 1) & (once >> 2) & (once >> 3) & (once >> 4);
   const straight = runs ? topRank(runs) + 4 : (once & 0x403c) === 0x403c ? 5 : 0;
 

@@ -74,7 +74,7 @@ describe('mystery bounty chest reveals and add-on breaks are owed waits', () => 
     const newestRunbookFile = migrations
       .filter((m) =>
         readFileSync(join(dir, m), 'utf8').includes(
-          'FUNCTION smarter_private.reliability_runbook_hand_gap_classification('
+          'CREATE OR REPLACE FUNCTION smarter_private.reliability_runbook_hand_gap_classification('
         )
       )
       .pop();

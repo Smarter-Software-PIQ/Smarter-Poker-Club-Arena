@@ -1984,6 +1984,13 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       bombPot: this.currentHandBombPot,
       // KILL POT: this hand's kill_pot record (kill hand, next kill, cancellation).
       killPot: this.currentHandKillRecord,
+      // PER-HAND OPTION RECEIPTS: this hand's count, copied (the next deal starts a new one).
+      // Plain language only (no helper): a snapshot is taken wherever settlement runs, and a count that is
+      // not there is simply no receipts. The hand save re-checks every text before it writes a row.
+      horseOptionReceipts:
+        this.currentHandOptionReceipts instanceof Map && this.currentHandOptionReceipts.size > 0
+          ? (Object.fromEntries(this.currentHandOptionReceipts) as Record<string, number>)
+          : undefined,
       ritExtraBoards: this.currentHandRitExtraBoards,
       ritBoards: this.currentHandRitBoards,
       cadence: this.currentHandCadence,
@@ -2842,6 +2849,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             // KILL POT (kill-v1): null on a hand that neither played, set nor
             // cancelled a kill. The atomic insert names only real columns.
             killPot: killPotRecord,
+            horseOptionReceipts: snap.horseOptionReceipts,
             // COMPLETENESS PASS 2026-08-26: RIT boards 2..N, first-class. The
             // rit_board_N pseudo-actions in `actions` stay for old readers.
             ritBoards: snap.ritExtraBoards,
@@ -4216,6 +4224,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             ? { handId: v_handHistoryId, startedAt: snap.startedAt }
             : undefined;
         this.handCompleteCallback(this.tableId, finalStacks, acceptedHand);
+        this.handCompleteCallbackNotifiedHandNumber = snap.handNumber;
       } catch (err) {
         reportError(err, 'ServerTableEngine.handCompleteCallback_error', {
           tableId: this.tableId,
@@ -4722,6 +4731,10 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
   /** Horses whose bank-the-win exit waits for the completion hold (see above). */
   protected deferredBankTheWin: Map<string, SeatedPlayer> = new Map();
+
+  protected override hasDeferredBankTheWin(): boolean {
+    return this.deferredBankTheWin.size > 0;
+  }
 
   /** One bankroll-management exit through the ordinary voluntary door. */
   protected async bankTheWinExit(horse: SeatedPlayer): Promise<'stop' | 'left' | void> {

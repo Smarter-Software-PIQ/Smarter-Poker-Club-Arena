@@ -1,0 +1,3 @@
+# server/src/engine/HorseBlanketOffSingleStepGuard.law.test.ts
+
+Enforces the owner's strict 1-at-a-time blanket-off order in code (`HorseBlanketOffSingleStepGuard.ts`, `runtimeSettings/store.ts`, and `scripts/runtime-settings-publish.ts`): any runtime settings version transition (or publisher check against previous settings) that disables 2 or more new blanket rules in a single step is refused with `BLANKET_OFF_MULTI_STEP_REFUSED` and the exact sorted list of newly disabled rules. Transitions turning 0 or 1 new blanket rule off, emergency rollbacks turning any number of blanket rules back ON, and cold-boot hydration of an already-established v2+ steady-state version are always allowed.

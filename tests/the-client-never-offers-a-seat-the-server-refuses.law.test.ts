@@ -36,19 +36,20 @@ import { resolve } from 'node:path';
 const ROOT = resolve(__dirname, '..');
 const at = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
 
-/** Every migration, joined, so a cap can be read wherever it was last set. */
-const migrations = () => {
+/** The migrations whose NAME passes `named`, read. The names are filtered
+ *  before any file is opened: reading all ~7,200 migrations took over 30s on a
+ *  loaded disk and timed out pre-pushes that changed nothing here. */
+const migrations = (named: (f: string) => boolean) => {
   const dir = resolve(ROOT, 'supabase/migrations');
   return readdirSync(dir)
-    .filter((f) => f.endsWith('.sql'))
+    .filter((f) => f.endsWith('.sql') && named(f))
     .sort()
     .map((f) => [f, readFileSync(resolve(dir, f), 'utf8')] as const);
 };
 
 describe('LAW - the client cap is the server cap', () => {
   it('the server says four, in the migration that says so in its name', { timeout: 30_000 }, () => {
-    const [, sql] =
-      migrations().find(([name]) => name.includes('four_games_is_the_max')) ?? ([] as never);
+    const [, sql] = migrations((f) => f.includes('four_games_is_the_max'))[0] ?? ([] as never);
     expect(sql, 'the migration that lowered the cap is gone').toBeTruthy();
     expect(sql).toMatch(/v_max_tables[^\n]*4/);
   });
@@ -57,7 +58,7 @@ describe('LAW - the client cap is the server cap', () => {
     /* The arena needed its own door, so the number exists twice on the server
        too. Both are asserted, because a cap enforced in one denomination and
        not the other is a cap in name only. */
-    const diamond = migrations().filter(([, sql]) =>
+    const diamond = migrations((f) => f.includes('diamond')).filter(([, sql]) =>
       sql.includes('TABLE_CAP_REACHED: already seated at four cash tables')
     );
     expect(diamond.length, 'the Diamond door no longer states the cap').toBeGreaterThan(0);

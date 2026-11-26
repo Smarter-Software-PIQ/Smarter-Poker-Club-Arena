@@ -110,6 +110,11 @@ jobs:
     # for install, provenance, residual recovery, both fixture families, UI
     # proof and every always-run cleanup step.
     timeout-minutes: 60
+    outputs:
+      # 'true' when a newer publish replaced this run's revision before it could
+      # be proved: the run certified nothing, so it is neither a pass nor a
+      # failure of the certificate (certification-verdict below).
+      superseded: ${{ steps.live.outputs.superseded }}
     steps:
       # The publisher resolves the current protected-main tip after its push
       # event starts, so workflow_run.head_sha can be older than the bundle it
@@ -170,6 +175,7 @@ jobs:
       - run: |
           bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
       - name: Wait For This Exact Revision On Both Public Endpoints
+        id: live
         shell: bash
         run: |
           set -euo pipefail
@@ -187,10 +193,37 @@ jobs:
               echo "Both public endpoints serve exact revision $expected."
               exit 0
             fi
+            # A NEWER PUBLISH IS NOT A FAILED CERTIFICATE (2026-11-25). Runs
+            # 45346014580 and 45499309914 waited ten minutes for a revision
+            # that a later publish had already replaced, then failed. Nothing
+            # was wrong with club creation, and two such runs in a row would
+            # open a false ProductionCertificationFailing episode. Both
+            # endpoints agreeing on a main descendant of this revision is
+            # exactly that case: stand down now; the newer publish's own run
+            # is the certificate. Anything else keeps waiting and fails.
+            if [[ -n "$origin_sha" && "$origin_sha" == "$public_sha" && "$origin_sha" != "$expected" ]]; then
+              git fetch --no-tags --quiet origin '+refs/heads/main:refs/remotes/origin/main' || true
+              if git cat-file -e "${origin_sha}^{commit}" 2>/dev/null \
+                && git merge-base --is-ancestor "$expected" "$origin_sha" \
+                && git merge-base --is-ancestor "$origin_sha" refs/remotes/origin/main; then
+                echo "superseded=true" >> "$GITHUB_OUTPUT"
+                echo "superseded_by=$origin_sha" >> "$GITHUB_OUTPUT"
+                echo "NON-VERDICT: revision $expected was replaced on both public endpoints by its main descendant $origin_sha before it could be certified; that publish's own run is the certificate." >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
             echo "Attempt $attempt: waiting for exact revision $expected (origin=${origin_sha:-invalid}, public=${public_sha:-invalid})."
             sleep 15
           done
           echo "::error::Both public endpoints did not converge on exact revision $expected."
+          exit 1
+      # Red on purpose, and named: the run stops before any fixture exists, and
+      # scripts/ci/certification-failure-streak.mjs passes over a run whose
+      # failed step is this one (SUPERSEDED_STEP) when it looks for a streak.
+      - name: A Newer Publish Superseded This Revision
+        if: steps.live.outputs.superseded == 'true'
+        run: |
+          echo "::notice::Revision superseded by ${{ steps.live.outputs.superseded_by }}; this run certified nothing."
           exit 1
       - name: Verify Opening Grant Capacity Before Creating Fixtures
         env:
@@ -259,3 +292,66 @@ jobs:
             playwright-report/
           if-no-files-found: warn
           retention-days: 14
+
+  # A PRODUCTION CERTIFICATE THAT KEEPS FAILING REACHES A PERSON (2026-11-24).
+  # Club Create Certification failed on every run for a week (2026-11-18 to
+  # 2026-11-24) and Rabbit Hunt Certification on every daily run that week, and
+  # each was only a red check run. This job rides the run: two failed
+  # certificate runs in a row on main open one ProductionCertificationFailing
+  # episode in public.operational_alert_events (later failures bump it), and a
+  # passing run that covers it closes it. One failed run stays a red check.
+  # Rules: scripts/ci/certification-failure-streak.mjs; route:
+  # scripts/ci/record-post-deploy-verdict.mjs; pinned by
+  # tests/unit/aProductionCertificateThatKeepsFailingReachesAPerson.test.ts.
+  certification-verdict:
+    needs: [certify]
+    if: ${{ always() && needs.certify.result != 'skipped' && needs.certify.outputs.superseded != 'true' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    name: This certificate admits a failure streak to the operational inbox
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 8
+    permissions:
+      # actions: read lets the streak step read earlier runs and this run's own
+      # job record and log, and lets the recorder tell a replaced lane apart.
+      actions: read
+      contents: read
+    steps:
+      # Full commit history, no blobs: a pass closes an episode only when its
+      # release descends from every release the episode failed on.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Decide whether this run starts or continues a failure streak
+        id: streak
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_FILE: club-create-certification.yml
+          CERT_JOB: certify
+          CERT_RESULT: ${{ needs.certify.result }}
+        run: node scripts/ci/certification-failure-streak.mjs
+      - name: Install the pinned database client
+        if: steps.streak.outputs.record == 'yes'
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+      - name: Record the certification verdict
+        if: steps.streak.outputs.record == 'yes'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WORKFLOW_LABEL: Club Create Certification
+          ALERT_SOURCE: club-arena.club-create-certification
+          ALERT_NAME: ProductionCertificationFailing
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          LANES: |
+            ${{ needs.certify.result }}|certify
+          FAILURE_DETAIL: ${{ steps.streak.outputs.detail }}
+        run: node scripts/ci/record-post-deploy-verdict.mjs

@@ -1,14 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import CashIntelligencePanel from '../../src/components/stats/CashIntelligencePanel';
 import type { CashOpportunityStats } from '../../src/services/StatsFactsService';
-
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({ children, title }: { children: ReactNode; title: string }) => (
-    <section aria-label={title}>{children}</section>
-  ),
-}));
 
 const counts = (opportunities: number, actions: number) => ({ opportunities, actions });
 const data: CashOpportunityStats = {

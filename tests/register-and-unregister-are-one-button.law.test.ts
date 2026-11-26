@@ -65,7 +65,11 @@ describe('Register and Unregister are the same control', () => {
   });
 
   it('the Invite plate beside it is the same component', () => {
-    expect(page).toMatch(/<TournamentRegisterButton\s+className="btn-invite-game"/);
+    const header = read('src/components/tournament/details/MttEventHeader.tsx');
+    expect(page).toMatch(/<MttEventHeader[\s\S]*?onInvite=\{\(\) => void inviteToGame\(\)\}/);
+    expect(header).toMatch(
+      /<TournamentRegisterButton\s+className="btn-invite-game"[\s\S]*?onClick=\{onInvite\}/
+    );
   });
 });
 

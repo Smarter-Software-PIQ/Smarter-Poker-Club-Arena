@@ -67,10 +67,6 @@ import {
  */
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-/** The MY WALLETS title's optical centre on the my-wallets-v1 master, as a
- *  percentage of the plate; the count line is centred on it. */
-const TITLE_CENTRE_PCT = 54.65;
-
 const preferenceDiagnostics = new WeakMap<Page, Map<Page, LobbyPreferenceProof>>();
 const diagnostics = new WeakMap<Page, ReturnType<typeof observeCashierFailure>>();
 test.beforeEach(async ({ page }) => {
@@ -101,7 +97,19 @@ test.afterEach(async ({ page }, testInfo) => {
 // Production has no retries. Preserve the first failed action's trace rather
 // than relying on on-first-retry, which never records these failures.
 // Host-pin day boundaries below are explicitly certified in the Chicago timezone.
-test.use({ ...devices['iPhone 13'], timezoneId: 'America/Chicago', trace: 'retain-on-failure' });
+// The phone supplies the screen and input settings. Each project supplies
+// its own engine so both Chromium and WebKit exercise the mobile journey.
+const { viewport, screen, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['iPhone 13'];
+test.use({
+  viewport,
+  screen,
+  userAgent,
+  deviceScaleFactor,
+  isMobile,
+  hasTouch,
+  timezoneId: 'America/Chicago',
+  trace: 'retain-on-failure',
+});
 
 async function openLobby(page: Page, openSection = true) {
   // The Diamond Spins offer opens on the answer to this read. Listen before
@@ -274,36 +282,42 @@ test.describe('the mobile lobby chrome on production', () => {
       /^\d+ Balances?$/
     );
 
-    const m = await page.evaluate((titleCentrePct) => {
-      const btn = document.querySelector('.lobby-wallets-trigger')!;
-      const el = btn.querySelector('small')!;
+    const wallets = page.getByRole('region', { name: 'My Wallets', exact: true });
+    const trigger = wallets.getByRole('button', { name: /^Wallet Balances/i });
+    const m = await trigger.evaluate((button) => {
+      const title = button.querySelector('strong')!;
+      const count = button.querySelector('small')!;
       const range = document.createRange();
-      range.selectNodeContents(el);
-      const b = btn.getBoundingClientRect();
-      const z = el.getBoundingClientRect();
-      const t = range.getBoundingClientRect();
+      range.selectNodeContents(title);
+      const titleText = range.getBoundingClientRect();
+      range.selectNodeContents(count);
+      const countText = range.getBoundingClientRect();
+      const frame = button.getBoundingClientRect();
       return {
-        clipped: t.width > z.width + 0.5,
-        offCentreByPct: Math.abs(
-          ((t.left + t.width / 2 - b.left) / b.width) * 100 - titleCentrePct
+        clipped:
+          countText.left < frame.left ||
+          countText.right > frame.right ||
+          countText.top < frame.top ||
+          countText.bottom > frame.bottom ||
+          countText.width > count.getBoundingClientRect().width + 0.5,
+        titleOffset: Math.abs(titleText.left + titleText.width / 2 - frame.left - frame.width / 2),
+        countOffset: Math.abs(
+          countText.left + countText.width / 2 - titleText.left - titleText.width / 2
         ),
       };
-    }, TITLE_CENTRE_PCT);
-    expect(m.clipped, `${printed} is clipped at the plate's edge`).toBe(false);
-    expect(m.offCentreByPct, `${printed} is off the painted title's centre`).toBeLessThan(1);
-    const wallets = page.getByRole('region', { name: 'My Wallets', exact: true });
-    const trigger = wallets.getByRole('button', { name: /^My Wallets/i });
+    });
+    expect(m.clipped, `${printed} is clipped`).toBe(false);
+    expect(m.titleOffset, 'Wallet Balances title is off-centre in its frame').toBeLessThan(1);
+    expect(m.countOffset, `${printed} is off-centre under Wallet Balances`).toBeLessThan(1);
+    const balances = wallets.getByRole('region', { name: 'Wallet Balances', exact: true });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(balances).toBeVisible();
+    await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(balances).toBeHidden();
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(
-      wallets.getByRole('region', { name: 'Wallet Balances', exact: true })
-    ).toBeVisible();
-    await trigger.click();
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(
-      wallets.getByRole('region', { name: 'Wallet Balances', exact: true })
-    ).toBeHidden();
+    await expect(balances).toBeVisible();
   });
 
   test('Create, Find and Join lead the arena with no Play Poker plate', async ({ page }) => {
@@ -429,6 +443,9 @@ test.describe('the mobile lobby chrome on production', () => {
   test('View Game opens four spectator games while preserving the lobby page', async ({
     page,
   }, testInfo) => {
+    expect(page.context().browser()?.browserType().name()).toBe(
+      testInfo.project.use.defaultBrowserType
+    );
     expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
       true
     );
@@ -469,13 +486,12 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(lobby).toBeVisible();
       await openLobbyGameSection(lobby, 'ALL');
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
-      // Chromium's native scrolling of a grid-styled table row repeatedly
-      // moved this nested lobby and its auto-hiding footer in the live trace.
-      // Click the visible painted style text; its normal event reaches the
-      // same row onSelect(entry), without table-fragment scroll geometry.
-      const heading = lobby.locator(`tr[data-id="${ids[i]}"]:visible .premium-cash-style`);
-      await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-      await heading.click();
+      const row = lobby.locator(`tr[data-id="${ids[i]}"]:visible`);
+      const details = row.getByRole('button', { name: /^Details:/ });
+      // Bring this card into the readable area between the pinned controls.
+      await details.evaluate((button) => button.scrollIntoView({ block: 'center' }));
+      await details.click();
+      await expect(details).toHaveAttribute('aria-expanded', 'true');
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
       await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
       await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(
@@ -737,6 +753,27 @@ test.describe('the mobile lobby chrome on production', () => {
         routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Details left the running table route'
       ).toBe(true);
+      const embedded = page.locator('.tournament-details[data-lobby-tab="true"]:visible');
+      for (const [label, content] of [
+        ['Satellites', '.sat-state, .sat-list'],
+        ['Blinds', '.blinds-tab'],
+        ['Ranking', '.rk-panel'],
+        ['Entries', '.et-panel'],
+        ['Unions', '.un-panel'],
+        ['Tables', '.tt-panel'],
+        ['Rewards', '.rw'],
+        ['Details', '.dov'],
+      ]) {
+        const tab = embedded.getByRole('tab', { name: label, exact: true });
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        const panel = embedded.getByRole('tabpanel', { name: label, exact: true });
+        await expect(panel.locator(content).first()).toBeVisible();
+        await testInfo.attach(`tournament-lobby-${label.toLowerCase()}`, {
+          body: await embedded.screenshot(),
+          contentType: 'image/png',
+        });
+      }
       // Only the player's explicit Close Lobby gesture removes this page.
       await lobbyTab.click({ button: 'right', noWaitAfter: true });
       await page
@@ -999,7 +1036,7 @@ test.describe('the mobile lobby chrome on production', () => {
       if (mode === 'mtt' || mode === 'satellites') {
         const files: Record<string, string> = {
           pko: 'game-card-icons/progressive-ko-v1.webp',
-          mystery: 'game-card-icons/mystery-chest-v1.webp',
+          mystery: 'game-card-icons/mystery-chest-v2.webp',
           turbo: 'game-card-icons/turbo-wordmark-v1.webp',
           hyper: 'game-card-icons/hyper-turbo.png',
           rebuy: 'game-card-icons/rebuy-addon-raised-chip-v1.png',
@@ -1149,7 +1186,7 @@ test.describe('the mobile lobby chrome on production', () => {
       );
     const chooseSort = async (label: string) => {
       await page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
-      const filters = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+      const filters = page.getByRole('dialog', { name: 'Game Filters', exact: true });
       const choice = filters.getByRole('button', { name: label, exact: true });
       await choice.click();
       await expect(choice).toHaveAttribute('aria-pressed', 'true');
@@ -1734,7 +1771,7 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
       );
       const exactUrl = page.url();
       await page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
-      const dialog = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+      const dialog = page.getByRole('dialog', { name: 'Game Filters', exact: true });
       const seats = dialog.getByRole('slider', { name: 'Minimum Seats', exact: true });
       await expect(seats).toBeVisible();
       const original = await seats.inputValue();
@@ -1826,7 +1863,7 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
         await fresh.page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
         await expect(
           fresh.page
-            .getByRole('dialog', { name: 'Advanced Filters', exact: true })
+            .getByRole('dialog', { name: 'Game Filters', exact: true })
             .getByRole('slider', { name: 'Minimum Seats', exact: true })
         ).toHaveValue(chosen, { timeout: 30_000 });
         const filterReadback = await fresh.client

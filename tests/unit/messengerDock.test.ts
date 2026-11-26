@@ -89,4 +89,37 @@ describe('native Messenger dock', () => {
     expect(read('src/App.tsx')).toContain('<MessengerDockHost />');
     expect(read('src/components/messenger/MessengerDockHost.tsx')).toContain('OPEN_HUB_TAB');
   });
+  it('renders uploaded images and videos uncropped with a 1px thin frame and zero thick bubble padding', () => {
+    const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
+    const panel = read('src/components/messenger/dock/MessengerChat.jsx');
+    const viewer = read('src/components/messenger/dock/DockMediaViewer.jsx');
+    const css = read('src/components/messenger/dock/MessengerDock.css');
+    expect(panel).toContain('dock-media-bubble');
+    expect(panel).toContain('dock-media-fallback');
+    expect(panel).toContain('dock-reply-quote');
+    expect(panel).toContain('formatReplyQuote');
+    expect(panel).toContain('resolveUploadMedia');
+    expect(panel).toContain('videoPreviewUrl');
+    expect(panel).toContain('mediaThumbnailUrl');
+    expect(panel).toContain('width = 800');
+    expect(panel).toContain('encodeMessageMedia');
+    expect(panel).toContain('extractMediaDimensions');
+    expect(panel).toContain('DockMediaViewer');
+    expect(panel).toContain('persistReadWithRetry');
+    expect(panel).toContain('dockFailureText(failure)');
+    expect(panel).not.toContain('setError(failure.message)');
+    expect(panel).toContain('dock-media-preview');
+    expect(panel).toContain('dock-upload-progress');
+    expect(panel).toContain('onPaste={handlePaste}');
+    expect(viewer).toContain('closedby');
+    expect(viewer).toContain('showModal');
+    expect(viewer).toContain('Unable To Load Photo');
+    expect(css).toMatch(
+      /\.dock-message-bubble\.dock-media-bubble[\s\S]*padding:\s*0;[\s\S]*border:\s*1px solid/
+    );
+    expect(css).toMatch(
+      /\.dock-media-bubble img,[\s\S]*margin:\s*0 auto;[\s\S]*object-fit:\s*contain;/
+    );
+    expect(css).toContain('dialog.dock-media-viewer::backdrop');
+  });
 });

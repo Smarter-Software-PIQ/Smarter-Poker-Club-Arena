@@ -86,43 +86,26 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
       await expectDestination(page, `/${path}`);
 
       if (operation.id === 'data') {
-        // #6895: data is the PokerBros-style everyday screen; its Report action
-        // opens the full operator report, which keeps the Simple/Advanced tool
-        // and the Club Operations frame certified below. Dan 2026-10-17: the
-        // everyday header names the club ("CLUB JAQK - CLUB DATA").
+        await expect(page.getByRole('heading', { name: 'Club Data', exact: true })).toBeVisible({
+          timeout: 30_000,
+        });
         await expect(
-          page.getByRole('heading', { name: /^(?:.+ - )?Club Data$/i })
-        ).toBeVisible({
-          timeout: 30_000,
-        });
-        await page.getByRole('button', { name: 'Report', exact: true }).click();
-        await expect(page).toHaveURL(/\/clubs\/[^/]+\/data\/advanced(?:[?#]|$)/, {
-          timeout: 30_000,
-        });
+          page.getByRole('button', { name: 'Open Club Report', exact: true })
+        ).toHaveCount(0);
       }
 
       if (operation.id === 'players') {
-        await expect(page.locator('[data-players-mode="simple"]')).toBeVisible();
-        await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-        await expect(page.locator('[data-players-mode="advanced"]')).toBeVisible();
+        await expect(page.getByRole('combobox', { name: 'Sort Players' })).toBeVisible();
+      } else if (operation.id === 'cashier') {
+        await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 30_000 });
+        await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
+        await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).toBeVisible();
+      } else if (operation.id === 'data') {
+        await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+        const calendar = page.getByRole('dialog', { name: 'Select Dates', exact: true });
+        await expect(calendar).toBeVisible();
+        await calendar.getByRole('button', { name: 'Cancel', exact: true }).click();
       }
-
-      // Simple is the approved default; the registry certifies the Advanced tool.
-      const modeAttribute =
-        operation.id === 'data'
-          ? 'data-club-data-mode'
-          : operation.id === 'cashier'
-            ? 'data-cashier-mode'
-            : null;
-      if (modeAttribute) {
-        // A mounted shell can still be loading the lazy Cashier route.
-        // Wait for its actual Simple surface within the existing route budget.
-        const simpleReadyOptions = operation.id === 'cashier' ? { timeout: 30_000 } : {};
-        await expect(page.locator(`[${modeAttribute}="simple"]`)).toBeVisible(simpleReadyOptions);
-        await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-        await expect(page.locator(`[${modeAttribute}="advanced"]`)).toBeVisible();
-      }
-
       await expect(page.getByRole('navigation', { name: 'Club Operations Sections' })).toBeVisible({
         timeout: 20_000,
       });

@@ -1,0 +1,3 @@
+# server/src/engine/AV17PosIsPriced.law.test.ts
+
+The dark zero-migration option v17PosIsPriced replaces the fixed V17 players-behind bluff multiplier (x1.1 / 1.0 / 0.72 / 0.5) in single-board no-limit Hold'em flop and turn spots with the measured probability that the whole respondable field folds, by each opponent's seat relation and own fold-to-bet read, against the bubble-factor break-even at the reference size; it is exactly 1 with zero or one player behind, never rises with more players behind or a bubble factor, draws no random number, stays byte-identical when OFF and on the river, Omaha, Short Deck, Fixed Limit and multi-board even when ON (including the exact fastRandom state), and stays in OPTION_SWITCH_REFUSED.

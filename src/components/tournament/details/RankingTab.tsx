@@ -482,6 +482,7 @@ function RankingTabForTournament({
   tables,
   blindLevels,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
   satelliteAwards: providedAwards,
 }: TournamentTabProps) {
@@ -791,7 +792,7 @@ function RankingTabForTournament({
      hook resolves it exactly as this tab always did and is shared with Details,
      Rewards and Tables (Dan 2026-11-08), so all four tabs count an agent's
      players one way. Fed the merged board so the card moves with the rows. */
-  const myPlayers = useMyPlayers(tournament, merged, tables, currentUserId);
+  const myPlayers = useMyPlayers(tournament, merged, tables, currentUserId, viewerLinkClub);
   const downlineIds = myPlayers.downlineIds;
 
   /* The previous stack for every player on the board, refreshed AFTER each
@@ -954,6 +955,7 @@ function RankingTabForTournament({
     );
   }
 
+  const isRegistering = String(tournament.status || '').toUpperCase() === 'REGISTERING';
   const isFinished = String(tournament.status || '').toUpperCase() === 'COMPLETED';
   const finished = finishedFieldSummary(tournament, entries);
   const finishedPool = displayTotalPool(
@@ -976,7 +978,7 @@ function RankingTabForTournament({
   const heroLeaderGap = Math.max(0, leaderChips - heroStack);
 
   return (
-    <div className="tl-panel rk-panel">
+    <div className="tl-panel rk-panel" data-registering={isRegistering}>
       {/* ── Field summary ──────────────────────────────────────────────── */}
       {isFinished ? (
         /* A FINISHED EVENT (2026-10-04). Nobody remains and nothing is in
@@ -1020,14 +1022,18 @@ function RankingTabForTournament({
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Average Stack</span>
-            <span className="tl-stat__value">{stackChips(avgStack)}</span>
+            <span className="tl-stat__value">
+              {isRegistering && !totalChips ? '-' : stackChips(avgStack)}
+            </span>
             <span className="tl-stat__sub">
               {bigBlind > 0 ? `${chips(Math.floor(avgStack / bigBlind))} BB` : 'Chips'}
             </span>
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Total Chips</span>
-            <span className="tl-stat__value">{stackChips(totalChips)}</span>
+            <span className="tl-stat__value">
+              {isRegistering && !totalChips ? '-' : stackChips(totalChips)}
+            </span>
             <span className="tl-stat__sub">In Play</span>
           </div>
         </div>
@@ -1035,7 +1041,7 @@ function RankingTabForTournament({
 
       {/* ── Distance to the money. Absent when no structure is published, so
              this can never claim a bubble that does not exist. ────────────── */}
-      {money && (
+      {!isRegistering && money && (
         <div
           className={`rk-money rk-money--${money.state}`}
           /* Announced ONLY for the two states worth interrupting for: the

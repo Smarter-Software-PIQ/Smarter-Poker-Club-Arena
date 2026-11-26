@@ -22,15 +22,17 @@ export default function CashierMyWallets({
   clubId,
   role,
   variant = 'club',
+  consoleLayout = false,
 }: {
   userId: string;
   clubId: string;
   role: string;
   variant?: 'club' | 'union';
+  consoleLayout?: boolean;
 }) {
   const navigate = useNavigate();
   const walletListId = useId();
-  const [walletsExpanded, setWalletsExpanded] = useState(false);
+  const [walletsExpanded, setWalletsExpanded] = useState(consoleLayout);
   const [visibleWalletCount, setVisibleWalletCount] = useState(0);
   const [activeCashier, setActiveCashier] = useState<
     'club_bank' | 'promo_wallet' | 'agent_wallet' | null
@@ -50,7 +52,10 @@ export default function CashierMyWallets({
   const [showDiamondWallet, setShowDiamondWallet] = useState(false);
 
   return (
-    <section className="cashier-my-wallets" aria-label="My Wallets">
+    <section
+      className={consoleLayout ? 'cashier-my-wallets arena-case' : 'cashier-my-wallets'}
+      aria-label="My Wallets"
+    >
       <button
         type="button"
         className="lobby-wallets-trigger"
@@ -63,7 +68,7 @@ export default function CashierMyWallets({
       >
         <span className="lobby-wallets-trigger__icon" aria-hidden="true" />
         <span className="lobby-wallets-trigger__copy">
-          <strong>My Wallets</strong>
+          <strong>{consoleLayout ? 'Wallet Balances' : 'My Wallets'}</strong>
           {/* THE COUNT, OR NOTHING AT ALL (Dan 2026-09-09): it
                       "shouldn't say LOADING BALANC. It should just have 5
                       BALANCES or how ever many wallets that user has only."
@@ -109,6 +114,8 @@ export default function CashierMyWallets({
             compactLobby
             showAllLobbyWallets
             showBBJ={false}
+            cashierLedger={consoleLayout}
+            showArtwork={!consoleLayout}
             onVisibleWalletCountChange={setVisibleWalletCount}
             onBuyDiamonds={() => {
               haptic.medium();

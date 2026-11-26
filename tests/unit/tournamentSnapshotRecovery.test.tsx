@@ -165,13 +165,13 @@ vi.mock('../../src/components/tournament/details/DetailOverviewTab', async (impo
             })),
             tables: tables.map((t: any) => t.id),
             isRegistered,
+            viewerLinkClub: props.viewerLinkClub,
           })}
         </output>
       );
     },
   };
 });
-vi.mock('../../src/components/tournament/details/BlindsTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/RankingTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/EntriesTab', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/details/UnionsTab', () => ({ default: () => null }));
@@ -185,6 +185,7 @@ vi.mock('../../src/components/tournament/MysteryBountyCelebration', () => ({
   default: () => null,
 }));
 
+import { __resetServerClock, recordServerTime } from '../../src/utils/serverClock';
 import TournamentDetails from '../../src/pages/tournament/TournamentDetails';
 import TournamentLobbyModal from '../../src/components/table/TournamentLobbyModal';
 const tournament = (id = 'a', extra: Record<string, unknown> = {}) => ({
@@ -279,10 +280,53 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  __resetServerClock();
   vi.useRealTimers();
 });
 
 describe('Tournament details snapshot recovery', () => {
+  it.each([
+    ['mtt-v1', 'COMPLETING'],
+    ['spin-v1', 'COMPLETING'],
+    ['mtt-v1', 'ABORTED'],
+    ['spin-v1', 'FINISHED'],
+    ['mtt-v1', 'COMPLETED'],
+    ['spin-v1', 'CANCELLED'],
+  ])(
+    'keeps the registered entrant in the %s lobby without admission actions during %s',
+    async (format_contract, status) => {
+      fixture.getTournament.mockResolvedValue(
+        tournament('a', { status, format_contract, max_players: 3 })
+      );
+      rows('tournament_players_public', {
+        data: [entry('a', { status: 'registered' })],
+        error: null,
+      });
+      render(<Page embedded={false} />);
+      await flush();
+      expect(snapshot().isRegistered).toBe(true);
+      expect(
+        screen.queryByRole('button', { name: /unregister|register|take (a )?seat/i })
+      ).toBeNull();
+      expect(screen.queryByRole('link', { name: /take (a )?seat/i })).toBeNull();
+      expect(fixture.navigate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('passes the embedded tournament link club to its roster independently of the host table address', async () => {
+    render(
+      <MemoryRouter initialEntries={['/table/host?club=table-club']}>
+        <TournamentDetails
+          tournamentIdOverride="a"
+          searchOverride="?club=tournament-club"
+          suppressAutoOpenTable
+        />
+      </MemoryRouter>
+    );
+    await flush();
+    expect(snapshot().viewerLinkClub).toBe('tournament-club');
+  });
+
   it('publishes completed snapshots while every read receives another standings event', async () => {
     const reads = Array.from({ length: 4 }, () => deferred<any>());
     for (const read of reads) fixture.getTournament.mockReturnValueOnce(read.promise);
@@ -407,7 +451,9 @@ describe('Tournament details snapshot recovery', () => {
       expect(action.getAttribute('aria-label')).toMatch(/^Late Register, \d+ Levels? Remaining$/);
       expect(action.className).toContain('tournament-register-button');
       expect(action.className).toContain('late-reg');
-      expect(action.className).not.toBe(footer.getByRole('button', { name: 'Copy Link' }).className);
+      expect(action.className).not.toBe(
+        footer.getByRole('button', { name: 'Copy Link' }).className
+      );
       fireEvent.click(action);
       expect(fixture.register).toHaveBeenCalledTimes(1);
       expect(fixture.register).toHaveBeenCalledWith(
@@ -456,53 +502,39 @@ describe('Tournament details snapshot recovery', () => {
     expect(screen.queryAllByRole('button', { name: /Late Register/ })).toHaveLength(0);
   });
 
-  it.each([
-    ['002c2d27-9584-4e52-835a-bb2be148fc81', 'header'],
-    ['002c2d27-9584-4e52-835a-bb2be148fc81', 'footer'],
-    ['regular-club', 'header'],
-    ['regular-club', 'footer'],
-  ])('registration preserves the exact club and price for %s via %s', async (clubId, placement) => {
-    fixture.getTournament.mockResolvedValue(
-      tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2', club_id: clubId })
-    );
-    render(<Page />);
-    await flush();
-    fireEvent.click(
-      within(
-        document.querySelector(
-          placement === 'header' ? '.details-header__actions' : '.details-footer'
-        ) as HTMLElement
-      ).getByRole('button', { name: 'Register', exact: true })
-    );
-    expect(fixture.register).toHaveBeenCalledTimes(1);
-    expect(fixture.register).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'a',
-        club_id: clubId,
-        buy_in_amount: 10,
-        buy_in_fee: 1,
-        status: 'REGISTERING',
-      }),
-      expect.any(Function)
-    );
-  });
+  it.each(['002c2d27-9584-4e52-835a-bb2be148fc81', 'regular-club'])(
+    'registration preserves the exact club and price for %s through the lobby action',
+    async (clubId) => {
+      fixture.getTournament.mockResolvedValue(
+        tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2', club_id: clubId })
+      );
+      render(<Page />);
+      await flush();
+      const footer = within(document.querySelector('.details-footer') as HTMLElement);
+      fireEvent.click(footer.getByRole('button', { name: 'Register', exact: true }));
+      expect(fixture.register).toHaveBeenCalledTimes(1);
+      expect(fixture.register).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'a',
+          club_id: clubId,
+          buy_in_amount: 10,
+          buy_in_fee: 1,
+          status: 'REGISTERING',
+        }),
+        expect.any(Function)
+      );
+    }
+  );
 
   it.each([false, true])(
-    'keeps one Register at each entry point for embedded=%s',
+    'keeps a single Register in the approved action bar for embedded=%s',
     async (embedded) => {
       fixture.getTournament.mockResolvedValue(
         tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2' })
       );
       render(<Page embedded={embedded} />);
       await flush();
-      const action = within(
-        document.querySelector('.details-header__actions') as HTMLElement
-      ).getByRole('button', { name: 'Register', exact: true });
-      expect(action.closest('.details-header__actions')).not.toBeNull();
-      expect(action.closest('.details-footer')).toBeNull();
-      expect(screen.getAllByRole('button', { name: 'Register', exact: true })).toHaveLength(2);
-      /* Dan 2026-11-01: the footer's register action wears the header's
-         rendered plate, never the quiet Share outline. */
+      expect(screen.getAllByRole('button', { name: 'Register', exact: true })).toHaveLength(1);
       const footer = within(document.querySelector('.details-footer') as HTMLElement);
       const footerRegister = footer.getByRole('button', { name: 'Register', exact: true });
       expect(footerRegister.className).toContain('tournament-register-button');
@@ -512,21 +544,161 @@ describe('Tournament details snapshot recovery', () => {
     }
   );
 
-  it('disables both entry points during the same pending registration', async () => {
+  it('disables the lobby action during a pending registration', async () => {
     fixture.isRegistering = true;
     fixture.getTournament.mockResolvedValue(
       tournament('a', { status: 'REGISTERING', format_contract: 'mtt-v2' })
     );
     render(<Page />);
     await flush();
-    const buttons = screen.getAllByRole('button', { name: 'Processing...', exact: true });
-    expect(buttons).toHaveLength(2);
-    for (const button of buttons) {
-      expect(button).toBeDisabled();
-      fireEvent.click(button);
-    }
+    const button = screen.getByRole('button', { name: 'Processing...', exact: true });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
     expect(fixture.register).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, 'RUNNING'],
+    [true, 'RUNNING'],
+    [false, 'LATE_REGISTRATION'],
+    [true, 'LATE_REGISTRATION'],
+  ] as const)(
+    'opens live Details and keeps the level clock on engine time in the modal=%s caller for %s',
+    async (modal, status) => {
+      const now = Date.parse('2026-11-25T22:05:54Z');
+      vi.setSystemTime(now + 90_000);
+      recordServerTime(now);
+      fixture.realOverview = true;
+      const levels = Array.from({ length: 10 }, (_, i) => ({
+        level: i + 1,
+        smallBlind: 50 * (i + 1),
+        bigBlind: 100 * (i + 1),
+        ante: 100 * (i + 1),
+        durationMinutes: 8,
+      }));
+      const live = tournament('a', {
+        name: '40 Chip Bounty',
+        format_contract: 'mtt-v2',
+        status,
+        is_bounty: true,
+        bounty_amount: 10,
+        buy_in_amount: 40,
+        current_level: 7,
+        late_reg_levels: 10,
+        started_at: new Date(now - 3_600_000).toISOString(),
+        level_started_at: new Date(now - 228_000).toISOString(),
+        blind_structure: levels,
+        blind_level_state: { index: 7, small_blind: 400, big_blind: 800, ante: 800 },
+      });
+      fixture.getTournament.mockResolvedValue(live);
+      render(
+        modal ? (
+          <MemoryRouter>
+            <TournamentLobbyModal
+              isOpen
+              tournamentId="a"
+              onClose={() => {}}
+              requestedTab={{ tab: 'satellites', seq: 1 }}
+            />
+          </MemoryRouter>
+        ) : (
+          <Page embedded={false} search="?tab=satellites" />
+        )
+      );
+      await flush();
+      expect(screen.getByRole('tab', { name: 'Satellites' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      const open = (name: string) => {
+        fireEvent.click(screen.getByRole('tab', { name, exact: true }));
+        return within(screen.getByRole('tabpanel', { name, exact: true }));
+      };
+      const details = open('Details');
+      expect(details.getByRole('region', { name: 'Tournament Overview' })).toBeVisible();
+      expect(details.getByText('Late Reg Ends In')).toBeVisible();
+      expect(details.getByText('400 / 800')).toBeVisible();
+      expect(details.getByText('4:12')).toBeVisible();
+
+      const blinds = open('Blinds');
+      const clock = () =>
+        within(blinds.getByRole('heading', { name: 'Current Level' }).closest('section')!);
+      expect(clock().getByText('Level 8')).toBeVisible();
+      expect(clock().getByText('4:12')).toBeVisible();
+      expect(clock().getByText('3:48 Elapsed')).toBeVisible();
+      expect(blinds.getByText('49:06')).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(clock().getByText('4:10')).toBeVisible();
+      // A replay of this level cannot reset its clock or resurrect a previous level.
+      const notify = (displayLevel: number) =>
+        act(() => {
+          for (const cb of fixture.bus.get('BLIND_LEVEL_CHANGE') ?? []) {
+            cb({ payload: { tournamentId: 'a', level: displayLevel } });
+          }
+        });
+      notify(8);
+      notify(7);
+      expect(clock().getByText('Level 8')).toBeVisible();
+      expect(clock().getByText('4:10')).toBeVisible();
+      // The bus has no persisted anchor. The row read contains the clock the
+      // engine actually committed, including time between commit and delivery.
+      const advanced = {
+        ...live,
+        current_level: 8,
+        level_started_at: new Date(now - 1000).toISOString(),
+        blind_level_state: { index: 8, small_blind: 450, big_blind: 900, ante: 900 },
+      };
+      fixture.getTournament.mockResolvedValue(advanced);
+      notify(9);
+      expect(clock().getByText('Level 9')).toBeVisible();
+      expect(clock().getByText('Level Clock Not Published')).toBeVisible();
+      act(() => update());
+      await flush();
+      expect(clock().getByText('Level 9')).toBeVisible();
+      expect(clock().getByText('7:57')).toBeVisible();
+      const rowUpdate = fixture.channels
+        .flatMap((channel) => channel.bindings)
+        .find((binding) => binding.filter.table === 'tournaments').callback;
+      const patch = (columns: Record<string, unknown>) =>
+        act(() => {
+          rowUpdate({ eventType: 'UPDATE', new: { id: 'a', ...columns } });
+        });
+      const resumeAt = new Date(now + 5000).toISOString();
+      patch({ on_break: true, break_ends_at: resumeAt });
+      expect(blinds.getByText('0:03')).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      patch({ on_break: false, break_ends_at: null });
+      expect(blinds.getByText('Waiting For Play To Resume')).toBeVisible();
+      expect(blinds.queryByRole('heading', { name: 'Current Level' })).toBeNull();
+      patch({ level_started_at: new Date(now + 2000).toISOString() });
+      expect(clock().getByText('7:57')).toBeVisible();
+      const revisited = open('Details');
+      expect(revisited.getByText('450 / 900')).toBeVisible();
+      expect(revisited.getByText('7:57')).toBeVisible();
+      // Above a 25-chip buy-in the engine caps playable levels at 10 minutes.
+      // A separately published break retains its own duration.
+      patch({
+        blind_structure: levels.map((level, index) => ({
+          ...level,
+          durationMinutes: index === 8 ? 14 : 12,
+          isBreak: index === 9,
+        })),
+      });
+      expect(revisited.getByText('9:57')).toBeVisible();
+      const bounded = open('Blinds');
+      expect(clock().getByText('9:57')).toBeVisible();
+      expect(clock().getByText('10 Min Level')).toBeVisible();
+      expect(
+        within(
+          bounded.getByRole('heading', { name: 'Next Level' }).closest('section')!
+        ).getAllByText('12 Min').length
+      ).toBeGreaterThan(0);
+    }
+  );
 
   it.each([false, true])(
     'renders the actual break clock through row updates in the modal=%s caller',

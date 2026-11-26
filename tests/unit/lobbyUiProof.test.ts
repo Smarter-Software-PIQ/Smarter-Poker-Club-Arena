@@ -249,9 +249,17 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     MTT_ENTRIES_ACTION,
   ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
-  expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
-    "...devices['iPhone 13']"
-  );
+  const mobileSpec = readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8');
+  const emulated = mobileSpec.match(/const \{([^}]+)\} = devices\['iPhone 13'\]/)?.[1];
+  expect(
+    emulated
+      ?.split(',')
+      .map((field) => field.trim())
+      .sort()
+  ).toEqual(['deviceScaleFactor', 'hasTouch', 'isMobile', 'screen', 'userAgent', 'viewport']);
+  // A device spread also imports defaultBrowserType and silently runs the Chromium project in WebKit.
+  expect(mobileSpec).not.toContain("...devices['iPhone 13']");
+  expect(mobileSpec).toContain('page.context().browser()?.browserType().name()');
   expect(workflow).not.toContain('workflow_dispatch:');
   expect(workflow).not.toContain('schedule:');
   expect(workflow).not.toContain('client_payload.');

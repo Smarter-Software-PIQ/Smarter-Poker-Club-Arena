@@ -1,8 +1,8 @@
-import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import { clubDataRequestedRangeError } from '../../lib/clubDataRange';
 import ClubDataSourceDetails, {
   type ClubDataSourceRow,
 } from '../../components/club/ClubDataSourceDetails';
-import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
 import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDataFilters';
 /**
  * CLUB DATA (the owner's everyday screen)
@@ -39,24 +39,39 @@ import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDat
  * New URLs carry dataStart/dataEnd; older exclusive dataUntil links remain readable.
  * The calendar selects inclusive dates: the same date twice selects one day.
  * A fresh visit and every 1 Day preset start on today; explicit links retain their range.
- * Boundary timestamps on the page are Chicago time.
+ * The date picker displays inclusive calendar dates without converting them to local clock times.
  * The full operator report (union statement, per-player breakdown, export)
- * lives one tap away at ./advanced.
+ * opens inside this page.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
-import { clubDataRangeDays, clubDataRangeError, readClubDataRange } from '../../lib/clubDataRange';
+import {
+  CLUB_DATA_PRESETS,
+  type ClubDataPreset,
+  clubDataRangeError,
+  readClubDataPreset,
+  readClubDataRange,
+  writeClubDataRange,
+} from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
-import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
 import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
@@ -76,9 +91,8 @@ import {
   clubDataDayBasis,
   clubDataDayOn,
   clubDataDayRule,
-  clubDataWindowLabel,
+  clubDataSelectedDatesLabel,
   coverageNotices,
-  coverageWindowLabel,
   isCalendarDate,
   isUnionClubAnswer,
   UNION_BASIS_DEFINITIONS,
@@ -91,7 +105,10 @@ import {
 } from './clubDataReadOutcome';
 import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
 
-type Preset = 1 | 7 | 14;
+import { clubDataReportPath } from '../../utils/clubDataReportPath';
+
+const ClubReport = lazy(() => import('./ClubDataPage'));
+
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 
@@ -148,7 +165,7 @@ interface Snapshot {
   rows: ClubDataRow[];
   generated_at?: string;
   /** 'club' for the owner, co-owner and admins; 'downline' for an agent. */
-  scope?: 'club' | 'downline';
+  scope: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
   /** The club's union, when it is in one (or is one). Decides "today". */
@@ -167,7 +184,6 @@ interface Snapshot {
   clubs?: ClubDataClubRow[];
 }
 
-const PRESETS: Preset[] = [1, 7, 14];
 const GAME_FILTERS: Array<{ id: GameFilter; label: string }> = [
   { id: 'ALL', label: 'All' },
   { id: 'HOLDEM', label: "Hold'em" },
@@ -185,7 +201,7 @@ const STAKES_FILTERS: Array<{ id: Exclude<StakesFilter, 'ALL'>; label: string }>
 const ROW_LIMIT = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export function refreshIntervalMs(preset: Preset): number {
+export function refreshIntervalMs(preset: ClubDataPreset): number {
   return preset === 1 ? 15_000 : 60_000;
 }
 
@@ -264,7 +280,9 @@ export function isSnapshot(value: unknown): value is Snapshot {
   );
 }
 
-export default function ClubDataSimplePage() {
+export default function ClubDataSimplePage({
+  authorizedScope,
+}: { authorizedScope?: 'club' | 'downline' } = {}) {
   usePageTitle('Club Data');
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
@@ -275,7 +293,7 @@ export default function ClubDataSimplePage() {
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   // A fresh visit starts today, regardless of a previously saved preset.
-  const [preset, setPreset] = useState<Preset>(1);
+  const preset = readClubDataPreset(searchParams);
   // Current reports share Pacific midnight; financial definitions remain distinct.
   const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
   const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
@@ -288,16 +306,10 @@ export default function ClubDataSimplePage() {
   const requestedRange = readClubDataRange(searchParams, today);
   const endDate = requestedRange?.end ?? currentDay;
   const customStart = requestedRange?.start ?? null;
-  const selectDates = (start: string | null, end: string) => {
-    if (end === clubDataToday(new Date(), dayBasisRef.current)) setCurrentDay(end);
-    const next = new URLSearchParams(searchParams);
-    if (start !== null) next.set('dataStart', start);
-    else next.delete('dataStart');
-    next.delete('dataUntil');
-    if (start !== null || end !== clubDataToday(new Date(), dayBasisRef.current)) {
-      next.set('dataEnd', end);
-    } else next.delete('dataEnd');
-    setSearchParams(next);
+  const selectDates = (start: string | null, end: string, days = preset) => {
+    const reportingToday = clubDataToday(new Date(), dayBasisRef.current);
+    if (end === reportingToday) setCurrentDay(end);
+    setSearchParams(writeClubDataRange(searchParams, start, end, reportingToday, days));
   };
   const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
@@ -312,13 +324,15 @@ export default function ClubDataSimplePage() {
     items: RosterMember[];
     failed: boolean;
   } | null>(null);
-  const [playerSearchAccess, setPlayerSearchAccess] = useState<string | null>(null);
+  const [access, setAccess] = useState<{
+    identity: string;
+    scope: Snapshot['scope'] | 'denied';
+  } | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [denied, setDenied] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const requestRef = useRef(0);
   // "CLUB JAQK - CLUB DATA": the name stays in the header while a window loads.
@@ -327,7 +341,7 @@ export default function ClubDataSimplePage() {
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const isToday = endDate >= today;
   const startDate = customStart ?? addDays(endDate, -(preset - 1));
-  const rangeDays = clubDataRangeDays(startDate, endDate);
+  const calendarSelected = !!requestedRange || preset > 14;
   const stakesApply = game === 'ALL' || game === 'HOLDEM' || game === 'OMAHA' || game === 'MIXED';
   const scopeKey = JSON.stringify([
     userId,
@@ -341,8 +355,11 @@ export default function ClubDataSimplePage() {
     reportRangeError,
   ]);
   const identityKey = JSON.stringify([userId, clubParam, clubUuid]);
-  const playerSearchReady =
-    !isHydrating && !!userId && playerSearchAccess === identityKey && !denied;
+  // A new filter retires the figures, but the last server authorization still
+  // applies to this viewer and club until a later response supersedes it.
+  const currentScope = access?.identity === identityKey ? access.scope : undefined;
+  const denied = currentScope === 'denied';
+  const playerSearchReady = !isHydrating && !!userId && !!currentScope && !denied;
   const activeScopeRef = useRef(scopeKey);
   activeScopeRef.current = scopeKey;
   const visibleSnapshot =
@@ -356,7 +373,6 @@ export default function ClubDataSimplePage() {
     setBreakdown(null);
     setSnapshot(null);
     setSnapshotScope(null);
-    setDenied(false);
     setError(null);
     setUpdatedAt(null);
     setLoading(true);
@@ -456,33 +472,31 @@ export default function ClubDataSimplePage() {
         } else if (isAuthzError(rpcError)) {
           setSnapshot(null);
           setSnapshotScope(null);
-          setDenied(true);
-          setPlayerSearchAccess(null);
+          setAccess({ identity: identityKey, scope: 'denied' });
           setError(null);
         } else {
           reportError(rpcError, 'ClubDataSimplePage.snapshot');
-          setError('Club Data Could Not Be Read. Showing The Last Good Figures.');
+          setError('Club Data Could Not Be Read.');
         }
         return;
       }
       if (!isSnapshot(data)) {
-        setError('Club Data Came Back Incomplete. Showing The Last Good Figures.');
+        setError('Club Data Came Back Incomplete.');
         return;
       }
       setSnapshot(data);
       // Both verified Data bases use the same Pacific calendar day.
       if (isUnionClubAnswer(data)) setDayBasis('accounting');
       else if (clubDataDayBasis(data) === 'pacific') setDayBasis('pacific');
-      setPlayerSearchAccess(identityKey);
+      setAccess({ identity: identityKey, scope: data.scope });
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
-      setDenied(false);
       setError(null);
       setUpdatedAt(Date.now());
     } catch (err) {
       if (!isCurrent()) return;
       reportError(err, 'ClubDataSimplePage.snapshot');
-      setError('Club Data Could Not Be Read. Showing The Last Good Figures.');
+      setError('Club Data Could Not Be Read.');
     } finally {
       window.clearTimeout(timer);
       if (isCurrent()) setLoading(false);
@@ -571,12 +585,6 @@ export default function ClubDataSimplePage() {
     return () => window.clearTimeout(id);
   }, [searchInput]);
 
-  const shift = (dir: -1 | 1) => {
-    const next = addDays(endDate, dir * rangeDays);
-    const end = next > today ? today : next;
-    selectDates(customStart !== null ? addDays(end, -(rangeDays - 1)) : null, end);
-  };
-
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
   // Every label states the basis the visible answer was given on.
@@ -593,12 +601,6 @@ export default function ClubDataSimplePage() {
       visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS ||
       visibleSnapshot?.member_fees?.day_basis === 'America/Chicago 02:00');
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
-  const completeWindowLabel =
-    (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, answerBasis);
-  const windowLabel = isToday
-    ? completeWindowLabel.replace(/ To .*$/, ' To Now')
-    : completeWindowLabel;
   const startClock = clubDataBoundaryClock(answerBasis, startDate);
   const boundaryClock = clubDataBoundaryClock(answerBasis, addDays(endDate, 1));
   const feeText = isDownline
@@ -613,12 +615,33 @@ export default function ClubDataSimplePage() {
   // A route segment, never a `??` inside the template: the reachability law
   // reads everything after a `?` as a query string.
   const clubKey = clubUuid || clubParam;
+  const canOpenReport =
+    authorizedScope !== 'downline' &&
+    !isHydrating &&
+    !!userId &&
+    (currentScope ?? authorizedScope) === 'club';
+  const reportOpen = canOpenReport && searchParams.get('report') === 'open';
+  const reportQuery = new URLSearchParams(searchParams);
+  reportQuery.set('dataGame', game);
+  reportQuery.set('dataStakes', stakes);
+  reportQuery.set('dataSearch', searchInput);
+  const closeReport = () => {
+    const query = new URLSearchParams(searchParams);
+    query.delete('report');
+    query.delete('view');
+    query.delete('dataTab');
+    setSearchParams(query);
+  };
+
+  const readMessage =
+    reportRangeError ??
+    (error && visibleSnapshot ? `${error} Showing The Last Good Figures.` : error);
   const updatedLabel = updatedAt ? chicagoClock(updatedAt) : null;
 
   if (denied) {
     return (
-      <div className={styles.page}>
-        <Header onBack={() => navigate(-1)} clubName={clubName} />
+      <div className={`${styles.page} arena-workspace`}>
+        <Header clubName={clubName} />
         <div className={styles.empty}>
           <SpadeMark />
           <p className={styles.emptyText}>
@@ -630,7 +653,7 @@ export default function ClubDataSimplePage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       {sourceRow?.key === scopeKey && clubUuid && (
         <ClubDataSourceDetails
           row={sourceRow.row}
@@ -640,199 +663,161 @@ export default function ClubDataSimplePage() {
           onClose={() => setSourceRow(null)}
         />
       )}
-      <Header
-        onBack={() => navigate(-1)}
-        clubName={clubName}
-        /* The full report is the whole club's; an agent's view is his own. */
-        onAdvanced={
-          visibleSnapshot?.scope === 'club'
-            ? () =>
-                navigate(
-                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced' })}`
-                )
-            : undefined
-        }
-      />
+      <Header clubName={clubName} />
 
+      {reportOpen && (
+        <section aria-label="Club Report" id="club-data-report">
+          <div className="arena-switch">
+            <button
+              type="button"
+              aria-expanded="true"
+              aria-controls="club-report-content"
+              onClick={closeReport}
+            >
+              Close Club Report
+            </button>
+          </div>
+          <div id="club-report-content">
+            <Suspense fallback={<p role="status">Loading Club Report</p>}>
+              <ClubReport inline />
+            </Suspense>
+          </div>
+        </section>
+      )}
       {visibleSnapshot?.reporting_scope === 'union' && (
         <div className={styles.agentScopeBanner}>All Member Clubs And Union Account</div>
       )}
       {isDownline && <div className={styles.agentScopeBanner}>You And Your Downline</div>}
 
-      <div className={styles.rangeBar}>
-        <button
-          type="button"
-          className={styles.arrow}
-          onClick={() => shift(-1)}
-          aria-label="Previous Period"
-          disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16 3 L5 12 L16 21 Z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className={styles.rangeChip}
-          aria-label="Select Date Range"
-          aria-expanded={editingDates}
-          aria-controls="club-data-date-range"
-          onClick={() => {
-            setEditingDates((open) => !open);
-          }}
-        >
-          <span>{windowLabel}</span>
-          <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
-        </button>
-        <button
-          type="button"
-          className={styles.arrow}
-          onClick={() => shift(1)}
-          disabled={isToday}
-          aria-label="Next Period"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 3 L19 12 L8 21 Z" />
-          </svg>
-        </button>
-      </div>
-
-      {reportRangeError && (
-        <p role="alert" className={styles.liveLine}>
-          {reportRangeError}
-        </p>
-      )}
-      <ClubDataReportGuide start={startDate} end={endDate} basis={answerBasis} union={unionBasis} />
-
-      {editingDates && (
-        <ClubDataRangeCalendar
-          start={startDate}
-          end={endDate}
-          today={today}
-          zoneLabel={
-            answerBasis === 'accounting'
-              ? 'Pacific Accounting Dates'
-              : answerBasis === 'pacific'
-                ? 'Pacific Calendar Dates'
-                : 'Chicago Calendar Dates'
-          }
-          onClose={() => setEditingDates(false)}
-          onApply={(first, last) => {
-            selectDates(first, last);
-            setEditingDates(false);
-          }}
-        />
-      )}
-      <div className={styles.segment} role="group" aria-label="Date Range">
-        {PRESETS.map((p) => (
+      <section className="arena-case">
+        <h2 className="arena-section-title">Reporting Window</h2>
+        <div className="arena-switch" role="group" aria-label="Date Range">
+          {CLUB_DATA_PRESETS.filter((days) => days <= 14).map((days) => (
+            <button
+              key={days}
+              type="button"
+              aria-pressed={!calendarSelected && preset === days}
+              onClick={() => {
+                selectDates(null, clubDataToday(new Date(), dayBasisRef.current), days);
+                setEditingDates(false);
+              }}
+            >
+              {days === 1 ? '1 Day' : `${days} Days`}
+            </button>
+          ))}
           <button
-            key={p}
             type="button"
-            aria-pressed={customStart === null && preset === p}
-            className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
-            onClick={() => {
-              selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
-              setPreset(p);
+            aria-haspopup="dialog"
+            aria-describedby={
+              calendarSelected && !reportRangeError ? 'club-data-selected-dates' : undefined
+            }
+            aria-expanded={editingDates}
+            aria-controls={editingDates ? 'club-data-date-range' : undefined}
+            className={calendarSelected ? 'active' : undefined}
+            onClick={() => setEditingDates(true)}
+          >
+            Calendar
+          </button>
+        </div>
+        {calendarSelected && !reportRangeError && (
+          <p id="club-data-selected-dates" className={styles.selectedDates} aria-live="polite">
+            {clubDataSelectedDatesLabel(startDate, endDate)}
+          </p>
+        )}
+        {reportRangeError && (
+          <p role="alert" className={styles.liveLine}>
+            {reportRangeError}
+          </p>
+        )}
+        {editingDates && (
+          <ClubDataRangeCalendar
+            start={startDate}
+            end={endDate}
+            today={today}
+            onClose={() => setEditingDates(false)}
+            onApply={(first, last) => {
+              selectDates(first, last);
               setEditingDates(false);
             }}
-          >
-            {p === 1 ? '1 Day' : `${p} Days`}
-          </button>
-        ))}
-      </div>
-
-      <dl className={styles.stats} aria-busy={loading} aria-label="Club Totals">
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>Games</dt>
-          <dd className={styles.statValue}>
-            {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
-          </dd>
-        </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
-            <button
-              type="button"
-              className={styles.statAction}
-              disabled={!summary}
-              onClick={() => setBreakdown('total_winnings')}
-              aria-label="View Total Winnings By Player"
-            >
-              Total Winnings
-            </button>
-          </dt>
-          <dd
-            className={`${styles.statValue} ${summary ? inkFor(summary.total_winnings) : ''}`}
-            title={summary ? formatMoney(summary.total_winnings) : undefined}
-            aria-label={summary ? formatMoney(summary.total_winnings) : undefined}
-          >
-            {summary ? formatTotal(summary.total_winnings) : '-'}
-          </dd>
-        </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
-            <button
-              type="button"
-              className={styles.statAction}
-              disabled={!summary}
-              onClick={() => setBreakdown('mtt_winnings')}
-              aria-label="View MTT Winnings By Player"
-            >
-              MTT Winnings
-            </button>
-          </dt>
-          <dd
-            className={`${styles.statValue} ${summary ? inkFor(summary.mtt_winnings) : ''}`}
-            title={summary ? formatMoney(summary.mtt_winnings) : undefined}
-            aria-label={summary ? formatMoney(summary.mtt_winnings) : undefined}
-          >
-            {summary ? formatTotal(summary.mtt_winnings) : '-'}
-          </dd>
-        </div>
-        <div className={styles.stat}>
-          <dt className={styles.statLabel}>
-            {isDownline ? (
-              downlineAccountingFees ? (
-                'Downline Fees'
-              ) : (
-                'My Fees Earned'
-              )
-            ) : (
+          />
+        )}
+      </section>
+      <section className="arena-case">
+        <h2 className="arena-section-title">Club Totals</h2>
+        <dl className={styles.stats} aria-busy={loading} aria-label="Club Totals">
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
               <button
                 type="button"
                 className={styles.statAction}
                 disabled={!summary}
-                onClick={() => setBreakdown('fee')}
-                aria-label="View Fees By Player"
+                onClick={() => setBreakdown('total_winnings')}
+                aria-label="View Total Winnings By Player"
               >
-                Fee
+                Total Winnings
               </button>
-            )}
-          </dt>
-          <dd
-            className={styles.statValue}
-            ref={feeRef}
-            title={isDownline || summary ? feeText : undefined}
-            aria-label={isDownline || summary ? feeText : undefined}
-          >
-            {feeText}
-          </dd>
-        </div>
-      </dl>
-      {visibleSnapshot && !isDownline && (
-        <ClubDataReconciliation
-          basis={visibleSnapshot.accounting_basis}
-          coverage={visibleSnapshot.accounting_coverage}
-          range={visibleSnapshot.range}
-          reconciliation={summary?.reconciliation}
-          generatedAt={visibleSnapshot?.generated_at}
-          onPlayers={() => setBreakdown('total_winnings')}
-          onGames={() =>
-            navigate(
-              `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
-            )
-          }
-        />
-      )}
+            </dt>
+            <dd
+              className={`${styles.statValue} ${summary ? inkFor(summary.total_winnings) : ''}`}
+              title={summary ? formatMoney(summary.total_winnings) : undefined}
+              aria-label={summary ? formatMoney(summary.total_winnings) : undefined}
+            >
+              {summary ? formatTotal(summary.total_winnings) : '-'}
+            </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
+              <button
+                type="button"
+                className={styles.statAction}
+                disabled={!summary}
+                onClick={() => setBreakdown('mtt_winnings')}
+                aria-label="View MTT Winnings By Player"
+              >
+                MTT Winnings
+              </button>
+            </dt>
+            <dd
+              className={`${styles.statValue} ${summary ? inkFor(summary.mtt_winnings) : ''}`}
+              title={summary ? formatMoney(summary.mtt_winnings) : undefined}
+              aria-label={summary ? formatMoney(summary.mtt_winnings) : undefined}
+            >
+              {summary ? formatTotal(summary.mtt_winnings) : '-'}
+            </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>
+              {isDownline ? (
+                'Fee'
+              ) : (
+                <button
+                  type="button"
+                  className={styles.statAction}
+                  disabled={!summary}
+                  onClick={() => setBreakdown('fee')}
+                  aria-label="View Fees By Player"
+                >
+                  Fee
+                </button>
+              )}
+            </dt>
+            <dd
+              className={styles.statValue}
+              ref={feeRef}
+              title={isDownline || summary ? feeText : undefined}
+              aria-label={isDownline || summary ? feeText : undefined}
+            >
+              {feeText}
+            </dd>
+          </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>Games</dt>
+            <dd className={styles.statValue}>
+              {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
+            </dd>
+          </div>
+        </dl>
+      </section>
       {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
         <ClubDataByClub
           clubs={visibleSnapshot.clubs}
@@ -855,30 +840,10 @@ export default function ClubDataSimplePage() {
           onClose={() => setBreakdown(null)}
         />
       )}
-      {summary &&
-        summary.running_mtt_entries !== undefined &&
-        summary.running_mtt_entries !== null && (
-          <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-            <dt>Unfinished MTT Entries</dt>
-            <dd
-              className={inkFor(summary.running_mtt_entries)}
-              title={formatMoney(summary.running_mtt_entries)}
-            >
-              {formatMoney(summary.running_mtt_entries)}
-            </dd>
-          </dl>
-        )}
-      {unionBasis && summary && typeof summary.on_felt === 'number' && (
-        <dl className={styles.runningLine} aria-label="Chips On The Felt">
-          <dt>On The Felt Now</dt>
-          <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
-        </dl>
-      )}
-
       <div className={styles.liveRow}>
         <div className={styles.liveLine} role="status">
-          {error ? (
-            <span className={styles.inkLoss}>{error}</span>
+          {readMessage ? (
+            <span className={styles.inkLoss}>{readMessage}</span>
           ) : loading && !snapshot ? (
             <span>Reading Live Data</span>
           ) : (
@@ -946,145 +911,163 @@ export default function ClubDataSimplePage() {
         </DataHelpTip>
       </div>
 
-      <label className={styles.search}>
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search Player, Game, Creator Or ID"
-          aria-label="Search Players And Games"
-        />
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.searchIcon}>
-          <circle cx="10.5" cy="10.5" r="6.5" />
-          <path d="M15.5 15.5 L21 21" />
-        </svg>
-      </label>
+      <section className="arena-case">
+        <h2 className="arena-section-title">
+          {canOpenReport && !reportOpen ? (
+            <Link
+              className={styles.reportLink}
+              to={clubDataReportPath(clubParam || clubKey, reportQuery, '#club-data-report')}
+            >
+              Game Reports
+            </Link>
+          ) : (
+            'Game Reports'
+          )}
+        </h2>
+        <label className={styles.search}>
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search Player, Game, Creator Or ID"
+            aria-label="Search Players And Games"
+          />
+          <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.searchIcon}>
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="M15.5 15.5 L21 21" />
+          </svg>
+        </label>
 
-      {playerSearchReady &&
-        search &&
-        searchInput.trim() === search &&
-        playerResults?.key === scopeKey && (
-          <section aria-label="Matching Players">
-            {playerResults.failed ? (
-              <p role="status" className={styles.liveLine}>
-                Player Search Could Not Be Read.
-              </p>
-            ) : (
-              <ul className={styles.list}>
-                {playerResults.items.map((player) => (
-                  <li key={player.user_id}>
-                    <button
-                      type="button"
-                      className={`${styles.row} ${styles.playerResult}`}
-                      onClick={() =>
-                        navigate(
-                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
-                        )
-                      }
-                    >
-                      <span className={styles.rowName}>{titleCase(playerDisplayName(player))}</span>
-                      <span className={styles.rowFee}>View Player Data</span>
-                    </button>
-                  </li>
-                ))}
-                {playerResults.items.length === 0 && (
-                  <li className={styles.more}>No Matching Players In Your Data Scope.</li>
-                )}
-              </ul>
-            )}
-          </section>
-        )}
+        {playerSearchReady &&
+          search &&
+          searchInput.trim() === search &&
+          playerResults?.key === scopeKey && (
+            <section aria-label="Matching Players">
+              {playerResults.failed ? (
+                <p role="status" className={styles.liveLine}>
+                  Player Search Could Not Be Read.
+                </p>
+              ) : (
+                <ul className={styles.list}>
+                  {playerResults.items.map((player) => (
+                    <li key={player.user_id}>
+                      <button
+                        type="button"
+                        className={`${styles.row} ${styles.playerResult}`}
+                        onClick={() =>
+                          navigate(
+                            `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
+                          )
+                        }
+                      >
+                        <span className={styles.rowName}>
+                          {titleCase(playerDisplayName(player))}
+                        </span>
+                        <span className={styles.rowFee}>View Player Data</span>
+                      </button>
+                    </li>
+                  ))}
+                  {playerResults.items.length === 0 && (
+                    <li className={styles.more}>No Matching Players In Your Data Scope.</li>
+                  )}
+                </ul>
+              )}
+            </section>
+          )}
 
-      <div className={styles.tabs} role="group" aria-label="Game Type">
-        {GAME_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            aria-pressed={game === f.id}
-            className={`${styles.tab} ${game === f.id ? styles.tabActive : ''}`}
-            onClick={() => setGame(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {stakesApply && (
-        <div className={styles.stakes} role="group" aria-label="Stakes">
-          {STAKES_FILTERS.map((f) => (
+        <div className={styles.tabs} role="group" aria-label="Game Type">
+          {GAME_FILTERS.map((f) => (
             <button
               key={f.id}
               type="button"
-              aria-pressed={stakes === f.id}
-              className={`${styles.stake} ${stakes === f.id ? styles.stakeActive : ''}`}
-              onClick={() => setStakes((prev) => (prev === f.id ? 'ALL' : f.id))}
+              aria-pressed={game === f.id}
+              className={`${styles.tab} ${game === f.id ? styles.tabActive : ''}`}
+              onClick={() => setGame(f.id)}
             >
               {f.label}
             </button>
           ))}
         </div>
-      )}
 
-      {snapshot && rows.length === 0 ? (
-        <div className={styles.empty}>
-          <SpadeMark />
-          <p className={styles.emptyText}>No Data In This Period.</p>
-        </div>
-      ) : !snapshot && !loading ? (
-        <div className={styles.empty}>
-          <SpadeMark />
-          <p className={styles.emptyText}>{error ?? 'No Data In This Period.'}</p>
-          <button type="button" className={styles.retry} onClick={() => void load()}>
-            Try Again
-          </button>
-        </div>
-      ) : (
-        <ul className={styles.list} aria-label="Games">
-          {rows.map((row) => (
-            <li key={`${row.kind}-${row.id}`} className={styles.row}>
-              <div className={styles.rowMain}>
-                <div className={styles.rowTitle}>
-                  <button
-                    type="button"
-                    className={styles.sourceName}
-                    onClick={() => setSourceRow({ key: scopeKey, row })}
-                  >
-                    {row.name}
-                  </button>
-                  {row.live && <span className={styles.badgeLive}>Live</span>}
+        {stakesApply && (
+          <div className={styles.stakes} role="group" aria-label="Stakes">
+            {STAKES_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={stakes === f.id}
+                className={`${styles.stake} ${stakes === f.id ? styles.stakeActive : ''}`}
+                onClick={() => setStakes((prev) => (prev === f.id ? 'ALL' : f.id))}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {snapshot && rows.length === 0 ? (
+          <div className={styles.empty}>
+            <SpadeMark />
+            <p className={styles.emptyText}>No Data In This Period.</p>
+          </div>
+        ) : !snapshot && !loading ? (
+          <div className={styles.empty}>
+            <SpadeMark />
+            <p className={styles.emptyText}>{readMessage ?? 'Club Data Is Unavailable.'}</p>
+            {!reportRangeError && (
+              <button type="button" className={styles.retry} onClick={() => void load()}>
+                Try Again
+              </button>
+            )}
+          </div>
+        ) : (
+          <ul className={styles.list} aria-label="Games">
+            {rows.map((row) => (
+              <li key={`${row.kind}-${row.id}`} className={`${styles.row} arena-ledger-row`}>
+                <div className={styles.rowMain}>
+                  <div className={styles.rowTitle}>
+                    <button
+                      type="button"
+                      className={styles.sourceName}
+                      onClick={() => setSourceRow({ key: scopeKey, row })}
+                    >
+                      {row.name}
+                    </button>
+                    {row.live && <span className={styles.badgeLive}>Live</span>}
+                  </div>
+                  <div className={styles.rowMeta}>
+                    <span className={styles.kind}>{kindLabel(row)}</span>
+                    {(row.kind === 'CASH' ? row.activity_at : row.started_at) && (
+                      <span>
+                        {startedLabel(row.kind === 'CASH' ? row.activity_at : row.started_at)}
+                      </span>
+                    )}
+                    {Number(row.players) > 0 && (
+                      <span>
+                        {Number(row.players).toLocaleString('en-US')} Player
+                        {Number(row.players) === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    {(gameHost || clubName) && <span>By {gameHost || clubName}</span>}
+                  </div>
                 </div>
-                <div className={styles.rowMeta}>
-                  <span className={styles.kind}>{kindLabel(row)}</span>
-                  {(row.kind === 'CASH' ? row.activity_at : row.started_at) && (
-                    <span>
-                      {startedLabel(row.kind === 'CASH' ? row.activity_at : row.started_at)}
-                    </span>
-                  )}
-                  {Number(row.players) > 0 && (
-                    <span>
-                      {Number(row.players).toLocaleString('en-US')} Player
-                      {Number(row.players) === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {(gameHost || clubName) && <span>By {gameHost || clubName}</span>}
+                <div className={styles.rowFigures}>
+                  <span className={`${styles.rowWin} ${inkFor(row.winnings)}`}>
+                    {formatMoney(row.winnings)}
+                  </span>
+                  <span className={styles.rowFee}>Fee {formatMoney(row.fee)}</span>
                 </div>
-              </div>
-              <div className={styles.rowFigures}>
-                <span className={`${styles.rowWin} ${inkFor(row.winnings)}`}>
-                  {formatMoney(row.winnings)}
-                </span>
-                <span className={styles.rowFee}>Fee {formatMoney(row.fee)}</span>
-              </div>
-            </li>
-          ))}
-          {rows.length >= ROW_LIMIT && summary && Number(summary.games) > rows.length && (
-            <li className={styles.more}>
-              Showing The {rows.length.toLocaleString('en-US')} Most Recent Of{' '}
-              {Number(summary.games).toLocaleString('en-US')} Games. Totals Above Cover Them All.
-            </li>
-          )}
-        </ul>
-      )}
+              </li>
+            ))}
+            {rows.length >= ROW_LIMIT && summary && Number(summary.games) > rows.length && (
+              <li className={styles.more}>
+                Showing The {rows.length.toLocaleString('en-US')} Most Recent Of{' '}
+                {Number(summary.games).toLocaleString('en-US')} Games. Totals Above Cover Them All.
+              </li>
+            )}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -1095,41 +1078,8 @@ export function headerTitle(clubName: string | null | undefined): string {
   return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';
 }
 
-function Header({
-  onBack,
-  onAdvanced,
-  clubName,
-}: {
-  onBack: () => void;
-  onAdvanced?: () => void;
-  clubName?: string | null;
-}) {
-  return (
-    <header className={styles.header}>
-      <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 5 L5 12 L12 19 M19 5 L12 12 L19 19" />
-        </svg>
-      </button>
-      <h1 className={styles.title} title={headerTitle(clubName)}>
-        {clubName ? (
-          <>
-            <span className={styles.titleClub}>{clubName.trim().toUpperCase()}</span>
-            <span className={styles.titleRest}>&nbsp;- CLUB DATA</span>
-          </>
-        ) : (
-          'Club Data'
-        )}
-      </h1>
-      {onAdvanced ? (
-        <button type="button" className={styles.headerAction} onClick={onAdvanced}>
-          Report
-        </button>
-      ) : (
-        <span className={styles.headerSpacer} />
-      )}
-    </header>
-  );
+function Header({ clubName }: { clubName?: string | null }) {
+  return <ArenaWorkspaceHeader area="data" title="Club Data" context={clubName} />;
 }
 
 function SpadeMark() {

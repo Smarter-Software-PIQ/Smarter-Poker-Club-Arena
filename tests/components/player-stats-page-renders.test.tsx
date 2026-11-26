@@ -123,7 +123,9 @@ vi.mock('../../src/lib/supabase', () => ({
     channel: () => ({ on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}) }),
     removeChannel: () => {},
   },
-  getAuthUser: async () => null,
+  // The page renders for a signed-in owner (useAuthUser below), so the session
+  // read agrees: owner-only workspace reads require a live session.
+  getAuthUser: async () => ({ data: { user: { id: authUserId } }, error: null }),
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -164,8 +166,13 @@ vi.mock('../../src/services/ClubsService', () => ({
 
 // Read status since 2026-09-20 (Stats contract truth): { roles, error? }, so
 // a failed roles read is never mistaken for a player who holds no roles.
-vi.mock('../../src/services/AgentRakeService', () => ({
-  AgentRakeService: { getMyAgentRoles: vi.fn().mockResolvedValue({ roles: [] }) },
+vi.mock('../../src/services/AgentRakeService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/AgentRakeService')>()),
+  AgentRakeService: {
+    getMyAgentRoles: vi.fn().mockResolvedValue({ roles: [] }),
+    getDownlineRake: vi.fn().mockResolvedValue([]),
+    getDownlineRakeSummary: vi.fn().mockResolvedValue(null),
+  },
 }));
 
 vi.mock('../../src/services/StatsFactsService', () => {
@@ -232,6 +239,7 @@ import { StatsFactsService } from '../../src/services/StatsFactsService';
 import { getUserMemberships } from '../../src/services/ClubsService';
 import { AgentRakeService } from '../../src/services/AgentRakeService';
 import PlayerStatsPage from '../../src/pages/PlayerStatsPage';
+import { masterBus } from '../../src/core/MasterBus';
 import { clearStatsRangeMemo } from '../../src/lib/statsCache';
 import { isFullStatsPayload } from '../../src/pages/stats/playerStatsPageModel';
 import { normalizeHands } from '../../src/pages/stats/notableHandsContract';
@@ -323,7 +331,9 @@ describe('PlayerStatsPage mounts', () => {
       lifetime: { hands: 800, first_hand_at: null, last_hand_at: null, indexed_complete: false },
     };
     render(<PlayerStatsPage />);
-    expect(await screen.findByRole('tab', { name: 'Tournaments', exact: true })).toBeVisible();
+    expect(
+      await screen.findByRole('tab', { name: 'Tournaments', exact: true }, { timeout: 6000 })
+    ).toBeVisible();
     expect(
       await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
     ).toBeVisible();
@@ -391,7 +401,7 @@ describe('PlayerStatsPage mounts', () => {
   it('keeps independent agent-book records live while a different personal club is selected', async () => {
     const personalClub = '60000000-0000-0000-0000-000000000001';
     const agentClub = '60000000-0000-0000-0000-000000000002';
-    statsRouteState.search = `?statsClub=${personalClub}`;
+    statsRouteState.search = `?statsClub=${personalClub}&tab=rake`;
     vi.mocked(getUserMemberships).mockResolvedValue([
       { club: { id: personalClub, name: 'Personal Club' } },
     ] as Awaited<ReturnType<typeof getUserMemberships>>);
@@ -418,10 +428,107 @@ describe('PlayerStatsPage mounts', () => {
     await waitFor(() => expect(liveRecords.enabled).toBe(true));
     expect(liveRecords.clubIds).toEqual([personalClub, agentClub]);
     const before = vi.mocked(StatsFactsService.getRakeStats).mock.calls.length;
+    const personalReads = rpcMock.mock.calls.filter(([fn]) =>
+      fn.startsWith('ca_player_stats_overview_separated')
+    ).length;
+    const opportunityReads = vi.mocked(StatsFactsService.getCashOpportunityStats).mock.calls.length;
     act(() => liveRecords.onChange());
     await waitFor(() => expect(StatsFactsService.getRakeStats).toHaveBeenCalledTimes(before + 1), {
       timeout: 4000,
     });
+    expect(
+      rpcMock.mock.calls.filter(([fn]) => fn.startsWith('ca_player_stats_overview_separated'))
+    ).toHaveLength(personalReads);
+    expect(StatsFactsService.getCashOpportunityStats).toHaveBeenCalledTimes(opportunityReads);
+  });
+
+  it.each(['cash', 'tournament'] as const)(
+    'refreshes only committed personal inputs on the %s dashboard and catches up once after returning',
+    async (mode) => {
+      statsRouteState.search = '?gameMode=' + mode;
+      rpcPayload.scope = { ...(rpcPayload.scope as object), game_mode: mode };
+      const overviewReads = () =>
+        rpcMock.mock.calls.filter(([fn]) => fn.startsWith('ca_player_stats_overview_separated'))
+          .length;
+      vi.mocked(masterBus.subscribe).mockClear();
+      const view = render(<PlayerStatsPage />);
+      await waitFor(() => expect(overviewReads()).toBe(1));
+      const balanceEvent = vi
+        .mocked(masterBus.subscribe)
+        .mock.calls.findLast(([name]) => name === 'BALANCE_UPDATED')![1];
+      vi.useFakeTimers();
+      const tick = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      };
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      try {
+        for (let i = 0; i < 4; i++) {
+          view.rerender(<PlayerStatsPage />);
+          act(() =>
+            balanceEvent({
+              type: 'BALANCE_UPDATED',
+              payload: { source: 'tournament_rebuy', userId: 'another-player' },
+            } as never)
+          );
+          await tick(2100);
+        }
+        expect(overviewReads()).toBe(1);
+        visibility.mockReturnValue('hidden');
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          livePulse.onChange();
+        });
+        await tick(6000);
+        expect(overviewReads()).toBe(1);
+        visibility.mockReturnValue('visible');
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          livePulse.onChange();
+        });
+        await tick(2100);
+        expect(overviewReads()).toBe(2);
+        act(() =>
+          balanceEvent({
+            type: 'BALANCE_UPDATED',
+            payload: { source: 'tournament_rebuy', userId: authUserId },
+          } as never)
+        );
+        await tick(2100);
+        expect(overviewReads()).toBe(mode === 'tournament' ? 3 : 2);
+      } finally {
+        visibility.mockRestore();
+      }
+    }
+  );
+
+  it('keeps confirmed statistics visible while a personal change is being read', async () => {
+    rpcPayload.quality = { ...(rpcPayload.quality as object), live_tail_included: true };
+    const read = () =>
+      rpcMock.mock.calls.filter(([name]) => name === 'ca_player_stats_overview_separated').length;
+    render(<PlayerStatsPage />);
+    const live = await screen.findByText('Live', { selector: '.stats-range-status' });
+    expect(read()).toBe(1);
+    let finish!: (value: { data: Record<string, unknown>; error: null }) => void;
+    rpcMock.mockImplementation((name: string) =>
+      name === 'ca_player_stats_overview_separated'
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ data: null, error: null })
+    );
+    vi.useFakeTimers();
+    act(() => livePulse.onChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2050);
+    });
+    expect(read()).toBe(2);
+    expect(live).toHaveTextContent('Live');
+    await act(async () => {
+      finish({ data: rpcPayload, error: null });
+    });
+    expect(live).toHaveTextContent('Live');
   });
 
   it('refreshes rake when live stats change without changing the range', async () => {
@@ -464,6 +571,63 @@ describe('PlayerStatsPage mounts', () => {
       p_target_user: 'user-2',
       p_asset: 'chips',
     });
+    expect(rpcMock).not.toHaveBeenCalledWith(
+      'ca_player_stats_overview_separated',
+      expect.anything()
+    );
+  });
+
+  it('labels the shared profile mast with the authorized club that is actually displayed', async () => {
+    routeUserId = 'user-2';
+    const clubs = [
+      { id: 'club-a', name: 'Alpha Club' },
+      { id: 'club-b', name: 'Bravo Club' },
+    ];
+    statsRouteState.search = '?statsClub=club-b';
+    const scope = { target_user_id: routeUserId, visibility: 'shared_club', asset: 'chips' };
+    rpcMock.mockImplementation(async (fn: string, args) => {
+      if (fn === 'ca_player_stats_shared_clubs') {
+        return { data: { contract_version: 2, scope, clubs }, error: null };
+      }
+      if (fn !== 'ca_player_stats_shared_separated') return { data: null, error: null };
+      const hands = args.p_club_id === 'club-b' ? 75 : 40;
+      return {
+        data: {
+          contract_version: 2,
+          scope: {
+            ...scope,
+            club_id: args.p_club_id,
+            game_mode: 'cash',
+            range_days: args.p_days,
+            range_tz: args.p_tz,
+          },
+          overview: {
+            hands,
+            cash_hands: hands,
+            tournament_hands: 0,
+            hands_won: 8,
+            vpip: 0.25,
+            pfr: 0.15,
+            bb_per_100: 1.2,
+            last_played_at: null,
+          },
+          tournaments: { entries: 0, cashes: 0, wins: 0 },
+          generated_at: '2026-11-25T06:00:00Z',
+        },
+        error: null,
+      };
+    });
+    const view = render(<PlayerStatsPage />);
+    expect(await screen.findByRole('heading', { name: 'Bravo Club' })).toBeVisible();
+    const mast = screen.getByRole('heading', { name: 'Player Stats' }).closest('header');
+    expect(mast).toHaveTextContent('Bravo Club');
+    expect(await screen.findByRole('cell', { name: '75' })).toBeVisible();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    statsRouteState.search = '?statsClub=club-a';
+    view.rerender(<PlayerStatsPage />);
+    expect(await screen.findByRole('heading', { name: 'Alpha Club' })).toBeVisible();
+    expect(mast).toHaveTextContent('Alpha Club');
+    expect(await screen.findByRole('cell', { name: '40' })).toBeVisible();
     expect(rpcMock).not.toHaveBeenCalledWith(
       'ca_player_stats_overview_separated',
       expect.anything()
@@ -561,7 +725,7 @@ describe('PlayerStatsPage mounts', () => {
     expect(() => render(<PlayerStatsPage />)).not.toThrow();
     await waitFor(() => {
       expect(screen.getByText(/Overview/i)).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: /Player Intelligence/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Player Stats/i })).toBeInTheDocument();
       expect(screen.getByRole('group', { name: /Analysis Range/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Evidence At A Glance/i })).toBeInTheDocument();
       expect(screen.getByText('Established')).toBeInTheDocument();

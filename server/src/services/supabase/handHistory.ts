@@ -39,6 +39,7 @@ import {
   type HandFactsInput,
 } from './handFacts.js';
 import { recordHorseHandReviews, type HorseReviewInput } from '../HorseHandReview.js';
+import { handWritesOptionReceipts, writeHorseHandReceipts } from '../HorseHandReceipts.js';
 import { buildHorseDailyRollupFacts } from '../HorseDailyRollupFacts.js';
 import { horseDailyRollupContract } from '../HorseDailyRollupContract.js';
 import { horseHoleCardsBasisContract } from '../HorseStatsBasisContract.js';
@@ -602,6 +603,13 @@ export async function logHandHistory(params: {
    * KillPot.KillPotRecord. Null/absent on a hand with no kill facts.
    */
   killPot?: import('../../engine/KillPot.js').KillPotRecord | null;
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, engine/HorseHandOptionReceipts.ts): how many executed Horse decisions
+   * of this hand each listed option changed, by receipt text (option name and action kinds, never a card).
+   * Written to ca_horse_hand_receipts after the commit, only for a hand a person was dealt into, detached:
+   * it is not part of the hand row or its hash and can neither fail nor delay the save. Absent on most hands.
+   */
+  horseOptionReceipts?: Readonly<Record<string, number>>;
   /**
    * COMPLETENESS PASS 2026-08-26: run-it-twice boards 2..N (engine card
    * strings, run order). Written to hand_history.rit_boards — NULL on every
@@ -1294,6 +1302,15 @@ export async function logHandHistory(params: {
         ),
       });
   }
+
+  // PER-HAND OPTION RECEIPTS (2026-11-25): one row per receipt, only for a committed hand a person was dealt
+  // into, never for an all-Horse hand. Same fire-and-forget contract as the fact and review writes above.
+  if (
+    handId &&
+    inserted.settlementCommitted &&
+    handWritesOptionReceipts(rosterHasHuman, params.horseOptionReceipts)
+  )
+    void writeHorseHandReceipts(handId, params.horseOptionReceipts);
 
   const publicFrame = inserted.settlementCommitted
     ? publicHandStatsFrame({

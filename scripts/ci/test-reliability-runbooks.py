@@ -52,7 +52,7 @@ FOLLOW_UPS = [
 PLATFORM = r"""
 ALTER TABLE public.profiles ADD COLUMN is_horse boolean, ADD COLUMN horse_status text;
 CREATE TABLE public.tournaments (id uuid PRIMARY KEY, tournament_type text, status text, prize_pool_finalized boolean,
-  max_players integer, club_id uuid, union_id uuid, break_started_at timestamptz, break_ends_at timestamptz,
+  max_players integer, club_id uuid, union_id uuid, on_break boolean DEFAULT false, break_started_at timestamptz, break_ends_at timestamptz,
   is_rebuy boolean DEFAULT false, is_reentry boolean DEFAULT false);
 CREATE TABLE public.tables (id uuid PRIMARY KEY, tournament_id uuid);
 CREATE FUNCTION public.fn_tournament_primary_table(p uuid) RETURNS uuid LANGUAGE sql STABLE AS

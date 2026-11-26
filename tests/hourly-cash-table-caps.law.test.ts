@@ -36,4 +36,22 @@ describe('owner hourly cash capacity is permanent and cash only', () => {
     expect(fleet).toContain('hourlyAutonomousStarted');
     expect(fleet).toContain('cleared.splice(hourly.maxHorses)');
   });
+  it('hardens hourly cash census to single-pass open tables and short-circuits paced/human closes (1e532243)', () => {
+    expect(read('scripts/ci/test-hourly-cash-caps-postgres.py')).toContain(
+      'scripts/ci/test-hourly-cash-census-single-pass-postgres.py'
+    );
+    const sql = read(
+      'supabase/migrations/20261125040442_hourly_cash_census_single_pass_open_tables_and_fast_close.sql'
+    );
+    expect(sql).toContain('bool_or(b.direct_humans > 0) OVER (PARTITION BY b.cluster_id)');
+    expect(sql).toContain("AND t.status IN ('waiting', 'running')");
+    expect(sql).toContain('Short-circuit before running the floor census');
+    expect(sql).toContain('Fast-path (incident 1e532243)');
+    expect(sql).toContain('SELECT c.* FROM floor c');
+    expect(sql).toContain('FROM PUBLIC, anon, authenticated;');
+    expect(sql).not.toMatch(
+      /(?:UPDATE|DELETE FROM)\s+public\.(?:tournaments|tournament_players|club_members)\b/i
+    );
+    expect(sql).not.toContain('cron.schedule');
+  });
 });

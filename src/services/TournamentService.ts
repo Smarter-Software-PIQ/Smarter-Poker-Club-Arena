@@ -1,4 +1,4 @@
-import { tournamentEntryWindowOpen } from '../utils/tournamentEntryWindow';
+import { tournamentEntryWindowOpen, tournamentInPlay } from '../utils/tournamentEntryWindow';
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { levelClockNow, type LevelClockRow } from '../utils/maintenanceLevelClock';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
@@ -1032,7 +1032,7 @@ class TournamentService {
     let query = supabase
       .from('tournaments')
       .select(
-        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_from_start, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
+        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, blind_speed, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_from_start, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
           TOURNAMENT_ARENA_EMBED
       )
       .eq('id', tournamentId);
@@ -1743,8 +1743,19 @@ class TournamentService {
        seats are held hears the rule now rather than after a refused
        purchase. The database's entry guard applies the same rule to the
        registration itself. A database without the door yet admits as before. */
-    if (isSitAndGoInviteFormat(tournament as { variant?: string | null; max_players?: number | null; format_contract?: unknown })) {
-      const admission = await acceptPrivateGameInvite(tournamentId, privateInviteTokenFor(tournamentId));
+    if (
+      isSitAndGoInviteFormat(
+        tournament as {
+          variant?: string | null;
+          max_players?: number | null;
+          format_contract?: unknown;
+        }
+      )
+    ) {
+      const admission = await acceptPrivateGameInvite(
+        tournamentId,
+        privateInviteTokenFor(tournamentId)
+      );
       if (!admission.unavailable && !admission.allowed) {
         if (admission.reason && /private_game/.test(admission.reason)) {
           throw new Error(privateGameRefusalText(admission.reason));
@@ -2277,7 +2288,7 @@ class TournamentService {
     // countdown below is measured at the instant the engine is crediting.
     nowMs = levelClockNow(tournament as unknown as LevelClockRow, nowMs);
 
-    if (tournament.status !== 'RUNNING' || !tournament.started_at) {
+    if (!tournamentInPlay(tournament.status) || !tournament.started_at) {
       return {
         currentLevel: blinds[0],
         nextLevel: blinds[1] || null,
@@ -2621,7 +2632,8 @@ class TournamentService {
   async processRebuy(
     tournamentId: string,
     userId: string,
-    clientToken: string
+    clientToken: string,
+    expectedTotal?: number
   ): Promise<{ success: true; newStack: number; tableId: string; seatNumber: number }> {
     if (typeof clientToken !== 'string' || !clientToken.trim()) {
       throw new Error('A rebuy prompt token is required');
@@ -2659,6 +2671,10 @@ class TournamentService {
         // the remainder feeds the prize pool. Until this, a 20 rebuy charged 22
         // while a 20 entry charged 20 - two prices for one rule.
         const rebuyTotalCost = rebuyCost;
+        if (expectedTotal !== undefined) {
+          if (!tournament.is_rebuy) throw new Error('Auto Rebuy Is Unavailable For This Event');
+          if (rebuyTotalCost !== expectedTotal) throw new Error('The Rebuy Price Changed');
+        }
 
         // 2026-08-27: the frozen-pool pre-check that lived here is GONE. It read
         // public.wallets - frozen since 2026-08-21, nothing maintains it - so a
@@ -2751,7 +2767,8 @@ class TournamentService {
    */
   async processAddOn(
     tournamentId: string,
-    userId: string
+    userId: string,
+    expectedTotal?: number
   ): Promise<{ success: true; newStack: number }> {
     const newStack = await withTournamentPurchaseIntent(
       { tournamentId, userId, kind: 'addon' },
@@ -2779,6 +2796,8 @@ class TournamentService {
         // process_tournament_rebuy now charges an add-on at face value and books
         // no rake for it; the whole add-on goes to the prize pool.
         const addonTotalCost = addonCost;
+        if (expectedTotal !== undefined && addonTotalCost !== expectedTotal)
+          throw new Error('The Add-On Price Changed');
 
         // 2026-08-27: the frozen-pool pre-check that lived here is GONE. It read
         // public.wallets - frozen since 2026-08-21, nothing maintains it - so a

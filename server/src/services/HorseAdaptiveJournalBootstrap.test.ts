@@ -47,6 +47,7 @@ function actualBootstrap(leader: boolean, stop: () => Promise<void>) {
     'HorseReferenceAgreementReport',
     'BrainTelemetryFlush',
     'HorseUpgradeEvidenceFlush',
+    'HorseErrorLog',
     'HorseDataLedgerSync',
     'HorseLaneLoader',
     'GtoAggregationDriver',

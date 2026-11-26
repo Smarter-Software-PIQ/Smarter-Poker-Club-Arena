@@ -46,7 +46,8 @@
   font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   padding: 0 0 calc(24px + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  max-width: 640px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -133,126 +134,22 @@
   flex: none;
 }
 
-/* ── Period bar ─────────────────────────────────────────────────────────── */
-.rangeBar {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px 10px;
+.reportLink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cd-accent);
+  text-underline-offset: 0.2em;
+}
+.reportLink:focus-visible {
+  outline: 2px solid var(--cd-accent);
+  outline-offset: 2px;
 }
 
-.arrow {
-  background: none;
-  border: 0;
-  min-height: 44px;
-  color: var(--cd-accent);
-  cursor: pointer;
-  padding: 0;
-  filter: drop-shadow(0 0 6px rgba(111, 220, 255, 0.55)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8));
-  transition: transform 0.18s var(--cd-ease);
-}
-
-.arrow:active:not(:disabled) {
-  transform: scale(0.9);
-}
-
-.arrow svg {
-  width: 26px;
-  height: 26px;
-  fill: currentColor;
-}
-
-.arrow:disabled {
-  color: #3a4660;
-  filter: none;
-  cursor: default;
-}
-
-/* A recessed well: shaded from above, lit along its lower lip. */
-.rangeChip {
-  display: flex;
-  flex-wrap: wrap;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #0a0f1a 0%, var(--cd-surface-sunk) 100%);
-  border: 1px solid var(--cd-hairline);
-  box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.7),
-    inset 0 -1px 0 rgba(111, 220, 255, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.05);
-  font-size: clamp(13px, 3.8vw, 15px);
-  font-variant-numeric: tabular-nums;
-  white-space: normal;
-}
-
-.rangeChip > span {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.rangeDash {
-  color: var(--cd-hint);
-}
-
-.rangeTz {
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--cd-accent);
-  letter-spacing: 0.08em;
-  text-shadow: 0 0 6px rgba(111, 220, 255, 0.6);
-}
-
-/* ── 1 / 7 / 14 Days: a sunk track with a raised, lit thumb ─────────────── */
-.segment {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  margin: 4px 16px 12px;
-  padding: 4px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #0a0f1a 0%, var(--cd-surface-sunk) 100%);
-  border: 1px solid var(--cd-hairline);
-  box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.75),
-    inset 0 -1px 0 rgba(111, 220, 255, 0.1),
-    0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.segmentButton {
-  min-height: 40px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
+.selectedDates {
+  margin: 6px 0;
   color: var(--cd-muted);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    color 0.2s ease,
-    transform 0.18s var(--cd-ease);
-}
-
-.segmentButton:active {
-  transform: scale(0.96);
-}
-
-.segmentActive {
-  color: #ffffff;
-  font-weight: 800;
-  background: linear-gradient(180deg, #3d9bff 0%, var(--cd-action) 48%, var(--cd-action-deep) 100%);
-  box-shadow:
-    var(--cd-bevel-strong),
-    0 0 0 1px rgba(111, 220, 255, 0.35),
-    0 4px 12px rgba(24, 119, 242, 0.45),
-    var(--cd-glow);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── The four totals: one raised glass slab, four bays ──────────────────── */
@@ -418,27 +315,6 @@
   letter-spacing: 0.04em;
   text-align: center;
   text-transform: uppercase;
-}
-
-.runningLine {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 6px 16px 0;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--cd-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.runningLine dt,
-.runningLine dd {
-  margin: 0;
-}
-
-.runningLine dd {
-  font-weight: 700;
 }
 
 .liveLine {
@@ -776,13 +652,11 @@
    2px it adds above and below stays inside each row's own padding, so no hit
    area reaches a neighbouring control. */
 @media (pointer: coarse) {
-  .segmentButton,
   .tab,
   .stake {
     position: relative;
   }
 
-  .segmentButton::after,
   .tab::after,
   .stake::after {
     content: '';
@@ -804,13 +678,6 @@
 }
 
 /* Existing painted wells remain the visual authority; controls add hit areas. */
-.rangeChip {
-  color: inherit;
-  font-family: inherit;
-  cursor: pointer;
-  min-height: 44px;
-  width: 100%;
-}
 .stat {
   position: relative;
 }
@@ -891,4 +758,48 @@
 }
 .sourceName:focus-visible {
   outline: 2px solid #45adff;
+}
+.page:global(.arena-workspace) .stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.page:global(.arena-workspace) .statValue {
+  margin-top: 3px;
+  font:
+    700 20px/1.15 Arial,
+    sans-serif;
+}
+.page:global(.arena-workspace) .row {
+  margin: 4px 0;
+  min-height: 44px;
+  padding: 6px;
+}
+
+.page:global(.arena-workspace) .stats {
+  gap: 4px;
+}
+.page:global(.arena-workspace) .stats .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 58px;
+  margin: 0;
+}
+.page:global(.arena-workspace) .stats dt {
+  order: 0;
+}
+.page:global(.arena-workspace) .stats dd {
+  order: 1;
+  font:
+    700 20px/1.15 Arial,
+    sans-serif;
+  margin: 0;
 }

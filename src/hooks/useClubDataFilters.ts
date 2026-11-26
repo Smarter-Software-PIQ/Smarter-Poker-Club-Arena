@@ -67,6 +67,7 @@ export function clubDataContextQuery(
 ): URLSearchParams {
   const next = new URLSearchParams(params);
   next.delete('dataUntil');
+  next.delete('dataDays');
   next.set('dataStart', context.start);
   next.set('dataEnd', context.end);
   next.set('dataGame', context.game);

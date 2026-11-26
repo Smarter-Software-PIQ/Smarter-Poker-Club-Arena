@@ -1,3 +1,5 @@
+import { KINGS_CLUB_UUID, SHARK_CLUB_ID } from '../lib/constants';
+import { readKingsClubDisplayTotals } from '../services/KingsClubDisplayService';
 /**
  * 📨 INVITE PAGE — Club Invitation
  */
@@ -60,7 +62,8 @@ interface ClubInfo {
   slug?: string;
   name: string;
   description?: string;
-  member_count: number;
+  member_count: number | null;
+  member_display_addition?: number;
   avatar_url?: string;
   logo_url?: string;
   is_public: boolean;
@@ -163,6 +166,10 @@ export default function InvitePage() {
           return;
         }
 
+        const isKingsClub = Number(clubData.club_id) === SHARK_CLUB_ID;
+        const kingsTotals = isKingsClub && user?.id ? await readKingsClubDisplayTotals() : null;
+        if (getIsMounted && !getIsMounted()) return;
+
         setClub({
           id: clubData.id,
           club_id: clubData.club_id,
@@ -172,7 +179,10 @@ export default function InvitePage() {
           slug: clubData.slug,
           name: clubData.name,
           description: clubData.description,
-          member_count: clubData.member_count || 0,
+          member_count: isKingsClub
+            ? (kingsTotals?.member_total ?? null)
+            : clubData.member_count || 0,
+          member_display_addition: kingsTotals?.member_addition,
           avatar_url: clubData.avatar_url,
           logo_url: clubData.logo_url,
           is_public: clubData.is_public,
@@ -431,7 +441,7 @@ export default function InvitePage() {
   }
 
   const logo = club.logo_url || club.avatar_url;
-  const memberCount = club.member_count.toLocaleString('en-US');
+  const memberCount = club.member_count?.toLocaleString('en-US') ?? '…';
 
   return (
     <div className="invite-page">
@@ -444,7 +454,7 @@ export default function InvitePage() {
           <div className="club-avatar">
             {logo ? (
               <img src={sizedStorageUrl(logo, 208)} alt="" loading="lazy" />
-            ) : club.id === 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' ? (
+            ) : club.id === KINGS_CLUB_UUID ? (
               <img src={`${MEDIA_BASE}images/kings-club-logo.png`} alt="" loading="lazy" />
             ) : (
               <span aria-hidden="true">{club.name[0]?.toUpperCase()}</span>
@@ -458,11 +468,19 @@ export default function InvitePage() {
           {/* A blue-bordered chip, as in Dan's reference. Singular/plural
               because "1 members" on a new club is the kind of detail that makes
               a product look unfinished. */}
-          <p className="club-stats">
-            <MembersIcon />
-            <span className="stat-value">{memberCount}</span>
-            <span>{club.member_count === 1 ? 'Member' : 'Members'}</span>
-          </p>
+          {club.member_count != null && (
+            <p className="club-stats">
+              <MembersIcon />
+              <span className="stat-value">{memberCount}</span>
+              <span>
+                {club.member_display_addition
+                  ? `Member Display Total (+${club.member_display_addition.toLocaleString()} Configured)`
+                  : club.member_count === 1
+                    ? 'Member'
+                    : 'Members'}
+              </span>
+            </p>
+          )}
 
           <hr className="invite-divider" />
 

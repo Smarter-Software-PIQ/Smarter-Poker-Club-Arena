@@ -4228,6 +4228,21 @@ export class HorseMind {
    */
   private static decisionEffectSink: HorseMindDecisionEffect[] | null = null;
 
+  /**
+   * Run fn with its intent writes discarded: a side ask (a decision asked on a hypothetical frame, never acted) must
+   * leave no plan, outlook or fingerprint behind, live or in the capture around it. The capture around it, if any,
+   * is put back exactly as it was.
+   */
+  static withDecisionEffectsDiscarded<T>(fn: () => T): T {
+    const outer = this.decisionEffectSink;
+    this.decisionEffectSink = [];
+    try {
+      return fn();
+    } finally {
+      this.decisionEffectSink = outer;
+    }
+  }
+
   static captureDecisionEffects<T>(fn: () => T): CapturedHorseMindDecision<T> {
     if (this.decisionEffectSink) {
       throw new Error('HorseMind.captureDecisionEffects: capture already active');

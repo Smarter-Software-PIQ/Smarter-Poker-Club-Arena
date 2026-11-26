@@ -76,6 +76,7 @@ import {
 import { useSpinsWallet } from '../../hooks/useSpinsWallet';
 import { useArenaHasChipWallet } from '../arena/arenaAccess';
 import './DynamicWallet.css';
+import CashierBalanceLedger from './CashierBalanceLedger';
 import { reportError } from '../../utils/errorReporter';
 import { formatWalletChips } from '../../utils/format';
 import { ClubBBJShell, ClubWalletShell, type ClubWalletArtworkKind } from './ClubWalletArtwork';
@@ -156,6 +157,10 @@ interface DynamicWalletProps {
    * file cited.
    */
   showBBJ?: boolean;
+  /** Painted wallet faces and jackpot plaque. Cashier supplies its own frames. */
+  showArtwork?: boolean;
+  /** Render the approved Cashier ledger using this same role-safe wallet read. */
+  cashierLedger?: boolean;
   /**
    * Compact Club Arena header treatment. It keeps the same live data and
    * click handlers, but limits the visible tiles to the role-specific lobby
@@ -479,6 +484,8 @@ export default function DynamicWallet({
   role = 'player',
   roleReady = true,
   showBBJ = true,
+  showArtwork = true,
+  cashierLedger = false,
   compactLobby = false,
   showAllLobbyWallets = false,
   onVisibleWalletCountChange,
@@ -1339,7 +1346,7 @@ export default function DynamicWallet({
   if (loading || (effectiveVariant === 'club' && !roleReady && cachedRole === null)) {
     return (
       <div
-        className={`dw dw--loading${compactLobby ? ' dw--lobby-board' : ''}`}
+        className={`dw dw--loading${compactLobby && !cashierLedger ? ' dw--lobby-board' : ''}`}
         role="region"
         aria-busy="true"
         aria-label="Loading Wallet"
@@ -1356,7 +1363,7 @@ export default function DynamicWallet({
 
   return (
     <div
-      className={`dw dw--${effectiveVariant}${compactLobby ? ' dw--lobby-board' : ''}`}
+      className={`dw dw--${effectiveVariant}${compactLobby && !cashierLedger ? ' dw--lobby-board' : ''}`}
       role="region"
       aria-label="Wallet Balances"
     >
@@ -1394,7 +1401,7 @@ export default function DynamicWallet({
              the label announced something that was never true. */
           aria-label={`Bad Beat Jackpot: ${data.bbjPool === 0 ? 'No Pool' : formatBalance(data.bbjPool)}`}
         >
-          <ClubBBJShell />
+          {showArtwork && <ClubBBJShell />}
           <span className="dw__bbj-label">BAD BEAT JACKPOT</span>
           <span className="dw__bbj-amount">
             {data.bbjPool === 0 ? '-' : formatBalance(animBBJ)}
@@ -1411,103 +1418,133 @@ export default function DynamicWallet({
       <span className="dw__sr-live" aria-live="polite" aria-atomic="true">
         {`Diamond Wallet ${figuresUnknown ? 'Unavailable' : formatDiamonds(data.diamonds)}. ${rows
           .map((row) => {
-            const settled = settledRowValue(row.key);
+            const settled = row.known === false ? null : settledRowValue(row.key);
             return `${compactLabel(row)} ${settled === null ? 'Unavailable' : formatBalance(settled)}`;
           })
           .join('. ')}.`}
       </span>
 
-      <div className={`dw__rows dw__rows--count-${rows.length + 1}`}>
-        {/* Diamond Balance */}
-        <div
-          data-wallet-key="diamonds"
-          className={`dw__row dw__row--diamond dw__row--wallet-art${compactLobby && onBuyDiamonds ? ' dw__row--actionable' : ''}`}
-          onClick={compactLobby ? onBuyDiamonds : undefined}
-          onKeyDown={
-            compactLobby && onBuyDiamonds
-              ? (e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onBuyDiamonds();
-                  }
-                }
-              : undefined
-          }
-          role={compactLobby && onBuyDiamonds ? 'button' : undefined}
-          tabIndex={compactLobby && onBuyDiamonds ? 0 : undefined}
-          aria-label={compactLobby && onBuyDiamonds ? 'Open Diamond Wallet' : undefined}
-        >
-          <ClubWalletShell kind="diamonds" />
-          <span className="dw__row-icon" aria-hidden="true">
-            <WalletIcon name="diamond" />
-          </span>
-          <span className="dw__row-label">{compactLobby ? 'Diamond Wallet' : 'Diamonds'}</span>
-          <span className="dw__row-value">
-            {figuresUnknown ? '-' : formatDiamonds(animDiamonds)}
-          </span>
-          {onBuyDiamonds && !compactLobby && (
-            <button
-              className="dw__plus"
-              onClick={(e) => {
-                e.stopPropagation();
-                onBuyDiamonds();
-              }}
-              aria-label="Buy Diamonds"
-            >
-              +
-            </button>
-          )}
-        </div>
-
-        {/* Role-specific wallet rows.
-            The Club Bank row is a button: "if they click on Club Bank, that
-            should open the Club Bank Cashier" (Dan 2026-08-23). The Player
-            Wallet row is a button too: it opens the member's own statement
-            (Dan 2026-08-24). The rest are balances, not controls. */}
-        {rows.map((row, idx) => (
+      {cashierLedger ? (
+        <CashierBalanceLedger
+          balances={[
+            ...rows.map((row) => {
+              const value = row.known === false ? null : settledRowValue(row.key);
+              return {
+                key: row.key,
+                label: row.key === 'club_bank' ? 'Club Balance' : row.label,
+                amount: value === null ? '-' : formatBalance(value),
+                onOpen: row.onOpen,
+              };
+            }),
+            ...(rendersSeparateBackup
+              ? [
+                  {
+                    key: 'backup_bbj',
+                    label: 'Backup BBJ',
+                    amount: figuresUnknown ? '-' : formatBalance(data.backupBBJ),
+                  },
+                ]
+              : []),
+            {
+              key: 'diamonds',
+              label: 'Diamond Wallet',
+              amount: figuresUnknown ? '-' : formatDiamonds(data.diamonds),
+              onOpen: onBuyDiamonds,
+            },
+          ]}
+        />
+      ) : (
+        <div className={`dw__rows dw__rows--count-${rows.length + 1}`}>
+          {/* Diamond Balance */}
           <div
-            key={row.key}
-            data-wallet-key={row.key}
-            className={
-              `dw__row dw__row--wallet dw__row--wallet-art` +
-              (idx === 0 ? ' dw__row--primary' : '') +
-              (row.onOpen ? ' dw__row--actionable' : '')
-            }
-            onClick={row.onOpen}
+            data-wallet-key="diamonds"
+            className={`dw__row dw__row--diamond dw__row--wallet-art${compactLobby && onBuyDiamonds ? ' dw__row--actionable' : ''}`}
+            onClick={compactLobby ? onBuyDiamonds : undefined}
             onKeyDown={
-              row.onOpen
+              compactLobby && onBuyDiamonds
                 ? (e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      row.onOpen!();
+                      onBuyDiamonds();
                     }
                   }
                 : undefined
             }
-            role={row.onOpen ? 'button' : undefined}
-            tabIndex={row.onOpen ? 0 : undefined}
-            aria-label={row.onOpen ? `Open ${row.label}` : undefined}
+            role={compactLobby && onBuyDiamonds ? 'button' : undefined}
+            tabIndex={compactLobby && onBuyDiamonds ? 0 : undefined}
+            aria-label={compactLobby && onBuyDiamonds ? 'Open Diamond Wallet' : undefined}
           >
-            <ClubWalletShell kind={row.key as ClubWalletArtworkKind} />
+            {showArtwork && <ClubWalletShell kind="diamonds" />}
             <span className="dw__row-icon" aria-hidden="true">
-              <WalletIcon name={row.icon} />
+              <WalletIcon name="diamond" />
             </span>
-            <span className="dw__row-label">
-              {compactLabel(row)}
-              {row.hint && <span className="dw__row-hint">{row.hint}</span>}
-            </span>
+            <span className="dw__row-label">{compactLobby ? 'Diamond Wallet' : 'Diamonds'}</span>
             <span className="dw__row-value">
-              {row.known === false || figuresUnknown ? '-' : formatBalance(row.value)}
+              {figuresUnknown ? '-' : formatDiamonds(animDiamonds)}
             </span>
-            {row.onOpen && (
-              <span className="dw__row-chevron" aria-hidden="true">
-                &rsaquo;
-              </span>
+            {onBuyDiamonds && !compactLobby && (
+              <button
+                className="dw__plus"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBuyDiamonds();
+                }}
+                aria-label="Buy Diamonds"
+              >
+                +
+              </button>
             )}
           </div>
-        ))}
 
-        {/* Backup BBJ.
+          {/* Role-specific wallet rows.
+            The Club Bank row is a button: "if they click on Club Bank, that
+            should open the Club Bank Cashier" (Dan 2026-08-23). The Player
+            Wallet row is a button too: it opens the member's own statement
+            (Dan 2026-08-24). The rest are balances, not controls. */}
+          {rows.map((row, idx) => (
+            <div
+              key={row.key}
+              data-wallet-key={row.key}
+              className={
+                `dw__row dw__row--wallet dw__row--wallet-art` +
+                (idx === 0 ? ' dw__row--primary' : '') +
+                (row.onOpen ? ' dw__row--actionable' : '')
+              }
+              onClick={row.onOpen}
+              onKeyDown={
+                row.onOpen
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        row.onOpen!();
+                      }
+                    }
+                  : undefined
+              }
+              role={row.onOpen ? 'button' : undefined}
+              tabIndex={row.onOpen ? 0 : undefined}
+              aria-label={row.onOpen ? `Open ${row.label}` : undefined}
+            >
+              {showArtwork && <ClubWalletShell kind={row.key as ClubWalletArtworkKind} />}
+              <span className="dw__row-icon" aria-hidden="true">
+                <WalletIcon name={row.icon} />
+              </span>
+              <span className="dw__row-label">
+                {compactLabel(row)}
+                {row.hint && <span className="dw__row-hint">{row.hint}</span>}
+              </span>
+              <span className="dw__row-value">
+                {row.known === false || figuresUnknown ? '-' : formatBalance(row.value)}
+              </span>
+              {row.onOpen && (
+                <span className="dw__row-chevron" aria-hidden="true">
+                  &rsaquo;
+                </span>
+              )}
+            </div>
+          ))}
+
+          {/* Backup BBJ.
             CLUB PANEL ONLY, and only for a STANDALONE club, where the reserve
             genuinely belongs to that club. A club inside a union is served the
             UNION's backup figure by fn_club_money_panel, so rendering it here
@@ -1524,22 +1561,23 @@ export default function DynamicWallet({
             figure, twice. Two live copies of one number on a money surface is
             the duplication the BBJ banner's own showBBJ opt-out exists to
             prevent. The union panel keeps its row; this one is the club's. */}
-        {rendersSeparateBackup && (
-          <div
-            className="dw__row dw__row--backup-bbj dw__row--wallet-art"
-            data-wallet-key="backup_bbj"
-          >
-            <ClubWalletShell kind="backup_bbj" />
-            <span className="dw__row-icon" aria-hidden="true">
-              <WalletIcon name="reserve" />
-            </span>
-            <span className="dw__row-label">Backup BBJ</span>
-            <span className="dw__row-value">
-              {data.backupBBJ === 0 || figuresUnknown ? '-' : formatBalance(animBackupBBJ)}
-            </span>
-          </div>
-        )}
-      </div>
+          {rendersSeparateBackup && (
+            <div
+              className="dw__row dw__row--backup-bbj dw__row--wallet-art"
+              data-wallet-key="backup_bbj"
+            >
+              {showArtwork && <ClubWalletShell kind="backup_bbj" />}
+              <span className="dw__row-icon" aria-hidden="true">
+                <WalletIcon name="reserve" />
+              </span>
+              <span className="dw__row-label">Backup BBJ</span>
+              <span className="dw__row-value">
+                {data.backupBBJ === 0 || figuresUnknown ? '-' : formatBalance(animBackupBBJ)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

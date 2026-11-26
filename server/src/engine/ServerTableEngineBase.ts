@@ -183,9 +183,11 @@ import { isMaintenanceFrozen, onMaintenanceThaw } from '../maintenance/freezeSta
 import { feederStartWaitsForVariety } from '../services/HorseVarietyFirst.js';
 import { wakeCluster } from '../cluster/ClusterController.js';
 import {
+  gameWideMovesPlannedGeneration,
   movesPlannedGeneration,
   noteSeatArrival,
   seatArrivalGeneration,
+  tableMovesPlannedGeneration,
 } from '../cluster/seatBoundarySignals.js';
 import { noteCashSeatCommitted } from '../cluster/cashSeatCommittedSignal.js';
 import { ChipContinuityTracker } from './ChipContinuity.js';
@@ -789,14 +791,23 @@ export abstract class ServerTableEngineBase {
       }
       if (pending.size === 0) return;
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('table_seats')
           .select('user_id, stack')
           .eq('table_id', this.tableId)
           .in('user_id', Array.from(pending))
           .is('left_at', null);
-        for (const row of (data ?? []) as Array<{ user_id: string; stack: number | null }>) {
-          if (Number(row.stack ?? 0) > 0) pending.delete(String(row.user_id));
+        if (!error && Array.isArray(data)) {
+          const stillSeatedBusted = new Set<string>();
+          for (const row of data as Array<{ user_id: string; stack: number | null }>) {
+            if (Number(row.stack ?? 0) <= 0) stillSeatedBusted.add(String(row.user_id));
+          }
+          // A seat that rebought (stack > 0) or already left the table (absent
+          // from left_at IS NULL rows) has answered; never stall the felt for
+          // an empty chair. On a read error, fail open and keep waiting.
+          for (const id of Array.from(pending)) {
+            if (!stillSeatedBusted.has(id)) pending.delete(id);
+          }
         }
       } catch {
         /* A failed read must never SHORTEN the pause — fall through and wait. */
@@ -814,10 +825,24 @@ export abstract class ServerTableEngineBase {
       if (inFlight) for (const id of inFlight) pending.delete(id);
     };
 
+    let deadlineHit = false;
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadlineReached = new Promise<void>((resolve) => {
+      deadlineTimer = setTimeout(
+        () => {
+          deadlineHit = true;
+          this.rebuyPauseWake?.();
+          resolve();
+        },
+        Math.max(0, totalMs)
+      );
+      (deadlineTimer as { unref?: () => void }).unref?.();
+    });
+
     try {
-      while (Date.now() < deadline) {
-        await drainAnswered();
-        if (pending.size === 0) return;
+      while (!deadlineHit && Date.now() < deadline) {
+        await Promise.race([drainAnswered().catch(() => {}), deadlineReached]);
+        if (deadlineHit || pending.size === 0) return;
         const slice = Math.min(POLL_MS, Math.max(0, deadline - Date.now()));
         if (slice <= 0) return;
         await new Promise<void>((resolve) => {
@@ -834,6 +859,7 @@ export abstract class ServerTableEngineBase {
         });
       }
     } finally {
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
       this.rebuyPauseWake = null;
       for (const id of userIds) this.rejectedRebuys.delete(id);
     }
@@ -1061,11 +1087,37 @@ export abstract class ServerTableEngineBase {
   private operatorFloorHoldRead = false;
   protected readonly operatorClosureOnlyId: string | null;
   private operatorFloorReadSequence = 0;
+  private preparedOperatorFloor: Promise<void> | null = null;
   protected operatorCloseRequest: {
     operation_id: string;
     actor_id: string;
     reason: string;
   } | null = null;
+
+  /**
+   * Overlap the pure read-only `fn_ca_operator_floor_state` RPC with
+   * `prepareNextHand()` so it never adds a serial PostgREST round trip to
+   * every hand (incident 1e532243). Consumed once by
+   * `passOperatorFloorBoundary()`.
+   */
+  protected startPreparedOperatorFloor(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    const raw = this.refreshOperatorFloor();
+    const work = wrap ? wrap(raw) : raw;
+    // Observed by passOperatorFloorBoundary(); prevent unhandled rejection if
+    // an earlier guard exits the iteration before the boundary is reached.
+    work.catch(() => undefined);
+    this.preparedOperatorFloor = work;
+  }
+
+  protected clearPreparedOperatorFloor(): void {
+    this.preparedOperatorFloor = null;
+  }
+
+  protected consumePreparedOperatorFloor(): Promise<void> | null {
+    const prepared = this.preparedOperatorFloor;
+    this.preparedOperatorFloor = null;
+    return prepared;
+  }
 
   /** Called by this table's existing boundary, never a second floor sweeper. */
   public async refreshOperatorFloor(): Promise<void> {
@@ -1100,7 +1152,8 @@ export abstract class ServerTableEngineBase {
   }
 
   protected async passOperatorFloorBoundary(): Promise<boolean> {
-    await this.refreshOperatorFloor();
+    const prepared = this.consumePreparedOperatorFloor();
+    await (prepared ?? this.refreshOperatorFloor());
     if (!this.operatorFloorPaused) return false;
     this.markProgress();
     if (
@@ -2304,6 +2357,32 @@ export abstract class ServerTableEngineBase {
   // tournamentChipConservation.ts and the persist gate in postHandTasks.
   protected currentHandDealtStacks: Map<string, number> = new Map();
   protected currentHandSeatGenerations: Map<string, HandSeatGeneration> = new Map();
+  /**
+   * Busted seats already cashed out and released during this hand's settlement
+   * (e.g. horse stop-loss or unfunded departure during post_hand_hold). Cleared
+   * at each new deal so post-hold rebuy eligibility never pauses 5s for a chair
+   * that is already empty.
+   */
+  protected releasedBustedSeatsThisHand: Set<string> = new Set();
+
+  protected recordBustedSeatReleasedThisHand(player: {
+    user_id: string;
+    occupancy_id?: string;
+  }): void {
+    const released = (this.releasedBustedSeatsThisHand ??= new Set());
+    released.add(player.occupancy_id ? `occ:${player.occupancy_id}` : `user:${player.user_id}`);
+  }
+
+  protected wasBustedSeatReleasedThisHand(player: {
+    user_id: string;
+    occupancy_id?: string;
+  }): boolean {
+    const released = this.releasedBustedSeatsThisHand;
+    if (!released || released.size === 0) return false;
+    return player.occupancy_id
+      ? released.has(`occ:${player.occupancy_id}`) || released.has(`user:${player.user_id}`)
+      : released.has(`user:${player.user_id}`);
+  }
   // Bible V8 §2.5: Action Record requires seat, userId, action, amount, timestamp, stage
   protected currentHandActions: {
     seat: number;
@@ -2604,6 +2683,8 @@ export abstract class ServerTableEngineBase {
         acceptedHand?: { handId: string; startedAt: number }
       ) => void)
     | null = null;
+  /** Hand number for which Settlement already invoked handCompleteCallback (prevents duplicate post-hold bust wake). */
+  protected handCompleteCallbackNotifiedHandNumber: number | null = null;
   /**
    * Exact hand-for-hand barrier signal. The tournament coordinator used to
    * rediscover this state by polling every table twice a second. Emitting at
@@ -2956,6 +3037,8 @@ export abstract class ServerTableEngineBase {
   private f06PermitFactory:
     | ((handNumber: string) => F06HandPermit | Promise<F06HandPermit>)
     | null = null;
+  private f06HandStatePrefetch: (() => Promise<void>) | null = null;
+  private f06HandStateClear: (() => void) | null = null;
   protected f06CurrentPermit: F06HandPermit | null = null;
   // Positive original-process acknowledgement, not a reconstructed no-start.
   // Captured with the banks only after stop has joined the dealing writer.
@@ -2967,6 +3050,36 @@ export abstract class ServerTableEngineBase {
     if (this.running || this.f06PermitFactory || this.f06MovementAdmission)
       throw new Error('f06_admission_install_too_late');
     this.f06PermitFactory = factory;
+  }
+  /**
+   * Optional pre-start F06 state prefetcher installed alongside `installF06HandAdmission`.
+   * Starts `fn_f06_hand_number_state` in parallel with `loadSeatedPlayers` inside
+   * `prepareNextHand()` so `reserveF06Hand()` does not pay an extra serial PostgREST
+   * round trip before `fn_f06_begin_hand`. Cleared on pause, abandon, allocator
+   * invalidation, or unstarted permit release.
+   */
+  installF06HandStatePrefetch(prefetch: () => Promise<void>, clear?: () => void): void {
+    if (this.running || this.f06MovementAdmission)
+      throw new Error('f06_admission_install_too_late');
+    this.f06HandStatePrefetch = prefetch;
+    this.f06HandStateClear = clear ?? null;
+  }
+  protected prefetchF06HandState(): void {
+    if (
+      !this.f06HandStatePrefetch ||
+      this.f06CurrentPermit ||
+      this.f06MovementAdmission ||
+      !this.running ||
+      this.isNextHandPaused() ||
+      this.isHandForHandReleaseBlocked() ||
+      this.dealHoldUntilMs > Date.now() ||
+      this.hasOpenBountyReveal()
+    )
+      return;
+    void this.f06HandStatePrefetch().catch(() => {});
+  }
+  protected clearPrefetchedF06HandState(): void {
+    this.f06HandStateClear?.();
   }
   /** This table reserves an F06 hand permit before every deal (tournament custody). */
   protected hasF06HandAdmission(): boolean {
@@ -3133,6 +3246,7 @@ export abstract class ServerTableEngineBase {
     }
     if (permit.recoveryState() !== 'reserved' && !permit.hasPreparedCancellation()) return false;
     await this.cancelF06PreparedHand();
+    this.clearPrefetchedF06HandState();
     return true;
   }
   /** The held F06 permit's local phase, or `none` (diagnostics only). */
@@ -3692,6 +3806,17 @@ export abstract class ServerTableEngineBase {
    * pot before it may leave (one full orbit). The horse rotator asks before
    * choosing who stands up, so no horse leaves the hand after a big pot.
    */
+  /**
+   * A DRAINING HORSE IS NEVER FOLDED OUT OF A LIVE HAND (2026-11-25): this seat
+   * holds unfolded cards in the hand being played, read exactly as leaveTable
+   * reads it (the hand controller's state; none between hands). The horse
+   * rotator's variety drain asks before choosing which Horse stands up.
+   */
+  public liveInHand(userId: string): boolean {
+    const self = this.handController?.getState()?.players.find((p) => p.user_id === userId);
+    return Boolean(self && !self.is_folded);
+  }
+
   public bigPotOrbitHandsOwed(userId: string): number {
     // Durable first (the session row, 20261111174148); memory only before it exists.
     const row = this.chipContinuity?.row(userId);
@@ -5847,6 +5972,8 @@ export abstract class ServerTableEngineBase {
    * before dealHand. See server/src/cluster/seatBoundarySignals.ts.
    */
   protected seatMovePlanGenerationAtRead = 0;
+  protected seatMoveGamePlanGenerationAtRead: number | undefined = undefined;
+  protected seatMoveTablePlanGenerationAtRead = 0;
   protected seatArrivalGenerationAtRoster = 0;
 
   /**
@@ -5920,7 +6047,37 @@ export abstract class ServerTableEngineBase {
    * line keeps main's contract, everything below it keeps this lane's
    * invariant.
    */
-  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+  private preparedPendingSeatMoves: {
+    tableGen: number;
+    gameGen: number;
+    planGen: number;
+    promise: Promise<PendingSeatMove[] | null>;
+  } | null = null;
+
+  /**
+   * Overlap the read-only `pendingSeatMoves` query with `prepareNextHand()`
+   * on clustered cash tables (incident 1e532243). `announcePendingSeatMoves()`
+   * consumes this result only when all three move-plan generations are still
+   * unchanged; any plan committed in the meantime forces a fresh inline read.
+   */
+  protected startPreparedPendingSeatMoves(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    this.preparedPendingSeatMoves = null;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id || !this.lifecycleCanMutate())
+      return;
+    const tableGen = tableMovesPlannedGeneration(this.tableId);
+    const gameGen = gameWideMovesPlannedGeneration(this.tableInfo.cluster_id);
+    const planGen = movesPlannedGeneration(this.tableInfo.cluster_id);
+    const raw = this.fetchPendingSeatMoves();
+    const promise = wrap ? wrap(raw) : raw;
+    promise.catch(() => undefined);
+    this.preparedPendingSeatMoves = { tableGen, gameGen, planGen, promise };
+  }
+
+  protected clearPreparedPendingSeatMoves(): void {
+    this.preparedPendingSeatMoves = null;
+  }
+
+  private async fetchPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
     try {
       return await pendingSeatMoves(this.tableId);
     } catch (err) {
@@ -5929,11 +6086,35 @@ export abstract class ServerTableEngineBase {
     }
   }
 
+  private async readPendingSeatMoves(): Promise<PendingSeatMove[] | null> {
+    const prepared = this.preparedPendingSeatMoves;
+    this.preparedPendingSeatMoves = null;
+    if (
+      prepared &&
+      this.seatMoveTablePlanGenerationAtRead === prepared.tableGen &&
+      this.seatMoveGamePlanGenerationAtRead === prepared.gameGen &&
+      this.seatMovePlanGenerationAtRead === prepared.planGen
+    ) {
+      return prepared.promise;
+    }
+    return this.fetchPendingSeatMoves();
+  }
+
   protected async announcePendingSeatMoves(): Promise<boolean> {
-    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) return true;
-    if (!this.lifecycleCanMutate()) return false;
+    if (this.isTournamentTable() || !this.tableInfo?.cluster_id) {
+      this.clearPreparedPendingSeatMoves();
+      return true;
+    }
+    if (!this.lifecycleCanMutate()) {
+      this.clearPreparedPendingSeatMoves();
+      return false;
+    }
     // Captured BEFORE the read: a plan committed after this instant reaches
     // the synchronous check before dealHand even if this read missed it.
+    this.seatMoveTablePlanGenerationAtRead = tableMovesPlannedGeneration(this.tableId);
+    this.seatMoveGamePlanGenerationAtRead = gameWideMovesPlannedGeneration(
+      this.tableInfo?.cluster_id
+    );
     this.seatMovePlanGenerationAtRead = movesPlannedGeneration(this.tableInfo?.cluster_id);
     const pending = await this.readPendingSeatMoves();
     // A fresh engine has no local swap holds. Unknown durable readiness must
@@ -6013,6 +6194,26 @@ export abstract class ServerTableEngineBase {
     this.seatArrivalGenerationAtRoster = seatArrivalGeneration(this.tableId);
   }
 
+  /** True for Main 1 of a cash must-move cluster (has no outgoing must-move plans). */
+  protected isPrimaryMainTable(): boolean {
+    return this.tableInfo?.role === 'main' && Number(this.tableInfo?.main_index) === 1;
+  }
+
+  /**
+   * Read-only synchronous predicate used by awaitNextHandRest() to wake early
+   * inside the rest window without mutating loopPhase or duplicating the sole
+   * seatBoundaryChangedUnderRest() call site in the loop.
+   */
+  protected hasPendingSeatBoundaryChange(): boolean {
+    if (this.isTournamentTable()) return false;
+    if (seatArrivalGeneration(this.tableId) !== this.seatArrivalGenerationAtRoster) return true;
+    if (tableMovesPlannedGeneration(this.tableId) !== (this.seatMoveTablePlanGenerationAtRead ?? 0))
+      return true;
+    if (this.isPrimaryMainTable()) return false;
+    const baseline = this.seatMoveGamePlanGenerationAtRead ?? this.seatMovePlanGenerationAtRead;
+    return gameWideMovesPlannedGeneration(this.tableInfo?.cluster_id) !== baseline;
+  }
+
   /**
    * THE LAST LOOK BEFORE THE DEAL (2026-10-24). Synchronous by design: it
    * sits between the two-second rest and dealHand, where nothing may wait
@@ -6021,11 +6222,20 @@ export abstract class ServerTableEngineBase {
    * committed after this iteration read them; the loop then goes round once
    * more so the plan is executed before another feeder hand and the arrival
    * is dealt into Main's next hand. Every ordinary deal returns false here.
+   *
+   * Main 1 (`role === 'main' && main_index === 1`) has zero outgoing must-move
+   * plans, so it ignores game-wide feeder->Main plan signals while always
+   * honoring table-targeted plans (e.g. swaps) and `seatArrivalGeneration`.
    */
   protected seatBoundaryChangedUnderRest(): boolean {
     if (this.isTournamentTable()) return false;
-    const planned =
-      movesPlannedGeneration(this.tableInfo?.cluster_id) !== this.seatMovePlanGenerationAtRead;
+    const tablePlanned =
+      tableMovesPlannedGeneration(this.tableId) !== (this.seatMoveTablePlanGenerationAtRead ?? 0);
+    const gamePlanned =
+      !this.isPrimaryMainTable() &&
+      gameWideMovesPlannedGeneration(this.tableInfo?.cluster_id) !==
+        (this.seatMoveGamePlanGenerationAtRead ?? this.seatMovePlanGenerationAtRead);
+    const planned = tablePlanned || gamePlanned;
     const arrived = seatArrivalGeneration(this.tableId) !== this.seatArrivalGenerationAtRoster;
     if (!planned && !arrived) return false;
     this.setLoopPhase(planned ? 'seat_move_planned_under_rest' : 'seat_arrived_under_rest');
@@ -9096,6 +9306,7 @@ export abstract class ServerTableEngineBase {
   /** Drop an unstarted controller without a table, seat, stack or wallet write. */
   protected discardPreparedHandForPause(): boolean {
     if (!this.isNextHandPaused()) return false;
+    this.f06HandStateClear?.();
     this.handController = null;
     this.currentHandDealtStacks.clear();
     if (this.handSpan) {
@@ -11737,6 +11948,15 @@ export abstract class ServerTableEngineBase {
   /** hand_history.kill_pot for this hand, set at settlement. */
   protected currentHandKillRecord: KillPotRecord | null = null;
 
+  /**
+   * PER-HAND OPTION RECEIPTS (2026-11-25, HorseHandOptionReceipts): how many executed Horse decisions of THIS hand
+   * each listed option changed, by receipt text (`<option>:<before>><after>`, action kinds only, never a card).
+   * Counted in memory when a Horse's action is accepted (ServerTableEngineTurns), cleared at the deal, copied
+   * into the settlement snapshot and written after the hand's own commit (services/HorseHandReceipts.ts).
+   * Nothing reads it to decide or to act.
+   */
+  protected currentHandOptionReceipts: Map<string, number> = new Map();
+
   /** The table row's kill configuration; `off` on any row without it. */
   protected killSettingsFromTable(): KillSettings {
     return readKillSettings(this.tableInfo as never);
@@ -11913,6 +12133,61 @@ export abstract class ServerTableEngineBase {
    * with no rule, and after a failed read - the brain then plays its prior.
    */
   protected nitStatus: Map<string, NitSeatStatus> = new Map();
+  private preparedNitStatus: Promise<Map<string, NitSeatStatus>> | null = null;
+
+  /** Optional timing wrapper overridden by ServerTableEngineDealing for cash breach spans. */
+  protected timeCashNitBranch<T>(_name: string, work: Promise<T>): Promise<T> {
+    return work;
+  }
+
+  /**
+   * Overlap the pure read-only `fn_nit_status` RPC with `prepareNextHand()` on
+   * `nit_game = true` cash tables so it never adds a serial PostgREST round
+   * trip after the seat reload (incident 1e532243). Consumed once by
+   * `evictExpiredSitOuts()`.
+   */
+  protected startPreparedNitStatus(wrap?: <T>(work: Promise<T>) => Promise<T>): void {
+    const raw = collectNitStatus(this.tableId);
+    const work = wrap ? wrap(raw) : raw;
+    // Observed by evictExpiredSitOuts(); prevent unhandled rejection if an
+    // earlier guard exits the iteration before eviction runs.
+    work.catch(() => new Map<string, NitSeatStatus>());
+    this.preparedNitStatus = work;
+  }
+
+  protected clearPreparedNitStatus(): void {
+    this.preparedNitStatus = null;
+  }
+
+  protected consumePreparedNitStatus(): Promise<Map<string, NitSeatStatus>> | null {
+    const prepared = this.preparedNitStatus;
+    this.preparedNitStatus = null;
+    return prepared;
+  }
+
+  /**
+   * `fn_nit_enforce` only mutates `ca_nit_warnings` or returns evictions when
+   * (a) the table's floor is off (`required <= 0`, clearing stale warnings),
+   * (b) a seated player is under the floor (`evict === true`), or (c) a seated
+   * player has an open warning (`warned === true`). When `fn_nit_status`
+   * already returned a clean row for every currently seated player, calling
+   * `fn_nit_enforce` is a guaranteed no-op round trip. Any missing seat,
+   * failed/empty read, zero floor, under-floor flag, or open warning falls
+   * through to `collectNitEnforce(this.tableId)`.
+   */
+  protected canSkipNitEnforce(
+    status: Map<string, NitSeatStatus>,
+    seatedIds: readonly string[]
+  ): boolean {
+    if (!(status instanceof Map) || status.size === 0 || seatedIds.length === 0) return false;
+    for (const userId of seatedIds) {
+      if (!status.has(userId)) return false;
+    }
+    for (const row of status.values()) {
+      if (row.required <= 0 || row.evict || row.warned) return false;
+    }
+    return true;
+  }
 
   /** The three floor inputs handed to a Horse decision for `userId`, and
    * written beside that decision's stored public node. One source for both,
@@ -12848,6 +13123,8 @@ export abstract class ServerTableEngineBase {
     this.forgetTimeBank(player.user_id);
     this.straddleEngine.removePlayer(this.tableId, player.user_id);
     this.preActionEngine.removePlayer(this.tableId, player.user_id);
+    this.recordBustedSeatReleasedThisHand(player);
+    this.rebuyPauseWake?.();
     return true;
   }
 
@@ -12921,8 +13198,15 @@ export abstract class ServerTableEngineBase {
         // The board every seat is judged on, kept for the brain (Dan
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
-        this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEnforce(this.tableId);
+        // Overlapped with prepareNextHand() on the dealing path (incident
+        // 1e532243); falls back to an inline read whenever no prepared read is
+        // pending (startup wait loop, retry, direct call).
+        const preparedNit = this.consumePreparedNitStatus();
+        this.nitStatus = await (preparedNit ??
+          this.timeCashNitBranch('nit_status', collectNitStatus(this.tableId)));
+        const nits = this.canSkipNitEnforce(this.nitStatus, seatedIds)
+          ? []
+          : await this.timeCashNitBranch('nit_enforce', collectNitEnforce(this.tableId));
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +
@@ -12930,6 +13214,8 @@ export abstract class ServerTableEngineBase {
           );
           nitEvictable.push(n.userId);
         }
+      } else {
+        this.clearPreparedNitStatus();
       }
 
       // 2026-09-04: a seat nobody is behind for five minutes, never sat out and

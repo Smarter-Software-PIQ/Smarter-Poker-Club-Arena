@@ -771,7 +771,7 @@
   .club-lobby-machine .lobby-table .lt-status--starting_soon {
     border-color: #8d681d;
     background: linear-gradient(180deg, rgb(206 147 24 / 16%), transparent 50%), #130e02;
-    color: #e8bb49;
+    color: #92dfff;
   }
 
   .club-lobby-machine .lobby-table .lt-status--open {
@@ -834,7 +834,7 @@
   }
 
   .club-lobby-machine .lobby-table .lt-fav.is-on {
-    color: #e1b94c;
+    color: #92dfff;
   }
 
   .club-lobby-machine .lobby-table--mtt .lt-col-tstack,

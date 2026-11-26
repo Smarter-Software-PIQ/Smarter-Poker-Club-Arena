@@ -13,7 +13,9 @@
  *
  * This file is now presentation only: states, and a list.
  */
-import type { TournamentTabProps } from './types';
+import { tournamentRowUnitCents, type TournamentTabProps } from './types';
+import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
+import satelliteTicket from '../../lobby/console-art/ticket.webp';
 import SatelliteCard from './SatelliteCard';
 import { useSatellites } from './useSatellites';
 import './SatellitesTab.css';
@@ -48,8 +50,10 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
 
   if (cards.length === 0) {
     return (
-      <div className="tab-pane-content sat-state" role="status">
-        No Upcoming Satellites Running For This Event.
+      <div className="tab-pane-content sat-state sat-state--empty" role="status">
+        <img src={satelliteTicket} alt="" width="88" height="70" />
+        <h3>No Upcoming Satellites</h3>
+        <p>No Qualifiers Are Scheduled For {tournament.name}.</p>
       </div>
     );
   }
@@ -57,15 +61,49 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
   return (
     <div className="tab-pane-content sat-list">
       {cards.map((sat) => (
-        <SatelliteCard
-          key={sat.id}
-          onRegistered={retry}
-          tournament={sat}
-          /* `registration` is null when the batch query failed. Passing null
+        <article key={sat.id} className="approved-satellite">
+          <div className="console-ticket" aria-label="Satellite Qualifier">
+            <small>Satellite Into</small>
+            <strong className="ticket-title" aria-label="Seat Into">
+              {tournament.name}
+            </strong>
+            <dl className="ticket-counts">
+              <div>
+                <dt>Admission</dt>
+                <dd>
+                  {sat.buyIn}{' '}
+                  {tournamentRowUnitCents(sat) === DIAMOND_UNIT_CENTS ? 'Diamonds' : 'Chips'}
+                </dd>
+              </div>
+              <div>
+                <dt>Filled</dt>
+                <dd>
+                  {sat.registeredPlayers}
+                  {sat.maxPlayers ? ` / ${sat.maxPlayers}` : ''}
+                </dd>
+              </div>
+            </dl>
+            <span className="ticket-qualifier">Seat Into {tournament.name}</span>
+            <b className="ticket-start">
+              {sat.startsWhenFull
+                ? '◷  Starts When Full'
+                : sat.startsAt
+                  ? new Date(sat.startsAt).toLocaleString()
+                  : 'Start Time Pending'}
+            </b>
+          </div>
+          <details>
+            <summary>Entry Details &amp; Registration</summary>
+            <SatelliteCard
+              onRegistered={retry}
+              tournament={sat}
+              /* `registration` is null when the batch query failed. Passing null
              makes the card fall back to its own lookup rather than render a
              live Register button at a player who is already in. */
-          knownRegistration={registration ? Boolean(registration[sat.id]) : null}
-        />
+              knownRegistration={registration ? Boolean(registration[sat.id]) : null}
+            />
+          </details>
+        </article>
       ))}
     </div>
   );

@@ -40,6 +40,16 @@ Failed delivery enters immediate blocker recovery under the operating law. Compa
 
 Evidence must match the actual inputs and component. A merge badge, successful command, open PR, frontend version or filled form is not proof of every downstream result. For a write, read back the persisted row and affected consumer safely. Prove inclusion when a newer protected version contains concurrent work; do not overwrite it to force an older SHA.
 
+## Close out a set of fixes
+
+Owner direction, November 24, 2026: when a set of fixes is finished, close it out before reporting it done.
+
+1. Sweep for what the fixes touched: bugs, gaps, stubs, errors, regressions and wiring (every caller, every writer, every test and law that reads the changed code or doc). Read the required checks on the final head, and treat a red check on main that a fix exposes as part of the work.
+2. Confirm each fix is a source fix: the change sits in the function, schema, workflow or engine code that owns the behaviour, not in a wrapper, a data patch, a cron, a watcher or a repair loop. Where it is safely reproducible, show the regression test fails on the parent and passes on the fix.
+3. For each fix, write down why it broke and how: the mechanism, the missing guard that let it through, and every other place the same mechanism can occur.
+4. Harden each one so it cannot come back: a constraint, a gate in the tool that performs the action, or a test or law that fails the build. A guard that only some writers pass through is recorded with the writers it does not cover.
+5. Record the close-out (per fix: owning source, fails before / passes after, why and how it broke, the hardening) in the lane checkpoint or `docs/checkpoints/`, and repeat this method in every handoff prompt so the next agent applies it too. `docs/checkpoints/2026-11-24-incident-fix-audit-and-hardening.md` is a worked example.
+
 ## Preserve product rules
 
 The owner's ban on “em bars” means em dashes in user-visible text. It does not ban the hamburger menu. Preserve the approved artwork and navigation enforced by `tests/approvedHamburgerGearGuard.law.test.ts`, financial safeguards and task-specific product laws. Do not use real chips or active games for destructive tests. Unrelated TODOs are not an assignment, and unavailable verification must be reported rather than invented.

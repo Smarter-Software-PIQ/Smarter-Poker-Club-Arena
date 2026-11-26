@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test';
 
 const REST_ROUTE_GLOB = '**/rest/v1/**';
 const MAINTENANCE_STATE_PATH = '/rest/v1/rpc/fn_maintenance_break_state';
+const KINGS_DISPLAY_TOTALS_PATH = '/rest/v1/rpc/fn_kings_club_display_totals';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const RPC_PATH = /^\/rest\/v1\/rpc\/[A-Za-z0-9_]+$/;
 const EXACT_REST_PATH = /^\/rest\/v1\/(?:rpc\/)?[A-Za-z0-9_]+$/;
@@ -94,6 +95,9 @@ export const FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS = Object.freeze([
   // HomePage reads separately labeled display additions on the same fallback.
   // SQL STABLE, SELECT-only; no nested functions or DML (live pg_proc, 2026-11-06).
   '/rest/v1/rpc/fn_club_display_labeled_additions',
+  // The same lobby reads Kings Club's totals via its two reviewed STABLE counters
+  // (20261118002641). The caller supplies no arguments.
+  KINGS_DISPLAY_TOTALS_PATH,
   '/rest/v1/rpc/fn_get_club_entry_flags',
   '/rest/v1/rpc/get_club_players_playing',
 ] as const);
@@ -176,7 +180,7 @@ function classifyWithReviewedPaths(
     return { action: 'allow', method: normalizedMethod, path };
   }
   if (normalizedMethod === 'POST' && allowedRpcPaths.has(path)) {
-    if (path === MAINTENANCE_STATE_PATH) {
+    if (path === MAINTENANCE_STATE_PATH || path === KINGS_DISPLAY_TOTALS_PATH) {
       const body = readBody?.();
       if (body && !/^\s*\{\s*\}\s*$/.test(body))
         return { action: 'block', method: normalizedMethod, path };

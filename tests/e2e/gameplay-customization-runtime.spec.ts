@@ -23,6 +23,7 @@ import {
 } from './support/appearanceRealtimeObservation';
 import { GAMEPLAY_CERTIFICATE_BOARD } from './support/gameplayCertificateBoard';
 import { completeCustomizationSignIn } from './support/completeCustomizationSignIn';
+import { enrollCustomizationBrowser } from './support/customizationBrowserEnrollment';
 import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from './support/ensurePlayableProfile';
 import { OneShotRequestGate, runWithOneShotRequestGate } from './support/oneShotRequestGate';
@@ -521,7 +522,12 @@ async function expectClassicCountdownOnFelt(root: Locator) {
   await expect(root.getByText('Hands Before You Can Leave', { exact: true })).toHaveCount(1);
 }
 
-async function signIn(page: Page, baseURL: string, account: TemporaryCustomizationAccount) {
+async function signIn(
+  page: Page,
+  baseURL: string,
+  account: TemporaryCustomizationAccount,
+  enrollment?: { approvedBy?: Page }
+) {
   const protectedURL = new URL('notifications', baseURL).toString();
   await page.goto(protectedURL, { waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
   await page.waitForURL((url) => url.pathname.includes('/auth'), { timeout: 20_000 });
@@ -537,6 +543,7 @@ async function signIn(page: Page, baseURL: string, account: TemporaryCustomizati
   await submit.click();
   await completeCustomizationSignIn(page, protectedURL);
   await page.evaluate(() => localStorage.setItem('club_arena_welcome_accepted', 'true'));
+  if (enrollment) await enrollCustomizationBrowser(page, account, enrollment.approvedBy);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect
@@ -562,8 +569,8 @@ async function tapReady(control: Locator) {
 }
 
 async function openTableSettings(page: Page) {
-  await tapReady(page.getByRole('button', { name: 'Table Menu' }));
-  await tapReady(page.getByRole('menuitem', { name: 'Table Settings', exact: true }));
+  await page.getByRole('button', { name: 'Table Menu' }).click();
+  await page.getByRole('menuitem', { name: 'Table Settings', exact: true }).click();
   const settings = page.locator('.settings-panel');
   await expect(settings).toBeVisible({ timeout: 30_000 });
   return settings;
@@ -1620,6 +1627,7 @@ test.describe('production routed gameplay customization', () => {
         [writerContext, writerThemeGate, writerProfileGate],
         [readerContext, readerThemeGate, readerProfileGate],
       ] as const) {
+        context.setDefaultTimeout(30_000);
         await installEngineProjection(context, tableId, account.id, runtime);
         await installRuntimeDataProjection(
           context,
@@ -1651,8 +1659,7 @@ test.describe('production routed gameplay customization', () => {
         'table-art',
         expectedFirstTableArt
       );
-      await signIn(writer, baseURL, account);
-      await signIn(reader, baseURL, account);
+      await signIn(writer, baseURL, account, {});
 
       await test.step('open the cash table from the lobby on 393px WebKit', async () => {
         const phone = await webkit.launch();
@@ -1665,7 +1672,7 @@ test.describe('production routed gameplay customization', () => {
             viewport: size,
             serviceWorkers: 'block',
             baseURL,
-            storageState: await writerContext!.storageState(),
+            storageState: { cookies: [], origins: [] },
           });
           await installEngineProjection(context, tableId, account!.id, runtime);
           await installRuntimeDataProjection(
@@ -1677,6 +1684,7 @@ test.describe('production routed gameplay customization', () => {
             new OneShotRequestGate()
           );
           const page = await context.newPage();
+          await signIn(page, baseURL, account!, { approvedBy: writer });
           await page.goto(`clubs/${CLUB_ID}`, { waitUntil: 'domcontentloaded' });
           await expect(page.locator('.club-home')).toBeVisible();
           await blockProjectedTableWrites(page);
@@ -1728,6 +1736,8 @@ test.describe('production routed gameplay customization', () => {
         }
       });
 
+      // Only the enrolled writer receives the next approval after WebKit closes.
+      await signIn(reader, baseURL, account, { approvedBy: writer });
       await Promise.all([
         writer.goto(`table/${tableId}`, {
           waitUntil: 'domcontentloaded',
@@ -2188,14 +2198,18 @@ test.describe('production routed gameplay customization', () => {
         '[gameplay-customization] private authenticated table signal reconciled the second table'
       );
       console.log('[gameplay-customization] every selected graphic survived a cold route reload');
-      await expectPublishedControllerSettings(await openTableSettings(writer));
-      await reader.reload({ waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
-      await expect(
-        reader.locator('.multi-table-page__table-slot--active .table-page')
-      ).toHaveAttribute('data-felt-theme', 'carbon_red', { timeout: RESPONSE_TIMEOUT });
-      await expectPublishedControllerSettings(await openTableSettings(reader));
+      await test.step('verify the writer browser’s controller after cold reload', async () => {
+        await expectPublishedControllerSettings(await openTableSettings(writer));
+      });
+      await test.step('verify the paired reader browser’s controller after cold reload', async () => {
+        await reader.reload({ waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
+        await expect(
+          reader.locator('.multi-table-page__table-slot--active .table-page')
+        ).toHaveAttribute('data-felt-theme', 'carbon_red', { timeout: RESPONSE_TIMEOUT });
+        await expectPublishedControllerSettings(await openTableSettings(reader));
+      });
       console.log(
-        '[action-controller] all six palettes rendered; custom preflop/postflop amounts persisted in the account and cold-rehydrated on both devices'
+        '[action-controller] all six palettes rendered; custom preflop/postflop amounts persisted in the account and cold-rehydrated in both paired browsers'
       );
     } catch (error) {
       journeyFailure = error;

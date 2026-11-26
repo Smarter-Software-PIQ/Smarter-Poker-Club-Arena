@@ -37,6 +37,9 @@ describe('bounded read-only recovery checkouts', () => {
     expect(checkout.with['sparse-checkout-cone-mode']).toBe(false);
     expect(checkout.with['sparse-checkout'].trim().split('\n')).toEqual([
       '/scripts/ci/read-engine-prequalification.py',
+      // O25 (2026-11-24): the read-only readiness CLI the cycle owner runs for
+      // its early-warning comments, from inside its existing cutoff wait.
+      '/scripts/release/three-hourly-readiness.py',
       '/server/scripts/engine-release-seal.py',
       '/server/release/owner-maintenance-windows.json',
       '/server/release/activation-floor.json',

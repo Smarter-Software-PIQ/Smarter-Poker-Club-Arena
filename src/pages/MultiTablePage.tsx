@@ -127,7 +127,7 @@ import { TableErrorBoundary } from '../components/common/TableErrorBoundary';
 import { betSliderStep, sliderUnitFor } from '../components/table/ActionPanel';
 import { publishInTabLobbyActive } from '../components/club/inTabLobbySurface';
 import { openInBrowser } from '../lib/openExternal';
-import { isNativePlatform } from '../lib/appBase';
+import { isNativePlatform, WEB_ORIGIN } from '../lib/appBase';
 import { parseTileRaiseBounds, tileAllInTo, tilePotRaiseTo } from '../utils/tileRaiseSizing';
 import {
   lightningUrgencyByRoom,
@@ -268,6 +268,8 @@ interface TableInstance {
   seatChangeOffInLightning?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
+  tournamentAutoRebuy?: boolean;
+  tournamentAutoAddOn?: boolean;
   standUpNextBB?: boolean;
   straddleAvailable?: boolean;
   straddleEnabled?: boolean;
@@ -2060,11 +2062,20 @@ export default function MultiTablePage() {
   useMasterBusSubscription('OPEN_HUB_TAB', (payload: { path?: string }) => {
     const path = payload?.path ?? '';
     if (!isHubPath(path)) return;
+    if (isNativePlatform()) {
+      openInBrowser(new URL(path, WEB_ORIGIN).href, 'noopener,noreferrer');
+      return;
+    }
     const prev = tablesRef.current;
     const existing = prev.findIndex((t) => isHubTab(t) && sameHubPage(t.hubUrl ?? '', path));
     if (existing !== -1) {
+      const nextTables =
+        prev[existing].hubUrl !== path
+          ? prev.map((t, i) => (i === existing ? { ...t, hubUrl: path } : t))
+          : prev;
+      if (nextTables !== prev) setTables(nextTables);
       setActiveIndex(existing);
-      revealPageTabOffRoute(existing, prev);
+      revealPageTabOffRoute(existing, nextTables);
       return;
     }
     if (prev.length >= MAX_TABLES) {
@@ -2404,6 +2415,8 @@ export default function MultiTablePage() {
           seatChangeOffInLightning: t.seatChangeOffInLightning,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
+          tournamentAutoRebuy: t.tournamentAutoRebuy,
+          tournamentAutoAddOn: t.tournamentAutoAddOn,
           standUpNextBB: t.standUpNextBB,
           straddleAvailable: t.straddleAvailable,
           straddleEnabled: t.straddleEnabled,

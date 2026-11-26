@@ -111,6 +111,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     proof:
       'holdemTournamentAllInCallIsPriced (default OFF): preflop it leaves raises/raising all-ins and exact chart_bb_defend answers untouched, and resets any chart_open_jam or variant_price route to the active preflop reference owner (intent_engine under V7, legacy_preflop otherwise) before returning its priced call or fold; postflop no preflop receipt exists (AHoldemTournamentAllInCallIsPriced.law.test.ts, AHoldemAllInCallReferenceReceiptIsValid.law.test.ts)',
   },
+  {
+    owner: 'holdemRaiseDefenceReference',
+    kind: 'post_route',
+    proof:
+      'holdemTournamentHeadsUpBigBlindDefenceIsPriced / holdemTournamentBlindDefenceIsPriced / holdemTournamentCommittedRaiseIsPriced (default OFF): preflop only, facing one non-all-in raise in a heads-up pot; it returns a fold, a call of the exact amount or an all-in, and resets any chart_open_jam, chart_bb_defend or variant_price route to the active preflop reference owner (intent_engine under V7, legacy_preflop otherwise) whenever it prices the spot; off it returns the decision it was given (AHoldemTournamentRaiseDefenceIsPriced.law.test.ts checks every priced decision against horseDecisionReceiptRefusal and the route)',
+  },
 ];
 
 describe('the ledger is the source', () => {

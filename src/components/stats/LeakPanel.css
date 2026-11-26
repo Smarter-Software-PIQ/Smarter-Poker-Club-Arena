@@ -63,7 +63,7 @@
 }
 
 .leak-item.sev-medium {
-  border-left-color: #f59e0b;
+  border-left-color: #86c9e8;
 }
 
 .leak-item.sev-low {
@@ -95,7 +95,7 @@
 
 .leak-sev.sev-medium {
   background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
+  color: #bddeea;
 }
 
 .leak-sev.sev-low {
@@ -142,4 +142,34 @@
   font-size: 0.78rem;
   line-height: 1.55;
   color: rgba(200, 224, 245, 0.6);
+}
+
+.leak-assistant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 0.8rem;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid #688299;
+  border-top-color: #aec0d0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #152639 0%, #06111e 65%);
+  color: #f1f5fc;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.leak-assistant-btn:focus-visible {
+  border-color: #45adff;
+  border-top-color: #93d6ff;
+  background: linear-gradient(180deg, #1a334e 0%, #08182b 65%);
+}
+
+@media print {
+  .leak-assistant-btn {
+    display: none;
+  }
 }

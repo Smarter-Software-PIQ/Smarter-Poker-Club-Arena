@@ -62,10 +62,12 @@ export default function SlugEnforcer() {
         }
       } else if (
         clubRes.data?.is_union &&
-        /^\/clubs?\/[^/]+\/data\/advanced\/?$/.test(location.pathname)
+        (/^\/clubs?\/[^/]+\/data\/advanced\/?$/.test(location.pathname) ||
+          (/^\/clubs?\/[^/]+\/data\/?$/.test(location.pathname) &&
+            new URLSearchParams(location.search).get('report') === 'open'))
       ) {
         // The house club's Report is served by the guarded Club Data route.
-        // There is no /unions/:unionId/data/advanced route to redirect into.
+        // Keep its scope on the house club when canonicalizing an inline report.
         newPath = newPath.replace(/^\/club\//, '/clubs/');
         if (clubRes.data.slug) newPath = newPath.replace(uuid, clubRes.data.slug);
         redirected = true;

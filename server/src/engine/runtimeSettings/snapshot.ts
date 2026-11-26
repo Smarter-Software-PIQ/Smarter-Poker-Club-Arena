@@ -10,6 +10,10 @@ import {
   runtimeSettingSpec,
   type RuntimeSettingValues,
 } from './registry.js';
+import {
+  validateSingleBlanketOffStep,
+  type BlanketOffSettingsInput,
+} from '../HorseBlanketOffSingleStepGuard.js';
 
 export interface RuntimeSettingsSnapshot {
   /** 0 is the compiled defaults (nothing read yet, or nothing published); a database version is 1 or more. */
@@ -84,4 +88,48 @@ export function parseRuntimeSettings(answer: unknown): RuntimeSettingsParse {
       values: checked.values,
     }),
   };
+}
+
+/**
+ * Validates a settings JSON text against the registry and, when `previousSettings` is supplied, enforces the
+ * 1-at-a-time blanket-off transition guard (HorseBlanketOffSingleStepGuard). Used by scripts/runtime-settings-publish.ts.
+ */
+export function checkRuntimeSettingsJson(
+  text: string,
+  previousSettings?: BlanketOffSettingsInput
+): {
+  ok: boolean;
+  lines: string[];
+  settings?: Record<string, number>;
+  code?: string;
+  newlyDisabled?: readonly string[];
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      ok: false,
+      lines: [`not JSON: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
+  const checked = validateRuntimeSettingValues(parsed);
+  if (!checked.ok) return { ok: false, lines: [`refused: ${checked.reason}`] };
+  if (previousSettings !== undefined) {
+    const step = validateSingleBlanketOffStep(previousSettings, checked.values);
+    if (!step.ok) {
+      return {
+        ok: false,
+        code: step.code,
+        newlyDisabled: step.newlyDisabled,
+        lines: [`refused: ${step.reason}`],
+      };
+    }
+  }
+  const lines = RUNTIME_SETTINGS_REGISTRY.map((spec) => {
+    const value = checked.values[spec.key];
+    const changed = value !== spec.compiledDefault;
+    return `${changed ? '*' : ' '} ${spec.key} = ${value}${changed ? ` (compiled ${spec.compiledDefault})` : ''}`;
+  });
+  return { ok: true, lines, settings: parsed as Record<string, number> };
 }

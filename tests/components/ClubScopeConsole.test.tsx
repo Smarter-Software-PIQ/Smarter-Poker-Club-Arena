@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ClubScopeConsole from '../../src/pages/stats/ClubScopeConsole';
 
-it('prints and sorts only comparison measures from the selected game mode', () => {
+it('prints and sorts only comparison measures from the selected game mode', async () => {
   const props = {
     statsScope: 'chips',
     clubLabel: 'All Clubs',
@@ -38,7 +38,7 @@ it('prints and sorts only comparison measures from the selected game mode', () =
     ],
   };
   const { rerender } = render(<ClubScopeConsole {...props} gameMode="cash" />);
-  expect(screen.getByRole('columnheader', { name: 'Profit' })).toBeInTheDocument();
+  expect(await screen.findByRole('columnheader', { name: 'Profit' })).toBeInTheDocument();
   expect(
     screen.queryByRole('columnheader', { name: 'Tournament Results' })
   ).not.toBeInTheDocument();
