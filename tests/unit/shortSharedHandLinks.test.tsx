@@ -18,6 +18,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const rpc = vi.hoisted(() => vi.fn());
+const signedIn = vi.hoisted(() => vi.fn(() => false));
 vi.mock('@/lib/supabase', () => {
   const chain = () => {
     const q: Record<string, unknown> = {};
@@ -34,7 +35,7 @@ vi.mock('@/services/SoundService', () => ({
 vi.mock('@/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: null }) }));
 vi.mock('@/lib/authUtils', async (orig) => ({
   ...(await orig<typeof import('@/lib/authUtils')>()),
-  hasLocalSession: () => false,
+  hasLocalSession: signedIn,
 }));
 
 import {
@@ -90,7 +91,11 @@ const hand = (): ShareableHand =>
     { id: ROW.id, tableName: 'NLH 0.25/0.50', heroUserId: SENDER }
   );
 
-beforeEach(() => rpc.mockReset());
+beforeEach(() => {
+  rpc.mockReset();
+  signedIn.mockReset();
+  signedIn.mockReturnValue(false);
+});
 afterEach(cleanup);
 
 describe('the service', () => {
@@ -135,6 +140,48 @@ describe('the service', () => {
     expect(await openSharedHand('nope')).toEqual({ status: 'missing' });
     expect(rpc).not.toHaveBeenCalled();
   });
+
+  // Migration 20261126054024 (issue #9828): the anon door only reads, and a
+  // view is counted through its own signed-in door.
+  it('opening only reads: a signed-out visitor never reaches the view counter', async () => {
+    rpc.mockResolvedValue({
+      data: { found: true, revoked: false, payload: 'v4~x', invite: null },
+      error: null,
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', { p_token: 'AbCd2345' });
+  });
+
+  it('a signed-in opener counts one view after the hand opens', async () => {
+    signedIn.mockReturnValue(true);
+    rpc.mockImplementation(async (fn: string) =>
+      fn === 'fn_ca_shared_hand_open'
+        ? { data: { found: true, revoked: false, payload: 'v4~x', invite: null }, error: null }
+        : { data: { counted: true }, error: null }
+    );
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    await waitFor(() =>
+      expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_count_view', { p_token: 'AbCd2345' })
+    );
+  });
+
+  it('a revoked, missing or unreachable link counts nothing, and a failed count never fails the open', async () => {
+    signedIn.mockReturnValue(true);
+    rpc.mockResolvedValueOnce({ data: { found: true, revoked: true }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'revoked' });
+    rpc.mockResolvedValueOnce({ data: { found: false }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'missing' });
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'down' } });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'unreachable' });
+    expect(rpc.mock.calls.map(([fn]) => fn)).not.toContain('fn_ca_shared_hand_count_view');
+
+    rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'fn_ca_shared_hand_count_view') throw new Error('offline');
+      return { data: { found: true, revoked: false, payload: 'v4~x', invite: null }, error: null };
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+  });
 });
 
 describe('the /h/:token page', () => {
@@ -156,10 +203,7 @@ describe('the /h/:token page', () => {
     });
     await open();
     await screen.findByText('Hand #56019216');
-    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', {
-      p_token: 'AbCd2345',
-      p_count: true,
-    });
+    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', { p_token: 'AbCd2345' });
     expect(screen.getByRole('link', { name: 'Create Account' }).getAttribute('href')).toBe(
       '/i/HSTAAAA'
     );
