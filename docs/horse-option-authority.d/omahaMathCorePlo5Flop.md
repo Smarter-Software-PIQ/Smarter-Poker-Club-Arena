@@ -24,9 +24,19 @@ Listed in `OPTION_SHADOW_STAGE` (PLO5 flop, companion `omahaMathCore`) and class
 - Serving-build PR-2 latency gate (`V291 CONFIRM`, `run-serve-lat.sh` on live serving `c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa`, 3 runs `a/b/c`, `n=384` each, load 14.1–17.4): **PASS** — added `p50 = 21.1–21.3 ms (< 25)`, `p95 = 35.1–36.3 ms (< 60)`, `0 / 384` repeatable `> 100 ms` (`ON>100`: `0`, `0`, `1` non-repeatable across 1,152 readings).
 - Post-`#11683` serving-build re-measure (Rule 9): **REQUIRED** on the serving build descending from `baaf700b5ed9` (because `#11683` updated per-call equity draws via `omahaMathCoreCallDraws`) before any `shadow` or `on` row is written.
 
+## Prior anchor
+
+NOT MET: the street flag acts only through the core, whose response cells are pooled public play that is 83% Horses (see `omahaMathCore.md`, "Prior anchor").
+
+## Grade 2026-11-26 (With omahaMathCore)
+
+The master switch with this flag on is graded in `omahaMathCore.md` ("What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)"): league PLO5 heads-up and 6-max and the probes show no significant chip change, the real-hand replay is met (committed scorer 43 fixed / 4 newly wrong; audit EV table 58 / 0; 0 protected strengths broken), speed p95 9.8 ms but maximum 45.4 ms, prior anchor not met. Verdict: not ready for live shadow of the master. The live shadow numbers are reconciled there (727 re-decisions / 21.3% on `735299cd`, 284 / 7.4% on `6c6aaa77`; "1,018 / 17%" pooled both). Its replay row below is arm A of that grade (omahaMathCore on with this flag on, the only arm in which this flag acts).
+
+Correction (2026-11-26): with bet resizes scored on the EV interpolated between the audit's pot points, the audit EV table reads 52 fixed / 2 newly wrong (was 58 / 0); 0 strengths broken; verdict unchanged.
+
 ## Replay
 
-- Replay: NOT RUN (the audited-decision-replay scorer has no PLO5 cash flop audit set; evaluated by two VERIFIER-10 sealed fresh-window symmetric M5 journal replays below)
+- Replay: fixed 43; newlyWrong 4; changed 68; unchanged 5159; unjudged 15; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm A vs off; replayed 5227 of 5227
 - Symmetric M5 fresh-window replay 1 (`CRITERIA-CORE-POOLED-8-HORSE-M5-FRESH` sha256 `d9d319d2`, `50f2951cb8e` = `#11678`, 1,695 untouched PLO5 hands `2026-11-21 04:11Z..16:00Z`, 5,847 flop decisions, **VERIFIER-10 V274 EXACT CONFIRM**): `M1|total n=456 (414 hands) +831.1 ± 192.9 bb (z = +4.31) -> HELPED` (`M4 +885.8 z=+4.76`), all 4 slices positive (`HU +643.9 z=+4.50`, `multiway +187.2 z=+1.45`, `table +604.8 z=+3.43`, `Lightning +226.3 z=+2.91`), `fold->call n=44 +88.9 ± 45.5 (z=+1.95)` NOT HURT, `own-wager-raised n=0`, `core_arm_flags = {}`.
 - Symmetric M5 fresh-window replay 2 (`CRITERIA-CORE-LEAD4-PLO5-COMBINED-FRESH` sha256 `df0f209a`, `baaf700b5ed9` = `#11644` + `#11678` + `#11683` + `#11690`, 2,109 completely untouched PLO5 hands `2026-11-21 16:00Z..2026-11-22 00:30Z`, 6,659 flop decisions, **VERIFIER-10 V301 EXACT CONFIRM**): `M1|total n=452 (407 hands) +765.6 ± 196.7 bb (z = +3.89) -> HELPED` (`M4 +918.7 z=+4.67`), all 4 slices positive (`HU +512.3 z=+4.75`, `multiway +253.3 z=+1.53`, `table +582.9 z=+3.47`, `Lightning +182.8 z=+1.79`), `bet->check` CURED (`n=11 +9.5 ± 10.7 z=+0.89`), `fold->call` `HELPED` (`n=36 +76.0 ± 35.9 z=+2.12`), `check->bet` `HELPED` (`n=111 +374.2 ± 49.3 z=+7.60`), `raise->call n=0`, zero hurt classes, `core_arm_flags = {}`.
 
