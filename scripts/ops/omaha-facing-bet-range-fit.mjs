@@ -48,7 +48,7 @@ export const SHRINK_K = 30;
 const SQL = `select h.id, h.created_at, h.game_variant gv, h.button_seat btn,
  h.community_cards cc, h.community_cards2 cc2, h.rit_boards rit, (h.bomb_pot is not null) bomb,
  (select jsonb_agg(jsonb_build_array(p->'seat',p->>'userId')) from jsonb_array_elements(h.players) p) pl,
- (select jsonb_agg(jsonb_build_array(a->'seat', a->>'stage', a->>'action', a->'amount', a->'dead', a->'publicNode'->'pot', a->'publicNode'->'toCall', a->>'userId') order by o)
+ (select jsonb_agg(jsonb_build_array(a->'seat', a->>'stage', a->>'action', a->'amount', a->'dead', a->'publicNode'->'pot', a->'publicNode'->'toCall', a->>'userId', a->>'origin') order by o)
     from jsonb_array_elements(h.actions) with ordinality t(a,o)) ac,
  (select jsonb_object_agg(e.key, e.value) from jsonb_each(case when jsonb_typeof(h.hole_cards)='object' then h.hole_cards else '{}'::jsonb end) e
    where exists (select 1 from jsonb_array_elements(case when jsonb_typeof(h.showdown)='array' then h.showdown else '[]'::jsonb end) s
