@@ -1,0 +1,12 @@
+{
+  "_owner": "agent/plo-lead7-01TLQer8/holdem-opponent-bet-records",
+  "_comment": "Declared by migration 20261126021624 (the exact opponent profile keeps his postflop raises and shown bets); source declaration only, not installation proof.",
+  "functions": [
+    "fn_horse_postflop_bets_empty",
+    "fn_horse_postflop_bets_increments",
+    "fn_horse_postflop_bets_add"
+  ],
+  "columns": {
+    "horse_exact_profiles": ["postflop_bets"]
+  }
+}

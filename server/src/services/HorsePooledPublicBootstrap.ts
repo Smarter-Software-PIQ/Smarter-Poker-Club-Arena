@@ -5,6 +5,7 @@ import {
   copyShownRiver,
   copyFlopShownRecord,
   copyReraiseResponseRecord,
+  copyPostflopBetsRecord,
   copyStreetCounters,
   copyStreetPriceRecord,
   validOpponentProfile,
@@ -126,6 +127,8 @@ export async function readHorsePooledPublicBootstrap(
           ...copyFlopShownRecord(row),
           // 2026-11-19 the price behind his fold-to-raise cells (street_counters_price), kept when well formed.
           ...copyStreetPriceRecord(row),
+          // 2026-11-25 how he answers a postflop bet and what his called bets showed (postflop_bets), kept when well formed.
+          ...copyPostflopBetsRecord(row),
         });
         kept++;
       }

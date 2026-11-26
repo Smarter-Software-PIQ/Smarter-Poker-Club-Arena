@@ -23,6 +23,11 @@ import {
 } from './HorseOmahaReraiseResponse.js';
 import { copyFlopShown, validFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
 import {
+  copyPostflopBets,
+  validPostflopBets,
+  type PostflopBetCounters,
+} from './HorsePostflopBetRecord.js';
+import {
   copyStreetPrice,
   validStreetPrice,
   type StreetPriceCounters,
@@ -92,6 +97,15 @@ export interface DurableOpponentProfile {
    */
   reraise_response?: ReraiseResponseCounters | null;
   /**
+   * 2026-11-25 how this exact row's NLH player answers a postflop bet and what his called bets showed
+   * (horse_exact_profiles.postflop_bets: raiseToBet per street {opp, raise}, shownBet per turn/river size {called, shown,
+   * air}, aged by its own opportunities with the half-life of 30, written by the accepted-hand learner for nlh from the
+   * hand after its column was installed; HorsePostflopBetRecord). Public information only. Null or absent: none on file.
+   * Never part of the row's validity: a stored copy keeps it only when it is well formed. Read only by default-OFF
+   * options.
+   */
+  postflop_bets?: PostflopBetCounters | null;
+  /**
    * 2026-11-19 what this exact row's player showed after making the first bet of a flop, and what calls of those
    * bets returned (horse_exact_profiles.flop_shown: shown first flop bets by line, flop texture and the hand's class
    * on the flop; calls of his first flop bets by the caller's kind, class and position with their price and their
@@ -142,6 +156,17 @@ export function copyReraiseResponseRecord(p: {
   if (p.reraise_response === null) return { reraise_response: null };
   if (!validReraiseResponse(p.reraise_response)) return {};
   return { reraise_response: copyReraiseResponse(p.reraise_response) };
+}
+
+/** A copy of a profile's postflop bet record for a stored copy of the profile: absent stays absent, null stays null,
+ *  and a malformed record is dropped (absent) rather than failing the row. */
+export function copyPostflopBetsRecord(p: {
+  postflop_bets?: unknown;
+}): Pick<DurableOpponentProfile, 'postflop_bets'> {
+  if (p.postflop_bets === undefined) return {};
+  if (p.postflop_bets === null) return { postflop_bets: null };
+  if (!validPostflopBets(p.postflop_bets)) return {};
+  return { postflop_bets: copyPostflopBets(p.postflop_bets) };
 }
 
 /** A copy of a profile's street read for a stored copy of the profile: absent stays absent, null stays null, and a
