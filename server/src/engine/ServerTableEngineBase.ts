@@ -2079,7 +2079,7 @@ export abstract class ServerTableEngineBase {
           this.pineappleDiscardDeadlines.set(seat, extended);
           this.markProgress();
           this.armPineappleDiscardSweep(controllerRef);
-          this.broadcastCurrentState();
+          void this.broadcastCurrentState();
           return;
         }
       }
@@ -2102,7 +2102,7 @@ export abstract class ServerTableEngineBase {
     }
     this.markProgress();
     this.armPineappleDiscardSweep(controllerRef);
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
   }
 
   /**
@@ -2190,7 +2190,7 @@ export abstract class ServerTableEngineBase {
     const extended = Date.now() + seconds * 1000;
     this.pineappleDiscardDeadlines.set(seat, extended);
     this.armPineappleDiscardSweep(this.handController);
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
     return { success: true, deadlineMs: extended };
   }
 

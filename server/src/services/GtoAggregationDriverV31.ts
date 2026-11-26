@@ -230,7 +230,7 @@ export async function gtoV31AggregationTick(generation?: number): Promise<number
       if (row?.is_done) {
         finished = true;
         console.log('[GtoAggregationDriverV31] v2 aggregation complete - going silent');
-        stopGtoAggregationDriverV31();
+        void stopGtoAggregationDriverV31();
         return rows;
       }
     }
