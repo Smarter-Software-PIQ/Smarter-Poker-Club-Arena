@@ -511,6 +511,113 @@ describe('a job-token dispatch is bound to the exact intent its trusted sender r
     ).toThrow();
   });
 
+  // O27b (2026-11-26): Stage's owner run starts one Backup after a cycle that
+  // did not seal. Run 45775146770 was that dispatch without an intent: Backup
+  // refused it on every secret-holding job and still ended green.
+  it('admits the keep-serving Backup dispatch Stage recorded, and nothing near it', async () => {
+    const cycle = '2026-11-26T01';
+    const stage = (over: Partial<Parameters<typeof world>[0]> = {}) =>
+      world({
+        operation: 'backup-after-keep-serving',
+        inputs: { after_cycle: cycle, refresh: 'true' },
+        senderPath: '.github/workflows/stage-engine-release.yml',
+        senderEvent: 'push',
+        receiverPath: '.github/workflows/backup-engine.yml',
+        receiverEvent: 'workflow_dispatch',
+        title: `Backup after keep-serving ${cycle} ${NONCE}`,
+        ...over,
+      });
+    const prove = (w: ReturnType<typeof world>, inputs: Record<string, unknown>) =>
+      proveIntent({
+        receiverName: 'backup-after-keep-serving',
+        env: receiverEnv('workflow_dispatch'),
+        event: { inputs },
+        api: w.api,
+        readIntent: w.readIntent,
+      });
+    const w = stage();
+    expect(w.sent.path).toBe('actions/workflows/backup-engine.yml/dispatches');
+    expect(w.sent.body).toEqual({
+      ref: 'main',
+      inputs: {
+        after_cycle: cycle,
+        refresh: 'true',
+        intent_run_id: '500',
+        intent_run_attempt: '1',
+        intent_nonce: NONCE,
+      },
+    });
+    // GitHub adds every declared input with its default: sha arrives empty.
+    await expect(prove(w, { ...w.sent.body.inputs, sha: '' })).resolves.toBeTruthy();
+    // Every owner event Stage admits may send it.
+    for (const senderEvent of ['schedule', 'workflow_run', 'repository_dispatch']) {
+      const other = stage({ senderEvent });
+      await expect(prove(other, { ...other.sent.body.inputs, sha: '' })).resolves.toBeTruthy();
+    }
+    // Another cycle, no refresh, a chosen commit or an extra input is refused.
+    await expect(prove(w, { ...w.sent.body.inputs, after_cycle: '2026-11-26T04' })).rejects.toThrow(
+      /after_cycle differs/
+    );
+    await expect(prove(w, { ...w.sent.body.inputs, refresh: 'false' })).rejects.toThrow(
+      /refresh differs/
+    );
+    await expect(prove(w, { ...w.sent.body.inputs, sha: MAIN })).rejects.toThrow(
+      /sha must be empty/
+    );
+    await expect(prove(w, { ...w.sent.body.inputs, extra: '1' })).rejects.toThrow(/unbound input/);
+    // The dispatch without an intent (run 45775146770) is refused.
+    await expect(prove(w, { after_cycle: cycle, refresh: 'true', sha: '' })).rejects.toThrow(
+      /must cite its sender run/
+    );
+    // One time: a second run carrying the same title is refused.
+    const replay = stage({ earlier: [899] });
+    await expect(prove(replay, { ...replay.sent.body.inputs, sha: '' })).rejects.toThrow(
+      /already consumed/
+    );
+    // A title without the nonce (a person's own run name) is not the intent's.
+    const bare = stage({ title: `Backup after keep-serving ${cycle}` });
+    await expect(prove(bare, { ...bare.sent.body.inputs, sha: '' })).rejects.toThrow(
+      /does not carry the intent title/
+    );
+    // The seal's receiver never accepts it, and the sender must be Stage on main.
+    await expect(
+      proveIntent({
+        receiverName: 'backup-after-seal',
+        env: receiverEnv('workflow_dispatch'),
+        event: { inputs: { ...w.sent.body.inputs, sha: '' } },
+        api: w.api,
+        readIntent: w.readIntent,
+      })
+    ).rejects.toThrow(/admits only repository_dispatch/);
+    const branch = stage({ headBranch: 'gh-readonly-queue/main/pr-1' });
+    await expect(prove(branch, { ...branch.sent.body.inputs, sha: '' })).rejects.toThrow(
+      /default branch/
+    );
+    const dir = mkdtempSync(join(tmpdir(), 'x-'));
+    dirs.push(dir);
+    const write = (path: string, event: string, inputs: Record<string, unknown>) => () =>
+      writeIntent({
+        operation: 'backup-after-keep-serving',
+        inputs,
+        dir,
+        env: senderEnv(path, event),
+      });
+    const good = { after_cycle: cycle, refresh: 'true' };
+    expect(write('.github/workflows/ci.yml', 'merge_group', good)).toThrow();
+    expect(write('.github/workflows/stage-engine-release.yml', 'merge_group', good)).toThrow();
+    expect(
+      write('.github/workflows/stage-engine-release.yml', 'workflow_dispatch', good)
+    ).toThrow();
+    expect(write('.github/workflows/backup-engine.yml', 'push', good)).toThrow();
+    for (const bad of [
+      { after_cycle: 'tomorrow', refresh: 'true' },
+      { after_cycle: cycle, refresh: 'false' },
+      { after_cycle: cycle },
+      { ...good, sha: MAIN },
+    ])
+      expect(write('.github/workflows/stage-engine-release.yml', 'push', bad)).toThrow();
+  });
+
   it('a sender outside its workflow or event cannot even write an intent', () => {
     const dir = mkdtempSync(join(tmpdir(), 'x-'));
     dirs.push(dir);

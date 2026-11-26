@@ -52,6 +52,7 @@ const RUN_ID = /^[1-9][0-9]{0,19}$/;
 const ATTEMPT = /^[1-9][0-9]{0,3}$/;
 const NONCE = /^[0-9a-f]{32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CYCLE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2})?$/;
 const MIGRATION = /^supabase\/migrations\/[A-Za-z0-9_.-]{1,200}\.sql$|^[A-Za-z0-9_.-]{1,200}\.sql$/;
 const INTENT_KEYS = ['intent_run_id', 'intent_run_attempt', 'intent_nonce'];
 export const MAX_INTENT_BYTES = 65536;
@@ -87,6 +88,19 @@ export const OPERATIONS = Object.freeze({
       reason: { required: true, test: (v) => v === '' },
     },
   },
+  // O27b (2026-11-26): the cycle owner's Stage run starts one fresh
+  // certification of main after a cycle that did not seal. Stage's sending
+  // job runs only in an admitted daily-preparation owner run, which a push, a
+  // schedule, a Backup completion or the operator's own dispatch creates.
+  'backup-after-keep-serving': {
+    sender: '.github/workflows/stage-engine-release.yml',
+    senderEvents: ['push', 'schedule', 'workflow_run', 'repository_dispatch'],
+    dispatch: { kind: 'workflow_dispatch', workflow: 'backup-engine.yml', ref: 'main' },
+    inputs: {
+      after_cycle: { required: true, test: (v) => typeof v === 'string' && CYCLE.test(v) },
+      refresh: { required: true, test: (v) => v === 'true' },
+    },
+  },
 });
 
 /**
@@ -109,6 +123,11 @@ export const RECEIVERS = Object.freeze({
     path: '.github/workflows/backup-engine.yml', event: 'repository_dispatch',
     action: 'run-post-deploy-e2e', operation: 'engine-certification', requires: ['release_run_key'],
     title: (i) => `Backup after seal ${i.release_run_key}`,
+  },
+  'backup-after-keep-serving': {
+    path: '.github/workflows/backup-engine.yml', event: 'workflow_dispatch',
+    operation: 'backup-after-keep-serving', emptyInputs: ['sha'],
+    title: (i, n) => `Backup after keep-serving ${i.after_cycle} ${n}`,
   },
   'gto-recheck': {
     path: '.github/workflows/gto-v31-qualification.yml', event: 'workflow_dispatch',
