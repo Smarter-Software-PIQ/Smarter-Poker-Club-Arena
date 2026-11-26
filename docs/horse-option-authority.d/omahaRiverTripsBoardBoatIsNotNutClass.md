@@ -19,7 +19,8 @@ Every Horse river raise (or raising all-in) with a full house, PLO4/PLO5 cash No
 ## Prior anchor
 
 - Baseline: a raise stands as today everywhere except a river full house on a trips board that some unseen holding beats.
-- Own record / population weight: it reads no opponent and no rate; the count is exact on the cards.
+- Population weight: none; it reads no measured rate, the count is exact on the cards.
+- Own record: it reads no opponent record; nothing about the opponent enters.
 - No unshown cards: the decision reads the public board, the Horse's own cards and the known dead cards.
 
 ## Replay

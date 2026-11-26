@@ -36,7 +36,7 @@ v2 (his checking range moved by his own public river bet rate: with the measured
 
 ## Prior anchor
 
-- Baseline (no record): his fold share against a bet B into a pot P is the equilibrium minimum defence, B / (P + B).
+- Baseline: with no record, his fold share against a bet B into a pot P is the equilibrium minimum defence, B / (P + B).
 - Own record: his lifetime public river fold record (OPPONENT-HUD `x.foldToBet` small and big, through `HorseMind.omahaStrongHandCheckRecordsOf`) moves it by m = (F + k g) / (E + k g): F his folds, E the folds equilibrium expects on the sizes he faced (1/3 small, 1/2 big), k = 75.9 river answers (the measured between-player prior of HorseOmahaStrongHandCheck), g = 0.4. The record dominates as it grows.
 - Population weight: the range SHAPE (which hands a checker holds) is the measured pooled table; no pooled fold rate enters.
 - No unshown cards: the table is fitted from shown cards only; the decision reads the public state, the Horse's own cards and the known dead cards.
