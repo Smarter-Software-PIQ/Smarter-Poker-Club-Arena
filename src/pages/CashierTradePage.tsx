@@ -4451,11 +4451,8 @@ function CashierTradeWorkspace() {
         area="cashier"
         title="Cashier"
         context={currentClub?.name}
-        subtitle={roleResolved && canHoldAgentWallet(myRole) ? 'Agent Wallets' : 'Club Wallets'}
+        subtitle={roleResolved && canHoldAgentWallet(myRole) ? undefined : 'Club Wallets'}
       />
-      <a href="#cashier-account-tools" className="arena-cashier-tools-link">
-        Cashier Tools
-      </a>
       <CashierWorkspace
         hasVisibleTitle
         compact
