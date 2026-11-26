@@ -22,6 +22,14 @@ Nov 18-24 seed when none exists yet), and writes a verdict:
 
 Detection only. It never dispatches, retries, re-certifies or advances a
 release. The same code builds the backfill (`backfill`).
+
+GAPS (O32, 2026-11-26). A cycle nobody owned has no selection, so it used to
+leave no record at all. `record --gaps` takes what the same run's look-back
+(scripts/release/cycle-without-outcome.py) established and writes one
+`no-owner` or `no-outcome` record for each such cycle between the newest
+previous record and this one. The owner's run stays the ledger's only writer.
+A gap record is not a refusal and not a reset: the same-gate check and the
+late seal reconciliation read straight past it.
 """
 
 from __future__ import annotations
@@ -49,6 +57,8 @@ GATES: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 RESET_OUTCOMES = {"selected", "sealed", "serving-advanced"}
+GAP_OUTCOMES = {"no-owner", "no-outcome"}
+CYCLE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2})?$")
 
 
 class CouldNotTell(Exception):
@@ -122,12 +132,53 @@ def reconcile_previous(previous: dict, current: dict) -> None:
         previous["reason"] = "selected and dispatched, but serving did not move to the target by the next cycle"
 
 
-def append(ledger: list[dict], current: dict) -> list[dict]:
+def is_gap(record: dict) -> bool:
+    return record.get("outcome") in GAP_OUTCOMES
+
+
+def gap_records(gaps, ledger: list[dict], current_cycle: str, found_by: str) -> list[dict]:
+    """The look-back's findings that fall between the newest record and this
+    cycle, oldest first, once each. Anything else in `gaps` is ignored."""
+    if not isinstance(gaps, list):
+        return []
+    newest = max((cycle_sort_key(str(r.get("cycle"))) for r in ledger), default="")
+    known = {r.get("cycle") for r in ledger}
+    out: dict[str, dict] = {}
+    for gap in gaps:
+        if not isinstance(gap, dict) or gap.get("outcome") not in GAP_OUTCOMES:
+            continue
+        cycle = gap.get("cycle")
+        if not isinstance(cycle, str) or not CYCLE.match(cycle) or cycle in known or cycle in out:
+            continue
+        if not (newest < cycle_sort_key(cycle) < cycle_sort_key(current_cycle)):
+            continue
+        owner = gap.get("ownerRunId")
+        out[cycle] = {
+            "schema": SCHEMA,
+            "cycle": cycle,
+            "runId": str(owner) if owner else None,
+            "outcome": gap["outcome"],
+            "gate": gap["outcome"],
+            "refusedSha": None,
+            "reason": ("no Stage run claimed this cycle" if gap["outcome"] == "no-owner"
+                       else "a Stage run held this cycle and recorded no result"),
+            "servingSha": None,
+            "targetSha": None,
+            "foundByRunId": str(found_by),
+        }
+    return sorted(out.values(), key=lambda r: cycle_sort_key(r["cycle"]))
+
+
+def append(ledger: list[dict], current: dict, gaps=None) -> list[dict]:
     ledger = [dict(r) for r in ledger]
     if ledger and ledger[-1].get("cycle") == current["cycle"]:
         ledger.pop()  # the same cycle recorded again: the newer record replaces it
-    if ledger:
-        reconcile_previous(ledger[-1], current)
+    ledger.extend(gap_records(gaps, ledger, current["cycle"], current.get("runId") or ""))
+    # The newest record a real owner wrote; a gap in between hides nothing.
+    for previous in reversed(ledger):
+        if not is_gap(previous):
+            reconcile_previous(previous, current)
+            break
     ledger.append(current)
     return ledger[-LEDGER_LIMIT:]
 
@@ -154,6 +205,8 @@ def streak_at(ledger: list[dict], end: int) -> dict:
 
 
 def verdict(ledger: list[dict]) -> dict:
+    # A cycle nobody owned refused nothing and reset nothing (O32).
+    ledger = [r for r in ledger if not is_gap(r)]
     if not ledger:
         return {"repeated": False, "gate": None, "streak": 0}
     result = streak_at(ledger, len(ledger) - 1)
@@ -201,12 +254,23 @@ def cmd_record(args) -> int:
         print(f"::error title=Cutover outcome record could not tell::{exc}")
         Path(args.verdict).write_text(json.dumps({"couldNotTell": str(exc)}) + "\n")
         return 2
-    ledger = append(previous, current)
+    gaps = None
+    if args.gaps:
+        try:
+            gaps = json.loads(Path(args.gaps).read_text() or "null")
+        except (OSError, ValueError) as exc:
+            # The look-back's findings are extra; this cycle's own record is not lost to them.
+            print(f"::warning title=Cutover outcome record::the look-back gaps {args.gaps} are unreadable ({exc}); none recorded")
+    ledger = append(previous, current, gaps)
+    for gap in ledger:
+        if is_gap(gap) and gap.get("foundByRunId") == current["runId"]:
+            print(f"Cycle {gap['cycle']}: {gap['outcome']} (recorded from this run's look-back)")
     dump_ledger(Path(args.output), ledger)
     result = verdict(ledger)
     result["record"] = ledger[-1]
-    if len(ledger) >= 2:
-        result["previous"] = ledger[-2]
+    real = [r for r in ledger if not is_gap(r)]
+    if len(real) >= 2:
+        result["previous"] = real[-2]
     Path(args.verdict).write_text(json.dumps(result, indent=1) + "\n")
     rec = ledger[-1]
     print(f"Cycle {rec['cycle']}: {rec['outcome']}" + (f", refused on gate {rec['gate']}" if rec.get("gate") else ""))
@@ -264,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--seed", required=True)
     rec.add_argument("--output", required=True)
     rec.add_argument("--verdict", required=True)
+    rec.add_argument("--gaps", default="", help="JSON list from cycle-without-outcome.py (optional)")
     back = sub.add_parser("backfill")
     back.add_argument("--selection", action="append", required=True, help="artifact-name=run-id=path")
     back.add_argument("--output", required=True)
