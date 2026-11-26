@@ -1,5 +1,5 @@
 -- 20261126014018_horse_option_register_plo_facing_bet_price.sql
--- @live-proof: (SELECT count(*)=7 FROM public.ca_horse_option_whitelist WHERE option IN ('omahaFacingBetRangeIsMeasuredByLine','omahaFacingBetIndifferenceCalls','omahaFlopRealizationIsPriced','omahaFacingBetMinimumDefencePrior','omahaFacingBetFieldIsJoint','omahaMultiwayCallNeedsNutShare','omahaMultiwayValueBetIsPriced'))
+-- @live-proof: (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('omahaFacingBetFieldIsJoint', 'omahaFacingBetIndifferenceCalls', 'omahaFacingBetMinimumDefencePrior', 'omahaFacingBetRangeIsMeasuredByLine', 'omahaFlopRealizationIsPriced', 'omahaMultiwayCallNeedsNutShare', 'omahaMultiwayValueBetIsPriced')) = 7
 --
 -- HORSE OPTION SWITCH: 7 OPTIONS REGISTERED
 --
