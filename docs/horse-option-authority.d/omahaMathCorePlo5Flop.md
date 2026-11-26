@@ -32,6 +32,8 @@ NOT MET: the street flag acts only through the core, whose response cells are po
 
 The master switch with this flag on is graded in `omahaMathCore.md` ("What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)"): league PLO5 heads-up and 6-max and the probes show no significant chip change, the real-hand replay is met (committed scorer 43 fixed / 4 newly wrong; audit EV table 58 / 0; 0 protected strengths broken), speed p95 9.8 ms but maximum 45.4 ms, prior anchor not met. Verdict: not ready for live shadow of the master. The live shadow numbers are reconciled there (727 re-decisions / 21.3% on `735299cd`, 284 / 7.4% on `6c6aaa77`; "1,018 / 17%" pooled both). Its replay row below is arm A of that grade (omahaMathCore on with this flag on, the only arm in which this flag acts).
 
+Correction (2026-11-26): with bet resizes scored on the EV interpolated between the audit's pot points, the audit EV table reads 52 fixed / 2 newly wrong (was 58 / 0); 0 strengths broken; verdict unchanged.
+
 ## Replay
 
 - Replay: fixed 43; newlyWrong 4; changed 68; unchanged 5159; unjudged 15; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm A vs off; replayed 5227 of 5227

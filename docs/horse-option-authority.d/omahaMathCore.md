@@ -85,6 +85,8 @@ Probes (the 6-max tight-opener cell was not run, for wall time): no significant 
 
 Real-hand replay (5,227 tier-A nodes): the core changed 119 decisions (all PLO5 flop), 51 of them resizes. Committed scorer: fixed 43, newly wrong 4. Audit EV table: fixed 58, newly wrong 0, still wrong 39, right to right 22, +2,770 bb on the audit model (47 of the 58 fixes are OPPORTUNITY-class, checks that become bets, where the audit says its one-street model over-rates bets; only 1 is a HARD mistake). Audit strengths: 2 of 773 protected decisions changed, 0 broken. Met.
 
+Correction (2026-11-26, same lane): the audit-EV scoring above put a bet resize at the nearest of the audit's 33/66/100% pot points; scored with the EV interpolated between those points, the core's replay is fixed 52, newly wrong 2, 0 strengths broken. The committed-scorer row is unchanged; the verdict is unchanged.
+
 Speed (PLO5 flop, 1,108 real spots, one seed): whole decision p50 6.5 ms, p95 9.8 ms, max 45.4 ms, 3 over 25 ms, 0 over 50 ms; added by the core p50 1.7 ms, p95 4.8 ms, max 30.2 ms. p95 and the 50 ms line are met; the 25 ms maximum is not. The serving-build gate of 2026-11-22 (V291) measured added p95 35 ms, and the 2026-11-23 shadow tripped at 195.8 ms.
 
 Verdict: **NOT READY for live shadow.** Replay met and no chip loss shown, but the prior anchor fails by design (83% Horse-field response cells, no own-record takeover) and the maximum decision time is 45 ms against the 25 ms bar.
