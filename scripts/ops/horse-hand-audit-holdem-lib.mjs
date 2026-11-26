@@ -52,6 +52,11 @@ export const STATEMENT_TIMEOUT_SECONDS = 60;
 export const DEFAULT_RANGE_HOURS = 24;
 export const MAX_RANGE_DAYS = 14;
 export const CHUNK_HOURS = 6;
+/** Earlier windows (each as long as the audited one) the leak nodes are compared against, pooled. */
+export const DEFAULT_COMPARE_WINDOWS = 3;
+export const MAX_COMPARE_WINDOWS = 7;
+/** The comparison never reads further back than this in total (audited range included). */
+export const MAX_READ_DAYS = 2 * MAX_RANGE_DAYS;
 export const MIN_PERSON_HANDS = 50;
 export const MIN_NODE_N = 15;
 export const STREETS = ['preflop', 'flop', 'turn', 'river'];
@@ -168,9 +173,21 @@ export function resolvePlan(o, nowMs) {
   const splitAt = o.splitAt ?? null;
   if (splitAt !== null && !(splitAt > since && splitAt < until))
     throw new Error('--split-at must lie inside --since/--until');
-  // Comparison window: before --split-at when given, else the same length immediately before --since.
-  const compare =
-    splitAt !== null ? { since, until: splitAt } : { since: since - (until - since), until: since };
+  // Comparison: before --split-at when given; else the `compareWindows` windows of the same length immediately
+  // before --since, pooled (never the single window before: one low day made a false alarm on 2026-11-26).
+  const len = until - since;
+  const asked = o.compareWindows ?? DEFAULT_COMPARE_WINDOWS;
+  if (!Number.isInteger(asked) || asked < 1 || asked > MAX_COMPARE_WINDOWS)
+    throw new Error(`--compare-windows must be a whole number from 1 to ${MAX_COMPARE_WINDOWS}`);
+  const k = Math.max(1, Math.min(asked, Math.floor((MAX_READ_DAYS * 86400_000) / len) - 1));
+  const priors =
+    splitAt !== null
+      ? [{ since, until: splitAt }]
+      : Array.from({ length: k }, (_, i) => ({
+          since: since - (i + 1) * len,
+          until: since - i * len,
+        }));
+  const compare = { since: priors.at(-1).since, until: priors[0].until };
   const current = splitAt !== null ? { since: splitAt, until } : { since, until };
   return {
     since: Math.min(since, compare.since),
@@ -179,6 +196,7 @@ export function resolvePlan(o, nowMs) {
     peopleOnly: o.peopleOnly !== false,
     splitAt,
     compare,
+    priors,
     current,
   };
 }
@@ -1490,6 +1508,9 @@ export function nodeOf(H, d) {
       : d.opp.some((o) => !H.seats.get(o.seat)?.horse);
   return {
     fc: fmtClass(H.fmt),
+    // an all-in-or-fold event is a different game for every node (the small blind facing a jam folds 84% there
+    // against 63% in regular tournaments): its nodes are counted apart, so a day with more of it is not a change
+    aof: H.fmt === 'mtt-aof',
     street: d.street,
     node: d.node === 'checkedTo' ? 'checkedTo' : d.node,
     line,
@@ -1500,9 +1521,10 @@ export function nodeOf(H, d) {
     opp: oppPerson ? 'person' : 'horse',
   };
 }
+const fcKey = (n) => (n.aof ? `${n.fc} all-in-or-fold` : n.fc);
 export const nodeKey = (n) =>
   [
-    n.fc,
+    fcKey(n),
     n.street,
     n.node,
     n.line,
@@ -1515,9 +1537,9 @@ export const nodeKey = (n) =>
 /** Coarser parent used when a node has too few spots: preflop drops the stack bucket, postflop drops line and position. */
 export const parentKey = (n) =>
   n.street === 'preflop'
-    ? [n.fc, n.street, n.node, '*', n.pos, n.size, n.hu, '*', n.opp].join(' | ')
+    ? [fcKey(n), n.street, n.node, '*', n.pos, n.size, n.hu, '*', n.opp].join(' | ')
     : [
-        n.fc,
+        fcKey(n),
         n.street,
         n.node,
         '*',

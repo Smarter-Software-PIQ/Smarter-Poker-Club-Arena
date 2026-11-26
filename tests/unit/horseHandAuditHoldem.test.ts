@@ -23,6 +23,8 @@ import {
   measureBluffShares,
   measureFrequencies,
   narrow,
+  nodeKey,
+  nodeOf,
   parseHand,
   playersBehind,
   resolvePlan,
@@ -30,6 +32,7 @@ import {
   tournamentOvercall,
   seatNets,
 } from '../../scripts/ops/horse-hand-audit-holdem-lib.mjs';
+import { correctedZ } from '../../scripts/ops/horse-audit-multiple-tests.mjs';
 import {
   compareWindows,
   decisionsCsv,
@@ -532,5 +535,95 @@ describe('CLI', () => {
     });
     expect(code).toBe(EXIT_TOO_FEW);
     expect(JSON.parse(out).coverage.hands.cash).toBe(2);
+  });
+});
+
+describe('the window comparison does not raise the false alarm of the 2026-11-26 13:33Z daily audit', () => {
+  // NLH tournament, preflop, small blind facing a jam, multiway, under 10 bb: folds / decisions of the same node on
+  // four consecutive 24-hour windows (counts from the audit's own decisions.csv; no card is involved).
+  const KEY = 'tournament | preflop | vsJam | - | SB | all-in | MW | <10 | horse';
+  const facing = (fold: number, n: number, verdict = 'over-fold') => ({
+    verdict,
+    fold,
+    call: n - fold,
+    raise: 0,
+    bet: 0,
+    worked: 0,
+  });
+  const day = (fold: number, n: number, others = 0) =>
+    new Map<string, unknown>([
+      [KEY, facing(fold, n)],
+      // the other leak nodes compared in the same run, unchanged from day to day
+      ...Array.from(
+        { length: others },
+        (_, i) => [`other node ${i}`, facing(120, 200)] as [string, unknown]
+      ),
+    ]);
+  const d1 = day(74, 101, 46);
+  const d2 = day(177, 254, 46);
+  const d3 = day(124, 204, 46); // the window before: the low one of the four
+  const flagged = day(122, 160, 46);
+
+  it('the old rule (the single window before, z >= 2, no correction) flagged it at z 3.13', () => {
+    const old = compareWindows(flagged as never, d3 as never, { correct: false });
+    expect(old.map((w: { key: string }) => w.key)).toEqual([KEY]);
+    expect(old[0].z).toBeCloseTo(3.13, 1);
+  });
+  it('against the three earlier windows pooled it is z 2.21, under the bar for 47 nodes compared: no flag', () => {
+    const pooledOnly = compareWindows(flagged as never, [d1, d2, d3] as never, { correct: false });
+    expect(pooledOnly[0].z).toBeCloseTo(2.21, 1);
+    expect(pooledOnly[0].nBefore).toBe(559);
+    expect(pooledOnly[0].before).toBeCloseTo(375 / 559, 6);
+    expect(pooledOnly[0].priorWindows.map((x: { n: number }) => x.n)).toEqual([101, 254, 204]);
+    const now = compareWindows(flagged as never, [d1, d2, d3] as never);
+    expect(now).toHaveLength(0);
+    expect(now.tests).toBe(47);
+    expect(now.zBar).toBeCloseTo(3.3, 1);
+    expect(now.priorWindows).toBe(3);
+  });
+  it('the single window before does not pass the corrected bar either (3.13 < 3.30)', () => {
+    expect(compareWindows(flagged as never, d3 as never)).toHaveLength(0);
+  });
+  it('a real change still flags: 150 of 160 folds against 67% pooled', () => {
+    const real = compareWindows(day(150, 160, 46) as never, [d1, d2, d3] as never);
+    expect(real.map((w: { key: string }) => w.key)).toEqual([KEY]);
+    expect(real[0].z).toBeGreaterThan(real[0].zBar);
+    expect(real[0].tests).toBe(47);
+  });
+  it('the corrected bar: one comparison keeps z, 47 need 3.30, 519 at z 3 need 4.56', () => {
+    expect(correctedZ(2, 1)).toBe(2);
+    expect(correctedZ(2, 47)).toBeCloseTo(3.3, 2);
+    expect(correctedZ(3, 519)).toBeCloseTo(4.56, 2);
+  });
+  it('an all-in-or-fold event has its own node: a day with more of it is not a change of the regular node', () => {
+    const regular = mkTournamentJam(8);
+    const aof = { hand: { ...regular.hand, id: 'tj-aof', taof: true } };
+    const key = (raw: unknown) => {
+      const H = parseHand(raw as never)!;
+      const d = H.decisions.find((x: { kind: string }) => x.kind === 'fold');
+      return nodeKey(nodeOf(H, d));
+    };
+    expect(key(regular)).toMatch(/^tournament \| preflop \| vsJam \| /);
+    expect(key(aof)).toMatch(/^tournament all-in-or-fold \| preflop \| vsJam \| /);
+    expect(key(aof).replace('tournament all-in-or-fold', 'tournament')).toBe(key(regular));
+  });
+  it('the plan compares against three earlier windows of the same length by default; --split-at keeps one', () => {
+    const until = Date.parse('2026-11-26T13:33:00Z');
+    const since = until - 24 * 3600_000;
+    const plan = resolvePlan({ mode: 'all', since, until }, until);
+    expect(plan.priors).toHaveLength(3);
+    expect(plan.priors[0]).toEqual({ since: since - 24 * 3600_000, until: since });
+    expect(plan.compare).toEqual({ since: since - 3 * 24 * 3600_000, until: since });
+    expect(plan.since).toBe(since - 3 * 24 * 3600_000);
+    expect(
+      resolvePlan({ mode: 'all', since, until, compareWindows: 1 }, until).priors
+    ).toHaveLength(1);
+    const split = resolvePlan({ mode: 'all', since, until, splitAt: since + 3600_000 }, until);
+    expect(split.priors).toEqual([{ since, until: since + 3600_000 }]);
+    expect(parseArgs(['--compare-windows', '2']).compareWindows).toBe(2);
+    expect(() => parseArgs(['--compare-windows', '0'])).toThrow();
+    // a 14-day range never reads more than 28 days in all
+    const long = resolvePlan({ mode: 'all', since: until - 14 * 86400_000, until }, until);
+    expect(long.priors).toHaveLength(1);
   });
 });

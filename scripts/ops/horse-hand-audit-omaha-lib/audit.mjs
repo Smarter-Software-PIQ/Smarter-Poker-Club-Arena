@@ -175,6 +175,8 @@ export function runAudit(
             mtype: g.mtype ?? '',
             mclass: g.mclass ?? '',
             breach: g.breach.join(';'),
+            note: g.notes.join(';'),
+            nut_class: g.nutClass ?? '',
             ev_taken_bb: g.evTaken,
             ev_best_bb: g.evBest,
             tol_bb: g.tol,
