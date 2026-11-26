@@ -16,7 +16,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { Card, HorseGameStateV2 } from '../types.js';
+import type { Card } from '../types.js';
 import { holdemOpeningPrice } from './HorseHoldemOpeningIsPriced.js';
 import {
   holdemTournamentBestBluff,
@@ -24,7 +24,7 @@ import {
   holdemTournamentWagerParts,
 } from './HorseHoldemTournamentLateIsPriced.js';
 import { holdemFillEquities, holdemLineRange } from './HorseHoldemValueAndCallsArePriced.js';
-import { postflopWagerPayoutPrice } from './HorseLogic.js';
+import { postflopWagerPayoutPrice, type HorseGameStateV2 } from './HorseLogic.js';
 import {
   replayAt,
   replayProfiles,
