@@ -1,5 +1,5 @@
 {
-  "version": "v1-2026-11-26",
+  "version": "v2-2026-11-26-lastwager",
   "note": "People-only answers (responder not a Horse) to the first wager of a heads-up PLO4/PLO5 cash turn or river, by game, street, bettor line and size; eq = sum of the equilibrium fold B/(P+B) of the bets answered. scripts/ops/omaha-people-fold-fit.mjs.",
   "source": {
     "from": "2026-11-19 18:00:05.632306+00",
@@ -15,10 +15,10 @@
   },
   "cells": {
     "plo4|river|agg|a<40": {
-      "n": 23,
+      "n": 22,
       "fold": 6,
       "raise": 2,
-      "eq": 5.2993
+      "eq": 5.1896
     },
     "plo4|river|agg|b40-70": {
       "n": 22,
@@ -69,10 +69,10 @@
       "eq": 7.2675
     },
     "plo4|river|vsAgg|a<40": {
-      "n": 3,
+      "n": 4,
       "fold": 0,
       "raise": 1,
-      "eq": 0.7446
+      "eq": 0.8543
     },
     "plo4|river|vsAgg|b40-70": {
       "n": 1,
@@ -87,16 +87,16 @@
       "eq": 4.213
     },
     "plo4|turn|agg|a<40": {
-      "n": 48,
+      "n": 47,
       "fold": 8,
       "raise": 3,
-      "eq": 10.8581
+      "eq": 10.6139
     },
     "plo4|turn|agg|b40-70": {
-      "n": 52,
+      "n": 51,
       "fold": 10,
       "raise": 6,
-      "eq": 17.1544
+      "eq": 16.7568
     },
     "plo4|turn|agg|c70-110": {
       "n": 133,
@@ -141,16 +141,16 @@
       "eq": 33.253
     },
     "plo4|turn|vsAgg|a<40": {
-      "n": 2,
+      "n": 3,
       "fold": 0,
       "raise": 0,
-      "eq": 0.534
+      "eq": 0.7782
     },
     "plo4|turn|vsAgg|b40-70": {
-      "n": 6,
+      "n": 7,
       "fold": 3,
       "raise": 0,
-      "eq": 2.1993
+      "eq": 2.5969
     },
     "plo4|turn|vsAgg|c70-110": {
       "n": 8,
@@ -165,16 +165,16 @@
       "eq": 11.5724
     },
     "plo5|river|agg|b40-70": {
-      "n": 74,
-      "fold": 52,
+      "n": 73,
+      "fold": 51,
       "raise": 4,
-      "eq": 26.3266
+      "eq": 25.963
     },
     "plo5|river|agg|c70-110": {
-      "n": 144,
-      "fold": 101,
+      "n": 143,
+      "fold": 100,
       "raise": 8,
-      "eq": 68.5265
+      "eq": 68.0265
     },
     "plo5|river|all|a<40": {
       "n": 84,
@@ -219,34 +219,34 @@
       "eq": 1.4965
     },
     "plo5|river|vsAgg|b40-70": {
-      "n": 14,
-      "fold": 8,
+      "n": 15,
+      "fold": 9,
       "raise": 2,
-      "eq": 4.8211
+      "eq": 5.1847
     },
     "plo5|river|vsAgg|c70-110": {
-      "n": 29,
-      "fold": 23,
+      "n": 30,
+      "fold": 24,
       "raise": 0,
-      "eq": 13.6784
+      "eq": 14.1784
     },
     "plo5|turn|agg|a<40": {
-      "n": 128,
+      "n": 122,
       "fold": 24,
-      "raise": 26,
-      "eq": 29.0748
+      "raise": 25,
+      "eq": 27.6748
     },
     "plo5|turn|agg|b40-70": {
-      "n": 118,
+      "n": 117,
       "fold": 34,
-      "raise": 10,
-      "eq": 40.453
+      "raise": 9,
+      "eq": 40.1196
     },
     "plo5|turn|agg|c70-110": {
-      "n": 332,
-      "fold": 183,
+      "n": 325,
+      "fold": 179,
       "raise": 8,
-      "eq": 160.1462
+      "eq": 156.7192
     },
     "plo5|turn|all|a<40": {
       "n": 291,
@@ -285,22 +285,22 @@
       "eq": 76.7206
     },
     "plo5|turn|vsAgg|a<40": {
-      "n": 24,
+      "n": 30,
       "fold": 4,
-      "raise": 5,
-      "eq": 5.0254
+      "raise": 6,
+      "eq": 6.4254
     },
     "plo5|turn|vsAgg|b40-70": {
-      "n": 23,
+      "n": 24,
       "fold": 6,
-      "raise": 0,
-      "eq": 8.0358
+      "raise": 1,
+      "eq": 8.3692
     },
     "plo5|turn|vsAgg|c70-110": {
-      "n": 53,
-      "fold": 21,
+      "n": 60,
+      "fold": 25,
       "raise": 1,
-      "eq": 25.681
+      "eq": 29.108
     }
   }
 }

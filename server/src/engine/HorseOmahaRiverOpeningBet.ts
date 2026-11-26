@@ -15,6 +15,9 @@
  * scripts/ops/omaha-river-opening-range-fit.mjs from shown hands only, showdown bias corrected): after he checked the
  * river heads-up (`checkfirst`), or, when the Horse acts first, the in-position player's river range (`ipstart`), each
  * split by whether the turn had a wager. Strength is the share of holdings that beat his hand (0 = the nuts).
+ * PEOPLE ONLY (owner order 2026-11-26 12:21 PM Chicago): `cells` and `rates` are fit on people's shown hands and
+ * people's own river actions only (no Horse hand, no unshown card), each game cell shrunk to a random holding; the
+ * table's `heroCells` (the Horses' own hands) are never read here.
  * CARD REMOVAL is exact: the strength bins are cut on the board's own holdings (the cards he cannot see: the deck less
  * the board), and each bin's weight is moved by the share of its holdings the Horse's cards (and the known dead
  * cards) leave him: that is what a blocker is. The Horse's win and tie shares in every bin are exact counts.
@@ -49,7 +52,7 @@
  */
 import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaCardId, scoreOmahaHiPartial } from './HorseEval.js';
 import { PairSet, countHoldingsWithout } from './HorseOmahaFacingBetEv.js';
 import { omahaCardImpactAmounts, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaNoCategoricalRulesInScope } from './HorseOmahaNoCategoricalRules.js';
@@ -195,10 +198,20 @@ export function omahaRiverOpeningBins(
  * cards that are out (PLO-OWNER lead-7 lane plo-bluffs 2026-11-26, HorseOmahaOpeningBluff.ts). On five cards it is
  * omahaRiverOpeningBins.
  */
+/**
+ * The strength bin of one holding of his on this board, from the same cut as omahaOpeningBinsOnBoard (review t3,
+ * 2026-11-26): `ids` holds his `n` cards as omahaCardId values from `start`; the bin is the one whose score band holds
+ * the holding's best two-card score now (0 the strongest). -1 when a card is not one of the unseen cards.
+ */
+export interface OmahaOpeningBinClassifier {
+  binOfIds?: (ids: ArrayLike<number>, start: number, n: number) => number;
+}
+
 export function omahaOpeningBinsOnBoard(
   hole: Card[],
   board: Card[],
-  dead: Card[]
+  dead: Card[],
+  classify?: OmahaOpeningBinClassifier
 ): OmahaRiverOpeningBins | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
   if (board.length !== 4 && board.length !== 5) return null;
@@ -276,6 +289,26 @@ export function omahaOpeningBinsOnBoard(
     }
     tau[b] = desc[lo];
     lo0 = lo;
+  }
+  if (classify) {
+    const uOfId = new Int16Array(64).fill(-1);
+    for (let i = 0; i < m; i++) uOfId[omahaCardId(U[i])] = i;
+    classify.binOfIds = (ids, start, len) => {
+      let best = -Infinity;
+      for (let a = start; a < start + len; a++) {
+        const ua = uOfId[ids[a] as number];
+        if (ua < 0) return -1;
+        for (let b = a + 1; b < start + len; b++) {
+          const ub = uOfId[ids[b] as number];
+          if (ub < 0) return -1;
+          const s = ua < ub ? sc[ua * m + ub] : sc[ub * m + ua];
+          if (s > best) best = s;
+        }
+      }
+      // bin b holds the holdings whose best score is in (tau[b + 1], tau[b]]
+      for (let b = 0; b < NB; b++) if (best > tau[b + 1]) return b;
+      return NB - 1;
+    };
   }
   const cU = (t: number) => (t === Infinity ? totU : t === -Infinity ? 0 : cWU(t));
   const cV = (t: number) => (t === Infinity ? totV : t === -Infinity ? 0 : cWV(t));

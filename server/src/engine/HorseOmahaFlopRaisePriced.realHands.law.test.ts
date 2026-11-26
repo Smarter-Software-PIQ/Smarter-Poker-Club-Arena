@@ -3,7 +3,7 @@
  * HorseOmahaFlopRaisePriced.realHands.fixture.json: flop raise nodes of the PLO hand audits (2026-11-20..24 and the
  * daily of 2026-11-25T230000Z) where the live rule chain raises: the public snapshot and the deciding Horse's own cards.
  * Off, every node keeps the chain's raise; on, each decides the action kind the graded replay did (EV on the audits'
- * own pricing, shown cards only: 18 fixed / 2 newly wrong, +212 bb over both audits).
+ * own pricing, shown cards only: 34 fixed / 1 newly wrong, +400 bb over both audits with the size-versus-size rule).
  */
 import { describe, expect, it } from 'vitest';
 import { FLOP_RAISE_FIXTURE, flopRaiseDecide } from './HorseOmahaFlopRaisePriced.test-support.js';

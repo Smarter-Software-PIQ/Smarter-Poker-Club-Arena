@@ -1357,6 +1357,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-7 2026-11-26 (audit-rootcause/REPORT.md section B; woowoo/REPORT.md gap 1). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters; a multiway spot keeps today's price. HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
@@ -6268,6 +6273,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_people_prior_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    'the facing-bet verdict priced a heads-up turn or river bet or raise on the people-only measured share (river: three measured regions) (omahaFacingBetPriorIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
+    'omaha_people_prior_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    "the people-measured share was moved by the bettor's own shown bets of this street, size and line (omahaFacingBetPriorIsPeopleMeasured)",
+    'V94'
+  ),
+  receipt(
+    'omaha_people_prior_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
+    'the verdict on the people-measured share differs from the verdict on the old population prior and the public reads (omahaFacingBetPriorIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_facing_bet_changed',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
     "the corrected facing-bet price's call or fold differs from today's facing-bet verdict",
@@ -10936,6 +10959,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   },
   // PLO lead-7 plo-preflop: a position weight inside the live re-raised-pot priced call (omahaOopReraisedPotStrongRange,
   // on by release), whose omaha_reraised_call_priced_* receipts fire by design
+  // the people-measured facing-bet prior names its own receipts in their descriptions; declared by prefix
+  omahaFacingBetPriorIsPeopleMeasured: { prefixes: ['omaha_people_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

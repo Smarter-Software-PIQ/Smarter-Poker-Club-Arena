@@ -1057,6 +1057,34 @@ export async function participantOfRetiredFixtureHistory({
 } = {}) {
   const message = String(error?.message || error || '');
   if (!message.includes('CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY')) return null;
+  return provenPlayerOfRetiredFixtureHistory({ environment, fetchImpl, account });
+}
+
+/*
+ * A DOOR THAT CAN ONLY REFUSE IS NOT ASKED (2026-11-26).
+ *
+ * The proof above used to run only AFTER the account door had refused. A kept
+ * player is kept for ever (its finished game is immutable history), so the
+ * stale inventory lists it on every Club Create Certification and the heads-up
+ * certificate retires two new ones each run. Each was sent to
+ * cleanup_reserved_certification_account first, every time, and the door
+ * answered the same 500 (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY,
+ * SQLSTATE 55000, raised because a tournament_players row exists): 160 refused
+ * calls in the 24 hours to 2026-11-26 21:45 UTC for four identities, two to
+ * four per run, none of which could ever succeed.
+ *
+ * The same row-by-row proof, run BEFORE the door, keeps the identity without
+ * sending the call. It needs no refusal to start from: every condition is read
+ * from the rows, and it includes at least one tournament entry, which alone is
+ * a precondition the door refuses. A proof that fails or cannot be read leaves
+ * the door to decide, exactly as before. Keeping writes nothing, so a wrong
+ * "kept" could only ever leave a removable fixture in place, never remove one.
+ */
+export async function provenPlayerOfRetiredFixtureHistory({
+  environment = process.env,
+  fetchImpl = fetch,
+  account,
+} = {}) {
   if (!account?.id || !reserved(account.email || '')) return null;
   const configuration = requireEnvironment(environment);
   const id = encodeURIComponent(account.id);
@@ -1239,6 +1267,29 @@ export async function cleanupStaleProductionE2EAccounts({
             `[production-e2e-account] kept stale identity ${account.id} as the owner of record of ` +
               `retired fixture(s) ${retainedRetiredClubs.join(', ')}: they keep immutable history ` +
               'and are never deleted.'
+          );
+          continue;
+        }
+        // A player of a retired fixture's finished game can never pass the
+        // account door: prove it from the rows first and never send the call
+        // (provenPlayerOfRetiredFixtureHistory). An unreadable proof falls
+        // through to the door, which still decides.
+        let provenHistory = null;
+        try {
+          provenHistory = await provenPlayerOfRetiredFixtureHistory({
+            environment,
+            fetchImpl,
+            account,
+          });
+        } catch {
+          provenHistory = null;
+        }
+        if (provenHistory) {
+          keptPlayers.push(account.id);
+          console.log(
+            `[production-e2e-account] kept stale identity ${account.id} as a player of record of ` +
+              `retired fixture(s) ${provenHistory.join(', ')}: its finished games keep immutable ` +
+              'history and are never deleted.'
           );
           continue;
         }

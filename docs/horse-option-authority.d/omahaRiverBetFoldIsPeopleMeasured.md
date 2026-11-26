@@ -13,12 +13,13 @@ Everything in `plo-lead7-01TLQer8/plo-bluffs/` (harness and outputs in that fold
 - Flag-off check full set: 0 differences in 28,000 decisions.
 - Scripted responders (Horses ON minus OFF, bb/100, 2 seats, 100 bb, 16,000 deals; the responder's public answers served as his lifetime record, as live):
 
-| Set                            | Calling station PLO4 | Calling station PLO5 | Over-folder PLO4 | Over-folder PLO5 |
-| ------------------------------ | -------------------- | -------------------- | ---------------- | ---------------- |
-| the two river rules alone      | -29.9 +/- 2.6        | -49.9 +/- 4.2        | +17.0 +/- 2.7    | +23.0 +/- 4.2    |
-| + omahaRiverBetFoldIsHisRecord | +0.6 +/- 0.5         | -3.3 +/- 1.1         | +19.9 +/- 3.0    | +30.3 +/- 4.3    |
-| + his record + this option     | +0.4 +/- 0.4         | -4.9 +/- 1.2         | +12.5 +/- 2.4    | +18.5 +/- 4.4    |
-| that + the three bluff options | +0.4 +/- 0.4         | -5.0 +/- 1.2         | +19.4 +/- 2.7    | +26.9 +/- 4.3    |
+| Set                                                                | Calling station PLO4 | Calling station PLO5 | Over-folder PLO4 | Over-folder PLO5 |
+| ------------------------------------------------------------------ | -------------------- | -------------------- | ---------------- | ---------------- |
+| the two river rules alone                                          | -29.9 +/- 2.6        | -49.9 +/- 4.2        | +17.0 +/- 2.7    | +23.0 +/- 4.2    |
+| + omahaRiverBetFoldIsHisRecord                                     | +0.6 +/- 0.5         | -3.3 +/- 1.1         | +19.9 +/- 3.0    | +30.3 +/- 4.3    |
+| + his record + this option                                         | +0.4 +/- 0.4         | -4.9 +/- 1.2         | +12.5 +/- 2.4    | +18.5 +/- 4.4    |
+| that + the three bluff options                                     | +0.4 +/- 0.4         | -5.0 +/- 1.2         | +19.4 +/- 2.7    | +26.9 +/- 4.3    |
+| that + all four bluff options, after the review fixes (t3, t4, t5) | +0.4 +/- 0.4         | -5.0 +/- 1.2         | +13.9 +/- 2.5    | +25.5 +/- 4.6    |
 
 - League mirror, the last set (Horses ON against OFF, 12,000 hands): PLO4 +10.3 +/- 2.9, PLO5 +19.6 +/- 5.2.
 - A winning PLO5 regular (a person; his recorded river checks of 7 days, opponent memory from his public hands), river checks that become bets scored against his own fold rates (woowoo/data/missed_bluffs.csv), the two rules without this option: omahaRiverFirstToActBetIsPriced 114 bets, +2,724 bb; omahaRiverCheckedToBetIsMeasured 79 bets, +1,861 bb.
@@ -34,4 +35,6 @@ Open before any shadow: the PLO5 station loss with the record read. The two rule
 
 ## Replay
 
-- Replay: NOT RUN (2026-11-26: the scored audited replay of this option with the two river rules is in plo-lead7-01TLQer8/plo-bluffs/aud rows.v4.txt when it finishes; this option is Evidence NOT MET on the station probe)
+- Replay: fixed 27; newlyWrong 2; changed 30; unchanged 839; unjudged 1; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm FTAP vs off; replayed 869 of 869
+- Replay: fixed 65; newlyWrong 8; changed 81; unchanged 2616; unjudged 4; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm FTAP vs off; replayed 2697 of 2697
+- Note (2026-11-26, after review t5: the people fold table refit on the engine's line, the last wager): arm FTAP is this option with omahaRiverFirstToActBetIsPriced, omahaRiverCheckedToBetIsMeasured and omahaRiverBetFoldIsHisRecord, not this option alone; before the refit the 2026-11-20..24 row was 65 fixed / 10 newly wrong (83 changed), the daily row the same. Evidence stays NOT MET on the PLO5 station probe.

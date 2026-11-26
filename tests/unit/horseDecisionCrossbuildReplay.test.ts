@@ -488,3 +488,20 @@ describe('horse-flag-off-check.sh refuses before it creates anything', () => {
     expect(text).not.toMatch(/--no-verify|git stash|git push/);
   });
 });
+
+describe('a temporary replay tree owns its node_modules (2026-11-26)', () => {
+  it('never links an installed node_modules into a throwaway tree', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve: res } = await import('node:path');
+    const root = res(__dirname, '..', '..');
+    const tool = readFileSync(
+      res(root, 'scripts/ops/horse-decision-crossbuild-replay.mjs'),
+      'utf8'
+    );
+    const flagOff = readFileSync(res(root, 'scripts/ops/horse-flag-off-check.sh'), 'utf8');
+    expect(tool).not.toMatch(/symlinkSync|ln -s/);
+    expect(flagOff).not.toMatch(/^\s*ln -s/m);
+    expect(tool).toContain("execFileSync('cp', ['-Rc', src, tmp]");
+    expect(flagOff).toContain('cp -Rc "$NODE_MODULES" "$wt/server/node_modules"');
+  });
+});

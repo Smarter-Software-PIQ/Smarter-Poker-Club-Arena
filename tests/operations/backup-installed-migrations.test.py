@@ -835,5 +835,178 @@ class ForeignMigration(unittest.TestCase):
         self.assertEqual(im.generation_control(generation / 'absent'), '')
 
 
+class EngineInertMigration(unittest.TestCase):
+    """2026-11-26 (O33): candidate 13bce958d4c3 was refused at the 13:00 Chicago
+    selection: "Backup copy lacks installed migration 20261126011318,
+    20261126014018, 20261126014434, 20261126064723" (issue #11599). Each is
+    only fn_ca_horse_option_register calls with literal arguments; they merged
+    and installed at about 07:15 Chicago, after the certified copy was taken.
+    The fixture carries the four real files byte for byte."""
+    INCIDENT = ('20261126011318', '20261126014018', '20261126014434', '20261126064723')
+    CA = {'20261125000000': 'ca_ordinary'}
+    LATER = '20261126100000'  # an ordinary (not inert) migration merged with them
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='engine-inert-migration-')
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name, 'repo')
+        mig = self.repo / 'supabase' / 'migrations'
+        mig.mkdir(parents=True)
+        self.git('init', '-q')
+        self.git('config', 'user.email', 'fixture@example.invalid')
+        self.git('config', 'user.name', 'Migration fixture')
+        (self.repo / 'README').write_text('empty tree\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'no migrations yet')
+        self.empty = self.git('rev-parse', 'HEAD')
+        owners = self.repo / 'server' / 'standby' / 'standby-owners.sql'
+        owners.parent.mkdir(parents=True)
+        owners.write_text('-- owners fixture\n')
+        for v, n in self.CA.items():
+            (mig / f'{v}_{n}.sql').write_text('SELECT 1;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'target')
+        self.target = self.git('rev-parse', 'HEAD')
+        self.names = {}
+        real = ROOT / 'supabase' / 'migrations'
+        for version in self.INCIDENT:
+            source = next(real.glob(version + '_*.sql'))
+            (mig / source.name).write_bytes(source.read_bytes())
+            self.names[version] = source.stem.split('_', 1)[1]
+        (mig / f'{self.LATER}_ca_ordinary_later.sql').write_text('BEGIN;\nUPDATE public.clubs SET name = name;\nCOMMIT;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'main: four register files and one ordinary file')
+        self.control = self.git('rev-parse', 'HEAD')
+        self.production = {**self.CA, **self.names, self.LATER: 'ca_ordinary_later'}
+        self.copy = {**self.CA, self.LATER: 'ca_ordinary_later'}  # taken before the four installed
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True).strip()
+
+    def judge(self, copy, prod, inert, tree='default'):
+        tree = im.tree_versions(str(self.repo), self.target, self.control) if tree == 'default' else tree
+        data = evidence(copy)
+        return im.judge(data, database(data), production(prod), None, tree, inert)
+
+    def inert(self):
+        return im.inert_versions(str(self.repo), self.control, self.target)
+
+    def test_the_inert_set_is_exactly_the_four_register_files(self):
+        self.assertEqual(self.inert(), frozenset(self.INCIDENT))
+        repo = str(self.repo)
+        for args in ((repo, ''), (repo, 'not-a-sha'), (repo, 'e' * 40), (repo, self.control, 'f' * 40),
+                     (str(Path(self.tmp.name, 'none')), self.control)):
+            with self.subTest(args=args[1:]):
+                self.assertEqual(im.inert_versions(*args), frozenset())
+
+    def test_a_version_the_target_ships_is_never_left_out(self):
+        # The candidate's own files are required by version and name, never inert.
+        self.assertEqual(im.inert_versions(str(self.repo), self.control, self.control), frozenset())
+        self.assertEqual(im.inert_versions(str(self.repo), self.control), frozenset(self.INCIDENT))
+
+    def test_more_inert_versions_than_the_cutover_can_try_leaves_nothing_out(self):
+        many = frozenset(f'2026112620{i:04d}' for i in range(im.INERT_SUBSET_LIMIT + 1))
+        prod = {**self.production, **{v: 'register' for v in many}}
+        ok, why = self.judge(self.copy, prod, self.inert() | many)
+        self.assertFalse(ok)
+        self.assertIn('lacks installed migration ' + self.INCIDENT[0], why)
+        self.assertNotIn('engine-inert', why)
+        self.assertEqual(im.bounded_inert(self.inert(), self.production), self.inert())
+
+    def test_the_selection_replay_accepts_the_copy_lacking_only_the_four(self):
+        inert = self.inert()
+        ok, why = self.judge(self.copy, self.production, inert)
+        self.assertTrue(ok, why)
+        self.assertIn('left out as engine-inert: ' + ', '.join(self.INCIDENT), why)
+        # Without the carve-out the refusal is exactly the 13:00 one.
+        ok, why = self.judge(self.copy, self.production, frozenset())
+        self.assertFalse(ok)
+        self.assertEqual(why, 'Backup copy lacks installed migration ' + ', '.join(self.INCIDENT))
+        # The selector itself, run in the tree.
+        owners = (self.repo / 'server/standby/standby-owners.sql').read_bytes()
+        data = evidence(self.copy)
+        certified = {'database': {**database(data), 'ownersSha256': hashlib.sha256(owners).hexdigest()},
+                     'schemaEvidence': data}
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            ok, why, _ = sel.current_schema(self.control, certified, self.empty, self.target,
+                                            production(self.production))
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(ok, why)
+
+    def test_a_missing_ordinary_migration_is_still_refused(self):
+        copy = {v: n for v, n in self.copy.items() if v != self.LATER}
+        ok, why = self.judge(copy, self.production, self.inert())
+        self.assertFalse(ok)
+        self.assertTrue(why.startswith('Backup copy lacks installed migration ' + self.LATER + ';'), why)
+        self.assertIn('left out as engine-inert: ', why)
+
+    def helper(self, *args, env=None):
+        return subprocess.run(['python3', '-B', HELPER, *args], capture_output=True, text=True,
+                              env={**os.environ, **(env or {})})
+
+    def test_refresh_due_certified_digest_and_status_agree(self):
+        tmp = Path(self.tmp.name)
+        same = {s: hashlib.sha256(s.encode()).hexdigest() for s in se.SIGNATURES}
+        data = evidence(self.copy, same)
+        sha = hashlib.sha256(data).hexdigest()
+        (tmp / 'copy.json').write_bytes(data)
+        (tmp / 'production.json').write_text(json.dumps({'migrations': sorted([v, n] for v, n in self.production.items()),
+                                                         'functions': {s: s for s in se.SIGNATURES}}))
+        (tmp / 'certificate.json').write_text(json.dumps({'sha': self.target, 'database': database(data)}))
+        due = self.helper('refresh-due', '--copy-evidence', str(tmp / 'copy.json'), '--copy-evidence-sha', sha,
+                          '--production', str(tmp / 'production.json'), '--repo', str(self.repo),
+                          '--control', self.control, '--sha', self.target)
+        self.assertIn('due=false\n', due.stdout, due.stderr)
+        self.assertIn('left out as engine-inert: ' + ', '.join(self.INCIDENT), due.stderr)
+        only_control = self.helper('refresh-due', '--copy-evidence', str(tmp / 'copy.json'), '--copy-evidence-sha', sha,
+                                   '--production', str(tmp / 'production.json'), '--repo', str(self.repo),
+                                   '--control', self.control)
+        self.assertIn('due=false\n', only_control.stdout, only_control.stderr)
+        self.assertIn('due=true\n', self.helper('refresh-due', '--copy-evidence', str(tmp / 'copy.json'),
+                                                '--copy-evidence-sha', sha, '--production',
+                                                str(tmp / 'production.json'), '--repo', str(self.repo)).stdout)
+        named = self.helper('certified-digest', '--evidence', str(tmp / 'copy.json'), '--certificate',
+                            str(tmp / 'certificate.json'), '--repo', str(self.repo), '--sha', self.target,
+                            '--control', self.control)
+        self.assertEqual(named.returncode, 0, named.stderr)
+        digest = named.stdout.strip()
+        # The certificate still names the copy's own set: unchanged by O33.
+        self.assertEqual(digest, im.digest(self.copy))
+        listing = tmp / 'listing.json'
+
+        def status(prod, certified, *extra):
+            listing.write_text(json.dumps(sorted([v, n] for v, n in prod.items())))
+            return self.helper('status', '--env-file', '/nonexistent', '--repo', str(self.repo), '--sha', self.target,
+                               '--certified', certified, *extra,
+                               env={'ENGINE_INSTALLED_MIGRATIONS_PRODUCTION_FIXTURE': str(listing)})
+        ready = status(self.production, digest, '--control', self.control)
+        self.assertEqual(ready.returncode, im.READY, ready.stdout)
+        self.assertIn('left out as engine-inert: ' + ', '.join(self.INCIDENT), ready.stdout)
+        # Only some of the four installed after certification: still READY, naming those.
+        some = {v: n for v, n in self.production.items() if v not in self.INCIDENT[2:]}
+        part = status(some, digest, '--control', self.control)
+        self.assertEqual(part.returncode, im.READY, part.stdout)
+        self.assertIn('left out as engine-inert: ' + ', '.join(self.INCIDENT[:2]), part.stdout)
+        # Unchanged production: READY exactly as before.
+        self.assertEqual(status(self.copy, digest, '--control', self.control).returncode, im.READY)
+        # An inert version plus a renamed ordinary one: refused.
+        renamed = status({**self.production, self.LATER: 'other'}, digest, '--control', self.control)
+        self.assertEqual(renamed.returncode, im.REFUSED, renamed.stdout)
+        # An ordinary migration installed after certification still refuses.
+        mig = self.repo / 'supabase' / 'migrations'
+        (mig / '20261126110000_ca_after.sql').write_text('SELECT 5;\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'ordinary migration after certification')
+        newer = self.git('rev-parse', 'HEAD')
+        later = status({**self.production, '20261126110000': 'ca_after'}, digest, '--control', newer)
+        self.assertEqual(later.returncode, im.REFUSED, later.stdout)
+        # No control, or an unreadable one, leaves nothing out: refused, never READY.
+        self.assertEqual(status(self.production, digest).returncode, im.REFUSED)
+        self.assertEqual(status(self.production, digest, '--control', 'e' * 40).returncode, im.REFUSED)
+
+
 if __name__ == '__main__':
     unittest.main()
