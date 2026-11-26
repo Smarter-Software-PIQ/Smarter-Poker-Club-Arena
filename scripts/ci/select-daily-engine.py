@@ -53,8 +53,30 @@ def cutoff(day):
                                 ZoneInfo('America/Chicago')).timestamp())
 
 
-def backup(repo, sha, limit, status):
+def refusal_of(status, limit):
+    """Why a commit's newest Backup status cannot be a candidate, before any
+    certificate is read; None when it is a SUCCESS written by the cutoff or
+    when the commit carries no Backup status at all (counted, not listed)."""
+    if not status:
+        return None
+    state = str(status.get('state') or 'UNKNOWN').lower()
+    if state != 'success':
+        said = ' '.join(str(status.get('description') or '').split())[:200]
+        return f'Backup certificate is {state}' + (f': {said}' if said else '')
+    if epoch(status['createdAt']) > limit:
+        return f'certified after the selection cutoff ({status["createdAt"]})'
+    return None
+
+
+def backup(repo, sha, limit, status, refused=None):
+    """The certified evidence of sha, or None. When None is returned for a
+    commit that does carry a Backup status, the reason is appended to
+    `refused` (THE SELECTOR NAMES WHAT IT REFUSED, 2026-11-26)."""
+    note = refused.append if isinstance(refused, list) else (lambda _reason: None)
     if not status or status['state'] != 'SUCCESS' or epoch(status['createdAt']) > limit:
+        reason = refusal_of(status, limit)
+        if reason:
+            note(reason)
         return None
     match = re.fullmatch(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/(\d+)',
                          status['targetUrl'] or '')
@@ -63,11 +85,18 @@ def backup(repo, sha, limit, status):
     run = api(f'repos/{repo}/actions/runs/{match[1]}')
     if (run['path'] != '.github/workflows/backup-engine.yml' or run['head_branch'] != 'main'
             or run['conclusion'] != 'success' or epoch(run['updated_at']) > limit):
+        if run['path'] != '.github/workflows/backup-engine.yml' or run['head_branch'] != 'main':
+            note(f'Backup status names run {run["id"]}, which is not a main Backup Engine run')
+        elif run['conclusion'] != 'success':
+            note(f'Backup run {run["id"]} concluded {run["conclusion"] or "without a conclusion"}')
+        else:
+            note(f'Backup run {run["id"]} finished after the selection cutoff ({run["updated_at"]})')
         return None
     artifacts = api(f'repos/{repo}/actions/runs/{run["id"]}/artifacts?per_page=100')
     name = f'backup-certificate-{sha}-{run["run_attempt"]}'
     matches = [a for a in artifacts['artifacts'] if a['name'] == name and not a['expired']]
     if not matches:
+        note(f'Backup run {run["id"]} retains no unexpired certificate {name}')
         return None
     if len(matches) != 1 or matches[0]['size_in_bytes'] > CONTENT_LIMIT:
         raise ValueError('unexpected Backup evidence bundle')
@@ -169,7 +198,7 @@ def current_schema(control, evidence, serving=None, target=None, production=None
 
 
 def statuses(repo, shas):
-    fields = ' '.join(f'c{i}:object(oid:"{sha}"){{... on Commit{{status{{contexts{{context state createdAt targetUrl}}}}}}}}'
+    fields = ' '.join(f'c{i}:object(oid:"{sha}"){{... on Commit{{status{{contexts{{context state description createdAt targetUrl}}}}}}}}'
                       for i, sha in enumerate(shas))
     owner, name = repo.split('/')
     query = 'query($o:String!,$n:String!){repository(owner:$o,name:$n){' + fields + '}}'
@@ -223,8 +252,19 @@ def select(args, report):
         return cache['rows']
     for offset in range(0, len(commits), 30):
         for sha, status in statuses(args.repo, commits[offset:offset + 30]):
-            evidence = backup(args.repo, sha, report['cutoffEpoch'], status)
+            # THE SELECTOR NAMES WHAT IT REFUSED (2026-11-26). A commit whose
+            # newest backup-engine/certified status is not a usable SUCCESS was
+            # skipped without a word, so the cutover log of 2026-11-25 never
+            # said that 58227a1b, 6aa61507 and 4d88b3bf were refused by the
+            # Backup, nor why. It is listed in refusedCandidates with its
+            # reason; a commit with no Backup status at all is only counted.
+            refused = []
+            evidence = backup(args.repo, sha, report['cutoffEpoch'], status, refused)
             if evidence is None:
+                if refused:
+                    report.setdefault('refusedCandidates', []).append({'sha': sha, 'reason': refused[0]})
+                elif not status:
+                    report['uncertifiedCommits'] = report.get('uncertifiedCommits', 0) + 1
                 continue
             rollback = evidence.get('rollbackAdoptionSeconds')
             forward = evidence.get('forwardAdoptionSeconds')
@@ -334,6 +374,7 @@ def main():
     if not all((args.control, args.serving, args.date or args.owner_window, args.output)):
         parser.error('selection requires --control, --serving, --date and --output')
     report = {'schema': 1, 'outcome': 'keep-serving', 'targetSha': None, 'deferredCandidates': [],
+              'refusedCandidates': [], 'uncertifiedCommits': 0,
               'servingSha': args.serving, 'stageSha': args.stage or args.control, 'controlSha': None, 'cutoffEpoch': cutoff(args.date) if args.date else None}
     try:
         if not re.fullmatch('[0-9a-f]{40}', args.control):
