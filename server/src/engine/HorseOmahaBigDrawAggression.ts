@@ -503,6 +503,14 @@ export interface OmahaBigDrawEquities {
 export interface OmahaBigDrawCounts {
   got: number[];
   won: number[];
+  /**
+   * Optional (review t3, 2026-11-26; omahaTurnBluffIsPricedOn*): the strength bin of each sampled opponent holding
+   * on the board now (omahaOpeningBinsOnBoard's classifier, -1 none). When given with `binGot` / `binWon`, the
+   * sample is also counted by that bin. The draws, the run-outs and the three shares do not change.
+   */
+  binOf?: (ids: ArrayLike<number>, start: number, n: number) => number;
+  binGot?: number[];
+  binWon?: number[];
 }
 
 /**
@@ -562,6 +570,8 @@ export function omahaBigDrawEquities(
     const opp: Card[] = [];
     for (let i = 0; i < size; i++) opp.push(cardOfId[work[i]!]!);
     const level = omahaBigDrawContinues(opp, board, continueStraightOuts);
+    // the run-out shuffles below touch only positions size.., so his cards are read here once
+    const oppBin = counts?.binOf ? counts.binOf(work, 0, size) : -1;
     let share = 0;
     for (let r = 0; r < OMAHA_BIG_DRAW_RUNOUTS; r++) {
       shuffle(need, size);
@@ -584,6 +594,10 @@ export function omahaBigDrawEquities(
       share += a > o ? 1 : a === o ? 0.5 : 0;
     }
     share /= OMAHA_BIG_DRAW_RUNOUTS;
+    if (oppBin >= 0 && counts?.binGot && counts.binWon) {
+      counts.binGot[oppBin] = (counts.binGot[oppBin] ?? 0) + 1;
+      counts.binWon[oppBin] = (counts.binWon[oppBin] ?? 0) + share;
+    }
     for (let lv = 0; lv <= level; lv++) {
       won[lv]! += share;
       got[lv]!++;

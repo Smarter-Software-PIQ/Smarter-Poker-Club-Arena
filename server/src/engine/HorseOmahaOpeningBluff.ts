@@ -15,8 +15,9 @@
  * advantage is the Horse's. Each option that makes a bet needs the math leg and one second leg.
  *
  * HIS RANGE (turn). The measured strength-now histogram of his role, line and the board's texture
- * (HorseOmahaOpeningBluffRangeTables.json, fit by scripts/ops/omaha-opening-bluff-range-fit.mjs from shown hands
- * only, showdown bias corrected by strata of his own action): after his check (`oopcheck`), or in position before he
+ * (HorseOmahaOpeningBluffRangeTables.json `cells`, fit by scripts/ops/omaha-opening-bluff-range-fit.mjs from PEOPLE's
+ * shown hands only, showdown bias corrected by strata of his own action; review t4 2026-11-26: Horse hands never
+ * enter it, owner order "the stats need to be used against human players, not horses"): after his check (`oopcheck`), or in position before he
  * acts (`ip`). CARD REMOVAL is exact (omahaOpeningBinsOnBoard): the bins are cut on the turn board's holdings and
  * each bin's weight is moved by the share of its holdings the Horse's cards and the known dead cards leave him.
  *
@@ -29,17 +30,20 @@
  * the card-removed range.
  *
  * THE TURN PRICE. The Horse's share with a card to come is the engine's big-draw sampler (omahaBigDrawEquities: one
- * seeded sample of his holdings and river cards), read by the tier the sampler puts his hand in (continues against
- * a raise; continues against a bet; neither). He continues with the strongest share of his range, so the Horse's
- * share against the hands that continue against a size, e_c(B), is its share against the strongest (1 - f') of the
- * tiers: a bigger bet is called by a stronger range.
+ * seeded sample of holdings and river cards), counted by the strength bin each sampled holding is in on the board
+ * now (the same cut as his range). The sampler's holdings are uniform, so the bins are re-weighted by HIS measured,
+ * card-removed range (review t3, 2026-11-26: before, the share was read on the sampler's own tiers of uniform
+ * holdings, so the price did not depend on how strong his range was). He continues with the strongest share of his
+ * range, kappa_b of each bin, so e_c(B) = sum_b p_b kappa_b e_b / sum_b p_b kappa_b and e_all = sum_b p_b e_b: a
+ * bigger bet is called by a stronger range, and against a strong range the Horse holds less equity.
  *   EV(check) = R x e_all x P x (1 - rake)                      R the engine's turn realization for the position
  *   EV(bet B) = f' x P x (1 - rake)
  *             + (1 - f') x ((1 - r) x (R x e_c(B) x (P + 2B) x (1 - rake) - B) - r x B)
  *     f' his fold share given the Horse's cards, R the same realization (river playability), r his raise share of
  *     the answers that continue (the engine's measured raise-back share of all answers over his continue share):
  *     against a raise the Horse is scored as losing the bet and its whole equity.
- *   margin = his fold rate's binomial error on n + k answers times d EV / d fold, plus the sampler's error on e_c.
+ *   margin = his fold rate's binomial error on n + k answers times d EV / d fold, plus the sampler's error on e_c
+ *   (each bin's binomial error on its own sample count, weighted by the bin's share of the continuing range).
  * A bet whose share against the hands that continue is above one half is a value bet and is not this file's.
  * SIZES. Only bets of 0.7 pot or more are priced (the measured turn deficit is at that size; people fold 12 to 19% to
  * a turn bet under 0.4 pot against a 22 to 25% break-even, so a small turn bluff loses and none is added).
@@ -47,8 +51,10 @@
  * (1 - rake), must be worth at least what the check keeps, EV(check): a pure turn bluff is worth little against
  * people (MEASURE: +1.4 bb a week PLO4, +4.7 bb PLO5), so the best bet is chosen only among semi-bluffs.
  *
- * THE RANGE ADVANTAGE. The Horse's own range is the measured histogram of ITS role and line on this texture; his is
- * his. On the bins of this board: (1) the Horse's range beats his range more than half the time by more than the two
+ * THE RANGE ADVANTAGE. The Horse's own range is the measured histogram of ITS role and line on this texture, from the
+ * Horses' own shown hands (the table's `heroCells`: what the deciding Horse's range holds is not a statistic about
+ * the opponent, so it is measured on the Horses that play the role; it never prices his fold or his range); his is
+ * his, from people only. On the bins of this board: (1) the Horse's range beats his range more than half the time by more than the two
  * histograms' sampling error; (2) the value the Horse's range holds against the hands that continue against this
  * bet (the share of the Horse's range that beats more than half of them) carries B / (P + B) of bluffs for each
  * value bet (the balanced share for the size), and the hand is in that weakest share of the Horse's range. So the
@@ -75,6 +81,7 @@ import {
   OMAHA_RIVER_OPENING_BIN_EDGES,
   omahaOpeningBinsOnBoard,
   omahaRiverOpeningBetRule,
+  type OmahaOpeningBinClassifier,
   type OmahaRiverOpeningBins,
   type OmahaRiverOpeningFoldRecord,
   type OmahaRiverOpeningVerdict,
@@ -99,7 +106,10 @@ interface RangeCell {
 const T = tables as unknown as {
   version: string;
   binEdges: number[];
+  /** HIS range: people's shown hands only (owner order 2026-11-26; review t4) */
   cells: Record<string, RangeCell>;
+  /** the deciding Horse's OWN range: the Horses' own shown hands (never a statistic about the opponent) */
+  heroCells: Record<string, RangeCell>;
 };
 export const OMAHA_OPENING_BLUFF_RANGE_VERSION: string = T.version;
 const NB = OMAHA_RIVER_OPENING_BIN_EDGES.length - 1;
@@ -181,7 +191,7 @@ export function omahaOpeningBluffSpot(
     const hisRole = position === 'ip' ? 'oopcheck' : 'ip';
     const hisCell = `${variant}|${street}|${hisRole}|${lineOf(scope.opponent.seat)}|${tex}`;
     const heroCell = `${variant}|${street}|${position}|${lineOf(hero.seat)}|${tex}`;
-    if (!T.cells[hisCell] || !T.cells[heroCell]) return null;
+    if (!T.cells[hisCell] || !T.heroCells?.[heroCell]) return null;
     const own = lineOf(hero.seat);
     const heroLine: OmahaPeopleFoldLine = own === 'def' ? 'vsAgg' : own;
     return { street, opponent: scope.opponent, position, hisCell, heroCell, heroLine };
@@ -290,51 +300,96 @@ export function omahaOpeningBluffRangeLeg(
   };
 }
 
-/** One tier of his hands in the sampler's order: its share of the sampled hands and the Horse's share against it. */
-export interface OmahaTurnBluffTier {
-  share: number;
-  eq: number;
-}
 /**
- * The Horse's sampled shares with a card to come (omahaBigDrawEquities), by the tier the sampler puts his hand in,
- * strongest first: the hands that continue against a raise, the other hands that continue against a bet, the hands
- * that do neither.
+ * The Horse's sampled shares with a card to come (omahaBigDrawEquities' one seeded sample), counted by the STRENGTH
+ * BIN each sampled holding of his is in on the board now (omahaOpeningBinsOnBoard's cut, strongest first). Review t3
+ * (2026-11-26): the sampler draws his holdings uniformly from the unseen cards, so its plain share (`all`) is the
+ * Horse's share against a RANDOM hand. Read by bin, each bin's share is the Horse's share against the holdings of
+ * that strength, and his measured range on this board (card-removed) weights the bins: the price then depends on how
+ * strong his range is, and the hands that continue against a bet are the strongest bins of HIS range.
  */
 export interface OmahaTurnBluffEquity {
+  /** against a random holding (the sampler's plain share; reported, not priced on) */
   all: number;
-  tiers: readonly [OmahaTurnBluffTier, OmahaTurnBluffTier, OmahaTurnBluffTier];
+  /** per strength bin, strongest first: sampled holdings and the Horse's summed share against them */
+  bins: { got: readonly number[]; won: readonly number[] };
   samples: number;
 }
 export function omahaTurnBluffEquityOf(counts: OmahaBigDrawCounts): OmahaTurnBluffEquity | null {
-  const g = [0, 1, 2].map((i) => (fin(counts.got[i]) ? (counts.got[i] as number) : 0));
-  const w = [0, 1, 2].map((i) => (fin(counts.won[i]) ? (counts.won[i] as number) : 0));
-  const n = g[0];
+  const n = fin(counts.got[0]) ? (counts.got[0] as number) : 0;
   if (!(n > 0)) return null;
-  const all = clamp(w[0] / n, 0, 1);
-  const tier = (got: number, won: number): OmahaTurnBluffTier => ({
-    share: clamp(got / n, 0, 1),
-    eq: got > 0 ? clamp(won / got, 0, 1) : all,
-  });
-  return {
-    all,
-    tiers: [tier(g[2], w[2]), tier(g[1] - g[2], w[1] - w[2]), tier(g[0] - g[1], w[0] - w[1])],
-    samples: n,
-  };
+  const w = fin(counts.won[0]) ? (counts.won[0] as number) : 0;
+  const bg = counts.binGot;
+  const bw = counts.binWon;
+  if (!Array.isArray(bg) || !Array.isArray(bw)) return null;
+  const got = Array.from({ length: NB }, (_, b) => (fin(bg[b]) ? (bg[b] as number) : 0));
+  const won = Array.from({ length: NB }, (_, b) => (fin(bw[b]) ? (bw[b] as number) : 0));
+  if (!(got.reduce((a, x) => a + x, 0) > 0)) return null;
+  return { all: clamp(w / n, 0, 1), bins: { got, won }, samples: n };
 }
-/** The Horse's share against the strongest `c` of his hands (he continues with the strongest share of his range). */
-export function omahaTurnBluffEquityAgainst(e: OmahaTurnBluffEquity, c: number): number {
-  let left = clamp(c, 0, 1);
-  if (!(left > 0)) return e.tiers[0].eq;
-  let mass = 0;
-  let won = 0;
-  for (const t of e.tiers) {
-    const take = Math.min(left, t.share);
-    mass += take;
-    won += take * t.eq;
-    left -= take;
-    if (left <= 1e-12) break;
+/**
+ * The bins of this board and the Horse's sampled shares by bin, from one call of the engine's big-draw sampler (the
+ * same seeded draws as omahaBigDrawEquities). Null when either cannot be had.
+ */
+export function omahaTurnBluffSample(
+  hole: Card[],
+  board: Card[],
+  dead: Card[],
+  samples: number = OMAHA_BIG_DRAW_SAMPLES
+): { bins: OmahaRiverOpeningBins; equity: OmahaTurnBluffEquity } | null {
+  const classify: OmahaOpeningBinClassifier = {};
+  const bins = omahaOpeningBinsOnBoard(hole, board, dead, classify);
+  if (!bins || !classify.binOfIds) return null;
+  const counts: OmahaBigDrawCounts = {
+    got: [0, 0, 0],
+    won: [0, 0, 0],
+    binOf: classify.binOfIds,
+    binGot: new Array<number>(NB).fill(0),
+    binWon: new Array<number>(NB).fill(0),
+  };
+  if (!omahaBigDrawEquities(hole, board, dead, samples, counts)) return null;
+  const equity = omahaTurnBluffEquityOf(counts);
+  return equity ? { bins, equity } : null;
+}
+/**
+ * The Horse's share against each bin. A bin the sample did not reach takes the nearest sampled bin's share (the
+ * stronger one on a tie); its sample count stays 0, so its weight enters the margin at the full binomial error.
+ */
+function binShares(e: OmahaTurnBluffEquity): number[] {
+  const eq = new Array<number>(NB).fill(e.all);
+  for (let b = 0; b < NB; b++) {
+    for (let d = 0; d < NB; d++) {
+      const s =
+        b - d >= 0 && e.bins.got[b - d] > 0
+          ? b - d
+          : b + d < NB && e.bins.got[b + d] > 0
+            ? b + d
+            : -1;
+      if (s >= 0) {
+        eq[b] = clamp(e.bins.won[s] / e.bins.got[s], 0, 1);
+        break;
+      }
+    }
   }
-  return mass > 0 ? clamp(won / mass, 0, 1) : e.all;
+  return eq;
+}
+/** The Horse's share against a weighting of his bins (weights need not sum to 1), and the sampling error of it. */
+function shareAgainst(
+  e: OmahaTurnBluffEquity,
+  eq: readonly number[],
+  weight: readonly number[]
+): { eq: number; se: number } {
+  let W = 0;
+  for (let b = 0; b < NB; b++) W += Math.max(0, weight[b]);
+  if (!(W > 0)) return { eq: eq[0], se: 0.5 };
+  let m = 0;
+  let v = 0;
+  for (let b = 0; b < NB; b++) {
+    const w = Math.max(0, weight[b]) / W;
+    m += w * eq[b];
+    v += (w * w * Math.max(eq[b] * (1 - eq[b]), 0.01)) / Math.max(1, e.bins.got[b]);
+  }
+  return { eq: clamp(m, 0, 1), se: Math.sqrt(v) };
 }
 
 export interface OmahaTurnBluffRow {
@@ -342,7 +397,7 @@ export interface OmahaTurnBluffRow {
   /** his fold share without / with the Horse's cards */
   fold0: number;
   fold: number;
-  /** the Horse's share, a card to come, against the hands that continue against this size */
+  /** the Horse's share, a card to come, against the hands of HIS range that continue against this size */
   eqCall: number;
   ev: number;
   margin: number;
@@ -355,6 +410,7 @@ export interface OmahaTurnBluffRow {
 }
 export interface OmahaTurnBluffVerdict {
   position: OmahaOpeningBluffPosition;
+  /** the Horse's share, a card to come, against his whole measured range on this board */
   eqAll: number;
   evCheck: number;
   rows: OmahaTurnBluffRow[];
@@ -394,7 +450,11 @@ export function omahaTurnBluffPrice(i: OmahaTurnBluffInput): OmahaTurnBluffVerdi
   const R = fin(i.realization) ? clamp(i.realization, 0.5, 1) : 0.85;
   const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS.turn;
   const P = i.pot * (1 - r);
-  const evCheck = R * i.equity.all * P;
+  // review t3: the Horse's share is read against HIS range on this board, bin by bin (card-removed), never against
+  // the sampler's random holdings: EV(check) against his whole range, the bet against the bins that continue
+  const eqBin = binShares(i.equity);
+  const eqRange = shareAgainst(i.equity, eqBin, p1).eq;
+  const evCheck = R * eqRange * P;
   const rows: OmahaTurnBluffRow[] = [];
   let recordN = 0;
   for (const B of i.amounts) {
@@ -416,13 +476,18 @@ export function omahaTurnBluffPrice(i: OmahaTurnBluffInput): OmahaTurnBluffVerdi
     for (let b = 0; b < NB; b++) cont += p1[b] * kappa[b];
     cont = clamp(cont, 0, 1);
     const foldC = 1 - cont;
-    const eC = omahaTurnBluffEquityAgainst(i.equity, cont);
+    const against = shareAgainst(
+      i.equity,
+      eqBin,
+      p1.map((x, b) => x * kappa[b])
+    );
+    const eC = against.eq;
     const raise = cont > 0 ? clamp(i.raiseBack / cont, 0, 0.5) : 0;
     const called = R * eC * (i.pot + 2 * B) * (1 - r) - B;
     const continued = (1 - raise) * called - raise * B;
     const ev = foldC * P + cont * continued;
     const se = Math.sqrt((f * (1 - f)) / (fm.n + k));
-    const seEq = Math.sqrt((eC * (1 - eC)) / Math.max(1, i.equity.samples * cont));
+    const seEq = against.se;
     const margin = se * Math.abs(P - continued) + seEq * cont * (1 - raise) * R * (i.pot + 2 * B);
     rows.push({
       amount: B,
@@ -446,7 +511,7 @@ export function omahaTurnBluffPrice(i: OmahaTurnBluffInput): OmahaTurnBluffVerdi
     if (row.semi && row.ev - evCheck > row.margin && (!best || row.ev > best.ev)) best = row;
   return {
     position: i.position,
-    eqAll: round4(i.equity.all),
+    eqAll: round4(eqRange),
     evCheck: round4(evCheck),
     rows,
     best,
@@ -506,7 +571,7 @@ export function omahaOpeningBluffRule(
     const spot = omahaOpeningBluffSpot(hero, gs);
     if (!spot) return same;
     const his = T.cells[spot.hisCell];
-    const mine = T.cells[spot.heroCell];
+    const mine = T.heroCells[spot.heroCell];
     const board = gs.communityCards ?? [];
     const dead = hero.knownDeadCards ?? [];
     const place = (
@@ -559,18 +624,15 @@ export function omahaOpeningBluffRule(
       if (!range || !range.holds) return { ...same, river, ...(range ? { range } : {}) };
       return place(river.best.amount, 'river_range', { river, range });
     }
-    const bins = omahaOpeningBinsOnBoard(hero.cards, board, dead);
-    if (!bins) return same;
     // a check becomes a bet only at 0.7 pot or more: the measured turn deficit is there; a small turn bluff loses
     // against people (under 0.4 pot they fold 12 to 19% against a 22 to 25% break-even), so none is added
     const amounts = omahaCardImpactAmounts(hero, spot.opponent, gs).filter(
       (a) => a >= OMAHA_OPENING_BLUFF_BIG_SIZE * gs.pot - 0.005
     );
     if (!amounts.length) return same;
-    const counts: OmahaBigDrawCounts = { got: [0, 0, 0], won: [0, 0, 0] };
-    if (!omahaBigDrawEquities(hero.cards, board, dead, OMAHA_BIG_DRAW_SAMPLES, counts)) return same;
-    const equity = omahaTurnBluffEquityOf(counts);
-    if (!equity) return same;
+    const sampled = omahaTurnBluffSample(hero.cards, board, dead);
+    if (!sampled) return same;
+    const { bins, equity } = sampled;
     let record: OmahaRiverOpeningFoldRecord | null = null;
     try {
       record = deps.recordOf(spot.opponent, 'turn');
