@@ -1524,58 +1524,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
   }
 
-  /**
-   * @deprecated DEAD as of the A2 durable ledger — zero callers repo-wide.
-   *
-   * Refunds now happen inside resolve_pending_addon, keyed `addon_refund:<row
-   * id>`, in the same transaction that resolves the ledger row. This helper is
-   * retained only because a future non-ledger add-on path might need it, and it
-   * is documented as dead so nobody calls it ALONGSIDE the RPC and refunds the
-   * same chips twice. If you reach for this, pass an idempotency key.
-   *
-   * Refund unused add-on chips back to the player's PLAYER wallet (the same
-   * balance atomic_table_addon debited). Uses atomic_credit_wallet_and_log so
-   * the refund is logged and matches the debit side.
-   */
-  protected async _refundAddOnToWallet(
-    userId: string,
-    amount: number,
-    idempotencyKey?: string
-  ): Promise<void> {
-    if (amount <= 0) return;
-    try {
-      const { error } = await supabase.rpc('atomic_credit_wallet_and_log', {
-        p_user_id: userId,
-        p_amount: amount,
-        p_category: 'addon_refund',
-        p_description: 'Add-on exceeded table max buy-in - refunded',
-        p_table_id: this.tableId,
-        p_hand_id: null,
-        p_related_entity_id: null,
-        // A2 FIX: the ledger path (resolve_pending_addon) keys its own refund on
-        // `addon_refund:<row id>`. This helper is now only a fallback for
-        // callers that have no ledger row, but it must still be keyable — an
-        // unkeyed refund inside any retry is a mint waiting to happen.
-        p_idempotency_key: idempotencyKey ?? null,
-      });
-      if (error) {
-        reportError(error, `ServerTableEngine.${this.tableId}.addon_refund_failed`, {
-          userId,
-          amount,
-        });
-      } else {
-        console.log(
-          `[ServerTableEngine:${this.tableId}] Refunded ${amount} chips to ${userId}'s PLAYER wallet`
-        );
-      }
-    } catch (err) {
-      reportError(err, `ServerTableEngine.${this.tableId}.addon_refund_failed`, {
-        userId,
-        amount,
-      });
-    }
-  }
-
   private readonly explicitSitOutRequests = new Map<
     string,
     Promise<{ success: boolean; [key: string]: unknown }>
