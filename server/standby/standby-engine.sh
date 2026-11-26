@@ -692,10 +692,22 @@ WORST_HANDS_SHOWN = 5
 
 
 def over_budget_p_value(n, k, rate=ALLOWED_OVER_BUDGET_RATE):
-    """One-sided exact binomial tail P(X >= k) for X ~ Binomial(n, rate)."""
+    """One-sided exact binomial tail P(X >= k) for X ~ Binomial(n, rate).
+
+    Summed in log space: math.comb(n, i) is an exact integer, and multiplying
+    it by a float overflows ("int too large to convert to float") from about
+    1,000 hands in a cell, which would crash the judge on a long or busy soak.
+    """
     if k <= 0:
         return 1.0
-    return min(1.0, sum(math.comb(n, i) * rate ** i * (1 - rate) ** (n - i) for i in range(k, n + 1)))
+    if k > n:
+        return 0.0
+    log_rate, log_rest = math.log(rate), math.log1p(-rate)
+    log_n = math.lgamma(n + 1)
+    terms = [log_n - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * log_rate + (n - i) * log_rest
+             for i in range(k, n + 1)]
+    top = max(terms)
+    return min(1.0, math.exp(top) * sum(math.exp(t - top) for t in terms))
 
 
 def as_count(value, name):
