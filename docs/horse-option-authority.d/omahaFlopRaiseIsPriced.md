@@ -29,7 +29,7 @@ Limits: no per-opponent flop fold-to-raise record exists in the HUD feed, so eve
 
 ## Prior anchor
 
-- Baseline (no record): his fold share against a raise is the equilibrium minimum defence of the pot he is offered, X / (P + A + X).
+- Baseline: with no record, his fold share against a raise is the equilibrium minimum defence of the pot he is offered, X / (P + A + X).
 - Own record: his shown flop wagers (HorseOmahaBetRead's per-opponent cells) move the measured range toward his own shown value share; the OPPONENT-HUD feed holds no per-opponent flop fold-to-raise count, so the fold share is the equilibrium prior for every opponent.
 - Population weight: the range SHAPE is the measured pooled table (#11939); no pooled fold rate enters.
 - No unshown cards: the table is fitted from shown cards only; the decision reads the public state, the Horse's own cards and the known dead cards.
