@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Request } from '@playwright/test';
 import { mountStatsPaneBeforeDebounce } from './support/statsClock';
 import { recordNonVerdict } from './support/nonVerdict';
-import { expectStatsPanelLayout } from './support/statsPanelLayout';
+import { expectStatsPanelLayout, expectStatsTabLabelsFit } from './support/statsPanelLayout';
 
 test.describe('Player Stats production experience', () => {
   // The overview rollup is intentionally exhaustive and can take several
@@ -365,6 +365,11 @@ test.describe('Player Stats production experience', () => {
     await expect(mast.getByRole('heading', { name: 'Player Stats', exact: true })).toBeVisible();
     await expect(mast.locator('small')).toHaveCount(0);
     await expect(page.getByText(/This Club Ledger Begins/i)).toHaveCount(0);
+    const navigation = page.getByRole('tablist', { name: 'Statistics Sections' });
+    for (const width of [480, 500]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectStatsTabLabelsFit(navigation);
+    }
     for (const tabName of [
       'Performance',
       'Positions',
