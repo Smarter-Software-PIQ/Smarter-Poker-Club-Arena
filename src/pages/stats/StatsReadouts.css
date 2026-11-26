@@ -350,10 +350,19 @@
   .stats-heatmap-key i:not([data-scale='frequency']) {
     background: linear-gradient(90deg, #9c494b, #1a2837, #44996b);
   }
+  .stats-page .stats-readouts .heatmap-scroll {
+    container-type: inline-size;
+  }
+  .stats-page .stats-readouts .heatmap-grid {
+    min-width: 0;
+    grid-template-columns: repeat(13, minmax(0, 1fr));
+    gap: clamp(1px, 0.35cqi, 2px);
+  }
   .stats-page .stats-readouts .heatmap-cell {
+    min-width: 0;
     min-height: 24px;
     font:
-      700 clamp(0.59rem, 1.5vw, 0.81rem)/1 'Roboto Condensed',
+      700 clamp(0.625rem, 3.3cqi, 0.81rem)/1 'Roboto Condensed',
       sans-serif;
   }
   .stats-page .stats-readouts .heatmap-cell[aria-selected='true'] {
