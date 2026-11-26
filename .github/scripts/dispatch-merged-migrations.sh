@@ -207,6 +207,34 @@ if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE" ${NOW_MS:+"$NOW_MS"}
   exit 1
 fi
 
+# A FILE REVERTED WHILE HELD IS NOT SENT (2026-11-26). A merge inside the
+# nightly freeze or a cycle hold waits in this run for up to six hours, and the
+# plan read the default branch before the wait. On 2026-11-25 #12035 merged at
+# 22:54 Chicago, was held to 04:15, and #12052 reverted it at 01:10; at 04:15
+# this run still sent it, and the applier refused a file "that does not exist
+# in this checkout" (run 45799563014). Harmless only because the applier looked.
+# After the wait each file is read again from the default branch: one that is
+# gone (404) is named and not sent; one that cannot be read is sent as before
+# (the applier still refuses what it cannot find).
+DEFAULT_BRANCH=$(jq -r '.repository.default_branch // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+STILL_ON_MAIN=()
+for f in "${DISPATCH[@]}"; do
+  if READ=$(gh api "repos/$REPO/contents/supabase/migrations/$f?ref=$DEFAULT_BRANCH" --jq .sha 2>&1); then
+    STILL_ON_MAIN+=("$f")
+  elif grep -q 'HTTP 404' <<<"$READ"; then
+    say "- **NOT SENT** \`$f\`: it left \`$DEFAULT_BRANCH\` while this run held it (reverted or superseded); nothing to install."
+  else
+    say "- COULD NOT TELL whether \`$f\` is still on \`$DEFAULT_BRANCH\`; sending as before."
+    STILL_ON_MAIN+=("$f")
+  fi
+done
+if [ "${#STILL_ON_MAIN[@]}" -eq 0 ]; then
+  say "- every held file left \`$DEFAULT_BRANCH\` during the wait; nothing was sent."
+  exit 0
+fi
+DISPATCH=("${STILL_ON_MAIN[@]}")
+
 # AN OLDER MERGED MIGRATION INSTALLS FIRST (incident 90972d77) is guaranteed
 # by the applier, not by timing here: every apply-merged-migration run installs
 # the older pending ordinary files before its own
