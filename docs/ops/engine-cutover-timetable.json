@@ -49,10 +49,10 @@
     },
     {
       "id": "release-control-slot",
-      "rule": "Release-control merges (workflows, selector, standby, seal scripts) land only in the post-seal slot: after SEALED and before slot +50 min, one per slot, merged by the Cutover lane.",
-      "source": "Cutover lane posts (for example 2026-11-24T16:02:16Z: 'release-control slot open until 16:50Z')",
-      "enforcement": "None in code.",
-      "gap": "A merge gate that refuses a CONTROL_INPUTS change outside [SEALED, slot +50 min)."
+      "rule": "Release-control changes (any non-test CONTROL_INPUTS path of scripts/ci/read-engine-prequalification.py: release workflows, selector, prequalification reader, seal and maintenance code) merge only from slot +10 to slot +25 min, and never after the cycle's candidate push. Prequalification compares the candidate's control inputs with main's, so a later control change makes every certified candidate unselectable (2026-11-26 01:00: #12038 after c951436a6ead).",
+      "source": "Lead-7 release custody rule set, docs/ops/engine-cutover-merge-rules.md (2026-11-26)",
+      "enforcement": "Pending (release-custody PR #12062, hold): the merge-window check reds a CONTROL_INPUTS change outside the window; #12065 never retargets a Backup run to a commit with other release controls.",
+      "gap": "Make the check required on main and enable a merge queue."
     },
     {
       "id": "merge-window",
