@@ -1,8 +1,8 @@
 .exact-session-console {
   position: relative;
-  padding: clamp(20px, 4vw, 38px);
+  padding: 0.6rem 0;
   color: #e4e7ec;
-  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .exact-session-console header,
 .exact-session-heading,
@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 0.65rem;
 }
 .exact-session-console header span,
 .exact-session-console dt,
@@ -24,11 +24,11 @@
 }
 .exact-session-list {
   display: grid;
-  gap: 16px;
-  margin-top: 22px;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
 }
 .exact-session-list article {
-  padding: 20px;
+  padding: 0.4rem 0;
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
   box-shadow:
@@ -39,13 +39,13 @@
   color: #e4e7ec;
 }
 .exact-session-heading b {
-  color: #d6ad52;
+  color: #92cff3;
 }
 .exact-session-list dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
-  margin: 18px 0;
+  margin: 0.6rem 0;
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
   box-shadow:
@@ -53,7 +53,7 @@
     inset 0 -1px 0 rgb(255 255 255 / 8%);
 }
 .exact-session-list dl div {
-  padding: 12px;
+  padding: 0.4rem;
 }
 .exact-session-list dl div + div {
   border-left: 1px solid #000;
@@ -90,7 +90,7 @@
   font-weight: 800;
   text-transform: uppercase;
 }
-@media (max-width: 640px) {
+@container stats-report (max-width: 40rem) {
   .exact-session-list dl {
     grid-template-columns: 1fr 1fr;
   }

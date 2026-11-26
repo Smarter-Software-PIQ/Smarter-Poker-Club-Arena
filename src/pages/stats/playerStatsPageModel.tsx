@@ -764,7 +764,7 @@ export function HandsWonGauge({ handsWonPct }: { handsWonPct: number | null }) {
     if (!measured) return 'rgba(138, 154, 170, 0.8)';
     if (value >= 22) return '#10b981';
     if (value >= 15) return '#00d4ff';
-    if (value >= 10) return '#f59e0b';
+    if (value >= 10) return '#86c9e8';
     return '#ef4444';
   };
 

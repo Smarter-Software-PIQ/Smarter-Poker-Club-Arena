@@ -7,7 +7,7 @@
  */
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
-const CHART_COLORS = ['#4169E1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#10b981'];
+const CHART_COLORS = ['#4169E1', '#22c55e', '#86c9e8', '#ef4444', '#55b4ed', '#06b6d4', '#10b981'];
 
 export interface StatsPositionPiePlotProps {
   data: Array<{ name: string; value: number }>;

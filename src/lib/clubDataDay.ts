@@ -350,12 +350,16 @@ export function nextChicagoDay(now = new Date()): number {
   return hi;
 }
 
+export function clubDataSelectedDatesLabel(first: string, last: string): string {
+  return first === last ? dayName(first) : `${dayName(first)} Through ${dayName(last)}`;
+}
+
 /** Inclusive calendar labels are distinct from the exclusive instant at the right boundary. */
 export function clubDataCalendarLabel(
   first: string,
   last: string,
   basis: ClubDataDayBasis
 ): string {
-  const dates = first === last ? dayName(first) : `${dayName(first)} Through ${dayName(last)}`;
+  const dates = clubDataSelectedDatesLabel(first, last);
   return `${dates} ${basis === 'calendar' ? 'Chicago Calendar Dates' : 'Pacific Calendar Dates'}`;
 }

@@ -286,7 +286,7 @@ export default function EVLuckChart({
               type="monotone"
               dataKey="ev"
               name="Expected"
-              stroke="#8b5cf6"
+              stroke="#55b4ed"
               strokeWidth={2}
               strokeDasharray="5 4"
               dot={false}
@@ -322,7 +322,7 @@ export default function EVLuckChart({
           <i className="evluck-swatch" style={{ background: '#00d4ff' }} /> Actual
         </span>
         <span className="evluck-key">
-          <i className="evluck-swatch is-dashed" style={{ borderColor: '#8b5cf6' }} /> Expected
+          <i className="evluck-swatch is-dashed" style={{ borderColor: '#55b4ed' }} /> Expected
         </span>
         <span className="evluck-key">
           <i className="evluck-swatch" style={{ background: 'rgba(34,197,94,0.45)' }} /> Above

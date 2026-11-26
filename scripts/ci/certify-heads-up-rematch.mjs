@@ -227,7 +227,7 @@ async function main() {
     return 0;
   }
 
-  const { createProductionE2EAccount, cleanupProductionE2EAccount } = await import(
+  const { createProductionE2EAccount, cleanupProductionE2EAccount, participantOfRetiredFixtureHistory } = await import(
     pathToFileURL(join(repoRoot, 'scripts/ci/production-e2e-account.mjs')).href
   );
   const scratch = mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), 'hu-rematch-cert-'));
@@ -299,6 +299,19 @@ async function main() {
               const clubRow = (await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`))[0];
               if (ownerRetainedAsRecord({ error: e, club: clubRow, ownerId: S.accounts.owner.id, clubId: S.clubId })) {
                 note('retire the owner account', true, `kept as the owner of record of retired club ${S.clubId}`);
+                continue;
+              }
+            }
+            if (role !== 'owner' && S.clubId) {
+              // The completed match is kept with its retired club, so each
+              // player keeps its entry: a player of record, proved row by row.
+              const kept = await participantOfRetiredFixtureHistory({
+                environment: envFor(role),
+                account: S.accounts[role],
+                error: e,
+              }).catch(() => null);
+              if (kept?.includes(S.clubId)) {
+                note(`retire the ${role} account`, true, `kept as a player of record of retired club ${S.clubId}`);
                 continue;
               }
             }

@@ -10,7 +10,7 @@ describe('Player Stats authorized club UI contract', () => {
   const page = read('src/pages/PlayerStatsPage.tsx');
   const model = read('src/pages/stats/playerStatsPageModel.tsx');
   const analysis = read('src/pages/stats/AnalysisTab.tsx');
-  const clubScopeConsole = read('src/pages/stats/ClubScopeConsole.tsx');
+  const comparisonTable = read('src/pages/stats/ClubComparisonTable.tsx');
 
   it('uses a separate URL key and restores club, range, tab, and sort from URL changes', () => {
     expect(page).toContain("searchParams.get('statsClub')");
@@ -57,7 +57,7 @@ describe('Player Stats authorized club UI contract', () => {
       expect(model).toContain(`key: '${key}'`);
     }
     expect(model).not.toContain("{ key: 'hours', label: 'Hours' }");
-    expect(clubScopeConsole).toContain("row.hours === null ? 'Unavailable'");
+    expect(comparisonTable).toContain("row.hours === null ? 'Unavailable'");
   });
 
   it('propagates club scope to overview, facts, notable hands, pulse, and exports', () => {

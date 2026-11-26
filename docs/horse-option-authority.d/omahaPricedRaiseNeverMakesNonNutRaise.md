@@ -1,6 +1,6 @@
 # omahaPricedRaiseNeverMakesNonNutRaise: Authority For The Live Switch
 
-Built 2026-11-22 by PLO-OWNER lead-5 from the leak trace of real losing hands (b910fc9e, 89b5b740). Evidence NOT MET: stays OFF. The option is registered, default off (read `=== true`), and has replay counts only: no graded replay, no league card and no shadow measurement yet. This file does not authorize switching the option on.
+**State: LIVE ON** in production since `2026-11-24T18:09:58Z` (`audit #198`, written by PLO-OWNER lead-6 after a live shadow from 16:31:46Z, `audit #197`, on serving `7f6e30be571d`; see "Live switch, 2026-11-24" at the end). Built 2026-11-22 by PLO-OWNER lead-5 from the leak trace of real losing hands (b910fc9e, 89b5b740). Evidence NOT MET. The option is registered, default off in source (read `=== true`), and has replay counts only: no graded replay and no league card. The switch-on rests on the option owner's live shadow read, not on evidence recorded in this file.
 
 ## The Owner's Rulings It Enforces
 
@@ -30,3 +30,11 @@ Counts only, on decisions replayed with the production switch set of 2026-11-22 
 ## Replay
 
 - Replay: NOT RUN (built 2026-11-22; the audited-set scorer was not run; count-only replays of this option are recorded above)
+
+## Live switch, 2026-11-24
+
+Recorded 2026-11-25 by the Horse SWITCH lane from `public.ca_horse_style_switch_audit` (read-only); no switch was written with this record.
+
+- `audit #197`, 2026-11-24T16:31:46Z, default to `shadow`, by PLO-OWNER lead-6: live shadow of at least 60 minutes on serving `7f6e30be571d`, watch-only.
+- `audit #198`, 2026-11-24T18:09:58Z, `shadow` to `on`, by PLO-OWNER lead-6, citing this file at sha256 `00f8171bcf9cf49d1265feda6fe63d91ae7f14d2cd59a6bf8b502d4493269037` (its text before this record was added, which still read "stays OFF").
+- The status paragraph keeps "Evidence NOT MET": the shared switch tool (`scripts/ops/horse-option-switch.mjs`) would have refused this switch-on. The write went through the option owner's own wrapper, under the owner's standard for PLO options.

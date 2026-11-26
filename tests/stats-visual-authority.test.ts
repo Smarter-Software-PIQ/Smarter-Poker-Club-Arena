@@ -150,20 +150,18 @@ describe('Stats visual authority', () => {
     expect(shareCard).not.toContain('function roundRect(');
   });
 
-  it('gives money and exact-session ledgers the approved Stats SpadeConsole chassis', () => {
-    const financial = read('src/components/stats/FinancialReportingPanel.tsx');
-    const sessions = read('src/components/stats/ExactCashSessionsPanel.tsx');
-    expect(financial).toContain('family="spade"');
-    expect(financial).toContain('foot="foot"');
-    expect(sessions).toContain('family="spade"');
-    expect(sessions).toContain('foot="foot"');
-    expect(financial).not.toContain('player-intelligence-dossier-v2.webp');
-    expect(sessions).not.toContain('player-intelligence-dossier-v2.webp');
-    expect(financial).not.toContain('stats-strategy-lab-v1.webp');
-    expect(sessions).not.toContain('stats-strategy-lab-v1.webp');
-    expect(
-      statSync(resolve(__dirname, '../public/assets/club-buttons/console/spade-console-v1/top.png'))
-        .size
-    ).toBeGreaterThan(10_000);
+  it('keeps all five report sections in the continuous Arena workspace', () => {
+    for (const file of [
+      'src/components/stats/CashIntelligencePanel.tsx',
+      'src/components/stats/ExactCashSessionsPanel.tsx',
+      'src/components/stats/FinancialReportingPanel.tsx',
+      'src/components/stats/StatsWorkspacePanel.tsx',
+      'src/pages/stats/WorkspaceTab.tsx',
+    ]) {
+      const source = read(file);
+      expect(source, file).toContain('<StatsSection');
+      expect(source, file).not.toContain('SpadeConsole');
+      expect(source, file).not.toContain('player-intelligence-dossier-v2.webp');
+    }
   });
 });

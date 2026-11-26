@@ -159,7 +159,8 @@ describe('the page and the footer say the same thing', () => {
     expect(page).toContain(
       "const reportOpen = canOpenReport && searchParams.get('report') === 'open'"
     );
-    expect(page).toContain('onReport={canOpenReport ?');
+    expect(page).toContain('{reportOpen && (');
+    expect(page).not.toContain('Open Club Report');
   });
 
   it('a player gets the five-door footer, with no Data door, and it never flashes on', () => {

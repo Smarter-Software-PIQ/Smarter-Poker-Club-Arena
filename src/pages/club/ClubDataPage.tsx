@@ -3509,12 +3509,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
       )}
       {!inline && (
         <>
-          <ArenaWorkspaceHeader
-            area="data"
-            title="Club Data"
-            context={clubLabel}
-            subtitle="Club Reporting"
-          />
+          <ArenaWorkspaceHeader area="data" title="Club Data" context={clubLabel} />
           <header className={styles.simpleHeader}>
             <button
               type="button"
