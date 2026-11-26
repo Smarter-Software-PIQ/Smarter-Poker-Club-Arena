@@ -16,6 +16,9 @@ main:has(> .tournament-details.console-lobby) {
   margin-inline: auto;
   line-height: normal;
   --rail-edge: #8296a9;
+  --mtt-steel: url('./console-art/chrome-row.webp') 13 / 8px stretch;
+  --mtt-lens: linear-gradient(170deg, #263e57, #101f30 34%, #050e19 67%, #132d46);
+  --mtt-blue-lens: linear-gradient(#238bfb, #104ea8 29%, #0b306d 69%, #1458af);
   --surface-ink: #eff6ff;
 }
 .console-lobby.console-lobby.console-lobby
@@ -221,38 +224,100 @@ main:has(> .tournament-details.console-lobby) {
   order: 3;
   padding: 0;
 }
-.console-lobby .rw-head summary,
-.console-lobby .approved-satellite summary {
+.console-lobby.console-lobby
+  :is(
+    .details-tabs .tab,
+    .details-footer .btn-share,
+    .mtt-meta-actions button:not(.details-close),
+    .mp-card__toggle,
+    .dov-ladder-link,
+    .rk-filter,
+    .rk-btn,
+    .rw-head summary,
+    .approved-satellite summary,
+    .sat-state__retry,
+    .un-retry,
+    .dov-band__retry
+  ) {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 5px 9px;
+  border: 5px solid transparent;
+  border-image: var(--mtt-steel);
+  border-radius: 0;
+  background: var(--mtt-lens);
+  color: #edf5ff;
+  font:
+    700 clamp(12px, 2.5vw, 14px)/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: 0 1px 2px #01070c;
+  touch-action: manipulation;
   cursor: pointer;
-  font: 600 13px Arial;
-  padding: 12px 4px;
-  color: #b5cbe0;
+}
+.console-lobby.console-lobby .details-tabs .tab {
+  white-space: normal;
+  padding-inline: 0;
+}
+.console-lobby.console-lobby :is(.mp-card__toggle, .rk-filter--on, .rk-btn--go) {
+  background: var(--mtt-blue-lens);
+  border-image-source: url('./console-art/chrome-active.webp');
+}
+.console-lobby :is(.rw-head, .approved-satellite) summary {
+  align-content: center;
+}
+.console-lobby :is(button, summary, a):focus-visible {
+  outline: 2px solid #a5e5ff;
+  outline-offset: -4px;
 }
 .console-lobby.console-lobby .approved-satellite details {
   background: transparent;
 }
-.console-lobby.console-lobby .details-content .rw-payouts .tl-row {
-  border: 0;
-  border-bottom: 1px solid #384a5a;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
+.console-lobby .rw-payouts {
+  --payout-tracks: minmax(42px, 0.65fr) minmax(0, 1.25fr) minmax(0, 1fr);
 }
-.console-lobby.console-lobby .details-content .rw-payouts .tl-row::before {
-  content: none;
-}
-.console-lobby.console-lobby .details-content .rw-payouts .rw-list::before {
-  content: none;
-}
+.console-lobby.console-lobby .details-content .rw-payouts .tl-row,
 .console-lobby .payout-column-head {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  text-align: center;
-  border-bottom: 1px solid #40586e;
-  padding: 8px 0;
+  grid-template-columns: var(--payout-tracks);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+}
+.console-lobby.console-lobby .details-content .rw-payouts .tl-row {
+  min-height: 44px;
+  border-image: var(--mtt-steel);
+  background: var(--mtt-lens);
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+.console-lobby.console-lobby .details-content .rw-payouts .rw-row--p1 {
+  background: var(--mtt-blue-lens);
+  border-image-source: url('./console-art/chrome-active.webp');
+}
+.console-lobby .rw-payouts .rw-rank {
+  width: auto;
+  color: #e4efff;
+}
+.console-lobby .rw-payouts .rw-pct {
+  color: #c3d5e9;
+}
+.console-lobby .rw-payouts :is(.rw-prize, .rw-award),
+.console-lobby .payout-column-head > :last-child {
+  text-align: right;
+  justify-self: end;
+  overflow-wrap: anywhere;
+}
+.console-lobby .rw-payouts .rw-prize {
+  font-size: clamp(17px, 4vw, 22px);
+  color: #f3f8ff;
+}
+.console-lobby .payout-column-head {
+  color: #b8cee5;
   font:
-    700 14px 'Arial Narrow',
-    Arial;
+    700 12px/1.2 Arial,
+    sans-serif;
 }
 .console-lobby
   :is(.console-countdown, .console-ticket, .console-prize, .console-strip, .console-table) {
@@ -506,12 +571,14 @@ main:has(> .tournament-details.console-lobby) {
   .details-content
   :is(
     .console-countdown,
+    .dov-hero,
     .et-panel,
     .un-panel,
     .rw,
     .tt-panel:has(.console-table),
+    .sat-state,
     .approved-satellite,
-    .blinds-tab__card:has(.approved-schedule-scroll)
+    .blinds-tab__card
   ) {
   border: 13px solid transparent;
   border-image: url('./console-art/chrome-case.webp') 41 / 32px stretch;
@@ -524,8 +591,10 @@ main:has(> .tournament-details.console-lobby) {
     .et-row,
     .rk-row,
     .un-card,
+    .tt-item,
     .console-prize,
     .console-time,
+    .dov-blind,
     .tl-stat,
     .console-facts > div,
     .console-pair,
@@ -591,21 +660,27 @@ main:has(> .tournament-details.console-lobby) {
 }
 .console-lobby.console-lobby
   .details-content
-  :is(
-    .rw-gtd,
-    .rw-mix,
-    .dov-info,
-    .blinds-tab__blind,
-    .blinds-tab__clockwrap,
-    .club-page-heading,
-    .TournamentLobbyCard_row
-  ) {
+  :is(.rw-gtd, .rw-mix, .dov-info, .club-page-heading, .TournamentLobbyCard_row) {
   background: transparent;
   border: 0;
   box-shadow: none;
 }
 .console-lobby .details-content .console-ledger {
-  padding-inline: 5px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+}
+.console-lobby .details-content .dov-hero__main {
+  grid-template-columns: minmax(0, 1fr);
+}
+.console-lobby .details-content .dov-hero__blinds {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.console-lobby.console-lobby .details-content .dov-hero__clockcol .dov-hero__time {
+  border: 8px solid transparent;
+  border-image: url('./console-art/chrome-readout.webp') 21 / 12px stretch;
+  font-size: clamp(30px, 7.5vw, 52px);
 }
 .console-lobby.console-lobby .details-content .un-panel .un-clubs {
   padding: 4px 0;
@@ -672,40 +747,56 @@ main:has(> .tournament-details.console-lobby) {
   color: #f4f8ff;
   text-shadow: 1px 2px #324454;
 }
-.console-lobby .console-section-heading,
-.console-lobby
+.console-lobby.console-lobby
   .details-content
   :is(
+    .console-section-heading,
+    .tl-section-head,
     .un-head__title > .tl-stat__label,
-    .mtt-rewards-summary h3,
-    .et-panel > .tl-section-head,
-    .rw-payouts > .tl-section-head
+    .mtt-rewards-summary h3
   ) {
-  position: relative;
-  border-bottom: 1px solid #547694;
-  padding-right: 19px;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  padding: 8px 10px;
+  border-block: 1px solid #52708e;
+  background: linear-gradient(125deg, #21415f, #102438 48%, #071320);
 }
-.console-lobby .console-section-heading::after,
-.console-lobby
-  .details-content
-  :is(
-    .un-head__title > .tl-stat__label,
-    .mtt-rewards-summary h3,
-    .et-panel > .tl-section-head,
-    .rw-payouts > .tl-section-head
-  )::after {
-  content: '';
-  position: absolute;
-  right: 4px;
-  top: 24%;
-  height: 52%;
-  width: 4px;
-  border-radius: 3px;
-  background: #7fd6ff;
-  transform: skew(-17deg);
-  box-shadow:
-    0 0 3px #0395ff,
-    0 0 8px 2px #105aff;
+.console-lobby.console-lobby .details-content :is(.blinds-tab__blind, .blinds-tab__clockwrap) {
+  border: 5px solid transparent;
+  border-image: var(--mtt-steel);
+  background: var(--mtt-lens);
+  border-radius: 0;
+}
+.console-lobby.console-lobby .details-content .blinds-tab__clockwrap {
+  border-image: url('./console-art/chrome-readout.webp') 21 / 10px stretch;
+  background: radial-gradient(ellipse at top, #102940, #030b14 80%);
+  padding: 7px;
+}
+.console-lobby .blinds-tab__clock {
+  font-variant-numeric: tabular-nums;
+}
+.console-lobby .blinds-tab :is(.blinds-tab__clock-key, .blinds-tab__blind-key) {
+  color: #b4c9df;
+}
+.console-lobby.console-lobby .details-content .sat-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 160px;
+  background: radial-gradient(ellipse at top, #19334c, #06101d 75%);
+  color: #c9dbed;
+}
+.console-lobby .sat-state :is(h3, p) {
+  margin: 0;
+}
+.console-lobby .sat-state img {
+  object-fit: contain;
+}
+.console-lobby .sat-state h3 {
+  color: #f0f7ff;
+  font-size: 20px;
 }
 .console-lobby .details-content .mtt-rewards-summary[data-provisional='true'] h3 small {
   color: #55eaff;
@@ -716,13 +807,39 @@ main:has(> .tournament-details.console-lobby) {
   margin-right: 3px;
 }
 .console-lobby.console-lobby .console-ledger > div {
+  display: grid;
+  align-content: start;
+  justify-content: stretch;
+  gap: 2px;
+  padding: 5px 8px;
   border: 5px solid transparent;
-  border-image: url('./console-art/chrome-row.webp') 13 / 7px stretch;
-  margin: 3px 0;
-  padding: 3px 8px;
+  border-image: var(--mtt-steel);
+  background: var(--mtt-lens);
 }
-.console-lobby .console-prize {
-  gap: 10px;
+.console-lobby .console-ledger dt {
+  font:
+    700 12px/1.25 Arial,
+    sans-serif;
+  color: #b6cbe0;
+}
+.console-lobby .console-ledger dd {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.console-lobby.console-lobby.console-lobby .details-content .console-prize {
+  gap: clamp(12px, 4vw, 28px);
+  padding: 10px 14px;
+  background: radial-gradient(ellipse at 26% 100%, #144374, transparent 65%), var(--mtt-lens);
+}
+.console-lobby .console-prize img {
+  height: clamp(60px, 17vw, 92px);
+}
+.console-lobby .console-prize span {
+  font:
+    700 15px/1.4 Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  color: #bbdaf7;
 }
 .console-prize::after {
   height: 58px;
@@ -799,25 +916,25 @@ main:has(> .tournament-details.console-lobby) {
   padding: 3px 5px;
   text-transform: uppercase;
 }
-.console-lobby.console-lobby .details-content .rw-payouts[data-projected='true'] {
-  border: 7px solid transparent;
-  border-image: url('./console-art/chrome-row.webp') 13 / 10px stretch;
-  padding: 2px;
-}
 .console-lobby.console-lobby .details-footer {
   padding: 5px 4px;
   gap: 8px;
 }
-.console-lobby.console-lobby .details-footer .btn-share,
-.console-lobby.console-lobby .details-tabs .tab {
+.console-lobby.console-lobby .details-footer .btn-share {
   background: linear-gradient(#13263b, #06111e 50%, #0c1d30);
   border-color: #8098b3;
 }
-.console-lobby.console-lobby .details-tabs .tab.active,
+.console-lobby.console-lobby .details-tabs .tab.active {
+  border: 5px solid transparent;
+  border-image: url('./console-art/chrome-active.webp') 11 / 8px stretch;
+  background: var(--mtt-blue-lens);
+  box-shadow: inset 0 1px 4px #6bb7ff;
+}
 .console-lobby.console-lobby .details-footer .btn-register.btn-register {
   background: linear-gradient(#187fff, #0748ba 24%, #063589 76%, #0d62cd) !important;
   color: #fff;
-  border-color: #9bceff !important;
+  border: 5px solid transparent !important;
+  border-image: url('./console-art/chrome-active.webp') 11 / 8px stretch !important;
 }
 
 .console-lobby .details-content .rk-panel[data-registering='true'] .rk-main {

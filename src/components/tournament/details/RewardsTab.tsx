@@ -1223,17 +1223,13 @@ export default function RewardsTab({
             )}
         </div>
 
-        {!isSatellite &&
-          !isFinalised &&
-          !isComplete &&
-          !isCancelled &&
-          !isRunning &&
-          bands.length > 0 && (
-            <div className="payout-column-head">
-              <span>Place</span>
-              <span>Current Payout</span>
-            </div>
-          )}
+        {!isSatellite && bands.length > 0 && (
+          <div className="payout-column-head">
+            <span>Place</span>
+            <span>Pool Share</span>
+            <span>{isFinalised || isComplete ? 'Payout' : 'Current Payout'}</span>
+          </div>
+        )}
         {isSatellite && isComplete && satelliteAwards && (
           <p className="tl-empty__hint" role="status">
             {!awardTypesReady

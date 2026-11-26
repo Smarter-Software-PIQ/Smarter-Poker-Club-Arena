@@ -53,7 +53,7 @@ describe('tournament player controls', () => {
     const details = read('src/pages/tournament/TournamentDetails.tsx');
     const handler = details.slice(
       details.indexOf('const unsubElim'),
-      details.indexOf('const unsubBlind')
+      details.indexOf('const unsubBreak =')
     );
     expect(handler).toContain('patchEntries');
     expect(handler).not.toContain('toast.info');
