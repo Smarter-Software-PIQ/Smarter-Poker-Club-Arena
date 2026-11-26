@@ -72,20 +72,18 @@
     padding: 0.8rem;
     background: var(--stats-inset);
   }
-  .stats-page
-    .stats-workbench
-    :is(
-      .stats-evidence-action,
-      .financial-word-action,
-      .exact-session-word-action,
-      .stats-workspace__word-action,
-      .stats-workspace-composer button,
-      .hand-mode-row button,
-      .hand-retry,
-      .view-hands-btn,
-      .dlr-control,
-      .dlr-breadcrumbs button
-    ) {
+  :is(
+    .stats-page .stats-workbench .stats-evidence-action,
+    .stats-page .stats-workbench .financial-word-action,
+    .stats-page .stats-workbench .exact-session-word-action,
+    .stats-page .stats-workbench .stats-workspace__word-action,
+    .stats-page .stats-workbench .stats-workspace-composer button,
+    .stats-page .stats-workbench .hand-mode-row button,
+    .stats-page .stats-workbench .hand-retry,
+    .stats-page .stats-workbench .view-hands-btn,
+    .stats-page .stats-workbench .dlr-control,
+    .stats-page .stats-workbench .dlr-breadcrumbs button
+  ) {
     min-height: 44px;
     padding: 0.48rem 0.85rem;
     border: 2px solid #577c9b;

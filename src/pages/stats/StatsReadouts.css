@@ -23,18 +23,14 @@
     min-width: 0;
     margin: 0;
   }
-  .stats-page
-    .stats-readouts
-    :is(
-      .stats-section-lead,
-      .stats-section-header,
-      .bench-head,
-      .nemesis-head,
-      .evluck-head,
-      .pos-radar-head,
-      .position-header,
-      .heatmap-head
-    ) {
+  .stats-page .stats-readouts .stats-section-lead,
+  .stats-page .stats-readouts .stats-section-header,
+  .stats-page .stats-readouts .bench-head,
+  .stats-page .stats-readouts .nemesis-head,
+  .stats-page .stats-readouts .evluck-head,
+  .stats-page .stats-readouts .pos-radar-head,
+  .stats-page .stats-readouts .position-header,
+  .stats-page .stats-readouts .heatmap-head {
     min-width: 0;
     margin: 0 0 12px;
     padding: 0 0 10px;
@@ -155,21 +151,19 @@
     border: 0;
     background: none;
   }
-  .stats-page
-    .stats-readouts
-    :is(
-      .nemesis-tabs button,
-      .stats-series-controls button,
-      .heatmap-mode,
-      .heatmap-select,
-      .heatmap-drill-close,
-      .pos-radar-toggle,
-      .stats-position-evidence button,
-      .stats-action-row button,
-      .sharecard-btn,
-      .cash-intel__decision button,
-      .stats-data-table > summary
-    ) {
+  :is(
+    .stats-page .stats-readouts .nemesis-tabs button,
+    .stats-page .stats-readouts .stats-series-controls button,
+    .stats-page .stats-readouts .heatmap-mode,
+    .stats-page .stats-readouts .heatmap-select,
+    .stats-page .stats-readouts .heatmap-drill-close,
+    .stats-page .stats-readouts .pos-radar-toggle,
+    .stats-page .stats-readouts .stats-position-evidence button,
+    .stats-page .stats-readouts .stats-action-row button,
+    .stats-page .stats-readouts .sharecard-btn,
+    .stats-page .stats-readouts .cash-intel__decision button,
+    .stats-page .stats-readouts .stats-data-table > summary
+  ) {
     box-sizing: border-box;
     min-height: 44px;
     padding: 5px 10px;
@@ -182,14 +176,12 @@
       sans-serif;
     cursor: pointer;
   }
-  .stats-page
-    .stats-readouts
-    :is(
-      .nemesis-tabs button,
-      .stats-series-controls button,
-      .pos-radar-toggle,
-      .heatmap-mode
-    )[aria-pressed='true'],
+  :is(
+    .stats-page .stats-readouts .nemesis-tabs button,
+    .stats-page .stats-readouts .stats-series-controls button,
+    .stats-page .stats-readouts .pos-radar-toggle,
+    .stats-page .stats-readouts .heatmap-mode
+  )[aria-pressed='true'],
   .stats-page .stats-readouts .stats-data-table[open] > summary {
     color: #fff;
     border-image-source: var(--arena-active);
@@ -278,9 +270,10 @@
   .stats-page .stats-readouts .stats-position-evidence button span {
     font-size: 0.78rem;
   }
-  .stats-page
-    .stats-readouts
-    :is(.bench-item, .nemesis-row, .heatmap-drill-row, .cash-intel__decision) {
+  .stats-page .stats-readouts .bench-item,
+  .stats-page .stats-readouts .nemesis-row,
+  .stats-page .stats-readouts .heatmap-drill-row,
+  .stats-page .stats-readouts .cash-intel__decision {
     min-width: 0;
     padding: 8px;
     border: 1px solid #344e61;
