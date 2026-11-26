@@ -290,8 +290,8 @@ export function __resetVarietyHolds(): void {
 
    While a start is owed and the owed starts do not fit under the cap, ONE
    extra table at a time stops being kept: the fleet seats nobody there and
-   answers no seat call there, and HorseSessionRotator stands its Horses up
-   one per cycle through the ordinary door (engine.leaveTable, cashed out at
+   answers no seat call there, and HorseSessionRotator stands up every Horse
+   not holding cards, together, through the ordinary door (engine.leaveTable, cashed out at
    the end of the hand, owed hands and orbits played first). The empty table
    closes by the game's own controller and the slot goes to the owed Main 1.
 
