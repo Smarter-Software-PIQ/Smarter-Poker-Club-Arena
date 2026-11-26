@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaFacingBetPriorIsEquilibriumAnchored.law.test.ts
+
+omahaFacingBetPriorIsEquilibriumAnchored (default OFF) prices a heads-up PLO4/PLO5 cash turn or river bettor with no record at the balanced non-value share for the price (bet / (pot + 2 bet); two streets of it on a turn bet with a river bet to come), and only his own shown bets move it: on the committed state set big bets are folded to less than today, a bettor shown value 59 times of 60 is not paid off, no river hand without a share against value calls, and six real audited decisions decide as stated through the engine's own decide call.

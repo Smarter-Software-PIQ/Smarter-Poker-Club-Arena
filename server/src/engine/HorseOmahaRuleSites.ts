@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetMinimumDefencePrior: priced(
     "a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24)"
   ),
+  omahaFacingBetPriorIsEquilibriumAnchored: priced(
+    "a heads-up turn or river bettor's non-value share is the balanced share for the price (two streets on a turn bet with a river bet to come), moved only by his own shown bets; the population prior and the public field reads do not act (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
   ),

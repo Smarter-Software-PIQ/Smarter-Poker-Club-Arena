@@ -125,6 +125,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the measured bettor range tables of the default-off corrected facing-bet price (PLO-OWNER lead-6 2026-11-24, omahaFacingBetRangeIsMeasuredByLine and omahaFacingBetMinimumDefencePrior): strength histograms by street, line, size and pot type fitted from shown hands, a bettor's own shown record shrunk toward them, the minimum-defence bound on a no-record prior",
     'src/engine/HorseOmahaFacingBetRangeTables.json':
       'the measured PLO4/PLO5 cash bettor and caller strength tables, continue rates, field fold-through, later bet rates and the F6 minimum-defence air floors (scripts/ops/omaha-facing-bet-range-fit.mjs; PLO-OWNER lead-6 2026-11-24)',
+    'src/engine/HorseOmahaEquilibriumAnchor.ts':
+      "the default-off equilibrium-anchored bettor prior (PLO-OWNER lead-7 2026-11-26, omahaFacingBetPriorIsEquilibriumAnchored): inside omahaFacingBetEv in PLO4/PLO5 cash, heads-up, the non-value share of a turn or river first bet is the balanced share for the price, moved only by the bettor's own shown bets",
     'src/engine/HorseOmahaFacingBetPriced.ts':
       "the default-off corrected turn and river facing-bet price (PLO-OWNER lead-6 2026-11-24, omahaFacingBetRangeIsMeasuredByLine, omahaFacingBetIndifferenceCalls, omahaFacingBetFieldIsJoint, omahaMultiwayCallNeedsNutShare): inside omahaFacingBetEv in PLO4/PLO5 cash, the call against the bettor's measured range priced exactly, the field dealt jointly, indifference calls",
     'src/engine/HorseOmahaPricedJointSample.ts':
