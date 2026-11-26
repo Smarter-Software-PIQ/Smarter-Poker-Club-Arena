@@ -7,16 +7,28 @@ import { isDeepStrictEqual } from 'node:util';
 export const CLUB_DATA_PATH = 'clubs/shark-club/data?report=open&dataTab=games';
 type ClubDataAccess = 'authorized' | 'restricted';
 
-function toolName(root: string) {
-  if (root.includes('cashier')) return /^Requests, Tickets And Tools/;
-  if (root.includes('players')) return /^Sort And Roster Tools$/;
-  return /^(Open|Close) Club Report$/;
+function surfaceTools(page: Page, root: string) {
+  if (root.includes('players'))
+    return page.locator('summary').filter({ hasText: /^Metric Definitions$/ });
+  return page.getByRole('button', {
+    name: root.includes('cashier') ? /^Requests, Tickets And Tools/ : /^(Open|Close) Club Report$/,
+  });
 }
-async function closeTools(page: Page, selector: string) {
-  const trigger = page.getByRole('button', { name: toolName(selector) });
+
+async function expectToolsOpen(page: Page, root: string, open: boolean) {
+  const trigger = surfaceTools(page, root);
+  if (root.includes('players')) await expect(trigger.locator('..')).toHaveJSProperty('open', open);
+  else await expect(trigger).toHaveAttribute('aria-expanded', String(open));
+}
+
+async function closeTools(page: Page, root: string) {
+  const trigger = surfaceTools(page, root);
   await expect(trigger).toBeVisible({ timeout: 60_000 });
-  if ((await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  const open = root.includes('players')
+    ? (await trigger.locator('..').getAttribute('open')) !== null
+    : (await trigger.getAttribute('aria-expanded')) === 'true';
+  if (open) await trigger.click();
+  await expectToolsOpen(page, root, false);
 }
 
 interface ObservedPlayerPage {
@@ -692,10 +704,7 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
           .toBe(true);
         observing = true;
         const observeMode = async (mode: string) => {
-          await expect(page.getByRole('button', { name: toolName(surface.root) })).toHaveAttribute(
-            'aria-expanded',
-            mode === 'tools-open' ? 'true' : 'false'
-          );
+          await expectToolsOpen(page, surface.root, mode === 'tools-open');
           const start = Date.now();
           // 35 seconds in each state spans multiple native SDK heartbeats and
           // the existing 60-second report refresh while the tools are opened.
@@ -732,7 +741,7 @@ test('keeps Cashier, Players and Club Data realtime connected with tools open an
           observing = true;
         } else {
           await observeMode('tools-closed');
-          await page.getByRole('button', { name: toolName(surface.root) }).click();
+          await surfaceTools(page, surface.root).click();
         }
         await observeMode('tools-open');
       } finally {
