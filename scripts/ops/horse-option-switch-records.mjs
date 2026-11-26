@@ -29,7 +29,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
   SWITCH_STATE_FILE,
@@ -242,6 +242,22 @@ function run(cmd, args, opts = {}) {
 }
 
 /**
+ * Pure. Where the throwaway records worktree goes. On the operations Mac the system temp folder and the shared
+ * clone are on the internal disk, which agents never write to (the worktree is a full checkout of the repo), so
+ * the default there is the folder that holds this checkout when it is on an external volume; anything else
+ * must name CA_RECORDS_ROOT. Off the Mac (a CI runner) the system temp folder is fine.
+ */
+export function recordsWorkRoot({ env = {}, platform = process.platform, repoRoot = '' } = {}) {
+  if (env.CA_RECORDS_ROOT) return env.CA_RECORDS_ROOT;
+  if (platform !== 'darwin') return tmpdir();
+  const parent = dirname(String(repoRoot));
+  if (/^\/Volumes\/[^/]+\/./.test(parent)) return parent;
+  throw new Error(
+    'records: set CA_RECORDS_ROOT to a folder on an external SSD: on the Mac the system temp folder and this checkout are on the internal disk'
+  );
+}
+
+/**
  * The side effects, injected into the CLI so tests never touch git or the network. Builds the change
  * inside a fresh worktree of origin/main (so it judges main, not the operator's branch), commits, pushes
  * through scripts/agent-push.sh and opens the PR. Returns { prUrl, branch, change } or { noChange }.
@@ -251,7 +267,7 @@ export function defaultOpenRecordsPr({
   snapshot,
   releaseDefaultOn,
   trigger,
-  root = process.env.CA_RECORDS_ROOT || tmpdir(),
+  root = recordsWorkRoot({ env: process.env, platform: process.platform, repoRoot }),
   log = () => {},
 }) {
   run('git', ['-C', repoRoot, 'fetch', '-q', 'origin', 'main'], { timeout: 120_000 });
@@ -288,7 +304,7 @@ export function defaultOpenRecordsPr({
       if (existsSync(from) && !existsSync(join(tree, nm))) symlinkSync(from, join(tree, nm), 'dir');
     }
     run('git', ['-C', tree, 'add', SWITCH_STATE_FILE, ...change.docChanges.map((c) => c.path)]);
-    run('git', ['-C', tree, 'commit', '-q', '--no-verify', '-m', `${title}\n\n${body}\n`]);
+    run('git', ['-C', tree, 'commit', '-q', '-m', `${title}\n\n${body}\n`]);
     log(`records: pushing ${branch}`);
     keepTree = true;
     run('bash', ['scripts/agent-push.sh'], { cwd: tree, timeout: 3_600_000, stdio: 'inherit' });

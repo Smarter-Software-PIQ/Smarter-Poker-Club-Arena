@@ -43,6 +43,7 @@ import {
   buildPickupTelemetrySql,
   buildReadbackSql,
   buildRegistryRefusalSql,
+  buildWhitelistStatesSql,
   buildStatusQueries,
   buildSwitchNote,
   buildSwitchSetSql,
@@ -74,7 +75,8 @@ export const USAGE = `Usage:
   set also rewrites that file after a verified write (--state-file <path>, or --no-state-file to skip)
   node scripts/ops/horse-option-switch.mjs records [--dry-run] [--json]
       open ONE PR that brings that file and every disagreeing authority-doc State line in step with
-      the live rows (read-only query; worktree of origin/main under $CA_RECORDS_ROOT or $TMPDIR)
+      the live rows (read-only query; worktree of origin/main under $CA_RECORDS_ROOT; on the Mac it defaults to the
+      folder that holds this checkout when that is on an external volume, and refuses otherwise)
   set opens that records PR itself after every verified write (--no-records-pr to skip); a lane that
   writes through its own wrapper runs the records subcommand after its read-back
   node scripts/ops/horse-option-switch.mjs verify-pickup <option> <off|shadow|on_shadow|on> [--baseline <n>] [--min-workers <n>] [--alarm-baseline <json>]
@@ -339,6 +341,28 @@ async function handleStatus(flags, deps) {
   return { exitCode: 0, data: summary };
 }
 
+/**
+ * The option's states in the database whitelist: an array, null when the option is not registered, or
+ * undefined when the database has no whitelist function (before 20261125234502) or the read failed.
+ */
+export function readWhitelistStates(queryDb, option) {
+  let rows;
+  try {
+    rows = queryDb(buildWhitelistStatesSql(option));
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(rows) || rows.length === 0 || !('states' in (rows[0] ?? {}))) return undefined;
+  const s = rows[0].states;
+  if (s === null) return null;
+  if (Array.isArray(s)) return s.map(String);
+  if (typeof s === 'string') {
+    const m = /^\{(.*)\}$/.exec(s.trim());
+    if (m) return m[1] === '' ? [] : m[1].split(',').map((x) => x.replace(/^"|"$/g, ''));
+  }
+  return undefined;
+}
+
 async function runPreflightCore(option, targetState, flags, deps) {
   const safeOpt = assertSafeOptionName(option);
   const safeState = assertSafeState(targetState);
@@ -350,6 +374,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
   const servingRegistries = deps.queryDb(queries.servingRegistries);
   const refusalRows = deps.queryDb(buildRegistryRefusalSql(safeOpt, safeState));
   const registryRefusal = refusalRows[0]?.refusal ?? null;
+  const whitelistStates = readWhitelistStates(deps.queryDb, safeOpt);
   const dbMaintenance = loadDbMaintenance(deps.queryDb);
   const recentConfigAlarms = deps.queryDb(queries.recentConfigAlarms);
   const engineHealth = await deps.fetchHealth(flags.healthUrl);
@@ -391,6 +416,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
     requireInbox: flags.requireInbox,
     recentConfigAlarms,
     authorityEvidence,
+    whitelistStates,
   });
 
   return {
