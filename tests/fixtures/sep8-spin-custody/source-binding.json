@@ -1,4 +1,10 @@
 {
+  "spinCancellationReportingExecutionAudit20261126": {
+    "reason": "Reviewed the exact additive four-line accounting shard4 step for the Spin cancellation reporting native PostgreSQL regression. Structured projection comparison proves all other execution and admission bytes unchanged. Only current source identity is refreshed; historical financial sources, assertions, audits, status and qualification verdicts are unchanged. This is not financial recertification or production proof.",
+    "previousProjectionPins": {
+      "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+    }
+  },
   "schema_version": 1,
   "routePerformanceGateInputs20261025": {
     "reason": "Route-performance gate inputs (PR #7985): classify-ci-changes.mjs now routes the four route-performance gate scripts to the Production Build job so a change to the gate is executed before it merges. Current source identity only; historical audits, financial pins/assertions and qualification states unchanged. No financial certificate restamp.",
@@ -129,7 +135,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+    "scripts/qualification/ci-accounting-inputs.json": "de40c7389ff05778e61a6fac907ccc59c01bccf94f3afff7b169b9faadc05519"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
