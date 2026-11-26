@@ -113,6 +113,52 @@ describe('plo_paired_board_nut_stackoff', () => {
     expect(plo('9s Jh Th 8c', 'Kh As Qc Ad 4s')).toContain('plo_paired_board_nut_stackoff');
   });
 
+  it('the shape of fc9b3b3d: a board that pairs only after the turn all-in is not this shape', () => {
+    // The nut straight went in on Kd-Tc-9s-5h; the river 9h paired it later.
+    const row = (heroActions: typeof TURN_JAM) =>
+      detectLeaks({
+        netBB: -402,
+        invested: 24000,
+        bigBlind: 50,
+        variant: 'plo4',
+        holeCards: cards('Qc Jh 8d 2c'),
+        board: cards('Kd Tc 9s 5h 9h'),
+        heroActions,
+        wentToShowdown: true,
+      } as Parameters<typeof detectLeaks>[0]);
+    expect(row(TURN_JAM)).not.toContain('plo_paired_board_nut_stackoff');
+    // The same cards with the money going in on the paired river stay tagged.
+    expect(row(RIVER_JAM)).toContain('plo_paired_board_nut_stackoff');
+  });
+
+  it('a board already paired at the turn all-in stays this shape', () => {
+    const t = detectLeaks({
+      netBB: -500,
+      invested: 25000,
+      bigBlind: 50,
+      variant: 'plo4',
+      holeCards: cards('9s Jh Th 8c'),
+      board: cards('Kh As Qc Ad 4s'),
+      heroActions: TURN_JAM,
+      wentToShowdown: true,
+    } as Parameters<typeof detectLeaks>[0]);
+    expect(t).toContain('plo_paired_board_nut_stackoff');
+  });
+
+  it('a preflop all-in saw no board, so a later pair is not this shape', () => {
+    const t = detectLeaks({
+      netBB: -500,
+      invested: 25000,
+      bigBlind: 50,
+      variant: 'plo4',
+      holeCards: cards('2h 9d 8h Ad'),
+      board: cards('4d Qd Th 5d 5c'),
+      heroActions: [{ action: 'all_in', stage: 'preflop', amount: 25000 }],
+      wentToShowdown: true,
+    } as Parameters<typeof detectLeaks>[0]);
+    expect(t).not.toContain('plo_paired_board_nut_stackoff');
+  });
+
   it('the nut flush on an unpaired board is not this shape', () => {
     expect(plo('2h 9d 8h Ad', '4d Qd Th 5d 6c')).not.toContain('plo_paired_board_nut_stackoff');
   });
