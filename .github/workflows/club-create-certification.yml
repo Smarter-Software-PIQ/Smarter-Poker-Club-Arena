@@ -217,15 +217,20 @@ jobs:
           done
           echo "::error::Both public endpoints did not converge on exact revision $expected."
           exit 1
-      # Red on purpose, and named: the run stops before any fixture exists, and
-      # scripts/ci/certification-failure-streak.mjs passes over a run whose
-      # failed step is this one (SUPERSEDED_STEP) when it looks for a streak.
+      # A SUPERSEDED RUN IS NOT RED (2026-11-26). It stood down with exit 1 so
+      # no later step ran; 11 of the 16 red Club Create Certification runs of
+      # 2026-11-25/26 were this non-verdict, and a run red for a reason that is
+      # not a failure is how a real failure becomes invisible. It now ends
+      # green and certifies nothing: every step that creates a fixture is
+      # skipped (if: superseded != 'true'), the verdict job stands down, and
+      # scripts/ci/certification-failure-streak.mjs reads a run in which this
+      # step RAN as no verdict at all, so it can never break a failing streak.
       - name: A Newer Publish Superseded This Revision
         if: steps.live.outputs.superseded == 'true'
         run: |
           echo "::notice::Revision superseded by ${{ steps.live.outputs.superseded_by }}; this run certified nothing."
-          exit 1
       - name: Verify Opening Grant Capacity Before Creating Fixtures
+        if: steps.live.outputs.superseded != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -235,6 +240,7 @@ jobs:
           CLUB_CREATE_CERT_REQUIRED_GRANTS: '3'
         run: node scripts/ci/check-club-create-capacity.mjs
       - name: Certify Authenticated Club Creation And Cleanup
+        if: steps.live.outputs.superseded != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -243,12 +249,14 @@ jobs:
           CLUB_CREATE_CERT_ASSET_URL: https://smarter.poker/hub/club-arena/club-logos/preset-19.webp
         run: node scripts/ci/certify-club-create.mjs
       - name: Provision A Brand-New Player
+        if: steps.live.outputs.superseded != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ci/production-e2e-account.mjs create
       - name: Create A Club Through The Published User Interface
+        if: steps.live.outputs.superseded != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           E2E_NEW_CLUB_CERT: '1'

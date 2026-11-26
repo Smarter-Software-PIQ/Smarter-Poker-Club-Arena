@@ -30,8 +30,10 @@ type World = {
     tournament_id: string | null;
   }[];
   tournaments: { id: string; schedule_id: string; created_at: string }[];
-  schedules: { id: string; active: boolean }[];
+  schedules: { id: string; active: boolean; club_id?: string | null }[];
   scheduleReadFails?: boolean;
+  clubs?: { id: string; lifecycle_status: string }[];
+  clubReadFails?: boolean;
 };
 
 /** A minimal PostgREST stand-in that actually applies the writes it is sent. */
@@ -67,6 +69,11 @@ function fakeDb(world: World) {
           target.tournament_id = (call.payload as { tournament_id: string }).tournament_id;
         }
         return { error: null };
+      }
+      if (table === 'clubs') {
+        if (world.clubReadFails) return { data: null, error: { message: 'down' } };
+        const ids = val('id') as string[];
+        return { data: (world.clubs ?? []).filter((c) => ids.includes(c.id)), error: null };
       }
       if (table === 'tournament_schedules') {
         if (world.scheduleReadFails) return { data: null, error: { message: 'down' } };
@@ -248,6 +255,80 @@ describe('a stuck spawn claim repairs itself', () => {
       expect(second).toMatchObject({ released: 0, inactive: 1 });
       expect(w.claims).toHaveLength(1);
     }
+  });
+
+  /* A RETIRED CLUB IS READ-ONLY (2026-11-26). The Diamond Arena (retired
+     2026-11-06) kept one claim from 2026-10-07 whose back-link was lost; its
+     one matching tournament made it a "link", and fn_guard_retired_club_mutation
+     refused that PATCH with CLUB_RETIRED every ten minutes: 133 refusals in
+     24 hours. A write the guard can only refuse is never sent. */
+  const retiredClaim = (): World => ({
+    claims: [
+      {
+        spawn_key: '979a36e8:2026-10-13:01:00',
+        schedule_id: '979a36e8',
+        created_at: claimAt,
+        tournament_id: null,
+      },
+    ],
+    tournaments: [
+      {
+        id: 'bounty-hunt',
+        schedule_id: '979a36e8',
+        created_at: new Date(Date.parse(claimAt) + 3000).toISOString(),
+      },
+    ],
+    schedules: [{ id: '979a36e8', active: false, club_id: 'diamond-arena' }],
+    clubs: [{ id: 'diamond-arena', lifecycle_status: 'retired' }],
+  });
+
+  it('a claim of a retired club is never written, on any sweep', async () => {
+    const world = retiredClaim();
+    const { db, calls } = fakeDb(world);
+    const seen = new Map<string, number>();
+    const reports: string[] = [];
+    const report = (_e: Error, src: string) => reports.push(src);
+    for (let sweep = 0; sweep < 6; sweep += 1) {
+      const out = await sweepOrphanSpawnClaims(
+        db,
+        new Date(T0 + sweep * ORPHAN_SPAWN_SWEEP_MS),
+        report,
+        seen,
+        quiet
+      );
+      expect(out).toMatchObject({ linked: 0, released: 0, failed: 0 });
+      if (sweep > 0) expect(out.readOnly).toBe(1);
+    }
+    expect(calls.filter((c) => c.op !== 'select')).toEqual([]);
+    expect(reports).toEqual([]);
+    expect(world.claims[0].tournament_id).toBeNull();
+  });
+
+  it('a retired club claim with no match is not released either', async () => {
+    const world = retiredClaim();
+    world.tournaments = [];
+    world.schedules[0].active = true;
+    const { second, calls } = await twoSweeps(world);
+    expect(second).toMatchObject({ released: 0, readOnly: 1 });
+    expect(calls.filter((c) => c.op !== 'select')).toEqual([]);
+  });
+
+  it('an unreadable club sends no write and waits for the next sweep', async () => {
+    const world = retiredClaim();
+    world.clubs = [{ id: 'diamond-arena', lifecycle_status: 'active' }];
+    world.clubReadFails = true;
+    const { second, calls, reports } = await twoSweeps(world);
+    expect(second).toMatchObject({ linked: 0, readOnly: 1 });
+    expect(calls.filter((c) => c.op !== 'select')).toEqual([]);
+    expect(reports).toContain('ScheduledTournaments.orphan_claim_read_failed');
+  });
+
+  it('a live club still has its lost back-link restored', async () => {
+    const world = retiredClaim();
+    world.clubs = [{ id: 'diamond-arena', lifecycle_status: 'active' }];
+    const { second } = await twoSweeps(world);
+    expect(second).toMatchObject({ linked: 1, readOnly: 0 });
+    expect(world.claims[0].tournament_id).toBe('bounty-hunt');
   });
 
   it('several matching tournaments are left for review and reported', async () => {

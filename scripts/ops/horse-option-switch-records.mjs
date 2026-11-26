@@ -19,15 +19,7 @@
 // the one command that finishes the records.
 
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -257,6 +249,14 @@ export function recordsWorkRoot({ env = {}, platform = process.platform, repoRoo
   );
 }
 
+/** The records tree's own root packages, exactly as locked (the command the pre-push hook names). */
+export function defaultInstallTreeDeps(tree) {
+  run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
+    cwd: tree,
+    timeout: 1_200_000,
+  });
+}
+
 /**
  * The side effects, injected into the CLI so tests never touch git or the network. Builds the change
  * inside a fresh worktree of origin/main (so it judges main, not the operator's branch), commits, pushes
@@ -268,6 +268,7 @@ export function defaultOpenRecordsPr({
   releaseDefaultOn,
   trigger,
   root = recordsWorkRoot({ env: process.env, platform: process.platform, repoRoot }),
+  installTreeDeps = defaultInstallTreeDeps,
   log = () => {},
 }) {
   run('git', ['-C', repoRoot, 'fetch', '-q', 'origin', 'main'], { timeout: 120_000 });
@@ -298,11 +299,12 @@ export function defaultOpenRecordsPr({
     writeFileSync(statePath, change.stateFileText, 'utf8');
     for (const c of change.docChanges) writeFileSync(join(tree, c.path), c.text, 'utf8');
     const { title, body } = formatRecordsPr({ change, snapshot, trigger });
-    // The pre-push hook runs node tools: borrow the operator checkout's installed modules.
-    for (const nm of ['node_modules', 'server/node_modules']) {
-      const from = join(repoRoot, nm);
-      if (existsSync(from) && !existsSync(join(tree, nm))) symlinkSync(from, join(tree, nm), 'dir');
-    }
+    // The commit hook (prettier) and the pre-push hook run node tools from the tree's own root packages.
+    // They are installed here, never linked from another checkout: npm writes THROUGH a link, so one
+    // `npm ci` in a linked tree (the remedy the pre-push hook prints) empties the source for every tree
+    // sharing it (scripts/agent-workspace.sh, 2026-08-23; the shared clone went empty on 2026-11-24).
+    // The records PR changes only docs, so server/ needs nothing.
+    installTreeDeps(tree);
     run('git', ['-C', tree, 'add', SWITCH_STATE_FILE, ...change.docChanges.map((c) => c.path)]);
     run('git', ['-C', tree, 'commit', '-q', '-m', `${title}\n\n${body}\n`]);
     log(`records: pushing ${branch}`);

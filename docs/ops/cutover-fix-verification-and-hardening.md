@@ -217,6 +217,30 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Why 10:00 had no owner:** no eligible Stage run in its window. Narrowed by O32 (failed Backup completions elect) and announced by the O32 look-back, which posted `NO OWNER` and messaged the owner at 12:40 CST.
 - **Custody mistakes recorded so they are not repeated:** the O31/O32 batch was merged at 12:40 CST outside a post-seal slot, which made the 13:32 certificate of `beb889fee8a1` unselectable; a 13bce958 recertification was dispatched although its projection could no longer match main, and held the host queue until cancelled. The Custodian Checklist in `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md` now forbids both.
 
+### 2026-11-26: The 16:00 CST Cycle Sealed
+
+- `396283f68a7f` certified at 15:27 CST (run `45892895834`, 900 s soak, memory slope 8.8 MiB per minute against a 141 limit, both rehearsals passed) and SEALED at 16:02 CST. First seal of a 900 s certificate, the first live proof of the shorter certification (`#12055`).
+
+### O33: An Engine-Inert Migration Does Not Stale A Certificate (#12118)
+
+- **Why it broke:** the selector refused the only certificate of the 13:00 CST cycle because four Horse option-registry migrations installed after its copy. They only add rows to `ca_horse_option_whitelist`, which no engine reads.
+- **How it was fixed:** `engine_inert()` in `server/scripts/engine-release-installed-migrations.py` classifies a file inert only when every line is `BEGIN`, `COMMIT`, `SET LOCAL lock_timeout` or a literal `fn_ca_horse_option_register` / `allow_shadow` / `unlock` call. The judge, `refresh-due` and the cutover `status` (which accepts production as the certified copy plus inert versions only, at most 10) agree. Merged in the 16:00 post-seal slot.
+- **What stops it returning:** `tests/an-engine-inert-migration-does-not-stale-a-certificate.law.test.ts` (14 mutations refused, and it re-checks that the engine never reads the whitelist).
+- **Live proof:** pending the first selection with an inert migration missing from the copy.
+
+### A Keep-Serving Backup Yields To A Newer Push (#12136)
+
+- **Why it broke:** run `45883490551` ("Backup after keep-serving", 13:25 CST) never stepped aside for newer push runs, because the yield rules only covered push and post-seal runs. It waited two hours for the host and ended red having certified nothing.
+- **How it was fixed:** a `KEEP_SERVING` flag on the turn and soak steps applies both yield rules to an `after_cycle` run with no `sha`; it then hands the host back and ends green as deferred.
+- **What stops it returning:** `tests/the-post-seal-backup-certifies-the-next-candidate.law.test.ts` runs the real turn step for both kinds of dispatch.
+- **Status:** release-control; merges in the 19:00 CST post-seal slot.
+
+### The Crash Drill Is Not An Engine Stall (#12138)
+
+- **Why it broke:** `2238a16342de` was refused for a 34,642 ms unintended delay on one fold hand. It was the certification's own deliberate SIGKILL crash drill: the hand pair spanning the kill and restart could fall inside the soak window, because pairs are chosen by the later hand's end time. The same engine code certified an hour later.
+- **How it was fixed:** `cmd_certify` records the crash and recovery instants and the judge removes exactly the pairs whose gap spans them (keyed as `worst_hands` names them). A pair it cannot locate is kept and reported. The 5,000 ms ceiling, the 250 ms budget and the binomial rule are unchanged.
+- **What stops it returning:** six cases in `tests/backup-cert-checks-lifecycle-logs.law.test.ts`, including the real run replayed and a real 7.6 s stall beside the drill still refused. Merged 17:17 CST.
+
 ### Fixed Cut-Off Per Cycle: Already Provided By O1 And O16
 
 - **Question:** does every new engine merge restart the certification queue, so a busy hour leaves nothing certified?
