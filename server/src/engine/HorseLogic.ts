@@ -35383,7 +35383,8 @@ export class HorseLogic {
         noteFire(
           street === 'river' ? 'holdem_tourney_river_bluff_bet' : 'holdem_tourney_turn_bluff_bet'
         );
-      return { ...(legal.get(best.bet.to) as HorseDecision), thinkTime: decision.thinkTime ?? 0 };
+      const thinkTime = decision.thinkTime ?? 0;
+      return { ...(legal.get(best.bet.to) as HorseDecision), thinkTime };
     } catch {
       if (tele) noteFire('holdem_tourney_bluff_unpriced');
       return decision;
