@@ -14,7 +14,7 @@
  *     HorseOmahaFastScore over every board triple.
  *  2. VERDICT: on the committed fixture (48 real decisions) and on 288 re-dealt copies of it (other hole cards and
  *     boards, the same spot), with the companion options on and off, the live verdict equals the frozen tree's
- *     (__tests__/HorseOmahaFlopCallTree.frozen.ts, the tree as it was at c0885e9375f9) field for field: call, EV,
+ *     (__tests__/HorseOmahaFlopCallTree.frozen.test-support.ts, the tree as it was at c0885e9375f9) field for field: call, EV,
  *     margin, samples, turn barrel and call shares, nut-share loss.
  */
 import { readFileSync } from 'node:fs';
@@ -34,7 +34,7 @@ import { omahaFlopCallTreeVerdict } from './HorseOmahaFlopCallTree.js';
 import { omahaFlopFacingBetEvSpot } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaMeasuredLineOf, type OmahaMeasuredRecord } from './HorseOmahaMeasuredBettorRange.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.js';
+import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.test-support.js';
 
 interface FixtureRow {
   k: string;

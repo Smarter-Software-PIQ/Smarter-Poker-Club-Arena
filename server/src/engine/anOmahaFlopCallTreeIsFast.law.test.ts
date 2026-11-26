@@ -18,7 +18,7 @@
  *     the live tree scores the rank-only part of every hand from a per-board table of pair-ranks and only the
  *     suited pairs against one-suit triples (anOmahaFlopCallTreeIsUnchanged: the same numbers). Over the multiway
  *     fixture (PLO5 5-way included) it costs at most RATIO_TREE of the frozen tree it replaced
- *     (__tests__/HorseOmahaFlopCallTree.frozen.ts), alternating rounds, the fastest round of each kept
+ *     (__tests__/HorseOmahaFlopCallTree.frozen.test-support.ts), alternating rounds, the fastest round of each kept
  *     (src/testing/relativeCost.ts). Measured 0.3-0.4 on Apple Silicon (fixture p95 17.2 -> 4.8 ms).
  */
 import { readFileSync } from 'node:fs';
@@ -36,7 +36,7 @@ import {
 import { omahaFlopCallTreeVerdict } from './HorseOmahaFlopCallTree.js';
 import { omahaFlopFacingBetEvSpot } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
-import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.js';
+import { frozenOmahaFlopCallTreeVerdict } from './__tests__/HorseOmahaFlopCallTree.frozen.test-support.js';
 import { measureRelativeCost } from '../testing/relativeCost.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { SeatPlayer } from '../types.js';
