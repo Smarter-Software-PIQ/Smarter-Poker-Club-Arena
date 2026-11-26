@@ -3542,12 +3542,13 @@ const PLO_RIVER_OPENING_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecide
   ['value', { omahaRiverValueBetInPositionIsPriced: true }],
   ['bluff', { omahaRiverBluffIsPricedOnBlockers: true }],
   ['tripsboat', { omahaRiverTripsBoardBoatIsNotNutClass: true }],
+  ['flopraise', { omahaFlopRaiseIsPriced: true }],
 ];
 const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
   (variant) =>
     PLO_RIVER_OPENING_GRADE_PARTS.flatMap(([part, on]) =>
       ([2, 6] as const).map((seats) => ({
-        name: `${variant}_omaha_river_opening_${part}_${seats === 2 ? 'hu' : '6max'}`,
+        name: `${variant}_${part === 'flopraise' ? 'omaha_flop_raise_priced' : 'omaha_river_opening_' + part}_${seats === 2 ? 'hu' : '6max'}`,
         variant,
         seats,
         pairs: 6000,

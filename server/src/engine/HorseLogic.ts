@@ -124,6 +124,7 @@ import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
 import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
+import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
 import {
   omahaRiverBetFoldRecordCurve,
   type OmahaRiverBetAnswerPoint,
@@ -3948,6 +3949,14 @@ export interface HorseDecideOpts {
    * Horse's own cards removed) becomes the call (HorseOmahaTripsBoardBoat.ts). It changes only such a raise.
    */
   omahaRiverTripsBoardBoatIsNotNutClass?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash flop, heads-up, facing
+   * a wager, where the rule chain raises: the raise is priced at the legal minimum, its own size, half way and the pot
+   * raise beside the call and the fold against the bettor's measured flop range (his fold share the equilibrium
+   * minimum defence of the pot he is offered); the best stands when it beats the chain's raise by more than the
+   * equity estimate's error (HorseOmahaFlopRaisePriced.ts). It never makes a raise out of a call or a fold.
+   */
+  omahaFlopRaiseIsPriced?: boolean;
   /**
    * EMERG lane STAB-DEFENCE-5 2026-11-21 (default off, read `=== true`): the two river bet rules above price the
    * opponent's answer with the population curve moved by his own lifetime PUBLIC fold record at a river's first
@@ -20383,16 +20392,81 @@ export class HorseLogic {
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise
       // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
-      const tripsBoat = omahaTripsBoardBoatRule(
+      // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaFlopRaiseIsPriced, default off): a heads-up flop raise
+      // priced at its sizes beside the call and the fold on the bettor's measured flop range
+      // (HorseOmahaFlopRaisePriced.ts). It changes only a raise (its size, or into the call or the fold).
+      const flopRaiseOn = opts.omahaFlopRaiseIsPriced === true;
+      const flopRaise = omahaFlopRaisePricedRule(
         opening.decision,
+        player,
+        gs,
+        flopRaiseOn,
+        flopRaiseOn ? omahaPricedDeps(player, gs).rake : 0,
+        flopRaiseOn
+          ? realizationFactor({
+              street: 'flop',
+              inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+            })
+          : 1,
+        (d) => this.legalize(d, player, gs, vi),
+        flopRaiseOn && opts.mind !== false
+          ? (() => {
+              const bettor = (gs.players ?? []).find(
+                (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+              );
+              const pot = gs.pot ?? 0;
+              const his = bettor && Number.isFinite(bettor.bet) ? bettor.bet : 0;
+              const mine = Number.isFinite(player.bet) ? player.bet : 0;
+              return bettor && mine <= 0
+                ? omahaBetReadOwnCellOf(
+                    bettor.user_id,
+                    String(gs.gameVariant ?? ''),
+                    'flop',
+                    his / Math.max(pot - his, 1e-9),
+                    false
+                  )
+                : null;
+            })()
+          : null
+      );
+      if (flopRaise.changed && tele) {
+        if (flopRaise.changed === 'resized') {
+          noteFire('omaha_flop_raise_priced_resized');
+          noteDecisionRuleReceipt(
+            'omaha_flop_raise_priced_resized',
+            opening.decision,
+            flopRaise.decision
+          );
+        } else if (flopRaise.changed === 'called') {
+          noteFire('omaha_flop_raise_priced_called');
+          noteDecisionRuleReceipt(
+            'omaha_flop_raise_priced_called',
+            opening.decision,
+            flopRaise.decision
+          );
+        } else {
+          noteFire('omaha_flop_raise_priced_folded');
+          noteDecisionRuleReceipt(
+            'omaha_flop_raise_priced_folded',
+            opening.decision,
+            flopRaise.decision
+          );
+        }
+      }
+      const tripsBoat = omahaTripsBoardBoatRule(
+        flopRaise.decision,
         player,
         gs,
         opts.omahaRiverTripsBoardBoatIsNotNutClass === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (tripsBoat !== opening.decision && tele) {
+      if (tripsBoat !== flopRaise.decision && tele) {
         noteFire('omaha_river_trips_board_boat_called');
-        noteDecisionRuleReceipt('omaha_river_trips_board_boat_called', opening.decision, tripsBoat);
+        noteDecisionRuleReceipt(
+          'omaha_river_trips_board_boat_called',
+          flopRaise.decision,
+          tripsBoat
+        );
       }
       const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
         tripsBoat,

@@ -302,6 +302,14 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       'measured bet answer curve moved by his lifetime public fold record and check stab frequency/size shrunk n/(n+k)',
     price: 'the value bet beside the check, mixed by comparison standard error (held dark)',
   },
+  omahaFlopRaiseIsPriced: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
   omahaRiverTripsBoardBoatIsNotNutClass: {
     kind: 'priced',
     range:
@@ -897,6 +905,30 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'input',
     'receipt that the re-raised-pot price threw; the standing decision is returned unchanged'
   ),
+  omaha_flop_raise_priced_resized: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omaha_flop_raise_priced_called: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omaha_flop_raise_priced_folded: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
   omaha_river_trips_board_boat_called: {
     kind: 'priced',
     range:

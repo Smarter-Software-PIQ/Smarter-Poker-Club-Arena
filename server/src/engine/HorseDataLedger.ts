@@ -1392,6 +1392,29 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopRaiseIsPriced',
+    "PLO-OWNER lead-7 lane plo-postflop 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, the flop, heads-up, facing a wager; default off (read === true). Where the rule chain's answer is a raise, the raise is priced at the legal minimum, its own size, half way and the pot raise beside the call and the fold against the bettor's measured flop range (HorseOmahaMeasuredBettorRange: shown strength by line and size, showdown bias corrected, his own shown record shrunk toward it): EV(raise to T) = f P + (1 - f)(R' e_c (P + A + X) - A), f his fold share = the equilibrium minimum defence of the pot he is offered, X / (P + A + X), he folds the weakest share of his range, e_c the Horse's two-card-runout equity against the rest (card-seeded pool ranked on the flop), R' = 1 all in else the street's realization; EV(call) = R eq (P + C) - C. The best replaces the chain's raise only when it beats it by more than the equity estimate's error: a larger or smaller raise, the call or the fold. It never makes a raise out of a call or a fold, so the owner rules on draws keep holding. No identity, no hand class, no fixed size. HorseOmahaFlopRaisePriced.ts",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_raise_priced_resized',
+    'HorseLogic wager_rules (omahaFlopRaisePricedRule, omahaFlopRaiseIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop decision facing a wager in which the chain raise was resized to the raise that priced best on the bettor measured range',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_raise_priced_called',
+    'HorseLogic wager_rules (omahaFlopRaisePricedRule, omahaFlopRaiseIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop decision facing a wager in which the chain raise became the call because no raise priced above it',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_raise_priced_folded',
+    'HorseLogic wager_rules (omahaFlopRaisePricedRule, omahaFlopRaiseIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop decision facing a wager in which the chain raise became the fold because neither a raise nor the call priced above it',
+    'V94'
+  ),
+  flag(
     'omahaRiverTripsBoardBoatIsNotNutClass',
     "PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (lead decision on job 5). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, the river, facing a wager; default off (read === true). Where the rule chain raises with a full house (not quads) on a board holding three cards of one rank and some holding of the unseen cards beats it (exact count with the Horse's own cards and the known dead cards removed: holding the case card, or the straight-flush card, keeps the raise), the raise becomes the legal call: it may call, never raise. Evidence: every Horse river raise Nov 12-26 with a nut-class full house: paired boards +8,376 bb over 253 raises, trips boards -1,998 bb over 32 raises with 11 of 21 showdowns lost, all to quads or a straight flush. No identity. HorseOmahaTripsBoardBoat.ts",
     'V94'
