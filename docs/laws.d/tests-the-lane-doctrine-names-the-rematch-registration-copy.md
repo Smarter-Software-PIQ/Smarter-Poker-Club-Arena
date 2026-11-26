@@ -1,3 +1,0 @@
-# tests/the-lane-doctrine-names-the-rematch-registration-copy.law.test.ts
-
-Migration `20261126021630` (2026-11-25): rule 7 of `public.fn_ca_settlement_lane_doctrine()` names `fn_ca_rematch_register_for_payer` among the reviewed callers of `fn_ca_lock_tournament_registration_acquisition`, patched at one anchor of the reviewed body and committed only if the doctrine reports no violation. `20261126000707` re-derived that copy from its source and the live-catalog doctrine check failed on every pull request from the minute it installed. Any later migration that calls `smarter_private.heads_up_rematch_rederive()` must read the doctrine in the same transaction and refuse to commit unless it holds.
