@@ -245,6 +245,14 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       "the river answer curve with fold share moved by the opponent's lifetime public river fold record shrunk n/(n+k)",
     price: 'the river bet against the check by more than its standard error',
   },
+  omahaRiverBetFoldIsPeopleMeasured: {
+    kind: 'priced',
+    range: 'the river checker/caller range (card-impact range, no opponent kind)',
+    equity: 'equity of the hand against that range on the river',
+    realization:
+      "the river answer curve re-measured on people's answers for the Horse's line and size",
+    price: 'the river bet against the check by more than its standard error',
+  },
   omahaFacingBetRangeIsMeasuredByLine: {
     kind: 'priced',
     range:

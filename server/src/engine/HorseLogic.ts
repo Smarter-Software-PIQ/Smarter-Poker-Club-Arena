@@ -124,6 +124,7 @@ import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
 import { omahaOpeningBluffRule } from './HorseOmahaOpeningBluff.js';
+import { omahaPeopleFoldLineOf, omahaPeopleRiverCurve } from './HorseOmahaPeopleFold.js';
 import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
 import {
@@ -3993,6 +3994,12 @@ export interface HorseDecideOpts {
    * on; with no record it is the population curve exactly. One formula for every opponent. Never PLO6.
    */
   omahaRiverBetFoldIsHisRecord?: boolean;
+  /**
+   * PLO-OWNER lead-7 2026-11-26 (default off, read `=== true`): the answer curve omahaRiverFirstToActBetIsPriced and
+   * omahaRiverCheckedToBetIsMeasured price a heads-up river bet with is re-measured on PEOPLE's answers for the
+   * Horse's line and the size (HorseOmahaPeopleFold.omahaPeopleRiverCurve); their own curve pools every player.
+   */
+  omahaRiverBetFoldIsPeopleMeasured?: boolean;
   /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
    * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
    * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
@@ -20385,16 +20392,28 @@ export class HorseLogic {
       // river bet rules price with is the population's moved by the opponent's own lifetime public river fold record
       // (HorseOmahaRiverBetFoldRecord.ts). Absent = the population curve, as before.
       let riverFoldRecordWeight = 0;
+      // omahaRiverBetFoldIsPeopleMeasured (PLO-OWNER lead-7 2026-11-26, default off): the population curve of the two
+      // river bet rules is re-measured on people's answers for the Horse's line and the size (omahaPeopleRiverCurve);
+      // with omahaRiverBetFoldIsHisRecord on, his own record is shrunk to that people curve.
+      const riverPeopleCurve = opts.omahaRiverBetFoldIsPeopleMeasured === true;
       const riverResponseOf =
-        opts.omahaRiverBetFoldIsHisRecord === true
+        opts.omahaRiverBetFoldIsHisRecord === true || riverPeopleCurve
           ? <P extends OmahaRiverBetAnswerPoint>(
               opponent: SeatPlayer,
               population: readonly P[]
             ): readonly P[] => {
               const variant = String(gs.gameVariant ?? '');
+              const base = riverPeopleCurve
+                ? omahaPeopleRiverCurve(
+                    variant.toLowerCase(),
+                    omahaPeopleFoldLineOf(gs.actionHistory, 'river', player.seat),
+                    population
+                  )
+                : population;
+              if (opts.omahaRiverBetFoldIsHisRecord !== true) return base;
               const his = omahaRiverBetFoldRecordCurve(
                 variant,
-                population,
+                base,
                 HorseMind.omahaStrongHandCheckRecordsOf(opponent.user_id, variant, 'river', 1)
               );
               riverFoldRecordWeight = his.weight;

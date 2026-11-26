@@ -151,6 +151,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the measured PLO4/PLO5 cash heads-up river opening ranges (a checker after his river check, the in-position player before the river action), shown hands only, showdown bias corrected (scripts/ops/omaha-river-opening-range-fit.mjs; PLO-OWNER lead-7 2026-11-26)',
     'src/engine/HorseOmahaOpeningBluffRangeTables.json':
       'the measured PLO4/PLO5 cash heads-up turn and river ranges by role, line and board texture, shown hands only, showdown bias corrected by strata of the player own action (scripts/ops/omaha-opening-bluff-range-fit.mjs; PLO-OWNER lead-7 lane plo-bluffs 2026-11-26)',
+    'src/engine/HorseOmahaPeopleFold.ts':
+      "people's measured fold to a heads-up PLO4/PLO5 cash turn or river opening bet (PLO-OWNER lead-7 2026-11-26): his record -> people's population -> equilibrium; read by the default-off opening bluffs, the river blocker bluff and omahaRiverBetFoldIsPeopleMeasured",
+    'src/engine/HorseOmahaPeopleFoldTables.json':
+      'the people-only fold table behind HorseOmahaPeopleFold.ts (answers by people only; scripts/ops/omaha-people-fold-fit.mjs)',
     'src/engine/HorseOmahaOpeningBluff.ts':
       'the default-off heads-up turn and river opening bluff (PLO-OWNER lead-7 lane plo-bluffs 2026-11-26, omahaTurnBluffIsPricedOnBlockers, omahaTurnBluffIsPricedOnRangeAdvantage, omahaRiverBluffIsPricedOnRangeAdvantage): a final check with nothing to call becomes the priced bet only with the price and a second leg (blockers, or the range advantage with the hand in the weakest share its range value carries); off, the decision is returned as given',
     'src/engine/HorseOmahaRiverOpeningBet.ts':

@@ -6137,6 +6137,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "EMERG lane STAB-DEFENCE-5 2026-11-21. PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the answer curve those rules price a river bet with is the population's curve with its fold share multiplied by the opponent's own lifetime PUBLIC fold record at a river's first wager over the population's fold rate at the same sizes, shrunk by n / (n + k) (k = 75.9 river answers, measured; HorseOmahaRiverBetFoldRecord.ts). The raise share of his continues is unchanged and the fold share's standard error grows with the record's. With no lifetime provider, no record or any error it is the population curve exactly. Built because the population price bet the river into an opponent who does not fold it (stab-defence grade under AMENDMENT-4: heads-up calling station +10.41 +- 8.11 bb/100). One formula for every opponent; no hand class, size band, position or kind; nothing keyed to a person or a Horse. Never PLO6.",
     'V94'
   ),
+  flag(
+    'omahaRiverBetFoldIsPeopleMeasured',
+    "PLO-OWNER lead-7 2026-11-26 (owner order: the stats are used against people, not Horses). PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the answer curve those rules price a river bet with is re-measured on PEOPLE's answers for the Horse's line and the size (HorseOmahaPeopleFold.omahaPeopleRiverCurve, people answers only, shrunk to equilibrium by k = 75.9); with omahaRiverBetFoldIsHisRecord on his own record is shrunk to that people curve. One formula for every opponent; never PLO6. HorseOmahaPeopleFold.ts",
+    'V94'
+  ),
   receipt(
     'omaha_river_bet_fold_his_record_read',
     'HorseLogic wager_rules (omahaRiverBetFoldRecordCurve, omahaRiverBetFoldIsHisRecord)',
@@ -10929,4 +10934,9 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),
+  // the people curve acts only through the two river bet rules; their receipts, legitimate while either is on
+  omahaRiverBetFoldIsPeopleMeasured: {
+    prefixes: ['omaha_river_first_to_act_bet_priced', 'omaha_river_checked_to_bet_measured'],
+    unlessOn: ['omahaRiverFirstToActBetIsPriced', 'omahaRiverCheckedToBetIsMeasured'],
+  },
 });

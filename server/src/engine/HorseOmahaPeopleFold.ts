@@ -120,3 +120,34 @@ export function omahaPeopleFoldLineOf(
   }
   return last === null ? 'chk' : last === seat ? 'agg' : 'vsAgg';
 }
+
+/**
+ * omahaRiverBetFoldIsPeopleMeasured (PLO-OWNER lead-7 2026-11-26; default OFF): the answer curve the two river bet rules
+ * (omahaRiverFirstToActBetIsPriced, omahaRiverCheckedToBetIsMeasured) price a heads-up river bet with, re-measured on
+ * PEOPLE: at each point of the curve (a bet of `share` x pot) his fold is people's measured fold for the Horse's line and
+ * that size (omahaPeopleFoldMultiplier: people's answers only, shrunk to equilibrium by k = 75.9). The continue share
+ * is 1 - fold; the raise share of the point keeps its share of the continues; the standard error is the binomial error
+ * on the cell's answers plus k. The rules' own curve is measured on every player pooled (Horses included), which the
+ * owner order of 2026-11-26 forbids as a population. Pure: the same function for every opponent.
+ */
+export function omahaPeopleRiverCurve<
+  P extends { share: number; cont: number; raise: number; foldSe: number; n: number },
+>(variant: string, line: OmahaPeopleFoldLine | null, population: readonly P[]): P[] {
+  const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS.river;
+  return population.map((pt) => {
+    const s = pt.share;
+    if (!(s > 0)) return { ...pt };
+    const ppl = omahaPeopleFoldMultiplier(variant, 'river', line, s);
+    if (!(ppl.n > 0)) return { ...pt };
+    const fold = Math.max(0.01, Math.min(0.97, (ppl.m * s) / (1 + s)));
+    const cont = 1 - fold;
+    const raiseOfCont = pt.cont > 0 ? Math.max(0, Math.min(1, pt.raise / pt.cont)) : 0;
+    return {
+      ...pt,
+      cont,
+      raise: cont * raiseOfCont,
+      foldSe: Math.sqrt((fold * (1 - fold)) / (ppl.n + k)),
+      n: ppl.n,
+    };
+  });
+}
