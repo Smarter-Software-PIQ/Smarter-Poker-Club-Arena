@@ -32,14 +32,29 @@ export const STALE_ACCOUNT_AGE_MS = 162 * 60_000;
  * ("Refusing to clean more than 20 stale accounts at once"), and it ran only
  * inside certification jobs. Once residue passed 20 the recovery could never
  * run again, and the queue grew to 429 PostDeploy / crest_cert identities and
- * three live 'Crest Cert' clubs. It now works through the inventory in
- * batches until it is empty or its time budget is spent, re-reading the
- * inventory between batches; the hourly Cert Residue Sweep workflow
+ * three live 'Crest Cert' clubs. It now works through the inventory page
+ * by page until it ends or its time budget is spent (STALE_INVENTORY_PAGE
+ * below); the hourly Cert Residue Sweep workflow
  * (.github/workflows/cert-residue-sweep.yml) gives it a long budget, and a
  * certification job's own cleanup a short one. The 162-minute age floor
  * (STALE_ACCOUNT_AGE_MS) is unchanged: nothing younger is ever a candidate.
  */
-const STALE_ACCOUNT_BATCH = 20;
+/*
+ * THE INVENTORY IS WALKED PAGE BY PAGE (2026-11-25).
+ *
+ * fn_ca_stale_certification_accounts returns only the 21 oldest listed
+ * identities, and the sweep keeps some identities for good (the owner of
+ * record of a retired fixture, a player of record of its finished game): a
+ * kept identity is never deleted, so it never leaves the listing. On
+ * 2026-11-25 the listing held 21 and every stale one was kept, with Rabbit
+ * Hunt Certification adding one a day. A page full of identities no door
+ * removes hides every newer stale identity, which is the failure of
+ * 2026-11-14 (39 filled the LIMIT 21) and of 2026-10-31 above. The sweep now
+ * reads fn_ca_stale_certification_accounts_after (20261125235742): the same
+ * listing, strictly after the last identity of the previous page, until a
+ * short page ends it or the time budget is spent.
+ */
+export const STALE_INVENTORY_PAGE = 21;
 export const STALE_CLEANUP_DEFAULT_BUDGET_MS = 6 * 60_000;
 function staleCleanupBudgetMs(environment, budgetMs) {
   if (Number.isFinite(budgetMs) && budgetMs > 0) return budgetMs;
@@ -1001,6 +1016,125 @@ export async function prepareProductionE2ELightningMembership({
   return member;
 }
 
+/** The certification clubs that play by design; retired, their games are history. */
+const PLAYED_CERTIFICATION_CLUB_NAME_PREFIXES = [
+  RABBIT_HUNT_CLUB_NAME_PREFIX,
+  HEADS_UP_CLUB_NAME_PREFIX,
+];
+const TERMINAL_TOURNAMENT_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'CANCELED']);
+const isZero = (value) => Number(value || 0) === 0;
+
+/*
+ * A PLAYER OF A RETIRED CERTIFICATION CLUB'S FINISHED GAME IS HISTORY (2026-11-25).
+ *
+ * The heads-up rematch certificate plays one real Sit & Go. Retiring its club
+ * keeps that completed game, and with it each player's tournament entry and
+ * closed seat: immutable history, exactly like the club itself. The account
+ * door refuses any identity that still has a tournament entry
+ * (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY), which is right for a
+ * live game and can never clear for a finished one. Manual run 45506954667
+ * (2026-11-24 23:05Z) left two such players; from the moment they aged into
+ * the stale inventory every Club Create Certification failed on them, for 20
+ * hours and 32 runs, while club creation itself was fine.
+ *
+ * The owner of a retired fixture is already kept as its owner of record. A
+ * player is kept the same way, and only when everything it still holds is
+ * proved terminal here, from the rows themselves:
+ *   - the door's refusal was exactly the authority-or-custody one;
+ *   - it owns no club and is no agent;
+ *   - every membership is a zero-balance player row of a RETIRED club that
+ *     plays by design ('Cert RH ' / 'Cert HU ');
+ *   - it has at least one tournament entry, and every entry is a COMPLETED or
+ *     CANCELLED game of one of those retired clubs;
+ *   - it sits at no table and every wallet is empty.
+ * Anything else stays a failed recovery. Returns the retired club ids, or null.
+ */
+export async function participantOfRetiredFixtureHistory({
+  environment = process.env,
+  fetchImpl = fetch,
+  account,
+  error,
+} = {}) {
+  const message = String(error?.message || error || '');
+  if (!message.includes('CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY')) return null;
+  if (!account?.id || !reserved(account.email || '')) return null;
+  const configuration = requireEnvironment(environment);
+  const id = encodeURIComponent(account.id);
+  const read = async (path) => {
+    const rows = await serviceRequest(configuration, `/rest/v1/${path}`, {}, fetchImpl);
+    if (!Array.isArray(rows))
+      throw new Error(`Retained history read of ${path} returned a non-array body.`);
+    return rows;
+  };
+  const list = (ids) => `(${[...ids].map((value) => encodeURIComponent(value)).join(',')})`;
+
+  if ((await read(`clubs?select=id&owner_id=eq.${id}&limit=1`)).length) return null;
+  if ((await read(`agents?select=user_id&user_id=eq.${id}&limit=1`)).length) return null;
+
+  const memberships = await read(
+    'club_members?select=club_id,role,chip_balance,promo_balance,held_chips,locked_chips,' +
+      `credit_used,credit_limit,parent_agent_id&user_id=eq.${id}`
+  );
+  if (!memberships.length) return null;
+  if (
+    !memberships.every(
+      (row) =>
+        row.role === 'player' &&
+        row.parent_agent_id == null &&
+        isZero(row.chip_balance) &&
+        isZero(row.promo_balance) &&
+        isZero(row.held_chips) &&
+        isZero(row.locked_chips) &&
+        isZero(row.credit_used) &&
+        isZero(row.credit_limit)
+    )
+  ) {
+    return null;
+  }
+  const clubIds = new Set(memberships.map((row) => row.club_id));
+  const clubs = await read(`clubs?select=id,name,lifecycle_status&id=in.${list(clubIds)}`);
+  if (
+    clubs.length !== clubIds.size ||
+    !clubs.every(
+      (club) =>
+        clubIds.has(club.id) &&
+        club.lifecycle_status === 'retired' &&
+        PLAYED_CERTIFICATION_CLUB_NAME_PREFIXES.some((prefix) =>
+          String(club.name || '').startsWith(prefix)
+        )
+    )
+  ) {
+    return null;
+  }
+
+  const entries = await read(`tournament_players?select=tournament_id&user_id=eq.${id}`);
+  if (!entries.length) return null;
+  const tournamentIds = new Set(entries.map((row) => row.tournament_id));
+  const tournaments = await read(
+    `tournaments?select=id,status,club_id&id=in.${list(tournamentIds)}`
+  );
+  if (
+    tournaments.length !== tournamentIds.size ||
+    !tournaments.every(
+      (game) =>
+        tournamentIds.has(game.id) &&
+        clubIds.has(game.club_id) &&
+        TERMINAL_TOURNAMENT_STATUSES.has(String(game.status || '').toUpperCase())
+    )
+  ) {
+    return null;
+  }
+
+  if ((await read(`table_seats?select=table_id&user_id=eq.${id}&left_at=is.null&limit=1`)).length) {
+    return null;
+  }
+  const wallets = await read(`wallets?select=balance,locked_balance&user_id=eq.${id}`);
+  if (!wallets.every((wallet) => isZero(wallet.balance) && isZero(wallet.locked_balance))) {
+    return null;
+  }
+  return [...clubIds].sort();
+}
+
 export async function cleanupStaleProductionE2EAccounts({
   environment = process.env,
   fetchImpl = fetch,
@@ -1015,11 +1149,18 @@ export async function cleanupStaleProductionE2EAccounts({
   const budget = staleCleanupBudgetMs(environment, budgetMs);
   const startedAt = clock();
   const outOfTime = () => clock() - startedAt >= budget;
-  const inventory = async () => {
+  const readPage = async (after) => {
     const accounts = await serviceRequest(
       configuration,
-      '/rest/v1/rpc/fn_ca_stale_certification_accounts',
-      { method: 'POST', body: JSON.stringify({ p_before: cutoff }) },
+      '/rest/v1/rpc/fn_ca_stale_certification_accounts_after',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          p_before: cutoff,
+          p_after_created_at: after ? after.created_at : null,
+          p_after_id: after ? after.id : null,
+        }),
+      },
       fetchImpl
     );
     if (!Array.isArray(accounts)) throw new Error('Stale account query returned a non-array body.');
@@ -1035,6 +1176,10 @@ export async function cleanupStaleProductionE2EAccounts({
         throw new Error('Refusing an invalid stale post-deploy account candidate.');
       }
     }
+    // A page that does not move forward would be read for ever: refuse it.
+    if (after && accounts.some((account) => account.id === after.id)) {
+      throw new Error('Stale account inventory returned a page that does not advance.');
+    }
     return accounts;
   };
   // ONE REFUSED ACCOUNT NO LONGER STRANDS THE REST (2026-10-26). This loop
@@ -1046,25 +1191,25 @@ export async function cleanupStaleProductionE2EAccounts({
   // reached. Each account is now recovered on its own; any that fails is still
   // reported, all together, after every other account has been tried.
   //
-  // Every identity is attempted at most once per run: one that fails or is
-  // kept as an owner of record is still in the next inventory read, and must
-  // not be retried in a loop.
-  const attempted = new Set();
+  // Every identity is attempted at most once per run: each page starts
+  // strictly after the last identity of the page before it, so one that fails
+  // or is kept as an owner or player of record is never read twice.
   const failures = [];
   const keptOwners = [];
+  const keptPlayers = [];
   let recovered = 0;
   let seen = 0;
   let remaining = 0;
+  let moreBehind = false;
+  let after = null;
   for (;;) {
-    const pending = (await inventory()).filter((account) => !attempted.has(account.id));
-    if (!pending.length) break;
-    if (outOfTime()) {
-      remaining = pending.length;
-      break;
-    }
-    for (const account of pending.slice(0, STALE_ACCOUNT_BATCH)) {
+    const page = await readPage(after);
+    if (!page.length) break;
+    const fullPage = page.length >= STALE_INVENTORY_PAGE;
+    let handled = 0;
+    for (const account of page) {
       if (outOfTime()) break;
-      attempted.add(account.id);
+      handled += 1;
       seen += 1;
       try {
         // A certification run that died between creating its fixture clubs and
@@ -1106,15 +1251,42 @@ export async function cleanupStaleProductionE2EAccounts({
         });
         recovered += 1;
       } catch (error) {
+        // A player of a retired fixture's finished game is kept like its owner
+        // (participantOfRetiredFixtureHistory); a failed proof read keeps the
+        // door's own refusal as the failure.
+        let retainedHistory = null;
+        try {
+          retainedHistory = await participantOfRetiredFixtureHistory({
+            environment,
+            fetchImpl,
+            account,
+            error,
+          });
+        } catch {
+          retainedHistory = null;
+        }
+        if (retainedHistory) {
+          keptPlayers.push(account.id);
+          console.log(
+            `[production-e2e-account] kept stale identity ${account.id} as a player of record of ` +
+              `retired fixture(s) ${retainedHistory.join(', ')}: its finished games keep immutable ` +
+              'history and are never deleted.'
+          );
+          continue;
+        }
         failures.push(error);
       }
     }
-    // The inventory is everything older than a FIXED cutoff, so it can only
-    // shrink: a pass that covered the whole of it leaves nothing to re-read.
-    if (pending.length <= STALE_ACCOUNT_BATCH) {
-      if (outOfTime()) remaining = pending.filter((account) => !attempted.has(account.id)).length;
+    if (handled < page.length) {
+      // Out of time inside this page; a full page may have more behind it.
+      remaining = page.length - handled;
+      moreBehind = fullPage;
       break;
     }
+    // The inventory is everything older than a FIXED cutoff, in a fixed
+    // order: a short page is its end.
+    if (!fullPage) break;
+    after = page[page.length - 1];
   }
   if (recovered) {
     console.log(`[production-e2e-account] recovered ${recovered} stale account(s).`);
@@ -1124,7 +1296,7 @@ export async function cleanupStaleProductionE2EAccounts({
     // a backlog is never silent.
     console.log(
       `[production-e2e-account] stale cleanup time budget (${Math.round(budget / 1000)}s) spent; ` +
-        `${remaining} stale account(s) remain for the next sweep.`
+        `${remaining}${moreBehind ? ' or more' : ''} stale account(s) remain for the next sweep.`
     );
   }
   if (failures.length) {

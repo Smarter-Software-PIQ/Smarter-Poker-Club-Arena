@@ -14,6 +14,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
   SWITCH_STATE_FILE,
   SWITCH_STATE_SCHEMA,
   applySwitchStateChange,
@@ -39,57 +40,10 @@ function registeredAuthorityDocs(): Record<string, string> {
   return docs;
 }
 
-/**
- * Live options whose authority doc was written before the machine-read `**State: ...**` token existed
- * (2026-11-15 to 2026-11-21 formats, most of them PLO-OWNER docs), read 2026-11-24 against the live rows
- * (audit max 196). The drift check cannot judge them, so this list may only shrink: a doc that gains a readable
- * State leaves it, and any other live option without one fails the law. The case that made this law:
- * cashDefenceTrimColdCalls went live at audit #193 while its doc read "default OFF in source", which
- * parsed as unknown and was never judged.
- */
-const DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN: readonly string[] = [
-  'horseActionTimeIsPublicOnly',
-  'lightningVpipFloorLimpOnly',
-  'omahaBareOverpairOopFlopCheck',
-  'omahaBigBetIsPotShare',
-  'omahaBigDrawAggression',
-  'omahaBlanketRowsOffInPlo45Cash',
-  'omahaBluffShareFromBetRate',
-  'omahaCardImpact',
-  'omahaEliteContinuesVsMeasuredWideThreeBettor',
-  'omahaEvFoldModelHeadsUp',
-  'omahaFacingBetEv',
-  'omahaMadeHandDefenseVsValueLeader',
-  'omahaManiacReRaiseWidthMeasured',
-  'omahaNoCallColdFourBetWithoutPremium',
-  'omahaNoDrawRaiseOutOfPosition',
-  'omahaOopReraisedPotStrongRange',
-  'omahaOopTurnCheckAfterFlopCall',
-  'omahaOverpairNoOopBarrelVsValueLeader',
-  'omahaPairedBoardFoldRespectsPrice',
-  'omahaPairedRiverNoThinLeadVsValueLeader',
-  'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
-  'omahaPreflopReraiseDefencePricedInPosition',
-  'omahaPressureNeedsPostflopAggression',
-  'omahaReraiseRangeEarlyPosition',
-  'omahaReraiseRangeOutOfPosition',
-  'omahaReraisedPotFlopContinueNeedsEquityShape',
-  'omahaRiverCurrentNutsCallFloor',
-  'omahaRiverMediumBetStrongHandCalls',
-  'omahaRiverNutBlockerBluffReachable',
-  'omahaSmallBetIsPriced',
-  'omahaStabDefenceIsPriced',
-  'omahaStrategyInTournaments',
-  'omahaStreetPlan',
-  'omahaStrongHandSlowplayMix',
-  'omahaStrongHandValue',
-  'omahaTurnBetNeedsRiverPlan',
-  'omahaTurnRiverRaiseIsPriced',
-  'omahaTurnRiverRaiseNeedsNuts',
-  'omahaValueSizeIsUnreadable',
-  'omahaVpipFloorByLimp',
-  'vpipFloorLimpOnly',
-];
+// The closed list lives beside the tool (horse-option-switch-lib.mjs) so the records PR and this law read
+// the same names: the tool adds a State token to any live option's doc that is not on it.
+const DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN: readonly string[] =
+  AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN;
 
 describe('an authority doc states the live switch', () => {
   const snapshot = JSON.parse(readFileSync(join(ROOT, SWITCH_STATE_FILE), 'utf8'));

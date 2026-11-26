@@ -280,3 +280,140 @@ export function clearVarietyHolds(): void {
 export function __resetVarietyHolds(): void {
   published = null;
 }
+
+/* ── AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24) ──────────────────
+   The hold above and the database's feeder opener (20261124072701) stop NEW
+   extra tables from taking a freed slot. They do not free one: on 2026-11-24
+   at 17:22Z eleven of seventeen counted tables were extra tables opened
+   before that fix served, every one of them Horses only, and no Horse left
+   any of them in an hour, so owed games started only when the cap rose.
+
+   While a start is owed and the owed starts do not fit under the cap, ONE
+   extra table at a time stops being kept: the fleet seats nobody there and
+   answers no seat call there, and HorseSessionRotator stands its Horses up
+   one per cycle through the ordinary door (engine.leaveTable, cashed out at
+   the end of the hand, owed hands and orbits played first). The empty table
+   closes by the game's own controller and the slot goes to the owed Main 1.
+
+   Which table: the TOP of its game's ladder, never a table the ladder fills.
+   Every Main N draws from higher Mains and feeders (20261124003437), so the
+   live feeder, or with none the highest Main above the game's lowest, is a
+   source and never a destination. Never the game's lowest Main (its Main 1),
+   never a table with a person, never a game with a person on its list, never
+   a Lightning game, never a table that is opening or breaking, and only where
+   another of the game's tables is occupied, so the game keeps playing. Among
+   the candidates: the fewest Horses, then the newest. The table already
+   draining keeps draining while it is still a candidate. */
+
+export interface DrainTable extends VarietyTable {
+  created_at?: string | null;
+}
+
+export interface VarietyDrainInput<T extends DrainTable> {
+  tables: ReadonlyArray<T>;
+  /** Players seated at a table now. */
+  seatedAt: (tableId: string) => number;
+  /** Is a person (not a Horse) seated at this table? */
+  personSeatedAt: (tableId: string) => boolean;
+  /** Games with a person on their waiting list. */
+  personWaitingGames: ReadonlySet<string>;
+  /** Lightning games: never drained (their pool runs its own rings). */
+  neverHeldGames: ReadonlySet<string>;
+  /** varietyOwedGamesThisCycle: empty in a withheld cycle. */
+  owedGames: ReadonlyArray<string>;
+  /** Do the owed starts fit under the cap now? Unknown counts as yes. */
+  owedStartsFit: boolean;
+  /** The table drained last cycle, kept while it is still a candidate. */
+  current?: string | null;
+}
+
+/** PURE. The one extra table to release this cycle, or null. */
+export function varietyDrainTable<T extends DrainTable>(
+  input: VarietyDrainInput<T>
+): string | null {
+  if (input.owedGames.length === 0 || input.owedStartsFit) return null;
+  const owed = new Set(input.owedGames);
+  const seated = (t: T): number => {
+    const n = input.seatedAt(String(t.id));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const byGame = new Map<string, T[]>();
+  for (const t of input.tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
+    if (t.lifecycle === 'closed') continue;
+    const list = byGame.get(t.cluster_id);
+    if (list) list.push(t);
+    else byGame.set(t.cluster_id, [t]);
+  }
+  const candidates: T[] = [];
+  for (const [gameId, all] of byGame) {
+    if (owed.has(gameId) || input.neverHeldGames.has(gameId)) continue;
+    if (input.personWaitingGames.has(gameId)) continue;
+    /* A game breaking a table is mid-move: it waits until the break is done. */
+    if (all.some((t) => t.lifecycle === 'breaking')) continue;
+    const live = all.filter((t) => (t.lifecycle ?? 'live') === 'live');
+    if (live.filter((t) => seated(t) > 0).length < 2) continue;
+    const mains = live
+      .filter((t) => t.role === 'main')
+      .sort((a, b) => Number(a.main_index ?? 999) - Number(b.main_index ?? 999));
+    const lowestMain = mains[0];
+    const feeders = live
+      .filter((t) => t.role === 'feeder')
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+    const top = feeders.length > 0 ? feeders[0] : mains[mains.length - 1];
+    if (!top || top === lowestMain || (top.role === 'main' && Number(top.main_index) === 1))
+      continue;
+    if (seated(top) === 0 || input.personSeatedAt(String(top.id))) continue;
+    candidates.push(top);
+  }
+  if (candidates.length === 0) return null;
+  if (input.current && candidates.some((t) => t.id === input.current)) return input.current;
+  candidates.sort(
+    (a, b) =>
+      seated(a) - seated(b) ||
+      String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')) ||
+      String(a.id).localeCompare(String(b.id))
+  );
+  return candidates[0].id;
+}
+
+/**
+ * Do the owed starts fit? The database's own sum (fn_cash_hourly_feeder_admissible):
+ * counted tables + empty opening feeders + owed starts against the cap. An owed
+ * start the hourly projection already admits means there is room (or the policy
+ * is off), so nothing is drained. Unknown (a failed read) fits: nothing drains.
+ */
+export function owedStartsFit(room: {
+  cap: number | null;
+  counted: number | null;
+  openingFeeders: number;
+  owedStarts: number;
+  anOwedStartAdmitted: boolean;
+}): boolean {
+  if (room.anOwedStartAdmitted) return true;
+  if (room.cap === null || room.counted === null) return true;
+  return room.counted + room.openingFeeders + room.owedStarts <= room.cap;
+}
+
+let publishedDrain: { tableId: string; atMs: number } | null = null;
+
+/** The fleet names the table it is releasing, once per cycle (or none). */
+export function publishVarietyDrain(tableId: string | null, nowMs: number): void {
+  publishedDrain = tableId ? { tableId, atMs: nowMs } : null;
+}
+
+/**
+ * HorseSessionRotator's question: which table's Horses go home this cycle?
+ * A publication older than VARIETY_HOLD_FRESH_MS names nothing: a fleet that
+ * has stopped cycling never keeps a table draining.
+ */
+export function varietyDrainingTable(nowMs: number = Date.now()): string | null {
+  if (!publishedDrain) return null;
+  const age = nowMs - publishedDrain.atMs;
+  return age >= 0 && age < VARIETY_HOLD_FRESH_MS ? publishedDrain.tableId : null;
+}
+
+/** Test seam. */
+export function __resetVarietyDrain(): void {
+  publishedDrain = null;
+}

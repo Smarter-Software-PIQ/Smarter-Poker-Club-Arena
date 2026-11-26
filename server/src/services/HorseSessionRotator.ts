@@ -108,6 +108,7 @@ import {
 } from './HorsePloRoster.js';
 import { horseSitOutPlan } from './HorseSitOutChoice.js';
 import { holdemPersonaFor, ploPersonaFor } from '../engine/HorsePersona.js';
+import { varietyDrainingTable } from './HorseVarietyFirst.js';
 
 const CYCLE_MS = 90_000; // examine the floor every 90s
 const GLOBAL_DEPARTURES_PER_CYCLE = 4;
@@ -1479,6 +1480,58 @@ export class HorseSessionRotator {
        here is "about to leave" for the seat-change pass below, and a player
        halfway out of the door does not ask the floor to reseat them. */
     const departedThisCycle = new Set<string>();
+
+    /* AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24). The fleet names at
+       most one Horse-only extra table (HorseVarietyFirst.varietyDrainTable)
+       while a game with no table is owed a start the cap cannot fit. It seats
+       nobody there; here its Horses go home, ONE per cycle, through the same
+       ordinary door as the end of a shift: engine.leaveTable (cashed out at
+       the end of the hand), never while a stay clock or owed hands in profit
+       hold the seat, never the hand after a big pot. A person at the table
+       stops it at once: this pass walks nobody out from beside a person. A
+       table the cluster tick is already breaking is not walked out of (owner
+       2026-11-07, HorseUnionCashPlan.horseCashPlanTablesAwaitingBreak): the
+       break moves its Horses, in order, like people. */
+    const drainTableId = varietyDrainingTable(Date.now());
+    if (drainTableId) {
+      const drainSeats = byTable.get(drainTableId) ?? [];
+      const engine = this.getEngine(drainTableId);
+      const horsesOnly =
+        drainSeats.length > 0 &&
+        (drainSeats[0] as any)?.tables?.lifecycle !== 'breaking' &&
+        drainSeats.every((x) => horseIds.has(String(x.user_id ?? '')));
+      const goer =
+        horsesOnly && engine
+          ? drainSeats.find((x) => {
+              const uid = String(x.user_id ?? '');
+              return (
+                !HorseSessionRotator.isLeaving(x) &&
+                !rosterLeft.has(`${drainTableId}:${uid}`) &&
+                !this.isLeaveHeld(drainTableId, uid) &&
+                !this.owesHands(drainTableId, uid, engine) &&
+                !this.owesBigPotOrbit(uid, engine)
+              );
+            })
+          : undefined;
+      if (goer && engine) {
+        const uid = String(goer.user_id);
+        try {
+          const result = await engine.leaveTable(uid);
+          if (!this.lifecycleIsCurrent(generation)) return;
+          this.noteLeaveResult(drainTableId, uid, result);
+          if (result.success) {
+            departedThisCycle.add(`${drainTableId}:${uid}`);
+            this.breaks.delete(HorseSessionRotator.breakKey(drainTableId, uid));
+            console.log(
+              `[SessionRotator] horse=${uid.slice(0, 8)} leaving table=${drainTableId.slice(0, 8)} ` +
+                `- an extra table yields to a game with none (${drainSeats.length} seated)`
+            );
+          }
+        } catch (err) {
+          reportError(err, 'HorseSessionRotator.varietyDrainLeave');
+        }
+      }
+    }
 
     /**
      * ═══════════════════════════════════════════════════════════════════════

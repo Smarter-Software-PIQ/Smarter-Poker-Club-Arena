@@ -1,0 +1,9 @@
+{
+  "_owner": "agent/coord-01TLQer6/fix/heads-up-rematch-copies-follow-their-sources",
+  "_comment": "Migration 20261126000707 (2026-11-25): the heads-up rematch derivation is one kept procedure and its two helpers.",
+  "functions": [
+    "smarter_private.heads_up_rematch_install",
+    "smarter_private.heads_up_rematch_rederive",
+    "smarter_private.heads_up_rematch_swap"
+  ]
+}

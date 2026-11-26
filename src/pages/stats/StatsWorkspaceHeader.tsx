@@ -8,7 +8,6 @@ export default function StatsWorkspaceHeader({ context }: { context: string }) {
         area="stats"
         title="Player Stats"
         context={context}
-        subtitle="Player Intelligence"
         id="stats-page-title"
       />
       <StatsGameModeControl />

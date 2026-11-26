@@ -34,6 +34,7 @@ import {
   OPTION_SWITCH_SHADOW_REFUSED,
 } from '../HorseOptionSwitch.js';
 import {
+  OPTION_SWITCH_LAST_LIST_MIGRATION,
   OPTION_SWITCH_MIGRATIONS_DIR,
   OPTION_SWITCH_PROOF_SCRIPT,
   newestOptionSwitchListMigration,
@@ -127,16 +128,28 @@ describe('LAW: every option name a switch list of this tree carries is registere
     );
   });
 
-  it('every option list of the evidence proof script names only registered options, and its refused list none', () => {
-    const lists = scriptLists(readFileSync(join(repo, OPTION_SWITCH_PROOF_SCRIPT), 'utf8'));
-    for (const name of ['style', 'plain', 'offonly', 'shadow', 'onshadow', 'refused'])
-      expect(lists.has(name), `${OPTION_SWITCH_PROOF_SCRIPT} list ${name}`).toBe(true);
-    const optionLists = ['style', 'plain', 'offonly', 'shadow', 'onshadow'];
-    expect(
-      optionLists.flatMap((list) =>
-        unregistered(`${OPTION_SWITCH_PROOF_SCRIPT} ${list}`, lists.get(list)!)
-      )
-    ).toEqual([]);
+  it('the evidence proof script reads its option lists from the frozen full-list migration (no list of its own to drift), and its refused list names no registered option', () => {
+    // 2026-11-20 (a Horse option registers itself): the whitelist is rows, so the script holds no literal option
+    // list. Its five lists are the marked blocks of the last full-list migration, which the test above holds to the
+    // registry; the refused list is still literal.
+    const script = readFileSync(join(repo, OPTION_SWITCH_PROOF_SCRIPT), 'utf8');
+    const lists = scriptLists(script);
+    expect(script).toContain(
+      `list_migration="$repo/${OPTION_SWITCH_MIGRATIONS_DIR}/${OPTION_SWITCH_LAST_LIST_MIGRATION}"`
+    );
+    for (const [variable, marker] of [
+      ['style', 'style-options'],
+      ['plain', 'plain-options'],
+      ['offonly', 'off-only-options'],
+      ['shadow', 'shadow-options'],
+      ['onshadow', 'on-shadow-options'],
+    ] as const) {
+      expect(lists.has(variable), `${OPTION_SWITCH_PROOF_SCRIPT} literal list ${variable}`).toBe(
+        false
+      );
+      expect(script, variable).toContain(`${variable}="$(names_of ${marker})"`);
+    }
+    expect(lists.has('refused'), `${OPTION_SWITCH_PROOF_SCRIPT} list refused`).toBe(true);
     expect(lists.get('refused')!.filter((name) => registered.has(name))).toEqual([]);
   });
 

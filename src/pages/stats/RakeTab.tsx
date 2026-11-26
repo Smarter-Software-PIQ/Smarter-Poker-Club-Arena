@@ -114,7 +114,7 @@ export default function RakeTab({
             <StatRow
               label="Rake Paid"
               value={compactChips(rakeStats.rake_paid)}
-              color="#ffd700"
+              color="#8edbff"
               highlight
             />
             <StatRow

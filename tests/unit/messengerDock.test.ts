@@ -94,11 +94,16 @@ describe('native Messenger dock', () => {
     const panel = read('src/components/messenger/dock/MessengerChat.jsx');
     const css = read('src/components/messenger/dock/MessengerDock.css');
     expect(panel).toContain('dock-media-bubble');
+    expect(panel).toContain('dock-media-fallback');
+    expect(panel).toContain('dock-reply-quote');
+    expect(panel).toContain('formatReplyQuote');
     expect(panel).toContain('resolveUploadMedia');
     expect(panel).toContain('videoPreviewUrl');
     expect(css).toMatch(
       /\.dock-message-bubble\.dock-media-bubble[\s\S]*padding:\s*0;[\s\S]*border:\s*1px solid/
     );
-    expect(css).toMatch(/\.dock-media-bubble img,[\s\S]*object-fit:\s*contain;/);
+    expect(css).toMatch(
+      /\.dock-media-bubble img,[\s\S]*margin:\s*0 auto;[\s\S]*object-fit:\s*contain;/
+    );
   });
 });

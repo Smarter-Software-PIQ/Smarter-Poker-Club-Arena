@@ -99,7 +99,7 @@ const METRICS: MetricDef[] = [
      */
     key: 'three_bet',
     label: '3-Bet',
-    color: '#f59e0b',
+    color: '#86c9e8',
     ceiling: 15,
     count: (r) => r.three_bet_count,
     denom: (r) =>

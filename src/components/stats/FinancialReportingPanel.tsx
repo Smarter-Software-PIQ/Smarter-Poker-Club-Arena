@@ -6,7 +6,7 @@ import {
 import './FinancialReportingPanel.css';
 import { titleCase } from '../../utils/titleCase';
 import { reportError } from '../../utils/errorReporter';
-import { SpadeConsole } from '../console/SpadeConsole';
+import StatsSection from './StatsSection';
 
 interface Props {
   userId: string;
@@ -62,27 +62,20 @@ export default function FinancialReportingPanel(p: Props) {
   }, [p.userId, p.clubId, p.days, p.timezone, p.asset, reload, p.resetKey]);
   if (state === 'loading')
     return (
-      <SpadeConsole
-        family="spade"
-        foot="foot"
-        crest="spade"
+      <StatsSection
         eyebrow="Verified Financial Ledger"
         title="Opening Receipt Vault..."
-        pill="Verifying"
+        status="Verifying"
         className="financial-vault-shell is-loading"
         aria-busy="true"
       />
     );
   if (state === 'error')
     return (
-      <SpadeConsole
-        family="spade"
-        foot="foot"
-        crest="spade"
+      <StatsSection
         eyebrow="Financial Readout Interrupted"
         title="Receipts Could Not Be Verified"
-        pill="Interrupted"
-        pillInk="red"
+        status="Interrupted"
         className="financial-vault-shell is-error"
         role="alert"
       >
@@ -96,7 +89,7 @@ export default function FinancialReportingPanel(p: Props) {
             Retry Verified Read
           </button>
         </div>
-      </SpadeConsole>
+      </StatsSection>
     );
   const wallet: any = report?.tournament_wallet ?? {};
   const rake: any = report?.rakeback ?? {};
@@ -105,15 +98,11 @@ export default function FinancialReportingPanel(p: Props) {
   const periods = rows(rake.periods);
   const payouts = rows(rake.payout_receipts);
   return (
-    <SpadeConsole
-      family="spade"
-      foot="foot"
-      crest="spade"
+    <StatsSection
       eyebrow={`Verified Financial Ledger // ${label(p.clubLabel)}`}
       title="Financial Reporting Vault"
       titleId="financial-console-title"
-      pill={p.asset === 'diamonds' ? 'Diamond Ledger' : 'Chip Ledger'}
-      pillInk={p.asset === 'diamonds' ? 'blue' : 'gold'}
+      status={p.asset === 'diamonds' ? 'Diamond Ledger' : 'Chip Ledger'}
       className="financial-vault-shell"
       aria-labelledby="financial-console-title"
     >
@@ -305,6 +294,6 @@ export default function FinancialReportingPanel(p: Props) {
           </div>
         )}
       </section>
-    </SpadeConsole>
+    </StatsSection>
   );
 }
