@@ -32902,12 +32902,8 @@ export class HorseLogic {
         return decision;
       }
       if (tele) noteFire('holdem_river_call_vs_measured_bluff_called');
-      return this.legalize(
-        { action: 'call', amount: toCall, thinkTime: decision.thinkTime ?? 0 },
-        player,
-        gs,
-        vi
-      );
+      const thinkTime = decision.thinkTime ?? 0;
+      return this.legalize({ action: 'call', amount: toCall, thinkTime }, player, gs, vi);
     } catch {
       return decision;
     }
@@ -33022,12 +33018,8 @@ export class HorseLogic {
         return decision;
       }
       if (tele) noteFire('holdem_mw_flop_small_bet_called');
-      return this.legalize(
-        { action: 'call', amount: toCall, thinkTime: decision.thinkTime ?? 0 },
-        player,
-        gs,
-        vi
-      );
+      const thinkTime = decision.thinkTime ?? 0;
+      return this.legalize({ action: 'call', amount: toCall, thinkTime }, player, gs, vi);
     } catch {
       return decision;
     }
