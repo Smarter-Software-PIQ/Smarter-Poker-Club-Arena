@@ -301,6 +301,8 @@ describe('the Backup it starts is the next election trigger', () => {
   });
 });
 
+// The database side (one note per cycle, service_role only) is pinned by
+// tests/a-missed-cycle-note-reaches-the-owner-once.law.test.ts with migration 20261126031810.
 describe('the owner note says it plainly, once per cycle', () => {
   const sel = (o: object) => {
     const f = join(tmpdir(), `sel-${Math.random().toString(36).slice(2)}.json`);
@@ -355,34 +357,5 @@ describe('the owner note says it plainly, once per cycle', () => {
       expect(n).not.toMatch(/[0-9a-f]{12}/);
       expect(n.length).toBeLessThanOrEqual(500);
     }
-  });
-
-  it('the database sends it once per cycle, as the platform sender, to service_role only', () => {
-    const sql = readFileSync(
-      join(
-        root,
-        'supabase/migrations/20261126031810_an_owner_note_when_a_cutover_cycle_does_not_seal.sql'
-      ),
-      'utf8'
-    );
-    expect(sql).toContain('cycle      text PRIMARY KEY');
-    expect(sql).toContain('ON CONFLICT (cycle) DO NOTHING;');
-    expect(sql).toMatch(
-      /IF NOT FOUND THEN\s+RETURN jsonb_build_object\('sent', false, 'reason', 'already noted'/
-    );
-    expect(sql).toContain(
-      'SELECT * INTO STRICT s FROM smarter_private.reliability_settings WHERE id FOR UPDATE;'
-    );
-    expect(sql).toContain('v_conv := smarter_private.reliability_owner_conversation();');
-    expect(sql).toContain('VALUES (v_conv, s.system_sender_id, v_note');
-    expect(sql).toContain(
-      'REVOKE ALL ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) FROM PUBLIC, anon, authenticated;'
-    );
-    expect(sql).toContain(
-      'GRANT EXECUTE ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) TO service_role;'
-    );
-    expect(sql).not.toMatch(/push_outbox/);
-    expect(sql.match(/^BEGIN;$/gm)).toHaveLength(1);
-    expect(sql.match(/^COMMIT;$/gm)).toHaveLength(1);
   });
 });
