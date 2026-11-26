@@ -48,7 +48,14 @@ const APPROVED = {
   six: 2.1,
   sixSpectator: 2.3,
   nineRail: 1.7,
-  heights: { sixSeat: 175, sixSeatSpectator: 191, nineSeatOpponent: 140, nineSeatHero: 187 },
+  heights: {
+    sixSeat: 175,
+    sixSeatSpectator: 191,
+    nineSeatOpponent: 140,
+    // Only on a page too short for the whole full-ring felt (2026-11-26).
+    nineSeatOpponentHeightBound: 132,
+    nineSeatHero: 187,
+  },
 };
 
 describe('LAW: phone avatars never ratchet smaller', () => {
@@ -70,6 +77,9 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     );
     expect(PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatHero).toBeGreaterThanOrEqual(
       APPROVED.heights.nineSeatHero
+    );
+    expect(PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponentHeightBound).toBeGreaterThanOrEqual(
+      APPROVED.heights.nineSeatOpponentHeightBound
     );
   });
 
