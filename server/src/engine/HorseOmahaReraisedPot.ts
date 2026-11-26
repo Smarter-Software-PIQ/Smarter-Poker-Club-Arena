@@ -451,6 +451,145 @@ export function omahaReraisedEquityAgainst(
   return got >= samples / 2 ? won / got : null;
 }
 
+/**
+ * omahaReraisedEquityAgainst where every range is the top of the holdings by preflop percentile
+ * (omahaPreflopPercentile >= floors[k], high only; a floor at or under 1e-9 admits every holding): THE SAME NUMBER
+ * AND THE SAME onSample SCORES, bit for bit (2026-11-26, PLO-OWNER lead-7; law
+ * anOmahaReraisedPotEquityIsUnchanged.law.test.ts), at a fraction of the cost.
+ *
+ * WHY. omahaReraisedPotCallIsPriced / omahaReraisedPotReraiseIsPriced price a re-raised-pot call on one joint
+ * sample set against the re-raiser and every other player in (reraisedPotVerdict). With the out-of-position 3-bet
+ * price already on card ids (#12034) they still took p50 12.8 / p95 27.6 / max 134 ms where they applied, 0.9% over
+ * the shadow stage's 50 ms slow mark; 77% of it was this sampler: a deck copy per sample and per probe, a preflop
+ * score and a reservoir search per probe, and showdowns on Card objects.
+ *
+ * WHAT. The same generator, seed, deck order and partial shuffles, on card ids: the sample's deck is the unseen
+ * deck's ids copied into one working array; each probe shuffles the front of what is left and its swaps are undone
+ * when it is rejected, and an accepted holding is taken off the front (the splice); the run-out is the next five.
+ * Each floor's test reads the raw preflop score and ranks each distinct score once (the scores at or over a floor
+ * are one upper interval). Every hand is scored on the run's ten precomputed triples (scoreOmahaHiOfIdsOnRun, the
+ * scoreOmahaHi value). The draws, holdings, run-outs, scores, ties and their sum are the same, in the same order.
+ */
+export function omahaReraisedEquityAgainstPercentileFloors(
+  hole: readonly Card[],
+  dead: readonly Card[],
+  floors: readonly number[],
+  samples: number = RERAISED_EQUITY_SAMPLES,
+  onSample?: (heroScore: number, oppScores: readonly number[]) => void
+): number | null {
+  const size = hole.length;
+  const deck = unseenDeck([...hole, ...dead]);
+  const nr = floors.length;
+  if (nr === 0 || deck.length < size * nr + 5) return null;
+  // generator(seedOf(hole) ^ (0x9e3779b9 * ranges)), inlined: the same arithmetic, one draw per next()
+  let state = (seedOf([...hole]) ^ (0x9e3779b9 * nr)) >>> 0;
+  const next = (): number => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let x = state;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+  const len0 = deck.length;
+  const deckIds = new Int32Array(len0);
+  const cardOfId: Card[] = [];
+  for (let i = 0; i < len0; i++) {
+    deckIds[i] = omahaCardId(deck[i]);
+    cardOfId[deckIds[i]] = deck[i];
+  }
+  const work = new Int32Array(len0);
+  const swapTo = new Int32Array(size);
+  const heroIds = new Int32Array(size);
+  for (let i = 0; i < size; i++) heroIds[i] = omahaCardId(hole[i]);
+  const oppIds = new Int32Array(size * nr);
+  const runIds = new Int32Array(5);
+  // per floor: every holding admitted (floor <= 1e-9), else the raw-score interval learnt so far
+  const all = floors.map((f) => f <= 1e-9);
+  const insideMin = floors.map(() => Infinity);
+  const outsideMax = floors.map(() => -Infinity);
+  const scores: number[] | null = onSample ? new Array<number>(nr).fill(0) : null;
+  let won = 0;
+  let got = 0;
+  const budget = samples * 200 * nr;
+  let tries = 0;
+  while (got < samples && tries < budget) {
+    work.set(deckIds);
+    let off = 0;
+    let len = len0;
+    let drawn = 0;
+    for (let r = 0; r < nr; r++) {
+      let found = false;
+      // each opponent by rejection against his own range, from what is left
+      for (let k = 0; k < 200 && tries < budget && !found; k++) {
+        tries++;
+        for (let i = 0; i < size; i++) {
+          const a = off + i;
+          const j = a + Math.floor(next() * (len - i));
+          swapTo[i] = j;
+          const t = work[a];
+          work[a] = work[j];
+          work[j] = t;
+        }
+        let inside: boolean;
+        if (all[r]) inside = true;
+        else {
+          const raw = omahaPreflopScoreOfIds(work, off, size, false);
+          if (raw >= insideMin[r]) inside = true;
+          else if (raw <= outsideMax[r]) inside = false;
+          else {
+            const h: Card[] = [];
+            for (let i = 0; i < size; i++) h.push(cardOfId[work[off + i]]);
+            inside = omahaPreflopPercentile(h, false) >= floors[r];
+            if (inside) insideMin[r] = raw;
+            else outsideMax[r] = raw;
+          }
+        }
+        if (inside) {
+          found = true;
+          for (let i = 0; i < size; i++) oppIds[r * size + i] = work[off + i];
+          off += size;
+          len -= size;
+        } else {
+          for (let i = size - 1; i >= 0; i--) {
+            const a = off + i;
+            const j = swapTo[i];
+            const t = work[a];
+            work[a] = work[j];
+            work[j] = t;
+          }
+        }
+      }
+      if (!found) break;
+      drawn++;
+    }
+    if (drawn !== nr) continue;
+    for (let i = 0; i < 5; i++) {
+      const a = off + i;
+      const j = a + Math.floor(next() * (len - i));
+      const t = work[a];
+      work[a] = work[j];
+      work[j] = t;
+      runIds[i] = work[a];
+    }
+    omahaRunTriples(runIds, 0);
+    const mine = scoreOmahaHiOfIdsOnRun(heroIds, 0, size, Infinity);
+    let best = mine;
+    let tied = 1;
+    for (let r = 0; r < nr; r++) {
+      const sc = scoreOmahaHiOfIdsOnRun(oppIds, r * size, size, Infinity);
+      if (scores) scores[r] = sc;
+      if (sc > best) {
+        best = sc;
+        tied = 1;
+      } else if (sc === best) tied++;
+    }
+    if (mine === best) won += 1 / tied;
+    got++;
+    if (onSample && scores) onSample(mine, scores.slice());
+  }
+  return got >= samples / 2 ? won / got : null;
+}
+
 export interface OmahaReraisedInput {
   variant: string;
   street: string;
