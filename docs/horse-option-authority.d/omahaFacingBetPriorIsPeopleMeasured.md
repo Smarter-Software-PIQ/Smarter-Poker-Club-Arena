@@ -69,6 +69,8 @@ Against a bettor who never bluffs the Horse pays a little more until his shown r
 
 League mirror (Horses ON against Horses OFF, duplicate deals, 12,000 hands; a field of Horses that rarely bluff, reported for completeness, not the grade): PLO4 +3.5 +/- 3.4, PLO5 -4.2 +/- 4.4 bb/100.
 
+Scored audited replay (`server/scripts/audited-decision-replay.ts`, verdict-only, memory off so no bettor record: the people prior alone; 3,566 audited decisions of Nov 20 to 25): 15 changed. 13 are folds that become calls, every one the call the live Horse actually made; the auditors judged 8 of those calls CORRECT and 5 MISTAKE HARD (each "paid off (river call)" or "called too light": judged on the shown result). 2 are calls that become folds where the live call was judged CORRECT. The scorer counts them as fixed 0, newly wrong 2, unjudged 13 (it judges a node only where the replayed base repeats the recorded action). So no Evidence MET is claimed from this replay; the chips grade against a person's own shown bets above is the evidence it rests on.
+
 Speed (`anOmahaEquilibriumAnchorIsFast` relative-cost law on the same call path): passes; added cost per applicable decision p95 under 1 ms.
 
 ## Prior anchor
