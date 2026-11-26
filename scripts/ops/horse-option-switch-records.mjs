@@ -31,8 +31,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
   SWITCH_STATE_FILE,
   findAuthorityDocStateDrift,
+  findUnjudgedLiveAuthorityDocs,
   formatSwitchStateSnapshot,
   parseAuthorityDocState,
 } from './horse-option-switch-lib.mjs';
@@ -75,6 +77,26 @@ export function rewriteAuthorityDocState(text, liveState, row = null) {
 }
 
 /**
+ * Pure. The doc with a `**State: ...**` token added at the start of its status paragraph (the first
+ * paragraph under the `# ` title, the one parseAuthorityDocEvidence reads), for a doc that has none. The
+ * paragraph's own words, its "Evidence MET" / "Evidence NOT MET" claim included, are kept as written.
+ * Returns null when the doc already has a State token, has no title, or does not open with a plain
+ * paragraph (a heading, list, table, quote or code fence): those are left for a person.
+ */
+export function insertAuthorityDocState(text, liveState, row = null) {
+  const src = String(text ?? '');
+  if (STATE_TOKEN_RE.test(src)) return null;
+  const lines = src.split('\n');
+  let i = lines.findIndex((l) => l.startsWith('# '));
+  if (i < 0) return null;
+  i++;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  if (i >= lines.length || /^\s*(#|[-*+] |\d+[.)] |\||>|```|~~~)/.test(lines[i])) return null;
+  lines[i] = `**State: ${canonicalStatePhrase(liveState, row)}.** ${lines[i]}`;
+  return lines.join('\n');
+}
+
+/**
  * Pure. Everything the records PR must carry, from the live snapshot and the docs it judges.
  *   snapshot          snapshotFromRows() of the live rows
  *   docs              { option: text } as on origin/main
@@ -83,12 +105,20 @@ export function rewriteAuthorityDocState(text, liveState, row = null) {
  * Returns { stateFileText, stateFileChanged, docChanges: [{ option, path, text, from, to }], unresolved }.
  * An option the parser cannot place, or a release-default-ON option with no row, is listed in
  * `unresolved` for a person and never rewritten by guess.
+ *
+ * A live option whose doc has no readable State is not drift (nothing to compare), yet the law
+ * an-authority-doc-states-the-live-switch fails on it unless it is on the closed list
+ * AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN. On 2026-11-24 omahaPricedRaiseNeverMakesNonNutRaise went
+ * live (audits #197, #198) with such a doc: this function reported nothing, and a records PR built from it
+ * would have gone red on that law with no word why. Such a doc now gains a State token, or is listed in
+ * `unresolved` when one cannot be added safely.
  */
 export function buildRecordsChange({
   snapshot,
   docs,
   currentStateText = '',
   releaseDefaultOn = new Set(),
+  docsWithoutStateAllowed = AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN,
 }) {
   const stateFileText = formatSwitchStateSnapshot(snapshot);
   const docChanges = [];
@@ -117,6 +147,30 @@ export function buildRecordsChange({
       path: `${AUTHORITY_DOC_DIR}/${d.option}.md`,
       text,
       from: d.docStateText,
+      to: reparsed.raw,
+    });
+  }
+  for (const u of findUnjudgedLiveAuthorityDocs({ snapshot, docs })) {
+    if (docsWithoutStateAllowed.includes(u.option)) continue;
+    const row = snapshot.rows?.[u.option] ?? null;
+    const text =
+      u.docStateText === null ? insertAuthorityDocState(docs[u.option], u.liveState, row) : null;
+    const reparsed = text === null ? null : parseAuthorityDocState(text);
+    if (!reparsed || reparsed.state !== u.liveState) {
+      unresolved.push({
+        option: u.option,
+        reason:
+          u.docStateText === null
+            ? `live ${u.liveState}, and its doc has no State token; one could not be added safely`
+            : `live ${u.liveState}, and its doc State "${u.docStateText}" cannot be read`,
+      });
+      continue;
+    }
+    docChanges.push({
+      option: u.option,
+      path: `${AUTHORITY_DOC_DIR}/${u.option}.md`,
+      text,
+      from: '(no State token)',
       to: reparsed.raw,
     });
   }
