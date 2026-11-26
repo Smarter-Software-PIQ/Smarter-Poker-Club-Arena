@@ -15,6 +15,7 @@
  *
  * Usage: node scripts/ops/horse-hand-audit-holdem.mjs [options]
  */
+import { PAGE_ROWS, readPaged } from './horse-audit-paged-read.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -161,12 +162,24 @@ export function queryReadOnly(
 }
 
 /** Query every chunk of the plan (hands with the shown-cards rule, then people's tournament entries). */
-export function fetchAll(plan, query) {
-  const hands = [];
-  for (const [a, b] of chunks(plan.since, plan.until, CHUNK_HOURS))
-    hands.push(
-      ...query(buildHandsSql({ since: a, until: b, mode: plan.mode, peopleOnly: plan.peopleOnly }))
-    );
+export function fetchAll(plan, query, { pageRows = PAGE_ROWS } = {}) {
+  // keyset pages of at most pageRows hands inside each chunk (horse-audit-paged-read.mjs): a busy tournament hour
+  // can no longer make one statement run past the timeout
+  const hands = readPaged({
+    chunks: chunks(plan.since, plan.until, CHUNK_HOURS),
+    sqlFor: ([a, b], after, limit) =>
+      buildHandsSql({
+        since: a,
+        until: b,
+        mode: plan.mode,
+        peopleOnly: plan.peopleOnly,
+        after,
+        limit,
+      }),
+    query,
+    keyOf: (r) => ({ ts: (r.hand ?? r).ts, id: (r.hand ?? r).id }),
+    pageRows,
+  });
   const tids = [...new Set(hands.map((r) => (r.hand ?? r).tid).filter(Boolean))];
   const tsql = plan.mode === 'cash' ? null : buildTournamentSql({ tids });
   const entries = tsql ? query(tsql) : [];

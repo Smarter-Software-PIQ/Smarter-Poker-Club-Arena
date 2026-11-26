@@ -21,8 +21,10 @@ Exit codes: **0** ok; **1** a HARD leak versus people (mistake type x street) is
 
 ## Data and the shown-cards-only rule
 
-- One SELECT per 6-hour chunk through `supabase db query --linked`, each behind `SET TRANSACTION READ ONLY` and a
-  120 s statement timeout (the same route as `person-vs-horse-results.mjs`).
+- SELECTs through `supabase db query --linked`, each behind `SET TRANSACTION READ ONLY` and a 120 s statement timeout
+  (the same route as `person-vs-horse-results.mjs`). Since 2026-11-26 each 6-hour chunk is read in keyset pages of at
+  most 1,000 hands (`scripts/ops/horse-audit-paged-read.mjs`; a page that times out is asked again at half the size,
+  down to 50), so `--all` over a day no longer runs one statement past the timeout (it failed with exit 70).
 - **Hole cards leave the database only through the hand's showdown list**: the `hc` column is built by walking
   `hand_history.showdown` and reading `hole_cards -> user_id` only for entries whose `mucked` flag is false. Winner rows are
   selected without their hand cards. The parser checks the rule a second time (`shownCards`). A unit test fails the build if
