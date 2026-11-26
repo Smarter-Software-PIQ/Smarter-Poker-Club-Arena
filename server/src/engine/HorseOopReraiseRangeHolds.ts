@@ -45,6 +45,7 @@ import {
   type ExploitHandAction,
 } from './HorseOpponentExploit.js';
 import { omahaReraisedEquityInPercentileBand } from './HorseOmahaReraisedPot.js';
+import { preflopAnswerToReraise } from './HorsePreflopIndifferenceAnchor.js';
 import {
   omahaPreflopDefenceRealization,
   omahaPreflopDefenceShape,
@@ -82,6 +83,25 @@ export const OOP_RERAISE_HOLDEM_ITERATIONS = 2400;
 export const OOP_RERAISE_MIN_BAND = 0.01;
 /** The opener's open band when none can be read (HorseOmahaOopReraisedPot OOP_PRIOR_BAND_OPEN). */
 export const OOP_RERAISE_PRIOR_OPEN_BAND: readonly [number, number] = [0.4, 1];
+/**
+ * horse.openerAnswersPriorVersion (runtime setting, compiled default 1). 1: the fitted table OPENER_ANSWERS_PRIOR
+ * (2026-11-24.v1, people and Horses pooled from hand_history: the mis-playing field the prior-anchor law forbids as a
+ * prior; kept selectable for the comparison). 2: the indifference answer to the 3-bet faced
+ * (HorsePreflopIndifferenceAnchor; fold = s/(1+s) at the 3-bet's size, call : 4-bet split from the pot 4-bet's own
+ * indifference), the opener's own record on top with the same shrinkage.
+ */
+export const OPENER_ANSWERS_PRIOR_VERSION_DEFAULT = 1;
+export const OPENER_ANSWERS_PRIOR_INDIFFERENCE = 2;
+/**
+ * The Horse's own out-of-position 3-bet range width facing one open, by game (its own measured 3-bet rate, live
+ * 2026-11-17..24, OOP-3BET-FOLD-TRACE.md section 4: PLO4 5.0% of 94,777, PLO5 7.2% of 51,482, NLH 11.0% of 108,250):
+ * the range the opener's anchored answer is taken against. It is the Horse's own play, not the field's.
+ */
+export const HORSE_OOP_THREE_BET_WIDTH: Readonly<Record<OopReraiseGame, number>> = Object.freeze({
+  plo4: 0.05,
+  plo5: 0.072,
+  nlh: 0.11,
+});
 /** Posterior weight (in opportunities) of the population fold share against his measured one. */
 export const OPENER_ANSWERS_PRIOR_MASS = 6;
 
@@ -232,12 +252,21 @@ export const OPENER_ANSWERS_PRIOR: Readonly<
 export function openerAnswersThreeBetRead(
   game: OopReraiseGame,
   effBB: number,
-  measuredFold: { mean: number; n: number } | null
+  measuredFold: { mean: number; n: number } | null,
+  /**
+   * horse.openerAnswersPriorVersion 2 (OPENER_ANSWERS_PRIOR_INDIFFERENCE): the prior is the indifference answer to this
+   * 3-bet (HorsePreflopIndifferenceAnchor.preflopAnswerToReraise) instead of the fitted table. Absent (version 1, the
+   * compiled default): the fitted table, exactly as before.
+   */
+  anchor?: { size: number; openWidth: number; threeBetWidth: number } | null
 ): OpenerAnswersRead | null {
   const bucket = oopReraiseDepthBucket(effBB);
-  const row = OPENER_ANSWERS_PRIOR[game]?.[bucket];
-  if (!row) return null;
-  const prior = `${game}:${bucket}`;
+  const fitted = OPENER_ANSWERS_PRIOR[game]?.[bucket];
+  if (!fitted) return null;
+  const row: OpenerAnswersRates = anchor
+    ? preflopAnswerToReraise(anchor.size, anchor.openWidth, anchor.threeBetWidth, 2)
+    : fitted;
+  const prior = anchor ? `${game}:indifference` : `${game}:${bucket}`;
   const n = measuredFold && Number.isFinite(measuredFold.n) ? Math.max(0, measuredFold.n) : 0;
   if (!measuredFold || !(n > 0) || !Number.isFinite(measuredFold.mean))
     return {

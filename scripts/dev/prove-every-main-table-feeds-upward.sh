@@ -47,6 +47,11 @@ fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MIG_CASCADE="$ROOT/supabase/migrations/20261124003437_every_main_table_feeds_upward_from_higher_mains_and_feeders.sql"
 MIG_HARDEN="$ROOT/supabase/migrations/20261124051600_harden_must_move_upward_ladder_all_doors.sql"
+# PostgreSQL on macOS refuses to start without a locale ("postmaster became multithreaded during startup",
+# HINT: set LC_ALL). A terminal has one; an agent's shell and a detached screen do not, and there
+# tests/every-main-table-feeds-upward.law.test.ts failed on "pg_ctl: could not start server" while the proof
+# itself was sound (2026-11-26). Same line as scripts/ci/test-horse-option-switch-evidence-postgres.sh.
+export LC_ALL="${LC_ALL:-C}"
 WORK="$(mktemp -d)"
 PORT=$((5550 + ($$ % 400)))
 trap '"$PG_BIN/pg_ctl" -D "$WORK/data" -m fast stop >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT

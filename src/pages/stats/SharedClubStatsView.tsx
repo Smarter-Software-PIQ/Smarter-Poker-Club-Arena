@@ -8,6 +8,7 @@ import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import { ratioOrUnmeasured } from './format';
 import { RANGES } from './types';
+import { sharedStatsHelp } from './StatsWorkspaceHeader';
 import PageBar from '../../components/help/PageBar';
 
 interface Props {
@@ -173,12 +174,11 @@ export default function SharedClubStatsView(props: Props) {
   );
   return (
     <>
-      {props.renderMast?.(clubLabel)}
-      <PageBar
-        titleAs={props.renderMast ? false : 'h1'}
-        title="Player Intelligence"
-        summary="An Authorized Shared-Club Readout: Public Performance Aggregates From A Club You Both Currently Share."
-      />
+      {props.renderMast ? (
+        props.renderMast(clubLabel)
+      ) : (
+        <PageBar title="Player Intelligence" summary={sharedStatsHelp} />
+      )}
       {visibleClubs.length > 0 && (
         <section className="stats-club-command" aria-labelledby="shared-club-title">
           <img

@@ -1,0 +1,3 @@
+# tests/a-failed-rehearsal-names-its-cause-and-spends-the-copy.law.test.ts
+
+When a Backup certification's rollback or forward swap rehearsal fails, `standby-engine.sh` keeps the trial's own verdict line (it used to go to /dev/null), logs which step failed and writes it into the certificate as `rehearsalFailure` (`no_verdict` when the trial ended before writing one), and marks the copy unvalidated in `database.json` (`spentBy`) so the next run restores it and no run can reuse a copy left inside a failed trial's break; the refusal tokens `rollback_rehearsal_failed_to_*` and `swap_rehearsal_failed_from_*` are unchanged.

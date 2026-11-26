@@ -28,7 +28,10 @@ import {
   lightningFastFoldTuningFrom,
 } from './apply.js';
 import { HORSE_CASH_STACK_CEILING_COMPILED_BB } from '../../services/HorseCashStackCeiling.js';
-import { RERAISE_FOLD_SHARE_CAP_DEFAULT } from '../HorseOopReraiseRangeHolds.js';
+import {
+  OPENER_ANSWERS_PRIOR_VERSION_DEFAULT,
+  RERAISE_FOLD_SHARE_CAP_DEFAULT,
+} from '../HorseOopReraiseRangeHolds.js';
 import { horseCashStackCeilingBBFrom } from './apply.js';
 import {
   OMAHA_OPTION_GAME_SCOPE_OPTIONS,
@@ -73,6 +76,7 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
   'lightning.fastFoldTempoMax': LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX,
   'horse.cashStackCeilingBB': HORSE_CASH_STACK_CEILING_COMPILED_BB,
   'horse.reraiseFoldShareCap': RERAISE_FOLD_SHARE_CAP_DEFAULT,
+  'horse.openerAnswersPriorVersion': OPENER_ANSWERS_PRIOR_VERSION_DEFAULT,
   // HorseOmahaOptionGameScope: 0 is "no scope" (only 4 or 5 confines an option to a game)
   ...Object.fromEntries(GAME_SCOPE_KEYS.map((key) => [key, 0])),
   // HorseOmahaBlanketRowsOffInPlo45Cash: 0 is "not listed" (only 1 lists a blanket row)
@@ -87,6 +91,7 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
 const ADDED_AFTER_THE_SEED: readonly string[] = [
   'horse.cashStackCeilingBB',
   'horse.reraiseFoldShareCap',
+  'horse.openerAnswersPriorVersion',
   ...GAME_SCOPE_KEYS,
   ...BLANKET_ROW_OFF_KEYS,
 ];

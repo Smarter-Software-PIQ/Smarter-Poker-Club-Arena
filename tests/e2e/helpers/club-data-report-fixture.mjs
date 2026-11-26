@@ -14,7 +14,6 @@ export async function clubDataReportFixture() {
     RakeSnapshotPanel: `export default()=>null;`,
     ClubRakebackVerifiedSoFar: `export default()=>null;`,
     ClubHitRunPanel: `export default()=>null;`,
-    PageHelp: `export default()=>null;`,
     errorReporter: `export const reportError=()=>{};`,
     supabase: `
       const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

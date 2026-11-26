@@ -110,7 +110,9 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 86 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
     // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
     // 87 since 2026-11-25: HorseMind carries how an opener answers a 3-bet of his own open (HorseOpenerAnswersThreeBet).
-    expect(closure).toHaveLength(87);
+    // 88 since 2026-11-26: HorseLogic, OpponentHud, OpponentHudExploit and the math core read the equilibrium anchor
+    // (HorseEquilibriumAnchor; lane prior-anchor, readers default OFF).
+    expect(closure).toHaveLength(88);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');

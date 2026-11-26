@@ -1025,6 +1025,70 @@ wait_auto_recovery() {
   return 1
 }
 
+# The last swap verdict a rehearsal printed, reduced to what failed.
+# "no_verdict" means the trial ended before it could write one (a build,
+# boot or read failed outright); it is never reported as a named cause.
+rehearsal_failure_detail() {  # direction, trial stdout
+  python3 - "$1" "$2" <<'PY_REHEARSAL'
+import json, sys
+direction, out = sys.argv[1], sys.argv[2]
+verdict = None
+for line in out.splitlines():
+    line = line.strip()
+    if not line.startswith('{"trial":"swap"'):
+        continue
+    try:
+        verdict = json.loads(line)
+    except ValueError:
+        verdict = {"unparsed": line[:400]}
+detail = {"direction": direction, "cause": "no_verdict"}
+if verdict is not None:
+    cause = verdict.get("reason") or verdict.get("reasons") or ("unparsed" if "unparsed" in verdict else "unnamed")
+    detail["cause"] = cause
+    for key in ("from", "to", "seats", "secondsToFreeze", "secondsBootToLive", "secondsFrozenTotal",
+                "rejectedSeatObservation", "unparsed", "at"):
+        if key in verdict:
+            detail[key] = verdict[key]
+print(json.dumps(detail, sort_keys=True))
+PY_REHEARSAL
+}
+
+# The engine still running after a failed swap is the one that hung: on
+# 2026-11-26 the serving build adopted the break and never thawed, and nothing
+# showed why. Its maintenance, leadership and thaw lines (and any fatal line)
+# from the last hour go to the job log, with long tokens masked.
+rehearsal_engine_log() {
+  local logs
+  logs=$(docker logs --since 60m "$CONTAINER" 2>&1) || return 1
+  printf '%s\n' "$logs" \
+    | grep -i -E 'maintenance|thaw|freeze|frozen|break|leader|standby|adopt|claim|FATAL|Uncaught|unhandledRejection' \
+    | sed -E 's/(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]{40,})/<masked>/g' \
+    | tail -n 80 | sed 's/^/rehearsal engine: /'
+  return 0
+}
+
+# A copy a failed rehearsal ran on may still be inside that trial's break.
+# Marking it unvalidated makes the workflow's copy stamp read as never
+# restored (so the next run restores it) and makes assert_valid_copy refuse
+# any run that tries to reuse it.
+mark_copy_spent() {  # sha, detail json
+  python3 - "$STATE_DIR/database.json" "$1" "$2" <<'PY_SPENT'
+import json, os, sys, time
+path, sha, detail = sys.argv[1:4]
+doc = json.load(open(path))
+doc["restoreValidated"] = False
+try:
+    parsed = json.loads(detail)
+except ValueError:
+    parsed = {"cause": "unparsed"}
+doc["spentBy"] = {"sha": sha, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rehearsalFailure": parsed}
+tmp = path + ".spent.tmp"
+with open(tmp, "w") as handle:
+    json.dump(doc, handle)
+os.replace(tmp, path)
+PY_SPENT
+}
+
 cmd_certify() {
   local sha="$1" soak="${2:-900}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
   local restart_before restart_after container_id seats
@@ -1050,7 +1114,7 @@ cmd_certify() {
 
   # The 4 AM cutover rehearsed: the live serving release swaps to this one.
   local serving="" rollback_seconds=null forward_seconds=null SWAP_ADOPTION_SECONDS
-  local player_reconnect=false
+  local player_reconnect=false rehearsal_failure=null
   if [ "$verdict" = pass ]; then
     if ! serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha) \
        || ! [[ "$serving" =~ ^[0-9a-f]{40}$ ]]; then
@@ -1059,19 +1123,37 @@ cmd_certify() {
       if declare -F certified_player_swap >/dev/null; then
         # Exercise the predecessor against the database after candidate boot.
         # End on the candidate for the crash and soak checks below.
-        if certified_player_swap "$sha" "$serving" >/dev/null; then
+        # A FAILED REHEARSAL NAMES ITS CAUSE AND SPENDS THE COPY (O30,
+        # 2026-11-26). The trial's own verdict line used to go to /dev/null,
+        # so three refusals in a row read "rollback_rehearsal_failed" and
+        # nothing said which step failed; and the first failure left the copy
+        # frozen in its break, which the next two runs then reused and were
+        # refused for. The verdict is now kept, its reasons are logged and
+        # written into the certificate, and the copy is marked spent so the
+        # next run restores it and a reuse is refused at once.
+        # A file, not $(...): the swap sets SWAP_ADOPTION_SECONDS in this shell.
+        local swap_out; swap_out=$(mktemp) || return 1
+        if certified_player_swap "$sha" "$serving" >"$swap_out"; then
           rollback_seconds=$SWAP_ADOPTION_SECONDS
           if [ "$rollback_seconds" -gt 135 ]; then
             record 'rollback_rehearsal_exceeded_reserve'
           fi
-          if certified_player_swap "$serving" "$sha" >/dev/null; then
+          if certified_player_swap "$serving" "$sha" >"$swap_out"; then
             forward_seconds=$SWAP_ADOPTION_SECONDS
             player_reconnect=true
           else
             record "swap_rehearsal_failed_from_${serving:0:12}"
+            rehearsal_failure=$(rehearsal_failure_detail forward "$(cat "$swap_out")")
           fi
         else
           record "rollback_rehearsal_failed_to_${serving:0:12}"
+          rehearsal_failure=$(rehearsal_failure_detail rollback "$(cat "$swap_out")")
+        fi
+        rm -f "$swap_out"
+        if [ "$rehearsal_failure" != null ]; then
+          log "certify $sha: rehearsal failure detail $rehearsal_failure"
+          rehearsal_engine_log >&2 || log "certify $sha: the rehearsal engine's log could not be read"
+          mark_copy_spent "$sha" "$rehearsal_failure" || record 'copy_could_not_be_marked_spent'
         fi
       else
         record 'swap_rehearsal_unavailable'
@@ -1172,7 +1254,7 @@ cmd_certify() {
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" "$memory_growth_check" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" "$memory_growth_check" "$rehearsal_failure" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1182,6 +1264,7 @@ doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": 
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
        "lifecycleLogCheck": json.loads(sys.argv[6]), "handGapCheck": json.loads(sys.argv[7]),
        "memoryGrowthCheck": json.loads(sys.argv[8]),
+       "rehearsalFailure": json.loads(sys.argv[9]),
        "seed": json.load(open("$STATE_DIR/seed.json")) if __import__("os").path.exists("$STATE_DIR/seed.json") else None,
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")

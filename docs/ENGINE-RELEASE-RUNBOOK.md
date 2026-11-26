@@ -592,7 +592,7 @@ break does not wait for a release.
 
 ### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
 
-- **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
+- **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a protected-main push Backup that succeeded, failed or timed out; O32, 2026-11-26)
   created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
   Every event, a push included, is judged by its own run's `created_at`, the one clock the election reads for every other run; a push is never judged by its payload's push time, so a run the election counts is always a run that claims (2026-11-23: a push made at 04:49:59Z whose run was created at 04:50:01Z judged itself by the push time, missed the 01:00 cycle's 04:50:00Z opening, and every later run deferred to it; `docs/changelog/2026-11-23-a-reservation-is-elected-by-the-moment-it-claims.md`).
   The preparation itself stays 03:30-03:50 for the 04:00 anchor, and opens 30 minutes before every other three-hourly cycle (`WINDOW_MINUTES = 20`); later runs refuse by name; an unreadable run list

@@ -1,6 +1,6 @@
 # omahaMathCore: authority for the live switch
 
-Lane MATHCORE, 2026-11-19 (lead session 01TLQer8). Default OFF (`opts.omahaMathCore === true`). The lead switches it with A/delivery/activate.sh; nobody else.
+Lane MATHCORE, 2026-11-19 (lead session 01TLQer8). Default OFF (`opts.omahaMathCore === true`). The lead switches it with A/delivery/activate.sh; nobody else. Evidence NOT MET (grade of 2026-11-26, lead-7 lane grading, "What Was Measured" below): not ready for live shadow; the prior anchor fails (the response cells are 83% Horse play) and the maximum decision time is 45 ms against the 25 ms bar. After the prior-anchor build (same day, "After The Prior-Anchor Build"): replay 62 fixed / 0 newly wrong, no chip loss, the core's added cost max 15.7 ms; still not ready, the range construction is not yet anchored.
 
 ## What It Does
 
@@ -42,6 +42,86 @@ The decision the owner rules produced is never an input, prior or tie-break: it 
 
 Exact replay over every PLO4/PLO5 cash decision of the 48-hour dataset (base vs ON) and the Horse-vs-Horse league are run by lane PROVE (S/emerg/PROVE); their numbers are the evidence for switching. Hidden cards are used there for offline grading only.
 
+## Prior anchor
+
+NOT MET (grade of 2026-11-26). The core has no per-opponent record: every responder is priced by the measured pooled public cells (fold to a wager by street, line, size and players; wager frequency by line; preflop action frequencies) of PLO4/PLO5 cash hands with a person, Nov 1 to Nov 19, every player pooled. Those cells are mostly Horse play: on a sample day (2026-11-12) 4,476 of 5,414 seat-hands in such hands (83%) were Horses. The equilibrium anchor (the break-even share s/(1+2s)) is used only where a cell has fewer than 20 shown hands. So the response model is anchored to the Horse field, which the rule forbids, and no opponent's own record can take over as it grows. A thin record cannot dominate (there is none), which is the only half of the rule that holds.
+
+After the prior-anchor build (same day): the RESPONSE model is anchored (indifference fold, his own first-wager folds shrunk k 20); the RANGE construction (wager frequency, shown non-value share, preflop bands, the range tracker) is still pooled. Not met until that is anchored too.
+
+## What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)
+
+Scope graded: `omahaMathCore` on with `omahaMathCorePlo5Flop` on (production already holds the street flag on; no other street flag and no `omahaMathCorePreflop`), so the core owns PLO5 cash flop decisions only; PLO4 and every other street are out of scope.
+
+Method (lane grading, PLO-OWNER lead-7, 2026-11-26; scratch tools and every raw result in `$S7/grading/`, BUILD.md there). Production option set = the `ca_horse_style_switch` rows not off, read 2026-11-26 05:4xZ (55 rows; the seven style rows as the style switch applies them). Source: `origin/main` `211c4e9e`, whose engine files are unchanged since the serving build `d07cd7d7`.
+
+- League mirror: the sparring bench (`SparringLeague.runSparringCell`) with the lifetime HUD learned per arm and deal (`SparringHud`, production's stored population priors), 100 bb, seed 20261126. Seat 0 is a Horse on the production option set; every other seat plays the arm (BASE = production, or production plus the option). Every arm plays the same deals; the figure is the paired same-deal change of seat 0's net, sign turned so that + means the option's seats won chips (bb/100 ± SE). Heads-up this is exactly ON against OFF; at six seats it is one OFF seat against five ON seats.
+- Probes: the same bench with seat 0 scripted: always-caller (never bets or raises, calls every wager), over-folder (Horse, but folds to any wager without the top 15% preflop or 70% equity postflop), habitual 3-bettor (`threebet_every_open`), tight opener (Horse, but enters preflop only with the top 15%). Figure: the same paired change of seat 0's net with the sign turned (+ = the option's seats took more from the probe than production's seats did; a significant minus is an exploit), 4,000 hands per cell. Misleading lifetime record (HUD readers): a warm-up cell (seed 7, 3,000 hands, production arm) builds every seat's lifetime record while seat 0 plays one style; the measuring cell starts every arm's store from that export and seat 0 plays the opposite style.
+- Real-hand replay: every tier-A (cards shown) Horse decision of the PLO hand audit (`$S6/hand-audit-plo/decisions.csv` 4,011 and `daily/2026-11-25T230000Z/decisions.csv` 1,216; 5,227 nodes in 1,064 hands), re-decided from the recorded public snapshot with the deciding Horse's own shown cards only (`hand_history.players[].cards` dropped on read, never used), real seat ids, mind on with an empty in-session memory, and the lifetime HUD packet production attaches (`buildHudPacket`, priors by stake) built from `opponent_hud_profiles` as read on 2026-11-26 (look-ahead stated: those public profiles also hold hands played after the decision). Seeds 1, 7, 42, majority action. Scored twice: by the committed scorer (`--placed`, verdict-only; row below, copied unedited) and on the audit's own EV table (its `options` column and tolerance rule, resizes included); the base arm reproduced the recorded action on 3,941 of 5,227 nodes. Strengths = the audit's "What the Horses do well" classes (section 5): 773 replayed decisions the base arm plays correctly in those classes.
+- Speed: the engine's own `HorseLogic.decide` per decision on the same 5,227 real states (one seed, tsx build, Mac Studio at load 14 to 22), on the spots where the option applies.
+
+Live shadow reconciliation (from `horse_brain_flush_receipts`, features `option_shadow_omahaMathCorePlo5Flop_{changed,same}_seen`; there is no `option_shadow_omahaMathCore_*` receipt, the shadow staged the street flag with the master as companion):
+
+- 2026-11-23 04:34Z to 07:22Z, release `735299cd` (audit #189 shadow): 727 re-decisions, 155 changed = **21.3%**. Rolled back on the 195.8 ms trip (audit #190).
+- 2026-11-24 13:28Z to 14:31Z, release `6c6aaa77` (audit #195 shadow): 291 re-decisions in those hours, 22 changed = 7.6% (284 and 7.39% inside the watch's own window).
+- The "1,018 re-decisions / 17%" reading is 727 + 291 = 1,018 and 155 + 22 = 177 = 17.4%: the two shadows on two different builds pooled by a `--since` that covered both. It is not a measurement of any one build. Right numbers: 727 / 21.3% for `735299cd`, 284 / 7.4% for the build lineage now serving.
+
+Chips (bb/100, + = the option's seats won more than production's on the same deals):
+
+| cell              | game          | hands | option seats bb/100 vs production (± SE) | z     | hands parted | illegal + fallbacks |
+| ----------------- | ------------- | ----- | ---------------------------------------- | ----- | ------------ | ------------------- |
+| league mirror     | PLO5 heads-up | 12000 | -4.53 ± 5.53                             | -0.82 | 1834         | 0                   |
+| league mirror     | PLO5 6-max    | 12000 | +5.09 ± 5.79                             | +0.88 | 2377         | 0                   |
+| always-caller     | PLO5 6-max    | 4000  | -19.32 ± 30.98                           | -0.62 | 923          | 0                   |
+| over-folder       | PLO5 6-max    | 4000  | +5.42 ± 7.44                             | +0.73 | 757          | 0                   |
+| habitual 3-bettor | PLO5 6-max    | 4000  | -30.14 ± 39.26                           | -0.77 | 1665         | 0                   |
+| always-caller     | PLO5 heads-up | 4000  | +29.25 ± 6.33                            | +4.62 | 521          | 0                   |
+| over-folder       | PLO5 heads-up | 4000  | -0.62 ± 5.04                             | -0.12 | 361          | 0                   |
+| habitual 3-bettor | PLO5 heads-up | 4000  | +14.73 ± 18.71                           | +0.79 | 930          | 0                   |
+| tight opener      | PLO5 heads-up | 4000  | +3.08 ± 7.62                             | +0.40 | 197          | 0                   |
+| league mirror     | PLO4 heads-up | 12000 | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+| league mirror     | PLO4 6-max    | 1500  | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+
+PLO4 is out of scope: the PLO4 heads-up (12,000 hands) and 6-max (1,500 hands) mirror cells part on 0 hands (table rows with 0 parted), so the option changes no PLO4 decision.
+
+Probes (the 6-max tight-opener cell was not run, for wall time): no significant loss to any probe (all |z| < 1 except a gain: against the always-caller heads-up the core's seats took +29.3 ± 6.3 bb/100 more, z +4.6, from value bets it would otherwise check). The league mirror shows no significant change either way (heads-up -4.5 ± 5.5, 6-max +5.1 ± 5.8). Chips: met (no significant loss), but no significant gain in the mirror.
+
+Real-hand replay (5,227 tier-A nodes): the core changed 119 decisions (all PLO5 flop), 51 of them resizes. Committed scorer: fixed 43, newly wrong 4. Audit EV table: fixed 58, newly wrong 0, still wrong 39, right to right 22, +2,770 bb on the audit model (47 of the 58 fixes are OPPORTUNITY-class, checks that become bets, where the audit says its one-street model over-rates bets; only 1 is a HARD mistake). Audit strengths: 2 of 773 protected decisions changed, 0 broken. Met.
+
+Correction (2026-11-26, same lane): the audit-EV scoring above put a bet resize at the nearest of the audit's 33/66/100% pot points; scored with the EV interpolated between those points, the core's replay is fixed 52, newly wrong 2, 0 strengths broken. The committed-scorer row is unchanged; the verdict is unchanged.
+
+Speed (PLO5 flop, 1,108 real spots, one seed): whole decision p50 6.5 ms, p95 9.8 ms, max 45.4 ms, 3 over 25 ms, 0 over 50 ms; added by the core p50 1.7 ms, p95 4.8 ms, max 30.2 ms. p95 and the 50 ms line are met; the 25 ms maximum is not. The serving-build gate of 2026-11-22 (V291) measured added p95 35 ms, and the 2026-11-23 shadow tripped at 195.8 ms.
+
+Verdict: **NOT READY for live shadow.** Replay met and no chip loss shown, but the prior anchor fails by design (83% Horse-field response cells, no own-record takeover) and the maximum decision time is 45 ms against the 25 ms bar.
+
+## After The Prior-Anchor Build (2026-11-26, Lead-7)
+
+What changed for this option: every responder to a wager the core prices (the value search `OmahaMathCoreWire.responseUncached` and the one-step `foldOf`) folds at the indifference point of that wager, s / (1 + s) for one responder and 1 - (1 / (1 + s))^(1/m) each for m responders, shrunk n / (n + 20) toward his own lifetime folds to a first wager of that size on that street (new provider method `firstWagerFolds`, from the lifetime HUD packet); the hero's blockers and the board texture still scale it by the ratio they scale the pooled cell; the continuing part raises 15% (or his own c-bet raise share shrunk toward that). The pooled response cells are no longer anyone's prior. Same method, seeds and sets as the grade above, on the prior-anchor build (branch `agent/plo-lead7-01TLQer8/prior-anchor`; `HorseEquilibriumAnchor.ts`): flag-off check 0 differences in 28,000 decisions; tier-A replay on the audit EV table with resizes interpolated; speed one seed on the same 5,227 states.
+
+| cell              | game          | hands | option seats bb/100 vs production (± SE) | z     | hands parted | illegal + fallbacks |
+| ----------------- | ------------- | ----- | ---------------------------------------- | ----- | ------------ | ------------------- |
+| league mirror     | PLO5 heads-up | 12000 | +0.77 ± 4.05                             | +0.19 | 1448         | 0                   |
+| league mirror     | PLO5 6-max    | 12000 | +8.55 ± 5.03                             | +1.70 | 1762         | 0                   |
+| always-caller     | PLO5 6-max    | 4000  | +105.08 ± 24.02                          | +4.37 | 693          | 0                   |
+| over-folder       | PLO5 6-max    | 4000  | +12.86 ± 7.83                            | +1.64 | 593          | 0                   |
+| habitual 3-bettor | PLO5 6-max    | 4000  | +30.86 ± 34.76                           | +0.89 | 1482         | 0                   |
+| always-caller     | PLO5 heads-up | 4000  | +0.73 ± 1.40                             | +0.52 | 17           | 0                   |
+| over-folder       | PLO5 heads-up | 4000  | +10.36 ± 4.65                            | +2.23 | 308          | 0                   |
+| habitual 3-bettor | PLO5 heads-up | 4000  | +3.79 ± 18.14                            | +0.21 | 772          | 0                   |
+| tight opener      | PLO5 heads-up | 4000  | -1.00 ± 1.03                             | -0.98 | 25           | 0                   |
+| league mirror     | PLO4 heads-up | 12000 | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+| league mirror     | PLO4 6-max    | 1500  | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+
+| measure                                                        | before                               | after                                                  |
+| -------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------ |
+| replay, committed scorer (fixed / newly wrong)                 | 43 / 4                               | **62 / 0**                                             |
+| replay, audit EV table (fixed / newly wrong, strengths broken) | 52 / 2, 0                            | **62 / 2, 0** (+2,468 bb fixed, -24 bb newly wrong)    |
+| league PLO5 heads-up / 6-max                                   | -4.5 ± 5.5 / +5.1 ± 5.8              | +0.8 ± 4.1 / +8.6 ± 5.0                                |
+| worst probe                                                    | habitual 3-bettor 6-max -30.1 ± 39.3 | tight opener heads-up -1.0 ± 1.0 (nothing below -1 SE) |
+| speed, whole decision p95 / max (ms)                           | 9.8 / 45.4                           | 9.3 / 34.4 (2 over 25, 0 over 50)                      |
+| speed, added by the core p95 / max (ms)                        | 4.8 / 30.2                           | 4.5 / 15.7                                             |
+
+Verdict after: chips met (no significant loss; the always-caller 6-max +105 ± 24, the over-folder heads-up +10.4 ± 4.7), replay met, the core's own cost inside the bar (added max 15.7 ms; the two whole-decision readings over 25 ms are the production path around it under load 12). **Still NOT READY for live shadow** on the prior anchor: the response model is anchored, but the core still builds the opponents' RANGES from pooled cells (the wager frequency by line `betRate`, the shown non-value share `wagerNonValue`, the preflop bands and the range tracker), which are Horse-field play. Next: anchor the range construction the same way (break-even bluff share s / (1 + 2s), reference wager frequencies, his own record shrunk k 20), then re-grade.
+
 ## Replay
 
-- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it; lane PROVE's exact journal replay and holdout grades are in repairs/EMERG/PROVE.md)
+- Replay: fixed 62; newlyWrong 0; changed 91; unchanged 5136; unjudged 16; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm A vs off; replayed 5227 of 5227

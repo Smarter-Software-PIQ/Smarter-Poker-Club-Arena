@@ -13,6 +13,7 @@ const HORSE_OPTION_OF: Readonly<Record<string, keyof LiveHorseDecideOpts>> = Obj
   'horse.v68AirShadeScale': 'v68AirShadeScaleOverride',
   'horse.tournamentFlatBump': 'tournamentFlatBump',
   'horse.reraiseFoldShareCap': 'reraiseFoldShareCap',
+  'horse.openerAnswersPriorVersion': 'openerAnswersPriorVersion',
 });
 
 /** The registry keys the Horse decision reads, with the decision option each one sets. */

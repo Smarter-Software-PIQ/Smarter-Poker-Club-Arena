@@ -10,7 +10,7 @@ import {
   setOmahaMathCoreOpponentRecords,
   type OmahaMathCoreOpponentRecords,
 } from '../omahaMathCore/OmahaMathCore.js';
-import { decisionHudFamily, hudCbetRaiseRecord } from './OpponentHud.js';
+import { decisionHudFamily, hudCbetRaiseRecord, hudLifetimeCountOf } from './OpponentHud.js';
 
 export const omahaMathCoreHudRecords: OmahaMathCoreOpponentRecords = {
   cbetAnswers(table, seat, game, players) {
@@ -21,6 +21,19 @@ export const omahaMathCoreHudRecords: OmahaMathCoreOpponentRecords = {
     if (family !== game) return null;
     const r = hudCbetRaiseRecord(String(id), family, players);
     return r ? { opps: r.opps, raises: r.raises } : null;
+  },
+  // 2026-11-26 (equilibrium anchor): his raw lifetime folds to the street's first wager by size and players
+  firstWagerFolds(table, seat, game, street, players) {
+    const gs = table as { players?: readonly { seat: number; user_id?: unknown }[] } | null;
+    const id = (gs?.players ?? []).find((p) => p.seat === seat)?.user_id;
+    if (id === undefined || id === null || String(id) === '') return null;
+    const family = decisionHudFamily();
+    if (family !== game) return null;
+    const s = street === 'flop' ? 'f' : street === 'turn' ? 't' : 'r';
+    const sm = hudLifetimeCountOf(String(id), family, `${s}.fb.sm.${players}`);
+    const bg = hudLifetimeCountOf(String(id), family, `${s}.fb.bg.${players}`);
+    if (!(sm.n > 0) && !(bg.n > 0)) return null;
+    return { sm: { opps: sm.n, folds: sm.hits }, bg: { opps: bg.n, folds: bg.hits } };
   },
 };
 

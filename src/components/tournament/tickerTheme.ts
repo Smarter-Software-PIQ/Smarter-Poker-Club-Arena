@@ -141,6 +141,20 @@ export function readableInk(background: string): string {
     : INK_ABSOLUTE_LIGHT;
 }
 
+/** Preserve readable club text within the approved silver, white and blue family. */
+export function consoleText(ink: string, background: string): string {
+  const base = safeHex(background, DEFAULT_RAIL_BACKGROUND);
+  const selected = safeHex(ink, INK_LIGHT);
+  const red = byte(selected, 0);
+  const green = byte(selected, 1);
+  const blue = byte(selected, 2);
+  const isNeutral = Math.max(red, green, blue) - Math.min(red, green, blue) < 12;
+  const isCool =
+    (blue >= green && green >= red) || (green >= blue && blue >= red && green - blue <= 35);
+  if ((isNeutral || isCool) && contrastRatio(selected, base) >= AA_CONTRAST) return selected;
+  return readableInk(base);
+}
+
 /** The flag chip: the accent, lit at the top and seated at the bottom. */
 export function flagBackground(accent: string): string {
   const base = safeHex(accent, DEFAULT_ACCENT);

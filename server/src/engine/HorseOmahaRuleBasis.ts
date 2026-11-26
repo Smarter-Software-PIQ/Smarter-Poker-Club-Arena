@@ -167,7 +167,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaOopReraiseRangeHoldsVsReraise: {
     kind: 'priced',
     range:
-      "the opener's band (HorseMind.bandFor of his line) split by his answer to a 3-bet: his measured fold to a 3-bet shrunk to the fitted population answer (OPENER_ANSWERS_PRIOR, game x depth), 4-bet range on top, calling range below it",
+      "the opener's band (HorseMind.bandFor of his line) split by his answer to a 3-bet: his measured fold to a 3-bet shrunk to the prior horse.openerAnswersPriorVersion selects (1: the fitted table OPENER_ANSWERS_PRIOR, game x depth; 2: the indifference answer to the 3-bet faced, HorsePreflopIndifferenceAnchor), 4-bet range on top, calling range below it",
     equity:
       'seeded sampled equity of the exact hand against each band (omahaReraisedEquity over omahaPreflopPercentile)',
     realization:
@@ -302,6 +302,43 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     realization:
       'measured bet answer curve moved by his lifetime public fold record and check stab frequency/size shrunk n/(n+k)',
     price: 'the value bet beside the check, mixed by comparison standard error (held dark)',
+  },
+  omahaFlopRaiseIsPriced: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omahaRiverTripsBoardBoatIsNotNutClass: {
+    kind: 'priced',
+    range:
+      'every holding of the unseen cards (exact count, the Horse cards and dead cards removed)',
+    equity: 'whether any holding beats the full house (quads or a straight flush on a trips board)',
+    realization:
+      'the measured result of nut-class full house river raises on trips boards (-62 bb a raise, Nov 12-26)',
+    price: 'the raise becomes the call; the call itself stays with the facing-bet verdicts',
+  },
+  omahaRiverValueBetInPositionIsPriced: {
+    kind: 'priced',
+    range: 'the measured strength histogram of a heads-up river checker, exact card removal',
+    equity:
+      'exact share of the hand against the hands that continue (the strongest share of his range)',
+    realization:
+      'his fold share: equilibrium B / (P + B) moved by his own lifetime public river fold record',
+    price:
+      'each engine bet size against the showdown value of the check, by more than his fold rate error',
+  },
+  omahaRiverBluffIsPricedOnBlockers: {
+    kind: 'priced',
+    range:
+      'the measured heads-up river range (after his check, or in position before acting), exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his fold share with the Horse cards removed: equilibrium B / (P + B) moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, and only where the Horse cards raise his fold share',
   },
   omahaRiverCheckedToBetIsMeasured: {
     kind: 'priced',
@@ -561,6 +598,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaReraisedPositionInLightning: exempt(
     'scope',
     'decides where a rule applies, never the action'
+  ),
+  omahaReraisedPositionVsEveryoneToAct: exempt(
+    'input',
+    'the position term of the priced call of a re-raise (who acts after hero on later streets); an input of a priced comparison, not a rule site'
   ),
   omahaReraisedPotDiscipline: blanket(
     ['omahaNoCategoricalRules'],
@@ -872,6 +913,56 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
     'input',
     'receipt that the re-raised-pot price threw; the standing decision is returned unchanged'
   ),
+  omaha_flop_raise_priced_resized: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omaha_flop_raise_priced_called: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omaha_flop_raise_priced_folded: {
+    kind: 'priced',
+    range: "the bettor's measured flop range by line and size (his shown record shrunk toward it)",
+    equity: 'two-card-runout equity of the hand against each strength bin of holdings',
+    realization:
+      'his fold share the equilibrium minimum defence of the pot he is offered; the street realization factor',
+    price: 'each raise size against the call and the fold, by more than the equity estimate error',
+  },
+  omaha_river_trips_board_boat_called: {
+    kind: 'priced',
+    range:
+      'every holding of the unseen cards (exact count, the Horse cards and dead cards removed)',
+    equity: 'whether any holding beats the full house (quads or a straight flush on a trips board)',
+    realization:
+      'the measured result of nut-class full house river raises on trips boards (-62 bb a raise, Nov 12-26)',
+    price: 'the raise becomes the call; the call itself stays with the facing-bet verdicts',
+  },
+  omaha_river_value_bet_priced: {
+    kind: 'priced',
+    range: 'the measured strength histogram of a heads-up river checker, exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization: 'his fold share: equilibrium moved by his own lifetime public river fold record',
+    price:
+      'the value bet against the showdown value of the check, by more than his fold rate error',
+  },
+  omaha_river_bluff_priced: {
+    kind: 'priced',
+    range: 'the measured heads-up river range, exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his card-removed fold share: equilibrium moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, with a positive blocker effect',
+  },
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',
     range: 'the checker range after his river check (card-impact range, no opponent kind)',
