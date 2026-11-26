@@ -24,6 +24,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { sliceCall, sliceMethod } from '../testHelpers/sourceWindow.js';
 import { DeadlineScheduler } from './DeadlineScheduler.js';
 import { InsuranceEngine } from './InsuranceEngine.js';
 import { PreciseActionTimer } from './PreciseActionTimer.js';
@@ -542,13 +543,11 @@ describe('a live bounded in-hand clock is not a stall (incident 9313cabc)', () =
     // 3. Source law: recovered and deferred-published timebank expiry callbacks both check
     //    armRemainingReconnectProtection and re-arm via forceArmTurnTimer if forceResolveSeat fails.
     const turnsSrc = fs.readFileSync(path.join(__dirname, 'ServerTableEngineTurns.ts'), 'utf8');
-    const pubIdx = turnsSrc.indexOf('resumeDeferredPublication(');
-    const pubSlice = turnsSrc.slice(pubIdx, pubIdx + 1200);
+    const pubSlice = sliceCall(turnsSrc, 'this.timeBankEngine.resumeDeferredPublication(');
     expect(pubSlice).toContain('this.armRemainingReconnectProtection(');
     expect(pubSlice).toContain('this.forceArmTurnTimer(');
 
-    const recIdx = turnsSrc.indexOf('resumeRecoveredAllocation(');
-    const recSlice = turnsSrc.slice(recIdx, recIdx + 1200);
+    const recSlice = sliceCall(turnsSrc, 'this.timeBankEngine.resumeRecoveredAllocation(');
     expect(recSlice).toContain('this.armRemainingReconnectProtection(');
     expect(recSlice).toContain('this.forceArmTurnTimer(');
   });
@@ -557,13 +556,15 @@ describe('a live bounded in-hand clock is not a stall (incident 9313cabc)', () =
     const baseSrc = fs.readFileSync(path.join(__dirname, 'ServerTableEngineBase.ts'), 'utf8');
     const turnsSrc = fs.readFileSync(path.join(__dirname, 'ServerTableEngineTurns.ts'), 'utf8');
     expect(baseSrc).toContain('hasLiveBoundedInHandClock(');
-    expect(baseSrc).toMatch(
-      /msSinceProgress\(\):\s*number\s*\{[\s\S]{0,200}hasLiveBoundedInHandClock\(/
+    expect(sliceMethod(baseSrc, 'msSinceProgress(): number')).toContain(
+      'hasLiveBoundedInHandClock('
     );
-    expect(turnsSrc).toMatch(
-      /forceArmTurnTimer\([\s\S]{0,300}this\.turnRecoveryReArmed\s*=\s*true/
+    expect(sliceMethod(turnsSrc, 'protected forceArmTurnTimer(')).toContain(
+      'this.turnRecoveryReArmed = true;'
     );
     // No duplicated inline isLiveDeadline copy in runTableWatchdog.
-    expect(turnsSrc).not.toContain('const isLiveDeadline =');
+    expect(sliceMethod(turnsSrc, 'protected override runTableWatchdog()')).not.toContain(
+      'const isLiveDeadline ='
+    );
   });
 });
