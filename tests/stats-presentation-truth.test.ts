@@ -212,7 +212,7 @@ describe('Stats presentation truth', () => {
       'src/pages/stats/StatsHeadlineDeck.tsx',
       'src/pages/stats/OverviewTab.tsx',
       'src/pages/stats/PerformanceTab.tsx',
-      'src/pages/stats/ClubScopeConsole.tsx',
+      'src/pages/stats/ClubComparisonTable.tsx',
       'src/pages/stats/AnalysisTab.tsx',
       'src/components/stats/AdvancedStatsSummary.tsx',
       'src/components/stats/BankrollTracker.tsx',
@@ -251,7 +251,7 @@ describe('Stats presentation truth', () => {
       expect(performance).not.toContain(`overall.${field}.toLocaleString()`);
     }
 
-    const comparison = read('src/pages/stats/ClubScopeConsole.tsx');
+    const comparison = read('src/pages/stats/ClubComparisonTable.tsx');
     expect(comparison).toContain('compactChips(row.profit)');
     expect(comparison).toContain('compactChips(row.rake)');
     expect(comparison).toContain('compactChips(row.tournamentWinnings)');
