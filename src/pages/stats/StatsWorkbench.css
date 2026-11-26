@@ -405,7 +405,10 @@
   .stats-page .tournament-positions-table {
     width: 100%;
     min-width: 0;
-    table-layout: fixed;
+    table-layout: auto;
+  }
+  .stats-page .tournament-positions-table td {
+    overflow-wrap: normal;
   }
   .stats-page .tournament-stats .tournament-list {
     display: grid;

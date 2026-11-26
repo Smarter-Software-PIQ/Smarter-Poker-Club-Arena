@@ -218,6 +218,10 @@ import { omahaFlopCallTreeRule } from './HorseOmahaFlopCallTree.js';
 import { omahaMultiwayValueBetRule } from './HorseOmahaMultiwayValueBet.js';
 import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
 import {
+  omahaPeoplePriorShare,
+  type OmahaPeoplePriorShare,
+} from './HorseOmahaFacingBetPeoplePrior.js';
+import {
   classCapFloorKeepsTheCall,
   classCapRespectingEquity,
   OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES,
@@ -4555,6 +4559,10 @@ export interface HorseDecideOpts {
    * minimum-defence share (the Horse's whole range folds no more than s / (1 + s) + 5 points to a bet of size s);
    * a record is never bounded. Default OFF (read `=== true`). */
   omahaFacingBetMinimumDefencePrior?: boolean;
+  /** PLO-OWNER lead-7 2026-11-26. PLO4/PLO5 cash, turn and river, heads-up, inside omahaFacingBetEv: the bettor's
+   *  non-value share is the balanced share for the price (HorseOmahaEquilibriumAnchor), moved only by his own
+   *  shown bets; OMAHA_EV_PRIOR_BLUFF and the public field reads do not act. Default OFF, read `=== true`. */
+  omahaFacingBetPriorIsPeopleMeasured?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14661,6 +14669,11 @@ function omahaFacingBetEvRule(
       );
       if (ev.measured?.read) noteFire('omaha_facing_bet_value_share_measured');
       if (ev.measured?.ranged) noteFire('omaha_facing_bet_measured_range_priced');
+      if (ev.anchored) {
+        noteFire('omaha_people_prior_priced');
+        if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
+        if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
+      }
       // the corrected price (omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint) decided
       if (ev.priced) {
         const how = ev.priced.priced;
@@ -14705,6 +14718,9 @@ type OmahaFacingBetEvAnswer = {
    *  whether its call differs from today's verdict */
   priced?: OmahaPricedFacingVerdict;
   pricedChanged?: boolean;
+  /** omahaFacingBetPriorIsPeopleMeasured: the balanced share priced the bettor (his own shown bets read:
+   *  shown), and whether the verdict differs from the one the population prior gives */
+  anchored?: { shown: number; changed: boolean };
 };
 
 /** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
@@ -14747,6 +14763,8 @@ let omahaFacingBetEvCountMemo: {
   /** omahaStabDefenceIsPriced */
   stabDefence: boolean;
   valueShareMeasured: boolean;
+  /** omahaFacingBetPriorIsPeopleMeasured */
+  equilibriumAnchor: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -14963,6 +14981,11 @@ function omahaFacingBetEvCount(
     jointField: opts.omahaFacingBetFieldIsJoint === true,
     nutShare: opts.omahaMultiwayCallNeedsNutShare === true,
   };
+  // omahaFacingBetPriorIsPeopleMeasured (default off): PLO4/PLO5 cash only.
+  const equilibriumAnchor =
+    opts.omahaFacingBetPriorIsPeopleMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const pricedOn =
     omahaPricedFacingAnyOn(pricedOpts) &&
     !isTournamentMode(gs) &&
@@ -14990,6 +15013,7 @@ function omahaFacingBetEvCount(
     memo.betReadModeSplit === betReadModeSplit &&
     memo.stabDefence === stabDefence &&
     memo.valueShareMeasured === valueShareMeasured &&
+    memo.equilibriumAnchor === equilibriumAnchor &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15034,6 +15058,8 @@ function omahaFacingBetEvCount(
       : baseSpot;
   if (spot) {
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    let equilibriumAnchored: OmahaPeoplePriorShare | null = null;
+    let readBeforeAnchor: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     let modeTurnRealization: number | null = null;
     if (mind) {
       try {
@@ -15121,6 +15147,47 @@ function omahaFacingBetEvCount(
           ? OMAHA_BET_READ_TURN_REALIZATION.inPosition
           : OMAHA_BET_READ_TURN_REALIZATION.outOfPosition;
     }
+    // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, the non-value share is the balanced share
+    // for the price, moved only by the bettor's own shown bets (HorseOmahaEquilibriumAnchor); no field read acts.
+    // A first bet only: a raise keeps today's price (no per-opponent record of shown raises exists to move it).
+    if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        const variant = String(gs.gameVariant ?? '').toLowerCase();
+        const anchored = omahaPeoplePriorShare({
+          street: spot.street,
+          potFrac: spot.potFrac,
+          isRaise: spot.isRaise === true,
+          multiway: false,
+          paid: spot.paid,
+          winnable: spot.winnable,
+          rake: omahaFacingBetDeduction(player, gs, opts),
+          twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
+          record:
+            mind && bettor && spot.isRaise !== true
+              ? omahaBetReadOwnCellOf(
+                  bettor.user_id,
+                  variant,
+                  spot.street,
+                  spot.potFrac,
+                  omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
+                    'agg'
+                )
+              : null,
+        });
+        if (anchored) {
+          readBeforeAnchor = read;
+          read = {
+            ...OMAHA_EV_UNKNOWN_READ,
+            pricedShare: anchored.share,
+            pricedRegions: anchored.regions,
+          };
+          equilibriumAnchored = anchored;
+        }
+      } catch {
+        equilibriumAnchored = null;
+      }
+    }
     const verdictOf = (
       s: typeof spot,
       r: typeof read
@@ -15169,6 +15236,11 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
+    // Receipt only: the anchored share changed the verdict the population prior and the public reads give.
+    const anchorChanged =
+      equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)
+        ? verdictOf(spot, readBeforeAnchor)?.call !== verdict.call
+        : false;
     if (verdict && spot !== baseSpot && baseSpot && telemetryOn(opts)) {
       noteFire('omaha_turn_stab_defence_priced_seen');
       if (verdictOf(baseSpot, read)?.call !== verdict.call)
@@ -15329,6 +15401,11 @@ function omahaFacingBetEvCount(
         return stepped ? (verdictOf(stepped, steppedRead)?.call ?? null) : null;
       });
     }
+    if (answer && equilibriumAnchored)
+      answer = {
+        ...answer,
+        anchored: { shown: equilibriumAnchored.shown, changed: anchorChanged },
+      };
   }
   omahaFacingBetEvCountMemo = {
     player,
@@ -15348,6 +15425,7 @@ function omahaFacingBetEvCount(
     betReadModeSplit,
     stabDefence,
     valueShareMeasured,
+    equilibriumAnchor,
     pricedKey,
     answer,
   };
