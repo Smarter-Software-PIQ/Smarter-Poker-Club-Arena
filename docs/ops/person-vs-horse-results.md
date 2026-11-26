@@ -184,8 +184,17 @@ the answer 2.
 
 ## Read-only, and how it reads
 
-- One `WITH ... SELECT` through `supabase db query --linked` on the linked project, the same route
-  as the other read-only ops reports. It never reads `.env` or a database credential.
+- `WITH ... SELECT` statements through `supabase db query --linked` on the linked project, the same
+  route as the other read-only ops reports. It never reads `.env` or a database credential.
+- A day at a time (2026-11-26): one read of a whole range ran past the timeout over about ten days
+  (30 days: exit 70). The range is read in one-day statements, each the same source CTEs as the
+  single read (`buildResultsSql`, kept for `--sql`-style review and tests) returning one compact row
+  per person-hand, and the sessions, sums, hand counts, left-out and source counts are built from
+  them in the client exactly as the single read builds them in SQL (a sitting across midnight stays
+  one sitting). People are numbered in account-id order from one extra read of every non-Horse
+  account's md5 key and position. Checked live against the single read on 24 h, 3, 4 and 7 days
+  with splits and every `--by`: the same report up to floating-point addition order (largest
+  relative difference 4.5e-12). 30 days: 97 s, exit 0. `--sql` prints the first day's statement.
 - The SELECT is sent behind two fixed settings: `SET TRANSACTION READ ONLY` (the database itself
   refuses a write) and `SET LOCAL statement_timeout = '60s'`.
 - Always bounded by `hand_history.created_at >= since AND created_at < until`, through the
@@ -195,8 +204,9 @@ the answer 2.
   timeout). Everything is summed in SQL to one row per sitting.
 - Measured 2026-11-24 on production for 7 days: nlh, plo4, plo5 and plo6 cash with `--by hour`
   in 2.5 s; every game, cash and tournaments, with `--by player` in 9.4 s.
-- No name, full account id, hand id or card leaves the database. A person appears as the first
-  four characters of the account id, and only with `--by player`.
+- No name, full account id, hand id or card leaves the database: the day reads carry a person as
+  md5(account id) and the first four characters, a hand as md5(hand id). A person appears in the
+  report as the first four characters of the account id, and only with `--by player`.
 
 ## By option receipt (2026-11-25)
 

@@ -21,6 +21,7 @@ import {
   parseSupabaseJsonOutput,
   resolveLinkedSupabaseWorkdir,
 } from './holdem-blanket-scoreboard-lib.mjs';
+import { PAGE_ROWS, readPaged } from './horse-audit-paged-read.mjs';
 import { auditSql } from './horse-hand-audit-omaha-lib/sql.mjs';
 import { runAudit, tsOf } from './horse-hand-audit-omaha-lib/audit.mjs';
 import { parseHand } from './horse-hand-audit-omaha-lib/hand.mjs';
@@ -223,8 +224,8 @@ export function runCli(argv, deps = {}) {
     return EXIT_USAGE;
   }
   try {
-    const sqlOf = ([a, b]) =>
-      auditSql({ from: a, to: b, games: o.games, peopleOnly: o.peopleOnly });
+    const sqlOf = ([a, b], after = null, limit = PAGE_ROWS) =>
+      auditSql({ from: a, to: b, games: o.games, peopleOnly: o.peopleOnly, after, limit });
     if (o.sql) {
       stdout(assertReadOnlySql(sqlOf(chunks(win.since, win.until)[0])));
       return EXIT_OK;
@@ -239,9 +240,13 @@ export function runCli(argv, deps = {}) {
       });
     } else {
       const q = deps.query ?? queryReadOnly;
-      rows = chunks(win.since, win.until).flatMap((c) =>
-        q(sqlOf(c), { supabaseWorkdir: o.supabaseWorkdir })
-      );
+      // keyset pages of at most PAGE_ROWS hands inside each chunk (horse-audit-paged-read.mjs)
+      rows = readPaged({
+        chunks: chunks(win.since, win.until),
+        sqlFor: sqlOf,
+        query: (sql) => q(sql, { supabaseWorkdir: o.supabaseWorkdir }),
+        keyOf: (r) => ({ ts: r.created_at, id: r.id }),
+      });
       if (o.saveJson) writeFileSync(o.saveJson, JSON.stringify(rows));
     }
     const out = buildAudit(rows, {

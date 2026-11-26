@@ -30,8 +30,14 @@ each side, two-proportion z of at least 2 in the leaking direction); 2 fewer tha
 ## Security and the shown-cards rule
 
 - Every statement is one `WITH ... SELECT` (checked by `assertReadOnlySql`), sent behind
-  `SET TRANSACTION READ ONLY; SET LOCAL statement_timeout = '60s';`, through `supabase db query --linked`, one
-  six-hour chunk at a time. Nothing is written.
+  `SET TRANSACTION READ ONLY; SET LOCAL statement_timeout = '60s';`, through `supabase db query --linked`. Nothing
+  is written.
+- Bounded reads (2026-11-26): inside each six-hour chunk the hands are read in keyset pages of at most 1,000
+  (`ORDER BY created_at, id LIMIT n`, each page starting after the last (created_at, id) read;
+  `scripts/ops/horse-audit-paged-read.mjs`). A page that still runs past the timeout or meets a gateway error is
+  asked again at half the size, down to 50. Before this, one statement read a whole chunk: a six-hour chunk of NLH
+  tournaments (about 21,000 hands) ran past the timeout, so `--mode tournament` over a few hours and `--mode all`
+  over about a day failed with exit 70. The rows read are the same rows, in the same created_at order (ties by id).
 - Hole cards are read ONLY through the showdown list: `hole_cards -> (s->>'user_id')` for showdown seats whose
   `mucked` is the literal `false`. The SQL never selects `players[].cards`, `winners[].hand` or `summary`, and never
   iterates `hole_cards` itself. A unit test fails the build if that changes. Unshown cards (folded hands, mucked

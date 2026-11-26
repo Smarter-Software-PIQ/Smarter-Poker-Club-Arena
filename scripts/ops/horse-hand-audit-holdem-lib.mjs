@@ -13,6 +13,7 @@
  * SHOWN-CARDS RULE: the SQL reads hole cards only through the showdown list, only for seats whose `mucked` is the
  * literal false, and never selects players[].cards, winners[].hand or summary (see buildHandsSql and its test).
  */
+import { keysetSql } from './horse-audit-paged-read.mjs';
 import {
   COMBO_A,
   COMBO_B,
@@ -190,7 +191,26 @@ export function chunks(since, until, hours = CHUNK_HOURS) {
 const iso = (ms) => new Date(ms).toISOString();
 
 /** The one read-only SELECT for one time chunk. Hole cards only through the showdown list, never for mucked seats. */
-export function buildHandsSql({ since, until, mode, peopleOnly, showdownOnly = false }) {
+/**
+ * A player's profile id as a uuid the profiles primary key can be looked up by (2026-11-26). The join was
+ * `pr.id::text = p->>'userId'`, which no index serves: every player of every hand scanned profiles (about 4 million
+ * buffer reads and 6.7 s for one 1,500-hand tournament page, against 0.9 s this way). A userId that is not a
+ * lower-case uuid matched no profile before (id::text is lower case) and matches none now (NULL).
+ */
+export const PLAYER_PROFILE_ID = (v) =>
+  `(CASE WHEN ${v}->>'userId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (${v}->>'userId')::uuid END)`;
+
+export function buildHandsSql({
+  since,
+  until,
+  mode,
+  peopleOnly,
+  showdownOnly = false,
+  after = null,
+  limit = null,
+}) {
+  // a keyset page (horse-audit-paged-read.mjs) when a limit is given: rows after the cursor, at most `limit`
+  const page = limit === null ? null : keysetSql(after, { limit });
   const modeSql =
     mode === 'cash'
       ? 'AND h.tournament_id IS NULL'
@@ -198,7 +218,7 @@ export function buildHandsSql({ since, until, mode, peopleOnly, showdownOnly = f
         ? 'AND h.tournament_id IS NOT NULL'
         : '';
   const peopleSql = peopleOnly
-    ? `AND EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) p JOIN public.profiles pr ON pr.id::text = p->>'userId' WHERE pr.is_horse IS NOT TRUE)`
+    ? `AND EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) p JOIN public.profiles pr ON pr.id = ${PLAYER_PROFILE_ID('p')} WHERE pr.is_horse IS NOT TRUE)`
     : '';
   return `WITH hh AS (
   SELECT h.id, h.created_at, h.tournament_id, h.big_blind, h.small_blind, h.button_seat, h.board, h.engine_build,
@@ -210,6 +230,7 @@ export function buildHandsSql({ since, until, mode, peopleOnly, showdownOnly = f
     ${modeSql}
     ${peopleSql}
     ${showdownOnly ? "AND jsonb_array_length(coalesce(h.showdown, '[]'::jsonb)) >= 2" : ''}
+    ${page ? `${page.where}\n  ${page.order}` : ''}
 )
 SELECT jsonb_build_object(
   'id', hh.id, 'ts', hh.created_at, 'tid', hh.tournament_id, 'bb', hh.big_blind, 'sb', hh.small_blind,
@@ -217,7 +238,7 @@ SELECT jsonb_build_object(
   'tt', t.tournament_type, 'tmax', t.max_players, 'tbuy', coalesce(t.buy_in_amount, 0) + coalesce(t.buy_in_fee, 0),
   'taof', t.all_in_or_fold, 'tname', t.name,
   'pl', (SELECT jsonb_agg(jsonb_build_array((p->>'seat')::int, p->>'userId', p->>'username', (p->>'stack')::float8, coalesce(pr.is_horse, false)))
-         FROM jsonb_array_elements(hh.players) p LEFT JOIN public.profiles pr ON pr.id::text = p->>'userId'),
+         FROM jsonb_array_elements(hh.players) p LEFT JOIN public.profiles pr ON pr.id = ${PLAYER_PROFILE_ID('p')}),
   'sd', (SELECT jsonb_agg(jsonb_build_array((s->>'seat')::int, s->>'user_id', s->>'mucked'))
          FROM jsonb_array_elements(coalesce(hh.showdown, '[]'::jsonb)) s),
   'shown', (SELECT jsonb_object_agg(s->>'user_id', hh.hole_cards -> (s->>'user_id'))
@@ -235,7 +256,7 @@ SELECT jsonb_build_object(
            FROM jsonb_array_elements(hh.actions) WITH ORDINALITY q(a, o))
 ) AS hand
 FROM hh LEFT JOIN public.tournaments t ON t.id = hh.tournament_id
-ORDER BY hh.created_at`;
+ORDER BY hh.created_at${page ? ', hh.id' : ''}`;
 }
 
 /** People's entries, finishing places and prizes in the given tournaments (ids from the window's hands; no cards). */
@@ -257,7 +278,7 @@ WHERE tp.tournament_id = ANY('{${ids.join(',')}}'::uuid[])`;
   SELECT DISTINCT h.tournament_id FROM public.hand_history h
   WHERE h.created_at >= '${iso(since)}'::timestamptz AND h.created_at < '${iso(until)}'::timestamptz
     AND h.game_variant = 'nlh' AND h.tournament_id IS NOT NULL
-    AND EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) p JOIN public.profiles pr ON pr.id::text = p->>'userId' WHERE pr.is_horse IS NOT TRUE)
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(h.players) p JOIN public.profiles pr ON pr.id = ${PLAYER_PROFILE_ID('p')} WHERE pr.is_horse IS NOT TRUE)
 )
 SELECT jsonb_build_object('tid', tp.tournament_id, 'uid', tp.user_id, 'name', tp.username, 'status', tp.status,
   'pos', tp.position, 'prize', tp.prize, 'rebuys', tp.rebuys, 'tt', t.tournament_type, 'tmax', t.max_players,

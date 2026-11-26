@@ -175,61 +175,11 @@ function dimensionSql(by) {
 }
 
 /**
- * One WITH ... SELECT, bounded by [since, until) on hand_history.created_at and only over has_human
- * hands (a partial index), filtered to the asked mode and games before anything else is read. Who
- * sat in each hand comes from hand_history.players; each person's result is looked up in
- * ca_hand_facts by its primary key (hand_id, user_id). Everything is summed in SQL to one row per
- * person-session and breakdown value, plus the person-hand count hand_history expects and the
- * count ca_hand_facts holds, for assertSourceComplete.
- *
- * The ca_hand_facts lookup is a LATERAL primary-key probe on purpose: ca_hand_facts has over 100
- * million rows, and as a plain join the planner (which overestimates the seated rows a hundredfold)
- * hashes the whole table and runs past the statement timeout.
- *
- * With plan.byOptionReceipt the two "windows" are not times: window 0 holds the hands in which that
- * option's receipt did not fire and window 1 the hands in which it did (a row of
- * ca_horse_hand_receipts for the hand whose receipt starts with `<option>:`, probed by its primary
- * key). Everything after that (sessions, sums, the completeness count) is the same query.
+ * The CTEs every read shares: the range's has_human hands (asked mode and games), the people seated in them, each
+ * person's result probed in ca_hand_facts, and the per-hand person count (people .. marked). A hand is read whole
+ * inside one range, so these rows are the same whether the range is read at once or a day at a time.
  */
-export function buildResultsSql(plan) {
-  const { sinceMs, untilMs, splits, mode, games, by } = plan;
-  const byOptionReceipt = plan.byOptionReceipt ?? null;
-  if (byOptionReceipt !== null) {
-    if (typeof byOptionReceipt !== 'string' || !OPTION_RECEIPT_RE.test(byOptionReceipt)) {
-      throw new Error(`invalid option name: ${String(byOptionReceipt)}`);
-    }
-    if (splits.length > 0) throw new Error('an option receipt comparison takes no split');
-  }
-  if (!(Number.isFinite(sinceMs) && Number.isFinite(untilMs) && sinceMs < untilMs)) {
-    throw new Error('the query needs a time range');
-  }
-  if (untilMs - sinceMs > MAX_RANGE_DAYS * DAY_MS) {
-    throw new Error(`the time range may not be longer than ${MAX_RANGE_DAYS} days`);
-  }
-  const filters = [];
-  if (mode === 'cash') filters.push('AND h.tournament_id IS NULL');
-  else if (mode === 'tournament') filters.push('AND h.tournament_id IS NOT NULL');
-  else if (mode !== 'all') throw new Error(`unknown mode: ${mode}`);
-  if (games !== null) {
-    if (!Array.isArray(games) || games.length === 0) throw new Error('games must not be empty');
-    for (const g of games) if (!GAME_RE.test(g)) throw new Error(`invalid game name: ${g}`);
-    filters.push(
-      `AND lower(coalesce(h.game_variant, 'nlh')) IN (${games.map((g) => `'${g}'`).join(', ')})`
-    );
-  }
-  const windowSql =
-    byOptionReceipt !== null
-      ? `CASE WHEN EXISTS (
-             SELECT 1 FROM public.${OPTION_RECEIPT_TABLE} r
-             WHERE r.hand_id = m.hand_id
-               AND split_part(r.receipt, ':', 1) = '${byOptionReceipt}'
-           ) THEN 1 ELSE 0 END`
-      : splits.length === 0
-        ? '0'
-        : splits
-            .map((s) => `CASE WHEN m.created_at >= ${sqlInstant(s)} THEN 1 ELSE 0 END`)
-            .join(' + ');
-  const agg = (cols) => `coalesce(jsonb_agg(jsonb_build_object(${cols})), '[]'::jsonb)`;
+function resultSourceCtes(sinceMs, untilMs, filters) {
   return `WITH people AS MATERIALIZED (
   SELECT id, (status IS DISTINCT FROM 'deleted') AS counted
   FROM public.profiles
@@ -262,7 +212,73 @@ export function buildResultsSql(plan) {
   SELECT r.*, count(*) OVER (PARTITION BY r.hand_id) AS people_in_hand,
          (r.in_source AND r.profit IS NOT NULL AND r.big_blind > 0 AND r.n_players > 0) AS usable
   FROM picked r
-), kept AS (
+`;
+}
+
+/** The mode and game filters of a plan (validated), and its window expression over marked rows `m`. */
+function resultFilters(plan) {
+  const { splits, mode, games } = plan;
+  const byOptionReceipt = plan.byOptionReceipt ?? null;
+  if (byOptionReceipt !== null) {
+    if (typeof byOptionReceipt !== 'string' || !OPTION_RECEIPT_RE.test(byOptionReceipt)) {
+      throw new Error(`invalid option name: ${String(byOptionReceipt)}`);
+    }
+    if (splits.length > 0) throw new Error('an option receipt comparison takes no split');
+  }
+  const filters = [];
+  if (mode === 'cash') filters.push('AND h.tournament_id IS NULL');
+  else if (mode === 'tournament') filters.push('AND h.tournament_id IS NOT NULL');
+  else if (mode !== 'all') throw new Error(`unknown mode: ${mode}`);
+  if (games !== null) {
+    if (!Array.isArray(games) || games.length === 0) throw new Error('games must not be empty');
+    for (const g of games) if (!GAME_RE.test(g)) throw new Error(`invalid game name: ${g}`);
+    filters.push(
+      `AND lower(coalesce(h.game_variant, 'nlh')) IN (${games.map((g) => `'${g}'`).join(', ')})`
+    );
+  }
+  const windowSql =
+    byOptionReceipt !== null
+      ? `CASE WHEN EXISTS (
+             SELECT 1 FROM public.${OPTION_RECEIPT_TABLE} r
+             WHERE r.hand_id = m.hand_id
+               AND split_part(r.receipt, ':', 1) = '${byOptionReceipt}'
+           ) THEN 1 ELSE 0 END`
+      : splits.length === 0
+        ? '0'
+        : splits
+            .map((s) => `CASE WHEN m.created_at >= ${sqlInstant(s)} THEN 1 ELSE 0 END`)
+            .join(' + ');
+  return { filters, windowSql };
+}
+
+/**
+ * One WITH ... SELECT, bounded by [since, until) on hand_history.created_at and only over has_human
+ * hands (a partial index), filtered to the asked mode and games before anything else is read. Who
+ * sat in each hand comes from hand_history.players; each person's result is looked up in
+ * ca_hand_facts by its primary key (hand_id, user_id). Everything is summed in SQL to one row per
+ * person-session and breakdown value, plus the person-hand count hand_history expects and the
+ * count ca_hand_facts holds, for assertSourceComplete.
+ *
+ * The ca_hand_facts lookup is a LATERAL primary-key probe on purpose: ca_hand_facts has over 100
+ * million rows, and as a plain join the planner (which overestimates the seated rows a hundredfold)
+ * hashes the whole table and runs past the statement timeout.
+ *
+ * With plan.byOptionReceipt the two "windows" are not times: window 0 holds the hands in which that
+ * option's receipt did not fire and window 1 the hands in which it did (a row of
+ * ca_horse_hand_receipts for the hand whose receipt starts with `<option>:`, probed by its primary
+ * key). Everything after that (sessions, sums, the completeness count) is the same query.
+ */
+export function buildResultsSql(plan) {
+  const { sinceMs, untilMs, by } = plan;
+  if (!(Number.isFinite(sinceMs) && Number.isFinite(untilMs) && sinceMs < untilMs)) {
+    throw new Error('the query needs a time range');
+  }
+  if (untilMs - sinceMs > MAX_RANGE_DAYS * DAY_MS) {
+    throw new Error(`the time range may not be longer than ${MAX_RANGE_DAYS} days`);
+  }
+  const { filters, windowSql } = resultFilters(plan);
+  const agg = (cols) => `coalesce(jsonb_agg(jsonb_build_object(${cols})), '[]'::jsonb)`;
+  return `${resultSourceCtes(sinceMs, untilMs, filters)}), kept AS (
   SELECT m.user_id, m.hand_id, m.created_at, m.is_cash, m.game_variant, m.n_players, m.big_blind,
          (m.profit / m.big_blind)::float8 AS bb, coalesce(m.showdown, false) AS sd,
          ${windowSql} AS w
@@ -307,6 +323,173 @@ SELECT jsonb_build_object(
       'found', count(*) FILTER (WHERE in_source))
     FROM marked)
 ) AS report`;
+}
+
+// ── The read a day at a time (2026-11-26) ────────────────────────────────────────────────────────
+
+/** One read covers at most this long a range: a 7-day single read took 21 s and 30 days ran past the 60 s timeout. */
+export const READ_CHUNK_HOURS = 24;
+
+/** The [since, until) chunks of a plan, READ_CHUNK_HOURS long (the last one shorter). */
+export function resultChunks(sinceMs, untilMs, hours = READ_CHUNK_HOURS) {
+  const out = [];
+  for (let t = sinceMs; t < untilMs; t += hours * 3600_000)
+    out.push([t, Math.min(untilMs, t + hours * 3600_000)]);
+  return out;
+}
+
+/**
+ * The person-hand rows of one chunk: the shared CTEs (resultSourceCtes) and, per marked row, what the sessions and
+ * sums are built from. bb is computed in SQL exactly as the single read computes it. One compact array per row.
+ * No account id or hand id leaves the database: a person is md5(account id) and its first four characters (what the
+ * report shows), a hand is md5(hand id) (only counted and used to order a person's simultaneous hands).
+ */
+export function buildPersonHandsSql(plan, [chunkSince, chunkUntil]) {
+  if (!(Number.isFinite(chunkSince) && Number.isFinite(chunkUntil) && chunkSince < chunkUntil)) {
+    throw new Error('the query needs a time range');
+  }
+  const { filters, windowSql } = resultFilters(plan);
+  return `${resultSourceCtes(chunkSince, chunkUntil, filters)})
+SELECT jsonb_build_array(md5(m.user_id::text), md5(m.hand_id::text), left(m.user_id::text, 4),
+  to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+  m.game_variant, m.is_cash, m.n_players, (m.big_blind::float8)::text,
+  CASE WHEN m.usable THEN (m.profit / m.big_blind)::float8 END, coalesce(m.showdown, false),
+  m.counted, m.usable, m.people_in_hand, m.in_source, ${windowSql}) AS r
+FROM marked m`;
+}
+
+/**
+ * Every non-Horse account's position in account-id order, by md5(account id): the order the single read numbers
+ * people in (dense_rank() OVER (ORDER BY user_id)), read once without an id leaving the database.
+ */
+export const PEOPLE_ORDER_SQL = `SELECT md5(id::text) AS k, row_number() OVER (ORDER BY id) AS o FROM public.profiles WHERE is_horse IS NOT TRUE`;
+
+const r0 = (row) => (Array.isArray(row) ? row : (row?.r ?? row));
+
+/**
+ * The report row the single read returns, built from the person-hand rows of every chunk: the same kept rows, the
+ * same sessions (a gap over SESSION_GAP_MINUTES within one person, game, cash-or-not and window, in (created_at,
+ * hand_id) order), the same per-session cells, distinct hands per grouping set, left-out and source counts. Only
+ * the order of floating-point additions can differ from the database's.
+ */
+export function aggregatePersonHands(rows, by = null, readAt = null, peopleOrder = null) {
+  const all = rows.map((x) => {
+    const r = r0(x);
+    return {
+      user: String(r[0]),
+      hand: String(r[1]),
+      p4: String(r[2]),
+      at: String(r[3]),
+      g: String(r[4]),
+      c: r[5] === true,
+      np: Number(r[6]),
+      bbText: String(r[7]),
+      bb: r[8] === null ? null : Number(r[8]),
+      sd: r[9] === true,
+      counted: r[10] === true,
+      usable: r[11] === true,
+      pih: Number(r[12]),
+      src: r[13] === true,
+      w: Number(r[14]),
+    };
+  });
+  const kept = all.filter((r) => r.counted && r.usable && r.pih < r.np);
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  kept.sort((a, b) => cmp(a.at, b.at) || cmp(a.hand, b.hand));
+  const gapMs = SESSION_GAP_MINUTES * 60_000;
+  const last = new Map();
+  const sessOf = new Map();
+  for (const r of kept) {
+    const part = `${r.user}|${r.g}|${r.c}|${r.w}`;
+    const prev = last.get(part);
+    const t = Date.parse(r.at);
+    const step = prev !== undefined && t - prev > gapMs ? 1 : 0;
+    const sess = (sessOf.get(part) ?? 0) + step;
+    sessOf.set(part, sess);
+    last.set(part, t);
+    r.sess = sess;
+  }
+  // people in account-id order (peopleOrder: md5 -> position); one not in it (a newer account) after all, by key
+  const rank = (u) => peopleOrder?.get(u) ?? Number.MAX_SAFE_INTEGER;
+  const users = [...new Set(kept.map((r) => r.user))].sort(
+    (a, b) => rank(a) - rank(b) || cmp(a, b)
+  );
+  const pnOf = new Map(users.map((u, i) => [u, i + 1]));
+  const dOf = (r) => {
+    if (by === null) return '';
+    if (by === 'day') return r.at.slice(0, 10);
+    if (by === 'hour') return `${r.at.slice(0, 10)} ${r.at.slice(11, 13)}:00`;
+    if (by === 'player') return String(pnOf.get(r.user));
+    if (by === 'stake') return r.bbText;
+    if (by === 'table-size') return String(r.np);
+    throw new Error(`unknown --by dimension: ${by}`);
+  };
+  const cells = new Map();
+  const hands = new Map();
+  for (const r of kept) {
+    const d = dOf(r);
+    const pn = pnOf.get(r.user);
+    const key = `${r.w}|${r.g}|${r.c}|${d}|${pn}|${r.sess}`;
+    let cell = cells.get(key);
+    if (!cell) {
+      cell = {
+        w: r.w,
+        g: r.g,
+        c: r.c,
+        d,
+        pn,
+        sess: r.sess,
+        p4: r.p4,
+        n: 0,
+        s: 0,
+        ss: 0,
+        sdn: 0,
+        sds: 0,
+      };
+      cells.set(key, cell);
+    }
+    cell.n++;
+    cell.s += r.bb;
+    cell.ss += r.bb * r.bb;
+    if (r.sd) {
+      cell.sdn++;
+      cell.sds += r.bb;
+    }
+    for (const dd of [d, null]) {
+      const hk = `${r.w}|${r.g}|${r.c}|${dd}`;
+      let h = hands.get(hk);
+      if (!h) hands.set(hk, (h = { w: r.w, g: r.g, c: r.c, d: dd, ids: new Set() }));
+      h.ids.add(r.hand);
+    }
+  }
+  return {
+    read_at: readAt,
+    cells: [...cells.values()],
+    hands: [...hands.values()].map(({ ids, ...h }) => ({ ...h, h: ids.size })),
+    left_out: {
+      deleted_accounts: all.filter((r) => !r.counted).length,
+      unusable: all.filter((r) => r.counted && !r.usable).length,
+      no_horse: all.filter((r) => r.counted && r.usable && r.pih >= r.np).length,
+    },
+    source: {
+      table: 'ca_hand_facts',
+      expected: all.length,
+      found: all.filter((r) => r.src).length,
+    },
+  };
+}
+
+/** Reads a plan a day at a time and returns the report row the single read would (aggregatePersonHands). */
+export function readResultsChunked(
+  plan,
+  query,
+  { hours = READ_CHUNK_HOURS, now = () => new Date().toISOString() } = {}
+) {
+  const peopleOrder = new Map(query(PEOPLE_ORDER_SQL).map((r) => [String(r.k), Number(r.o)]));
+  const rows = [];
+  for (const chunk of resultChunks(plan.sinceMs, plan.untilMs, hours))
+    rows.push(...query(buildPersonHandsSql(plan, chunk)));
+  return aggregatePersonHands(rows, plan.by ?? null, now(), peopleOrder);
 }
 
 /**

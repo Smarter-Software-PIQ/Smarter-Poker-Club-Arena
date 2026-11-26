@@ -103,7 +103,8 @@ function run(args, query = () => fixtureRows()) {
   const exitCode = runCli(args, {
     stdout: (s) => out.push(s),
     stderr: (s) => err.push(s),
-    query,
+    // the fixtures are report rows of the single read: hand them over for the plan's single-read SQL
+    readReport: (plan) => query(buildResultsSql(plan)),
     now: () => UNTIL,
   });
   return { exitCode, out: out.join('\n'), err: err.join('\n') };

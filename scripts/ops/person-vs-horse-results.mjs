@@ -35,7 +35,9 @@ import {
   MODES,
   STATEMENT_TIMEOUT_SECONDS,
   buildReport,
-  buildResultsSql,
+  buildPersonHandsSql,
+  readResultsChunked,
+  resultChunks,
   formatReportText,
   gateResult,
   parseGames,
@@ -180,14 +182,24 @@ export function runCli(argv, deps = {}) {
     return EXIT_USAGE;
   }
   try {
-    const sql = buildResultsSql(plan);
     if (o.sql) {
-      stdout(sql);
+      // the read is a day at a time (readResultsChunked): this is the first day's statement
+      stdout(buildPersonHandsSql(plan, resultChunks(plan.sinceMs, plan.untilMs)[0]));
       return 0;
     }
+    const query = deps.query ?? queryReadOnly;
+    // deps.readReport: a test seam returning the report rows for a plan (the shape the single read returned)
     const raw = o.fromJson
       ? JSON.parse(readFileSync(o.fromJson, 'utf8'))
-      : (deps.query ?? queryReadOnly)(sql, { supabaseWorkdir: o.supabaseWorkdir });
+      : deps.readReport
+        ? deps.readReport(plan)
+        : [
+            {
+              report: readResultsChunked(plan, (sql) =>
+                query(sql, { supabaseWorkdir: o.supabaseWorkdir })
+              ),
+            },
+          ];
     const report = buildReport(raw, plan);
     const gate = o.gate ? gateResult(report) : null;
     if (gate) report.gate = gate;
