@@ -553,6 +553,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   const [rakeError, setRakeError] = useState(false);
   const [rakeReload, setRakeReload] = useState(0);
   const [liveRevision, setLiveRevision] = useState(0);
+  const [rakeRevision, setRakeRevision] = useState(0);
+  const loadedRakeScope = useRef<string | null>(null);
+  const loadedOpportunityScope = useRef<string | null>(null);
   useEffect(() => {
     setRakeError(false);
     if (gameMode !== 'cash' || !isOwnProfile || !user?.id) {
@@ -561,8 +564,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       return;
     }
     let cancelled = false;
-    setRakeLoading(true);
-    setRakeStats(null);
+    if (loadedRakeScope.current !== loadScopeKey) {
+      loadedRakeScope.current = null;
+      setRakeLoading(true);
+      setRakeStats(null);
+    }
     const fail = (err: unknown) => {
       if (cancelled) return;
       reportError(err, 'PlayerStatsPage.rpc_ca_player_rake_stats', { days: windowDays });
@@ -580,7 +586,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       .then((r) => {
         // `error` is set only when the read FAILED; an empty ledger has none.
         if (r?.error) fail(r.error);
-        else if (!cancelled) setRakeStats(r);
+        else if (!cancelled && r) {
+          loadedRakeScope.current = loadScopeKey;
+          setRakeStats(r);
+        }
       })
       .catch(fail)
       .finally(() => {
@@ -589,7 +598,16 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return () => {
       cancelled = true;
     };
-  }, [isOwnProfile, user?.id, windowDays, rakeReload, statsScope, selectedClubId, liveRevision]);
+  }, [
+    isOwnProfile,
+    user?.id,
+    windowDays,
+    rakeReload,
+    statsScope,
+    selectedClubId,
+    loadScopeKey,
+    rakeRevision,
+  ]);
   const [cashOpportunityStats, setCashOpportunityStats] = useState<CashOpportunityStats | null>(
     null
   );
@@ -604,8 +622,11 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       return;
     }
     let cancelled = false;
-    setCashOpportunityLoading(true);
-    setCashOpportunityStats(null);
+    if (loadedOpportunityScope.current !== loadScopeKey) {
+      loadedOpportunityScope.current = null;
+      setCashOpportunityLoading(true);
+      setCashOpportunityStats(null);
+    }
     setCashOpportunityError(null);
     void import('../services/StatsFactsService')
       .then(({ StatsFactsService }) => {
@@ -624,6 +645,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           setCashOpportunityError(result.error);
           return;
         }
+        loadedOpportunityScope.current = loadScopeKey;
         setCashOpportunityStats(result as CashOpportunityStats);
       })
       .catch((error) => {
@@ -645,6 +667,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     selectedClubId,
     statsTimezone,
     cashOpportunityReload,
+    loadScopeKey,
     liveRevision,
   ]);
   const openCashEvidence = useCallback(
@@ -808,7 +831,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
    * The CURRENT loader. Both the shared debouncer and the in-flight replay
    * below read it, so neither can fire a copy captured under an older range.
    */
-  const loadRef = useRef<((opts?: { fresh?: boolean }) => Promise<void>) | null>(null);
+  const loadRef = useRef<
+    ((opts?: { fresh?: boolean; background?: boolean }) => Promise<void>) | null
+  >(null);
   const openHandEvidence = useCallback(
     (filters: { variant?: string; position?: string; bigBlind?: number } = {}) => {
       const params = new URLSearchParams({ source: 'stats', gameMode, statsAsset: statsScope });
@@ -842,7 +867,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   // every tab-visibility change, i.e. repeatedly during active play.
   // ── Single RPC pulls everything from hand_history server-side ──
   const loadAllData = useCallback(
-    async (opts?: { fresh?: boolean }): Promise<void> => {
+    async (opts?: { fresh?: boolean; background?: boolean }): Promise<void> => {
       if (!targetUserId || !isOwnProfile) return;
       const loadStartedAt = performance.now();
       if (statsLoadingRef.current) {
@@ -874,7 +899,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       statsLoadingRef.current = true;
       if (!hasStatsRef.current) {
         setLoading(true);
-      } else {
+      } else if (!opts?.background) {
         setRefreshing(true);
       }
       try {
@@ -1017,7 +1042,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           // loadRef, not the closed-over loadAllData: if the user changed the
           // range while a load was in flight, replaying the old closure refetched
           // the PREVIOUS window and overwrote the newer data with it.
-          void loadRef.current?.({ fresh: true });
+          void loadRef.current?.({ fresh: true, background: true });
         } else if (isMounted.current) {
           setRefreshing(false);
         }
@@ -1137,24 +1162,39 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
    * the pulse fallback into one read. The committed loadRef prevents an old
    * range closure from overwriting the current window. */
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRefresh = useCallback(() => {
-    // Keep the first deadline: a busy table must not postpone the read forever.
-    if (refreshTimerRef.current) return;
+  const pendingInputs = useRef({ personal: false, rake: false });
+  const flushVisibleInputs = useCallback(() => {
+    if (document.visibilityState !== 'visible' || refreshTimerRef.current) return;
+    if (!pendingInputs.current.personal && !pendingInputs.current.rake) return;
     refreshTimerRef.current = setTimeout(() => {
       refreshTimerRef.current = null;
-      // Rake and opportunities are separate reads, so an overview refresh alone
-      // cannot update them. Invalidate them even when the overview read fails.
+      if (document.visibilityState !== 'visible') return;
+      const { personal, rake } = pendingInputs.current;
+      pendingInputs.current = { personal: false, rake: false };
+      if (personal || rake) setRakeRevision((revision) => revision + 1);
+      if (!personal) return;
       clearStatsRangeMemo();
       setLiveRevision((revision) => revision + 1);
-      void loadRef.current?.({ fresh: true });
+      void loadRef.current?.({ fresh: true, background: true });
     }, 2000);
   }, []);
-  useEffect(
-    () => () => {
+  const scheduleRefresh = useCallback(() => {
+    pendingInputs.current.personal = true;
+    flushVisibleInputs();
+  }, [flushVisibleInputs]);
+  const scheduleRakeRefresh = useCallback(() => {
+    pendingInputs.current.rake = true;
+    flushVisibleInputs();
+  }, [flushVisibleInputs]);
+  useEffect(() => {
+    document.addEventListener('visibilitychange', flushVisibleInputs);
+    return () => {
+      document.removeEventListener('visibilitychange', flushVisibleInputs);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    },
-    []
-  );
+      refreshTimerRef.current = null;
+      pendingInputs.current = { personal: false, rake: false };
+    };
+  }, [flushVisibleInputs, loadScopeKey]);
   /**
    * LIVE FROM ANY TAB, AND THE TAB RETURN (phase 3, 2026-09-04). masterBus
    * only carries events for the tables THIS tab is watching, so a player
@@ -1208,24 +1248,26 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   useEffect(() => {
     if (targetUserId && isOwnProfile && !clubsLoading) void loadAllData();
   }, [targetUserId, isOwnProfile, clubsLoading, loadAllData]);
-  /**
-   * ── Bus listeners for same-tab hands, into the shared debounce window ───
-   * The five events one completed hand emits all land in scheduleRefresh, so
-   * they cost one refetch between them (see the debouncer above).
-   */
+  // A completed hero hand changes personal results. Wallet and credit events can
+  // describe another member or an unrelated transfer; only a tournament entry
+  // transaction also changes the player's own tournament result.
   useEffect(() => {
-    const REFRESH_EVENTS = [
-      'HAND_COMPLETED',
-      'BALANCE_UPDATED',
-      'CHIPS_DISTRIBUTED',
-      'CASHOUT_APPROVED',
-      'CREDIT_UPDATED',
-    ] as const;
-    const unsubs = REFRESH_EVENTS.map((e) => masterBus.subscribe(e as never, scheduleRefresh));
+    if (!targetUserId || !isOwnProfile) return;
+    const stopHand = masterBus.subscribe('HAND_COMPLETED', scheduleRefresh);
+    const stopBalance = masterBus.subscribe('BALANCE_UPDATED', ({ payload }) => {
+      if (payload.userId && payload.userId !== targetUserId) return;
+      if (selectedClubId && payload.clubId && payload.clubId !== selectedClubId) return;
+      if (
+        gameMode === 'tournament' &&
+        /^tournament_(buy_?in|unregister_refund|rebuy|addon)$/.test(payload.source)
+      )
+        scheduleRefresh();
+    });
     return () => {
-      unsubs.forEach((u) => u());
+      stopHand();
+      stopBalance();
     };
-  }, [scheduleRefresh]);
+  }, [targetUserId, isOwnProfile, selectedClubId, gameMode, scheduleRefresh]);
   /**
    * ALL-TIME PAYLOAD FOR LIFETIME READOUTS (2026-09-03).
    *
@@ -1651,8 +1693,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ...(selectedClubId ? [selectedClubId] : clubs.map((club) => club.id)),
           ...(agentRoles ?? []).map((role) => role.club_id),
         ]}
-        enabled={isOwnProfile && !clubsLoading}
-        onChange={scheduleRefresh}
+        enabled={isOwnProfile && !clubsLoading && gameMode === 'cash' && showTab('rake')}
+        onChange={scheduleRakeRefresh}
       />
       {mast}
 
@@ -1682,7 +1724,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           privacyPresentationMode={privacyPresentationMode}
           category={category}
           hasData={hasData}
-          selectedClubId={selectedClubId}
           servingCache={servingCache}
         />
       )}
@@ -1773,7 +1814,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
               <>
                 {showTab('rake') && (
                   <RakeTab
-                    liveRevision={liveRevision}
+                    liveRevision={rakeRevision}
                     viewerId={user?.id}
                     rakeLoading={rakeLoading}
                     rakeStats={rakeStats}

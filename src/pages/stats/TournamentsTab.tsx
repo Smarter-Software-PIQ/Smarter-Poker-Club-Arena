@@ -62,11 +62,11 @@ export default function TournamentsTab({
             )}
             color="#10b981"
           />
-          <StatRow label="Wins" value={tourn.wins.toLocaleString()} color="#f59e0b" />
+          <StatRow label="Wins" value={tourn.wins.toLocaleString()} color="#86c9e8" />
           <StatRow
             label="Best Finish"
             value={tourn.best_finish ? `#${tourn.best_finish}` : '-'}
-            color="#8b5cf6"
+            color="#55b4ed"
           />
           <StatRow
             label="Estimated Entry Costs"
@@ -98,7 +98,7 @@ export default function TournamentsTab({
           <StatRow
             label="Tournament Hands"
             value={overall.tourney_hands.toLocaleString()}
-            color="#8b5cf6"
+            color="#55b4ed"
           />
         </div>
       </div>

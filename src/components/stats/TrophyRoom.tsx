@@ -122,8 +122,8 @@ interface Milestone {
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#9ca3af',
   rare: '#3b82f6',
-  epic: '#a855f7',
-  legendary: '#fbbf24',
+  epic: '#71c9ec',
+  legendary: '#bddeea',
 };
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));

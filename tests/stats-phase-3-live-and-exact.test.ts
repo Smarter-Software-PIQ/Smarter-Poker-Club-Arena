@@ -196,10 +196,10 @@ describe('phase 3 page: live from any tab, by asking', () => {
     expect(PAGE).not.toMatch(/postgres_changes/);
     expect(PAGE).not.toMatch(/stats-live-/);
     expect(PAGE).not.toMatch(/useVisibilityRefresh/);
-    // The same-tab bus events land in the same window.
-    expect(PAGE).toMatch(
-      /REFRESH_EVENTS\.map\(\(e\) => masterBus\.subscribe\(e as never, scheduleRefresh\)\)/
-    );
+    // A played hand reaches the same scheduler. A wallet receipt first passes
+    // through the personal tournament and scope checks.
+    expect(PAGE).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
+    expect(PAGE).toContain("masterBus.subscribe('BALANCE_UPDATED', ({ payload })");
   });
 
   it('the hook polls while visible, baselines the first sample, and owns the tab return', () => {

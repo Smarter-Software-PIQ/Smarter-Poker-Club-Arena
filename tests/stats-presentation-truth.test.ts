@@ -71,17 +71,16 @@ describe('Stats presentation truth', () => {
     expect(source).not.toContain('winRate.toFixed(2)');
   });
 
-  it('uses only approved painted crests after selecting the plate-free spade family', () => {
+  it('labels cash and financial report sections without nesting artwork', () => {
     for (const path of [
       'src/components/stats/CashIntelligencePanel.tsx',
       'src/components/stats/ExactCashSessionsPanel.tsx',
       'src/components/stats/FinancialReportingPanel.tsx',
     ]) {
       const source = read(path);
-      expect(source).toContain('family="spade"');
-      expect(source).toContain('crest="spade"');
-      expect(source).not.toContain('crest="club"');
-      expect(source).not.toContain('crest="diamond"');
+      expect(source).toContain('<StatsSection');
+      expect(source).toMatch(/aria-label(?:ledby)?=/);
+      expect(source).not.toMatch(/crest=|family="spade"/);
     }
   });
 
@@ -282,10 +281,18 @@ describe('Stats presentation truth', () => {
     expect(source).toContain('compactChips(rakeStats.rake_per_100)');
     expect(source).toContain('compactChips(rakeStats.avg_rake_per_raked_hand)');
     expect(source).toContain('rakeStats.rake_in_bb.toFixed(1)');
-    for (const retired of ['#f59e0b', '#00d4ff', '#8b5cf6', '#22c55e', '#06b6d4', '#4169E1']) {
+    for (const retired of [
+      '#ffd700',
+      '#f59e0b',
+      '#00d4ff',
+      '#8b5cf6',
+      '#22c55e',
+      '#06b6d4',
+      '#4169E1',
+    ]) {
       expect(source).not.toContain(retired);
     }
-    for (const ink of ['#ffd700', '#45adff', '#e4e7ec', '#c8ffd2']) {
+    for (const ink of ['#8edbff', '#45adff', '#e4e7ec', '#c8ffd2']) {
       expect(source).toContain(ink);
     }
   });

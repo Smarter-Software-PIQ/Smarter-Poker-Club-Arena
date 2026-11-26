@@ -100,7 +100,7 @@ export default function OverviewTab({
             overall.total_hands,
             (v) => `${(v * 100).toFixed(1)}%`
           )}
-          color="#8b5cf6"
+          color="#55b4ed"
           scope={SCOPE_CASH}
         />
         {/* Aggressive actions over CALL actions. The payload does not carry
@@ -139,7 +139,7 @@ export default function OverviewTab({
         <StatRow
           label="BB/100"
           value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
-          color="#4169E1"
+          color="#80baff"
           highlight
           scope={SCOPE_CASH}
         />

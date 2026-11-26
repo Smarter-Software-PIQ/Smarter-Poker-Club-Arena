@@ -41,7 +41,7 @@ export function StatRow({
     <div className={`stat-row ${highlight ? 'highlight' : ''}`}>
       <span className="row-label">
         <span className="row-dot" style={{ backgroundColor: color }} />
-        {label}
+        <span className="stat-label-text">{label}</span>
         {scope ? <span className="hero-stat-sub">{scope}</span> : null}
         {evidence ? <span className="hero-stat-sub stat-evidence">{evidence}</span> : null}
       </span>

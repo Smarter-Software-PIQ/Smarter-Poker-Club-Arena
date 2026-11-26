@@ -250,12 +250,12 @@ describe('the stats RPC is asked for once per event, not five times', () => {
      * scans of a 10GB table, per hand.
      */
     expect(CODE).not.toMatch(/subscribeDebounced/);
-    expect(CODE).toMatch(/const REFRESH_EVENTS = \[/);
-    expect(CODE).toMatch(/setTimeout\(\(\) => \{[\s\S]{0,200}loadRef\.current/);
+    expect(CODE).toContain("masterBus.subscribe('HAND_COMPLETED', scheduleRefresh)");
+    expect(CODE.match(/refreshTimerRef\.current = setTimeout/g)).toHaveLength(1);
   });
 
   it('replays through a ref, so a stale range cannot overwrite a newer one', () => {
-    expect(CODE).toMatch(/loadRef\.current\?\.\(\{ fresh: true \}\)/);
+    expect(CODE).toContain('loadRef.current?.({ fresh: true, background: true })');
   });
 
   it('lets a real change bypass the per-range memo', () => {
