@@ -583,11 +583,33 @@ PY_LIFECYCLE
 }
 
 # Unintended between-hand delay gate during Backup soak (incident 075013fd,
-# Wave 2 Hardening). Backup soak deals classic hands into public.hand_history;
-# when fn_ca_hand_gap_unintended_delay is installed on the copy, fail
-# certification if any graded shape with >= 5 graded hands exceeds its
-# unintended_p95_ms budget (250 ms). Returns 0 on pass or not_armed, 1 on
-# breach (printing offending shapes to stderr), and 2 when unreadable.
+# Wave 2 Hardening; made a sound sample test 2026-11-24, Cutover reliability
+# item 1b). Backup soak deals classic hands into public.hand_history;
+# when fn_ca_hand_gap_unintended_delay is installed on the copy, the judge
+# below grades every graded (kind, shape) cell of the steady-state soak:
+#   rule 1 hard_ceiling       any single gap more than HARD_CEILING_MS
+#                             (5,000 ms) beyond what the hand owed fails at
+#                             any sample size: a multi-second stall is never
+#                             acceptable.
+#   rule 2 over_budget_share  a cell with at least MIN_CELL_HANDS (10) graded
+#                             hands fails when its count of hands over the
+#                             250 ms budget is improbable for an engine whose
+#                             true over-budget share is ALLOWED_RATE (5 %,
+#                             the share the old p95 <= 250 ms test allowed):
+#                             one-sided exact binomial P(X >= k | n, 5 %)
+#                             below 1 - CONFIDENCE (0.05).
+#   rule 3 over_budget_share_pooled  cells under MIN_CELL_HANDS issue no
+#                             verdict of their own ("insufficient_sample");
+#                             they are pooled per kind and the pool is tested
+#                             by rule 2.
+# A percentile of a small cell is its slowest hand, so no percentile is a
+# verdict: one 1.4 s hand in 14 (2026-11-24 12:47Z) is 1 of 14 over budget,
+# P = 0.51, and passes; four of 14, or a shifted distribution, still fails.
+# The verdict names the cell, n, the rule and the worst hands (ids from the
+# grader's worst_hands column; a copy whose grader predates it judges rule 1
+# on p99, a lower bound of the maximum, and says the ids are unavailable).
+# Returns 0 on pass or not_armed, 1 on breach (printing the verdicts to
+# stderr), and 2 when unreadable.
 check_soak_hand_gap_delay() {
   local since="$1" window_minutes="${2:-15}" raw
   [[ "$since" =~ ^[0-9]+$ ]] || return 2
@@ -601,15 +623,18 @@ DO $gap$
 DECLARE
   v_since bigint := current_setting('standby.since')::bigint;
   v_win int := LEAST(GREATEST(current_setting('standby.window_minutes')::int, 1), 15);
+  v_grader regprocedure := to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)');
+  v_extremes boolean;
+  v_shapes json;
   v_result json;
   v_hands_in_soak int;
 BEGIN
-  IF to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)') IS NULL THEN
+  IF v_grader IS NULL THEN
     v_result := json_build_object(
       'status', 'not_armed',
       'windowMinutes', v_win,
       'handsInSoak', 0,
-      'breaches', '[]'::json,
+      'extremesAvailable', false,
       'shapes', '[]'::json
     );
   ELSE
@@ -617,27 +642,36 @@ BEGIN
     FROM public.hand_history
     WHERE created_at >= to_timestamp(v_since);
 
-    WITH graded_rows AS (
-      SELECT kind, shape, graded, hands, gap_p50_ms, owed_p50_ms,
-             unintended_p50_ms, unintended_p95_ms, unintended_p99_ms,
-             over_budget, COALESCE(budget_ms, 250) AS budget_ms
-      FROM public.fn_ca_hand_gap_unintended_delay(now(), v_win)
-    ),
-    breach_rows AS (
-      SELECT *
-      FROM graded_rows
-      WHERE graded IS TRUE
-        AND hands >= 5
-        AND unintended_p95_ms > budget_ms
-    )
-    SELECT json_build_object(
-      'status', CASE WHEN (SELECT count(*) FROM breach_rows) = 0 THEN 'pass' ELSE 'fail' END,
+    SELECT 'worst_hands' = ANY (p.proargnames) AND 'unintended_max_ms' = ANY (p.proargnames)
+      INTO v_extremes
+      FROM pg_proc p WHERE p.oid = v_grader;
+
+    IF v_extremes THEN
+      EXECUTE $q$
+        SELECT COALESCE(json_agg(row_to_json(g) ORDER BY g.kind, g.shape), '[]'::json)
+        FROM (SELECT kind, shape, graded, hands, gap_p50_ms, owed_p50_ms,
+                     unintended_p50_ms, unintended_p95_ms, unintended_p99_ms,
+                     over_budget, COALESCE(budget_ms, 250) AS budget_ms,
+                     unintended_max_ms, worst_hands
+                FROM public.fn_ca_hand_gap_unintended_delay(now(), $1)) g
+      $q$ INTO v_shapes USING v_win;
+    ELSE
+      EXECUTE $q$
+        SELECT COALESCE(json_agg(row_to_json(g) ORDER BY g.kind, g.shape), '[]'::json)
+        FROM (SELECT kind, shape, graded, hands, gap_p50_ms, owed_p50_ms,
+                     unintended_p50_ms, unintended_p95_ms, unintended_p99_ms,
+                     over_budget, COALESCE(budget_ms, 250) AS budget_ms
+                FROM public.fn_ca_hand_gap_unintended_delay(now(), $1)) g
+      $q$ INTO v_shapes USING v_win;
+    END IF;
+
+    v_result := json_build_object(
+      'status', 'graded',
       'windowMinutes', v_win,
       'handsInSoak', v_hands_in_soak,
-      'breaches', COALESCE((SELECT json_agg(row_to_json(b) ORDER BY b.kind, b.shape) FROM breach_rows b), '[]'::json),
-      'shapes', COALESCE((SELECT json_agg(row_to_json(g) ORDER BY g.kind, g.shape) FROM graded_rows g), '[]'::json)
-    )
-    INTO v_result;
+      'extremesAvailable', COALESCE(v_extremes, false),
+      'shapes', v_shapes
+    );
   END IF;
   PERFORM set_config('standby.hand_gap_result', v_result::text, false);
 END
@@ -646,38 +680,148 @@ SELECT current_setting('standby.hand_gap_result');
 SQL_HAND_GAP
   ) || return 2
   python3 - "$raw" <<'PY_HAND_GAP'
-import json, sys
+import json, math, sys
+
+# The judge's constants. The budget itself comes from the grader (250 ms).
+DEFAULT_BUDGET_MS = 250
+ALLOWED_OVER_BUDGET_RATE = 0.05
+CONFIDENCE = 0.95
+MIN_CELL_HANDS = 10
+HARD_CEILING_MS = 5000
+WORST_HANDS_SHOWN = 5
+
+
+def over_budget_p_value(n, k, rate=ALLOWED_OVER_BUDGET_RATE):
+    """One-sided exact binomial tail P(X >= k) for X ~ Binomial(n, rate)."""
+    if k <= 0:
+        return 1.0
+    return min(1.0, sum(math.comb(n, i) * rate ** i * (1 - rate) ** (n - i) for i in range(k, n + 1)))
+
+
+def as_count(value, name):
+    if type(value) is not int or value < 0:
+        raise ValueError(f'{name} is not a count: {value!r}')
+    return value
+
+
 try:
     data = json.loads(sys.argv[1])
     status = data['status']
     hands_in_soak = data['handsInSoak']
-    breaches = data['breaches']
     shapes = data['shapes']
     window_minutes = data['windowMinutes']
-    assert status in ('pass', 'fail', 'not_armed')
+    extremes = data.get('extremesAvailable') is True
+    assert status in ('graded', 'not_armed'), f'status {status!r}'
     assert type(hands_in_soak) is int and hands_in_soak >= 0
-    assert isinstance(breaches, list) and isinstance(shapes, list)
+    assert isinstance(shapes, list)
+    cells = []
+    for s in shapes:
+        if s.get('graded') is not True:
+            continue
+        n = as_count(s['hands'], 'hands')
+        k = as_count(s['over_budget'] if s.get('over_budget') is not None else 0, 'over_budget')
+        assert k <= n, f'over_budget {k} > hands {n}'
+        budget = s.get('budget_ms') if s.get('budget_ms') is not None else DEFAULT_BUDGET_MS
+        assert type(budget) is int and budget > 0
+        worst = None
+        top = None
+        if extremes:
+            top = s.get('unintended_max_ms')
+            assert top is None or type(top) is int
+            worst = []
+            for w in s.get('worst_hands') or []:
+                assert isinstance(w, dict) and type(w.get('unintended_ms')) is int
+                worst.append({'hand_id': w.get('hand_id'), 'table_id': w.get('table_id'),
+                              'unintended_ms': w['unintended_ms']})
+        p99 = s.get('unintended_p99_ms')
+        assert p99 is None or type(p99) is int
+        cells.append({'kind': s['kind'], 'shape': s['shape'], 'n': n, 'overBudget': k,
+                      'budgetMs': budget, 'maxMs': top, 'p99Ms': p99,
+                      'p50Ms': s.get('unintended_p50_ms'), 'worstHands': worst})
 except Exception as exc:
     print(f'standby-engine: hand_gap_check_unreadable: {exc}', file=sys.stderr)
     sys.exit(2)
+
+ALPHA = 1 - CONFIDENCE
+
+
+def worst_text(worst):
+    if worst is None:
+        return 'worst_hands=unavailable (grader predates worst_hands)'
+    if not worst:
+        return 'worst_hands=[]'
+    return 'worst_hands=[' + ', '.join(f"{w['hand_id']}:{w['unintended_ms']}ms" for w in worst) + ']'
+
+
+breaches = []
+pools = {}
+for c in cells:
+    # Rule 1: one multi-second stall fails at any sample size.
+    if c['maxMs'] is not None:
+        observed, measure = c['maxMs'], 'max_ms'
+    else:
+        # p99 never exceeds the maximum, so p99 > ceiling proves max > ceiling.
+        observed, measure = c['p99Ms'], 'p99_ms(lower bound of max)'
+    c['hardCeilingBreached'] = observed is not None and observed > HARD_CEILING_MS
+    if c['hardCeilingBreached']:
+        breaches.append({'kind': c['kind'], 'shape': c['shape'], 'n': c['n'], 'rule': 'hard_ceiling',
+                         'overBudget': c['overBudget'], 'observedMs': observed, 'worstHands': c['worstHands'],
+                         'verdict': f"kind={c['kind']} shape={c['shape']} n={c['n']} rule=hard_ceiling "
+                                    f"{measure}={observed} > ceiling_ms={HARD_CEILING_MS} {worst_text(c['worstHands'])}"})
+    # Rules 2 and 3: the share of over-budget hands, tested on enough hands.
+    if c['n'] >= MIN_CELL_HANDS:
+        c['judged'] = 'cell'
+        c['pValue'] = over_budget_p_value(c['n'], c['overBudget'])
+        if c['pValue'] < ALPHA:
+            breaches.append({'kind': c['kind'], 'shape': c['shape'], 'n': c['n'], 'rule': 'over_budget_share',
+                             'overBudget': c['overBudget'], 'pValue': c['pValue'], 'worstHands': c['worstHands'],
+                             'verdict': f"kind={c['kind']} shape={c['shape']} n={c['n']} rule=over_budget_share "
+                                        f"over_budget={c['overBudget']}/{c['n']} budget_ms={c['budgetMs']} "
+                                        f"p_value={c['pValue']:.4g} < {ALPHA:.2g} (allowed share "
+                                        f"{ALLOWED_OVER_BUDGET_RATE:.0%}, one-sided binomial, {CONFIDENCE:.0%} confidence) "
+                                        f"max_ms={c['maxMs']} {worst_text(c['worstHands'])}"})
+    else:
+        c['judged'] = 'insufficient_sample'
+        c['pValue'] = None
+        pools.setdefault(c['kind'], []).append(c)
+
+pooled = []
+for kind, members in sorted(pools.items()):
+    n = sum(m['n'] for m in members)
+    k = sum(m['overBudget'] for m in members)
+    p = over_budget_p_value(n, k)
+    if any(m['worstHands'] is None for m in members):
+        worst = None
+    else:
+        worst = sorted((w for m in members for w in m['worstHands']),
+                       key=lambda w: -w['unintended_ms'])[:WORST_HANDS_SHOWN]
+    names = '+'.join(m['shape'] for m in members)
+    pooled.append({'kind': kind, 'shapes': [m['shape'] for m in members], 'n': n, 'overBudget': k, 'pValue': p})
+    if p < ALPHA:
+        breaches.append({'kind': kind, 'shape': f'pooled({names})', 'n': n, 'rule': 'over_budget_share_pooled',
+                         'overBudget': k, 'pValue': p, 'worstHands': worst,
+                         'verdict': f"kind={kind} shape=pooled({names}) n={n} rule=over_budget_share_pooled "
+                                    f"over_budget={k}/{n} p_value={p:.4g} < {ALPHA:.2g} (cells under "
+                                    f"{MIN_CELL_HANDS} hands, allowed share {ALLOWED_OVER_BUDGET_RATE:.0%}) "
+                                    f"{worst_text(worst)}"})
+
 summary = {
-    'status': status,
+    'status': 'not_armed' if status == 'not_armed' else ('fail' if breaches else 'pass'),
     'windowMinutes': window_minutes,
     'handsInSoak': hands_in_soak,
+    'rules': {'budgetMs': DEFAULT_BUDGET_MS, 'allowedOverBudgetRate': ALLOWED_OVER_BUDGET_RATE,
+              'confidence': CONFIDENCE, 'minCellHands': MIN_CELL_HANDS, 'hardCeilingMs': HARD_CEILING_MS},
+    'extremesAvailable': extremes,
     'breachCount': len(breaches),
     'breaches': breaches,
+    'cells': [{k: v for k, v in c.items() if k != 'p50Ms'} for c in cells],
+    'pools': pooled,
 }
 print(json.dumps(summary))
-if status == 'fail' or len(breaches) > 0:
-    print(f'standby-engine: FAIL unintended hand-gap delay exceeded budget on {len(breaches)} graded shape(s):', file=sys.stderr)
+if breaches:
+    print(f'standby-engine: FAIL unintended hand-gap delay: {len(breaches)} verdict(s):', file=sys.stderr)
     for b in breaches:
-        print(
-            f"  kind={b.get('kind')} shape={b.get('shape')} hands={b.get('hands')} "
-            f"unintended_p50_ms={b.get('unintended_p50_ms')} unintended_p95_ms={b.get('unintended_p95_ms')} "
-            f"unintended_p99_ms={b.get('unintended_p99_ms')} budget_ms={b.get('budget_ms')} "
-            f"over_budget={b.get('over_budget')}",
-            file=sys.stderr,
-        )
+        print(f"  {b['verdict']}", file=sys.stderr)
     sys.exit(1)
 sys.exit(0)
 PY_HAND_GAP

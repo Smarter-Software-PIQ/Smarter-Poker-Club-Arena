@@ -688,6 +688,39 @@ function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameConte
 }
 
 /**
+ * 2026-11-24: a six-handed Sit & Go (six entrants, two paid 65 / 35, no ante), for the hold'em tournament raise
+ * defence card in the Sit & Go format.
+ */
+function sixMaxSngContext(seats: number, stackBB: number): LeagueGameContext {
+  return {
+    gameMode: 'tournament',
+    format: 'sng',
+    ante: 0,
+    tournament: {
+      schemaVersion: 1,
+      contextStatus: 'complete',
+      contextIssues: [],
+      playersLeft: seats,
+      spotsPaid: 2,
+      entrants: seats,
+      avgStackChips: stackBB * BB,
+      medianStackChips: stackBB * BB,
+      seatsPerTable: seats,
+      nearBubble: false,
+      inMoney: false,
+      payoutPct: [65, 35],
+      currentSmallBlind: SB,
+      currentBigBlind: BB,
+      currentAnte: 0,
+      nextSmallBlind: SB * 2,
+      nextBigBlind: BB * 2,
+      nextAnte: 0,
+      nextBlindInMin: 10,
+    },
+  };
+}
+
+/**
  * 2026-11-13: the same MTT at its final table (every remaining player seated
  * here, all in the money), for the Omaha first-in cards: the rule acts only
  * when the whole field is at this table (HorseOmahaTournamentFirstIn.ts).
@@ -3315,6 +3348,56 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 ]);
 
 /**
+ * 2026-11-22 Horse Switch lane (Wave 10.1): dark dev-only NLH tournament cards
+ * grading `holdemTournamentAggressionIsPriced` (EV + ICM priced postflop
+ * replacement for `v57TournamentAggression`) across 6-max BBA MTT, 6-max Final
+ * Table ICM MTT, and 2-max HU MTT. Arm A switches the priced postflop layer ON
+ * alongside v57TournamentAggression; Arm B keeps legacy v57TournamentAggression.
+ * Strictly in DEVELOPMENT_LEAGUE_CARDS, never LEAGUE_MATCHUPS.
+ */
+export const HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: 'mtt6_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 30,
+    context: bigBlindAnteMttContext(6, 30),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+  {
+    name: 'mtt6_ft_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    stackBB: 25,
+    context: finalTableMttWithStacksContext(6, 25),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+  {
+    name: 'mtt_hu_holdem_tournament_aggression_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    stackBB: 25,
+    context: finalTableMttContext(2, 25),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v57TournamentAggression: true, holdemTournamentAggressionIsPriced: true },
+    b: { v57TournamentAggression: true },
+  },
+]);
+
+/**
  * DEVELOPMENT CARDS: declared like a nightly card and dealt by the same
  * runMatchup, but by name only, for a declared grade run
  * (src/scripts/horseLeagueCard.ts --card=<name>). They are NOT in LEAGUE_MATCHUPS:
@@ -3327,6 +3410,292 @@ export const HOLDEM_BLANKET_OFF_CANDIDATE_CARDS: readonly LeagueMatchup[] = Obje
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced V2 empirical priors, default OFF, dark):
+  // both arms carry holdemPersonaPostflop on (its production row); a prices the four V87 spots it scales
+  // (range c-bet, turn takeaway, OOP check-trap, check-raise into a stabber) by EV against the line range
+  // and measured live NLH empirical priors (holdemEmpiricalPriors.ts), b keeps the persona frequencies.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_persona_postflop_is_priced',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
+  // The same question heads-up, where every postflop pot is heads-up and all four spots are reachable.
+  {
+    name: 'hu_holdem_persona_postflop_is_priced',
+    seats: 2,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true, holdemPersonaPostflopIsPriced: true },
+    b: { holdemPersonaPostflop: true },
+  },
+  // 2026-11-22 Horse Switch lane (v87RiverBlockBetTrapIsPriced, default OFF, dark):
+  // arm B keeps production v87RiverBlockBetTrap on; arm A switches on its EV-priced replacement
+  // (HorseHoldemV87RiverBlockBetTrapIsPriced.ts) at both the OOP river lead and facing-raise sites.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v87_river_block_bet_trap_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v87RiverBlockBetTrap: true, v87RiverBlockBetTrapIsPriced: true },
+    b: { v87RiverBlockBetTrap: true },
+  },
+  // The same question heads-up, where OOP heads-up river block-bet trap spots are frequent.
+  {
+    name: 'hu_v87_river_block_bet_trap_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v87RiverBlockBetTrap: true, v87RiverBlockBetTrapIsPriced: true },
+    b: { v87RiverBlockBetTrap: true },
+  },
+  // 2026-11-22 Horse Switch lane (holdemCommittedNoPairIsPriced, default OFF, locked off-only
+  // pending re-grade after EV pricing repair): dedicated cash6 PRIMARY + HU GUARD cards in
+  // DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS) for unified grade-holdem-option.mjs runs.
+  {
+    name: 'cash6_holdem_committed_no_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'hu_holdem_committed_no_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemCommittedNoPairIsPriced: true },
+    b: {},
+  },
+  // 2026-11-22 Horse Switch lane (holdemRiverBluffIsPriced, default OFF, dark):
+  // arm B keeps production riverBluffBaseline on; arm A switches on its EV-priced replacement
+  // (HorseHoldemRiverBluffIsPriced.ts) on unopened / checked-to heads-up NLH rivers.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_river_bluff_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffBaseline: true, holdemRiverBluffIsPriced: true },
+    b: { riverBluffBaseline: true },
+  },
+  // The same question heads-up, where unopened / checked-to heads-up NLH rivers are frequent.
+  {
+    name: 'hu_holdem_river_bluff_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffBaseline: true, holdemRiverBluffIsPriced: true },
+    b: { riverBluffBaseline: true },
+  },
+  // 2026-11-22 Horse Switch lane (holdemFlopTurnBluffIsPriced, default OFF, dark):
+  // arm B keeps production flopTurnBluffBaseline on; arm A switches on its EV-priced replacement
+  // (HorseHoldemFlopTurnBluffIsPriced.ts) on unopened / checked-to single-board 2-card NLH flops
+  // and turns. Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via
+  // horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_flop_turn_bluff_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { flopTurnBluffBaseline: true, holdemFlopTurnBluffIsPriced: true },
+    b: { flopTurnBluffBaseline: true },
+  },
+  // The same question heads-up, where unopened / checked-to NLH flop and turn spots are frequent.
+  {
+    name: 'hu_holdem_flop_turn_bluff_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { flopTurnBluffBaseline: true, holdemFlopTurnBluffIsPriced: true },
+    b: { flopTurnBluffBaseline: true },
+  },
+  // 2026-11-22 Horse Switch lane (holdemRiverBluffMultiwayIsPriced, default OFF, dark):
+  // arm B keeps production riverBluffMultiway on; arm A switches on its EV-priced replacement
+  // (HorseHoldemRiverBluffMultiwayIsPriced.ts) on unopened / checked-to single-board 2-card NLH
+  // multiway rivers (opponents >= 2). Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS);
+  // graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
+  // Full-ring 9-max guard card: highest multiway river frequency (3-way and 4-way+ rivers).
+  {
+    name: 'cash9_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
+  // Heads-up inert guard card: proves 0 divergent pairs heads-up (strict opponents >= 2 isolation).
+  {
+    name: 'hu_holdem_river_bluff_multiway_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverBluffMultiway: true, holdemRiverBluffMultiwayIsPriced: true },
+    b: { riverBluffMultiway: true },
+  },
+  ...HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS,
+  // 2026-11-21 Horse Switch lane (v66BetRaisedOnePairIsPriced, default OFF, dark):
+  // arm B keeps production V66 on; arm A switches on its EV-priced replacement
+  // (HorseHoldemV66RaisedOnePairIsPriced.ts) at the flop/turn bet-then-raised one-pair site.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v66_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v66BetRaisedOnePair: true, v66BetRaisedOnePairIsPriced: true },
+    b: { v66BetRaisedOnePair: true },
+  },
+  // The same question heads-up, where flop/turn bet-then-raised one-pair spots are frequent.
+  {
+    name: 'hu_v66_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v66BetRaisedOnePair: true, v66BetRaisedOnePairIsPriced: true },
+    b: { v66BetRaisedOnePair: true },
+  },
+  // 2026-11-22 Horse Switch lane (holdemRiverLeadRangeIsPriced, default OFF, dark):
+  // arm B keeps production riverLeadRange on; arm A switches on its EV-priced OOP river lead
+  // replacement (HorseHoldemRiverLeadRangeIsPriced.ts) at both the bluff-lead and value-lead sites.
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_holdem_river_lead_range_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverLeadRange: true, holdemRiverLeadRangeIsPriced: true },
+    b: { riverLeadRange: true },
+  },
+  // The same question heads-up, where OOP river lead spots into the turn aggressor are frequent.
+  {
+    name: 'hu_holdem_river_lead_range_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { riverLeadRange: true, holdemRiverLeadRangeIsPriced: true },
+    b: { riverLeadRange: true },
+  },
+  // 2026-11-22 Horse Switch lane (v67RiverBetRaisedOnePairIsPriced, default OFF, dark):
+  // arm B keeps production v67RiverBetRaisedOnePair on; arm A switches on its EV-priced NLH
+  // river replacement (HorseV67RiverBetRaisedOnePairPriced.ts) across all three V67 sites
+  // (river raise stratum, block-bet raised fold, and v67Class/shade67 committed & V38 overrides).
+  // Declared in DEVELOPMENT_LEAGUE_CARDS (never LEAGUE_MATCHUPS); graded by name via horseLeagueCard.ts.
+  {
+    name: 'cash6_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
+  // Full-ring 9-max guard card: multiway river raised-bet bluff-catch density.
+  {
+    name: 'cash9_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 9,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
+  // Heads-up guard card: active HU river bet-then-raised one-pair & block-bet spots.
+  {
+    name: 'hu_v67_river_bet_raised_one_pair_is_priced',
+    variant: 'nlh',
+    seats: 2,
+    pairs: 6000,
+    stackBB: 100,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { v67RiverBetRaisedOnePair: true, v67RiverBetRaisedOnePairIsPriced: true },
+    b: { v67RiverBetRaisedOnePair: true },
+  },
 ]);
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
@@ -3555,6 +3924,44 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'nlh',
     pairs: 6000,
     a: { holdemDangerBoardEquityIsPriced: true },
+    b: {},
+  },
+  // 2026-11-22 HORSE DECISIONS lane (horseSlowplayIsPriced, default OFF, Evidence NOT MET on HVH48 D+E n=13 < 20):
+  // replaces the H4 monster slowplay coin flip with deterministic EV pricing against empirical fold/stab priors,
+  // continuous free-card erosion, and heroBubbleFactor. Declared dark card; OPTION_SWITCH_REFUSED (0 migrations).
+  {
+    name: 'nlh_horse_slowplay_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { horseSlowplayIsPriced: true },
+    b: {},
+  },
+  // 2026-11-22 HORSE DECISIONS lane (v78NoCommittingBluffRaiseIsPriced, default OFF, Evidence NOT MET on HVH48 D+E):
+  // replaces the v78 40%-stack committing bluff-raise veto with deterministic EV pricing against empirical fold-to-raise
+  // priors and heroBubbleFactor. Declared dark card; OPTION_SWITCH_REFUSED (0 migrations).
+  {
+    name: 'nlh_v78_committing_bluff_raise_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { v78NoCommittingBluffRaiseIsPriced: true },
+    b: {},
+  },
+  // 2026-11-22 HORSE DECISIONS lane (v17PosIsPriced, default OFF, OPTION_SWITCH_REFUSED, 0 migrations):
+  // the V17 players-behind bluff table priced from the measured field fold-through. Cash and MTT cards.
+  {
+    name: 'nlh_v17_pos_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { v17PosIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_mtt_v17_pos_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    stackBB: 40,
+    context: bigBlindAnteMttContext(6, 40),
+    a: { v17PosIsPriced: true },
     b: {},
   },
   // 2026-11-21 Hold'em Strategy lane (cashDefenceTrimColdCalls, default OFF):
@@ -5399,6 +5806,65 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemTournamentAllInCallIsPriced: true },
     b: {},
   },
+  // 2026-11-24 HOLD'EM TOURNAMENT RAISE DEFENCE (three options, default OFF;
+  // NLH-TOURNAMENT-SWEEP L1/L2/L4, HorseHoldemTournamentRaiseDefence.ts). Each
+  // card isolates one option, arm A on, arm B today's brain, with the live
+  // M state and the deal-seeded mood clock. Heads-up 18bb (a Spin endgame /
+  // heads-up SNG: winner-take-all, chip EV), six-handed 17bb big-blind-ante
+  // MTT (blinds facing steals), six-handed 22bb big-blind-ante MTT (re-raises
+  // after an open, the depth the sweep measured). Declared at 12bb first: the
+  // mirror league's openers jam or fold at 12bb, so nobody faced a non-all-in
+  // open and both cards were inert there (2026-11-24, v2 run). The options
+  // stay default OFF until their evidence is met.
+  {
+    name: 'hu_holdem_tournament_heads_up_big_blind_defence_is_priced_18bb',
+    seats: 2,
+    stackBB: 18,
+    context: winnerTakeAllSpinContext(2, 18),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentHeadsUpBigBlindDefenceIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'mtt6_holdem_tournament_blind_defence_is_priced_17bb',
+    seats: 6,
+    stackBB: 17,
+    context: bigBlindAnteMttWithMContext(6, 17),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentBlindDefenceIsPriced: true },
+    b: {},
+  },
+  // The six-handed Sit & Go format (2026-11-24): all three options together, 17bb, no ante, two paid.
+  {
+    name: 'sng6_holdem_tournament_raise_defence_is_priced_17bb',
+    seats: 6,
+    stackBB: 17,
+    context: sixMaxSngContext(6, 17),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {
+      holdemTournamentHeadsUpBigBlindDefenceIsPriced: true,
+      holdemTournamentBlindDefenceIsPriced: true,
+      holdemTournamentCommittedRaiseIsPriced: true,
+    },
+    b: {},
+  },
+  {
+    name: 'mtt6_holdem_tournament_committed_raise_is_priced_22bb',
+    seats: 6,
+    stackBB: 22,
+    context: bigBlindAnteMttWithMContext(6, 22),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemTournamentCommittedRaiseIsPriced: true },
+    b: {},
+  },
   // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF
   // (omahaCommitZoneThreeBetPriceRelief, default OFF; PLO6 tournament-folds
   // study, docs/changelog/2026-11-14-plo6-commit-zone-price-relief.md). Six-
@@ -5535,6 +6001,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // sign: arm A is still "probe on".
   { name: 'v17_river_probe', pairs: 6000, a: { v17RiverProbe: true }, b: {} },
   { name: 'shortdeck_v17', variant: 'short_deck', pairs: 6000, a: {}, b: { v17ShortDeck: false } },
+  // 2026-11-22 HORSE DECISIONS lane (v17ShortDeckIsPriced, default OFF, OPTION_SWITCH_REFUSED, 0 migrations):
+  // the priced Short Deck multiway shift against the fixed V17 overlay. Horse-vs-Horse: informational only.
+  {
+    name: 'shortdeck_v17_priced',
+    variant: 'short_deck',
+    pairs: 6000,
+    a: { v17ShortDeckIsPriced: true },
+    b: {},
+  },
   // ── V18 (2026-08-26) ──
   { name: 'v18_squeeze_response', pairs: 6000, a: {}, b: { v18Squeeze: false } },
   // ── V29-V33 (2026-09-01) ── THE SOLVER STACK HAD NO ABLATION MATCHUP AT
@@ -7936,6 +8411,21 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'server/src/engine/AMultiBoardBluffTrimIsPriced.law.test.ts and via dedicated paired ' +
       'multi-board NLH/PLO4 bomb-pot evaluation. What would change this: extending HorseLeague ' +
       'to deal multi-board bomb-pot hands.',
+  },
+  {
+    name: 'horse_run_it_twice_is_priced',
+    variant: 'nlh',
+    a: { horseRunItTwiceIsPriced: true },
+    b: {},
+    reason:
+      'HorseLeague exercises HorseLogic.decide only and never runs all-in Run-It-Twice offers ' +
+      'or ServerTableEngineRunout.horseRitRuns (nor does it change chip EV, which is identical ' +
+      'across 1/2/3 runs because rake and BBJ are deducted once), whereas horseRunItTwiceIsPriced ' +
+      '(DEFAULT OFF, OPTION_SWITCH_REFUSED) acts exclusively on main-thread all-in RIT offers via ' +
+      'HorseRunItTwiceSwitch, so 0 of 6,000 pairs can ever diverge in this league harness. ' +
+      'Verified deterministically in server/src/engine/HorseRunItTwicePriced.test.ts and via ' +
+      'declared 20,431-decision replay in docs/horse-option-authority.d/horseRunItTwiceIsPriced.UNREGISTERED.md. ' +
+      'What would change this: extending HorseLeague to run ServerTableEngineRunout RIT offers.',
   },
 ] as UnmeasurableMatchup[]);
 

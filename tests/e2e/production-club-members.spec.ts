@@ -226,12 +226,6 @@ async function attachMembersProbe(page: Page, probe: MembersProbe, testInfo: Tes
   });
 }
 
-async function openRosterTools(page: Page) {
-  const trigger = page.getByRole('button', { name: 'Sort And Roster Tools', exact: true });
-  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-}
-
 function directoryButton(page: Page) {
   return page
     .getByRole('navigation', { name: 'Member Navigation' })
@@ -244,7 +238,11 @@ async function openMembers(page: Page, probe: MembersProbe): Promise<number> {
   await expect(page).not.toHaveURL(/\/auth(?:\/|\?|$)/, { timeout: 30_000 });
   await expect(page.locator('[data-players-mode="simple"]')).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
-  await openRosterTools(page);
+  await expect(page.locator('.arena-workspace-mast')).not.toContainText('Member Directory');
+  await expect(
+    page.getByRole('button', { name: 'Sort And Roster Tools', exact: true })
+  ).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Sort Players', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: 'Player Management' })).toHaveCount(1);
   await expect(page.getByRole('list', { name: 'Club Member Directory' })).toBeVisible();
   await expect
@@ -686,7 +684,7 @@ test.describe('Production Kings Club Players', () => {
     );
     expect(savedPositions).toEqual([448]);
     await directoryButton(page).click();
-    await openRosterTools(page);
+
     await expect(sort).toHaveValue('name');
     await expect
       .poll(() => viewport.evaluate((node) => node.scrollTop), { timeout: 30_000 })
@@ -715,7 +713,7 @@ test.describe('Production Kings Club Players', () => {
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await expect(page.locator('#mm-player-name')).toContainText(alias);
     await directoryButton(page).click();
-    await openRosterTools(page);
+
     await expect(search).toHaveValue(alias);
     await expect(sort).toHaveValue('search');
     await expect(sort).toBeDisabled();
@@ -770,23 +768,17 @@ test.describe('Production Kings Club Players', () => {
           ).toBeLessThanOrEqual(frame!.x + frame!.width + 0.5);
         }
       }
-      const consoleFrame = await page.locator('.members-console').boundingBox();
-      expect(consoleFrame).not.toBeNull();
-      for (const control of await page
-        .locator('.members-console')
-        .locator(
-          '.members-search input, .members-view-filter select, .members-sort select, .members-columns, .members-export, .members-select-loaded'
-        )
-        .all()) {
-        const box = await control.boundingBox();
-        expect(box).not.toBeNull();
-        expect(box!.x).toBeGreaterThanOrEqual(consoleFrame!.x);
-        expect(box!.x + box!.width).toBeLessThanOrEqual(consoleFrame!.x + consoleFrame!.width);
-        expect(
-          await control.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
-          'a roster control clips its own content'
-        ).toBe(true);
-      }
+      await expectContainedControls(page, '.members-console', '.members-search input');
+      await expectContainedControls(
+        page,
+        '.members-display-controls',
+        '.members-display-controls select, .members-display-controls .members-columns'
+      );
+      await expectContainedControls(
+        page,
+        '.members-roster-footer',
+        '.members-roster-footer .members-columns, .members-roster-footer .members-export, .members-roster-footer .members-select-loaded'
+      );
       // Permission-specific controls are checked whenever the actual viewer
       // can see them; the required search and sort checks always execute.
       for (const control of await page
@@ -838,7 +830,11 @@ test.describe('Production Kings Club Players', () => {
     }
 
     const chromeText = (
-      await page.locator('.members-page-bar, .members-console').allInnerTexts()
+      await page
+        .locator(
+          '.members-page-bar, .members-console, .members-display-controls, .members-roster-footer'
+        )
+        .allInnerTexts()
     ).join('\n');
     expect(chromeText, 'em dash punctuation is forbidden in player UI copy').not.toContain(
       '\u2014'
@@ -1305,7 +1301,7 @@ test('account roster preferences survive logout and a cache-empty second device'
     await acknowledgePreferenceWelcome(writer.page);
     const route = `clubs/${clubId}/members`;
     await writer.page.goto(route, { waitUntil: 'domcontentloaded' });
-    await openRosterTools(writer.page);
+
     await writer.page
       .getByRole('combobox', { name: 'Sort Players', exact: true })
       .selectOption('name');
@@ -1331,7 +1327,7 @@ test('account roster preferences survive logout and a cache-empty second device'
     reader = await logoutAndOpenFreshPreferenceDevice(writer.page, baseURL, account);
     await reader.page.goto(route, { waitUntil: 'domcontentloaded' });
     await acknowledgePreferenceWelcome(reader.page);
-    await openRosterTools(reader.page);
+
     await expect(
       reader.page.getByRole('combobox', { name: 'Filter Players', exact: true })
     ).toHaveValue('online', { timeout: 45_000 });

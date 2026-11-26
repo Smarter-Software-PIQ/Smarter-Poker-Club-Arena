@@ -97,7 +97,9 @@ describe("the install watch's hour starts when the dispatcher may send", () => {
     expect(threeHourlyDeferralWindow(Date.parse('2026-11-22T21:35:11Z'))?.clearAt).toBe(
       '2026-11-22T22:10:00.000Z'
     );
-    expect(threeHourlyDeferralWindow(Date.parse('2026-11-22T20:29:59Z'))).toBeNull();
+    // The 16:00 CST cycle's deferral opens at 13:30 CST (19:30Z) since O21 part 2.
+    expect(threeHourlyDeferralWindow(Date.parse('2026-11-22T19:29:59Z'))).toBeNull();
+    expect(threeHourlyDeferralWindow(Date.parse('2026-11-22T19:30:00Z'))?.cycleLabel).toBe('16:00');
     expect(threeHourlyDeferralWindow(Date.parse('2026-11-22T22:10:00Z'))).toBeNull();
 
     const { body } = newestBody(THREE_HOURLY);
@@ -122,9 +124,10 @@ describe("the install watch's hour starts when the dispatcher may send", () => {
     // The watch never pages a file before the dispatcher may send it: the SQL
     // deferral is never shorter than the dispatcher's.
     expect(SQL_DEFER_MINUTES).toBeGreaterThanOrEqual(THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES);
-    expect([DISPATCHER_DEFER_MINUTES_BEFORE_O21, SQL_DEFER_MINUTES]).toContain(
-      THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES
-    );
+    // O21 part 2 (2026-11-25): the dispatcher now holds exactly as long as the
+    // watch believes; it never returns to the pre-O21 90 minutes.
+    expect(THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES).toBe(SQL_DEFER_MINUTES);
+    expect(THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES).not.toBe(DISPATCHER_DEFER_MINUTES_BEFORE_O21);
     // The helper looks as many whole hours ahead as its deferral reaches:
     // date_trunc('hour') of cycleStart - 150m is cycleStart - 3h.
     const offsets = /unnest\(ARRAY\[([\d, ]+)\]\) AS off/.exec(body);

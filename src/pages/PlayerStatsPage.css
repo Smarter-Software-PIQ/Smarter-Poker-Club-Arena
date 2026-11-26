@@ -2928,11 +2928,14 @@
   .stats-page.arena-workspace .stats-range-row,
   .stats-page.arena-workspace .stats-pill-tabs {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 5.25rem), 1fr));
     grid-auto-flow: row;
     gap: 4px;
     overflow: visible;
     padding-inline: 0;
+  }
+  .stats-page.arena-workspace .stats-pill-tabs {
+    /* Leave room for Performance between both six-pixel chrome edges. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5rem), 1fr));
   }
   .stats-page.arena-workspace .stats-range-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));

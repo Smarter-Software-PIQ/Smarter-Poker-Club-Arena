@@ -2741,8 +2741,13 @@ arrow says the direction in force. */
   box-sizing: border-box;
   max-width: 100%;
   order: -4;
-  margin: 3px 0;
-  padding: 10px;
+  margin: 6px 0;
+  padding: 5px 14px 6px;
+}
+@media (max-width: 500px) {
+  .page:global(.arena-trade) .glass > :global(.cashier-my-wallets) {
+    padding: 4px 10px 5px;
+  }
 }
 .page:global(.arena-trade) .glass > :global(.arena-switch),
 .page:global(.arena-trade) .tabs:not([hidden]) {

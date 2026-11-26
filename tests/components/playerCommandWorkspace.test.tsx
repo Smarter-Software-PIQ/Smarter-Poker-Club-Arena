@@ -117,8 +117,6 @@ const tree = (entry = '/clubs/club-a/members') => (
   </MemoryRouter>
 );
 async function settle() {
-  const tools = screen.queryByRole('button', { name: 'Sort And Roster Tools' });
-  if (tools?.getAttribute('aria-expanded') === 'false') fireEvent.click(tools);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(300);
   });
@@ -645,7 +643,7 @@ it('adopts Active Now on upgrade while retaining the old workspace search and co
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).toBeChecked();
 });
 
-it('opens a single club transaction history from the simple and advanced player directory', async () => {
+it('opens and closes a single club transaction history from the player directory', async () => {
   render(tree());
   await settle();
   expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
@@ -653,7 +651,6 @@ it('opens a single club transaction history from the simple and advanced player 
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(toggle);
   expect(screen.getByRole('region', { name: 'Transaction History' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
   fireEvent.click(screen.getByRole('button', { name: 'Club Transaction History' }));
   expect(screen.queryByRole('region', { name: 'Transaction History' })).toBeNull();
 });

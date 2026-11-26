@@ -131,31 +131,6 @@
 .members-search input::-webkit-search-cancel-button {
   filter: invert(1) opacity(0.55);
 }
-.members-filter-rail {
-  position: relative;
-  margin-top: 12px;
-  padding-right: 22px;
-  overflow: hidden;
-}
-
-.members-filter-rail::after {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  display: grid;
-  width: 28px;
-  height: 44px;
-  place-items: center end;
-  padding-right: 3px;
-  pointer-events: none;
-  color: var(--members-cyan);
-  content: '\203A';
-  background: linear-gradient(90deg, transparent, var(--members-carbon) 58%);
-  font-family: Rajdhani, sans-serif;
-  font-size: 1.4rem;
-}
-
 .members-filters {
   display: flex;
   min-width: 0;
@@ -1070,8 +1045,7 @@
   outline-offset: 3px;
 }
 
-/* Simple directory keeps management one tap away; Advanced owns the full desk.
-   The mode toggle and, in Advanced, the live totals sit in the page bar. */
+/* The directory header carries its live totals. */
 .ca-page-bar.members-page-bar {
   width: var(--members-content);
   margin: 0 auto 12px;
@@ -1261,10 +1235,6 @@
 .members-group-role:focus-visible {
   outline: 2px solid #45adff;
   outline-offset: 2px;
-}
-body:has([data-players-mode='simple']):not(:has(.members-tools-trigger[aria-expanded='true']))
-  nav[aria-label='Club Operations Sections'] {
-  display: none;
 }
 .members-active-view {
   min-height: 44px;
@@ -1514,4 +1484,17 @@ body:has([data-players-mode='simple']):not(:has(.members-tools-trigger[aria-expa
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.members-simple .members-display-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.members-roster-footer {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }

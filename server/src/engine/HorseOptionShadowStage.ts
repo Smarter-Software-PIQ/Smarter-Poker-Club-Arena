@@ -178,6 +178,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   ),
   // hold'em tournaments: preflop all-in calls and postflop calls facing a jam (every street)
   holdemTournamentAllInCallIsPriced: holdemStage(['nlh_tournament']),
+  // hold'em tournaments preflop: a blind facing a non-all-in open (heads-up and three or more dealt) and a non-all-in
+  // re-raise after the Horse's own raise or a committing raise (the raise defence wiring acts preflop only)
+  holdemTournamentHeadsUpBigBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
+  holdemTournamentBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
+  holdemTournamentCommittedRaiseIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
   // NLH cash preflop facing a single open (the V85/V87 defence path reads it at cash tables, Lightning included)
   cashDefenceTrimColdCalls: holdemStage(['nlh_cash', 'nlh_lightning'], ['preflop']),
 });

@@ -103,6 +103,7 @@ import type {
   TournamentTabProps,
 } from '../../components/tournament/details/types';
 import { normaliseTabId, tabsFor } from '../../components/tournament/details/types';
+import { playableLevelSeconds } from '../../utils/tournamentPlayableClock';
 import { blindLevelMinutes } from '../../components/lobby/tournamentFigures';
 import { reportError } from '../../utils/errorReporter';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
@@ -910,32 +911,9 @@ export default function TournamentDetails({
     // Revive through tournamentEventBridge (the t-break pattern) if wanted;
     // the tables list already refreshes from server truth on poll/visibility.
 
-    // ── Blind level changes: update tournament state immediately ──
-    const unsubBlind = masterBus.subscribeDebounced(
-      'BLIND_LEVEL_CHANGE',
-      (event) => {
-        if (event.payload.tournamentId !== tournamentId || !isCurrent()) return;
-        /**
-         * `- 1`: THE PAYLOAD IS THE DISPLAY LEVEL, THE COLUMN IS AN INDEX.
-         *
-         * This wrote the 1-based payload straight into `current_level`, which
-         * is contractually the 0-based index the engine uses on
-         * `blindStructure[]`. It is the worst of the three places that had this
-         * wrong, because it does not merely mis-render one component: it
-         * corrupts the shared `tournament` object that EVERY tab reads off this
-         * page, so between an advance and the next poll the Detail hero, the
-         * Blinds tab and anything else reading the row were all one level
-         * ahead, consistently, from a single bad write. See MasterBus's
-         * BLIND_LEVEL_CHANGE for the contract.
-         */
-        const displayLevel = Number(event.payload.level);
-        if (!Number.isFinite(displayLevel) || displayLevel < 1) return;
-        patchTournament((prev) =>
-          prev ? ({ ...prev, current_level: displayLevel - 1 } as Tournament) : prev
-        );
-      },
-      300
-    );
+    // A level_up also emits TOURNAMENT_UPDATED. Its quiet read below gets the
+    // committed index, blinds and start timestamp together; the broadcast
+    // alone cannot pair a new level with its engine clock.
 
     // ── Tournament break notifications ──
     const unsubBreak = masterBus.subscribeDebounced(
@@ -959,7 +937,6 @@ export default function TournamentDetails({
     return () => {
       masterBus.removeRegisteredChannel(channelKey);
       unsubElim();
-      unsubBlind();
       unsubBreak();
       unsubBreakEnd();
     };
@@ -1923,16 +1900,23 @@ export default function TournamentDetails({
     const rows = raw as Parameters<typeof blindLevelMinutes>[0];
     return raw.map((row: Record<string, unknown>, i: number) => {
       const level = Number(row.level ?? i + 1);
+      const isBreak = Boolean(row.isBreak ?? row.is_break ?? false);
+      const duration =
+        playableLevelSeconds(
+          blindLevelMinutes(rows, level) * 60,
+          tournament?.buy_in_amount,
+          isBreak
+        ) / 60;
       return {
         level,
         smallBlind: Number(row.smallBlind ?? row.small_blind ?? 0),
         bigBlind: Number(row.bigBlind ?? row.big_blind ?? 0),
         ante: Number(row.ante ?? 0),
-        duration: blindLevelMinutes(rows, level),
-        isBreak: Boolean(row.isBreak ?? row.is_break ?? false),
+        duration,
+        isBreak,
       };
     });
-  }, [tournament?.blind_structure]);
+  }, [tournament?.blind_structure, tournament?.buy_in_amount]);
 
   /**
    * The tab contract, built once. Every tab takes exactly this and nothing

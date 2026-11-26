@@ -2411,21 +2411,18 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
           title="Cashier"
           context={clubName}
           subtitle={
-            roleUnknown
-              ? 'Club Wallets'
-              : ['agent', 'sub_agent', 'super_agent'].includes(userRole)
-                ? 'Agent Wallets'
-                : 'Club Wallets'
+            !roleUnknown && ['agent', 'sub_agent', 'super_agent'].includes(userRole)
+              ? undefined
+              : 'Club Wallets'
           }
         />
       )}
       {/* ── Wallet Display: compact live balances using the cashier directory layout. ── */}
       {!embeddedClubId && user?.id && clubId && (
         <section className={`${styles.walletHeader} arena-case`} aria-label="Wallet Balances">
-          <h2 className="arena-section-title">
-            Wallet Balances <small>Chips</small>
-          </h2>
+          <h2 className="arena-section-title">Wallet Balances</h2>
           <DynamicWallet
+            cashierLedger
             showArtwork={false}
             actionClassName={styles.wordAction}
             refreshKey={walletRevision}
