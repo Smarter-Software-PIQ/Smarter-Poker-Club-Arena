@@ -459,7 +459,7 @@ describe('the records worktree goes where agents may write, and its commit runs 
       recordsWorkRoot({
         env: { CA_RECORDS_ROOT: '/x/y' },
         platform: 'darwin',
-        repoRoot: '/Users/a/repo',
+        repoRoot: '/srv/repo',
       })
     ).toBe('/x/y');
     expect(
@@ -473,14 +473,14 @@ describe('the records worktree goes where agents may write, and its commit runs 
       recordsWorkRoot({
         env: {},
         platform: 'darwin',
-        repoRoot: '/Users/smarter.poker/Documents/club-arena',
+        repoRoot: '/srv/club-arena',
       })
     ).toThrow(/CA_RECORDS_ROOT/);
     expect(() => recordsWorkRoot({ env: {}, platform: 'darwin', repoRoot: '/Volumes/wt' })).toThrow(
       /CA_RECORDS_ROOT/
     );
     expect(
-      typeof recordsWorkRoot({ env: {}, platform: 'linux', repoRoot: '/home/runner/repo' })
+      typeof recordsWorkRoot({ env: {}, platform: 'linux', repoRoot: '/opt/runner/repo' })
     ).toBe('string');
   });
 
