@@ -39,6 +39,7 @@ import {
   nextMergeWindow,
   ordinaryMigrations,
   outageOverride,
+  pushAction,
 } from '../scripts/ci/migration-merge-window.mjs';
 import { releaseFreezeAdmission } from '../scripts/ci/release-freeze-admission.mjs';
 
@@ -146,6 +147,15 @@ describe('a migration merges only inside its install window', () => {
     );
   });
 
+  it('a push to main opens a near window, closes a just-ended one, and otherwise does nothing', () => {
+    // 13:00 cycle window 13:10-13:27 CST = 19:10-19:27Z.
+    expect(pushAction(at('2026-11-26T18:50:00Z'), C)).toBe('keep'); // opens in 20 min
+    expect(pushAction(at('2026-11-26T19:15:00Z'), C)).toBe('keep'); // open now
+    expect(pushAction(at('2026-11-26T19:35:00Z'), C)).toBe('sweep'); // closed 8 min ago
+    expect(pushAction(at('2026-11-26T20:00:00Z'), C)).toBe('none');
+    expect(pushAction(at('2026-11-26T04:54:00Z'), C)).toBe('none'); // the 22:54 merge
+  });
+
   it('every description fits the 140-character status limit', () => {
     for (const iso of ['2026-11-26T22:31:00Z', '2026-11-26T18:31:00Z']) {
       expect(verdict(iso, [mig(ORDINARY)]).description.length).toBeLessThanOrEqual(140);
@@ -163,7 +173,14 @@ describe('a migration merges only inside its install window', () => {
   it('is kept by a trusted workflow: default-branch code only, a keeper at :10 and a closing sweep at :40', () => {
     const raw = read('.github/workflows/migration-merge-window.yml');
     const wf = parse(raw) as Record<string, any>;
-    expect(Object.keys(wf.on)).toEqual(['pull_request_target', 'schedule', 'workflow_dispatch']);
+    expect(Object.keys(wf.on)).toEqual([
+      'pull_request_target',
+      'push',
+      'schedule',
+      'workflow_dispatch',
+    ]);
+    expect(wf.on.push.branches).toEqual(['main']);
+    expect(raw).toContain('push) node scripts/ci/migration-merge-window.mjs on-push ;;');
     expect(wf.on.pull_request_target.types).toEqual(
       expect.arrayContaining([
         'opened',
