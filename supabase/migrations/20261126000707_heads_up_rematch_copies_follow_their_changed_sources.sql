@@ -321,16 +321,26 @@ REVOKE ALL ON FUNCTION public.fn_ca_rematch_take_seat_for_payer(uuid,integer,uui
 -- @probe-exempt: public.fn_take_seat_and_buy_in is not redefined by this file; its name is only a replacement anchor inside smarter_private.heads_up_rematch_rederive, which reads it and installs the copy
 
 -- The two copies whose bodies changed run once before COMMIT, on the changed
--- lines: the registration lane call, and the tournament row read. An unknown
--- tournament and an unknown payer are refused by the body itself; everything
--- is undone with the subtransaction.
+-- lines: the registration lane call, and the tournament row read. Both lines
+-- come before anything that depends on the player or the game existing.
+--
+-- FIXED IN PLACE 2026-11-26 01:10 UTC. The first install was refused, with
+-- nothing committed, by the first probe: the unknown payer reached
+-- fn_lock_daily_mission_user, which raised P0001 "Daily Missions profile not
+-- found for player ...". That is the body's own refusal of a player who does
+-- not exist, raised AFTER the changed line ran, and exactly what the probe
+-- should expect of an unknown payer. A P0001 from the body is therefore the
+-- probe passing. A body that cannot run (an unknown function or column, a
+-- wrong type, a syntax error) raises a different SQLSTATE, is not caught
+-- here, and still refuses the whole migration. Everything is undone with the
+-- subtransaction either way.
 -- @probe-for: public.fn_ca_rematch_register_for_payer
 DO $probe$
 BEGIN
   PERFORM public.fn_ca_rematch_register_for_payer(gen_random_uuid(), false, gen_random_uuid());
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+  NULL; -- 'probe-unwind', or the body's own P0001 refusal of an unknown payer or game
 END $probe$;
 
 -- @probe-for: public.fn_ca_rematch_register_core_for_payer
@@ -339,7 +349,7 @@ BEGIN
   PERFORM public.fn_ca_rematch_register_core_for_payer(gen_random_uuid(), false, gen_random_uuid());
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+  NULL; -- 'probe-unwind', or the body's own P0001 refusal of an unknown payer or game
 END $probe$;
 
 DO $post$
