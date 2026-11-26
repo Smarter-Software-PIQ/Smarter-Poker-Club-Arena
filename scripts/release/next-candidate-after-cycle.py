@@ -13,10 +13,36 @@ The Stage run that owned the cycle therefore waits ONCE, until the cycle start
 plus WAIT_AFTER_START_MINUTES (after the post-cutover migration window opens at
 +10 and the nightly freeze releases at 04:15), reads the serving engine and,
 when the cycle did not seal, starts one Backup certification of main titled
-"Backup after keep-serving <cycle>". It certifies on a fresh copy (refresh
-forced) and completes about 60 to 70 minutes later, inside the next cycle's
-election window [next - 130m, next - 30m) = [start + 50m, start + 150m), where
-its successful completion is admitted exactly like a push Backup.
+"Backup after keep-serving <cycle> <nonce>" on a fresh copy (refresh forced).
+
+O27b (2026-11-26), what was not true in O27 and the arithmetic that is:
+
+  * The dispatch is sent with the job token. Backup refused it on every
+    secret-holding job, so run 45775146770 skipped refresh and certify and
+    still ended green in nine seconds. Stage now records the exact intent
+    first (scripts/ci/dispatch-intent.mjs, operation
+    backup-after-keep-serving) and Backup proves it, so the run certifies.
+  * GitHub creates no workflow_run event for a run the job token started
+    (nine of nine job-token Backup runs, 2026-11-24 to 2026-11-26). The
+    completion of this Backup therefore does NOT start the next election;
+    a push to main, a delivered schedule or a Backup completion a person
+    or a push started still does. What this run gives the next cycle is a
+    fresh certificate, in time:
+
+      next cutoff            = next start - 30m  = start + 150m
+      election window        = [next start - 130m, next start - 30m)
+                             = [start + 50m, start + 150m)
+      dispatch               = start + 25m (WAIT_AFTER_START_MINUTES)
+      certification          = plan 1m + refresh 15m + certify 55m = 71m
+      certificate written    = start + 96m, 54m before the cutoff
+      latest useful duration = 124m (start + 149m)
+
+    A run that ends in under 25 minutes certified nothing (refused,
+    deferred or failed); it is never a certificate that arrived early.
+    Should a person start the same titled run by hand, its completion is a
+    workflow_run GitHub does create, and it lands inside the election
+    window exactly when the run took 25 to 124 minutes, which every real
+    certification does.
 
 This script only decides. It never dispatches anything itself.
 
@@ -39,9 +65,17 @@ from zoneinfo import ZoneInfo
 
 CHICAGO = ZoneInfo('America/Chicago')
 WAIT_AFTER_START_MINUTES = 25
+# The arithmetic of the docstring, pinned by the law test: a three-hourly
+# cycle's next cutoff and election window measured from this cycle's start,
+# and what one real certification takes (plan 1, refresh 15, certify 55).
+NEXT_CUTOFF_AFTER_START_MINUTES = 150
+ELECTION_OPENS_AFTER_START_MINUTES = 50
+CERTIFICATION_MINUTES = 71
 # Stage claims at most 100 minutes before the cutoff and the cutoff is the
 # cycle start minus 30, so an owner is never more than 155 minutes ahead of
-# start + 25. The job's own timeout bounds what it may sleep.
+# start + 25. This job starts only after the owner's selection, which runs at
+# the cutoff (start - 30m), so its real wait is about 55 minutes; the job's
+# own timeout (80) bounds the wait plus the five minutes of reads after it.
 MAX_WAIT_MINUTES = 70
 # A target missed by less than this (a slow runner) still dispatches at once.
 LATE_GRACE_MINUTES = 30

@@ -1043,12 +1043,29 @@ jobs:
     # post-cutover migration window opens at +10 and the nightly freeze
     # releases at 04:15), reads live /health and, when the cycle did not
     # seal, starts ONE Backup certification of main on a fresh copy, titled
-    # "Backup after keep-serving <cycle>". It completes about 60-70 minutes
-    # later, inside the next election window [start + 50m, start + 150m),
-    # where its successful completion is admitted like a push Backup. It
-    # never selects, offers or advances a release; the next cycle's own
-    # election and certificate gates decide. Decisions live in
-    # scripts/release/next-candidate-after-cycle.py.
+    # "Backup after keep-serving <cycle> <nonce>". A real certification
+    # takes about 71 minutes (plan 1, refresh 15, certify 55), so the
+    # certificate is written near start + 96m, 54 minutes before the next
+    # cutoff at start + 150m. It never selects, offers or advances a
+    # release; the next cycle's own election and certificate gates decide.
+    # Decisions live in scripts/release/next-candidate-after-cycle.py.
+    #
+    # O27b (2026-11-26). The dispatch is sent with the job token, and Backup
+    # refuses a job-token dispatch on every secret-holding job: run
+    # 45775146770 had refresh and certify skipped and still ended green.
+    # This job is therefore a trusted dispatch-intent sender
+    # (scripts/ci/dispatch-intent.mjs, operation backup-after-keep-serving):
+    # it records the exact intent as an artifact of this run BEFORE sending,
+    # Backup proves it before reading anything, and this job then reads the
+    # run it started and fails when its refresh job was skipped.
+    #
+    # WHAT THIS DOES NOT DO. GitHub creates no workflow_run event for a run
+    # the job token started (nine of nine job-token Backup runs from
+    # 2026-11-24 to 2026-11-26 produced no listener run), so the completion
+    # of this Backup does NOT start the next election. The election still
+    # needs a push to main, a delivered schedule or a Backup completion a
+    # person or a push started. The listener clause for "Backup after
+    # keep-serving " stays for a run a person starts with after_cycle.
     if: needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Start The Next Cycle When This One Did Not Seal
     needs: [detect, selection]
@@ -1065,6 +1082,7 @@ jobs:
           ref: ${{ needs.detect.outputs.protected_sha }}
           sparse-checkout: |
             scripts/release/next-candidate-after-cycle.py
+            scripts/ci/dispatch-intent.mjs
           sparse-checkout-cone-mode: false
       - name: Download the daily selection artifact
         uses: actions/download-artifact@v4
@@ -1095,10 +1113,47 @@ jobs:
             exit 0
           fi
           echo "did_not_seal=true" >> "$GITHUB_OUTPUT"
-          title="Backup after keep-serving $RELEASE_DATE"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+      # A job token cannot start trusted work: Backup admits this dispatch
+      # only as the exact intent recorded here, on this run attempt, once
+      # (scripts/ci/dispatch-intent.mjs, operation backup-after-keep-serving).
+      - name: Record the exact Backup intent before sending it
+        id: intent
+        if: steps.next.outputs.did_not_seal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents" \
+            --input "after_cycle=$RELEASE_DATE" --input refresh=true > "$RUNNER_TEMP/keep-serving-intent.json"
+          jq -c .body "$RUNNER_TEMP/keep-serving-intent.json" > "$RUNNER_TEMP/keep-serving-dispatch.json"
+          echo "nonce=$(jq -r .nonce "$RUNNER_TEMP/keep-serving-intent.json")" >> "$GITHUB_OUTPUT"
+      - name: Publish the intent on this exact run attempt
+        if: steps.next.outputs.did_not_seal == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-intents-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-intents
+          if-no-files-found: error
+          retention-days: 7
+      - name: Start one Backup of main and prove it is doing the work
+        if: steps.next.outputs.did_not_seal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          INTENT_NONCE: ${{ steps.intent.outputs.nonce }}
+          REASON: ${{ steps.next.outputs.reason }}
+        run: |
+          set -euo pipefail
+          [[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]] || { echo '::error::No recorded Backup intent.'; exit 1; }
+          jq -e --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" \
+            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce' \
+            "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
+          title="Backup after keep-serving $RELEASE_DATE $INTENT_NONCE"
           sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" \
-            -f ref=main -f 'inputs[refresh]=true' -f "inputs[after_cycle]=$RELEASE_DATE" >/dev/null
+          gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
           backup_id=''
           for _ in $(seq 1 12); do
             backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=workflow_dispatch&per_page=30" |
@@ -1108,9 +1163,26 @@ jobs:
             sleep 5
           done
           [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] \
-            || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle may have no election run."; exit 1; }
-          echo "Cycle $RELEASE_DATE did not seal ($reason): Backup run $backup_id certifies main and starts the next election."
-          { echo "### Next Cycle"; echo ""; echo "- $reason: Backup run $backup_id (\`$title\`) certifies main and starts the next election."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle has no fresh certificate from this run."; exit 1; }
+          # NEVER GREEN FOR NOTHING (O27b). A run that appeared is not a run
+          # that works: 45775146770 appeared, skipped refresh and certify, and
+          # ended green. Read its refresh job once plan has finished (bounded,
+          # about four minutes). skipped = refused; an unreadable answer is
+          # "could not tell" and is said as a warning, never as success.
+          refresh=unknown
+          for _ in $(seq 1 24); do
+            jobs=$(gh api "repos/$REPO/actions/runs/$backup_id/jobs?per_page=100" 2>/dev/null) || jobs='{}'
+            refresh=$(jq -r '[.jobs[]? | select(.name == "refresh")][0] | if . == null then "unknown" elif .conclusion == "skipped" then "skipped" else "admitted" end' <<< "$jobs" 2>/dev/null) || refresh=unknown
+            [ "$refresh" = unknown ] || break
+            sleep 10
+          done
+          if [ "$refresh" = skipped ]; then
+            echo "::error title=KEEP-SERVING BACKUP REFUSED::Backup run $backup_id (\"$title\") skipped its refresh job: it certifies nothing, and its own outcome job reports the same."
+            exit 1
+          fi
+          [ "$refresh" = admitted ] || echo "::warning title=KEEP-SERVING BACKUP UNKNOWN::Could not read whether Backup run $backup_id started its refresh job; its own outcome job fails the run if it certifies nothing."
+          echo "Cycle $RELEASE_DATE did not seal ($REASON): Backup run $backup_id certifies main for the next cycle (refresh job: $refresh)."
+          { echo "### Next Cycle"; echo ""; echo "- $REASON: Backup run $backup_id (\`$title\`) certifies main for the next cycle. Its completion does not start the election (a job-token run fires no workflow_run)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
       - name: Tell the owner in Messenger that this cycle did not seal
         # One plain line per cycle, idempotent in the database
         # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).
