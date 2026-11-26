@@ -88,7 +88,7 @@ def backup(repo, sha, limit, status):
         raise ValueError('Backup retarget conflicts with protected producer provenance')
     db, seed = cert['database'], cert['seed']
     if (cert['sha'] != sha or cert['verdict'] != 'pass' or cert['reasons']
-            or cert['fatalLogLines'] != 0 or cert['soakSeconds'] < 1800
+            or cert['fatalLogLines'] != 0 or not soak_is_sufficient(cert)
             or epoch(cert['certifiedAt']) > limit or compat['targetSha'] != sha
             or db['restoreValidated'] is not True
             or db['restoreErrors'] != 0 or seed['tablesFailed'] != 0
@@ -103,6 +103,29 @@ def backup(repo, sha, limit, status):
             'forwardAdoptionSeconds': cert.get('forwardAdoptionSeconds'),
             'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat,
             'schemaEvidence': schema_evidence}
+
+
+SOAK_SECONDS = 900
+UNJUDGED_SOAK_SECONDS = 1800
+
+
+def soak_is_sufficient(cert):
+    """A 900 s soak counts only with a passing memory growth check.
+
+    Since 2026-11-26 `standby-engine certify` soaks for SOAK_SECONDS and writes
+    `memoryGrowthCheck` (server/standby/standby-engine.sh
+    judge_soak_memory_growth). A certificate that carries the check must show
+    status `pass`, whatever its soak length. A certificate without the key was
+    made by the earlier script, which judged no memory: it stays selectable
+    only with that script's full UNJUDGED_SOAK_SECONDS soak.
+    """
+    soak = cert['soakSeconds']
+    if type(soak) is not int:
+        return False
+    if 'memoryGrowthCheck' not in cert:
+        return soak >= UNJUDGED_SOAK_SECONDS
+    check = cert['memoryGrowthCheck']
+    return soak >= SOAK_SECONDS and isinstance(check, dict) and check.get('status') == 'pass'
 
 
 EVIDENCE_FILE = 'schema-evidence.json'

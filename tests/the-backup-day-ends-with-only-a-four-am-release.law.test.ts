@@ -3274,7 +3274,7 @@ git() { echo "2026-11-22T10:15:00Z"; }
     );
     expect(certify.run).toContain('database_refresh_failed');
     expect(backup.jobs.certify.steps.find((s: any) => s.id === 'certify').run).toContain(
-      'standby-engine certify $SHA 1800'
+      'standby-engine certify $SHA 900'
     );
   });
 });

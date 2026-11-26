@@ -361,7 +361,7 @@ the actual serving predecessor and both reconnect proofs. Inherited status alone
 does not qualify; unchanged controls allow selection of the older physical
 candidate.
 
-### 3.3 What `standby-engine certify <sha> 1800` does
+### 3.3 What `standby-engine certify <sha> 900` does
 
 In `server/standby/standby-engine.sh` `cmd_certify`:
 
@@ -384,9 +384,19 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
    observed count at that size while retaining the fleet-silence denominator.
 5. Crash test: SIGKILLs PID 1 through a pidfd and waits up to 600 s for
    Docker's restart policy to bring the same container back on the same SHA.
-6. Soak for `soak_s` (1800 from the workflow): running, liveness ok, no
-   restart, no container change, hands dealt (`dealRate.handsInWindow` must
-   rise when seats exist), bounded memory. Then `check_soak_hand_gap_delay`
+6. Soak for `soak_s` (900 from the workflow since 2026-11-26; 1800 before):
+   running, liveness ok, no restart, no container change, hands dealt
+   (`dealRate.handsInWindow` must rise when seats exist). Every loop pass
+   (about 15 s) also samples the engine's `/health` `memory.rssMb` and the
+   container's `docker stats` reading; after the soak
+   `judge_soak_memory_growth` refuses a build whose median pairwise slope is
+   over 141 MiB per minute across the whole soak and over half of that in
+   each half (`memory_growth_exceeded`), and withholds the certificate when
+   fewer than 8 samples covering half the soak were readable
+   (`memory_growth_unreadable`). The full check is the certificate's
+   `memoryGrowthCheck`; the selector accepts a soak under 1800 s only with
+   that check at `pass`
+   (`tests/a-shorter-soak-judges-memory-growth.law.test.ts`). Then `check_soak_hand_gap_delay`
    runs `fn_ca_hand_gap_unintended_delay` over the steady-state soak window
    (when installed on the copy) and judges each graded (kind, shape) cell as
    a sample, not by its slowest hand (since 2026-11-24): any single gap more
