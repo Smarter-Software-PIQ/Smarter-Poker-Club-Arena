@@ -13,6 +13,9 @@ on:
       - 'scripts/schema-rebuild/**'
       - '.github/workflows/full-schema-rebuild.yml'
   workflow_dispatch:
+concurrency:
+  group: full-shared-schema-rebuild-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
