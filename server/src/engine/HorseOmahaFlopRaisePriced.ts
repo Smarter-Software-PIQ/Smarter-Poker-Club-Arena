@@ -11,10 +11,12 @@
  * chain's answer is a RAISE: the raise is priced at each candidate raise-to (the legal minimum, the chain's own size,
  * half way to the pot raise and the pot raise) beside the call and the fold, against the bettor's MEASURED flop range
  * (HorseOmahaMeasuredBettorRange: the shown strength of a player who made this street's wager on his line and size,
- * showdown bias corrected; his own shown record shrunk toward it). The best stands: a larger or smaller raise, or the
- * call (or the fold) when no raise prices above them by more than the equity estimate's error. It never makes a raise
- * out of a call or a fold, so the owner rules on draws (never raised out of position; in position only combo draws)
- * keep holding: they run after this rule, on its answer.
+ * showdown bias corrected; his own shown record shrunk toward it). RAISE OR NOT: the call (or the fold) replaces the
+ * raise only when it prices above it by more than the equity estimate's error. WHICH SIZE (2026-11-26): when the raise
+ * stays, the sizes are compared with each other on the same footing, the same equity sample with no realization
+ * discount between two raises and no margin, among the sizes that survive the raise-or-not question. It never makes a
+ * raise out of a call or a fold, so the owner rules on draws (never raised out of position; in position only combo
+ * draws) keep holding: they run after this rule, on its answer.
  *
  *   EV(fold) = 0;  EV(call) = R x eq x (P + C) x (1 - rake) - C
  *   EV(raise to T) = f x P x (1 - rake) + (1 - f) x (R' x e_c x (P + A + X) x (1 - rake) - A)
