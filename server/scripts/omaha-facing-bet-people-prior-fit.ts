@@ -27,6 +27,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { Card } from '../src/types.js';
 import { scoreOmahaHiPartial } from '../src/engine/HorseEval.js';
+import { OMAHA_BET_READ_VALUE_BEATS } from '../src/engine/HorseOmahaBetRead.js';
 import {
   OMAHA_EV_BLUFF_POOL,
   OMAHA_EV_VALUE_SHARE,
@@ -93,6 +94,8 @@ function beatShare(hole: Card[], board: Card[]): number {
   return (beat + tie / 2) / N;
 }
 
+/** A shown hand is the record's value when it beats OMAHA_BET_READ_VALUE_BEATS of holdings: beat share <= 1 - that. */
+const OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE = 1 - OMAHA_BET_READ_VALUE_BEATS;
 type Cell = { n: number; k: number };
 const cell = (): Cell => ({ n: 0, k: 0 });
 const BUCKETS = ['under40', 'mid', 'big', 'over', 'raise'] as const;
@@ -109,6 +112,10 @@ const tab = (): Tab => {
 };
 const bluff = tab();
 const fold = tab();
+/** Per cell: the share of a person's shown bets that do NOT beat 80% of holdings (beat share > 0.2): the unit the
+ *  per-opponent record (HorseOmahaBetRead, OMAHA_BET_READ_VALUE_BEATS = 0.8) counts as not value. The record moves
+ *  the prior by its ratio to this people share, so the two are compared in the same unit. */
+const nonTop20 = tab();
 /** River only: the shown bettor's region. core = inside the price's value region (beat share <= V), bottom = the
  *  weakest OMAHA_EV_BLUFF_POOL of holdings, middle = between. The river verdict prices each region separately. */
 type Reg = { n: number; core: number; middle: number };
@@ -204,6 +211,7 @@ for (const f of files) {
             cell: bluff[street][active > 2 ? 'mw' : 'hu'][bucket],
             V,
             reg: riverRegions[active > 2 ? 'mw' : 'hu'][bucket],
+            nt: nonTop20[street][active > 2 ? 'mw' : 'hu'][bucket],
           });
         }
       }
@@ -239,6 +247,8 @@ for (const f of files) {
       // the price's other region: turn, every non-value holding; river, the weakest OMAHA_EV_BLUFF_POOL of holdings
       // (a shown hand between the value edge and that pool is counted as value: the conservative side)
       if (s > (b.street === 'river' ? Math.max(b.V, 1 - OMAHA_EV_BLUFF_POOL) : b.V)) b.cell.k++;
+      b.nt.n++;
+      if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.nt.k++;
       if (b.street === 'river') {
         b.reg.n++;
         if (s <= b.V) b.reg.core++;
@@ -286,6 +296,7 @@ const data = {
   handsWithAShownPersonRead: used,
   bluff: shape(bluff),
   fold: shape(fold),
+  nonTop20: shape(nonTop20),
   caller: { turn: callerOf(callerSum.turn), river: callerOf(callerSum.river) },
   riverRegions: Object.fromEntries(
     (['hu', 'mw'] as const).map((w) => [

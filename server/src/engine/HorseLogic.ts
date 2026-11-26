@@ -15118,9 +15118,9 @@ function omahaFacingBetEvCount(
           ? OMAHA_BET_READ_TURN_REALIZATION.inPosition
           : OMAHA_BET_READ_TURN_REALIZATION.outOfPosition;
     }
-    // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, the non-value share is the balanced share
-    // for the price, moved only by the bettor's own shown bets (HorseOmahaEquilibriumAnchor); no field read acts.
-    // A first bet only: a raise keeps today's price (no per-opponent record of shown raises exists to move it).
+    // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, a bet or a raise: the non-value share is the
+    // people-only measured share (river: three measured regions), the balanced share weighting a thin cell, moved
+    // by the bettor's own shown bets (HorseOmahaFacingBetPeoplePrior); a raise reads the people raise cell only.
     if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);

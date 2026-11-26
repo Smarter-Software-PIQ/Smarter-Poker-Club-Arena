@@ -201,6 +201,100 @@ export const OMAHA_FACING_BET_PEOPLE_PRIOR_DATA = {
       },
     },
   },
+  nonTop20: {
+    turn: {
+      hu: {
+        under40: {
+          n: 173,
+          share: 0.688,
+        },
+        mid: {
+          n: 156,
+          share: 0.532,
+        },
+        big: {
+          n: 297,
+          share: 0.434,
+        },
+        over: {
+          n: 0,
+          share: null,
+        },
+        raise: {
+          n: 150,
+          share: 0.213,
+        },
+      },
+      mw: {
+        under40: {
+          n: 69,
+          share: 0.681,
+        },
+        mid: {
+          n: 82,
+          share: 0.488,
+        },
+        big: {
+          n: 121,
+          share: 0.446,
+        },
+        over: {
+          n: 0,
+          share: null,
+        },
+        raise: {
+          n: 34,
+          share: 0.176,
+        },
+      },
+    },
+    river: {
+      hu: {
+        under40: {
+          n: 145,
+          share: 0.566,
+        },
+        mid: {
+          n: 141,
+          share: 0.404,
+        },
+        big: {
+          n: 156,
+          share: 0.417,
+        },
+        over: {
+          n: 0,
+          share: null,
+        },
+        raise: {
+          n: 54,
+          share: 0.222,
+        },
+      },
+      mw: {
+        under40: {
+          n: 38,
+          share: 0.553,
+        },
+        mid: {
+          n: 39,
+          share: 0.282,
+        },
+        big: {
+          n: 41,
+          share: 0.268,
+        },
+        over: {
+          n: 0,
+          share: null,
+        },
+        raise: {
+          n: 8,
+          share: 0.25,
+        },
+      },
+    },
+  },
   caller: {
     turn: {
       n: 1473,
