@@ -611,18 +611,26 @@ PY_LIFECYCLE
 # Returns 0 on pass or not_armed, 1 on breach (printing the verdicts to
 # stderr), and 2 when unreadable.
 check_soak_hand_gap_delay() {
-  local since="$1" window_minutes="${2:-15}" raw
+  local since="$1" window_minutes="${2:-15}" crash_at="${3:-0}" recovered_at="${4:-0}" raw
   [[ "$since" =~ ^[0-9]+$ ]] || return 2
   [[ "$window_minutes" =~ ^[0-9]+$ ]] || return 2
-  raw=$(psql_db -At -v since="$since" -v window_minutes="$window_minutes" <<'SQL_HAND_GAP'
+  [[ "$crash_at" =~ ^[0-9]+$ ]] || return 2
+  [[ "$recovered_at" =~ ^[0-9]+$ ]] || return 2
+  raw=$(psql_db -At -v since="$since" -v window_minutes="$window_minutes" \
+          -v crash_at="$crash_at" -v recovered_at="$recovered_at" <<'SQL_HAND_GAP'
 \set QUIET on
 SET statement_timeout = '15s';
 SELECT set_config('standby.since', :'since', false) AS _s,
-       set_config('standby.window_minutes', :'window_minutes', false) AS _w \gset
+       set_config('standby.window_minutes', :'window_minutes', false) AS _w,
+       set_config('standby.crash_at', :'crash_at', false) AS _c,
+       set_config('standby.recovered_at', :'recovered_at', false) AS _r \gset
 DO $gap$
 DECLARE
   v_since bigint := current_setting('standby.since')::bigint;
   v_win int := LEAST(GREATEST(current_setting('standby.window_minutes')::int, 1), 15);
+  v_crash bigint := current_setting('standby.crash_at')::bigint;
+  v_recovered bigint := current_setting('standby.recovered_at')::bigint;
+  v_harness json := '[]'::json;
   v_grader regprocedure := to_regprocedure('public.fn_ca_hand_gap_unintended_delay(timestamp with time zone,integer)');
   v_extremes boolean;
   v_shapes json;
@@ -665,11 +673,41 @@ BEGIN
       $q$ INTO v_shapes USING v_win;
     END IF;
 
+    -- The certification's own crash drill (crash_container): a pair whose gap
+    -- spans [crash_at, recovered_at] waited for a SIGKILL the harness sent and
+    -- the restart it measured, not for the engine. Listed by the hand BEFORE
+    -- the gap, as the grader's worst_hands names it, with the grader's own
+    -- pairing (previous hand on the table, gap under 60 s).
+    IF v_crash > 0 AND v_recovered >= v_crash THEN
+      SELECT COALESCE(json_agg(json_build_object(
+               'hand_id', p.id, 'table_id', nx.table_id,
+               'gap_ms', round(extract(epoch FROM nx.started_at - p.ended_at) * 1000)::bigint)
+             ORDER BY p.id), '[]'::json)
+        INTO v_harness
+        FROM public.hand_history nx
+        CROSS JOIN LATERAL (
+          SELECT hh.id, hh.ended_at
+            FROM public.hand_history hh
+           WHERE hh.table_id = nx.table_id
+             AND hh.created_at < nx.created_at
+             AND hh.created_at >= nx.created_at - interval '30 minutes'
+           ORDER BY hh.created_at DESC
+           LIMIT 1) p
+       WHERE nx.created_at >= now() - make_interval(mins => v_win)
+         AND nx.created_at < now()
+         AND nx.table_id IS NOT NULL
+         AND nx.started_at > p.ended_at
+         AND nx.started_at - p.ended_at < interval '60 seconds'
+         AND p.ended_at < to_timestamp(v_recovered)
+         AND nx.started_at > to_timestamp(v_crash);
+    END IF;
+
     v_result := json_build_object(
       'status', 'graded',
       'windowMinutes', v_win,
       'handsInSoak', v_hands_in_soak,
       'extremesAvailable', COALESCE(v_extremes, false),
+      'harnessCrashPairs', v_harness,
       'shapes', v_shapes
     );
   END IF;
@@ -724,6 +762,11 @@ try:
     window_minutes = data['windowMinutes']
     extremes = data.get('extremesAvailable') is True
     assert status in ('graded', 'not_armed'), f'status {status!r}'
+    harness = []
+    for h in data.get('harnessCrashPairs') or []:
+        assert isinstance(h, dict) and isinstance(h.get('hand_id'), str) and h['hand_id']
+        assert type(h.get('gap_ms')) is int
+        harness.append({'hand_id': h['hand_id'], 'table_id': h.get('table_id'), 'gap_ms': h['gap_ms']})
     assert type(hands_in_soak) is int and hands_in_soak >= 0
     assert isinstance(shapes, list)
     cells = []
@@ -753,6 +796,44 @@ try:
 except Exception as exc:
     print(f'standby-engine: hand_gap_check_unreadable: {exc}', file=sys.stderr)
     sys.exit(2)
+
+# THE CRASH DRILL IS NOT AN ENGINE STALL (2026-11-26). cmd_certify kills the
+# engine on purpose (crash_container) and measures the restart. A hand in
+# flight then is abandoned (checkCrashRecovery) and a fresh hand is dealt, so
+# the gap from the last hand before the kill to the first after the restart
+# holds the kill and the restart; when that first hand ends inside the soak
+# window the grader grades the pair. Run 45885658741 refused 2238a16342de on
+# one such cash fold pair (34,642 ms, crash recovery 29 s) and 45892895834
+# certified the same engine code with none. Each pair whose gap spans the
+# drill (listed by the SQL above, keyed like worst_hands by the hand before
+# the gap) is taken out of its cell: n, the over-budget count and the maximum
+# are recomputed from the grader's worst hands. A pair not among a cell's
+# worst hands is left in (it then cannot be what breaches the ceiling) and is
+# reported as not located. A legacy grader without worst hands is judged
+# unadjusted.
+harness_ids = {h['hand_id'] for h in harness}
+located = set()
+for c in cells:
+    c['harnessExcluded'] = []
+    if not harness_ids or c['worstHands'] is None:
+        continue
+    out = [w for w in c['worstHands'] if w['hand_id'] in harness_ids]
+    if not out:
+        continue
+    keep = [w for w in c['worstHands'] if w['hand_id'] not in harness_ids]
+    c['harnessExcluded'] = [w['hand_id'] for w in out]
+    located.update(c['harnessExcluded'])
+    c['n'] -= len(out)
+    c['overBudget'] = max(0, c['overBudget'] - sum(1 for w in out if w['unintended_ms'] > c['budgetMs']))
+    # The worst hands are slowest first, so the slowest one kept is the new
+    # maximum. With none kept but hands left, the true maximum is unknown and
+    # the original one stays (strict).
+    if keep:
+        c['maxMs'] = keep[0]['unintended_ms']
+    elif c['n'] == 0:
+        c['maxMs'] = None
+    c['worstHands'] = keep
+cells = [c for c in cells if c['n'] > 0]
 
 ALPHA = 1 - CONFIDENCE
 
@@ -826,10 +907,15 @@ summary = {
     'extremesAvailable': extremes,
     'breachCount': len(breaches),
     'breaches': breaches,
+    'harnessCrashPairs': {'pairs': harness, 'excluded': sorted(located),
+                          'notLocated': sorted(harness_ids - located)},
     'cells': [{k: v for k, v in c.items() if k != 'p50Ms'} for c in cells],
     'pools': pooled,
 }
 print(json.dumps(summary))
+if harness:
+    print(f"standby-engine: hand-gap pairs spanning the crash drill left out: {sorted(located)}"
+          f" (not among any cell's worst hands, kept: {sorted(harness_ids - located)})", file=sys.stderr)
 if breaches:
     print(f'standby-engine: FAIL unintended hand-gap delay: {len(breaches)} verdict(s):', file=sys.stderr)
     for b in breaches:
@@ -1091,7 +1177,7 @@ PY_SPENT
 
 cmd_certify() {
   local sha="$1" soak="${2:-900}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
-  local restart_before restart_after container_id seats
+  local restart_before restart_after container_id seats crash_at=0 recovered_at=0
   valid_sha "$sha"
   started=$(date +%s)
   local result="$CERT_DIR/$sha.json"
@@ -1166,10 +1252,14 @@ cmd_certify() {
     container_id=$(docker inspect -f '{{.Id}}' "$CONTAINER") || return 1
     [ "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")" = unless-stopped ] || return 1
     restart_before=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
+    # The drill's own interval: the hand-gap judge leaves out a pair whose gap
+    # spans it (check_soak_hand_gap_delay, THE CRASH DRILL IS NOT AN ENGINE STALL).
+    crash_at=$(date +%s)
     crash_container "$container_id" || return 1
     t0=$(date +%s)
     if restart_after=$(wait_auto_recovery "$sha" "$container_id" "$restart_before" 600); then
-      boot2=$(( $(date +%s) - t0 ))
+      recovered_at=$(date +%s)
+      boot2=$(( recovered_at - t0 ))
     else record 'did_not_recover_from_crash'; boot2=-1; fi
   fi
 
@@ -1208,7 +1298,7 @@ cmd_certify() {
     [ "$soak_window_min" -lt 1 ] && soak_window_min=1
     [ "$soak_window_min" -gt 15 ] && soak_window_min=15
     hg_rc=0
-    hand_gap_check=$(check_soak_hand_gap_delay "$soak_started" "$soak_window_min") || hg_rc=$?
+    hand_gap_check=$(check_soak_hand_gap_delay "$soak_started" "$soak_window_min" "$crash_at" "$recovered_at") || hg_rc=$?
     if [ "$hg_rc" -eq 1 ]; then
       record 'hand_gap_unintended_delay_exceeded'
     elif [ "$hg_rc" -ne 0 ]; then
