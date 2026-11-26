@@ -10,6 +10,10 @@ PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, heads-
 
 His range: the measured strength histogram of a heads-up river checker (`HorseOmahaRiverOpeningRangeTables.json`, cell `checkfirst` after his check, `ipstart` when the Horse acts first, each split by whether the turn had a wager), fitted by `scripts/ops/omaha-river-opening-range-fit.mjs` from PLO4/PLO5 cash hand_history Nov 17-24 (hole cards of showdown entries with mucked = false only; a checker who later folded or mucked counts as a weak hand). Card removal is exact: the strength bins are cut on the board's holdings, and each bin's weight is moved by the share of its holdings the Horse's cards and the known dead cards leave him. He folds the weakest share of his range.
 
+## 2026-11-26 People Fold And Reachability (lead-7)
+
+His fold for the bluff is now read size by size from his own record, then PEOPLE's measured population for the Horse's line and the size (`HorseOmahaPeopleFold.ts`; answers by people only), then equilibrium, each shrunk to the next by k = 75.9 river answers; the value bet keeps equilibrium moved by his record. The blocker leg is read on every size that clears its margin (the best of those is bet), not only on the best size overall. Before, with the equilibrium prior a pure bluff was worth exactly the check, so the bluff fired once in 254 missed spots of a winning regular. Measured on the current code in `plo-lead7-01TLQer8/plo-bluffs/` (scored replay rows below; probes and mirror with the other bluff options in omahaRiverBluffIsPricedOnRangeAdvantage.md).
+
 ## What Was Measured
 
 All offline (no switch row, no database write); scratch folder `plo-lead7-01TLQer8/plo-postflop/` (BUILD.md, every table). Base = the live switch rows of 2026-11-26 05:45Z.
@@ -38,11 +42,11 @@ Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026
 
 - Baseline: with no record, his fold share against a bet B into a pot P is the equilibrium minimum defence, B / (P + B).
 - Own record: his lifetime public river fold record (OPPONENT-HUD `x.foldToBet` small and big, through `HorseMind.omahaStrongHandCheckRecordsOf`) moves it by m = (F + k g) / (E + k g): F his folds, E the folds equilibrium expects on the sizes he faced (1/3 small, 1/2 big), k = 75.9 river answers (the measured between-player prior of HorseOmahaStrongHandCheck), g = 0.4. The record dominates as it grows.
-- Population weight: the range SHAPE (which hands a checker holds) is the measured pooled table; no pooled fold rate enters.
+- Population weight: the range SHAPE (which hands a checker holds) is the measured pooled table; for the bluff, his fold is people's measured fold for the Horse's line and size (answers by people only, `HorseOmahaPeopleFoldTables.json`), shrunk to equilibrium by k = 75.9 and moved by his record; no Horse answer enters.
 - No unshown cards: the table is fitted from shown cards only; the decision reads the public state, the Horse's own cards and the known dead cards.
 
 ## Replay
 
-- Replay: fixed 3; newlyWrong 2; changed 5; unchanged 864; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm bluff vs off; replayed 869 of 869
-- Replay: fixed 17; newlyWrong 2; changed 22; unchanged 2675; unjudged 3; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm bluff vs off; replayed 2697 of 2697
+- Replay: fixed 9; newlyWrong 4; changed 13; unchanged 856; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm RBB vs off; replayed 869 of 869
+- Replay: fixed 29; newlyWrong 7; changed 39; unchanged 2658; unjudged 3; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm RBB vs off; replayed 2697 of 2697
 - Note (v2, 2026-11-26 08:20Z: his checking range moved by his own river bet rate; the opponent's public river fold and unopened-wager records as of the decision installed for every arm): arm bluff is this option alone; sets are the PLO hand audits' tier-A postflop nodes placed at their node (scratch /Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py); verdict-only.

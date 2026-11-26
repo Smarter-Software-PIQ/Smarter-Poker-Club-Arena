@@ -3558,8 +3558,35 @@ const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as cons
       }))
     )
 );
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-bluffs grade cards (development: dealt by name only, never nightly): the
+ * heads-up turn and river opening bluff (omahaTurnBluffIsPricedOnBlockers, omahaTurnBluffIsPricedOnRangeAdvantage,
+ * omahaRiverBluffIsPricedOnRangeAdvantage, and omahaRiverBluffIsPricedOnBlockers with people's fold prior), each alone, heads-up and 6-max: b is the live set of 2026-11-26, a adds
+ * the option. Same seeds both sides (duplicate pairs).
+ */
+const PLO_OPENING_BLUFF_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  ['turn_blockers', { omahaTurnBluffIsPricedOnBlockers: true }],
+  ['turn_range', { omahaTurnBluffIsPricedOnRangeAdvantage: true }],
+  ['river_blockers', { omahaRiverBluffIsPricedOnBlockers: true }],
+  ['river_range', { omahaRiverBluffIsPricedOnRangeAdvantage: true }],
+];
+const PLO_OPENING_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_OPENING_BLUFF_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6] as const).map((seats) => ({
+        name: `${variant}_omaha_opening_bluff_${part}_${seats === 2 ? 'hu' : '6max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+        b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+      }))
+    )
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...PLO_RIVER_OPENING_GRADE_CARDS,
+  ...PLO_OPENING_BLUFF_GRADE_CARDS,
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   ...PLO_FACING_BET_PRICED_GRADE_CARDS,

@@ -123,6 +123,7 @@ import {
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
+import { omahaOpeningBluffRule } from './HorseOmahaOpeningBluff.js';
 import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
 import {
@@ -3950,6 +3951,27 @@ export interface HorseDecideOpts {
    * continuing hands than of his folding ones (HorseOmahaRiverOpeningBet.ts). Only a check into a bet.
    */
   omahaRiverBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash turn, heads-up,
+   * nothing to call: a final check becomes the best-priced bet only when it is worth more than the check (his fold
+   * share from equilibrium moved by his own turn record, the Horse's share with a card to come when called, the
+   * engine's turn realization) by more than its error AND the Horse's cards remove more of his continuing hands
+   * than of his folding ones (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaTurnBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): the same turn spot and price; the
+   * second leg is the range advantage: the Horse's measured range for its line beats his on this texture and the
+   * hand is in the weakest share of the Horse's range that its value carries at the size
+   * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaTurnBluffIsPricedOnRangeAdvantage?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up,
+   * nothing to call: the price of omahaRiverBluffIsPricedOnBlockers with the range advantage as the second leg
+   * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaRiverBluffIsPricedOnRangeAdvantage?: boolean;
   /**
    * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river facing a
    * wager: a raise with a full house on a trips board that quads or a straight flush can beat (exact count, the
@@ -20465,6 +20487,48 @@ export class HorseLogic {
           );
         }
       }
+      // PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (omahaTurnBluffIsPricedOnBlockers,
+      // omahaTurnBluffIsPricedOnRangeAdvantage, omahaRiverBluffIsPricedOnRangeAdvantage, each default off): a final
+      // heads-up turn or river check with nothing to call becomes the best-priced bluff only when the bet beats the
+      // check by more than its error AND the Horse's cards block his continuing hands, or the range advantage is the
+      // Horse's and the hand is in the weakest share of its range that its value carries
+      // (HorseOmahaOpeningBluff.ts). It changes only a check into a bet.
+      const openingBluffOn = {
+        turnBlockers: opts.omahaTurnBluffIsPricedOnBlockers === true,
+        turnRange: opts.omahaTurnBluffIsPricedOnRangeAdvantage === true,
+        riverRange: opts.omahaRiverBluffIsPricedOnRangeAdvantage === true,
+      };
+      const openingBluffAny =
+        openingBluffOn.turnBlockers || openingBluffOn.turnRange || openingBluffOn.riverRange;
+      const openingBluff = omahaOpeningBluffRule(opening.decision, player, gs, openingBluffOn, {
+        rake: openingBluffAny ? omahaPricedDeps(player, gs).rake : 0,
+        realization: openingBluffAny ? omahaPricedDeps(player, gs).realization : 1,
+        legalize: (d) => this.legalize(d, player, gs, vi),
+        recordOf: (opponent, street) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            street,
+            1
+          ),
+        betRecordOf: (opponent) =>
+          HorseMind.omahaStabDefenceRecordOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            1
+          ),
+      });
+      if (openingBluff.changed && openingBluff.kind && tele) {
+        const receipt =
+          openingBluff.kind === 'turn_blockers'
+            ? 'omaha_turn_bluff_priced_on_blockers'
+            : openingBluff.kind === 'turn_range'
+              ? 'omaha_turn_bluff_priced_on_range'
+              : 'omaha_river_bluff_priced_on_range';
+        noteFire(receipt);
+        noteDecisionRuleReceipt(receipt, opening.decision, openingBluff.decision);
+      }
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise
       // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
@@ -20473,7 +20537,7 @@ export class HorseLogic {
       // (HorseOmahaFlopRaisePriced.ts). It changes only a raise (its size, or into the call or the fold).
       const flopRaiseOn = opts.omahaFlopRaiseIsPriced === true;
       const flopRaise = omahaFlopRaisePricedRule(
-        opening.decision,
+        openingBluff.decision,
         player,
         gs,
         flopRaiseOn,
@@ -20510,21 +20574,21 @@ export class HorseLogic {
           noteFire('omaha_flop_raise_priced_resized');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_resized',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         } else if (flopRaise.changed === 'called') {
           noteFire('omaha_flop_raise_priced_called');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_called',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         } else {
           noteFire('omaha_flop_raise_priced_folded');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_folded',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         }

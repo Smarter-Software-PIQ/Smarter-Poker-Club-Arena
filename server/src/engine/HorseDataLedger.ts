@@ -1453,6 +1453,39 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-7 lane plo-bluffs 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up turn with nothing to call (he checked, or nobody has acted); default off (read === true). A final check becomes the best of the engine's bet sizes only when BOTH the bet beats the full-realization value of the check by more than the error of his fold rate and of the equity sample (his fold share: equilibrium B / (P + B) moved by his own lifetime public turn fold record in the bet's size cell; the Horse's share with a card to come against the strongest share of his hands that continues against the size: the big-draw sampler by tier; the engine's turn realization; his raise-back share scored as the bet lost) AND the Horse's own cards remove more of his continuing hands than of his folding hands on his measured range for his role, line and the board texture. A bet whose share against the continuing hands is above one half is left alone. Changes only a check into a bet (HorseOmahaOpeningBluff.ts). Reads public actions, the Horse's own cards and the known dead cards.",
+    'V94'
+  ),
+  flag(
+    'omahaTurnBluffIsPricedOnRangeAdvantage',
+    "PLO-OWNER lead-7 lane plo-bluffs 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up turn with nothing to call; default off (read === true). The price of omahaTurnBluffIsPricedOnBlockers with the range advantage as the second leg: the Horse's measured range for its role and line beats his on this texture by more than the two histograms' sampling error, and the hand is in the weakest share of the Horse's range that the value in that range carries at the size (value x B / (P + B)). Changes only a check into a bet (HorseOmahaOpeningBluff.ts). Reads public actions, the Horse's own cards and the known dead cards.",
+    'V94'
+  ),
+  flag(
+    'omahaRiverBluffIsPricedOnRangeAdvantage',
+    "PLO-OWNER lead-7 lane plo-bluffs 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up river with nothing to call; default off (read === true). The price of omahaRiverBluffIsPricedOnBlockers (the same verdict) with the range advantage as the second leg: the Horse's measured range for its role and line beats his on this texture by more than the two histograms' sampling error, and the hand is in the weakest share of the Horse's range that the value in that range carries at the size. Changes only a check into a bet (HorseOmahaOpeningBluff.ts). Reads public actions, the Horse's own cards and the known dead cards.",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_bluff_priced_on_blockers',
+    'HorseLogic wager_rules (omahaOpeningBluffRule, omahaTurnBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash turn decision, heads-up, nothing to call, in which the final check became a bet priced above the check on his card-removed fold rate where the Horse cards remove more of his continuing hands than of his folding hands',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_bluff_priced_on_range',
+    'HorseLogic wager_rules (omahaOpeningBluffRule, omahaTurnBluffIsPricedOnRangeAdvantage)',
+    'a PLO4/PLO5 cash turn decision, heads-up, nothing to call, in which the final check became a bet priced above the check where the Horse range beats his and the hand is in the weakest share the range value carries',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_bluff_priced_on_range',
+    'HorseLogic wager_rules (omahaOpeningBluffRule, omahaRiverBluffIsPricedOnRangeAdvantage)',
+    'a PLO4/PLO5 cash river decision, heads-up, nothing to call, in which the final check became a bluff priced above the check where the Horse range beats his and the hand is in the weakest share the range value carries',
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'

@@ -339,6 +339,38 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     price:
       'the bluff against the check by more than his fold rate error, and only where the Horse cards raise his fold share',
   },
+  omahaRiverBluffIsPricedOnRangeAdvantage: {
+    kind: 'priced',
+    range:
+      'the measured heads-up river range (the price), and the measured ranges of both players by role, line and texture (the range advantage), exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his fold share with the Horse cards removed: equilibrium B / (P + B) moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, and only where the Horse range beats his and the hand is in the weakest share that the value in the Horse range carries at the size',
+  },
+  omahaTurnBluffIsPricedOnBlockers: {
+    kind: 'priced',
+    range:
+      'the measured heads-up turn range by role, line and texture (after his check, or in position before acting), exact card removal',
+    equity:
+      'the sampled share of the hand with a card to come against the strongest share of his hands that continues against the size, and against any hand for the check',
+    realization:
+      'his fold share with the Horse cards removed (equilibrium B / (P + B) moved by his own lifetime public turn fold record by size cell), the turn realization for the position, his raise-back share',
+    price:
+      'the bet against the full-realization value of the check by more than the fold rate and sampler errors, and only where the Horse cards raise his fold share',
+  },
+  omahaTurnBluffIsPricedOnRangeAdvantage: {
+    kind: 'priced',
+    range:
+      'the measured heads-up turn ranges of both players by role, line and texture, exact card removal',
+    equity:
+      'the sampled share of the hand with a card to come against the strongest share of his hands that continues against the size, and against any hand for the check',
+    realization:
+      'his fold share with the Horse cards removed (equilibrium B / (P + B) moved by his own lifetime public turn fold record by size cell), the turn realization for the position, his raise-back share',
+    price:
+      'the bet against the full-realization value of the check by more than the fold rate and sampler errors, and only where the Horse range beats his and the hand is in the weakest share that the value in the Horse range carries at the size',
+  },
   omahaRiverCheckedToBetIsMeasured: {
     kind: 'priced',
     range: 'the checker range after his river check (card-impact range, no opponent kind)',
@@ -958,6 +990,33 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
       'his card-removed fold share: equilibrium moved by his own lifetime public river fold record',
     price:
       'the bluff against the check by more than his fold rate error, with a positive blocker effect',
+  },
+  omaha_river_bluff_priced_on_range: {
+    kind: 'priced',
+    range: 'the measured heads-up river ranges of both players, exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his card-removed fold share: equilibrium moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, with the range advantage and inside the bluffs the range value carries',
+  },
+  omaha_turn_bluff_priced_on_blockers: {
+    kind: 'priced',
+    range: 'the measured heads-up turn range by role, line and texture, exact card removal',
+    equity: 'the sampled share of the hand with a card to come against the hands that continue',
+    realization:
+      'his card-removed fold share (equilibrium moved by his own turn fold record), the turn realization, his raise-back share',
+    price:
+      'the bet against the check by more than the fold rate and sampler errors, with a positive blocker effect',
+  },
+  omaha_turn_bluff_priced_on_range: {
+    kind: 'priced',
+    range: 'the measured heads-up turn ranges of both players by role, line and texture',
+    equity: 'the sampled share of the hand with a card to come against the hands that continue',
+    realization:
+      'his card-removed fold share (equilibrium moved by his own turn fold record), the turn realization, his raise-back share',
+    price:
+      'the bet against the check by more than the fold rate and sampler errors, with the range advantage and inside the bluffs the range value carries',
   },
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',

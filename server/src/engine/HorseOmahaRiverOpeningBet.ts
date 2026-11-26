@@ -26,6 +26,13 @@
  * measured between-player prior of HorseOmahaStrongHandCheck), g = 0.4. He folds the WEAKEST share of his range;
  * which hands those are is his strategy (it cannot see the Horse's cards); the share that actually folds given the
  * Horse's cards is read on the card-removed range.
+ * THE BLUFF'S FOLD RATE (2026-11-26 lane plo-bluffs; owner order: the stats are used against people, not Horses): for
+ * omahaRiverBluffIsPricedOnBlockers his fold is read size by size in the order his own record -> people's population
+ * (answers by PEOPLE only to heads-up river first wagers, by game, the Horse's line and the size cell; Horse answers
+ * never enter it; HorseOmahaPeopleFold.ts) -> equilibrium where both are thin, each shrunk to the next by k = 75.9.
+ * The value bet keeps equilibrium moved by his record. The blocker leg is read on every size that clears its margin
+ * (the best of those is bet), not only on the best size overall: with the equilibrium prior a pure bluff is worth
+ * exactly the check, so only a large blocker gain on one size cleared, and the bluff fired once in 254 missed spots.
  *
  *   EV(check) = eq x P x (1 - rake)                       (in position the check ends the hand; first to act it is an
  *                                                           upper bound, so a bluff is never favoured by it)
@@ -47,6 +54,11 @@ import { PairSet, countHoldingsWithout } from './HorseOmahaFacingBetEv.js';
 import { omahaCardImpactAmounts, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaNoCategoricalRulesInScope } from './HorseOmahaNoCategoricalRules.js';
 import { OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS } from './HorseOmahaStrongHandCheck.js';
+import {
+  omahaFoldMultiplierOnPeople,
+  omahaPeopleFoldLineOf,
+  omahaPeopleFoldMultiplier,
+} from './HorseOmahaPeopleFold.js';
 import tables from './HorseOmahaRiverOpeningRangeTables.json' with { type: 'json' };
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -174,11 +186,26 @@ export function omahaRiverOpeningBins(
   board: Card[],
   dead: Card[]
 ): OmahaRiverOpeningBins | null {
-  if (!Array.isArray(hole) || !Array.isArray(board) || board.length !== 5) return null;
+  if (!Array.isArray(board) || board.length !== 5) return null;
+  return omahaOpeningBinsOnBoard(hole, board, dead);
+}
+
+/**
+ * The same exact bin shares on a turn board (four cards) or a river board (five): strength is the hand NOW on the
+ * cards that are out (PLO-OWNER lead-7 lane plo-bluffs 2026-11-26, HorseOmahaOpeningBluff.ts). On five cards it is
+ * omahaRiverOpeningBins.
+ */
+export function omahaOpeningBinsOnBoard(
+  hole: Card[],
+  board: Card[],
+  dead: Card[]
+): OmahaRiverOpeningBins | null {
+  if (!Array.isArray(hole) || !Array.isArray(board)) return null;
+  if (board.length !== 4 && board.length !== 5) return null;
   const n = hole.length;
   if (n !== 4 && n !== 5) return null;
   const boardKeys = new Set(board.map(ck));
-  if (boardKeys.size !== 5) return null;
+  if (boardKeys.size !== board.length) return null;
   const U = DECK.filter((c) => !boardKeys.has(ck(c)));
   const removed = new Set([...hole, ...(Array.isArray(dead) ? dead : [])].map(ck));
   for (const c of hole) if (boardKeys.has(ck(c))) return null;
@@ -329,6 +356,12 @@ export interface OmahaRiverOpeningVerdict {
   best: OmahaRiverOpeningRow | null;
   kind: 'value' | 'bluff' | null;
   blocker: boolean;
+  /**
+   * The best-EV bluff that clears its margin AND has a positive blocker effect (his fold share given the Horse's
+   * cards above his fold share without them), when the best bet is not a value bet; null otherwise. The blocker leg
+   * is read on every size that clears, not only on the best one (2026-11-26 lane plo-bluffs reachability fix).
+   */
+  bluffBest: OmahaRiverOpeningRow | null;
   m: number;
   recordN: number;
 }
@@ -343,7 +376,9 @@ export function omahaRiverOpeningPrice(
   amounts: readonly number[],
   rake: number,
   fold: { m: number; n: number },
-  position: OmahaRiverOpeningPosition
+  position: OmahaRiverOpeningPosition,
+  /** his fold multiplier for a bet of this size, when it depends on the size (people's cell by size); else `fold` */
+  foldAt?: (amount: number) => { m: number; n: number }
 ): OmahaRiverOpeningVerdict | null {
   if (!(pot > 0) || hist.length !== NB) return null;
   const r = fin(rake) ? clamp(rake, 0, 0.2) : 0;
@@ -363,7 +398,8 @@ export function omahaRiverOpeningPrice(
   const rows: OmahaRiverOpeningRow[] = [];
   for (const B of amounts) {
     if (!(B > 0)) continue;
-    const f = clamp((fold.m * B) / (pot + B), 0.01, 0.97);
+    const fm = foldAt ? foldAt(B) : fold;
+    const f = clamp((fm.m * B) / (pot + B), 0.01, 0.97);
     // his strategy: fold the weakest f of p0 (bins ordered strong -> weak). kappa[b] = continuing share of bin b.
     const kappa = new Array<number>(NB).fill(0);
     let left = 1 - f;
@@ -388,7 +424,7 @@ export function omahaRiverOpeningPrice(
     const foldC = clamp(1 - cont, 0, 1);
     const eqCall = cont > 0 ? clamp(win / cont, 0, 1) : 0;
     const ev = foldC * pot * (1 - r) + (1 - foldC) * (eqCall * (pot + 2 * B) * (1 - r) - B);
-    const se = Math.sqrt((f * (1 - f)) / (fold.n + k));
+    const se = Math.sqrt((f * (1 - f)) / (fm.n + k));
     const ride = Math.abs(pot * (1 - r) - (eqCall * (pot + 2 * B) * (1 - r) - B));
     rows.push({
       amount: B,
@@ -404,6 +440,16 @@ export function omahaRiverOpeningPrice(
   for (const row of rows)
     if (row.ev - evCheck > row.margin && (!best || row.ev > best.ev)) best = row;
   const kind = best ? (best.eqCall > 0.5 ? 'value' : 'bluff') : null;
+  let bluffBest: OmahaRiverOpeningRow | null = null;
+  if (kind === 'bluff')
+    for (const row of rows)
+      if (
+        row.ev - evCheck > row.margin &&
+        row.eqCall <= 0.5 &&
+        row.fold > row.fold0 &&
+        (!bluffBest || row.ev > bluffBest.ev)
+      )
+        bluffBest = row;
   return {
     position,
     eq: round4(eq),
@@ -412,6 +458,7 @@ export function omahaRiverOpeningPrice(
     best,
     kind,
     blocker: best ? best.fold > best.fold0 : false,
+    bluffBest,
     m: round4(fold.m),
     recordN: fold.n,
   };
@@ -477,35 +524,70 @@ export function omahaRiverOpeningBetRule(
         omahaRiverOpeningCheckerHist(String(gs.gameVariant ?? '').toLowerCase(), prev, betRecord) ??
         cell.hist;
     }
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    const place = (
+      amount: number,
+      kind: 'value' | 'bluff',
+      verdict: OmahaRiverOpeningVerdict
+    ): OmahaRiverOpeningResult => {
+      const legal = legalize({ ...decision, action: 'bet', amount });
+      if (legal.action !== 'bet' && legal.action !== 'all_in') return { ...same, verdict };
+      if (
+        !fin(legal.amount) ||
+        !((legal.amount as number) > 0) ||
+        (legal.amount as number) > hero.stack + 0.005
+      )
+        return { ...same, verdict };
+      return {
+        decision: { ...decision, action: legal.action, amount: round2(legal.amount as number) },
+        changed: true,
+        kind,
+        verdict,
+      };
+    };
+    // THE VALUE BET (in position): his fold from equilibrium moved by his own record, as before
+    let valueVerdict: OmahaRiverOpeningVerdict | null = null;
+    if (on.value && spot.position === 'ip') {
+      valueVerdict = omahaRiverOpeningPrice(
+        hist,
+        bins,
+        gs.pot,
+        amounts,
+        rake,
+        omahaRiverOpeningFoldMultiplier(record),
+        spot.position
+      );
+      if (valueVerdict?.best && valueVerdict.kind === 'value')
+        return place(valueVerdict.best.amount, 'value', valueVerdict);
+    }
+    if (!on.bluff) return valueVerdict ? { ...same, verdict: valueVerdict } : same;
+    // THE BLUFF: his fold read in the order his own record -> people's population for the line and size ->
+    // equilibrium (HorseOmahaPeopleFold.ts), size by size; the blocker leg on every size that clears
+    const line = omahaPeopleFoldLineOf(gs.actionHistory, 'river', hero.seat);
+    const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS.river;
+    const foldAt = (B: number) =>
+      omahaFoldMultiplierOnPeople(
+        [
+          { cell: record?.foldSmall, eq: OMAHA_RIVER_OPENING_EQ_FOLD.small },
+          { cell: record?.foldBig, eq: OMAHA_RIVER_OPENING_EQ_FOLD.big },
+        ],
+        omahaPeopleFoldMultiplier(variant, 'river', line, B / gs.pot).m,
+        OMAHA_RIVER_OPENING_EQ_FOLD.mean,
+        k
+      );
     const verdict = omahaRiverOpeningPrice(
       hist,
       bins,
       gs.pot,
       amounts,
       rake,
-      omahaRiverOpeningFoldMultiplier(record),
-      spot.position
+      foldAt(amounts[amounts.length - 1]),
+      spot.position,
+      foldAt
     );
-    if (!verdict) return same;
-    if (!verdict.best || !verdict.kind) return { ...same, verdict };
-    const allowed =
-      verdict.kind === 'value' ? on.value && spot.position === 'ip' : on.bluff && verdict.blocker;
-    if (!allowed) return { ...same, verdict };
-    const want: HorseDecision = { ...decision, action: 'bet', amount: verdict.best.amount };
-    const legal = legalize(want);
-    if (legal.action !== 'bet' && legal.action !== 'all_in') return { ...same, verdict };
-    if (
-      !fin(legal.amount) ||
-      !((legal.amount as number) > 0) ||
-      (legal.amount as number) > hero.stack + 0.005
-    )
-      return { ...same, verdict };
-    return {
-      decision: { ...decision, action: legal.action, amount: round2(legal.amount as number) },
-      changed: true,
-      kind: verdict.kind,
-      verdict,
-    };
+    if (!verdict) return valueVerdict ? { ...same, verdict: valueVerdict } : same;
+    if (verdict.kind !== 'bluff' || !verdict.bluffBest) return { ...same, verdict };
+    return place(verdict.bluffBest.amount, 'bluff', verdict);
   } catch {
     return same;
   }

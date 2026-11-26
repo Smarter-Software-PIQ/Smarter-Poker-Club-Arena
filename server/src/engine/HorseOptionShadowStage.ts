@@ -191,6 +191,19 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
   }),
+  // PLO-OWNER lead-7 lane plo-bluffs 2026-11-26: each acts only on a heads-up check with nothing to call
+  omahaTurnBluffIsPricedOnBlockers: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
+  }),
+  omahaTurnBluffIsPricedOnRangeAdvantage: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
+  }),
+  omahaRiverBluffIsPricedOnRangeAdvantage: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
   omahaRiverTripsBoardBoatIsNotNutClass: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
