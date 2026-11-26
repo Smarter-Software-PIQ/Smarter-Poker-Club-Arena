@@ -152,7 +152,13 @@ export function renderTimetable(t) {
       'Ordinary migrations install again (outside the nightly freeze)',
       '`scripts/ci/merged-migration-dispatch.mjs` `THREE_HOURLY_POST_SEAL_CLEAR_MINUTE`',
     ],
+    [
+      3 * 60 - c.migrationDeferMinutesBeforeSlot,
+      `Ordinary migrations held again for the next slot: the install window is ${3 * 60 - c.migrationDeferMinutesBeforeSlot - c.migrationClearMinutesAfterSlot} minutes, and a copy certified after it stays current until the next slot`,
+      '`scripts/ci/merged-migration-dispatch.mjs` `THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES` (next slot)',
+    ],
   ];
+  rows.sort((a, b) => a[0] - b[0]);
   for (const [off, what, src] of rows) {
     lines.push(`| S${off < 0 ? '' : '+'}${off} min | ${what} | ${src} |`);
   }

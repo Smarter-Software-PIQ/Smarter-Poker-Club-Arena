@@ -126,6 +126,15 @@ describe('the cutover timetable matches the gates', () => {
     expect(num(DISPATCH, /THREE_HOURLY_POST_SEAL_CLEAR_MINUTE = (\d+);/, 'clear')).toBe(
       T.cycle.migrationClearMinutesAfterSlot
     );
+    // O21 part 2 (2026-11-25): the windows never meet. An ordinary file installs
+    // only in [S+10, S+30): 20 minutes, ending where the next slot's hold begins.
+    expect(T.cycle.migrationDeferMinutesBeforeSlot).toBe(150);
+    expect(
+      3 * 60 - T.cycle.migrationDeferMinutesBeforeSlot - T.cycle.migrationClearMinutesAfterSlot
+    ).toBe(20);
+    expect(MD).toMatch(
+      /\|\s*S\+30 min\s*\|\s*Ordinary migrations held again for the next slot: the install window is 20 minutes/
+    );
     const freeze = one(
       DISPATCH,
       /RELEASE_SCHEMA_FREEZE_CHICAGO = \{ from: \[(\d+), (\d+)\], until: \[(\d+), (\d+)\] \}/,
@@ -224,9 +233,9 @@ describe('the cutover timetable matches the gates', () => {
     // Spot-check the rendering against the arithmetic a lane would do by hand.
     const table = renderTimetable(T);
     expect(table).toContain(
-      '| 10:00 | 16:00 / 15:00 | 07:50 | 08:30-10:10 | 08:15 | 09:30 | 09:50 | 09:57 | 09:58 | 10:00-10:05 | 10:10 |'
+      '| 10:00 | 16:00 / 15:00 | 07:50 | 07:30-10:10 | 08:15 | 09:30 | 09:50 | 09:57 | 09:58 | 10:00-10:05 | 10:10 |'
     );
-    expect(table).toContain('| 04:00 | 10:00 / 09:00 | 01:50 | 23:30-04:15 |');
+    expect(table).toContain('| 04:00 | 10:00 / 09:00 | 01:50 | 22:30-04:15 |');
   });
 
   it('every unenforced rule is listed as a gap with its source', () => {

@@ -2,7 +2,10 @@
   "schema": "engine-cutover-timetable/v1",
   "about": "The numbers behind docs/ops/engine-cutover-timetable.md. Every value with an enforcing source is pinned to that source by tests/the-cutover-timetable-matches-the-gates.law.test.ts; change the gate and this file together, then run node scripts/ops/engine-cutover-timetable.mjs --write.",
   "timeZone": "America/Chicago",
-  "utcOffsetHours": { "CST": -6, "CDT": -5 },
+  "utcOffsetHours": {
+    "CST": -6,
+    "CDT": -5
+  },
   "slots": [1, 4, 7, 10, 13, 16, 19, 22],
   "anchorSlot": 4,
   "cycle": {
@@ -10,7 +13,7 @@
     "selectionMinutesBeforeSlot": 30,
     "preparationWindowMinutes": 20,
     "backupYieldSecondsBeforeSelection": 4500,
-    "migrationDeferMinutesBeforeSlot": 90,
+    "migrationDeferMinutesBeforeSlot": 150,
     "migrationClearMinutesAfterSlot": 10,
     "receiverAdmissionLeadSeconds": 180,
     "lastHandLeadMinutes": 2,
@@ -32,7 +35,10 @@
     "switchWritesFromMinute": 6,
     "switchWritesThroughMinute": 43
   },
-  "switchSpacing": { "crossLaneMinutes": 10, "selfLaneMinutes": 60 },
+  "switchSpacing": {
+    "crossLaneMinutes": 10,
+    "selfLaneMinutes": 60
+  },
   "conventions": [
     {
       "id": "switch-hold-selection-to-seal",
@@ -50,10 +56,10 @@
     },
     {
       "id": "merge-window",
-      "rule": "Merge migrations between :04 and :49 UTC.",
-      "source": "Derived from the applier's minute refusal (apply-recorded-migration.mjs) and the dispatcher's FIRST_ADMITTED_MINUTE / WINDOW_OPENS_MINUTE",
-      "enforcement": "Indirect: a merge at any minute is accepted; the dispatcher then waits (bounded) for the next admitted minute. Nothing refuses the merge itself.",
-      "gap": "None needed for correctness (the dispatcher waits); documented so lanes know when an install actually happens."
+      "rule": "Merge an ordinary migration only while it installs at once: from slot +10 to slot +25 min (04:15-04:25 for the 04:00 anchor), inside the :04-:46 UTC applier minutes. A file merged at any other minute sits uninstalled on main for up to 150 minutes, and the Backup refuses to certify every later commit that carries it (backup-engine.yml O7).",
+      "source": "Derived from the dispatcher's THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES (150) and THREE_HOURLY_POST_SEAL_CLEAR_MINUTE (10), the nightly freeze, and the applier's minute refusal; the 5-minute margin lets a merge made right after a green answer still install at once (2026-11-25 cycles 13:00-22:00 kept serving for want of a certifiable commit)",
+      "enforcement": "Pending (release-custody PRs, hold): the pull-request check \"An ordinary migration merges only in its install window\" is red outside the window and names the next one; the Backup then certifies the newest commit that carries no uninstalled migration instead of deferring, and the window's last install starts one certification. A required check is evaluated at its event, not at merge, and main has no merge queue, so a green answer holds only for the minutes it names.",
+      "gap": "Make the check required on main and enable a merge queue so its merge_group run is evaluated at merge time."
     },
     {
       "id": "engine-merge-lead",
@@ -64,14 +70,14 @@
     },
     {
       "id": "cross-repo-cycle-deferral",
-      "rule": "World Hub and hand sessions keep migrations out of [slot -90 min, slot +10 min) as Club Arena's dispatcher does.",
+      "rule": "World Hub and hand sessions keep migrations out of [slot -150 min, slot +10 min) as Club Arena's dispatcher does.",
       "source": "Owner order 2026-11-24 and O23 (#11910)",
       "enforcement": "Only the nightly release schema freeze (23:45-04:15) is refused in the database for every repo (#11906). The daytime cycle deferral is enforced only by Club Arena's dispatcher; O23 (#11910) makes the selector ignore migrations Club Arena never shipped.",
       "gap": "Extend smarter_private.fn_ca_release_freeze_refuses_migrations to the daytime cycle deferral window."
     }
   ],
   "pendingChanges": [
-    "Cutover lane item A: the post-seal Backup certifies main's newest unshipped candidate on a copy taken after the post-seal install window.",
-    "Cutover lane item B: ordinary migrations install only from slot +10 to slot +30 min (today they install from slot +10 min until slot +90 min, when the next slot's hold begins)."
+    "Landed: the post-seal Backup certifies the next candidate (O24, 2026-11-24); ordinary migrations install only from slot +10 to slot +30 min (O21 part 2, THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES 90 -> 150, 2026-11-25); a cycle that did not seal starts the next one (O27, #12038).",
+    "Pending (release-custody, hold): a freeze baseline certified before or across a seal is re-certified by the post-seal run (C); the selector lists refused candidates with their reasons on the cutover log (D); the Backup certifies the newest commit carrying no uninstalled migration, and the window's last install starts one certification (B); the merge-window check above."
   ]
 }
