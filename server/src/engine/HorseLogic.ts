@@ -2948,7 +2948,16 @@ export function postflopWagerPayoutPrice(
     left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
   if (!payJumpLive) return 'chips';
   if (t.satellite === true || t.isPko === true || t.isMysteryBounty === true) return 'unknown';
-  if (heroBubbleFactor(gs, stackBB, heroUserId, 1) === null) return 'unknown';
+  // the inputs heroBubbleFactor needs, checked without computing an ICM equity (the read happens only if called)
+  if (
+    !Array.isArray(t.stacks) ||
+    t.stacks.length < 2 ||
+    !Array.isArray(t.payoutPct) ||
+    t.payoutPct.length < 1 ||
+    !(gs.bigBlind > 0) ||
+    realIcmInputs(gs, t, stackBB, heroUserId) === null
+  )
+    return 'unknown';
   return (riskChips: number) => {
     const bf = payJumpBubbleFactor(gs, stackBB, heroUserId, Math.max(1, riskChips));
     return bf !== null && bf > 1 ? bf : 1;
