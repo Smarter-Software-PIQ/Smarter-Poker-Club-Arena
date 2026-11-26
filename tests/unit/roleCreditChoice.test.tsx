@@ -11,7 +11,24 @@ vi.mock('../../src/components/common/Toast', () => ({
 vi.mock('../../src/services/ClubRosterService', () => ({
   default: { getGrantableRoles: mocks.roles },
 }));
-vi.mock('../../src/components/agent/ChipTransferModal', () => ({ default: () => null }));
+vi.mock('../../src/components/agent/ChipTransferModal', () => ({
+  default: ({
+    clubId,
+    recipientId,
+    onClose,
+  }: {
+    clubId: string;
+    recipientId: string;
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label="Send Chips">
+      <span>
+        {clubId}/{recipientId}
+      </span>
+      <button onClick={onClose}>Close</button>
+    </div>
+  ),
+}));
 import { RoleSection } from '../../src/pages/MemberManagementPage';
 
 beforeEach(() => {
@@ -60,6 +77,28 @@ async function openRole(targetRole: 'player' | 'super_agent' = 'player') {
 }
 
 describe('role funding agreement', () => {
+  it.each(['Not Now', 'Send Chips'])(
+    'offers funding separately after a successful promotion: %s',
+    async (choice) => {
+      mocks.rpc.mockImplementation(() => ({
+        abortSignal: () => Promise.resolve({ data: { success: true }, error: null }),
+      }));
+      await openRole();
+      fireEvent.change(screen.getByLabelText('Funding'), { target: { value: 'prepaid' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+      const door = await screen.findByRole('button', { name: choice });
+      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(['fn_club_set_member_role']);
+      fireEvent.click(door);
+      if (choice === 'Send Chips') {
+        expect(screen.getByRole('dialog').textContent).toContain('club/member');
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      }
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Not Now' })).toBeNull();
+      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(['fn_club_set_member_role']);
+    }
+  );
+
   it('requires an explicit funding choice', async () => {
     await openRole();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));

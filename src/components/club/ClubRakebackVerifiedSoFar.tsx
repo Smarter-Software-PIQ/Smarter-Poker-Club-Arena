@@ -105,6 +105,9 @@ export function ClubRakebackVerifiedSoFar({ clubId }: { clubId: string }) {
         setData(next);
         if (next.tally.complete) return;
       }
+      // The club's tally can still be busy when this bounded read ends.
+      // Keep the counted figures and let the operator explicitly continue.
+      setFailed(true);
     } catch (err) {
       if (mine !== run.current) return;
       if (isAuthzError(err)) {

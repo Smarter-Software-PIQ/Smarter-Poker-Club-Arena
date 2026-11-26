@@ -13,6 +13,7 @@ import { writePlayerFollow } from '../../utils/followTournamentPlayer';
  */
 export type WatchOutcome =
   | { status: 'opened' }
+  | { status: 'cancelled' }
   | { status: 'left' }
   | { status: 'refused'; message: string }
   | { status: 'error' };
@@ -20,10 +21,12 @@ export type WatchOutcome =
 export async function watchMemberTable(
   navigate: NavigateFunction,
   table: Pick<MemberLiveTable, 'table_id' | 'tournament_id'>,
-  member: { userId: string; name: string }
+  member: { userId: string; name: string },
+  isCurrent: () => boolean
 ): Promise<WatchOutcome> {
   try {
     const access = await PlayerSearchService.getTableWatchAccess(table.table_id, member.userId);
+    if (!isCurrent()) return { status: 'cancelled' };
     if (access.can_watch) {
       haptic.success();
       if (table.tournament_id) {
@@ -46,6 +49,7 @@ export async function watchMemberTable(
     }
     return { status: 'refused', message: 'This Game Is Not Available To Watch.' };
   } catch (error) {
+    if (!isCurrent()) return { status: 'cancelled' };
     reportError(error, 'watchMemberTable.WatchAccess');
     return { status: 'error' };
   }

@@ -5,14 +5,16 @@
  * week is counted; viewers the server refuses see nothing; totals and players
  * are shown as estimates with the payout time.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const backend = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: backend.rpc, from: backend.from } }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
-import ClubRakebackVerifiedSoFar from '../../src/components/club/ClubRakebackVerifiedSoFar';
+import ClubRakebackVerifiedSoFar, {
+  MAX_COUNTING_CALLS,
+} from '../../src/components/club/ClubRakebackVerifiedSoFar';
 
 const answer = (complete: boolean, counted: number) => ({
   week_start: '2026-10-26T07:00:00+00:00',
@@ -117,4 +119,25 @@ it('shows nothing to a viewer the server refuses', async () => {
   const { container } = render(<ClubRakebackVerifiedSoFar clubId="club-1" />);
   await waitFor(() => expect(backend.rpc).toHaveBeenCalled());
   await waitFor(() => expect(container.innerHTML).toBe(''));
+});
+
+it('offers Continue after a bounded counting session and displays the remaining players on request', async () => {
+  const counted = answer(true, 140);
+  counted.players = Array.from({ length: 26 }, (_, i) => ({
+    ...counted.players[0],
+    player_id: String(i + 1),
+    player_name: `Member ${i + 1}`,
+  }));
+  backend.rpc.mockResolvedValue({ data: answer(false, 17), error: null });
+  render(<ClubRakebackVerifiedSoFar clubId="club-1" />);
+  await waitFor(() => expect(backend.rpc).toHaveBeenCalledTimes(MAX_COUNTING_CALLS));
+  backend.rpc.mockResolvedValue({ data: counted, error: null });
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+  await screen.findByText('Member 25');
+  expect(screen.queryByText('Member 26')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show All 26 Players' }));
+  expect(screen.getByText('Member 26')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show Top Players' }));
+  expect(screen.queryByText('Member 26')).toBeNull();
+  expect(backend.rpc).toHaveBeenCalledTimes(MAX_COUNTING_CALLS + 1);
 });

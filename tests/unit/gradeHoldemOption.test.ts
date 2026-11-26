@@ -1812,15 +1812,14 @@ describe('Unified Holdem Grade Harness — end-to-end CLI (preflight, run, score
     expect(suffixedPaths.shepherdLock).toBe(
       '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/shepherd.lock'
     );
-    expect(suffixedPaths.coreGateScript).toBe(
-      '/Volumes/SmarterWork 1/agent-work/shared-capacity/hs-locks-01UxDLnM4/core-gate-running.py'
-    );
+    // core-gate-running.py is the repository copy, whatever the lock folder (SSD1 can drop).
+    expect(suffixedPaths.coreGateScript).toBe(resolve('scripts/ops/core-gate-running.py'));
 
     const parsedEnv = parseGradeCliArgs(['preflight', '--manifest=m.json'], {
       env: { HS_LOCK_DIR: '/env/locks' },
       pathExists: () => false,
     });
     expect(parsedEnv.flags.shepherdLock).toBe('/env/locks/shepherd.lock');
-    expect(parsedEnv.flags.coreGateScript).toBe('/env/locks/core-gate-running.py');
+    expect(parsedEnv.flags.coreGateScript).toBe(resolve('scripts/ops/core-gate-running.py'));
   });
 });

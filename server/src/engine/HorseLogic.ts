@@ -5753,7 +5753,11 @@ export interface HorseDecideOpts {
    *  default OFF, read `=== true`, OPTION_SWITCH_REFUSED, zero migrations):
    *  in single-board 2-card NLH (non-Omaha, non-Short Deck, non-Fixed Limit,
    *  non-Pot Limit, non-bomb-pot, single board), replaces the flat 40%-of-stack
-   *  bluff-raise veto with deterministic public-info EV pricing over measured
+   *  bluff-raise veto like for like, ONLY in that rule's own spot (a legalized
+   *  non-all-in raise adding >= 40% of the stack; a jam or a smaller raise is
+   *  returned exactly as the blanket rule returns it, with no receipt; the
+   *  priced verdict governs the spot even when `v78NoCommittingBluffRaise` is
+   *  false), with deterministic public-info EV pricing over measured
    *  NLH fold-to-raise priors (#11759, read only inside the pricing module) and tournament `heroBubbleFactor`
    *  (`HorseV78CommittingBluffRaisePriced.priceCommittingBluffRaise`). Allows
    *  the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise. Off / unset /
@@ -6145,13 +6149,16 @@ export interface HorseDecideOpts {
    * instead of a fixed 70%; heads-up only (more opponents: the check). Draws no random number. Off:
    * byte-identical. */
   holdemRiverFullHouseValueIsPriced?: boolean;
-  /** H4 MONSTER SLOWPLAY PRICED (2026-11-22, HORSE DECISIONS lane): dark, default OFF (`=== true`),
-   * OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster
-   * spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket
+  /** H4 MONSTER SLOWPLAY PRICED (2026-11-22, HORSE DECISIONS lane; r2c 2026-11-24): dark, default OFF
+   * (`=== true`), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn
+   * monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket
    * `wetness < 0.5 && fastRandom() < params.slowplayFreq` coin flip with deterministic EV pricing
-   * (`HorseSlowplayPriced.priceMonsterSlowplay`) using the measured NLH fold / betWhenCheckedTo priors
-   * shrinkage, continuous board-wetness free-card erosion, and `heroBubbleFactor`. Draws no random
-   * number. OFF / Omaha / Fixed-Limit: byte-identical. */
+   * (`HorseSlowplayPriced.priceMonsterSlowplay`): the measured NLH fold / betWhenCheckedTo priors with
+   * each opponent's shrunk counters, a measured stab size (mean pot fraction), the called equity
+   * conditioned on the continuing range (measured continuation sharpness, per-opponent mean), no
+   * free-card cost (board wetness is not priced), a stab charged only by opponents who act after the
+   * Horse on this street, and `heroBubbleFactor`. Draws no random number. OFF / Omaha / Fixed-Limit:
+   * byte-identical. */
   horseSlowplayIsPriced?: boolean;
   /** NLH price lane 2026-11-19 (Auditor D, hvh48-audit-01TLQer7J): opt-in (`=== true`), default OFF,
    * unevaluated. No-limit hold'em cash (table and Lightning; not tournaments), heads-up, postflop: the
@@ -8800,6 +8807,9 @@ function multiBoardBluffTrimPriced(
  * deterministic EV replacement for the unowned H4 monster slowplay mix in non-Omaha / non-FLH
  * flop and turn spots. Reads only public state, hero equity, heroBubbleFactor, and each live
  * opponent's HorseMind ExploitCounters shrunk onto the measured NLH priors. Draws no random number.
+ * r2c: each opponent's `canStab` = it acts after the Horse on this street and is live and not all-in,
+ * by the dealer-relative seat order of the V17 players-behind count (read here directly, so it does
+ * not depend on the street-IQ switch). Seat order unknown (no dealer seat): treated as able to stab.
  */
 function horseSlowplayPricedDecision(
   player: SeatPlayer,
@@ -8839,11 +8849,28 @@ function horseSlowplayPricedDecision(
 
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+    // Dealer-relative seat order, the same predicate as the V17 players-behind count.
+    const dealerSeat = gs.dealerSeat;
+    const posAfterDealer = (seat: number): number => {
+      const dd = seat - (dealerSeat as number);
+      return dd <= 0 ? dd + 1024 : dd;
+    };
+    const actsAfterHero = (opp: SeatPlayer): boolean | undefined =>
+      dealerSeat === undefined
+        ? undefined
+        : !opp.is_folded &&
+          !opp.is_sitting_out &&
+          !opp.is_all_in &&
+          opp.seat !== player.seat &&
+          posAfterDealer(opp.seat) > posAfterDealer(player.seat);
     const oppInputs: SlowplayOpponentInput[] = opponents.slice(0, 2).map((opp) => {
       const canRespond = !opp.is_all_in && Number.isFinite(opp.stack) && opp.stack > 0;
-      if (!canRespond || !useMind || opts.mind === false) return { canRespond };
+      const after = actsAfterHero(opp);
+      // Seat order unknown (no dealer seat): treated as able to stab, as the module does.
+      const canStab = after === undefined ? true : canRespond && after;
+      if (!canRespond || !useMind || opts.mind === false) return { canRespond, canStab };
       const direct = HorseMind.getExploitCounters(opp.user_id, scope);
-      if (direct) return { canRespond, exploitCounters: direct };
+      if (direct) return { canRespond, canStab, exploitCounters: direct };
       const read = HorseMind.opponentRead(opp.user_id);
       if (read && read.presumed !== true) {
         const fb = read.stats.foldToBet;
@@ -8851,6 +8878,7 @@ function horseSlowplayPricedDecision(
         if (fb.n > 0 || bc.n > 0) {
           return {
             canRespond,
+            canStab,
             exploitCounters: {
               foldToBet: fb.mean * fb.n,
               foldToBetOpp: fb.n,
@@ -8860,7 +8888,7 @@ function horseSlowplayPricedDecision(
           };
         }
       }
-      return { canRespond };
+      return { canRespond, canStab };
     });
 
     const bf =
@@ -26262,7 +26290,8 @@ export class HorseLogic {
       if (tele15) {
         if (sd17.kind !== 'priced') noteFire('v17_short_deck_priced_unpriceable');
         else if (sd17.delta > 0) noteFire('v17_short_deck_priced_tighter');
-        else noteFire('v17_short_deck_priced_looser');
+        else if (sd17.delta < 0) noteFire('v17_short_deck_priced_looser');
+        else noteFire('v17_short_deck_priced_neutral');
       }
     } else if ((opts.v17ShortDeck ?? true) !== false && vi.isShortDeck) {
       mw += 0.015 + (oppCount - 1) * 0.012;
@@ -35031,6 +35060,13 @@ export class HorseLogic {
    * legalized, stay a non-all-in raise that puts >= 40% of hero's remaining
    * stack in. Side-effect free (legalize is pure). Hold'em, two cards, one
    * board, no bomb pot only.
+   *
+   * `v78NoCommittingBluffRaiseIsPriced` (dark, `=== true`) replaces the rule
+   * like for like: it changes the verdict ONLY in the blanket rule's own spot
+   * (a legalized non-all-in raise adding >= 40% of the stack). A jam, a
+   * smaller raise or any other spot returns false exactly as the blanket rule
+   * does there, with no priced receipt. In the spot the priced verdict governs
+   * even when `v78NoCommittingBluffRaise === false`.
    */
   private static v78CommitsWithoutJam(
     raiseTo: number,
@@ -35063,20 +35099,21 @@ export class HorseLogic {
       !gs.bombPot &&
       !pricedCtx.multiBoard
     ) {
+      // The blanket rule's spot, computed exactly as its tail below does (its
+      // variant exclusions are implied by the scope gate above). Outside the
+      // spot the blanket rule returns false, so the replacement does too.
       const legal = this.legalize(
         { action: 'raise', amount: raiseTo, thinkTime: 0 },
         player,
         gs,
         vi
       );
+      if (legal.action !== 'raise' || typeof legal.amount !== 'number') return false;
+      const oldRuleAdded = legal.amount - (player.bet ?? 0);
+      if (!(player.stack > 0 && oldRuleAdded >= 0.4 * player.stack)) return false;
       const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet) : 0;
       const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
-      const estAdd =
-        legal.action === 'all_in'
-          ? heroStack
-          : typeof legal.amount === 'number' && Number.isFinite(legal.amount)
-            ? Math.max(0, legal.amount - heroBet)
-            : 0;
+      const estAdd = Number.isFinite(legal.amount) ? Math.max(0, legal.amount - heroBet) : 0;
       const bf =
         isTournamentMode(gs) && gs.bigBlind > 0
           ? (heroBubbleFactor(

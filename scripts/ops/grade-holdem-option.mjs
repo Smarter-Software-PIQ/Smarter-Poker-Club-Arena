@@ -74,7 +74,7 @@ Options:
   --compare=<path>           Existing verdict.json to verify parity against (recompute)
   --workdir=<dir>            Git worktree root containing server/ (defaults to cwd)
   --shepherd-lock=<path>     Override shepherd.lock path (default: ${DEFAULT_SHEPHERD_LOCK}; respects HS_LOCK_DIR)
-  --core-gate-script=<path>  Override core-gate-running.py path (default: ${DEFAULT_CORE_GATE_SCRIPT}; respects HS_LOCK_DIR)
+  --core-gate-script=<path>  Override core-gate-running.py path (default: the repository copy ${DEFAULT_CORE_GATE_SCRIPT})
   --lane-lock=<path>         Optional owner-checked lane lock file (never steals foreign lock)
   --lane-owner=<id>          Lane owner string matching --lane-lock
   --max-load=<num>           Override 1-minute load ceiling (default: manifest.bars.maxLoad1m or 35)
@@ -511,7 +511,8 @@ function loadResumableRecords({ deps, manifest, resumeKey, resumeKeyPath, result
     return { ok: false, status: 'RESUME_RESULTS_UNREADABLE', message: err.message };
   }
   const declared = new Set();
-  for (const cell of manifest.cells) for (const seed of cell.seeds) declared.add(`${cell.id}::${seed}`);
+  for (const cell of manifest.cells)
+    for (const seed of cell.seeds) declared.add(`${cell.id}::${seed}`);
   const seen = new Set();
   const failed = {};
   for (const rec of prior) {

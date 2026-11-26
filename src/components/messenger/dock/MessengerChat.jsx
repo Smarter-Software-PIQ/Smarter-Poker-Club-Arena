@@ -102,19 +102,54 @@ function videoPreviewUrl(url) {
   const trimmed = url.trim();
   return trimmed.includes('#') ? trimmed : `${trimmed}#t=0.001`;
 }
+function readDockVideoDimensions(rawFile) {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(rawFile);
+    const video = document.createElement('video');
+    let settled = false;
+    const done = (dims) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      try {
+        video.load();
+      } catch {
+        /* ignore */
+      }
+      URL.revokeObjectURL(url);
+      resolve(dims);
+    };
+    const timer = setTimeout(() => done(null), 4000);
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      const width = Math.round(video.videoWidth || 0);
+      const height = Math.round(video.videoHeight || 0);
+      done(width > 0 && height > 0 ? { width, height } : null);
+    };
+    video.onerror = () => done(null);
+    video.src = url;
+  });
+}
 async function prepareDockUploadFile(rawFile) {
   const resolved = resolveUploadMedia(rawFile);
   if (!resolved) return null;
   const isVideo = resolved.kind === 'video';
   const fileName = rawFile.name || `media_${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`;
   if (isVideo) {
+    const dims = await readDockVideoDimensions(rawFile);
     return {
       file: rawFile,
       kind: 'video',
       mimeType: resolved.mimeType,
       fileName,
-      width: null,
-      height: null,
+      width: dims?.width || null,
+      height: dims?.height || null,
     };
   }
   const heic = HEIC_MIME_RE.test(resolved.mimeType) || HEIC_EXT_RE.test(fileName);
@@ -800,7 +835,7 @@ export default function MessengerChat({
     const caption = draft.text.trim();
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     uploadAbort.current = controller;
-    clearPendingMedia();
+    setError('');
     setUploading(true);
     setUploadProgress(0);
     try {
@@ -841,7 +876,10 @@ export default function MessengerChat({
         prepared.width && prepared.height
           ? { media_width: prepared.width, media_height: prepared.height }
           : null;
-      if (current()) send(encoded, Boolean(caption), meta);
+      if (current()) {
+        clearPendingMedia();
+        send(encoded, Boolean(caption), meta);
+      }
     } catch (failure) {
       if (current() && failure?.name !== 'AbortError') setError(dockFailureText(failure));
     } finally {
@@ -901,7 +939,7 @@ export default function MessengerChat({
         }
       }}
       onDragLeave={(event) => {
-        if (event.currentTarget === event.target) setDragOver(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false);
       }}
       onDrop={(event) => {
         event.preventDefault();

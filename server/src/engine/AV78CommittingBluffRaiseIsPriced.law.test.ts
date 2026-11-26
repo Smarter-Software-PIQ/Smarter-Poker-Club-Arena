@@ -27,13 +27,16 @@
  *     that v1 over-allowed, allows genuinely positive-EV committing raises >= 40% stack that blanket
  *     V78 vetoed, obeys bubble factor, is label-neutral (human vs horse), and is 100% public-info-only
  *     (invariant to opponent hole cards).
+ *  4b. Scope is the blanket rule's own spot only: ON + a legal jam or a raise adding < 40% of stack is
+ *     not vetoed and records no priced receipt; ON + a committing non-jam raise records the priced
+ *     receipt and returns `priceCommittingBluffRaise`'s verdict, also with `v78NoCommittingBluffRaise: false`.
  *  5. Registered in `OPTION_SWITCH_REFUSED` and absent from `OPTION_SWITCH_NAMES` (zero migrations).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HorseLogic } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { OPTION_SWITCH_NAMES, OPTION_SWITCH_REFUSED } from './HorseOptionSwitch.js';
-import { fastRandom, seedFastRandom } from './HorseEval.js';
+import { fastRandom, seedFastRandom, variantInfo } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   HOLDEM_EMPIRICAL_STREET_FOLD_TO_RAISE,
@@ -843,37 +846,9 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced v2 (#11759 priors + Bayes raise
       }
       expect(sawMwAllInVetoed).toBe(true);
 
-      // Deep-SPR turn check-raise bluff (`heroBehind: 1200`, `oppBet: 25`, `potBeforeBet: 30`):
-      // high SPR lifts fold-to-raise prior above break-even FE -> ALLOWED!
-      const deepTurnSpot = makeSpot({
-        hole: 'AsTd',
-        board: '8c6h9h3d',
-        heroBehind: 1200,
-        oppBehind: 1200,
-        oppBet: 25,
-        potBeforeBet: 30,
-        stage: 'turn',
-      });
-      let sawAllowed = false;
-      for (const style of STYLES) {
-        for (let seed = 1; seed <= 80; seed++) {
-          const on = runDecide(deepTurnSpot, style, seed, {
-            v78NoCommittingBluffRaiseIsPriced: true,
-          });
-          if (on.fires.includes('v78_committing_bluff_raise_priced_allowed')) {
-            sawAllowed = true;
-            expect(on.fires).not.toContain('v78_no_committing_bluff_raise');
-            expect(on.decision.action).toBe('raise');
-            break;
-          }
-        }
-        if (sawAllowed) break;
-      }
-      expect(sawAllowed).toBe(true);
-
-      // Contrast with blanket V78: a negative-EV < 40%-stack turn bluff-raise (`heroBehind: 400`,
-      // `oppBet: 15`, `potBeforeBet: 19`) that blanket V78 let through is cleanly VETOED by v2!
-      const shallowNegSpot = makeSpot({
+      // Like for like: a < 40%-stack turn bluff-raise (`heroBehind: 400`) is outside the blanket
+      // rule's spot, so ON leaves it exactly as OFF does, with no priced receipt.
+      const shallowSpot = makeSpot({
         hole: 'AsTd',
         board: '8c6h9h3d',
         heroBehind: 400,
@@ -882,25 +857,184 @@ describe('LAW: v78NoCommittingBluffRaiseIsPriced v2 (#11759 priors + Bayes raise
         potBeforeBet: 19,
         stage: 'turn',
       });
-      let sawBlanketDiffVeto = false;
       for (const style of STYLES) {
-        for (let seed = 1; seed <= 80; seed++) {
-          const off = runDecide(shallowNegSpot, style, seed, {});
-          const on = runDecide(shallowNegSpot, style, seed, {
+        for (let seed = 1; seed <= 40; seed++) {
+          const off = runDecide(shallowSpot, style, seed, {});
+          const on = runDecide(shallowSpot, style, seed, {
             v78NoCommittingBluffRaiseIsPriced: true,
           });
-          if (
-            off.decision.action === 'raise' &&
-            on.fires.includes('v78_committing_bluff_raise_priced_vetoed') &&
-            on.decision.action !== 'raise'
-          ) {
-            sawBlanketDiffVeto = true;
-            break;
+          expect(on.wager).toEqual(off.wager);
+          expect(on.fires).toEqual(off.fires);
+          expect(on.fires).not.toContain('v78_committing_bluff_raise_priced_allowed');
+          expect(on.fires).not.toContain('v78_committing_bluff_raise_priced_vetoed');
+        }
+      }
+    });
+
+    describe("scope = the blanket rule's own spot (non-all-in raise adding >= 40% of stack)", () => {
+      type Gate = (
+        raiseTo: number,
+        player: SeatPlayer,
+        gs: unknown,
+        vi: unknown,
+        opts: Record<string, unknown>,
+        ctx?: unknown
+      ) => boolean;
+      const L = HorseLogic as unknown as {
+        v78CommitsWithoutJam: Gate;
+        legalize: (
+          d: { action: string; amount?: number; thinkTime: number },
+          player: SeatPlayer,
+          gs: unknown,
+          vi: unknown
+        ) => { action: string; amount?: number };
+      };
+      const vi = variantInfo('nlh');
+      function ctxFor(s: ReturnType<typeof makeSpot>, equity: number) {
+        const villain = (s.gs.players as SeatPlayer[]).filter((p) => p.user_id !== 'hero');
+        return {
+          street: 'turn' as const,
+          pot: s.gs.pot,
+          toCall: s.gs.currentBet,
+          equity,
+          inPosition: false,
+          spr: s.hero.stack / s.gs.pot,
+          board: s.gs.communityCards,
+          opponents: villain,
+          multiBoard: false,
+          useMind: false,
+          tele: true,
+        };
+      }
+      function gate(
+        s: ReturnType<typeof makeSpot>,
+        raiseTo: number,
+        equity: number,
+        opts: Record<string, unknown>
+      ): { veto: boolean; fires: string[] } {
+        drainFires();
+        const veto = L.v78CommitsWithoutJam.call(
+          HorseLogic,
+          raiseTo,
+          s.hero,
+          s.gs,
+          vi,
+          opts,
+          ctxFor(s, equity)
+        );
+        return { veto, fires: drainFires().map((r) => r.feature) };
+      }
+      const PRICED_FIRES = [
+        'v78_committing_bluff_raise_priced_allowed',
+        'v78_committing_bluff_raise_priced_vetoed',
+      ];
+
+      it('ON + a legal jam: not vetoed, no priced receipt (the blanket rule never touched a jam)', () => {
+        const s = makeSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' });
+        expect(
+          L.legalize({ action: 'raise', amount: 84, thinkTime: 0 }, s.hero, s.gs, vi).action
+        ).toBe('all_in');
+        for (const equity of [0.05, 0.3, 0.6]) {
+          for (const extra of [{}, { v78NoCommittingBluffRaise: false }]) {
+            const off = gate(s, 84, equity, { ...extra });
+            const on = gate(s, 84, equity, { ...extra, v78NoCommittingBluffRaiseIsPriced: true });
+            expect(off.veto).toBe(false);
+            expect(on.veto).toBe(false);
+            for (const f of PRICED_FIRES) expect(on.fires).not.toContain(f);
           }
         }
-        if (sawBlanketDiffVeto) break;
-      }
-      expect(sawBlanketDiffVeto).toBe(true);
+      });
+
+      it('ON + a raise adding < 40% of stack: not vetoed, no priced receipt', () => {
+        const s = makeSpot({ hole: 'AsTd', heroBehind: 400, oppBehind: 600, stage: 'turn' });
+        const legal = L.legalize({ action: 'raise', amount: 67, thinkTime: 0 }, s.hero, s.gs, vi);
+        expect(legal.action).toBe('raise');
+        expect((legal.amount as number) - s.hero.bet).toBeLessThan(0.4 * s.hero.stack);
+        for (const equity of [0.05, 0.12, 0.3]) {
+          for (const extra of [{}, { v78NoCommittingBluffRaise: false }]) {
+            const off = gate(s, 67, equity, { ...extra });
+            const on = gate(s, 67, equity, { ...extra, v78NoCommittingBluffRaiseIsPriced: true });
+            expect(off.veto).toBe(false);
+            expect(on.veto).toBe(false);
+            for (const f of PRICED_FIRES) expect(on.fires).not.toContain(f);
+          }
+        }
+      });
+
+      it("ON + a committing non-jam raise: the priced receipt fires and the verdict is priceCommittingBluffRaise's, also when v78NoCommittingBluffRaise is false", () => {
+        const verdicts = new Set<boolean>();
+        for (const [heroBehind, potBeforeBet, oppBet, frac] of [
+          [84, 19, 15, 0.8],
+          [60, 80, 10, 0.5],
+          [84, 150, 15, 0.5],
+        ] as const) {
+          const s = makeSpot({ hole: 'AsTd', heroBehind, potBeforeBet, oppBet, stage: 'turn' });
+          const raiseTo = Math.round(heroBehind * frac);
+          const legal = L.legalize(
+            { action: 'raise', amount: raiseTo, thinkTime: 0 },
+            s.hero,
+            s.gs,
+            vi
+          );
+          expect(legal.action).toBe('raise');
+          expect((legal.amount as number) - s.hero.bet).toBeGreaterThanOrEqual(0.4 * s.hero.stack);
+          for (const equity of [0.02, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) {
+            const ctx = ctxFor(s, equity);
+            const expected = priceCommittingBluffRaise({
+              street: 'turn',
+              legalAction: legal.action,
+              legalAmount: legal.amount,
+              heroBet: 0,
+              heroStack: heroBehind,
+              currentBet: oppBet,
+              pot: ctx.pot,
+              toCall: ctx.toCall,
+              equity,
+              inPosition: false,
+              spr: ctx.spr,
+              board: ctx.board,
+              opponents: ctx.opponents.map((o) => ({
+                stack: o.stack,
+                bet: o.bet,
+                isAllIn: o.is_all_in === true,
+              })),
+              heroBubbleFactor: 1,
+            });
+            verdicts.add(expected.veto);
+            const off = gate(s, raiseTo, equity, {});
+            expect(off.veto).toBe(true);
+            for (const f of PRICED_FIRES) expect(off.fires).not.toContain(f);
+            for (const extra of [{}, { v78NoCommittingBluffRaise: false }]) {
+              const on = gate(s, raiseTo, equity, {
+                ...extra,
+                v78NoCommittingBluffRaiseIsPriced: true,
+              });
+              expect(on.veto).toBe(expected.veto);
+              expect(on.fires).toContain(
+                expected.veto
+                  ? 'v78_committing_bluff_raise_priced_vetoed'
+                  : 'v78_committing_bluff_raise_priced_allowed'
+              );
+            }
+          }
+        }
+        // the sweep reaches both verdicts, so the equality above is not vacuous
+        expect(verdicts.has(true)).toBe(true);
+        expect(verdicts.has(false)).toBe(true);
+      });
+
+      it('OFF: the blanket rule is unchanged (jam false, < 40% false, committing raise true; false when v78NoCommittingBluffRaise is false)', () => {
+        const deep = makeSpot({ hole: 'AsTd', heroBehind: 400, oppBehind: 600, stage: 'turn' });
+        const short = makeSpot({ hole: 'AsTd', heroBehind: 84, stage: 'turn' });
+        for (const opts of [{}, { v78NoCommittingBluffRaiseIsPriced: false }]) {
+          expect(gate(short, 84, 0.3, opts).veto).toBe(false);
+          expect(gate(deep, 67, 0.3, opts).veto).toBe(false);
+          expect(gate(short, 67, 0.3, opts).veto).toBe(true);
+          expect(gate(short, 67, 0.3, { ...opts, v78NoCommittingBluffRaise: false }).veto).toBe(
+            false
+          );
+        }
+      });
     });
 
     it('is label-neutral (human vs horse) and public-info-only (invariant to opponent hole cards) when ON', () => {
