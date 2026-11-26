@@ -61,6 +61,9 @@ Options:
   --split-at <ISO[,ISO...]> Compare the windows before and after each instant
   --by <${BY_DIMENSIONS.join('|')}>
                             Add a breakdown under each game
+  --by-option-receipt <option>
+                            Compare the hands where that Horse option's receipt fired against
+                            the hands where it did not (same range, games and mode)
   --gate                    Exit 0 clean, 1 people measurably better than before a split,
                             2 too few hands to judge (needs --split-at)
   --json                    Emit the report as JSON
@@ -81,6 +84,7 @@ export function parseArgs(argv) {
     mode: 'all',
     splitAt: [],
     by: null,
+    byOptionReceipt: null,
     gate: false,
     json: false,
     sql: false,
@@ -104,11 +108,17 @@ export function parseArgs(argv) {
     else if (a === '--games') o.games = parseGames(need(++i, a));
     else if (a === '--mode') o.mode = need(++i, a);
     else if (a === '--by') o.by = need(++i, a);
+    else if (a === '--by-option-receipt') o.byOptionReceipt = need(++i, a);
     else if (a === '--split-at') {
       for (const part of need(++i, a).split(',')) o.splitAt.push(parseInstant(a, part));
     } else if (a === '--from-json') o.fromJson = need(++i, a);
     else if (a === '--supabase-workdir') o.supabaseWorkdir = need(++i, a);
     else throw new Error(`Unknown argument: ${a}`);
+  }
+  if (o.gate && o.byOptionReceipt !== null) {
+    throw new Error(
+      '--gate judges a split in time and cannot be combined with --by-option-receipt'
+    );
   }
   if (o.gate && o.splitAt.length === 0) throw new Error('--gate needs --split-at');
   return o;

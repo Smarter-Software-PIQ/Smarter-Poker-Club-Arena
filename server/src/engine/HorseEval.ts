@@ -31,7 +31,7 @@ import {
   continuationStrength,
   type TournamentContinuationStreet,
 } from './HorseTournamentContinuation.js';
-import { scoreFiveCards } from './HorseFiveCardScore.js';
+import { fiveCardScoreOfMasks, scoreFiveCards } from './HorseFiveCardScore.js';
 import { SUITS, RANKS, RANK_VALUES } from './PokerEngine.js';
 import {
   holeCardCount,
@@ -1058,6 +1058,78 @@ for (let i = 0; i < 5; i++)
   for (let j = i + 1; j < 5; j++) for (let k = j + 1; k < 5; k++) BOARD_TRIPLES.push([i, j, k]);
 
 const omahaScratch: Card[] = new Array(5);
+
+/**
+ * OMAHA HIGH ON CARD IDS (2026-11-26, PLO-OWNER lead-7; the range samplers' showdown). A card id is
+ * rank value x 4 + suit index (OMAHA_CARD_ID: clubs 0, diamonds 1, hearts 2, spades 3). omahaRunTriples(run) reads
+ * the five run-out ids once (the rank masks and the common suit of each of its ten triples); then
+ * scoreOmahaHiOfIdsOnRun scores a hand on that run: the same value as scoreOmahaHi on the same cards, every pair of
+ * hole cards with every board triple, from masks in place of Card objects. With `stopAbove` finite it returns the
+ * first combination worth more than stopAbove (a value still above it), which is all a showdown against a known
+ * score needs.
+ */
+export function omahaCardId(c: Card): number {
+  return RANK_VALUES[c.rank] * 4 + omahaScoreSuitIndex(c.suit);
+}
+const runTripleOnce = new Int32Array(10);
+const runTripleTwice = new Int32Array(10);
+const runTripleThrice = new Int32Array(10);
+const runTripleSuit = new Int32Array(10);
+export function omahaRunTriples(run: ArrayLike<number>, start: number): void {
+  for (let t = 0; t < 10; t++) {
+    const tr = BOARD_TRIPLES[t];
+    let once = 0;
+    let twice = 0;
+    let thrice = 0;
+    for (let k = 0; k < 3; k++) {
+      const bit = 1 << (run[start + tr[k]] >> 2);
+      thrice |= twice & bit;
+      twice |= once & bit;
+      once |= bit;
+    }
+    runTripleOnce[t] = once;
+    runTripleTwice[t] = twice;
+    runTripleThrice[t] = thrice;
+    const s0 = run[start + tr[0]] & 3;
+    runTripleSuit[t] = (run[start + tr[1]] & 3) === s0 && (run[start + tr[2]] & 3) === s0 ? s0 : -1;
+  }
+}
+export function scoreOmahaHiOfIdsOnRun(
+  ids: ArrayLike<number>,
+  start: number,
+  n: number,
+  stopAbove: number
+): number {
+  const pairs = PAIR_COMBOS[n] || PAIR_COMBOS[4];
+  let best = 0;
+  for (let p = 0; p < pairs.length; p++) {
+    const pair = pairs[p];
+    const ia = ids[start + pair[0]];
+    const ib = ids[start + pair[1]];
+    const bitA = 1 << (ia >> 2);
+    const bitB = 1 << (ib >> 2);
+    const pairSuit = (ia & 3) === (ib & 3) ? ia & 3 : -2;
+    for (let t = 0; t < 10; t++) {
+      let once = runTripleOnce[t];
+      let twice = runTripleTwice[t];
+      let thrice = runTripleThrice[t];
+      let four = thrice & bitA;
+      thrice |= twice & bitA;
+      twice |= once & bitA;
+      once |= bitA;
+      four |= thrice & bitB;
+      thrice |= twice & bitB;
+      twice |= once & bitB;
+      once |= bitB;
+      const sc = fiveCardScoreOfMasks(once, twice, thrice, four, pairSuit === runTripleSuit[t]);
+      if (sc > best) {
+        best = sc;
+        if (best > stopAbove) return best;
+      }
+    }
+  }
+  return best;
+}
 
 /** Omaha high: exactly 2 hole + 3 board. Bigger = better. */
 /**
@@ -5623,19 +5695,179 @@ export function holdemPreflopScore(c1: Card, c2: Card, shortDeck: boolean): numb
   return clamp01(score);
 }
 
+/** Scratch for omahaPreflopScore (synchronous, never re-entered). */
+const omahaScoreRanks = new Int32Array(16);
+const omahaScoreRankCount = new Int32Array(15);
+const omahaScoreSuitCount = new Int32Array(5);
+const omahaScoreSuitAce = new Uint8Array(5);
+function omahaScoreSuitIndex(suit: string): number {
+  switch (suit) {
+    case 'clubs':
+      return 0;
+    case 'diamonds':
+      return 1;
+    case 'hearts':
+      return 2;
+    case 'spades':
+      return 3;
+    default:
+      return 4;
+  }
+}
+
 /**
  * Omaha starting-hand quality 0..1 — Hutchison-style: high pairs, double-suited
  * to big cards, connected rundowns, penalize danglers. Works for 4/5/6 cards.
  */
 export function omahaPreflopScore(cards: Card[], isHiLo: boolean): number {
-  const ranks = cards.map((c) => RANK_VALUES[c.rank]).sort((a, b) => b - a);
-  const suits = cards.map((c) => c.suit);
+  // THE SAME SCORE WITHOUT ALLOCATION (2026-11-26, PLO-OWNER lead-7; it runs once per drawn hand in the range
+  // samplers, tens of thousands of times in one priced decision): counts in fixed scratch arrays in place of maps,
+  // sets and sorted copies. Every addition to `pts` is made in the same order as before (the pair and suit points
+  // are whole numbers; then the rundown gaps from the top rank down; then the high cards from the top down), so the
+  // floating-point result is bit-identical (law: anOopReraiseRangeEquityIsUnchanged.law.test.ts).
+  const n = cards.length;
+  omahaScoreReset();
+  for (let i = 0; i < n; i++) {
+    const c = cards[i];
+    omahaScoreAdd(i, RANK_VALUES[c.rank], omahaScoreSuitIndex(c.suit));
+  }
+  const score = omahaPreflopScoreOfScratch(n, isHiLo);
+  omahaScoreReset(); // the scratch is all zero between calls (omahaPreflopScoreOfIds relies on it)
+  return score;
+}
+
+/**
+ * omahaPreflopScore of the hand whose card ids (rank value x 4 + suit index, OMAHA_CARD_ID) are
+ * ids[start .. start + n - 1]: the same score, bit for bit, without Card objects (the range samplers' hot loop).
+ */
+export function omahaPreflopScoreOfIds(
+  ids: ArrayLike<number>,
+  start: number,
+  n: number,
+  isHiLo: boolean
+): number {
+  if (!isHiLo) return omahaHighPreflopScoreOfIds(ids, start, n);
+  for (let i = 0; i < n; i++) {
+    const id = ids[start + i];
+    omahaScoreAdd(i, id >> 2, id & 3);
+  }
+  const score = omahaPreflopScoreOfScratch(n, isHiLo);
+  // clear only what this hand set (the scratch is all zero between calls)
+  for (let i = 0; i < n; i++) {
+    const id = ids[start + i];
+    omahaScoreRankCount[id >> 2] = 0;
+    omahaScoreSuitCount[id & 3] = 0;
+    omahaScoreSuitAce[id & 3] = 0;
+  }
+  return score;
+}
+
+/**
+ * omahaPreflopScore(cards, false) from card ids with rank bit masks and suit counters in locals: the same additions
+ * to the same total in the same order (pair and suit points: whole numbers; then the rundown gaps from the top rank
+ * down; then the high cards from the top rank down, once per card), so the same value bit for bit.
+ */
+function omahaHighPreflopScoreOfIds(ids: ArrayLike<number>, start: number, n: number): number {
+  let once = 0;
+  let twice = 0;
+  let thrice = 0;
+  let four = 0;
+  let suitCounts = 0; // four bits per suit
+  let aceSuits = 0;
+  for (let i = 0; i < n; i++) {
+    const id = ids[start + i];
+    const bit = 1 << (id >> 2);
+    four |= thrice & bit;
+    thrice |= twice & bit;
+    twice |= once & bit;
+    once |= bit;
+    const si = id & 3;
+    suitCounts += 1 << (si << 2);
+    if (id >> 2 === 14) aceSuits |= 1 << si;
+  }
+  let pts = 0;
+  // pairs: exactly two of a rank
+  let pairs = twice & ~thrice;
+  while (pairs) {
+    const r = 31 - Math.clz32(pairs);
+    pairs ^= 1 << r;
+    if (r === 14) pts += 8;
+    else if (r >= 12) pts += 6;
+    else if (r >= 10) pts += 4;
+    else pts += 2;
+  }
+  // three or more of a rank
+  let trips = thrice;
+  while (trips) {
+    trips &= trips - 1;
+    pts -= 2;
+  }
+  let suitedGroups = 0;
+  for (let si = 0; si < 4; si++) {
+    const count = (suitCounts >> (si << 2)) & 15;
+    if (count >= 2) {
+      suitedGroups++;
+      pts += aceSuits & (1 << si) ? 4 : 2;
+      if (count >= 4) pts -= 2;
+    }
+  }
+  if (suitedGroups >= 2) pts += 2;
+  // rundown gaps between the distinct ranks, from the top down
+  let rest = once;
+  let prev = 0;
+  while (rest) {
+    const r = 31 - Math.clz32(rest);
+    rest ^= 1 << r;
+    if (prev !== 0) {
+      const g = prev - r;
+      if (g === 1) pts += 2.5;
+      else if (g === 2) pts += 1.2;
+      else if (g === 3) pts += 0.5;
+    }
+    prev = r;
+  }
+  // high cards, from the top down, once per card
+  for (let r = 14; r >= 10; r--) {
+    const bit = 1 << r;
+    if (!(once & bit)) continue;
+    const copies = four & bit ? 4 : thrice & bit ? 3 : twice & bit ? 2 : 1;
+    const add = r === 14 ? 1.5 : r >= 12 ? 1 : 0.5;
+    for (let k = 0; k < copies; k++) pts += add;
+  }
+  const holeShift = n >= 6 ? 8.8 : n === 5 ? 4.7 : 0;
+  return clamp01((pts - holeShift) / 30);
+}
+
+function omahaScoreReset(): void {
+  omahaScoreRankCount.fill(0);
+  omahaScoreSuitCount.fill(0);
+  omahaScoreSuitAce.fill(0);
+}
+/** Card i of the hand: rank value r (2..14), suit index si; the ranks are kept sorted highest first. */
+function omahaScoreAdd(i: number, r: number, si: number): void {
+  const ranks = omahaScoreRanks;
+  // insertion sort, highest first (n <= 6)
+  let k = i;
+  while (k > 0 && ranks[k - 1] < r) {
+    ranks[k] = ranks[k - 1];
+    k--;
+  }
+  ranks[k] = r;
+  omahaScoreRankCount[r]++;
+  omahaScoreSuitCount[si]++;
+  if (r === 14) omahaScoreSuitAce[si] = 1;
+}
+
+function omahaPreflopScoreOfScratch(n: number, isHiLo: boolean): number {
+  const ranks = omahaScoreRanks;
+  const rankCount = omahaScoreRankCount;
+  const suitCount = omahaScoreSuitCount;
+  const suitAce = omahaScoreSuitAce;
   let pts = 0;
 
-  // Pair points
-  const rankCounts = new Map<number, number>();
-  for (const r of ranks) rankCounts.set(r, (rankCounts.get(r) || 0) + 1);
-  for (const [r, count] of rankCounts) {
+  // Pair points (whole numbers: the order of addition does not change the sum)
+  for (let r = 2; r <= 14; r++) {
+    const count = rankCount[r];
     if (count === 2) {
       if (r === 14) pts += 8;
       else if (r >= 12) pts += 6;
@@ -5646,33 +5878,34 @@ export function omahaPreflopScore(cards: Card[], isHiLo: boolean): number {
     }
   }
 
-  // Suit points — suited to the ace is the big one; double-suited best
-  const suitCounts = new Map<string, number>();
-  for (let i = 0; i < cards.length; i++) {
-    const s = suits[i];
-    suitCounts.set(s, (suitCounts.get(s) || 0) + 1);
-  }
+  // Suit points — suited to the ace is the big one; double-suited best (whole numbers)
   let suitedGroups = 0;
-  for (const [s, count] of suitCounts) {
+  for (let si = 0; si < 5; si++) {
+    const count = suitCount[si];
     if (count >= 2) {
       suitedGroups++;
-      const hasAce = cards.some((c) => c.suit === s && c.rank === 'A');
-      pts += hasAce ? 4 : 2;
+      pts += suitAce[si] ? 4 : 2;
       if (count >= 4) pts -= 2; // 4 of one suit blocks own outs
     }
   }
   if (suitedGroups >= 2) pts += 2; // double-suited bonus
 
-  // Connectivity — count distinct ranks forming tight rundowns
-  const unique = [...new Set(ranks)].sort((a, b) => b - a);
-  for (let i = 1; i < unique.length; i++) {
-    const g = unique[i - 1] - unique[i];
-    if (g === 1) pts += 2.5;
-    else if (g === 2) pts += 1.2;
-    else if (g === 3) pts += 0.5;
+  // Connectivity — count distinct ranks forming tight rundowns (from the top rank down, as before)
+  let prev = 0;
+  for (let i = 0; i < n; i++) {
+    const r = ranks[i];
+    if (r === prev) continue;
+    if (prev !== 0) {
+      const g = prev - r;
+      if (g === 1) pts += 2.5;
+      else if (g === 2) pts += 1.2;
+      else if (g === 3) pts += 0.5;
+    }
+    prev = r;
   }
-  // High-card quality
-  for (const r of ranks) {
+  // High-card quality (from the top down, as before)
+  for (let i = 0; i < n; i++) {
+    const r = ranks[i];
     if (r === 14) pts += 1.5;
     else if (r >= 12) pts += 1;
     else if (r >= 10) pts += 0.5;
@@ -5680,14 +5913,15 @@ export function omahaPreflopScore(cards: Card[], isHiLo: boolean): number {
 
   if (isHiLo) {
     // Low potential: A2 / A3 / 23 combos gain a lot of value in plo8
-    const hasA = ranks.includes(14);
-    const has2 = ranks.includes(2);
-    const has3 = ranks.includes(3);
+    const hasA = rankCount[14] > 0;
+    const has2 = rankCount[2] > 0;
+    const has3 = rankCount[3] > 0;
     if (hasA && has2)
       pts += has3 ? 7.5 : 6; // A23 carries counterfeit backup
     else if (hasA && has3) pts += 4;
     else if (has2 && has3) pts += 2;
-    const lowCount = ranks.filter((r) => r <= 8 || r === 14).length;
+    let lowCount = 0;
+    for (let i = 0; i < n; i++) if (ranks[i] <= 8 || ranks[i] === 14) lowCount++;
     if (lowCount >= 3) pts += 1.5;
   }
 
@@ -5703,7 +5937,7 @@ export function omahaPreflopScore(cards: Card[], isHiLo: boolean): number {
   // measured median shift aligns the distributions almost exactly (p85 within
   // 0.2 points, p95 within 1.4 points of plo4's curve), so a percentile
   // threshold now selects the same QUALITY of hand in every Omaha variant.
-  const holeShift = cards.length >= 6 ? 8.8 : cards.length === 5 ? 4.7 : 0;
+  const holeShift = n >= 6 ? 8.8 : n === 5 ? 4.7 : 0;
   return clamp01((pts - holeShift) / 30);
 }
 

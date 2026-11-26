@@ -167,6 +167,14 @@ export interface RotatorEngine {
    * full orbit). No horse stands up the hand after winning a big pot.
    */
   bigPotOrbitHandsOwed?(userId: string): number;
+  /**
+   * A DRAINING HORSE IS NEVER FOLDED OUT OF A LIVE HAND (2026-11-25): true while
+   * this seat holds unfolded cards in the hand being played. leaveTable folds a
+   * live seat at once (owner 2026-10-25: a leave means now), which is right for
+   * a player's own choice; a Horse the fleet releases for an owed game did not
+   * choose to give up its hand, so the variety drain asks first.
+   */
+  liveInHand?(userId: string): boolean;
   /** V8: hand-boundary-safe top-up (queued mid-hand; wallet-debited). */
   addChips?(
     userId: string,
@@ -1487,7 +1495,9 @@ export class HorseSessionRotator {
        nobody there; here its Horses go home, ONE per cycle, through the same
        ordinary door as the end of a shift: engine.leaveTable (cashed out at
        the end of the hand), never while a stay clock or owed hands in profit
-       hold the seat, never the hand after a big pot. A person at the table
+       hold the seat, never the hand after a big pot. Never a Horse still holding
+       cards in the hand being played (2026-11-25): the drain takes one that
+       has folded or is between hands, so no hand is given up to free a slot. A person at the table
        stops it at once: this pass walks nobody out from beside a person. A
        table the cluster tick is already breaking is not walked out of (owner
        2026-11-07, HorseUnionCashPlan.horseCashPlanTablesAwaitingBreak): the
@@ -1509,7 +1519,8 @@ export class HorseSessionRotator {
                 !rosterLeft.has(`${drainTableId}:${uid}`) &&
                 !this.isLeaveHeld(drainTableId, uid) &&
                 !this.owesHands(drainTableId, uid, engine) &&
-                !this.owesBigPotOrbit(uid, engine)
+                !this.owesBigPotOrbit(uid, engine) &&
+                engine.liveInHand?.(uid) !== true
               );
             })
           : undefined;

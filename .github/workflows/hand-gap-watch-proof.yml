@@ -31,6 +31,7 @@ on:
       - supabase/migrations/20261122054826_mystery_bounty_and_addon_break_are_owed_waits.sql
       - supabase/migrations/20261122095254_all_in_showdown_sweep_and_award_groups_parity.sql
       - supabase/migrations/20261124171043_the_hand_gap_grade_names_its_worst_hands.sql
+      - supabase/migrations/20261126031922_hand_gap_tournament_break_predicate_requires_active_break.sql
       - server/standby/standby-engine.sh
       - scripts/sql/hand-gap-unintended-delay.sql
       - scripts/ci/test-hand-gap-watch.py

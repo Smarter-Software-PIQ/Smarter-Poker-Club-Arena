@@ -92,6 +92,7 @@ import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import type { HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { horseOptionsOn, recordHorseError } from '../services/HorseErrorLog.js';
+import { countHandOptionReceipts } from './HorseHandOptionReceipts.js';
 import { ServerTableEngineSeating } from './ServerTableEngineSeating.js';
 // Static watchdog thresholds live on the Base class (single source of truth).
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
@@ -4175,6 +4176,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     let pendingRemainingLedger: HorseDecision['remainingVariantPolicy'];
     let pendingJointLedger: HorseDecision['jointPolicy'];
     let pendingExecutionWitness: HorseDecision['executionWitness'];
+    // PER-HAND OPTION RECEIPTS (2026-11-25): what the reply behind `decision` carried (action kinds only);
+    // counted into the hand when that decision's action is accepted. Evidence only, never read to act.
+    let pendingOptionReceipts: unknown;
 
     const retireUtility = (ledger: HorseDecision['tournamentUtility']): void => {
       if (ledger?.executionStatus === 'pending') {
@@ -4757,6 +4761,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         pendingRemainingLedger = decision.remainingVariantPolicy;
         pendingJointLedger = decision.jointPolicy;
         pendingExecutionWitness = decision.executionWitness;
+        pendingOptionReceipts = fastResult.optionReceipts;
         if (this.weeklyHandPause.held() && !(await this.weeklyHandPause.checkpoint())) {
           markPendingUtilityNotExecuted();
           return;
@@ -5052,6 +5057,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   pendingRemainingLedger = decision.remainingVariantPolicy;
                   pendingJointLedger = decision.jointPolicy;
                   pendingExecutionWitness = decision.executionWitness;
+                  pendingOptionReceipts = deepResult.optionReceipts;
                 } else {
                   retireDecision(deepResult.decision, disposition.reason);
                 }
@@ -5789,6 +5795,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               if (applied) {
                 executedAction = action as ActionType;
                 executedAmount = normalizedAmount;
+                // PER-HAND OPTION RECEIPTS: this decision's action was accepted. An in-memory count, total.
+                countHandOptionReceipts(this.currentHandOptionReceipts, pendingOptionReceipts);
               }
               const acceptedWager = acceptedActions.length === 1 ? acceptedActions[0] : null;
               // omahaValueSizeIsUnreadable (default off): the river value alarm excuses exactly

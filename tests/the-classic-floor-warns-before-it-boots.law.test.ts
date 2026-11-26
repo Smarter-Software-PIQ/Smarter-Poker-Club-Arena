@@ -153,7 +153,8 @@ describe('the Classic VPIP floor', () => {
     // A stats call that cannot answer must never remove a player.
     const enforce = NIT.slice(NIT.indexOf('export async function collectNitEnforce'));
     expect(enforce.match(/return \[\];/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
-    expect(BASE).toMatch(/const nits = await collectNitEnforce\(this\.tableId\);/);
+    expect(BASE).toMatch(/this\.canSkipNitEnforce\(this\.nitStatus, seatedIds\)/);
+    expect(BASE).toMatch(/collectNitEnforce\(this\.tableId\)/);
     // Still gated on the column, so no round trip on a table without the rule.
     expect(BASE).toMatch(/this\.tableInfo\?\.nit_game === true/);
   });

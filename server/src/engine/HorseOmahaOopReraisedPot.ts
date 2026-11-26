@@ -143,6 +143,7 @@ import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
   omahaReraisedEquityAgainst,
+  omahaReraisedEquityInPercentileBand,
   omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
@@ -407,18 +408,10 @@ export function omahaOopReraisedClassCell(
   const declaredFourBet =
     fourBet && (lo >= OOP_PRIOR_BAND_FOUR_BET[0] - 1e-9 || (i.outOfPosition && dominatedKeyCard));
   const effLo = fourBet ? Math.max(lo, 0.7) : lo;
-  const equity = omahaReraisedEquity(
-    i.hole,
-    [],
-    i.dead,
-    declaredFourBet
-      ? (h) => omahaReraisedPremium(h)
-      : (h) => {
-          const p = omahaPreflopPercentile([...h], false);
-          return p >= effLo && p <= hi;
-        },
-    OOP_EQUITY_SAMPLES
-  );
+  // against a percentile band: omahaReraisedEquity bit for bit, through the id sampler (2026-11-26)
+  const equity = declaredFourBet
+    ? omahaReraisedEquity(i.hole, [], i.dead, (h) => omahaReraisedPremium(h), OOP_EQUITY_SAMPLES)
+    : omahaReraisedEquityInPercentileBand(i.hole, i.dead, effLo, hi, OOP_EQUITY_SAMPLES);
   if (equity === null) return null;
   if (commitment)
     return equity > price
@@ -697,6 +690,12 @@ export function omahaReraisedCallPriced(
   const lo = 1 - width;
   const inRange =
     lo <= 1e-9 ? () => true : (h: readonly Card[]) => omahaPreflopPercentile([...h], false) >= lo;
+  // Heads-up against the re-raiser: omahaReraisedEquity(hole, [], dead, inRange), the same number bit for bit; a
+  // range narrower than all hands takes the id sampler (percentile in [lo, 1]: every percentile is at most 1).
+  const headsUpEquity = (): number | null =>
+    lo <= 1e-9
+      ? omahaReraisedEquity(hole, [], dead, inRange, RERAISE_CALL_EQUITY_SAMPLES)
+      : omahaReraisedEquityInPercentileBand(hole, dead, lo, 1, RERAISE_CALL_EQUITY_SAMPLES);
   const bands = p.othersInBands ?? [];
   // Other players already in for the price: the equity is the share of the pot
   // against the re-raiser and each of them (no separate charge follows).
@@ -720,7 +719,7 @@ export function omahaReraisedCallPriced(
     // for the price charged the 0.35 dilution, so a class fold is still decided
     // by a number and receipted (omaha_reraised_call_priced_heads_up_diluted),
     // never left an unpriced call.
-    const headsUp = omahaReraisedEquity(hole, [], dead, inRange, RERAISE_CALL_EQUITY_SAMPLES);
+    const headsUp = headsUpEquity();
     if (headsUp === null) return null;
     const { othersInBands: _unused, ...fallback } = p;
     void _unused;
@@ -729,7 +728,7 @@ export function omahaReraisedCallPriced(
       headsUpDiluted: p.othersIn,
     });
   }
-  const equity = omahaReraisedEquity(hole, [], dead, inRange, RERAISE_CALL_EQUITY_SAMPLES);
+  const equity = headsUpEquity();
   if (equity === null) return null;
   return omahaReraisedCallEv(equity, width, call, pot, stack, p);
 }
@@ -950,16 +949,8 @@ export function omahaDowngradedThreeBetCalls(i: {
   if (!(i.toCall > 0.005) || !(i.pot > 0) || !(i.stack > 0)) return true;
   const call = Math.min(i.toCall, i.stack);
   const [lo, hi] = i.band ?? OOP_PRIOR_BAND_OPEN;
-  const equity = omahaReraisedEquity(
-    i.hole,
-    [],
-    i.dead,
-    (h) => {
-      const p = omahaPreflopPercentile([...h], false);
-      return p >= lo && p <= hi;
-    },
-    OOP_EQUITY_SAMPLES
-  );
+  // omahaReraisedEquity against the percentile band, bit for bit, without its cost (2026-11-26)
+  const equity = omahaReraisedEquityInPercentileBand(i.hole, i.dead, lo, hi, OOP_EQUITY_SAMPLES);
   if (equity === null) return true;
   return (
     equity >=

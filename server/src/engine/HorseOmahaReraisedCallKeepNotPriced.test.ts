@@ -4,19 +4,28 @@
  * In PLO4/PLO5 the priced test of a re-raised-pot call can only overturn a
  * class fold, so omahaOopReraisedCallCell runs its 400-sample equity only when
  * the class cell folds. For a class keep it returns exactly what main returns:
- * the class verdict, no pricing object, and no priced sampler run. The sampler
- * (omahaReraisedEquity) is wrapped here and its calls counted by sample count:
- * the class cell samples OOP_EQUITY_SAMPLES, the priced test
+ * the class verdict, no pricing object, and no priced sampler run. The samplers
+ * (omahaReraisedEquity, and omahaReraisedEquityInPercentileBand, the same equity
+ * against a percentile band on card ids since 2026-11-26; both take the sample
+ * count fifth) are wrapped here and their calls counted by sample count: the
+ * class cell samples OOP_EQUITY_SAMPLES, the priced test
  * RERAISE_CALL_EQUITY_SAMPLES.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./HorseOmahaReraisedPot.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./HorseOmahaReraisedPot.js')>();
-  return { ...real, omahaReraisedEquity: vi.fn(real.omahaReraisedEquity) };
+  return {
+    ...real,
+    omahaReraisedEquity: vi.fn(real.omahaReraisedEquity),
+    omahaReraisedEquityInPercentileBand: vi.fn(real.omahaReraisedEquityInPercentileBand),
+  };
 });
 
-import { omahaReraisedEquity } from './HorseOmahaReraisedPot.js';
+import {
+  omahaReraisedEquity,
+  omahaReraisedEquityInPercentileBand,
+} from './HorseOmahaReraisedPot.js';
 import {
   OOP_EQUITY_SAMPLES,
   RERAISE_CALL_EQUITY_SAMPLES,
@@ -30,10 +39,12 @@ const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts',
 const cards = (spec: string): Card[] =>
   (spec.match(/../g) ?? []).map((x) => ({ rank: x[0] as CardRank, suit: SUIT[x[1]] }));
 const sampler = vi.mocked(omahaReraisedEquity);
-/** How many sampler runs asked for each sample count since the last reset. */
+const bandSampler = vi.mocked(omahaReraisedEquityInPercentileBand);
+/** How many sampler runs (either sampler) asked for each sample count since the last reset. */
 const runs = () => {
   const by: Record<number, number> = {};
-  for (const c of sampler.mock.calls) by[c[4] as number] = (by[c[4] as number] ?? 0) + 1;
+  for (const c of [...sampler.mock.calls, ...bandSampler.mock.calls])
+    by[c[4] as number] = (by[c[4] as number] ?? 0) + 1;
   return by;
 };
 /** Out of position, the given raise count; the harshest pricing inputs (two others in, a 0.02 re-raiser). */
@@ -70,6 +81,7 @@ const spot = (hole: string, preflopRaises: number, stack: number): OmahaOopRerai
 
 beforeEach(() => {
   sampler.mockClear();
+  bandSampler.mockClear();
 });
 
 describe('a class keep: the verdict of main, and the priced sampler never runs', () => {

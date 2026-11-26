@@ -17475,9 +17475,18 @@ function holdemAllInCallReference(
     }
     if (shape === pricedCall.price.verdict) return decision;
     if (tele) noteFire('holdem_tournament_all_in_call_reference_kept_seen');
-    return pricedCall.price.verdict === 'call'
-      ? holdemPricedCall(player, gs, decision.thinkTime)
-      : { action: 'fold', thinkTime: decision.thinkTime };
+    const pricedPreflop: HorseDecision =
+      pricedCall.price.verdict === 'call'
+        ? holdemPricedCall(player, gs, decision.thinkTime)
+        : { action: 'fold', thinkTime: decision.thinkTime };
+    // PER-HAND OPTION RECEIPT (HorseHandOptionReceipts): the option changed this decision. Action kinds only.
+    if (tele)
+      noteDecisionRuleReceipt(
+        'holdemTournamentAllInCallIsPriced',
+        { action: decision.action },
+        { action: pricedPreflop.action }
+      );
+    return pricedPreflop;
   }
   holdemAllInCallVerdictPending = priceHoldemTournamentPostflopCall(player, gs, vi);
   const v = holdemAllInCallVerdictPending;
@@ -17493,9 +17502,18 @@ function holdemAllInCallReference(
       noteFire('holdem_tournament_committed_stack_call_seen');
     else noteFire('holdem_tournament_postflop_all_in_call_priced_seen');
   }
-  return v.price.verdict === 'call'
-    ? holdemPricedCall(player, gs, decision.thinkTime)
-    : { action: 'fold', thinkTime: decision.thinkTime };
+  const pricedPostflop: HorseDecision =
+    v.price.verdict === 'call'
+      ? holdemPricedCall(player, gs, decision.thinkTime)
+      : { action: 'fold', thinkTime: decision.thinkTime };
+  // PER-HAND OPTION RECEIPT (HorseHandOptionReceipts): the option changed this decision. Action kinds only.
+  if (tele)
+    noteDecisionRuleReceipt(
+      'holdemTournamentAllInCallIsPriced',
+      { action: decision.action },
+      { action: pricedPostflop.action }
+    );
+  return pricedPostflop;
 }
 
 export class HorseLogic {
@@ -22458,6 +22476,19 @@ export class HorseLogic {
     // 3-bet read the (defender, opener seat) reference base
     // (HorseGtoDefenceRanges). Both seats are indexed from the dealt census
     // exactly as V70 indexes the open, never from who anybody is.
+    // cashDefenceTrimColdCalls, PER-HAND OPTION RECEIPT (HorseHandOptionReceipts): the same defence base with
+    // the trim taken out, built only while the option is on and telemetry is on. It decides nothing: the rewound
+    // intent below reads it to say whether the trim changed this preflop choice.
+    let gtoDefend72TrimOff:
+      | {
+          strength: number;
+          continueBar: number;
+          valueBar: number;
+          bluffProb: number;
+          defender: 'bb' | 'sb' | 'ip';
+          cashAction?: true;
+        }
+      | undefined;
     const gtoDefend72 = (() => {
       if (opts.v72DefenceByOpener === false) return undefined;
       if (raises !== 1 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
@@ -22511,6 +22542,35 @@ export class HorseLogic {
           : d72.continueBar;
       if (continueBar72 !== d72.continueBar && telemetryOn(opts))
         noteFire('holdem_persona_continue_shift_seen');
+      if (trimColdCalls && telemetryOn(opts)) {
+        // Pure arithmetic on the same cards and spot (gtoDefence draws nothing and counts nothing).
+        const off72 = gtoDefence(player.cards[0], player.cards[1], {
+          dealt: dealt72,
+          defender,
+          openerBehind,
+          defenderBehind: heroBehind,
+          ante: (gs.ante ?? 0) > 0,
+          openToBB,
+          ...(defend85 ? { cashAction: true, callers, depthBB: depth85 } : {}),
+        });
+        if (off72)
+          gtoDefend72TrimOff = {
+            strength: clamp01(off72.continueStrength + strengthJitter),
+            continueBar:
+              defend85 && personaRange87 && personaRange87.shift.continuePts !== 0
+                ? holdemPersonaContinueBar(
+                    off72.continueBar,
+                    off72.valueBar,
+                    personaRange87.shift.continuePts,
+                    depth85
+                  )
+                : off72.continueBar,
+            valueBar: off72.valueBar,
+            bluffProb: off72.bluffProb,
+            defender,
+            ...(defend85 ? { cashAction: true as const } : {}),
+          };
+      }
       return {
         strength: clamp01(d72.continueStrength + strengthJitter),
         continueBar: continueBar72,
@@ -23754,6 +23814,19 @@ export class HorseLogic {
         restoreFastRandom(rngF);
       }
     }
+    // cashDefenceTrimColdCalls, PER-HAND OPTION RECEIPT: the same intent on the untrimmed defence base, on the same
+    // RNG position (rewound), telemetry suspended and the deep-dive collector detached, like the counterfactuals
+    // above. Run only while the option is on, trimmed this spot's base and telemetry is on; it decides nothing.
+    const trimOffIntent =
+      gtoDefend72TrimOff !== undefined
+        ? rewound15({
+            ...intentCtx7,
+            gtoDefend: gtoDefend72TrimOff,
+            noteLayer: undefined,
+            noteAuthority: undefined,
+            noteThresholds: undefined,
+          })
+        : null;
     // Attach only to the real decision, never the rewound ICM counterfactual.
     const intentToday = decidePreflopV7({
       ...intentCtx7,
@@ -23782,6 +23855,17 @@ export class HorseLogic {
         })
       : null;
     const intent = byLimp ? byLimp.intent : intentToday;
+    // The trim changed this preflop choice: its receipt names the kind of action before and after. Kinds only
+    // (an intent's jam is an all_in, its raiseTo a raise; HorseHandOptionReceipts keeps only action words).
+    if (trimOffIntent && trimOffIntent.a !== intent.a) {
+      const kindOf = (a: string): string =>
+        a === 'jam' ? 'all_in' : a === 'raiseTo' ? 'raise' : a;
+      noteDecisionRuleReceipt(
+        'cashDefenceTrimColdCalls',
+        { action: kindOf(trimOffIntent.a) },
+        { action: kindOf(intent.a) }
+      );
+    }
     // The events, layers and thresholds above were recorded for intentToday;
     // the swap is its own layer and travels on the authority receipt
     // (audit 2026-11-15, item 4).
