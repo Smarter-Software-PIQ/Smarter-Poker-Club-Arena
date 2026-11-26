@@ -723,6 +723,7 @@ jobs:
           FREEZE_BASELINE: ${{ needs.plan.outputs.freeze_baseline }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
           POST_SEAL: ${{ needs.plan.outputs.post_seal }}
+          KEEP_SERVING: ${{ github.event_name == 'workflow_dispatch' && inputs.after_cycle != '' && inputs.sha == '' && '1' || '' }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -781,7 +782,13 @@ jobs:
             # freeze-baseline runs never supersede; unreadable API, git, or
             # projection answers keep waiting (CLAUDE.md 10.86). A post-seal
             # next-candidate run (O24) yields to a newer push run the same way.
-            if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            # So does a keep-serving next-candidate run (O27, workflow_dispatch
+            # with after_cycle and no sha): it certifies main for the next cycle
+            # exactly like a post-seal run. Before 2026-11-26 it never yielded:
+            # run 45883490551 waited the whole 120-minute ceiling behind two
+            # newer push runs that certified main (the second sealed the 16:00
+            # CST cycle), then timed out red and wrote an `error` status.
+            if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
               newer_shas=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
                 --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$SHA\" and .status != \"completed\") | .head_sha] | unique | .[]" 2>/dev/null) || newer_shas=unreadable
               if [ "$newer_shas" != unreadable ] && [ -n "$newer_shas" ]; then
@@ -1537,6 +1544,7 @@ jobs:
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
           POST_SEAL: ${{ needs.plan.outputs.post_seal }}
           SEALED_SHA: ${{ needs.plan.outputs.sealed_sha }}
+          KEEP_SERVING: ${{ github.event_name == 'workflow_dispatch' && inputs.after_cycle != '' && inputs.sha == '' && '1' || '' }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -1610,7 +1618,7 @@ jobs:
           yielded=0
           yield_reason=''
           check_interval="${YIELD_CHECK_INTERVAL:-60}"
-          if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+          if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
             while kill -0 "$ssh_pid" 2>/dev/null; do
               elapsed=0
               while [ "$elapsed" -lt "$check_interval" ] && kill -0 "$ssh_pid" 2>/dev/null; do
