@@ -69,9 +69,8 @@ export function riverOpeningDecide(
     return HorseLogic.decide(structuredClone(n.player), structuredClone(n.gs), n.style, n.mods, {
       ...RIVER_OPENING_FIXTURE.opts,
       ...on,
+      mind: false,
       telemetry: false,
-      observeMind: false,
-      decisionTimeMs: 1795600000000,
     } as never) as HorseDecision;
   } finally {
     HorseMind.setOmahaLifetimeStreetRecordProvider(null);
