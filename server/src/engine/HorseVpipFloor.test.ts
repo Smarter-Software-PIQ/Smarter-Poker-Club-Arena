@@ -173,9 +173,10 @@ describe('the wiring', () => {
   });
 
   it('the judged figures are read beside the eviction, from the same rows', () => {
-    expect(BASE).toMatch(
-      /this\.nitStatus = await collectNitStatus\(this\.tableId\);\s*const nits = await collectNitEnforce\(this\.tableId\);/
-    );
+    expect(BASE).toMatch(/const preparedNit = this\.consumePreparedNitStatus\(\);/);
+    expect(BASE).toMatch(/collectNitStatus\(this\.tableId\)/);
+    expect(BASE).toMatch(/this\.canSkipNitEnforce\(this\.nitStatus, seatedIds\)/);
+    expect(BASE).toMatch(/collectNitEnforce\(this\.tableId\)/);
     expect(NIT).toMatch(/supabase\.rpc\('fn_nit_status', \{ p_table_id: tableId \}\)/);
     expect(SQL).toMatch(/CREATE OR REPLACE FUNCTION public\.fn_nit_status\(p_table_id uuid\)/);
     expect(SQL).toMatch(/GRANT EXECUTE ON FUNCTION public\.fn_nit_status\(uuid\) TO service_role;/);

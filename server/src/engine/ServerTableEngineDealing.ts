@@ -172,23 +172,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     return false;
   }
 
+  protected override timeCashNitBranch<T>(name: string, work: Promise<T>): Promise<T> {
+    return this.timeCashPrepareBranch(name, work);
+  }
+
   /**
-   * Overlap read-only pre-deal checks (`refreshOperatorFloor`, and on
-   * clustered cash tables `pendingSeatMoves`) with `prepareNextHand()` so the
-   * dealing loop pays one parallel PostgREST wave instead of serializing three
-   * independent round trips under the 1,500 ms rest (incident 1e532243).
+   * Overlap read-only pre-deal checks (`refreshOperatorFloor`, and on cash
+   * tables `pendingSeatMoves` and `fn_nit_status` when `nit_game` is enabled)
+   * with `prepareNextHand()` so the dealing loop pays one parallel PostgREST
+   * wave instead of serializing independent round trips under the 1,500 ms
+   * rest (incident 1e532243).
    */
   protected startPreDealReadOverlap(): void {
     this.clearPreparedOperatorFloor();
     this.clearPreparedPendingSeatMoves();
+    this.clearPreparedNitStatus();
     if (this.dealingHaltLock || !this.lifecycleCanMutate()) return;
     this.startPreparedOperatorFloor((work) =>
       this.timeCashPrepareBranch('refresh_operator_floor', work)
     );
-    if (!this.isTournamentTable() && !this.hasDeferredBankTheWin()) {
-      this.startPreparedPendingSeatMoves((work) =>
-        this.timeCashPrepareBranch('pending_seat_moves', work)
-      );
+    if (!this.isTournamentTable()) {
+      if (!this.hasDeferredBankTheWin()) {
+        this.startPreparedPendingSeatMoves((work) =>
+          this.timeCashPrepareBranch('pending_seat_moves', work)
+        );
+      }
+      if (this.tableInfo?.nit_game === true) {
+        this.startPreparedNitStatus((work) => this.timeCashPrepareBranch('nit_status', work));
+      }
     }
   }
 
@@ -2475,12 +2486,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   override stop(): Promise<void> {
     this.settleCashBreachSpan('aborted', 'table_stopped');
     this.clearPreparedTimeBankReads();
+    this.clearPreparedNitStatus();
     return super.stop();
   }
 
   protected override discardPreparedHandForPause(): boolean {
     const discarded = super.discardPreparedHandForPause();
-    if (discarded) this.clearPreparedTimeBankReads();
+    if (discarded) {
+      this.clearPreparedTimeBankReads();
+      this.clearPreparedNitStatus();
+    }
     return discarded;
   }
 
@@ -2499,6 +2514,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           .slice(0, 80)
     );
     this.clearPreparedTimeBankReads();
+    this.clearPreparedNitStatus();
     super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
   }
 

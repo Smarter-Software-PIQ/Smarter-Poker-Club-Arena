@@ -279,6 +279,42 @@ describe('parked calls', () => {
     expect(bigParked.filter((c) => c.permit).length).toBe(1);
     expect(bulkhead.snapshot().totalInFlight).toBe(4);
   });
+
+  it('gives the very first freed global slot to a starved zero-in-flight tournament ahead of saturated MTTs (incident 1e532243)', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      maxPerEvent: 24,
+      minPerEvent: 6,
+      maxAllEvents: 48,
+    });
+    // Two large MTTs saturate all 48 global slots and park deep queues first.
+    const big1Active = Array.from({ length: 24 }, () => ask(bulkhead, 'mtt-1'));
+    const big2Active = Array.from({ length: 24 }, () => ask(bulkhead, 'mtt-2'));
+    const big1Parked = Array.from({ length: 5 }, () => ask(bulkhead, 'mtt-1'));
+    const big2Parked = Array.from({ length: 5 }, () => ask(bulkhead, 'mtt-2'));
+    // Two small tournaments arrive later with 0 in-flight slots.
+    const smallA = ask(bulkhead, 'small-a');
+    const smallB = ask(bulkhead, 'small-b');
+    expect(smallA.permit).toBeNull();
+    expect(smallB.permit).toBeNull();
+
+    // Release ONE slot from mtt-1: small-a (inFlight=0) MUST take it immediately,
+    // not mtt-1 (inFlight=23) or mtt-2 (inFlight=24) even though they parked earlier.
+    bulkhead.release(big1Active[0].permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(smallA.permit).not.toBeNull();
+    expect(smallB.permit).toBeNull();
+    expect(big1Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(big2Parked.some((c) => c.permit !== null)).toBe(false);
+
+    // Release ONE slot from mtt-2: small-b (inFlight=0) takes it next.
+    bulkhead.release(big2Active[0].permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(smallB.permit).not.toBeNull();
+    expect(big1Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(big2Parked.some((c) => c.permit !== null)).toBe(false);
+    expect(bulkhead.snapshot().totalInFlight).toBe(48);
+  });
 });
 
 describe('shutdown', () => {
