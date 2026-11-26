@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { supersededBy } from '../scripts/ci/check-migrations-are-live.mjs';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 const strip = (sql: string) => sql.replace(/^\s*--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -87,5 +88,25 @@ describe('LAW: the BBJ drift alarm reads its window once', () => {
       )
     );
     expect(dropped).toBe(false);
+  });
+
+  it('installs inside the applier budget: the proof never re-runs the slow read', () => {
+    // 20261126203947 was refused on install (25P04): its proof re-ran the old
+    // body inline, about 10 s cold, inside a transaction the applier stops at
+    // about 12 s. The newest definer's checks read rake_records only through
+    // the function, and its one timed call must finish in 2 s.
+    const raw = readFileSync(join(MIGRATIONS, NEWEST), 'utf8');
+    const tx = strip(raw.slice(raw.indexOf('BEGIN;')));
+    const outsideFn =
+      tx.slice(0, tx.search(DEFINES)) + tx.slice(tx.indexOf('$function$;', tx.search(DEFINES)));
+    expect(outsideFn).not.toMatch(/\bFROM\s+(public\.)?rake_records\b/i);
+    const limit = Number(/IF v_ms > (\d+) THEN/.exec(tx)?.[1]);
+    expect(limit).toBeGreaterThan(0);
+    expect(limit).toBeLessThanOrEqual(2000);
+  });
+
+  it('the refused file is marked superseded so it never runs again', () => {
+    const fixSql = readFileSync(join(MIGRATIONS, FIX), 'utf8');
+    expect(supersededBy(fixSql, files)).toBe('20261126222226');
   });
 });

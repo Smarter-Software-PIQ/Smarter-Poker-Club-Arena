@@ -12,3 +12,10 @@ data before it commits. The law pins the signature and invoker shape, that
 every CTE is materialized, that `rake_records` is read once, that the 6 minute
 settle grace, the join by hand and the unlinkable count keep their meaning,
 and that the index stays declared and is never dropped.
+
+20261126203947 was refused on install (transaction timeout): its proof re-ran
+the old slow body inline inside a transaction the applier stops at about 12 s.
+It is marked superseded by 20261126222226, which installs the same body with a
+shape check and one timed call. The law now also refuses a newest definer whose
+checks read `rake_records` outside the function, or whose timed call may take
+more than 2 s.

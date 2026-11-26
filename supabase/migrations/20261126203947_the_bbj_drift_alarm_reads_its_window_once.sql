@@ -1,5 +1,13 @@
 -- 20261126203947_the_bbj_drift_alarm_reads_its_window_once
 --
+-- SUPERSEDED BY 20261126222226
+-- REFUSED AND NEVER COMMITTED (2026-11-26 22:17 UTC). The applier stops every
+-- ordinary transaction at about 12 s; the inline old-body comparison passed on
+-- live data, then the timed call ran past the budget and the database rolled
+-- the whole transaction back. Only the CONCURRENTLY index (outside the
+-- transaction) was built, and it is valid. 20261126222226 installs the same
+-- function inside the budget.
+--
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
