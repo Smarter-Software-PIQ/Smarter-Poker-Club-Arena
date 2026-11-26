@@ -11,6 +11,10 @@
 //                                         option_shadow_stage_redecide_game_<game>, option_shadow_stage_redecide_cpu
 //   horse_error_log                       errors in the window
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export const OPTION_NAME_RE = /^[A-Za-z][A-Za-z0-9]{0,99}$/;
 export const SINCE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/;
 export const RELEASE_PREFIX_RE = /^[0-9a-f]{7,40}$/;
@@ -24,26 +28,22 @@ export const OVER_100_MS_DIRTY_PCT = 1;
 /**
  * The receipts an option fires only when it ACTS. In shadow the acted decision passes nothing for the option and
  * the re-decision runs with telemetry suspended, so any of these in the window is an acted leak (must be 0).
- * `unlessOn`: the leak check does not apply while one of these options (or the option itself) is on or on_shadow.
+ * DERIVED from the option's own ledger entries (server/src/engine/HorseOptionActedReceipts.ts, HorseDataLedger.ts)
+ * into horse-option-acted-receipts.json by server/scripts/gen-horse-option-acted-receipts.ts; the law
+ * everyShadowOptionKnowsItsActedReceipts.law.test.ts fails the build when a registered default-off option that takes
+ * shadow has no acted receipt and no reasoned `none`, or when the file is stale. Per option: `keys` (exact receipt
+ * keys), `prefixes` (receipt families), `unlessOn` (options whose being on makes them legitimate), `source` (ledger,
+ * declared, none_declared, not_applicable = on or code-decided by release default, so it acts in shadow by design),
+ * `reason`.
  */
-export const ACTED_RECEIPTS = Object.freeze({
-  omahaMathCorePlo5Flop: Object.freeze({
-    prefixes: Object.freeze(['omaha_math_core_']),
-    unlessOn: Object.freeze(['omahaMathCore']),
-  }),
-  holdemValueAndCallsArePriced: Object.freeze({
-    prefixes: Object.freeze(['holdem_priced_']),
-    unlessOn: Object.freeze([]),
-  }),
-  holdemTournamentAllInCallIsPriced: Object.freeze({
-    prefixes: Object.freeze(['holdem_tournament_all_in_call_', 'holdem_tournament_postflop_']),
-    unlessOn: Object.freeze([]),
-  }),
-  cashDefenceTrimColdCalls: Object.freeze({
-    prefixes: Object.freeze(['cash_defence_trim_cold_calls_']),
-    unlessOn: Object.freeze([]),
-  }),
-});
+export const ACTED_RECEIPTS = Object.freeze(
+  JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'horse-option-acted-receipts.json'),
+      'utf8'
+    )
+  ).options
+);
 
 /** The counters of the stage and the shadow that are not the option's own (one shadow row globally). */
 export const GUARD_FEATURES = Object.freeze({
@@ -97,14 +97,38 @@ export function parseWatchArgs(argv) {
     throw new Error(`invalid --release (7-40 lowercase hex): ${out.release}`);
   for (const p of out.actedPrefixes)
     if (!ACTED_PREFIX_RE.test(p)) throw new Error(`invalid --acted-prefix: ${p}`);
+  if (!actedReceiptsFor(out.option).registered)
+    throw new Error(
+      `${out.option} is not a registered option that takes shadow (scripts/ops/horse-option-acted-receipts.json; regenerate it with npx tsx scripts/gen-horse-option-acted-receipts.ts from server/ if the option is new)`
+    );
   return out;
 }
 
-/** The acted receipt prefixes and the options that lift the leak check, for an option. */
-export function actedReceiptsFor(option, extraPrefixes = []) {
-  const known = Object.hasOwn(ACTED_RECEIPTS, option) ? ACTED_RECEIPTS[option] : null;
+/**
+ * The acted receipts of an option (keys, prefixes, the options that lift the check, where they came from), from the
+ * derived table; `extraPrefixes` (--acted-prefix) add to them. `registered` is false for a name the table does not
+ * hold (not a registered option that takes shadow): the watch refuses it instead of reading it as unchecked.
+ */
+export function actedReceiptsFor(option, extraPrefixes = [], table = ACTED_RECEIPTS) {
+  const known = Object.hasOwn(table, option) ? table[option] : null;
+  const keys = [...(known?.keys ?? [])];
   const prefixes = [...new Set([...(known?.prefixes ?? []), ...extraPrefixes])];
-  return { prefixes, unlessOn: [...(known?.unlessOn ?? [])], known: prefixes.length > 0 };
+  const source = known?.source ?? 'unregistered';
+  return {
+    registered: known !== null,
+    source,
+    reason: known?.reason ?? null,
+    releaseDefault: known?.releaseDefault ?? null,
+    keys,
+    prefixes,
+    unlessOn: [...(known?.unlessOn ?? [])],
+    known: keys.length + prefixes.length > 0,
+  };
+}
+
+/** True when a fired feature is one of the option's acted receipts. */
+export function isActedReceipt(feature, acted) {
+  return acted.keys.includes(feature) || acted.prefixes.some((p) => feature.startsWith(p));
 }
 
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
@@ -123,6 +147,7 @@ export function buildWatchQueries({ option, since, release = null, actedPrefixes
   const featureFilters = [
     `e->>'feature' LIKE ${likeLit('option_shadow_')}`,
     ...acted.prefixes.map((p) => `e->>'feature' LIKE ${likeLit(p)}`),
+    ...(acted.keys.length ? [`e->>'feature' IN (${acted.keys.map(lit).join(', ')})`] : []),
   ].join(' OR ');
   return {
     switchRows: `SELECT option, state, updated_at FROM ca_horse_style_switch WHERE option IN (${switchNames
@@ -183,8 +208,11 @@ function latencyRow(r) {
 /**
  * The report of one watch from the rows of buildWatchQueries. Pure. The VERDICT is DIRTY when any of: no
  * re-decision in the window, an acted leak, the breaker tripped, a re-decision failed or could not be encoded, an
- * error in horse_error_log, re-decisions over 100 ms at 1% or more, or the acted-leak check cannot be made (no
- * acted receipt known for the option and none given with --acted-prefix, while it is in shadow).
+ * error in horse_error_log, re-decisions over 100 ms at 1% or more, or the acted-leak check cannot be made (the
+ * derived table holds no acted receipt and no reasoned none for a default-off option in shadow; the build gate
+ * everyShadowOptionKnowsItsActedReceipts.law.test.ts keeps that from happening for a registered option). An option
+ * declared to fire no receipt of its own (none_declared) or on by release default (release_default) is not DIRTY for
+ * that: the report says why the leak check does not apply.
  */
 export function evaluateWatch({ option, since, release = null, actedPrefixes = [] }, rows) {
   const fires = new Map();
@@ -236,10 +264,20 @@ export function evaluateWatch({ option, since, release = null, actedPrefixes = [
     ['on', 'on_shadow'].includes(stateOf(n) ?? '')
   );
   const leakRows = [...fires]
-    .filter(([k]) => acted.prefixes.some((p) => k.startsWith(p)))
+    .filter(([k]) => isActedReceipt(k, acted))
     .map(([feature, n]) => ({ feature, n }));
   const actedLeaks = leakRows.reduce((a, r) => a + r.n, 0);
-  const leakCheck = lifted ? 'lifted' : acted.known ? 'checked' : 'unknown';
+  // release_default: on or code-decided by release default, so the acted decision runs it in shadow by design;
+  // none_declared: its ledger declares it fires no receipt of its own (with the reason), so there is nothing to find
+  const leakCheck = lifted
+    ? 'lifted'
+    : acted.source === 'not_applicable'
+      ? 'release_default'
+      : acted.known
+        ? 'checked'
+        : acted.source === 'none_declared'
+          ? 'none_declared'
+          : 'unknown';
 
   const latency = (rows.latency ?? []).map(latencyRow);
   const redecideScopes = latency.filter(
@@ -302,6 +340,9 @@ export function evaluateWatch({ option, since, release = null, actedPrefixes = [
     leakRows,
     leakCheck,
     actedPrefixes: acted.prefixes,
+    actedKeys: acted.keys,
+    actedSource: acted.source,
+    actedReason: acted.reason,
     latency: redecideScopes,
     over100,
     over100Pct,
@@ -355,8 +396,18 @@ export function formatWatchReport(rep) {
   if (rep.leakCheck === 'lifted')
     L.push(`  not applicable: the option or a companion is on/on_shadow (acted receipts expected)`);
   else if (rep.leakCheck === 'unknown')
-    L.push('  UNCHECKED: no acted receipt known for this option; pass --acted-prefix <prefix>');
-  else L.push(`  acted_leaks=${rep.actedLeaks} (prefixes ${rep.actedPrefixes.join(', ')})`);
+    L.push(
+      '  UNCHECKED: the derived table knows no acted receipt for this option (a build-time gap: regenerate it)'
+    );
+  else if (rep.leakCheck === 'release_default')
+    L.push(
+      `  not applicable: ${rep.actedReason ?? 'on by release default, so it acts in shadow by design'}`
+    );
+  else if (rep.leakCheck === 'none_declared') L.push(`  not readable: ${rep.actedReason}`);
+  else
+    L.push(
+      `  acted_leaks=${rep.actedLeaks} (${rep.actedSource}: ${[...rep.actedKeys, ...rep.actedPrefixes.map((p) => `${p}*`)].length} receipts${rep.actedPrefixes.length ? `, prefixes ${rep.actedPrefixes.join(', ')}` : ''})`
+    );
   for (const r of rep.leakRows) L.push(`    ${r.feature} = ${r.n}`);
   L.push('--- errors (horse_error_log) ---');
   if (rep.errors.length === 0) L.push('  0');

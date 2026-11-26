@@ -10797,3 +10797,52 @@ export function snapshotOptionFlags(
     v87HoldemOverhaul: opts?.v87HoldemOverhaul !== false,
   };
 }
+
+/**
+ * THE RECEIPTS AN OPTION FIRES ONLY WHEN IT ACTS, WHERE ITS RECEIPT ENTRIES DO NOT SAY (2026-11-26, PLO-OWNER
+ * lead-7, lane HARDENING).
+ *
+ * A live shadow trial (scripts/ops/horse-option-shadow-watch.mjs) proves the acted decision did not act on the
+ * option by finding none of the option's own receipts in the window. Those receipts are read from this ledger: every
+ * receipt entry whose consumer names the option (HorseOptionActedReceipts.optionActedReceipts). An option that is off
+ * by release default and takes shadow, but whose receipts do not name it, is declared here: its acted receipts
+ * (`prefixes` are receipt-key prefixes; `unlessOn` options make them legitimate when on), or `none` with the reason
+ * no receipt can show it acted. everyShadowOptionKnowsItsActedReceipts.law.test.ts fails the build for such an option
+ * with neither, so a watch never meets an option whose acted receipts it does not know.
+ */
+export type OptionActedReceiptsDeclaration =
+  | { readonly prefixes: readonly string[]; readonly unlessOn?: readonly string[] }
+  | { readonly none: string };
+
+const NO_OWN_RECEIPT = (what: string): { readonly none: string } => ({
+  none: `fires no receipt of its own: ${what}; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)`,
+});
+
+export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
+  Record<string, OptionActedReceiptsDeclaration>
+> = Object.freeze({
+  // the street flag acts only through the math core; its receipts are the core's, legitimate while the core is on
+  omahaMathCorePlo5Flop: { prefixes: ['omaha_math_core_'], unlessOn: ['omahaMathCore'] },
+  horseActionTimeIsPublicOnly: NO_OWN_RECEIPT(
+    'it changes the think time of a decision, not its action'
+  ),
+  v16Ratio: NO_OWN_RECEIPT('a bet-ratio threshold inside two existing postflop reads'),
+  omahaReraisedPotStackOffFold: NO_OWN_RECEIPT(
+    'a branch of the re-raised-pot stack-off rule, counted by that rule'
+  ),
+  omahaReraisedPotStackOffRealistic: NO_OWN_RECEIPT(
+    'a branch of the re-raised-pot stack-off rule, counted by that rule'
+  ),
+  omahaOpponentLifetimeHudDecides: NO_OWN_RECEIPT(
+    'it hands the lifetime read to the postflop read options'
+  ),
+  omahaPreflopReadIsPricedFromLifetime: NO_OWN_RECEIPT(
+    'it changes the preflop read the memory hands the decision'
+  ),
+  omahaNoCategoricalRules: NO_OWN_RECEIPT('it removes other options for one decision'),
+  omahaTournamentsExcludeCategoricalRules: NO_OWN_RECEIPT(
+    'it removes other options in a tournament decision'
+  ),
+  readShrinkResponse: NO_OWN_RECEIPT('it changes how far a read shrinks toward the prior'),
+  readScopedShrink: NO_OWN_RECEIPT('it changes how far a read shrinks toward the prior'),
+});
