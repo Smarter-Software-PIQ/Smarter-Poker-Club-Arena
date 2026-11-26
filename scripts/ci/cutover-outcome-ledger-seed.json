@@ -1,0 +1,292 @@
+{
+  "schema": 1,
+  "updatedAt": "2026-11-24T18:57:58Z",
+  "records": [
+    {
+      "schema": 1,
+      "cycle": "2026-11-18",
+      "runId": "44271087647",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-installed-migration",
+      "refusedSha": "17022c8462688472c1d2c1f397093984550f196e",
+      "reason": "Backup copy lacks installed migration 20261117193740, 20261118080240",
+      "servingSha": "28372c9a1750934d1c39839bc551b050da6f4b8d",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-19",
+      "runId": "44462209828",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-candidate-migration",
+      "refusedSha": "24e3b2b2c8cd2c797f02a925d2c9ef0725b2563f",
+      "reason": "Backup copy lacks the exact candidate migration(s) 20261119013426, 20261119013430, 20261119015312, 20261119050653, 20261119052600",
+      "servingSha": "f3e99378ccbba4071e342b1de9137cc42bfce7ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-20",
+      "runId": "44689115412",
+      "outcome": "keep-serving",
+      "gate": "no-certified-candidate",
+      "refusedSha": "f10450bb7660b575eff42ca01836470f947ade70",
+      "reason": "No newer protected candidate has complete current evidence by the cutoff.",
+      "servingSha": "5ed440ab83513f9292eff592527b33e3a65ca2aa",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-21",
+      "runId": "44878744050",
+      "outcome": "keep-serving",
+      "gate": "prequalification-unavailable",
+      "refusedSha": "ac1d44ba4bc6cba3d05c5bca67693d8e65193900",
+      "reason": "prequalification unavailable",
+      "servingSha": "bb21dc82673117a937f67c9498dec46b8c27522e",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-21T16",
+      "runId": "44948953072",
+      "outcome": "keep-serving",
+      "gate": "serving-rollback-rehearsal-unavailable",
+      "refusedSha": "02fa516cbdce3c81a12e0392eb1c9d7287ccb059",
+      "reason": "serving rollback rehearsal unavailable",
+      "servingSha": "1a0a6047e1acb1a037cd43b36d9907a00103c5e4",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-21T19",
+      "runId": "44960337691",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "1a0a6047e1acb1a037cd43b36d9907a00103c5e4",
+      "targetSha": "c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-21T22",
+      "runId": "44973860544",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-installed-migration",
+      "refusedSha": "5e85d1508c6a1f668819282f1d08b6ed7b9962ff",
+      "reason": "Backup copy lacks installed migration 20261121190000, 20261121200024, 20261121214238, 20261122002835",
+      "servingSha": "c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T01",
+      "runId": "44987538496",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-installed-migration",
+      "refusedSha": "0a3a6a5211dbecbe410160d322652507d5566313",
+      "reason": "Backup copy lacks installed migration 20261121152102",
+      "servingSha": "c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22",
+      "runId": "45000042559",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-installed-migration",
+      "refusedSha": "5e85d1508c6a1f668819282f1d08b6ed7b9962ff",
+      "reason": "Backup copy lacks installed migration 20261121152102, 20261121171027, 20261121190000, 20261121200024, 20261121214238 and 4 more",
+      "servingSha": "c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T07",
+      "runId": "45015189726",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "c2d6e45e3bcc8447168c3aa7e76fbb1fbd16f0aa",
+      "targetSha": "b31db252025bf65d1b07de7e356d2f56dd2c1daf"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T10",
+      "runId": "45034915206",
+      "outcome": "keep-serving",
+      "gate": "no-certified-candidate",
+      "refusedSha": "5be581474ad3084e3e28a860ce5c8b453026d1e4",
+      "reason": "No newer protected candidate has complete current evidence by the cutoff.",
+      "servingSha": "b31db252025bf65d1b07de7e356d2f56dd2c1daf",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T13",
+      "runId": "45046033851",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "b31db252025bf65d1b07de7e356d2f56dd2c1daf",
+      "targetSha": "ea92b56f01770105b2ccdcc49a5e245c8c7f204d"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T16",
+      "runId": "45063394683",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "ea92b56f01770105b2ccdcc49a5e245c8c7f204d",
+      "targetSha": "88b8dac0ebdca1cb5a41d8c566be7dd9a33171c5"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T19",
+      "runId": "45080738084",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "88b8dac0ebdca1cb5a41d8c566be7dd9a33171c5",
+      "targetSha": "735299cd5fda6b59c43d1379371d1a3dfb1a050f"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-22T22",
+      "runId": "45096806923",
+      "outcome": "keep-serving",
+      "gate": "serving-rollback-rehearsal-unavailable",
+      "refusedSha": "3811538b62a8351640424c54932bc2b2d0b9ee9a",
+      "reason": "serving rollback rehearsal unavailable",
+      "servingSha": "735299cd5fda6b59c43d1379371d1a3dfb1a050f",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23",
+      "runId": "45134198393",
+      "outcome": "keep-serving",
+      "gate": "backup-holds-migration-production-lacks",
+      "refusedSha": "c0706e2b35631627a88dc26aec4bce830c3ec615",
+      "reason": "Backup copy holds migration production does not have 20261123002808",
+      "servingSha": "735299cd5fda6b59c43d1379371d1a3dfb1a050f",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23T10",
+      "runId": "45189708244",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "735299cd5fda6b59c43d1379371d1a3dfb1a050f",
+      "targetSha": "b99bd306892c64ed9407978944df1244301f12ae"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23T13",
+      "runId": "45230699826",
+      "outcome": "keep-serving",
+      "gate": null,
+      "refusedSha": null,
+      "reason": "current",
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23T16",
+      "runId": "45253838211",
+      "outcome": "keep-serving",
+      "gate": null,
+      "refusedSha": null,
+      "reason": "current",
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23T19",
+      "runId": "45284505977",
+      "outcome": "keep-serving",
+      "gate": null,
+      "refusedSha": null,
+      "reason": "current",
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-23T22",
+      "runId": "45308704640",
+      "outcome": "keep-serving",
+      "gate": "serving-rollback-rehearsal-unavailable",
+      "refusedSha": "5dcc4a1f3aae167be98219190d5d65de54b3ad45",
+      "reason": "serving rollback rehearsal unavailable",
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-24T01",
+      "runId": "45330329311",
+      "outcome": "keep-serving",
+      "gate": "backup-lacks-installed-migration",
+      "refusedSha": "d749a61e4c944cd46552272dec2739d13b8f86c9",
+      "reason": "Backup copy lacks installed migration 20261124060500, 20261124061800",
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": null
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-24",
+      "runId": "45352293686",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "b99bd306892c64ed9407978944df1244301f12ae",
+      "targetSha": "74d10c32eb6a441abb6a4862c5bd5da3688e9177"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-24T07",
+      "runId": "45387785080",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "74d10c32eb6a441abb6a4862c5bd5da3688e9177",
+      "targetSha": "6c6aaa7707ac1d97a4498a747c9268ab33c116ce"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-24T10",
+      "runId": "45408673446",
+      "outcome": "sealed",
+      "gate": null,
+      "refusedSha": null,
+      "reason": null,
+      "servingSha": "6c6aaa7707ac1d97a4498a747c9268ab33c116ce",
+      "targetSha": "7f6e30be571dd49f8f681513a479990480aa7175"
+    },
+    {
+      "schema": 1,
+      "cycle": "2026-11-24T13",
+      "runId": "45443957398",
+      "outcome": "keep-serving",
+      "gate": "serving-rollback-rehearsal-unavailable",
+      "refusedSha": "c8ddf7b05acc3f435df40972c9e516b14e66ead7",
+      "reason": "serving rollback rehearsal unavailable",
+      "servingSha": "7f6e30be571dd49f8f681513a479990480aa7175",
+      "targetSha": null
+    }
+  ]
+}

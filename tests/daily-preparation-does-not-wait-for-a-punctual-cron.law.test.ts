@@ -507,6 +507,7 @@ describe('the workflow adds chances, not authority', () => {
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'cutover-log-keep-serving',
+      'cutover-outcome-record',
       'detect',
       // O27 (2026-11-25): a cycle that did not seal starts the next one;
       // pinned by tests/a-cycle-that-did-not-seal-starts-the-next-one.law.test.ts.
@@ -515,6 +516,17 @@ describe('the workflow adds chances, not authority', () => {
       'signal',
       'window-migrations',
     ]);
+    // cutover-outcome-record (CR1, 2026-11-24) is detection only: it reads
+    // artifacts and opens one issue on a repeated refusal, has no environment
+    // or secrets, and must be able to fail the run (no continue-on-error).
+    expect(stage.jobs['cutover-outcome-record'].permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+      issues: 'write',
+    });
+    expect(stage.jobs['cutover-outcome-record']['continue-on-error']).toBeUndefined();
+    expect(stage.jobs['cutover-outcome-record'].environment).toBeUndefined();
+    expect(stage.jobs.signal.needs).not.toContain('cutover-outcome-record');
     // cutover-log-keep-serving (O20) is reporting-only on issue #11599:
     // no contents:write, no environment/secrets, continue-on-error: true.
     expect(stage.jobs['cutover-log-keep-serving'].permissions).toEqual({
@@ -1640,9 +1652,9 @@ describe('the owner says what the cycle will find while there is still time (O25
       'schedule',
     ]);
     expect(stage.on.schedule.length).toBe(2);
-    // Six since O27 (next-candidate-after-cycle), which waits once after the
-    // selection, never in the admission.
-    expect(Object.keys(stage.jobs).length).toBe(6);
+    // Seven: O27 (next-candidate-after-cycle) waits once after the selection,
+    // never in the admission; CR1 (cutover-outcome-record) only records.
+    expect(Object.keys(stage.jobs).length).toBe(7);
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });
