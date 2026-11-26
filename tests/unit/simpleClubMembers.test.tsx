@@ -57,7 +57,7 @@ vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
     config: NonNullable<typeof f.wallet> & { channelName?: string }
   ) => {
     if (config.channelName?.startsWith('club-roster:')) f.record = config;
-    else f.wallet = config;
+    else if (config.channelName?.startsWith('club-roster-wallet:')) f.wallet = config;
   },
 }));
 vi.mock('../../src/components/common/Toast', () => ({ useToast: () => f.toast }));
@@ -84,11 +84,6 @@ import ClubMembersPage, {
   MemberRow,
   liveRosterRefreshPolicy,
 } from '../../src/pages/ClubMembersPage';
-
-function openRosterTools() {
-  const tools = screen.getByRole('button', { name: 'Sort And Roster Tools' });
-  if (tools.getAttribute('aria-expanded') === 'false') fireEvent.click(tools);
-}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -135,41 +130,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it.each([false, true])(
-  'retries failed subscriptions without restarting healthy feeds (Advanced=%s)',
-  async (advanced) => {
-    render(
-      <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
-        <Routes>
-          <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await act(async () => {});
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    if (advanced)
-      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools', exact: true }));
-    act(() => {
-      f.channel?.onSubscriptionStatus?.('SUBSCRIBED');
-      f.wallet?.onSubscriptionStatus?.('SUBSCRIBED');
-      f.record?.onSubscriptionStatus?.('SUBSCRIBED');
-      f.channel?.onSubscriptionError?.('TIMED_OUT');
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Retry Live Sync' }));
-    expect(f.channel?.restartKey).toBe(1);
-    expect(f.wallet?.restartKey ?? 0).toBe(0);
-    expect(f.audit?.restartKey ?? 0).toBe(0);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    act(() => f.channel?.onSubscriptionStatus?.('SUBSCRIBED'));
-    expect(screen.queryByRole('button', { name: 'Refresh', exact: true })).not.toBeInTheDocument();
-    expect(f.channel?.restartKey).toBe(1);
-    expect(f.wallet?.restartKey ?? 0).toBe(0);
-  }
-);
+it('retries failed subscriptions without restarting healthy feeds', async () => {
+  render(
+    <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
+      <Routes>
+        <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+  await act(async () => {});
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+  });
+  act(() => {
+    f.channel?.onSubscriptionStatus?.('SUBSCRIBED');
+    f.wallet?.onSubscriptionStatus?.('SUBSCRIBED');
+    f.record?.onSubscriptionStatus?.('SUBSCRIBED');
+    f.channel?.onSubscriptionError?.('TIMED_OUT');
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry Live Sync' }));
+  expect(f.channel?.restartKey).toBe(1);
+  expect(f.wallet?.restartKey ?? 0).toBe(0);
+  expect(f.audit?.restartKey ?? 0).toBe(0);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+  });
+  act(() => f.channel?.onSubscriptionStatus?.('SUBSCRIBED'));
+  expect(screen.queryByRole('button', { name: 'Refresh', exact: true })).not.toBeInTheDocument();
+  expect(f.channel?.restartKey).toBe(1);
+  expect(f.wallet?.restartKey ?? 0).toBe(0);
+});
 
 it('retires an audit failure when the viewer no longer has audit access', async () => {
   const summary = (role: string) => ({
@@ -213,7 +203,7 @@ it('retires an audit failure when the viewer no longer has audit access', async 
   expect(screen.queryByRole('button', { name: 'Retry Live Sync' })).not.toBeInTheDocument();
 });
 
-it('opens with one directory and discloses its tools without changing the search', async () => {
+it('shows one Player Management title and direct roster controls without a tools switch', async () => {
   render(
     <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
       <Routes>
@@ -225,27 +215,20 @@ it('opens with one directory and discloses its tools without changing the search
     await vi.advanceTimersByTimeAsync(110);
   });
   expect(screen.queryByRole('button', { name: /^(Simple|Advanced)$/ })).toBeNull();
-  // Both directory modes share the approved mast. Advanced also shows the live totals.
-  expect(
-    screen
-      .getByRole('heading', { level: 1, name: 'Player Management' })
-      .closest('.arena-workspace-mast')
-  ).toBeVisible();
-  expect(screen.queryByText('Player Command')).not.toBeInTheDocument();
-  expect(screen.queryByText('Total Members')).not.toBeInTheDocument();
-  expect(screen.queryByRole('combobox', { name: 'Filter Players' })).not.toBeInTheDocument();
-  expect(screen.queryByText('Metric Definitions')).not.toBeInTheDocument();
-  expect(screen.getByRole('searchbox', { name: 'Search Club Members' })).toBeInTheDocument();
-  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'King' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
-  expect(screen.queryByText('Player Command')).not.toBeInTheDocument();
+  const mast = screen
+    .getByRole('heading', { level: 1, name: 'Player Management' })
+    .closest('.arena-workspace-mast');
+  expect(mast).toBeVisible();
+  expect(mast).not.toHaveTextContent('Member Directory');
+  expect(screen.queryByRole('button', { name: 'Sort And Roster Tools' })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Find A Player' })).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Filter Players' })).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Sort Players' })).toBeVisible();
   expect(screen.getByLabelText('Player Management Live Summary')).toHaveTextContent(
     'Total Members'
   );
-  expect(screen.getByRole('combobox', { name: 'Filter Players' })).toBeInTheDocument();
-  expect(screen.getByText('Metric Definitions')).toBeInTheDocument();
-  expect(screen.getByRole('searchbox')).toHaveValue('King');
-  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
+  expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'King' } });
   expect(screen.getByRole('searchbox')).toHaveValue('King');
   expect(screen.queryByRole('link', { name: 'Applicants' })).not.toBeInTheDocument();
 });
@@ -261,7 +244,7 @@ it('routes Simple agent and role grouping controls through the existing server q
   await act(async () => {
     await vi.advanceTimersByTimeAsync(110);
   });
-  openRosterTools();
+
   fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(110);
@@ -296,7 +279,7 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
-  openRosterTools();
+
   expect(screen.getByRole('combobox', { name: 'Win And Loss Period' })).toHaveValue('week');
   expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('activity');
   expect(screen.getByRole('option', { name: 'Overall Fees 100+' })).toHaveValue('high_fees');
@@ -373,36 +356,32 @@ it('shows authorized period fees and player wallet, and opens the existing manag
   expect(screen.getByText('Player Management Record')).toBeInTheDocument();
 });
 
-for (const mode of ['Simple', 'Advanced']) {
-  it(`keeps ${mode} query reads usable without a refresh control`, async () => {
-    render(
-      <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
-        <Routes>
-          <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    if (mode === 'Advanced')
-      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools' }));
-    expect(screen.queryByRole('button', { name: 'Refresh', exact: true })).not.toBeInTheDocument();
-    const search = screen.getByRole('searchbox');
-    fireEvent.change(search, { target: { value: 'pending' } });
-    fireEvent.change(search, { target: { value: '' } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    const calls = f.page.mock.calls.length;
-    fireEvent.change(search, { target: { value: 'King' } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    expect(f.page.mock.calls.length).toBe(calls + 1);
-    expect(f.page.mock.calls.at(-1)?.[1].search).toBe('King');
+it('keeps roster query reads usable without a refresh control', async () => {
+  render(
+    <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
+      <Routes>
+        <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
   });
-}
+  expect(screen.queryByRole('button', { name: 'Refresh', exact: true })).not.toBeInTheDocument();
+  const search = screen.getByRole('searchbox');
+  fireEvent.change(search, { target: { value: 'pending' } });
+  fireEvent.change(search, { target: { value: '' } });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+  });
+  const calls = f.page.mock.calls.length;
+  fireEvent.change(search, { target: { value: 'King' } });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+  });
+  expect(f.page.mock.calls.length).toBe(calls + 1);
+  expect(f.page.mock.calls.at(-1)?.[1].search).toBe('King');
+});
 
 it('requires every enabled roster feed to acknowledge before reporting connected', async () => {
   f.summary.mockResolvedValue({
@@ -639,7 +618,7 @@ it('shows automatic name relevance during search and restores the selected manua
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
-  openRosterTools();
+
   const sort = screen.getByRole('combobox', { name: 'Sort Players' });
   await act(async () => {
     fireEvent.change(sort, { target: { value: 'oldest' } });
@@ -665,14 +644,9 @@ it('shows automatic name relevance during search and restores the selected manua
   expect(f.page.mock.calls.at(-1)?.[1]).toMatchObject({ search: '', sort: 'oldest' });
 });
 
-it.each([
-  { advanced: false, sort: 'activity' },
-  { advanced: true, sort: 'activity' },
-  { advanced: false, sort: 'oldest' },
-  { advanced: true, sort: 'oldest' },
-])(
-  'acknowledges the complete preference URL before workspace readiness (Advanced=$advanced sort=$sort)',
-  async ({ advanced, sort }) => {
+it.each(['activity', 'oldest'])(
+  'acknowledges the complete preference URL before workspace readiness (sort=%s)',
+  async (sort) => {
     let resolve!: (value: unknown) => void;
     f.workspaceRead = new Promise((done) => {
       resolve = done;
@@ -732,13 +706,11 @@ it.each([
       </MemoryRouter>
     );
     await act(async () => {});
-    if (advanced)
-      fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools', exact: true }));
     expect(document.querySelector('.members-console')).toHaveAttribute('aria-busy', 'true');
     await act(async () =>
       resolve({ search: 'Saved Search', filter: 'online', sort, columns: ['fees'] })
     );
-    openRosterTools();
+
     expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('search');
     expect(screen.getByTestId('workspace-url')).toHaveTextContent(expected);
     expect(document.querySelector('.members-console')).toHaveAttribute('aria-busy', 'false');
@@ -775,7 +747,7 @@ it('keeps workspace controls unavailable until the account workspace resolves, t
   await act(async () => {});
   expect(screen.getByRole('button', { name: 'All Players', exact: true })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Agents', exact: true })).toBeDisabled();
-  openRosterTools();
+
   expect(screen.getByRole('button', { name: 'Group By Role', exact: true })).toBeDisabled();
   const search = screen.getByRole('searchbox', { name: 'Search Club Members' });
   expect(search).toBeDisabled();
