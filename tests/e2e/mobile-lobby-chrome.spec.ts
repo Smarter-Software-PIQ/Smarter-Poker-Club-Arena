@@ -81,7 +81,7 @@ test('Every tournament tab has a complete tappable chrome face', async ({ page }
     .join('\n');
   for (const width of [320, 393, 900]) {
     await page.setViewportSize({ width, height: 740 });
-    await page.setContent(`<style>${styles}</style><section class="tournament-details console-lobby">
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0}${styles}</style><section class="tournament-details console-lobby">
       <div class="details-tabs" role="tablist">${labels
         .map(
           (label, i) =>
@@ -94,7 +94,8 @@ test('Every tournament tab has a complete tappable chrome face', async ({ page }
         const rect = tab.getBoundingClientRect();
         const host = tab.parentElement!.getBoundingClientRect();
         return {
-          height: rect.height,
+          layoutHeight: tab.offsetHeight,
+          paintedHeight: rect.height,
           fits: rect.left >= host.left && rect.right <= host.right,
           hittable: [rect.left + 3, rect.right - 3].every(
             (x) => document.elementFromPoint(x, rect.top + rect.height / 2) === tab
@@ -102,7 +103,9 @@ test('Every tournament tab has a complete tappable chrome face', async ({ page }
           chrome: getComputedStyle(tab).borderImageSource,
         };
       });
-      expect(face.height, labels[i]).toBeGreaterThanOrEqual(44);
+      expect(face.layoutHeight, labels[i]).toBeGreaterThanOrEqual(44);
+      // WebKit reports scaled DOMRects as floats, including 43.999996 for a 44px face.
+      expect(face.paintedHeight + 0.00001, labels[i]).toBeGreaterThanOrEqual(44);
       expect(face.fits && face.hittable, labels[i]).toBe(true);
       expect(face.chrome).toContain(i === 0 ? 'chrome-active.webp' : 'chrome-row.webp');
     }
