@@ -82,7 +82,15 @@ import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
 import { omahaRankMask, omahaStraightOutRanks } from './HorseOmahaCardImpact.js';
-import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
+import {
+  omahaCardId,
+  omahaNutStatus,
+  omahaRunTriples,
+  scoreOmahaHi,
+  scoreOmahaHiOfIdsOnRun,
+  scoreOmahaHiPartial,
+  variantInfo,
+} from './HorseEval.js';
 import {
   omahaCategoricalCashOnlyExcludes,
   omahaIcmPremiumOf,
@@ -515,32 +523,64 @@ export function omahaBigDrawEquities(
   const need = 5 - board.length;
   if (need < 1 || deck.length < size + need) return null;
   const rnd = generator(seedOf([...hole, ...board]));
-  const draw = (n: number, from: Card[], start: number): void => {
-    for (let i = start; i < start + n; i++) {
-      const j = i + Math.floor(rnd() * (from.length - i));
-      const t = from[i]!;
-      from[i] = from[j]!;
-      from[j] = t;
-    }
-  };
   const won = [0, 0, 0];
   const got = [0, 0, 0];
-  const h = [...hole];
   // Straight draws in the continuing range: none in PLO4/PLO5 (the key reads 0).
   const continueStraightOuts = omahaStrategyConstant('bigDrawContinueStraightOuts', {
     gameVariant: `plo${size}`,
   });
+  // THE SAME DRAWS ON CARD IDS (2026-11-26, PLO-OWNER lead-7; law anOmahaBigDrawEquityIsUnchanged.law.test.ts): each
+  // sample shuffles a fresh copy of the unseen deck in the same order with the same draws, now as card ids in one
+  // working array; every showdown scores both hands on the run's ten precomputed triples (scoreOmahaHiOfIdsOnRun, the
+  // scoreOmahaHi value), the opponent's stopping at the first combination that beats the Horse's. The holdings,
+  // run-outs, results and sums are the same, in the same order. Before: 700 samples x 3 run-outs of Card showdowns
+  // were most of omahaOpponentLifetimeHudDecides' 30 ms where it applied.
+  const len = deck.length;
+  const deckIds = new Int32Array(len);
+  const cardOfId: Card[] = [];
+  for (let i = 0; i < len; i++) {
+    deckIds[i] = omahaCardId(deck[i]!);
+    cardOfId[deckIds[i]!] = deck[i]!;
+  }
+  const work = new Int32Array(len);
+  const heroIds = new Int32Array(size);
+  for (let i = 0; i < size; i++) heroIds[i] = omahaCardId(hole[i]!);
+  const runIds = new Int32Array(5);
+  for (let i = 0; i < board.length; i++) runIds[i] = omahaCardId(board[i]!);
+  const heroByRun = new Float64Array(need <= 2 ? 4096 : 0).fill(-1);
+  const shuffle = (n: number, start: number): void => {
+    for (let i = start; i < start + n; i++) {
+      const j = i + Math.floor(rnd() * (len - i));
+      const t = work[i]!;
+      work[i] = work[j]!;
+      work[j] = t;
+    }
+  };
   for (let k = 0; k < samples; k++) {
-    const d = deck.slice();
-    draw(size, d, 0);
-    const opp = d.slice(0, size);
+    work.set(deckIds);
+    shuffle(size, 0);
+    const opp: Card[] = [];
+    for (let i = 0; i < size; i++) opp.push(cardOfId[work[i]!]!);
     const level = omahaBigDrawContinues(opp, board, continueStraightOuts);
     let share = 0;
     for (let r = 0; r < OMAHA_BIG_DRAW_RUNOUTS; r++) {
-      draw(need, d, size);
-      const run = [...board, ...d.slice(size, size + need)];
-      const a = scoreOmahaHi(h, run);
-      const o = scoreOmahaHi(opp, run);
+      shuffle(need, size);
+      for (let i = 0; i < need; i++) runIds[board.length + i] = work[size + i]!;
+      omahaRunTriples(runIds, 0);
+      // the Horse's score depends on the run-out alone: computed once per distinct run-out (one or two cards)
+      let slot = -1;
+      if (need === 1) slot = runIds[4]!;
+      else if (need === 2) {
+        const x = runIds[3]!;
+        const y = runIds[4]!;
+        slot = x < y ? x * 64 + y : y * 64 + x;
+      }
+      let a = slot >= 0 ? heroByRun[slot]! : -1;
+      if (!(a >= 0)) {
+        a = scoreOmahaHiOfIdsOnRun(heroIds, 0, size, Infinity);
+        if (slot >= 0) heroByRun[slot] = a;
+      }
+      const o = scoreOmahaHiOfIdsOnRun(work, 0, size, a);
       share += a > o ? 1 : a === o ? 0.5 : 0;
     }
     share /= OMAHA_BIG_DRAW_RUNOUTS;
