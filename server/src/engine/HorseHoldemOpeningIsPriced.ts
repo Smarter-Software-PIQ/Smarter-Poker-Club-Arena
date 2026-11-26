@@ -8,7 +8,7 @@
  * where the Horse is NOT facing a wager, heads-up, and only add a bet the brain did not make (or resize a turn
  * value bet). Every number is a price:
  *
- *   his fold to a bet B into pot P   f = min(foldRef x (B / (B + P)) / 0.337, his weak share)  (holdemPricedFold)
+ *   his fold to a bet B into pot P   f = foldRef x (B / (B + P)) / 0.337, at most 0.95             (holdemPricedFold)
  *   foldRef                         = (his folds + K x 0.337) / (his opportunities + K)       (no record: 0.337,
  *                                     where f equals the bettor's break-even price B / (B + P): equilibrium)
  *   who folds                       the weakest f of HIS range read WITHOUT the Horse's cards (he cannot see them):
@@ -186,7 +186,10 @@ export function holdemOpeningPrice(
     if (!(add > 0)) continue;
     const his = Math.max(0, Math.min(to - spot.villainIn, spot.villainStack));
     const matched = Math.max(0, Math.min(add, spot.villainIn + his - spot.heroIn));
-    const fb = Math.min(holdemPricedFold(spot.foldRef, matched, spot.pot), base.weakShare);
+    // his fold is his record's (shrunk to the anchor), never capped by the modelled weak share of his range: the
+    // cap overrode a measured over-folder's record and priced his medium hands as callers (league: river value bets
+    // -12.0 +- 4.1 bb/100 with the cap, -1.7 +- 4.3 without, heads-up, seed 3303)
+    const fb = holdemPricedFold(spot.foldRef, matched, spot.pot);
     const cut = holdemFoldCutoff(base, fb);
     const g = holdemFoldAndCallEquity(range, cut);
     const ev =
