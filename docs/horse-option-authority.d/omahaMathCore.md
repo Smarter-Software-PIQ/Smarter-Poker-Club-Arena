@@ -1,6 +1,6 @@
 # omahaMathCore: authority for the live switch
 
-Lane MATHCORE, 2026-11-19 (lead session 01TLQer8). Default OFF (`opts.omahaMathCore === true`). The lead switches it with A/delivery/activate.sh; nobody else. Evidence NOT MET (grade of 2026-11-26, lead-7 lane grading, "What Was Measured" below): not ready for live shadow; the prior anchor fails (the response cells are 83% Horse play) and the maximum decision time is 45 ms against the 25 ms bar.
+Lane MATHCORE, 2026-11-19 (lead session 01TLQer8). Default OFF (`opts.omahaMathCore === true`). The lead switches it with A/delivery/activate.sh; nobody else. Evidence NOT MET (grade of 2026-11-26, lead-7 lane grading, "What Was Measured" below): not ready for live shadow; the prior anchor fails (the response cells are 83% Horse play) and the maximum decision time is 45 ms against the 25 ms bar. After the prior-anchor build (same day, "After The Prior-Anchor Build"): replay 62 fixed / 0 newly wrong, no chip loss, the core's added cost max 15.7 ms; still not ready, the range construction is not yet anchored.
 
 ## What It Does
 
@@ -45,6 +45,8 @@ Exact replay over every PLO4/PLO5 cash decision of the 48-hour dataset (base vs 
 ## Prior anchor
 
 NOT MET (grade of 2026-11-26). The core has no per-opponent record: every responder is priced by the measured pooled public cells (fold to a wager by street, line, size and players; wager frequency by line; preflop action frequencies) of PLO4/PLO5 cash hands with a person, Nov 1 to Nov 19, every player pooled. Those cells are mostly Horse play: on a sample day (2026-11-12) 4,476 of 5,414 seat-hands in such hands (83%) were Horses. The equilibrium anchor (the break-even share s/(1+2s)) is used only where a cell has fewer than 20 shown hands. So the response model is anchored to the Horse field, which the rule forbids, and no opponent's own record can take over as it grows. A thin record cannot dominate (there is none), which is the only half of the rule that holds.
+
+After the prior-anchor build (same day): the RESPONSE model is anchored (indifference fold, his own first-wager folds shrunk k 20); the RANGE construction (wager frequency, shown non-value share, preflop bands, the range tracker) is still pooled. Not met until that is anchored too.
 
 ## What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)
 
@@ -91,6 +93,35 @@ Speed (PLO5 flop, 1,108 real spots, one seed): whole decision p50 6.5 ms, p95 9.
 
 Verdict: **NOT READY for live shadow.** Replay met and no chip loss shown, but the prior anchor fails by design (83% Horse-field response cells, no own-record takeover) and the maximum decision time is 45 ms against the 25 ms bar.
 
+## After The Prior-Anchor Build (2026-11-26, Lead-7)
+
+What changed for this option: every responder to a wager the core prices (the value search `OmahaMathCoreWire.responseUncached` and the one-step `foldOf`) folds at the indifference point of that wager, s / (1 + s) for one responder and 1 - (1 / (1 + s))^(1/m) each for m responders, shrunk n / (n + 20) toward his own lifetime folds to a first wager of that size on that street (new provider method `firstWagerFolds`, from the lifetime HUD packet); the hero's blockers and the board texture still scale it by the ratio they scale the pooled cell; the continuing part raises 15% (or his own c-bet raise share shrunk toward that). The pooled response cells are no longer anyone's prior. Same method, seeds and sets as the grade above, on the prior-anchor build (branch `agent/plo-lead7-01TLQer8/prior-anchor`; `HorseEquilibriumAnchor.ts`): flag-off check 0 differences in 28,000 decisions; tier-A replay on the audit EV table with resizes interpolated; speed one seed on the same 5,227 states.
+
+| cell              | game          | hands | option seats bb/100 vs production (± SE) | z     | hands parted | illegal + fallbacks |
+| ----------------- | ------------- | ----- | ---------------------------------------- | ----- | ------------ | ------------------- |
+| league mirror     | PLO5 heads-up | 12000 | +0.77 ± 4.05                             | +0.19 | 1448         | 0                   |
+| league mirror     | PLO5 6-max    | 12000 | +8.55 ± 5.03                             | +1.70 | 1762         | 0                   |
+| always-caller     | PLO5 6-max    | 4000  | +105.08 ± 24.02                          | +4.37 | 693          | 0                   |
+| over-folder       | PLO5 6-max    | 4000  | +12.86 ± 7.83                            | +1.64 | 593          | 0                   |
+| habitual 3-bettor | PLO5 6-max    | 4000  | +30.86 ± 34.76                           | +0.89 | 1482         | 0                   |
+| always-caller     | PLO5 heads-up | 4000  | +0.73 ± 1.40                             | +0.52 | 17           | 0                   |
+| over-folder       | PLO5 heads-up | 4000  | +10.36 ± 4.65                            | +2.23 | 308          | 0                   |
+| habitual 3-bettor | PLO5 heads-up | 4000  | +3.79 ± 18.14                            | +0.21 | 772          | 0                   |
+| tight opener      | PLO5 heads-up | 4000  | -1.00 ± 1.03                             | -0.98 | 25           | 0                   |
+| league mirror     | PLO4 heads-up | 12000 | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+| league mirror     | PLO4 6-max    | 1500  | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+
+| measure                                                        | before                               | after                                                  |
+| -------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------ |
+| replay, committed scorer (fixed / newly wrong)                 | 43 / 4                               | **62 / 0**                                             |
+| replay, audit EV table (fixed / newly wrong, strengths broken) | 52 / 2, 0                            | **62 / 2, 0** (+2,468 bb fixed, -24 bb newly wrong)    |
+| league PLO5 heads-up / 6-max                                   | -4.5 ± 5.5 / +5.1 ± 5.8              | +0.8 ± 4.1 / +8.6 ± 5.0                                |
+| worst probe                                                    | habitual 3-bettor 6-max -30.1 ± 39.3 | tight opener heads-up -1.0 ± 1.0 (nothing below -1 SE) |
+| speed, whole decision p95 / max (ms)                           | 9.8 / 45.4                           | 9.3 / 34.4 (2 over 25, 0 over 50)                      |
+| speed, added by the core p95 / max (ms)                        | 4.8 / 30.2                           | 4.5 / 15.7                                             |
+
+Verdict after: chips met (no significant loss; the always-caller 6-max +105 ± 24, the over-folder heads-up +10.4 ± 4.7), replay met, the core's own cost inside the bar (added max 15.7 ms; the two whole-decision readings over 25 ms are the production path around it under load 12). **Still NOT READY for live shadow** on the prior anchor: the response model is anchored, but the core still builds the opponents' RANGES from pooled cells (the wager frequency by line `betRate`, the shown non-value share `wagerNonValue`, the preflop bands and the range tracker), which are Horse-field play. Next: anchor the range construction the same way (break-even bluff share s / (1 + 2s), reference wager frequencies, his own record shrunk k 20), then re-grade.
+
 ## Replay
 
-- Replay: fixed 43; newlyWrong 4; changed 68; unchanged 5159; unjudged 15; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm A vs off; replayed 5227 of 5227
+- Replay: fixed 62; newlyWrong 0; changed 91; unchanged 5136; unjudged 16; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm A vs off; replayed 5227 of 5227

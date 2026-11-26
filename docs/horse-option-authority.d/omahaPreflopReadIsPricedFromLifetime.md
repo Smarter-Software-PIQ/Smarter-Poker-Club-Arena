@@ -1,6 +1,6 @@
 # omahaPreflopReadIsPricedFromLifetime: Authority For The Live Switch
 
-Evidence NOT MET for a live switch-on: B4 six-max preflop lifetime HUD read (retiring the preflop half of `plo_opponent_presumed_aggressive`) requires its own sparring-bench + symmetric M5 person grade after LIST TRAIN, FIX-1, and HUD-9 land on `main`. Grade of 2026-11-26 (lead-7 lane grading, "What Was Measured" below): not ready for live shadow; on the audited real hands more decisions are newly wrong than fixed (83 against 50) and the prior is the Horse field.
+Evidence NOT MET for a live switch-on: B4 six-max preflop lifetime HUD read (retiring the preflop half of `plo_opponent_presumed_aggressive`) requires its own sparring-bench + symmetric M5 person grade after LIST TRAIN, FIX-1, and HUD-9 land on `main`. Grade of 2026-11-26 (lead-7 lane grading, "What Was Measured" below): not ready for live shadow; on the audited real hands more decisions are newly wrong than fixed (83 against 50) and the prior is the Horse field. After the prior-anchor build (same day): prior anchored, strengths restored; still not ready (over-folder -11.2 ± 4.2 at 6-max, replay 42 / 40).
 
 ## What It Does
 
@@ -25,6 +25,8 @@ Set `omahaPreflopReadIsPricedFromLifetime` off (one switch row, lead only).
 ## Prior anchor
 
 NOT MET (grade of 2026-11-26). The priced comparison reads six-max HUD cells (`hudStatIn(..., 'sh')`, `pf.lr`, `pf.bvo`) shrunk by n / (n + k) toward the stored population prior, and that population is 99.5% Horse play in PLO5 and 99.8% in PLO4 (stored `'*'` rows read 2026-11-26: 3,862,402 of 3,882,144 and 6,141,903 of 6,155,698 preflop opportunities). A new or thin opponent is therefore priced as the Horse field, not as equilibrium play. Preflop statistics carry the smallest k in the store (`pf.limp` k 4.4 PLO5 / 2.6 PLO4, `pf.f4bet` 4.8 / 8.2, `pf.c4bet` 8.0 PLO5, `pf.vpip@d3` 11.9 / 13.6), so on them a record of five to ten hands already carries about half the weight.
+
+After the prior-anchor build (same day): MET at the read (equilibrium anchor, k >= 20, joint minimum defence per responder).
 
 ## What Was Measured (Grade 2026-11-26, Lead-7 Lane Grading)
 
@@ -56,6 +58,28 @@ Speed (1,661 real preflop spots, one seed): whole decision p50 2.5 ms, p95 8.0 m
 
 Verdict: **NOT READY for live shadow.** Newly wrong exceeds fixed on the real audited decisions (83 against 50; committed scorer 11 against 2), the over-folder probe beats it at 6-max (-8.1 ± 4.0 bb/100), and the prior is the Horse field.
 
+## After The Prior-Anchor Build (2026-11-26, Lead-7)
+
+What changed for this option: the six-max HUD cells and the limper / blind triplets shrink toward the equilibrium anchor (limper facing a pot isolation fold 0.5, blind facing a pot open fold 1/3, joint minimum defence per responder when several answer, call : raise 85 : 15) with k >= 20; and the two causes the replay found are priced: a lifetime-OBSERVED maniac raiser width stands only when `priceOmahaPreflopHudSixMax` proves the call or the raise (else production's widths; receipt `opponent_hud_preflop_observed_maniac_unproved`), and the pressure 4-bet only when it proves the raise (`opponent_hud_preflop_pressure_four_bet_unproved`). A raise-only proof was tried and made the replay worse (42 / 56) and was not kept. Same method, seeds and sets as the grade above, on the prior-anchor build (branch `agent/plo-lead7-01TLQer8/prior-anchor`; `HorseEquilibriumAnchor.ts`): flag-off check 0 differences in 28,000 decisions; tier-A replay on the audit EV table with resizes interpolated; speed one seed on the same 5,227 states.
+
+| cell                                           | game          | hands | option seats bb/100 vs production (± SE) | z     | hands parted | illegal + fallbacks |
+| ---------------------------------------------- | ------------- | ----- | ---------------------------------------- | ----- | ------------ | ------------------- |
+| league mirror                                  | PLO5 6-max    | 12000 | +3.07 ± 5.37                             | +0.57 | 2173         | 0                   |
+| always-caller                                  | PLO5 6-max    | 4000  | +29.78 ± 23.81                           | +1.25 | 1145         | 0                   |
+| over-folder                                    | PLO5 6-max    | 4000  | -11.22 ± 4.19                            | -2.68 | 690          | 0                   |
+| habitual 3-bettor                              | PLO5 6-max    | 4000  | +158.84 ± 44.73                          | +3.55 | 1969         | 0                   |
+| maniac (lifetime record built as tight opener) | PLO5 6-max    | 4000  | +120.00 ± 57.61                          | +2.08 | 1779         | 0                   |
+| league mirror                                  | PLO5 heads-up | 1500  | +0.00 ± 0.00                             | +0.00 | 0            | 0                   |
+
+| measure                                   | before       | after                                              |
+| ----------------------------------------- | ------------ | -------------------------------------------------- |
+| replay, committed scorer                  | 2 / 11       | 2 / 6                                              |
+| replay, audit EV table (strengths broken) | 50 / 83 (19) | 42 / 40 (**1**); +680 bb fixed, -83 bb newly wrong |
+| over-folder 6-max                         | -8.1 ± 4.0   | **-11.2 ± 4.2 (z -2.7)**                           |
+| speed, whole decision p95 / max (ms)      | 8.0 / 34.0   | 9.5 / 17.9                                         |
+
+Verdict after: **NOT READY.** Prior anchor met at the read; speed met (p95 9.5, max 17.9 ms); strengths restored (1 broken). Not met: the over-folder still beats it at 6-max (-11.2 ± 4.2 bb/100), and on the audited decisions it is 42 fixed against 40 newly wrong (committed scorer 2 against 6), not clearly more fixed. The remaining newly wrong decisions are multiway preflop calls turned into raises (17 out of position, 6 in position) where the priced read proves the raise against callers who in fact continue.
+
 ## Replay
 
-- Replay: fixed 2; newlyWrong 11; changed 322; unchanged 4905; unjudged 308; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm C vs off; replayed 5227 of 5227
+- Replay: fixed 2; newlyWrong 6; changed 250; unchanged 4977; unjudged 241; set PLO audit tier A (cards shown) PLO4/PLO5 cash 2026-11-20..25; scorer 5302af2ab3e; source placed verdict-only; arm C vs off; replayed 5227 of 5227

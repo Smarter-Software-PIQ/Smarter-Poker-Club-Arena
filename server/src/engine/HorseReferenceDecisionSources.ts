@@ -163,6 +163,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off priced six-max preflop read on lifetime HUD cells (PLO-OWNER lead-4 B4 2026-11-21, omahaPreflopReadIsPricedFromLifetime): retires presumedAggressorRead on 3-6 seat PLO4/PLO5 cash preflop and prices widened spots on sh + pf.lr + pf.bvo HUD cells with n/(n+k) shrinkage; pure over the installed packet',
     'src/engine/opponentHud/OpponentHud.ts':
       'the one opponent-profile accessor (hudStat, hudRecall) and the decision packet the worker installs from the request; shrinkage toward the population prior; pure, no database, no clock',
+    'src/engine/HorseEquilibriumAnchor.ts':
+      'the equilibrium anchor of the opponent reads (lane prior-anchor 2026-11-26): indifference anchors and stated reference frequencies, k >= 20, and the decision-scoped mode set only with omahaOpponentLifetimeHud and omahaOpponentLifetimeHudDecides or omahaPreflopReadIsPricedFromLifetime on (default OFF); the math core prices responders at its anchor fold; pure, no database, no clock',
     'src/engine/opponentHud/OpponentHudProfile.ts':
       'the lifetime public opponent profile: statistic registry, public hand record and recall keys read by the accessor; public fields only',
     'src/engine/HorseOmahaRiverCurrentNutsCallFloor.ts':

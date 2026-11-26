@@ -751,6 +751,11 @@ import {
   omahaHudPricedRaiseOverCall,
 } from './HorseOmahaPricedWiring.js';
 import { hudStat } from './opponentHud/OpponentHud.js';
+import {
+  hudAnchorMode,
+  hudAnchorOptionsOn,
+  withHudEquilibriumAnchor,
+} from './HorseEquilibriumAnchor.js';
 import { omahaHudPreflopPriced, type HudPreflopVerdict } from './HorseOmahaHudPreflopPriced.js';
 import {
   hudThreeBetRealizationMargin,
@@ -18042,6 +18047,23 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // THE EQUILIBRIUM ANCHOR (2026-11-26, lane prior-anchor; HorseEquilibriumAnchor.ts): with
+    // the lifetime store on and omahaOpponentLifetimeHudDecides or omahaPreflopReadIsPricedFromLifetime on, every
+    // HUD read of this decision shrinks toward the equilibrium anchor
+    // (k >= 20) instead of the population row. Off (every production decision today): the mode is not set.
+    if (hudAnchorOptionsOn(opts) && !hudAnchorMode())
+      return withHudEquilibriumAnchor(true, () =>
+        HorseLogic.decide(
+          player,
+          gameState,
+          style,
+          mods,
+          opts,
+          rangeCapture,
+          planReadCapture,
+          deepDiveCapture
+        )
+      );
     // omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise (default OFF): an out-of-position
     // decision facing one open is asked through the rule's route (HorseOopReraiseRangeHoldsWiring); off, or out of
     // its spot, nothing here runs and the decision below is the one asked.
@@ -21405,6 +21427,25 @@ export class HorseLogic {
                   : `opponent_hud_preflop_priced_${verdict.action}`
               );
           }
+          // PROVE-IT-TO-WIDEN, BOTH WAYS (2026-11-26, lane prior-anchor; omahaPreflopReadIsPricedFromLifetime on):
+          // the replay of 2026-11-26 found the six-max read's newly wrong decisions where a long lifetime record
+          // makes the raiser an OBSERVED maniac (observed_maniac_raiser_seen), which unlocks the maniac price of the
+          // 3-bet / 4-bet call and the pressure re-raise without any price. Such a width stands only when the
+          // six-max priced read proves the call or the raise; otherwise the legacy widths stand, as with it off.
+          if (observedManiacRaiser && HorseMind.hudPreflopSixMaxActive()) {
+            const v = priceOmahaPreflopHudSixMax(player, gs, lastRaiserSeat, opts);
+            const pot0 = Math.max(0, gs.pot ?? 0);
+            const proved =
+              omahaPreflopHudWideningProved(v, pot0, 'raise') ||
+              omahaPreflopHudWideningProved(v, pot0, 'call');
+            if (!proved) {
+              maniacRaiserWidth = legacyW.r;
+              maniacBehindWidth = legacyW.b;
+              observedManiacRaiser = false;
+              observedExtremeManiac = false;
+              if (telemetryOn(opts)) noteFire('opponent_hud_preflop_observed_maniac_unproved');
+            }
+          }
         }
       } catch {
         /* reads are best-effort */
@@ -22034,9 +22075,27 @@ export class HorseLogic {
                 return false;
               }
             })();
+          // PROVE-IT-TO-WIDEN, BOTH WAYS (2026-11-26, lane prior-anchor; omahaPreflopReadIsPricedFromLifetime on): a
+          // lifetime read that makes the re-raiser a pressure target must not unlock the categorical pressure 4-bet
+          // by itself (the replay of 2026-11-26: 48 calls turned into raises, newly wrong on the audit's EV, all
+          // against long person records that pass the observed-maniac threshold). With the six-max priced read on,
+          // the 4-bet stands only when priceOmahaPreflopHudSixMax prices the raise above the call and the fold.
+          const hudFourBetUnproved = (() => {
+            if (!v53ThreeBet || !HorseMind.hudPreflopSixMaxActive()) return false;
+            try {
+              const v = priceOmahaPreflopHudSixMax(player, gs, raiser38.seat, opts);
+              const proved = omahaPreflopHudWideningProved(v, Math.max(0, gs.pot ?? 0), 'raise');
+              if (!proved && telemetryOn(opts))
+                noteFire('opponent_hud_preflop_pressure_four_bet_unproved');
+              return !proved;
+            } catch {
+              return true;
+            }
+          })();
           if (
             v53ThreeBet &&
             gap38 >= 0.06 &&
+            !hudFourBetUnproved &&
             !omahaPressureFourBetNeedsCoordinatedPremium &&
             gs.legalActions?.includes('raise') &&
             gs.minRaiseTo != null &&

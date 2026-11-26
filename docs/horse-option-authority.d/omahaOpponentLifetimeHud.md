@@ -24,7 +24,7 @@ Receipts: `opponent_hud_*` (reads by family and source, recall found/none, explo
 
 ## Prior anchor
 
-Finding of 2026-11-26 (lead-7 lane grading): the population prior this store serves (the `'*'` row, `fitHudPriors` over every stored profile) is the Horse field: Horses hold 99.5% of the stored PLO5 and 99.8% of the PLO4 preflop opportunities (3,862,402 of 3,882,144; 6,141,903 of 6,155,698). Every reader that shrinks toward it is anchored to Horse play, not to equilibrium; and on a few statistics the fitted k is 2 to 8, so a thin record dominates there. The readers' grades are in `omahaOpponentLifetimeHudDecides.md` and `omahaPreflopReadIsPricedFromLifetime.md`. The store itself decides nothing.
+Finding of 2026-11-26 (lead-7 lane grading): the population prior this store serves (the `'*'` row, `fitHudPriors` over every stored profile) is the Horse field: Horses hold 99.5% of the stored PLO5 and 99.8% of the PLO4 preflop opportunities (3,862,402 of 3,882,144; 6,141,903 of 6,155,698). Every reader that shrinks toward it is anchored to Horse play, not to equilibrium; and on a few statistics the fitted k is 2 to 8, so a thin record dominates there. The readers' grades are in `omahaOpponentLifetimeHudDecides.md` and `omahaPreflopReadIsPricedFromLifetime.md`. The store itself decides nothing. Since the prior-anchor build (2026-11-26, `HorseEquilibriumAnchor.ts`) the two readers no longer shrink toward this row: with either reader on, every read of the decision shrinks toward the equilibrium anchor with k >= 20; the row still serves every other reader as before.
 
 ## Follow-Up (Lead 2026-11-20)
 
