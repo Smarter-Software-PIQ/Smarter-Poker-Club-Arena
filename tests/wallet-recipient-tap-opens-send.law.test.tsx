@@ -43,7 +43,9 @@ vi.mock('../src/hooks/useAuthUser', () => ({
 }));
 vi.mock('../src/components/common/Toast', () => ({ useToast: () => fx.toast }));
 vi.mock('../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../src/core/MasterBus', () => ({ masterBus: { emit: vi.fn() } }));
+vi.mock('../src/core/MasterBus', () => ({
+  masterBus: { emit: vi.fn(), subscribe: vi.fn(() => () => {}) },
+}));
 vi.mock('../src/components/wallet/ChipMintModal', () => ({
   default: (props: { isOpen: boolean; onClose: () => void }) =>
     props.isOpen ? (
@@ -86,6 +88,7 @@ vi.mock('../src/lib/supabase', () => ({
          and the promo pot through the role-checked fn_club_money_panel (with
          an abort signal), never through a direct clubs select. The fixture
          club is served through it, unchanged. */
+      if (fn === 'fn_cashier_mint_scope') return Promise.resolve({ data: null, error: null });
       if (fn === 'fn_club_money_panel') {
         const answer = Promise.resolve({
           data: {

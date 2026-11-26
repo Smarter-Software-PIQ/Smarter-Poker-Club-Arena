@@ -3,14 +3,14 @@ import { lazyWithRetry } from '../../utils/lazyWithRetry';
 
 const CashierPage = lazyWithRetry(() => import('../../pages/CashierPage'));
 
-export default function CashierEntrance({ legacy = false }: { legacy?: boolean }) {
+export default function CashierEntrance() {
   const { clubId } = useParams();
   const { search, hash } = useLocation();
   const query = new URLSearchParams(search);
   const club = clubId || query.get('club');
   if (!club) return <CashierPage />;
   query.delete('club');
-  if (legacy || query.has('table')) query.set('walletTools', 'open');
+  query.delete('walletTools');
   return (
     <Navigate
       replace

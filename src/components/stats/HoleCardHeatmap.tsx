@@ -30,11 +30,9 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * grid. Rather than render an empty 13x13, the component explains why.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import StatsFactsService, {
-  type HandGridCell,
-  type ClassHand,
-} from '../../services/StatsFactsService';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useStatsFactRead } from '../../hooks/useStatsFactRead';
+import StatsFactsService, { type HandGridCell } from '../../services/StatsFactsService';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
 import { buildStatsHandEvidencePath } from '../../lib/statsEvidenceNavigation';
 import StatsEvidenceLink from './StatsEvidenceLink';
@@ -102,11 +100,6 @@ export default function HoleCardHeatmap({
   scope = CHIP_STATS,
   clubId = null,
 }: Props) {
-  const [cells, setCells] = useState<HandGridCell[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [readError, setReadError] = useState<string | null>(null);
-  const [drillError, setDrillError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = usePlayerPreference<ViewMode>(
     'holeCardHeatmap.mode',
     'frequency',
@@ -127,57 +120,39 @@ export default function HoleCardHeatmap({
   const gridRef = useRef<HTMLDivElement>(null);
   // Drill-down: the individual hands behind one cell.
   const [selected, setSelected] = useState<string | null>(null);
-  const [classHands, setClassHands] = useState<ClassHand[] | null>(null);
-  const [handsLoading, setHandsLoading] = useState(false);
+  const readGrid = useCallback(
+    () =>
+      userId
+        ? StatsFactsService.getHandGrid(userId, scope, { position, variant, days }, clubId)
+        : null,
+    [userId, scope, position, variant, days, clubId]
+  );
+  const readHands = useCallback(
+    () =>
+      userId && selected
+        ? StatsFactsService.getClassHands(
+            userId,
+            scope,
+            selected,
+            { position, variant, days },
+            clubId
+          )
+        : null,
+    [userId, scope, selected, position, variant, days, clubId]
+  );
+  const { data: grid, loading, error: readError, retry } = useStatsFactRead(readGrid);
+  const {
+    data: drill,
+    loading: handsLoading,
+    error: drillError,
+    retry: retryDrill,
+  } = useStatsFactRead(readHands);
+  const cells = useMemo(() => grid?.cells?.filter((cell) => cell && cell.hands > 0), [grid]);
+  const classHands = drill?.hands;
   useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setHovered(null); // a key from the previous filter would read "never dealt"
     setSelected(null);
-    StatsFactsService.getHandGrid(userId, scope, { position, variant, days }, clubId)
-      .then((payload) => {
-        if (cancelled) return;
-        // Cells with no hands are noise for "classes seen" and for the scale.
-        setCells((payload.cells ?? []).filter((c) => c && c.hands > 0));
-        setReadError(payload.error ?? null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, position, variant, days, attempt, scope, clubId]);
-
-  useEffect(() => {
-    if (!userId || !selected) {
-      setClassHands(null);
-      // Must clear here too: if a fetch was in flight when `selected` went
-      // null, its cleanup set `cancelled` and skipped the .finally, so the
-      // flag would otherwise stay true for the rest of the session.
-      setHandsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setHandsLoading(true);
-    setDrillError(null);
-    StatsFactsService.getClassHands(userId, scope, selected, { position, variant, days }, clubId)
-      .then((p) => {
-        if (cancelled) return;
-        setClassHands(p.hands ?? []);
-        setDrillError(p.error ?? null);
-      })
-      .finally(() => {
-        if (!cancelled) setHandsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, selected, position, variant, days, scope, clubId]);
+    setHovered(null);
+  }, [readGrid]);
 
   const byClass = useMemo(() => {
     const m = new Map<string, HandGridCell>();
@@ -216,22 +191,9 @@ export default function HoleCardHeatmap({
         <h3 className="heatmap-title">Starting Hands</h3>
         <p className="heatmap-empty-text">
           The Starting Hand Grid Could Not Be Loaded Right Now.{' '}
-          <button type="button" className="hand-retry" onClick={() => setAttempt((n) => n + 1)}>
+          <button type="button" className="hand-retry" onClick={retry}>
             Try Again
           </button>
-        </p>
-      </div>
-    );
-  }
-
-  if (totalHands === 0) {
-    return (
-      <div className="heatmap-card heatmap-empty">
-        <h3 className="heatmap-title">Starting Hands</h3>
-        <p className="heatmap-empty-text">
-          No Hold'em Hands Recorded Yet For This Filter. The Grid Is Built From A Per-Hand Record
-          That Began Collecting Recently, So It Fills In From Your Next Session Onward. Pot Limit
-          Omaha Hands Never Appear Here: A 13X13 Grid Cannot Represent A Four To Six Card Holding.
         </p>
       </div>
     );
@@ -306,192 +268,209 @@ export default function HoleCardHeatmap({
         </div>
       </div>
 
-      <div className="heatmap-scroll">
-        <div
-          ref={gridRef}
-          className="heatmap-grid"
-          role="grid"
-          aria-label="Starting Hand Grid, 13 By 13"
-          onMouseLeave={() => setHovered(null)}
-        >
-          {RANKS.map((rowRank, rowIdx) => (
-            // role="grid" requires a row layer. Without it the 169 gridcells
-            // were direct children of the grid, which screen readers report as
-            // a broken structure. `display: contents` keeps the CSS grid
-            // layout identical.
-            <div className="heatmap-row" role="row" key={`row-${rowRank}`}>
-              {RANKS.map((__, colIdx) => {
-                const key = classFor(rowIdx, colIdx);
-                const cell = byClass.get(key);
-                const hands = cell?.hands ?? 0;
-                const confident = hands >= MIN_CONFIDENT_HANDS;
+      {totalHands === 0 ? (
+        <p className="heatmap-empty-text">
+          No Hold'em Hands Recorded Yet For This Filter. The Grid Is Built From A Per-Hand Record
+          That Began Collecting Recently, So It Fills In From Your Next Session Onward. Pot Limit
+          Omaha Hands Never Appear Here: A 13X13 Grid Cannot Represent A Four To Six Card Holding.
+        </p>
+      ) : (
+        <>
+          <div className="heatmap-scroll">
+            <div
+              ref={gridRef}
+              className="heatmap-grid"
+              role="grid"
+              aria-label="Starting Hand Grid, 13 By 13"
+              onMouseLeave={() => setHovered(null)}
+            >
+              {RANKS.map((rowRank, rowIdx) => (
+                // role="grid" requires a row layer. Without it the 169 gridcells
+                // were direct children of the grid, which screen readers report as
+                // a broken structure. `display: contents` keeps the CSS grid
+                // layout identical.
+                <div className="heatmap-row" role="row" key={`row-${rowRank}`}>
+                  {RANKS.map((__, colIdx) => {
+                    const key = classFor(rowIdx, colIdx);
+                    const cell = byClass.get(key);
+                    const hands = cell?.hands ?? 0;
+                    const confident = hands >= MIN_CONFIDENT_HANDS;
 
-                let bg = 'rgba(255,255,255,0.03)';
-                if (cell) {
-                  if (mode === 'frequency') {
-                    bg = frequencyColor(cell.vpip_pct);
-                  } else if (!confident) {
-                    // Deliberately colourless: too few hands to claim anything.
-                    bg = 'rgba(255,255,255,0.05)';
-                  } else {
-                    const value = mode === 'luck' ? cell.net_bb - cell.ev_net_bb : cell.bb100;
-                    const confidenceWeight = Math.min(1, hands / (MIN_CONFIDENT_HANDS * 4));
-                    bg = signedColor(value, scale, 0.45 + confidenceWeight * 0.55);
-                  }
-                }
-
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    role="gridcell"
-                    data-row={rowIdx}
-                    data-column={colIdx}
-                    tabIndex={activeCell === key ? 0 : -1}
-                    className={`heatmap-cell${rowIdx === colIdx ? ' is-pair' : ''}${
-                      hovered === key ? ' is-hovered' : ''
-                    }${cell && mode !== 'frequency' && !confident ? ' is-thin' : ''}`}
-                    style={{ background: bg }}
-                    onMouseEnter={() => setHovered(key)}
-                    onFocus={() => {
-                      setActiveCell(key);
-                      setHovered(key);
-                    }}
-                    onKeyDown={(event) => {
-                      let nextRow = rowIdx;
-                      let nextColumn = colIdx;
-                      if (event.key === 'ArrowUp') nextRow -= 1;
-                      else if (event.key === 'ArrowDown') nextRow += 1;
-                      else if (event.key === 'ArrowLeft') nextColumn -= 1;
-                      else if (event.key === 'ArrowRight') nextColumn += 1;
-                      else if (event.key === 'Home') nextColumn = 0;
-                      else if (event.key === 'End') nextColumn = RANKS.length - 1;
-                      else return;
-                      event.preventDefault();
-                      nextRow = Math.max(0, Math.min(RANKS.length - 1, nextRow));
-                      nextColumn = Math.max(0, Math.min(RANKS.length - 1, nextColumn));
-                      const nextKey = classFor(nextRow, nextColumn);
-                      setActiveCell(nextKey);
-                      gridRef.current
-                        ?.querySelector<HTMLButtonElement>(
-                          `[data-row="${nextRow}"][data-column="${nextColumn}"]`
-                        )
-                        ?.focus();
-                    }}
-                    // Touch has no hover. Without a click handler the readout
-                    // never populated on a phone, on a mobile-first product.
-                    // A click also opens the hands behind the cell.
-                    onClick={() => {
-                      setHovered(key);
-                      setSelected((cur) => (cur === key && cell ? null : cell ? key : null));
-                    }}
-                    aria-expanded={cell ? selected === key : undefined}
-                    aria-selected={selected === key}
-                    aria-label={
-                      !cell
-                        ? `${key}, Never Dealt`
-                        : confident
-                          ? `${key}, ${hands} Hands, ${n(cell.bb100).toFixed(0)} Big Blinds Per 100`
-                          : // Deliberately does NOT state bb/100 below the
-                            // confidence threshold. The whole design refuses to
-                            // show that number for a thin cell; announcing it to
-                            // a screen reader anyway would be the same false
-                            // precision, just less visible.
-                            `${key}, ${hands} Hands, Too Few To Rate`
+                    let bg = 'rgba(255,255,255,0.03)';
+                    if (cell) {
+                      if (mode === 'frequency') {
+                        bg = frequencyColor(cell.vpip_pct);
+                      } else if (!confident) {
+                        // Deliberately colourless: too few hands to claim anything.
+                        bg = 'rgba(255,255,255,0.05)';
+                      } else {
+                        const value = mode === 'luck' ? cell.net_bb - cell.ev_net_bb : cell.bb100;
+                        const confidenceWeight = Math.min(1, hands / (MIN_CONFIDENT_HANDS * 4));
+                        bg = signedColor(value, scale, 0.45 + confidenceWeight * 0.55);
+                      }
                     }
-                  >
-                    {key}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="heatmap-readout">
-        {hoveredCell ? (
-          <>
-            <strong>{hoveredCell.hand_class}</strong>
-            <span>{hoveredCell.hands.toLocaleString()} Dealt</span>
-            <span>Played {(n(hoveredCell.vpip_pct) * 100).toFixed(0)}%</span>
-            <span className={hoveredCell.net_bb >= 0 ? 'is-up' : 'is-down'}>
-              {hoveredCell.net_bb >= 0 ? '+' : ''}
-              {n(hoveredCell.net_bb).toFixed(1)} BB
-            </span>
-            {hoveredCell.hands >= MIN_CONFIDENT_HANDS ? (
-              <span className={hoveredCell.bb100 >= 0 ? 'is-up' : 'is-down'}>
-                {hoveredCell.bb100 >= 0 ? '+' : ''}
-                {n(hoveredCell.bb100).toFixed(0)} BB/100
-              </span>
-            ) : (
-              <span className="is-thin-note">Too Few Hands To Rate</span>
-            )}
-          </>
-        ) : (
-          <span className="heatmap-readout-hint">
-            {hovered ? `${hovered} - Never Dealt` : 'Hover A Hand For Its Detail'}
-          </span>
-        )}
-      </div>
-
-      {selected && (
-        <div className="heatmap-drill">
-          <div className="heatmap-drill-head">
-            <strong>{selected}</strong>
-            <span>
-              {handsLoading ? 'Loading Hands...' : `${(classHands ?? []).length} Most Recent`}
-            </span>
-            <button type="button" className="heatmap-drill-close" onClick={() => setSelected(null)}>
-              Close
-            </button>
-          </div>
-          {!handsLoading && drillError && (
-            <p className="heatmap-drill-empty" role="alert">
-              The Hands For {selected} Could Not Be Loaded Right Now.
-            </p>
-          )}
-          {!handsLoading && !drillError && (classHands ?? []).length === 0 && (
-            <p className="heatmap-drill-empty">
-              No Individual Hands Stored For {selected} Yet Under This Filter.
-            </p>
-          )}
-          {(classHands ?? []).length > 0 && (
-            <ul className="heatmap-drill-list">
-              {(classHands ?? []).map((h) => (
-                <li key={h.hand_id} className="heatmap-drill-row">
-                  <span className="heatmap-drill-pos">{h.position}</span>
-                  <span className="heatmap-drill-date">{shortDate(h.played_at)}</span>
-                  <span className="heatmap-drill-tags">
-                    {h.was_all_in && <em>All In</em>}
-                    {h.showdown && <em>Showdown</em>}
-                  </span>
-                  <span className={h.net_bb >= 0 ? 'is-up' : 'is-down'}>
-                    {h.net_bb >= 0 ? '+' : ''}
-                    {n(h.net_bb).toFixed(1)} BB
-                  </span>
-                  <StatsEvidenceLink
-                    className="stats-evidence-action"
-                    to={buildStatsHandEvidencePath(h.hand_id, clubId)}
-                    aria-label={`Open ${selected} Hand Evidence`}
-                  >
-                    Open Hand
-                  </StatsEvidenceLink>
-                </li>
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        role="gridcell"
+                        data-row={rowIdx}
+                        data-column={colIdx}
+                        tabIndex={activeCell === key ? 0 : -1}
+                        className={`heatmap-cell${rowIdx === colIdx ? ' is-pair' : ''}${
+                          hovered === key ? ' is-hovered' : ''
+                        }${cell && mode !== 'frequency' && !confident ? ' is-thin' : ''}`}
+                        style={{ background: bg }}
+                        onMouseEnter={() => setHovered(key)}
+                        onFocus={() => {
+                          setActiveCell(key);
+                          setHovered(key);
+                        }}
+                        onKeyDown={(event) => {
+                          let nextRow = rowIdx;
+                          let nextColumn = colIdx;
+                          if (event.key === 'ArrowUp') nextRow -= 1;
+                          else if (event.key === 'ArrowDown') nextRow += 1;
+                          else if (event.key === 'ArrowLeft') nextColumn -= 1;
+                          else if (event.key === 'ArrowRight') nextColumn += 1;
+                          else if (event.key === 'Home') nextColumn = 0;
+                          else if (event.key === 'End') nextColumn = RANKS.length - 1;
+                          else return;
+                          event.preventDefault();
+                          nextRow = Math.max(0, Math.min(RANKS.length - 1, nextRow));
+                          nextColumn = Math.max(0, Math.min(RANKS.length - 1, nextColumn));
+                          const nextKey = classFor(nextRow, nextColumn);
+                          setActiveCell(nextKey);
+                          gridRef.current
+                            ?.querySelector<HTMLButtonElement>(
+                              `[data-row="${nextRow}"][data-column="${nextColumn}"]`
+                            )
+                            ?.focus();
+                        }}
+                        // Touch has no hover. Without a click handler the readout
+                        // never populated on a phone, on a mobile-first product.
+                        // A click also opens the hands behind the cell.
+                        onClick={() => {
+                          setHovered(key);
+                          setSelected((cur) => (cur === key && cell ? null : cell ? key : null));
+                        }}
+                        aria-expanded={cell ? selected === key : undefined}
+                        aria-selected={selected === key}
+                        aria-label={
+                          !cell
+                            ? `${key}, Never Dealt`
+                            : confident
+                              ? `${key}, ${hands} Hands, ${n(cell.bb100).toFixed(0)} Big Blinds Per 100`
+                              : // Deliberately does NOT state bb/100 below the
+                                // confidence threshold. The whole design refuses to
+                                // show that number for a thin cell; announcing it to
+                                // a screen reader anyway would be the same false
+                                // precision, just less visible.
+                                `${key}, ${hands} Hands, Too Few To Rate`
+                        }
+                      >
+                        {key}
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
-            </ul>
-          )}
-        </div>
-      )}
+            </div>
+          </div>
 
-      <p className="heatmap-note">
-        {mode === 'frequency' &&
-          'How Often You Voluntarily Played Each Hand. This Is The View That Finds Leaks Earliest, Because A Frequency Settles Down Long Before A Win Rate Does.'}
-        {mode === 'profit' &&
-          `Profit In Big Blinds Per 100 Hands. Cells With Fewer Than ${MIN_CONFIDENT_HANDS} Hands Are Left Grey On Purpose: At That Sample The Number Is Noise, And Colouring It Would Invent A Pattern That Is Not There.`}
-        {mode === 'luck' &&
-          'Actual Result Minus All-In Expected Value. This Is Variance, Not Skill. A Hand Glowing Green Here Means You Ran Well With It, Not That You Play It Well.'}
-      </p>
+          <div className="heatmap-readout">
+            {hoveredCell ? (
+              <>
+                <strong>{hoveredCell.hand_class}</strong>
+                <span>{hoveredCell.hands.toLocaleString()} Dealt</span>
+                <span>Played {(n(hoveredCell.vpip_pct) * 100).toFixed(0)}%</span>
+                <span className={hoveredCell.net_bb >= 0 ? 'is-up' : 'is-down'}>
+                  {hoveredCell.net_bb >= 0 ? '+' : ''}
+                  {n(hoveredCell.net_bb).toFixed(1)} BB
+                </span>
+                {hoveredCell.hands >= MIN_CONFIDENT_HANDS ? (
+                  <span className={hoveredCell.bb100 >= 0 ? 'is-up' : 'is-down'}>
+                    {hoveredCell.bb100 >= 0 ? '+' : ''}
+                    {n(hoveredCell.bb100).toFixed(0)} BB/100
+                  </span>
+                ) : (
+                  <span className="is-thin-note">Too Few Hands To Rate</span>
+                )}
+              </>
+            ) : (
+              <span className="heatmap-readout-hint">
+                {hovered ? `${hovered} - Never Dealt` : 'Hover A Hand For Its Detail'}
+              </span>
+            )}
+          </div>
+
+          {selected && (
+            <div className="heatmap-drill">
+              <div className="heatmap-drill-head">
+                <strong>{selected}</strong>
+                <span>
+                  {handsLoading ? 'Loading Hands...' : `${(classHands ?? []).length} Most Recent`}
+                </span>
+                <button
+                  type="button"
+                  className="heatmap-drill-close"
+                  onClick={() => setSelected(null)}
+                >
+                  Close
+                </button>
+              </div>
+              {!handsLoading && drillError && (
+                <p className="heatmap-drill-empty" role="alert">
+                  The Hands For {selected} Could Not Be Loaded Right Now.{' '}
+                  <button type="button" className="hand-retry" onClick={retryDrill}>
+                    Try Again
+                  </button>
+                </p>
+              )}
+              {!handsLoading && !drillError && (classHands ?? []).length === 0 && (
+                <p className="heatmap-drill-empty">
+                  No Individual Hands Stored For {selected} Yet Under This Filter.
+                </p>
+              )}
+              {(classHands ?? []).length > 0 && (
+                <ul className="heatmap-drill-list">
+                  {(classHands ?? []).map((h) => (
+                    <li key={h.hand_id} className="heatmap-drill-row">
+                      <span className="heatmap-drill-pos">{h.position}</span>
+                      <span className="heatmap-drill-date">{shortDate(h.played_at)}</span>
+                      <span className="heatmap-drill-tags">
+                        {h.was_all_in && <em>All In</em>}
+                        {h.showdown && <em>Showdown</em>}
+                      </span>
+                      <span className={h.net_bb >= 0 ? 'is-up' : 'is-down'}>
+                        {h.net_bb >= 0 ? '+' : ''}
+                        {n(h.net_bb).toFixed(1)} BB
+                      </span>
+                      <StatsEvidenceLink
+                        className="stats-evidence-action"
+                        to={buildStatsHandEvidencePath(h.hand_id, clubId)}
+                        aria-label={`Open ${selected} Hand Evidence`}
+                      >
+                        Open Hand
+                      </StatsEvidenceLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <p className="heatmap-note">
+            {mode === 'frequency' &&
+              'How Often You Voluntarily Played Each Hand. This Is The View That Finds Leaks Earliest, Because A Frequency Settles Down Long Before A Win Rate Does.'}
+            {mode === 'profit' &&
+              `Profit In Big Blinds Per 100 Hands. Cells With Fewer Than ${MIN_CONFIDENT_HANDS} Hands Are Left Grey On Purpose: At That Sample The Number Is Noise, And Colouring It Would Invent A Pattern That Is Not There.`}
+            {mode === 'luck' &&
+              'Actual Result Minus All-In Expected Value. This Is Variance, Not Skill. A Hand Glowing Green Here Means You Ran Well With It, Not That You Play It Well.'}
+          </p>
+        </>
+      )}
     </div>
   );
 }

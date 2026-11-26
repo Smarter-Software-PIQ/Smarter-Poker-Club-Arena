@@ -74,6 +74,7 @@ import {
   type UnionClubBalance,
 } from '../../services/unionClubBalances';
 import { useOptionalToast } from '../common/Toast';
+import { useCashierMintScope } from '../../hooks/useCashierMintScope';
 import './UnionWalletModal.css';
 import UnionTreasuryLog, { type TreasuryLogWallet } from './UnionTreasuryLog';
 import { chipCents } from '../../utils/cashierAmount';
@@ -105,6 +106,7 @@ export interface UnionWalletModalProps {
   balance: number;
   /** Called after a successful send so the dashboard can refresh balances. */
   onSent?: () => void;
+  onMint?: () => void;
 }
 
 interface RosterRow {
@@ -226,6 +228,7 @@ export function UnionWalletModal({
   walletLabel,
   balance,
   onSent,
+  onMint,
 }: UnionWalletModalProps) {
   const { user } = useAuthUser();
   const [mode, setMode] = useState<Mode>('send');
@@ -851,6 +854,9 @@ export function UnionWalletModal({
     amountRefusal,
   ]);
 
+  const canMint =
+    useCashierMintScope(isOpen && walletKey === 'chips' && onMint ? unionId : null, user?.id) ===
+    'union';
   if (!isOpen) return null;
 
   const isPromo = walletKey === 'promo';
@@ -1096,6 +1102,7 @@ export function UnionWalletModal({
           readOnly
             ? []
             : [
+                ...(canMint && onMint ? [{ label: 'Mint', onClick: onMint, disabled: busy }] : []),
                 {
                   label: 'Pull Back',
                   lit: true,

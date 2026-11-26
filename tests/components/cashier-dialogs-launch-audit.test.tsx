@@ -31,6 +31,7 @@ const deferred = <T,>(): Deferred<T> => {
 const recovery = cashierRecoveryRpc();
 const fx = vi.hoisted(() => ({
   rpc: vi.fn(),
+  mintScope: vi.fn(),
   tables: vi.fn(),
   balances: vi.fn(),
   downloads: [] as Array<{ name: string; blob: Blob }>,
@@ -80,7 +81,9 @@ vi.mock('../../src/components/arena/DiamondCustodyBalance', () => ({
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: (name: string, args: Record<string, unknown> = {}) =>
-      recovery.answer(name, args) ?? fx.rpc(name, args),
+      name === 'fn_cashier_mint_scope'
+        ? fx.mintScope(args)
+        : (recovery.answer(name, args) ?? fx.rpc(name, args)),
     from: (table: string) => {
       const filters: Record<string, unknown> = {};
       const q: Record<string, unknown> = {
@@ -165,6 +168,7 @@ beforeEach(() => {
   recovery.clear();
   fx.downloads.length = 0;
   fx.rpc.mockReset();
+  fx.mintScope.mockReset().mockResolvedValue({ data: 'club', error: null });
   fx.tables.mockReset();
   fx.balances.mockReset();
   fx.balances.mockResolvedValue(snapshot());
@@ -232,7 +236,16 @@ describe('D-01: Escape belongs to the top sheet', () => {
     fx.rpc.mockImplementation(async (name: string) => {
       if (name === 'fn_club_cashier_members') return { data: [member(PLAYER, 1000)], error: null };
       if (name === 'fn_club_money_panel')
-        return { data: { authorized: true, scope: 'club', club_name: 'Test Club' }, error: null };
+        return {
+          data: {
+            authorized: true,
+            scope: 'club',
+            club_name: 'Test Club',
+            in_union: false,
+            union_id: null,
+          },
+          error: null,
+        };
       if (name === 'fn_mint_chips_from_diamonds') return mint.promise;
       return { data: null, error: null };
     });
@@ -250,7 +263,10 @@ describe('D-01: Escape belongs to the top sheet', () => {
     expect(screen.getByLabelText('Diamonds To Convert')).toBeTruthy();
 
     await act(async () => {
-      mint.resolve({ data: { success: true, chips: 100, diamonds_after: 4900 }, error: null });
+      mint.resolve({
+        data: { success: true, scope: 'club', chips: 100, diamonds_after: 4900 },
+        error: null,
+      });
       await settle();
     });
   });
@@ -717,7 +733,7 @@ describe('G-05: the cashier keeps its trap under the stacked mint', () => {
 describe('S-07: the mint pre-flight is the role-checked panel', () => {
   const mint = () => render(<ChipMintModal isOpen onClose={() => {}} clubId={CLUB} />);
 
-  it('asks fn_club_money_panel, never the clubs table, and mints for club staff', async () => {
+  it('checks the mint authority and money panel without reading club treasury tables', async () => {
     fx.tables.mockImplementation(async (table: string) =>
       table === 'club_members'
         ? { data: { role: 'admin' }, error: null }
@@ -758,39 +774,73 @@ describe('S-07: the mint pre-flight is the role-checked panel', () => {
     expect(screen.queryByText('Mint Chips')).toBeNull();
   });
 
-  it('union staff mint into the union bank; a club member in a union is revoked', async () => {
-    fx.rpc.mockImplementation(async (name: string) =>
-      name === 'fn_club_money_panel'
-        ? {
-            data: { authorized: true, scope: 'union', in_union: true, union_id: 'u-1' },
-            error: null,
-          }
-        : { data: null, error: null }
-    );
-    fx.tables.mockImplementation(async (table: string) =>
-      table === 'unions'
-        ? { data: { name: 'Midway Union' }, error: null }
-        : { data: null, error: null }
-    );
-    const first = mint();
-    await waitFor(() => expect(screen.getByText(/Midway Union Bank/)).toBeTruthy());
-    first.unmount();
+  it.each(['club', 'union'] as const)(
+    'refuses member-club mint even through a %s-scoped form',
+    async (scope) => {
+      fx.mintScope.mockResolvedValue({ data: null, error: null });
+      fx.rpc.mockResolvedValue({
+        data: { authorized: true, scope: 'union', in_union: true, union_id: 'different-union' },
+        error: null,
+      });
+      fx.tables.mockResolvedValue({ data: { name: 'Midway Union' }, error: null });
+      render(<ChipMintModal isOpen onClose={() => {}} clubId={CLUB} scope={scope} />);
+      await screen.findByText(/Midway Union/);
+      expect(screen.queryByLabelText('Diamonds To Convert')).toBeNull();
+      expect(fx.rpc.mock.calls.some(([name]) => name === 'fn_mint_chips_from_diamonds')).toBe(
+        false
+      );
+    }
+  );
 
-    fx.rpc.mockImplementation(async (name: string) =>
+  it('withdraws a previously open club Mint when its authority changes before confirmation', async () => {
+    fx.mintScope
+      .mockResolvedValueOnce({ data: 'club', error: null })
+      .mockResolvedValue({ data: null, error: null });
+    mint();
+    const input = await screen.findByLabelText('Diamonds To Convert');
+    fireEvent.change(input, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Mint Chips/ }));
+    expect(await screen.findByText('Mint Rights Could Not Be Verified')).toBeVisible();
+    expect(fx.rpc.mock.calls.some(([method]) => method === 'fn_mint_chips_from_diamonds')).toBe(
+      false
+    );
+  });
+
+  it('mints from the explicit union bank id and accepts only its matching receipt', async () => {
+    const onMinted = vi.fn();
+    const onClose = vi.fn();
+    fx.mintScope.mockResolvedValue({ data: 'union', error: null });
+    let receiptScope = 'club';
+    fx.rpc.mockImplementation(async (name) =>
       name === 'fn_club_money_panel'
         ? {
-            data: { authorized: true, scope: 'club', in_union: true, union_id: 'u-1' },
+            data: { authorized: true, scope: 'union', in_union: true, union_id: CLUB },
             error: null,
           }
-        : { data: null, error: null }
+        : {
+            data: { success: true, scope: receiptScope, chips: 2, diamonds_after: 4998 },
+            error: null,
+          }
     );
-    mint();
-    // Wait for the revoked state itself: it renders only after both the panel
-    // and the union-name read resolve. 'Mint Chips' is already absent while
-    // the dialog is still loading, so waiting on its absence passed at once
-    // and the union name was asserted before it had arrived (CI, 2026-10-19).
-    await waitFor(() => expect(screen.getByText(/Midway Union/)).toBeTruthy());
-    expect(screen.queryByText('Mint Chips')).toBeNull();
+    fx.tables.mockResolvedValue({ data: { name: 'Midway Union' }, error: null });
+    render(
+      <ChipMintModal isOpen onClose={onClose} onMinted={onMinted} clubId={CLUB} scope="union" />
+    );
+    fireEvent.change(await screen.findByLabelText('Diamonds To Convert'), {
+      target: { value: '2' },
+    });
+    const button = screen.getByRole('button', { name: /Mint Chips/ });
+    fireEvent.click(button);
+    await settle();
+    expect(onMinted).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    receiptScope = 'union';
+    fireEvent.click(button);
+    await waitFor(() => expect(onMinted).toHaveBeenCalledOnce());
+    const writes = fx.rpc.mock.calls.filter(([name]) => name === 'fn_mint_chips_from_diamonds');
+    expect(writes).toHaveLength(2);
+    expect(writes[0][1]).toEqual({ p_club_id: CLUB, p_diamonds: 2, p_op_id: expect.any(String) });
+    expect(writes[1][1]).toEqual(writes[0][1]);
   });
 
   it('refuses "1e3" diamonds while accepting 1000', async () => {

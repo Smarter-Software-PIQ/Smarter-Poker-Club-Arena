@@ -37,7 +37,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { callClubArenaApi } from '../services/clubArenaApi';
+import { readCashierMintScope } from '../services/cashierMintScope';
+import WalletCashierModal from '../components/wallet/WalletCashierModal';
 import { masterBus } from '../core/MasterBus';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { resolveClubUUID } from '../utils/clubIdResolver';
@@ -2239,124 +2240,46 @@ function CardSlideAdoption() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TAB 12: MINT CHIPS
-// ═══════════════════════════════════════════════════════════════════════════════
-function MintChipsTab({ clubId }: { clubId: string }) {
-  const { user } = useAuthUser();
-  const [amount, setAmount] = useState('');
-  const [notes, setNotes] = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  return (
-    <div className="admin-tab-content">
-      <div className="admin-card">
-        <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>
-          Mint Chips To Treasury
-        </div>
-        <div className="admin-text-secondary" style={{ marginBottom: '16px', lineHeight: 1.5 }}>
-          Create New Chips And Add Them To The Club Treasury. Subject To Daily Limits.
-        </div>
-        {msg && (
-          <div className="admin-success-banner" style={{ marginBottom: '12px' }}>
-            {msg}
-          </div>
-        )}
-        {err && (
-          <div className="admin-error-banner" style={{ marginBottom: '12px' }}>
-            {err}
-          </div>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div>
-            <label className="admin-label">Amount</label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0"
-              min={1}
-              className="admin-input"
-            />
-          </div>
-          <div>
-            <label className="admin-label">Notes (Optional)</label>
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Reason For Minting..."
-              className="admin-input"
-            />
-          </div>
-          <button
-            className="admin-btn admin-btn-primary"
-            disabled={processing || !amount}
-            style={{ marginTop: '4px' }}
-            onClick={async () => {
-              setProcessing(true);
-              setErr(null);
-              setMsg(null);
-              try {
-                const uuid = await resolveClubUUID(clubId);
-                const mintAmount = Number(amount);
-                if (isNaN(mintAmount) || mintAmount <= 0) {
-                  setErr('Enter a valid chip amount');
-                  setProcessing(false);
-                  return;
-                }
-                // Mint SERVER-SIDE. `mint_club_chips` is service_role-only, so this
-                // direct browser rpc() returned 42501 and the admin Mint button
-                // could never work. The route derives the minter from the JWT and
-                // enforces authorization, economy caps, settlement lock and audit.
-                await callClubArenaApi('mint-chips', {
-                  clubId: uuid,
-                  amount: mintAmount,
-                  notes: notes || undefined,
-                });
-                setMsg(`Minted ${fmtChips(mintAmount)} chips to treasury!`);
-                masterBus.emit('CHIPS_DISTRIBUTED', { clubId });
-                setAmount('');
-                setNotes('');
-              } catch (e: unknown) {
-                setErr(safeErrorMessage(e));
-              } finally {
-                setProcessing(false);
-              }
-            }}
-          >
-            {processing ? 'Minting...' : `Mint ${amount ? fmtChips(Number(amount)) : '0'} Chips`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function AdminDashboardPage() {
+  const { user } = useAuthUser();
+  const [searchParams] = useSearchParams();
+  const requestedClub = searchParams.get('club') || searchParams.get('clubId');
+  return (
+    <ClubAdminDashboard
+      key={JSON.stringify([user?.id, requestedClub])}
+      userId={user?.id}
+      requestedClub={requestedClub}
+    />
+  );
+}
+
+function ClubAdminDashboard({
+  userId,
+  requestedClub,
+}: {
+  userId?: string;
+  requestedClub: string | null;
+}) {
   useEffect(() => {
     document.title = 'Admin Dashboard | Smarter Poker';
   }, []);
 
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { user } = useAuthUser();
 
   const [clubId, setClubId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
-  const isMounted = useIsMounted();
+  const [standaloneMint, setStandaloneMint] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     const init = async () => {
-      if (!user?.id) return;
+      if (!userId) return;
 
       try {
         /* The param is RESOLVED now (slug or 6-digit code both work, and the
@@ -2370,7 +2293,7 @@ export default function AdminDashboardPage() {
            `mems[0]` on a query with no ORDER BY, so an operator working two
            clubs got whichever row Postgres returned first and that could
            change under them. Now the club they were last in wins. */
-        const qClub = searchParams.get('club') || searchParams.get('clubId');
+        const qClub = requestedClub;
         let targetClub = qClub
           ? await resolvePageClubId({ routeClubId: qClub, allowFallback: false })
           : null;
@@ -2389,7 +2312,7 @@ export default function AdminDashboardPage() {
           const { data: mems } = await supabase
             .from('club_members')
             .select('club_id, role')
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .in('role', ['owner', 'co_owner', 'admin', 'manager'])
             .order('joined_at', { ascending: true });
           targetClub = pickPreferredClubId((mems || []).map((m) => m.club_id));
@@ -2402,9 +2325,10 @@ export default function AdminDashboardPage() {
             .from('club_members')
             .select('role')
             .eq('club_id', targetClub)
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .maybeSingle();
 
+          if (cancelled) return;
           if (memRole) {
             setRole(memRole.role);
             if (!['owner', 'co_owner', 'admin', 'manager'].includes(memRole.role)) {
@@ -2429,7 +2353,20 @@ export default function AdminDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, searchParams]);
+  }, [userId, requestedClub]);
+
+  useEffect(() => {
+    if (!clubId || role !== 'owner') return;
+    let current = true;
+    void readCashierMintScope(clubId)
+      .then((scope) => {
+        if (current) setStandaloneMint(scope === 'club');
+      })
+      .catch((error) => reportError(error, 'AdminDashboardPage.mintScope'));
+    return () => {
+      current = false;
+    };
+  }, [clubId, role]);
 
   if (loading) {
     return (
@@ -2493,7 +2430,7 @@ export default function AdminDashboardPage() {
     { key: 'announcements', label: 'Announce', show: isAdmin },
     { key: 'templates', label: 'Templates', show: isAdmin },
     { key: 'analytics', label: 'Analytics', show: isAdmin },
-    { key: 'mint', label: 'Mint', show: isOwner },
+    { key: 'mint', label: 'Club Bank', show: isOwner && standaloneMint },
     { key: 'settings', label: 'Settings', show: isOwner },
   ];
 
@@ -2571,7 +2508,15 @@ export default function AdminDashboardPage() {
             </div>
           </>
         )}
-        {activeTab === 'mint' && <MintChipsTab clubId={clubId} />}
+        {activeTab === 'mint' && isOwner && standaloneMint && (
+          <WalletCashierModal
+            isOpen
+            clubId={clubId}
+            role="owner"
+            walletType="club_bank"
+            onClose={() => setActiveTab('dashboard')}
+          />
+        )}
         {activeTab === 'settings' && <SettingsTab clubId={clubId} />}
       </div>
     </StandardContentLayout>

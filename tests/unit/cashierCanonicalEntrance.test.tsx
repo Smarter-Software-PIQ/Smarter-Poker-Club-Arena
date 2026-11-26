@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Suspense } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,11 +7,13 @@ import CashierTradePage from '../../src/pages/CashierTradePage';
 // Preload the actual wallet module so cold compilation happens outside the UI assertions.
 import '../../src/pages/CashierPage';
 import { supabase } from '../../src/lib/supabase';
+import { cashoutService } from '../../src/services/CashoutService';
 
 const fixture = vi.hoisted(() => ({
   club: '1946a17a-2890-431a-8fbe-f52112828a50',
   actor: 'c4ba3f80-1508-4e1e-91c3-521070030027',
   role: 'owner',
+  mintScope: 'club' as string | null,
   reads: [] as string[],
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -60,7 +62,7 @@ function mount(entry: string) {
       <Suspense fallback={<p>Opening Cashier</p>}>
         <Routes>
           <Route path="/cashier" element={<CashierEntrance />} />
-          <Route path="/clubs/:clubId/cashier-classic" element={<CashierEntrance legacy />} />
+          <Route path="/clubs/:clubId/cashier-classic" element={<CashierEntrance />} />
           <Route path="/clubs/:clubId/cashier" element={<CashierTradePage />} />
         </Routes>
       </Suspense>
@@ -69,6 +71,7 @@ function mount(entry: string) {
 }
 beforeEach(() => {
   fixture.role = 'owner';
+  fixture.mintScope = 'club';
   fixture.reads = [];
   localStorage.clear();
   vi.clearAllMocks();
@@ -82,6 +85,8 @@ beforeEach(() => {
     },
   };
   vi.mocked(supabase.rpc).mockImplementation((name, args) => {
+    if (name === 'fn_cashier_mint_scope')
+      return Promise.resolve({ data: fixture.mintScope, error: null }) as never;
     if (name === 'get_my_full_profile') return supabase.from('profiles') as never;
     if (name === 'fn_club_money_panel') {
       const data = {
@@ -92,7 +97,8 @@ beforeEach(() => {
         club_promo_wallet: 0,
         bbj: { main: 0, backup: 0 },
       };
-      return { abortSignal: async () => ({ data, error: null }) } as never;
+      const result = Promise.resolve({ data, error: null });
+      return Object.assign(result, { abortSignal: () => result }) as never;
     }
     if (name === 'fn_cashier_history_summary') {
       const data =
@@ -165,11 +171,10 @@ describe('one mounted club cashier', () => {
     ['/cashier?club=' + fixture.club + '&table=77&origin=menu#seat', fixture.club],
     ['/cashier?table=77&origin=menu#seat', fixture.club],
   ])(
-    'opens legacy wallet operations at the same club with the full table context: %s',
+    'opens the canonical club desk and preserves its table return context: %s',
     async (entry, club) => {
       mount(entry);
-      const tabs = await screen.findByRole('tablist', { name: 'Wallet Operations' });
-      await within(tabs).findByRole('tab', { name: 'Mint' });
+      await screen.findByRole('group', { name: 'Wallet Actions' });
       const address = new URL(
         screen.getByLabelText('Current Address').textContent!,
         'https://arena.test'
@@ -178,123 +183,186 @@ describe('one mounted club cashier', () => {
       expect([...address.searchParams].sort()).toEqual([
         ['origin', 'menu'],
         ['table', '77'],
-        ['walletTools', 'open'],
       ]);
       expect(address.hash).toBe('#seat');
-      expect(fixture.reads).toContain(fixture.club);
-      expect(fixture.reads).not.toContain('fixture-club');
+      expect(screen.queryByRole('region', { name: 'Wallet Operations' })).toBeNull();
       expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-      expect(screen.getByRole('heading', { level: 1, name: 'Cashier' })).toBeVisible();
-      fireEvent.click(within(tabs).getByRole('tab', { name: 'Mint' }));
-      expect(await screen.findByRole('tabpanel', { name: 'Mint' })).toBeVisible();
     }
   );
-  it('returns to Send from another open wallet tab without losing the table return link', async () => {
-    mount('/clubs/' + fixture.club + '/cashier?table=77&origin=menu#seat');
-    const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
-    const send = within(actions).getByRole('button', { name: 'Send' });
-    fireEvent.click(send);
-    const tabs = await screen.findByRole('tablist', { name: 'Wallet Operations' });
-    fireEvent.click(await within(tabs).findByRole('tab', { name: 'Mint' }));
-    expect(await screen.findByRole('tabpanel', { name: 'Mint' })).toBeVisible();
-    fireEvent.click(send);
-    expect(within(tabs).getByRole('tab', { name: 'Send' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-    const sendPanel = screen.getByRole('tabpanel', { name: 'Send' });
-    const amounts = within(sendPanel).getByRole('group', { name: 'Send Amount Presets' });
+
+  it.each(['owner', 'player', 'admin'])(
+    'keeps only the direct Cashier controls for %s even from an old workspace link',
+    async (role) => {
+      fixture.role = role;
+      mount('/clubs/' + fixture.club + '/cashier?walletTools=open');
+      const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
+      expect(screen.getByLabelText('Current Address')).not.toHaveTextContent('walletTools');
+      expect(within(actions).queryByRole('button', { name: /^(Send|Distribute)$/ })).toBeNull();
+      expect(!!within(actions).queryByRole('button', { name: 'Cash-Out' })).toBe(role !== 'admin');
+      fireEvent.click(within(actions).getByRole('button', { name: 'History' }));
+      fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
+      const tabs = await screen.findByRole('tablist', { name: 'Cashier Actions' });
+      const history = within(tabs).getByRole('tab', {
+        name: 'Transaction History',
+        selected: true,
+      });
+      const panel = screen.getByRole('tabpanel', { name: 'Transaction History' });
+      expect(history).toHaveAttribute('aria-controls', panel.id);
+      expect(panel).toHaveAttribute('aria-labelledby', history.id);
+      history.focus();
+      fireEvent.keyDown(history, { key: 'End' });
+      expect(within(tabs).getAllByRole('tab').at(-1)).toHaveFocus();
+      for (const tab of within(tabs).getAllByRole('tab', { selected: false }))
+        expect(tab).not.toHaveAttribute('aria-controls');
+      expect(screen.queryByRole('button', { name: 'Wallet Operations' })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Wallet Operations' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Financials' }) !== null).toBe(role !== 'player');
+    }
+  );
+
+  it.each(['club', 'union', null])(
+    'offers club-bank Mint only after confirmed standalone permission (%s)',
+    async (scope) => {
+      fixture.mintScope = scope;
+      mount('/clubs/' + fixture.club + '/cashier');
+      fireEvent.click(await screen.findByRole('button', { name: 'Open Club Balance' }));
+      await waitFor(() =>
+        expect(vi.mocked(supabase.rpc)).toHaveBeenCalledWith('fn_cashier_mint_scope', {
+          p_club_id: fixture.club,
+        })
+      );
+      if (scope === 'club')
+        expect(
+          await screen.findByRole('button', { name: 'Mint Chips Into The Club Bank' })
+        ).toBeVisible();
+      else
+        expect(screen.queryByRole('button', { name: 'Mint Chips Into The Club Bank' })).toBeNull();
+    }
+  );
+  it('exposes the actual cashout queue state and opens a fresh authorized read after a failure', async () => {
+    let refuse!: (error: Error) => void;
+    const queue = vi
+      .spyOn(cashoutService, 'getAgentPendingCashouts')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            refuse = reject;
+          })
+      )
+      .mockResolvedValue([]);
+    try {
+      mount('/clubs/' + fixture.club + '/cashier');
+      const trigger = await screen.findByRole('button', { name: /Cash Out Requests/ });
+      expect(trigger).toHaveAccessibleName(/Loading/);
+      await act(async () => refuse(new Error('Queue Read Unavailable')));
+      expect(trigger).toHaveAccessibleName(/Unavailable/);
+      expect(trigger).not.toHaveTextContent(/None Pending|0 Pending/);
+      fireEvent.click(trigger);
+      const panel = within(await screen.findByRole('dialog'));
+      expect(await panel.findByText('No Pending Cashout Requests')).toBeVisible();
+      expect(queue).toHaveBeenLastCalledWith(fixture.actor, fixture.club);
+    } finally {
+      queue.mockRestore();
+    }
+  });
+
+  it('keeps one reconciliation action and one receipt reader while switching cashier tabs', async () => {
+    mount('/clubs/' + fixture.club + '/cashier');
+    fireEvent.click(await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ }));
+    const recoveryReads = () =>
+      vi
+        .mocked(supabase.rpc)
+        .mock.calls.filter(
+          ([name, args]) => name === 'fn_cashier_browser_recovery_read' && args?.p_kind === 'wallet'
+        ).length;
+    await waitFor(() => expect(recoveryReads()).toBeGreaterThan(0));
+    const beforeOpen = recoveryReads();
+    fireEvent.click(await screen.findByRole('tab', { name: /Tickets/ }));
+    expect(screen.getAllByRole('button', { name: 'Reconcile Now' })).toHaveLength(1);
+    expect(recoveryReads()).toBe(beforeOpen);
     expect(
-      within(amounts)
-        .getAllByRole('button')
-        .map((button) => button.textContent)
-    ).toEqual(['100', '500', '1,000', '5,000', 'Max']);
-    fireEvent.click(within(amounts).getByRole('button', { name: 'Max' }));
-    expect(within(sendPanel).getByRole('textbox', { name: 'Amount' })).toHaveValue('500');
-    expect(screen.getByLabelText('Current Address').textContent).toBe(
-      '/clubs/' + fixture.club + '/cashier?table=77&origin=menu&walletTools=open#seat'
-    );
-    fireEvent.click(within(actions).getByRole('button', { name: 'History' }));
-    expect(screen.getByLabelText('Current Address').textContent).toBe(
-      '/clubs/' + fixture.club + '/cashier?table=77&origin=menu#seat'
+      screen.getByRole('button', { name: 'Reconcile Now' }).closest('[data-cashier-recovery]')
+    ).toBeTruthy();
+  });
+
+  it('returns focus to the switcher when the current club is selected', async () => {
+    mount('/clubs/' + fixture.club + '/cashier');
+    const switcher = await screen.findByRole('button', { name: /Open Another Club Cashier/ });
+    fireEvent.click(switcher);
+    const option = await screen.findByRole('option', { name: /Fixture Club/ });
+    option.focus();
+    fireEvent.click(option);
+    expect(screen.queryByRole('listbox', { name: 'Club Cashiers' })).toBeNull();
+    expect(switcher).toHaveFocus();
+    expect(screen.getByLabelText('Current Address')).toHaveTextContent(
+      '/clubs/' + fixture.club + '/cashier'
     );
   });
 
-  it('keeps player wallet permissions after opening the embedded controls from the normal desk', async () => {
-    fixture.role = 'player';
-    mount('/clubs/' + fixture.club + '/cashier?origin=directory');
-    fireEvent.click(await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Wallet Operations' }));
-    const operations = within(await screen.findByRole('region', { name: 'Wallet Operations' }));
-    const tabs = await operations.findByRole('tablist', { name: 'Wallet Operations' });
-    const initial = await operations.findByRole('tabpanel', { name: 'Cash-Out' });
-    expect(within(tabs).getByRole('tab', { name: 'Cash-Out', selected: true })).toHaveAttribute(
-      'aria-controls',
-      initial.id
-    );
-    const balances = within(screen.getByRole('region', { name: 'Wallet Balances' }));
-    const playerWallet = balances.getByRole('button', { name: 'Open Player Wallet' });
-    expect(playerWallet).toBeVisible();
-    await waitFor(() => expect(playerWallet).toHaveAccessibleDescription('250.00 Chips'));
-    expect(tabs).not.toHaveAttribute('aria-busy', 'true');
-    const mast = screen.getByRole('heading', { level: 1, name: 'Cashier' }).closest('header')!;
-    expect(within(mast).getByText('Club Wallets')).toBeVisible();
-    expect(within(tabs).queryByRole('tab', { name: 'Mint' })).toBeNull();
-    expect(within(tabs).queryByRole('tab', { name: 'Distribute' })).toBeNull();
-    fireEvent.click(within(tabs).getByRole('tab', { name: 'History' }));
-    const history = await operations.findByRole('tabpanel', { name: 'History' });
-    expect(history).toBeVisible();
-    expect(within(tabs).getByRole('tab', { name: 'History', selected: true })).toHaveAttribute(
-      'aria-controls',
-      history.id
-    );
-    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(screen.getByLabelText('Current Address')).toHaveTextContent('origin=directory');
-    const actions = screen.getByRole('tablist', { name: 'Cashier Actions' });
-    expect(within(actions).queryByRole('tab', { selected: true })).toBeNull();
-    for (const tab of within(actions).getAllByRole('tab')) {
-      expect(tab).not.toHaveAttribute('aria-controls');
-    }
-    const firstAction = within(actions).getAllByRole('tab')[0];
-    firstAction.focus();
-    fireEvent.keyDown(firstAction, { key: 'Home' });
-    expect(firstAction).toHaveFocus();
-    expect(firstAction).toHaveAttribute('aria-selected', 'true');
-    const firstPanel = screen.getByRole('tabpanel', { name: 'Transaction History' });
-    expect(firstAction).toHaveAttribute('aria-controls', firstPanel.id);
-    expect(firstPanel).toHaveAttribute('aria-labelledby', firstAction.id);
-    for (const tab of within(actions).getAllByRole('tab', { selected: false })) {
-      expect(tab).not.toHaveAttribute('aria-controls');
-    }
-    expect(screen.queryByRole('tablist', { name: 'Wallet Operations' })).toBeNull();
-  });
-  it('keeps Wallet Operations control references valid across opening and closing the panel', async () => {
+  it('opens the Player and Diamond ledgers and carries the club into the Diamond store', async () => {
     mount('/clubs/' + fixture.club + '/cashier');
-    const actions = await screen.findByRole('group', { name: 'Wallet Actions' });
-    const send = within(actions).getByRole('button', { name: 'Send' });
-    const mast = screen.getByRole('heading', { level: 1, name: 'Cashier' }).closest('header')!;
-    expect(mast.querySelector('small')).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Cashier Tools' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Page Help' })).toBeVisible();
-    const panelId = 'cashier-wallet-operations';
-    const expectValidReferences = () => {
-      for (const button of document.querySelectorAll(`button[aria-controls="${panelId}"]`)) {
-        expect(document.getElementById(button.getAttribute('aria-controls')!)).not.toBeNull();
-      }
-    };
-    expectValidReferences();
-    fireEvent.click(screen.getByRole('button', { name: /^Requests, Tickets And Tools/ }));
-    const wallet = await screen.findByRole('button', { name: 'Wallet Operations' });
-    expect(wallet).toHaveAttribute('aria-expanded', 'false');
-    expectValidReferences();
-    fireEvent.click(send);
-    const panel = await screen.findByRole('region', { name: 'Wallet Operations' });
-    expect(panel.id).toBe(panelId);
-    expect(send).toHaveAttribute('aria-controls', panel.id);
-    expect(wallet).toHaveAttribute('aria-controls', panel.id);
-    expect(wallet).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(wallet);
-    expect(screen.queryByRole('region', { name: 'Wallet Operations' })).toBeNull();
-    expectValidReferences();
+    const wallets = await screen.findByRole('region', { name: 'My Wallets' });
+    fireEvent.click(await within(wallets).findByRole('button', { name: 'Open Player Wallet' }));
+    const player = await screen.findByRole('dialog', { name: 'Player Wallet' });
+    fireEvent.click(within(player).getByText('Close', { selector: 'button' }));
+    expect(screen.queryByRole('dialog', { name: 'Player Wallet' })).toBeNull();
+    fireEvent.click(within(wallets).getByRole('button', { name: 'Open Diamond Wallet' }));
+    const diamond = await screen.findByRole('dialog', { name: 'Diamond Wallet' });
+    fireEvent.click(within(diamond).getByRole('button', { name: 'Buy Diamonds' }));
+    expect(screen.getByLabelText('Current Address')).toHaveTextContent('/vip?club=' + fixture.club);
+  });
+
+  it.each(['Disputes', 'Financials'])(
+    'opens the authorized %s route from Cashier tools',
+    async (label) => {
+      mount('/clubs/' + fixture.club + '/cashier?walletTools=open');
+      fireEvent.click(await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ }));
+      fireEvent.click(await screen.findByRole('button', { name: label, exact: true }));
+      expect(screen.getByLabelText('Current Address')).toHaveTextContent(
+        '/clubs/' + fixture.club + '/' + label.toLowerCase()
+      );
+    }
+  );
+
+  it.each([
+    ['Buy-In', 'Go To Table To Buy In'],
+    ['Cash-Out', 'Go To Table To Cash Out'],
+  ])(
+    'routes the table-specific %s action to that table without moving funds',
+    async (_tab, label) => {
+      fixture.role = 'player';
+      mount('/clubs/' + fixture.club + '/cashier?walletTools=open&table=77');
+      fireEvent.click(await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ }));
+      fireEvent.click(await screen.findByRole('button', { name: label }));
+      expect(screen.getByLabelText('Current Address')).toHaveTextContent('/table/77');
+      expect(
+        vi.mocked(supabase.rpc).mock.calls.some(([method]) => /buyin|request_cashout/i.test(method))
+      ).toBe(false);
+    }
+  );
+
+  it('opens the full statement for the current club from History', async () => {
+    mount('/clubs/' + fixture.club + '/cashier');
+    const wallet = await screen.findByRole('group', { name: 'Wallet Actions' });
+    fireEvent.click(within(wallet).getByRole('button', { name: 'History' }));
+    const panel = await screen.findByRole('tabpanel', { name: 'Transaction History' });
+    const summary = within(panel).getByText('Statement Tools', { selector: 'summary' });
+    fireEvent.click(summary);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Full Statement' }));
+    expect(screen.getByLabelText('Current Address')).toHaveTextContent(
+      '/clubs/' + fixture.club + '/cashier/statements'
+    );
+  });
+
+  it('retains help and accessible Cashier tool disclosure references', async () => {
+    mount('/clubs/' + fixture.club + '/cashier');
+    expect(await screen.findByRole('button', { name: 'Page Help' })).toBeVisible();
+    const toggle = await screen.findByRole('button', { name: /^Requests, Tickets And Tools/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    const tabs = await screen.findByRole('tablist', { name: 'Cashier Actions' });
+    expect(toggle).toHaveAttribute('aria-controls', tabs.id);
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('tablist', { name: 'Cashier Actions' })).toBeNull();
   });
 });

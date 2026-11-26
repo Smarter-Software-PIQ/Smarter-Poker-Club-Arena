@@ -215,7 +215,10 @@ describe('WalletService', () => {
     beforeEach(() => {
       vi.stubGlobal('fetch', fetchMock);
       fetchMock.mockReset();
-      mockGetSession.mockResolvedValue({ data: { session: { access_token: 'jwt' } } });
+      mockGetSession.mockResolvedValue({
+        data: { session: { access_token: 'jwt', user: { id: 'owner-1' } } },
+      });
+      mockRpc.mockResolvedValue({ data: 'club', error: null });
       mockFromChain.mockResolvedValue({
         data: { id: CLUB, name: 'Shark Club', owner_id: 'owner-1', union_id: null },
         error: null,
@@ -242,6 +245,20 @@ describe('WalletService', () => {
       expect(keys).toHaveLength(2);
       expect(keys[0]['X-Idempotency-Key']).toBe(KEY);
       expect(keys[1]['X-Idempotency-Key']).toBe(KEY);
+    });
+
+    it.each([
+      ['member club of the viewer-owned union', null, null],
+      ['actual union bank, requested through the club door', 'union', null],
+      ['unknown bank', null, { message: 'membership unavailable' }],
+    ])('refuses the %s before any issuance request', async (_label, data, error) => {
+      mockRpc.mockResolvedValueOnce({ data, error });
+      await expect(WalletService.mintChips(CLUB, 100, KEY, 'owner-1')).rejects.toThrow(
+        /standalone club bank/i
+      );
+      expect(mockRpc).toHaveBeenCalledWith('fn_cashier_mint_scope', { p_club_id: CLUB });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockBusEmit).not.toHaveBeenCalled();
     });
 
     it('refuses to mint without a key rather than minting one for the caller', async () => {

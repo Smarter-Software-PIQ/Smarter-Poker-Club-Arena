@@ -22,7 +22,7 @@ import CashierPendingOperations from '../components/wallet/CashierPendingOperati
  *  Chip Flow: Union → Club Bank → Agent Wallet → Player Wallet → Games
  *
  *  Roles & Actions:
- *  - Union Owner: Mint, Send to clubs, Send to agents/players, History
+ *  - Union Owner: Mint in the Union Bank; member clubs cannot mint
  *  - Club Owner (standalone): Mint, Send to agents/players, History
  *  - Club Owner (in union): Send to agents/players, History (no mint)
  *  - Agent/Super Agent: Send to sub-agents/players, History
@@ -35,6 +35,7 @@ import CashierPendingOperations from '../components/wallet/CashierPendingOperati
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isClubStaff, isAgentRole } from '../types/clubRoles';
 import { holdsPlayerWallet } from '../components/wallet/walletRows';
+import { readCashierMintScope } from '../services/cashierMintScope';
 import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import { withClubContext } from '../utils/clubScopedPath';
 import { masterBus } from '../core/MasterBus';
@@ -431,7 +432,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
       if (!live) return;
       if (target) {
         const query = new URLSearchParams(searchParams);
-        if (query.has('table')) query.set('walletTools', 'open');
+        query.delete('walletTools');
         navigate(
           { pathname: `/clubs/${target.id}/cashier`, search: query.toString(), hash },
           { replace: true }
@@ -495,7 +496,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
   // ALL TRANSACTIONS AND OTHER AVAILABLE DATA WHEN CLICKED." The row opens the
   // member's own statement - a read-only view, so it is not an activeCashier.
   const [showPlayerWallet, setShowPlayerWallet] = useState(false);
-  const [isInUnion, setIsInUnion] = useState(false);
+  const [standaloneMintClub, setStandaloneMintClub] = useState<string | null>(null);
   const [isUnionOwner, setIsUnionOwner] = useState(false);
   const [clubName, setClubName] = useState('');
   /**
@@ -618,7 +619,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
     setLoadingContext(true);
     setContextError(null);
     setUserRole('player');
-    setIsInUnion(false);
+    setStandaloneMintClub(null);
     setIsUnionOwner(false);
     setSelectedRecipient('');
     setPendingCashouts([]);
@@ -815,7 +816,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
       // Union check — derived from combined query above
       const detectedUnionId = clubResult?.data?.union_id;
       if (detectedUnionId) {
-        setIsInUnion(true);
+        setStandaloneMintClub(null);
         // Only need 1 more query: union owner check
         /* `retryFetch` RETURNS the Supabase result with `error` set rather
            than throwing, so reading only `data` made a failed union lookup
@@ -844,8 +845,15 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
           setIsUnionOwner(unionData?.owner_id === user.id);
         }
       } else {
-        setIsInUnion(false);
         setIsUnionOwner(false);
+        const mintScope =
+          clubResult?.data?.union_id === null &&
+          ['owner', 'co_owner', 'admin'].includes(role) &&
+          resolvedId
+            ? await readCashierMintScope(resolvedId)
+            : null;
+        if (!isMounted.current || stale()) return;
+        setStandaloneMintClub(mintScope === 'club' ? resolvedId : null);
       }
     } catch (e) {
       reportError(e, 'CashierPage.loadUserContext');
@@ -1525,11 +1533,8 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
    * knows what "runs the club" means, exactly as canMint already does.
    */
   const canSend = isClubStaff(userRole) || isAgentRole(userRole) || isUnionOwner;
-  // Mirrors fn_mint_chips_from_diamonds: a STANDALONE club's owner, co-owner
-  // or admin, or a union owner minting into the union bank. co_owner and admin
-  // were missing here while the RPC has always admitted them, so two roles saw
-  // no Mint tab on a club they are entitled to mint for. (Dan 2026-08-23.)
-  const canMint = (!isInUnion && ['owner', 'co_owner', 'admin'].includes(userRole)) || isUnionOwner;
+  const canMint =
+    !roleUnknown && !!standaloneMintClub && ['owner', 'co_owner', 'admin'].includes(userRole);
 
   // The Club Bank row routes here, and it renders for owner / co_owner / admin
   // / super_agent — so all four must have the tab, or the row would open a tab
@@ -1954,6 +1959,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
           // Whole chips, checked on the spelling: "100.00" is not how a whole
           // chip is typed, and 1.5 would be charged and credited as something
           // other than what this page said.
+          if (!canMint || !standaloneMintClub) return;
           const whole = parseWholeChipAmount(input);
           if (!whole.ok || whole.value !== value) {
             if (isMounted.current)
@@ -2000,7 +2006,13 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
           lastActionRef.current = now;
           if (!mintOpIdRef.current) mintOpIdRef.current = newOpId();
           try {
-            const resolvedForMint = (await resolveClubUUID(clubId!)) || clubId!;
+            const resolvedForMint = standaloneMintClub;
+            const permission = await readCashierMintScope(resolvedForMint);
+            if (!transferCurrent()) return;
+            if (permission !== 'club') {
+              setStandaloneMintClub(null);
+              throw new Error('Mint Rights Could Not Be Verified');
+            }
             const { data: mintData, error: mintError } = await supabase.rpc(
               'fn_mint_chips_from_diamonds',
               {
@@ -2009,6 +2021,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
                 p_op_id: mintOpIdRef.current,
               }
             );
+            if (!transferCurrent()) return;
             if (mintError) throw mintError;
             const mintRes = (Array.isArray(mintData) ? mintData[0] : mintData) as {
               success?: boolean;
@@ -2017,11 +2030,12 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
               scope?: string;
               chips?: number;
             } | null;
-            if (!mintRes?.success) throw new Error(mintRes?.error || 'Mint Refused');
+            if (mintRes?.success !== true || mintRes.scope !== 'club')
+              throw new Error(mintRes?.error || 'Mint Outcome Needs Verification');
             // Landed. The next press is a new mint, so it needs a new key.
             mintOpIdRef.current = null;
             const minted = Number(mintRes.chips) || value;
-            const bank = mintRes.scope === 'union' ? 'Union Bank' : 'Club Bank';
+            const bank = 'Club Bank';
             if (isMounted.current)
               setMessage({
                 type: 'success',
@@ -2502,22 +2516,26 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
 
           {/* ── Club context bar — which club's cashier, with multi-club switcher ── */}
           {!embeddedClubId && clubId && <CashierClubSwitcher clubId={clubId} clubName={clubName} />}
-          <CashierPendingOperations
-            actionClassName={styles.wordAction}
-            key={`${user?.id}:${clubId}`}
-            userId={user?.id}
-            clubId={clubId || null}
-          />
+          {!embeddedClubId && (
+            <>
+              <CashierPendingOperations
+                actionClassName={styles.wordAction}
+                key={`${user?.id}:${clubId}`}
+                userId={user?.id}
+                clubId={clubId || null}
+              />
 
-          <CashierConservationReport
-            key={`${user?.id}:${clubId}:${userRole}`}
-            userId={user?.id}
-            clubId={clubId || null}
-            role={userRole}
-            ready={!roleUnknown}
-            getAuthorityEpoch={() => authorityEpoch.current}
-            actionClassName={styles.wordAction}
-          />
+              <CashierConservationReport
+                key={`${user?.id}:${clubId}:${userRole}`}
+                userId={user?.id}
+                clubId={clubId || null}
+                role={userRole}
+                ready={!roleUnknown}
+                getAuthorityEpoch={() => authorityEpoch.current}
+                actionClassName={styles.wordAction}
+              />
+            </>
+          )}
 
           {/* Action Tabs */}
           {/* No tab set while the role is unknown: an owner whose role read
@@ -2802,7 +2820,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
                   <button
                     className={styles.presetBtn}
                     disabled={myAgentWallet === null}
-                    onClick={() => setAmount(String(Math.floor(myAgentWallet ?? 0)))}
+                    onClick={() => myAgentWallet !== null && setAmount(String(myAgentWallet))}
                   >
                     Max
                   </button>

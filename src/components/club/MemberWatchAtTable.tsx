@@ -75,10 +75,12 @@ export default function MemberWatchAtTable({
     const generation = generationRef.current;
     setVerifying(table.table_id);
     try {
-      const outcome = await watchMemberTable(navigate, table, {
-        userId: memberUserId,
-        name: memberName,
-      });
+      const outcome = await watchMemberTable(
+        navigate,
+        table,
+        { userId: memberUserId, name: memberName },
+        () => generationRef.current === generation
+      );
       if (generationRef.current !== generation) return;
       if (outcome.status === 'left') {
         setTables((current) => current.filter((item) => item.table_id !== table.table_id));
