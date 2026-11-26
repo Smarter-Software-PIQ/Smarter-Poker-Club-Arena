@@ -10845,4 +10845,55 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   ),
   readShrinkResponse: NO_OWN_RECEIPT('it changes how far a read shrinks toward the prior'),
   readScopedShrink: NO_OWN_RECEIPT('it changes how far a read shrinks toward the prior'),
+  // integration 2 (lead-7 stack3, 2026-11-26): options that main gained after this gate was written. Each acts only
+  // through a rule whose receipts its ledger entries name for another option; those receipts are its acted receipts,
+  // legitimate while that rule's own option is on (as omahaMathCorePlo5Flop above).
+  // PLO-LEAD-6 opener record: acts only inside the out-of-position 3-bet rule it reads for (its reason is a field on
+  // that rule's receipts)
+  omahaOopReraiseRangeReadsOpenerRecord: {
+    prefixes: ['omaha_oop_reraise_range_holds_'],
+    unlessOn: ['omahaOopReraiseRangeHoldsVsReraise'],
+  },
+  holdemOopReraiseRangeReadsOpenerRecord: {
+    prefixes: ['holdem_oop_reraise_range_holds_'],
+    unlessOn: ['holdemOopReraiseRangeHoldsVsReraise'],
+  },
+  // PLO-LEAD-6 corrected facing-bet price (F1, F2, M1 each switch the priced verdict on: omahaPricedFacingAnyOn);
+  // its receipts are omaha_priced_facing_bet_*, legitimate while a sibling that switches the price on is on
+  omahaFacingBetRangeIsMeasuredByLine: {
+    prefixes: ['omaha_priced_facing_bet_'],
+    unlessOn: ['omahaFacingBetIndifferenceCalls', 'omahaFacingBetFieldIsJoint'],
+  },
+  omahaFacingBetIndifferenceCalls: {
+    prefixes: ['omaha_priced_facing_bet_'],
+    unlessOn: ['omahaFacingBetRangeIsMeasuredByLine', 'omahaFacingBetFieldIsJoint'],
+  },
+  omahaFacingBetFieldIsJoint: {
+    prefixes: ['omaha_priced_facing_bet_'],
+    unlessOn: ['omahaFacingBetRangeIsMeasuredByLine', 'omahaFacingBetIndifferenceCalls'],
+  },
+  // F6 and M2 act only inside the corrected price (F1, F2, M1) and the flop call tree (omahaFlopRealizationIsPriced)
+  omahaFacingBetMinimumDefencePrior: {
+    prefixes: ['omaha_priced_facing_bet_', 'omaha_flop_call_tree_'],
+    unlessOn: [
+      'omahaFacingBetRangeIsMeasuredByLine',
+      'omahaFacingBetIndifferenceCalls',
+      'omahaFacingBetFieldIsJoint',
+      'omahaFlopRealizationIsPriced',
+    ],
+  },
+  omahaMultiwayCallNeedsNutShare: {
+    prefixes: ['omaha_priced_facing_bet_', 'omaha_flop_call_tree_'],
+    unlessOn: [
+      'omahaFacingBetRangeIsMeasuredByLine',
+      'omahaFacingBetIndifferenceCalls',
+      'omahaFacingBetFieldIsJoint',
+      'omahaFlopRealizationIsPriced',
+    ],
+  },
+  // PLO lead-7 plo-preflop: a position weight inside the live re-raised-pot priced call (omahaOopReraisedPotStrongRange,
+  // on by release), whose omaha_reraised_call_priced_* receipts fire by design
+  omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
+    'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
+  ),
 });

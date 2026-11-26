@@ -1183,12 +1183,125 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "omahaOopReraiseRangeReadsOpenerRecord": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_oop_reraise_range_holds_"],
+      "unlessOn": ["omahaOopReraiseRangeHoldsVsReraise"]
+    },
+    "holdemOopReraiseRangeReadsOpenerRecord": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["holdem_oop_reraise_range_holds_"],
+      "unlessOn": ["holdemOopReraiseRangeHoldsVsReraise"]
+    },
     "omahaFourBetFoldPricedCall": {
       "releaseDefault": "off",
       "source": "ledger",
       "keys": ["omaha_four_bet_fold_priced_call"],
       "prefixes": [],
       "unlessOn": []
+    },
+    "omahaFacingBetRangeIsMeasuredByLine": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetFieldIsJoint", "omahaFacingBetIndifferenceCalls"]
+    },
+    "omahaFacingBetIndifferenceCalls": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetFieldIsJoint", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaFlopRealizationIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_call_tree_call",
+        "omaha_flop_call_tree_changed",
+        "omaha_flop_call_tree_fold",
+        "omaha_flop_call_tree_min_defence_bounded",
+        "omaha_flop_call_tree_record_read"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFacingBetMinimumDefencePrior": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_call_tree_", "omaha_priced_facing_bet_"],
+      "unlessOn": [
+        "omahaFacingBetFieldIsJoint",
+        "omahaFacingBetIndifferenceCalls",
+        "omahaFacingBetRangeIsMeasuredByLine",
+        "omahaFlopRealizationIsPriced"
+      ]
+    },
+    "omahaFacingBetFieldIsJoint": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaMultiwayCallNeedsNutShare": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_call_tree_", "omaha_priced_facing_bet_"],
+      "unlessOn": [
+        "omahaFacingBetFieldIsJoint",
+        "omahaFacingBetIndifferenceCalls",
+        "omahaFacingBetRangeIsMeasuredByLine",
+        "omahaFlopRealizationIsPriced"
+      ]
+    },
+    "omahaMultiwayValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_multiway_value_bet_check_kept", "omaha_multiway_value_bet_priced_bet"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReraisedPotCallIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_call_folded",
+        "omaha_reraised_pot_priced_call_kept",
+        "omaha_reraised_pot_priced_call_reraised",
+        "omaha_reraised_pot_priced_failed",
+        "omaha_reraised_pot_priced_fold_called",
+        "omaha_reraised_pot_priced_fold_kept",
+        "omaha_reraised_pot_priced_reraise_called",
+        "omaha_reraised_pot_priced_reraise_folded",
+        "omaha_reraised_pot_priced_reraise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraisedPotReraiseIsPriced"]
+    },
+    "omahaReraisedPotReraiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_call_folded",
+        "omaha_reraised_pot_priced_call_kept",
+        "omaha_reraised_pot_priced_call_reraised",
+        "omaha_reraised_pot_priced_failed",
+        "omaha_reraised_pot_priced_fold_called",
+        "omaha_reraised_pot_priced_fold_kept",
+        "omaha_reraised_pot_priced_reraise_called",
+        "omaha_reraised_pot_priced_reraise_folded",
+        "omaha_reraised_pot_priced_reraise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraisedPotCallIsPriced"]
     },
     "omahaStabDefenceIsPriced": {
       "releaseDefault": "off",
@@ -1208,6 +1321,38 @@
       "releaseDefault": "off",
       "source": "ledger",
       "keys": ["omaha_cbet_raise_priced_branch", "omaha_cbet_raise_priced_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFlopRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_raise_priced_called",
+        "omaha_flop_raise_priced_folded",
+        "omaha_flop_raise_priced_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverTripsBoardBoatIsNotNutClass": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_trips_board_boat_called"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverValueBetInPositionIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_value_bet_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_bluff_priced"],
       "prefixes": [],
       "unlessOn": []
     },
@@ -1396,6 +1541,14 @@
       ],
       "prefixes": [],
       "unlessOn": ["omahaOopReraisedPotStrongRange"]
+    },
+    "omahaReraisedPositionVsEveryoneToAct": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: a position weight inside the live re-raised-pot priced call, whose receipts fire by design; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
     },
     "omahaManiacReRaiseWidthMeasured": {
       "releaseDefault": "code",
@@ -2226,6 +2379,32 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "holdemOpeningValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_opening_bluff_bet",
+        "holdem_opening_bluff_no_edge",
+        "holdem_opening_priced_unpriced",
+        "holdem_opening_value_bet",
+        "holdem_opening_value_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemOpeningBluffIsPriced"]
+    },
+    "holdemOpeningBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_opening_bluff_bet",
+        "holdem_opening_bluff_no_edge",
+        "holdem_opening_priced_unpriced",
+        "holdem_opening_value_bet",
+        "holdem_opening_value_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemOpeningValueBetIsPriced"]
+    },
     "cashDefenceTrimColdCalls": {
       "releaseDefault": "off",
       "source": "ledger",
@@ -2402,6 +2581,32 @@
         "holdemTournamentBlindDefenceIsPriced",
         "holdemTournamentHeadsUpBigBlindDefenceIsPriced"
       ]
+    },
+    "holdemTournamentRiverBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tourney_bluff_no_edge",
+        "holdem_tourney_bluff_payout_unpriced",
+        "holdem_tourney_bluff_unpriced",
+        "holdem_tourney_river_bluff_bet",
+        "holdem_tourney_turn_bluff_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemTournamentTurnBluffIsPriced"]
+    },
+    "holdemTournamentTurnBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tourney_bluff_no_edge",
+        "holdem_tourney_bluff_payout_unpriced",
+        "holdem_tourney_bluff_unpriced",
+        "holdem_tourney_river_bluff_bet",
+        "holdem_tourney_turn_bluff_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemTournamentRiverBluffIsPriced"]
     },
     "fixedLimitReadIgnoresProbes": {
       "releaseDefault": "off",
