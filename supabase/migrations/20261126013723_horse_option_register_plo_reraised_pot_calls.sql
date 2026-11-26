@@ -1,4 +1,5 @@
 -- 20261126013723_horse_option_register_plo_reraised_pot_calls.sql
+-- @live-proof: (SELECT count(*)=2 FROM public.ca_horse_option_whitelist WHERE option IN ('omahaReraisedPotCallIsPriced','omahaReraisedPotReraiseIsPriced'))
 --
 -- HORSE OPTION SWITCH: 2 OPTIONS REGISTERED
 --
