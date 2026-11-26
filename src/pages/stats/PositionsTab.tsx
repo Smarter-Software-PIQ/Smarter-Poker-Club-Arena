@@ -8,6 +8,7 @@
  * conditions that gate the tab (`showTab`, `hasData`, `isOwnProfile`) stay in
  * the page, where `printing` can override them for the dossier.
  */
+import './StatsReadouts.css';
 import { lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import type { FullStats, HandEvidenceFilter } from './types';
@@ -31,18 +32,27 @@ export default function PositionsTab({
   openHandEvidence,
 }: PositionsTabProps) {
   return (
-    <div>
-      <div className="stats-position-evidence" aria-label="Review Hands By Position">
-        {(full?.positions || []).map((position) => (
-          <button
-            type="button"
-            key={position.position}
-            onClick={() => openHandEvidence({ position: position.position })}
-          >
-            {position.position} · {position.hands_played.toLocaleString()} Hands
-          </button>
-        ))}
-      </div>
+    <div className="stats-workbench stats-readouts">
+      {(full?.positions?.length ?? 0) > 0 && (
+        <section
+          className="stats-workbench-surface stats-position-records"
+          aria-label="Review Hands By Position"
+        >
+          <h3>Review Hands By Position</h3>
+          <div className="stats-position-evidence">
+            {(full?.positions || []).map((position) => (
+              <button
+                type="button"
+                key={position.position}
+                onClick={() => openHandEvidence({ position: position.position })}
+              >
+                <strong>{position.position}</strong>
+                <span>{position.hands_played.toLocaleString()} Hands</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {/* Positional shape first: a player reads the SHAPE of their game
           before they read any individual number, and a web that pinches
           at the button is a leak no table of rates makes obvious. Pure

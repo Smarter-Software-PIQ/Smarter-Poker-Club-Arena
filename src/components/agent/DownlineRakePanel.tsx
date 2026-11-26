@@ -205,7 +205,8 @@ export default function DownlineRakePanel({
 
   return (
     <section className="dlr-panel" aria-label="Downline Rake Ledger">
-      <div className="dlr-controls">
+      <div className="dlr-controls stats-workbench-surface">
+        <h3>Downline Rake Ledger</h3>
         {roles.length > 1 && (
           <select
             aria-label="Club"
@@ -280,7 +281,7 @@ export default function DownlineRakePanel({
       ) : (
         <>
           {summary && (
-            <dl className="dlr-summary">
+            <dl className="dlr-summary stats-workbench-surface" aria-label="Downline Totals">
               <Stat
                 label={debounced ? 'Downline Cash Rake (All Members)' : 'Downline Cash Rake'}
                 value={money(summary.rake_generated)}
@@ -330,7 +331,8 @@ export default function DownlineRakePanel({
                 : 'No Downline Activity In This Window.'}
             </p>
           ) : (
-            <div className="dlr-table-wrap">
+            <div className="dlr-table-wrap stats-workbench-surface">
+              <h3>Downline Members</h3>
               <table>
                 <thead>
                   <tr>
@@ -361,10 +363,14 @@ export default function DownlineRakePanel({
                             <span className="dlr-member-name">{r.username ?? 'Player'}</span>
                           )}
                         </td>
-                        <td>{r.upline_name ?? '-'}</td>
-                        <td className="dlr-number">{count(r.hands)}</td>
-                        <td className="dlr-number dlr-rake">{money(r.rake_generated)}</td>
-                        <td className="dlr-number">
+                        <td data-label="Upline">{r.upline_name ?? '-'}</td>
+                        <td className="dlr-number" data-label="Raked Hands">
+                          {count(r.hands)}
+                        </td>
+                        <td className="dlr-number dlr-rake" data-label="Cash Rake">
+                          {money(r.rake_generated)}
+                        </td>
+                        <td className="dlr-number" data-label="Their Downline">
                           {r.downline_players > 0
                             ? `${count(r.downline_players)} / ${money(r.downline_rake)}`
                             : '-'}

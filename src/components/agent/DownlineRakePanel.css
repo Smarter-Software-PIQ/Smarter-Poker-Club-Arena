@@ -291,8 +291,8 @@
   color: #91a1af;
 }
 
-.dlr-number {
-  text-align: right !important;
+.dlr-table-wrap .dlr-number {
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
