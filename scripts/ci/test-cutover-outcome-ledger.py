@@ -195,7 +195,9 @@ class Wiring(unittest.TestCase):
         self.job = m.group(1)
 
     def test_runs_inside_the_existing_run_after_selection(self):
-        self.assertRegex(self.job, r"needs: \[detect, selection\]")
+        # O32 (2026-11-26): it also reads the look-back's gaps, from a job that
+        # needs nothing and never waits (tests/every-cycle-has-an-owner-or-says-so.law.test.ts).
+        self.assertRegex(self.job, r"needs: \[detect, selection, cycle-look-back\]")
         self.assertIn("needs.detect.outputs.daily_preparation == 'true'", self.job)
         self.assertIn("needs.detect.outputs.owner_window_id == ''", self.job)
         self.assertIn("github.run_attempt == 1", self.job)

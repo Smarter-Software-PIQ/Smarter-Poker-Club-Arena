@@ -528,15 +528,19 @@ describe('Stage admits a delivered keep-serving Backup completion', () => {
   it.each([
     { event: 'workflow_dispatch', display_title: 'Backup Engine (Clone, Stage, Certify)' },
     { event: 'workflow_dispatch', display_title: 'Backup after seal 1-1' },
+    // O32 (2026-11-26): a Backup that failed or timed out elects like one
+    // that succeeded (the election needs an event, not a certificate; pinned
+    // by tests/every-cycle-has-an-owner-or-says-so.law.test.ts). A cancelled
+    // or skipped one still does not.
     {
-      event: 'push',
+      event: 'workflow_dispatch',
       display_title: 'Backup after keep-serving 2026-11-25T10',
-      conclusion: 'failure',
+      conclusion: 'cancelled',
     },
     {
       event: 'workflow_dispatch',
       display_title: 'Backup after keep-serving 2026-11-25T10',
-      conclusion: 'failure',
+      conclusion: 'skipped',
     },
     {
       event: 'workflow_dispatch',
@@ -552,12 +556,22 @@ describe('Stage admits a delivered keep-serving Backup completion', () => {
     { event: 'schedule', display_title: 'Backup after keep-serving 2026-11-25T10' },
   ])('refuses %o', (run) => {
     const ctx = completion(run);
-    const isPushSuccess =
-      run.event === 'push' && (run as { conclusion?: string }).conclusion !== 'failure';
-    if (isPushSuccess) return;
     expect(evaluate(stage['run-name'], ctx)).toBe(outside);
     expect(evaluate(stage.jobs.detect.if, ctx)).toBe(false);
   });
+
+  it.each(['failure', 'timed_out'])(
+    'admits its first-attempt completion on main when the Backup ended %s (O32)',
+    (conclusion) => {
+      const ctx = completion({
+        event: 'workflow_dispatch',
+        display_title: 'Backup after keep-serving 2026-11-25T10',
+        conclusion,
+      });
+      expect(evaluate(stage['run-name'], ctx)).toBe(reservation);
+      expect(evaluate(stage.jobs.detect.if, ctx)).toBe(true);
+    }
+  );
 
   it('keeps the same election title, so every reader still names the same runs', () => {
     expect(stageText).toContain(
