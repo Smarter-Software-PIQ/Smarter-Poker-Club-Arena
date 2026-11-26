@@ -30,7 +30,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * grid. Rather than render an empty 13x13, the component explains why.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStatsFactRead } from '../../hooks/useStatsFactRead';
 import StatsFactsService, { type HandGridCell } from '../../services/StatsFactsService';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
@@ -100,6 +100,7 @@ export default function HoleCardHeatmap({
   scope = CHIP_STATS,
   clubId = null,
 }: Props) {
+  const filterId = useId();
   const [mode, setMode] = usePlayerPreference<ViewMode>(
     'holeCardHeatmap.mode',
     'frequency',
@@ -175,11 +176,17 @@ export default function HoleCardHeatmap({
     return vals[Math.floor(vals.length * 0.9)] || vals[vals.length - 1] || 0;
   }, [cells, mode]);
 
-  const hoveredCell = hovered ? byClass.get(hovered) : null;
+  const inspected = selected ?? hovered;
+  const hoveredCell = inspected ? byClass.get(inspected) : null;
+  const closeDetails = () => {
+    const cell = gridRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+    setSelected(null);
+    cell?.focus({ preventScroll: true });
+  };
 
   if (loading) {
     return (
-      <div className="heatmap-card">
+      <div className="stats-workbench-surface heatmap-card">
         <div className="heatmap-skeleton" />
       </div>
     );
@@ -187,7 +194,7 @@ export default function HoleCardHeatmap({
 
   if (readError) {
     return (
-      <div className="heatmap-card heatmap-empty" role="alert">
+      <div className="stats-workbench-surface heatmap-card heatmap-empty" role="alert">
         <h3 className="heatmap-title">Starting Hands</h3>
         <p className="heatmap-empty-text">
           The Starting Hand Grid Could Not Be Loaded Right Now.{' '}
@@ -200,7 +207,7 @@ export default function HoleCardHeatmap({
   }
 
   return (
-    <div className="heatmap-card">
+    <div className="stats-workbench-surface heatmap-card">
       <div className="heatmap-head">
         <h3 className="heatmap-title">Starting Hands</h3>
         <p className="heatmap-sub">
@@ -231,9 +238,12 @@ export default function HoleCardHeatmap({
 
         <div className="heatmap-filters">
           <label className="heatmap-select-wrap">
-            <span className="heatmap-select-label">Position</span>
+            <span id={filterId + '-position'} className="heatmap-select-label">
+              Position
+            </span>
             <select
               className="heatmap-select"
+              aria-labelledby={filterId + '-position'}
               value={position ?? ''}
               onChange={(e) => {
                 setSelected(null);
@@ -249,9 +259,12 @@ export default function HoleCardHeatmap({
             </select>
           </label>
           <label className="heatmap-select-wrap">
-            <span className="heatmap-select-label">Game</span>
+            <span id={filterId + '-variant'} className="heatmap-select-label">
+              Game
+            </span>
             <select
               className="heatmap-select"
+              aria-labelledby={filterId + '-variant'}
               value={variant ?? ''}
               onChange={(e) => {
                 setSelected(null);
@@ -276,6 +289,15 @@ export default function HoleCardHeatmap({
         </p>
       ) : (
         <>
+          <div className="stats-heatmap-key" aria-label="Grid Legend">
+            <span>
+              {mode === 'frequency' ? 'Played Less' : mode === 'luck' ? 'Below Expected' : 'Loss'}
+            </span>
+            <i aria-hidden="true" data-scale={mode} />
+            <span>
+              {mode === 'frequency' ? 'Played More' : mode === 'luck' ? 'Above Expected' : 'Profit'}
+            </span>
+          </div>
           <div className="heatmap-scroll">
             <div
               ref={gridRef}
@@ -319,7 +341,7 @@ export default function HoleCardHeatmap({
                         data-column={colIdx}
                         tabIndex={activeCell === key ? 0 : -1}
                         className={`heatmap-cell${rowIdx === colIdx ? ' is-pair' : ''}${
-                          hovered === key ? ' is-hovered' : ''
+                          inspected === key ? ' is-hovered' : ''
                         }${cell && mode !== 'frequency' && !confident ? ' is-thin' : ''}`}
                         style={{ background: bg }}
                         onMouseEnter={() => setHovered(key)}
@@ -353,6 +375,7 @@ export default function HoleCardHeatmap({
                         // A click also opens the hands behind the cell.
                         onClick={() => {
                           setHovered(key);
+                          setActiveCell(key);
                           setSelected((cur) => (cur === key && cell ? null : cell ? key : null));
                         }}
                         aria-expanded={cell ? selected === key : undefined}
@@ -379,7 +402,7 @@ export default function HoleCardHeatmap({
             </div>
           </div>
 
-          <div className="heatmap-readout">
+          <div className="heatmap-readout" role="status">
             {hoveredCell ? (
               <>
                 <strong>{hoveredCell.hand_class}</strong>
@@ -400,23 +423,25 @@ export default function HoleCardHeatmap({
               </>
             ) : (
               <span className="heatmap-readout-hint">
-                {hovered ? `${hovered} - Never Dealt` : 'Hover A Hand For Its Detail'}
+                {inspected ? `${inspected} - Never Dealt` : 'Select A Hand To See Its Results'}
               </span>
             )}
           </div>
 
           {selected && (
-            <div className="heatmap-drill">
+            <section
+              className="heatmap-drill"
+              aria-label={selected + ' Hand Evidence'}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') closeDetails();
+              }}
+            >
               <div className="heatmap-drill-head">
                 <strong>{selected}</strong>
                 <span>
                   {handsLoading ? 'Loading Hands...' : `${(classHands ?? []).length} Most Recent`}
                 </span>
-                <button
-                  type="button"
-                  className="heatmap-drill-close"
-                  onClick={() => setSelected(null)}
-                >
+                <button type="button" className="heatmap-drill-close" onClick={closeDetails}>
                   Close
                 </button>
               </div>
@@ -458,7 +483,7 @@ export default function HoleCardHeatmap({
                   ))}
                 </ul>
               )}
-            </div>
+            </section>
           )}
 
           <p className="heatmap-note">

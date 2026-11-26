@@ -179,7 +179,7 @@ export async function gtoAggregationTick(generation?: number): Promise<number> {
     if (streetIdx >= STREETS.length) {
       finished = true;
       console.log('[GtoAggregationDriver] all streets aggregated - going silent');
-      stopGtoAggregationDriver();
+      void stopGtoAggregationDriver();
     }
     return rows;
   } catch (err) {

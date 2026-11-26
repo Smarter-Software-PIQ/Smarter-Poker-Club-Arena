@@ -1,3 +1,0 @@
--- Stray dry-run copy, merged by mistake in #5976. Not a migration and not to be run.
--- The real file is supabase/migrations/20261003141618_round_two_is_planned_two_hours_at_a_time.sql.
--- Safe to delete.

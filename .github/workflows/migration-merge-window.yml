@@ -11,9 +11,11 @@ name: Migration merge window
 # through the API (their paths and the migration text's window header); no
 # branch code is checked out or executed.
 #
-# Schedules: the keeper at :10 holds every window open minute by minute and
-# closes it; the sweep at :40 closes anything a delayed or lost keeper left
-# open and backfills pull requests that never got a status.
+# Holding: every run that finds a window open (or opening within 25 minutes)
+# holds it minute by minute and closes it itself, so no window depends on
+# GitHub's schedule, which drops most ticks here. A pull request event holds
+# its own pull request; mode=keep by hand holds all. The :10 keeper and :40
+# sweep are best-effort backstops.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
@@ -67,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$EVENT" in
-            pull_request_target) node scripts/ci/migration-merge-window.mjs sweep --pr "$PR_NUMBER" ;;
+            pull_request_target) node scripts/ci/migration-merge-window.mjs keep --pr "$PR_NUMBER" ;;
             schedule)
               if [ "$SCHEDULE" = '10 * * * *' ]; then node scripts/ci/migration-merge-window.mjs keep
               else node scripts/ci/migration-merge-window.mjs sweep; fi ;;

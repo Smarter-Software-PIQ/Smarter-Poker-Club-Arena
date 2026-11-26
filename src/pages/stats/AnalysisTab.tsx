@@ -189,7 +189,7 @@ export default function AnalysisTab({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="stats-workbench player-study-console study-analysis">
       {exactSessionPanel}
       {/* The coach first (phase 2, 2026-09-04). findLeaks was built, tested
               and exported on 2026-08-25 and then rendered nowhere. It is a pure
@@ -244,7 +244,7 @@ export default function AnalysisTab({
 
       {/* Notable hands - every stat above used to be a dead end. */}
       <PanelBoundary name="Notable Hands" resetKey={panelResetKey}>
-        <div>
+        <div className="stats-workbench-surface">
           {/* ALL TIME ON A RANGE-SCOPED PAGE (Stats contract truth, 2026-09-20).
               ca_player_hands_v2 takes no window argument, and the loader in
               PlayerStatsPage leaves rangeKey out of its dependencies on
@@ -335,7 +335,7 @@ export default function AnalysisTab({
       </PanelBoundary>
 
       {/* Sessions */}
-      <div>
+      <div className="stats-workbench-surface">
         <div className="stats-section-header">
           <h3>Cash Sessions</h3>
         </div>
@@ -363,10 +363,8 @@ export default function AnalysisTab({
       </div>
 
       {/* Bankroll */}
-      <div>
-        <div className="stats-section-header">
-          <h3>Cumulative Session P/L</h3>
-        </div>
+      <div className="stats-workbench-surface">
+        {!sessionsAvailable && <h3>Cumulative Session P/L</h3>}
         <PanelBoundary name="Bankroll" resetKey={panelResetKey}>
           {sessionsAvailable ? (
             <Suspense fallback={<div className="hand-empty hand-loading">Loading Chart...</div>}>

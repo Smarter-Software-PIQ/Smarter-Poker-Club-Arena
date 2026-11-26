@@ -210,6 +210,13 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **What stops it returning:** `tests/a-short-phone-keeps-an-absolute-avatar-floor.law.test.ts`, `tests/mobile-avatars-never-ratchet-smaller.law.test.ts`, and a fixture case that fails with the production signature when the height class is removed.
 - **Live proof:** pending the next Post-Deploy E2E run that finds a full-ring table. Separate, not addressed: one run (`45399317604`) read 88.4 px because `--sp-opponent-art-scale` had not been applied within the 15 s poll.
 
+### 2026-11-26 Afternoon: Five Refusals, Two Stale Copies, Three Stranded Certificates
+
+- **What happened:** after the 07:00 CST seal every candidate was refused with `rollback_rehearsal_failed_to_132ef19f0770` (runs 45827343954, 45827378798, 45845308550, 45864121079, 45873385564). Two of those (and the O30 run, `cause: from_never_dealt`) reused a copy left frozen by an earlier failed rehearsal. Then `beb889fee8a1`, which contains every Horse commit suspected that morning, passed on a fresh copy (run 45876595076, 13:32 CST). The rollback failure on fresh copies at 07:57 and 11:14 CST is therefore intermittent, not caused by one commit; its exact step is still unknown and O30/O30b will name it the next time it happens.
+- **Why 13:00 kept serving:** the only certificate (`13bce958d4c3`) was refused because four Horse option-registry migrations installed at 07:15 CST after its copy was taken. Fixed by O33 (`#12118`).
+- **Why 10:00 had no owner:** no eligible Stage run in its window. Narrowed by O32 (failed Backup completions elect) and announced by the O32 look-back, which posted `NO OWNER` and messaged the owner at 12:40 CST.
+- **Custody mistakes recorded so they are not repeated:** the O31/O32 batch was merged at 12:40 CST outside a post-seal slot, which made the 13:32 certificate of `beb889fee8a1` unselectable; a 13bce958 recertification was dispatched although its projection could no longer match main, and held the host queue until cancelled. The Custodian Checklist in `docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md` now forbids both.
+
 ### Fixed Cut-Off Per Cycle: Already Provided By O1 And O16
 
 - **Question:** does every new engine merge restart the certification queue, so a busy hour leaves nothing certified?

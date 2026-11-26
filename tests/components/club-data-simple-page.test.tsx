@@ -861,21 +861,27 @@ describe('the union invoice basis', () => {
   it('a window before the club joined its union reads and says the Chicago basis', async () => {
     // The readers answer a union club's window that starts before its join
     // day on the club's pre-union Chicago midnight basis (#10921 review).
-    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => ({
-      data:
-        args.p_start >= '2026-11-02'
-          ? unionLive
-          : {
-              ...live,
-              range: { start: args.p_start, end: args.p_end, days: 7 },
-              accounting_basis: 'chicago_net_money_flow',
-              day_basis: 'America/Chicago',
-            },
-      error: null,
-    }));
+    let releaseHistoricalRead!: () => void;
+    const historicalRead = new Promise<void>((resolve) => {
+      releaseHistoricalRead = resolve;
+    });
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => {
+      if (args.p_start >= '2026-11-02') return { data: unionLive, error: null };
+      await historicalRead;
+      return {
+        data: {
+          ...live,
+          range: { start: args.p_start, end: args.p_end, days: 7 },
+          accounting_basis: 'chicago_net_money_flow',
+          day_basis: 'America/Chicago',
+        },
+        error: null,
+      };
+    });
     routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
     render(<ClubDataSimplePage />);
     expect(await screen.findByText('Nov 2, 2026 Through Nov 8, 2026')).toBeTruthy();
+    expect(await screen.findByText(/^Union Invoice Basis\./)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
     selectCalendarDay('2026-10-01');
     selectCalendarDay('2026-10-07');
@@ -885,7 +891,10 @@ describe('the union invoice basis', () => {
       p_start: '2026-10-01',
       p_end: '2026-10-07',
     });
-    expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
+    // A range heading can change while its report is still in flight.
+    expect(screen.queryByText(/Union Invoice Basis/)).toBeNull();
+    releaseHistoricalRead();
+    expect(await screen.findByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
     expect(screen.queryByText(/Union Invoice Basis/)).toBeNull();
     expect(screen.queryByText(/Provisional/)).toBeNull();
     expect(screen.queryByText('On The Felt Now (Not In Total Winnings)')).toBeNull();

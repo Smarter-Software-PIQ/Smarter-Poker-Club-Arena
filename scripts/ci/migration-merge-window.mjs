@@ -22,11 +22,15 @@
  *     "Outage override: <at least 20 characters naming the outage>": success,
  *     the justification is printed in the status;
  *   - anything else: failure, naming when the next window opens.
- * The status flips with the clock, so it is kept by schedule: a keeper run at
- * :10 every hour sweeps every minute while a window is open or about to open
- * and closes it when it ends; a sweep at :40 closes anything a lost keeper left
- * open; every push, label or edit re-sweeps that pull request. A status this
- * cannot compute (a file it cannot read) is failure: it fails closed.
+ * The status flips with the clock. GitHub's schedule is not a clock on this
+ * repository (2026-11-26: an hourly audit ran 4 times in 29 hours), so no
+ * window depends on it. Every run that finds a window open, or opening within
+ * 25 minutes, HOLDS it: it re-sweeps every minute and closes it itself when it
+ * ends. Any pull request event (push, label, edit) runs that hold for its own
+ * pull request; `gh workflow run migration-merge-window.yml -f mode=keep`
+ * holds it for all of them, and the failure text says so. The :10 keeper and
+ * :40 sweep remain as best-effort backstops. A status this cannot compute (a
+ * file it cannot read) is failure: it fails closed.
  *
  * One rule: the windows are releaseFreezeAdmission's, never a second copy.
  */
@@ -121,8 +125,9 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
   return {
     state: 'failure',
     description: cut(
-      `Migrations merge only 10-30 min after each engine cycle and 4:15-4:30 AM, never in the freeze` +
-        (next === null ? '' : `; next ${chicagoTime(next)}`)
+      `Migrations merge 10-27 min after a cycle or 4:15-4:27 AM` +
+        (next === null ? '' : `; next ${chicagoTime(next)}`) +
+        `. Open: gh workflow run migration-merge-window.yml -f mode=keep`
     ),
   };
 }
@@ -235,18 +240,18 @@ export function sweep({ repo, number = null, nowMs = Date.now(), cadence = decla
 }
 
 /** Keeper: sweeps every minute while a window is open or opens within the horizon, then a closing sweep. */
-export async function keep({ repo, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+export async function keep({ repo, number = null, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
   const started = now();
   const next = nextMergeWindow(started, cadence);
   if (next === null || next - started > KEEPER_HORIZON_MINUTES * MINUTE) {
     log(`No merge window opens within ${KEEPER_HORIZON_MINUTES} minutes; one sweep.`);
-    return sweep({ repo, nowMs: started, cadence, targetUrl, log });
+    return sweep({ repo, number, nowMs: started, cadence, targetUrl, log });
   }
   const closes = mergeWindowCloses(Math.max(next, started), cadence);
   log(`Merge window ${chicagoTime(next)} to ${chicagoTime(closes)}; keeping it.`);
   for (;;) {
     const t = now();
-    sweep({ repo, nowMs: t, cadence, targetUrl, log });
+    sweep({ repo, number, nowMs: t, cadence, targetUrl, log });
     if (t >= closes || t - started > KEEPER_MAX_MINUTES * MINUTE) break;
     const wait = Math.min(MINUTE - (t % MINUTE) + 2_000, Math.max(closes - t, 1_000));
     await sleep(wait);
@@ -270,10 +275,13 @@ async function main(argv) {
     return;
   }
   if (mode === 'keep') {
-    await keep({ repo, targetUrl });
+    const i = rest.indexOf('--pr');
+    const number = i >= 0 ? Number(rest[i + 1]) : null;
+    if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
+    await keep({ repo, number, targetUrl });
     return;
   }
-  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep');
+  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N]');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

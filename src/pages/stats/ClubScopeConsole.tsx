@@ -54,19 +54,16 @@ export default function ClubScopeConsole(props: Props) {
   return (
     <>
       {statsScope === CHIP_STATS && (
-        <section className="stats-club-command" aria-labelledby="stats-club-scope-title">
-          <img
-            src={`${import.meta.env.BASE_URL}images/stats/player-intelligence-console-v1.webp`}
-            alt=""
-            aria-hidden="true"
-            loading="eager"
-          />
+        <section
+          className="stats-club-command stats-club-picker stats-workbench-surface"
+          aria-labelledby="stats-club-scope-title"
+        >
           <div className="stats-club-command-copy">
             <span className="stats-section-kicker">Authorized Club Ledger</span>
             <h2 id="stats-club-scope-title">{titleCase(clubLabel)}</h2>
             <p>
               {selectedClub
-                ? 'Every Readout Below Is Restricted To This Club.'
+                ? 'Showing Records For The Selected Club.'
                 : 'All Clubs Uses Recorded Hands In The Selected Game Mode.'}
             </p>
             <div className="stats-club-selector" role="group" aria-label="Statistics Club">

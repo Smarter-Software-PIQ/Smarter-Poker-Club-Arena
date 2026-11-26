@@ -1,6 +1,8 @@
 import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import type { TutorialStep } from '../../components/help/PageHelp';
 import StatsGameModeControl from './StatsGameModeControl';
+import { useSearchParams } from 'react-router-dom';
+import { statsGameMode } from '../../services/statsGameMode';
 
 /* The hero's paragraph and the section descriptions live behind the "?" now
    (Dan, 2026-10-17). Each step lights the control it names; a step whose
@@ -34,6 +36,30 @@ const STATS_TOUR: TutorialStep[] = [
   },
 ];
 
+const TOURNAMENT_TOUR: TutorialStep[] = [
+  STATS_TOUR[0],
+  {
+    title: 'Tournament Window',
+    body: 'Choose 7 Days, 30 Days, 90 Days Or All To Set The Tournament Reporting Period.',
+    target: '[aria-label="Tournament Analysis Range"]',
+  },
+  {
+    title: 'Tournament Playing Statistics',
+    body: 'Review Tournament Hands Or Open Tournament Leak Analysis For Your Own Play.',
+    target: '.tournament-study-actions',
+  },
+  {
+    title: 'Tournament Results',
+    body: 'Read Finishes, Prizes And Bounties. Open A Recent Tournament To Review Its Event Lobby.',
+    target: '[aria-label="Tournament Results"]',
+  },
+  {
+    title: 'Wallet Receipts',
+    body: 'Open A Posted Receipt To See Its Tournament, Amount And Transaction Reference.',
+    target: '.financial-vault-shell',
+  },
+];
+
 export const sharedStatsHelp =
   'An Authorized Shared-Club Readout: Public Performance Aggregates From A Club You Both Currently Share.';
 
@@ -44,6 +70,9 @@ export default function StatsWorkspaceHeader({
   context: string;
   shared?: boolean;
 }) {
+  const [params] = useSearchParams();
+  const tour =
+    statsGameMode(params.get('gameMode')) === 'tournament' ? TOURNAMENT_TOUR : STATS_TOUR;
   return (
     <>
       <ArenaWorkspaceHeader
@@ -53,7 +82,7 @@ export default function StatsWorkspaceHeader({
         id="stats-page-title"
         helpTitle="Player Intelligence"
         summary={shared ? sharedStatsHelp : undefined}
-        steps={shared ? undefined : STATS_TOUR}
+        steps={shared ? undefined : tour}
       />
       <StatsGameModeControl />
     </>

@@ -76,8 +76,10 @@ import { useStatsRefreshInputs } from './stats/useStatsRefreshInputs';
 import { useStatsPulse } from '../hooks/useStatsPulse';
 import StatsLiveRecords from './stats/StatsLiveRecords';
 import { resolvedTimeZone } from '../lib/localTime';
+import { statsEvidenceWindow } from '../lib/handHistoryDrilldown';
 import { useSwipeTabs } from '../hooks/useSwipeTabs';
 import './PlayerStatsPage.css';
+import './stats/StatsWorkbench.css';
 import { reportError } from '../utils/errorReporter';
 import { AgentRakeService, type AgentRoleRow } from '../services/AgentRakeService';
 import type { CashOpportunityStats, PlayerRakeStats } from '../services/StatsFactsService';
@@ -100,6 +102,7 @@ import { buildStatsIntelligenceBrief } from '../components/stats/statsIntelligen
 import { capture } from '../lib/analytics';
 import {
   buildStatsCashEvidencePath,
+  rememberStatsEvidenceOrigin,
   restoreStatsEvidenceScroll,
 } from '../lib/statsEvidenceNavigation';
 // The shared-profile branch is not part of the owner's overview route.
@@ -325,43 +328,31 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       document.removeEventListener('visibilitychange', release);
     };
   }, [printing]);
+  const toast = useToast();
+  const isMounted = useIsMounted();
   const printTimerRef = useRef<number | null>(null);
   const printDossier = useCallback(async () => {
     setPrinting(true);
     // Preload idempotent lazy chunks before the 1200ms chart-layout window so
     // a cold-cache PDF never captures Suspense text. Do not clear printing on
     // a timer: mobile print() returns before its preview closes.
-    await Promise.all([
-      import('./stats/RakeTab'),
-      import('./stats/OverviewTab'),
-      import('./stats/PerformanceTab'),
-      import('./stats/PositionsTab'),
-      import('./stats/HandsTab'),
-      import('./stats/TrophiesTab'),
-      import('./stats/TournamentsTab'),
-      import('./stats/TournamentPlayingStats'),
-      import('./stats/AnalysisTab'),
-      import('../components/stats/StatsCharts'),
-      import('../components/stats/StatsPositionPiePlot'),
-      import('../components/stats/EVLuckChart'),
-      import('../components/stats/BankrollTracker'),
-      import('../components/stats/PositionWinRates'),
-      import('../components/stats/PositionalRadar'),
-      import('../components/stats/HoleCardHeatmap'),
-      import('../components/stats/NemesisPanel'),
-      import('../components/stats/BenchmarkPanel'),
-      import('../components/stats/TrophyRoom'),
-      import('../components/stats/StatsShareCard'),
-      import('../components/stats/SessionHistory'),
-      import('../components/stats/AdvancedStatsSummary'),
-      import('../components/agent/DownlineRakePanel'),
-    ]).catch(() => undefined);
+    try {
+      const { prepareStatsDossier } = await import('./statsDossierPrint');
+      await prepareStatsDossier();
+    } catch {
+      if (isMounted.current) {
+        setPrinting(false);
+        toast.error('Could Not Load The Complete Dossier. Please Try Again.');
+      }
+      return;
+    }
+    if (!isMounted.current) return;
     if (printTimerRef.current !== null) window.clearTimeout(printTimerRef.current);
     printTimerRef.current = window.setTimeout(() => {
       printTimerRef.current = null;
       window.print();
     }, 1200);
-  }, []);
+  }, [isMounted, toast]);
   useEffect(
     () => () => {
       if (printTimerRef.current !== null) window.clearTimeout(printTimerRef.current);
@@ -641,25 +632,30 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   ]);
   const openCashEvidence = useCallback(
     (metric: CashEvidenceMetric) => {
-      let from: string | null = null;
-      let to: string | null = null;
-      if (windowDays) {
-        const end = new Date();
-        const start = new Date(end);
-        start.setDate(start.getDate() - windowDays + 1);
-        from = start.toISOString().slice(0, 10);
-        to = end.toISOString().slice(0, 10);
-      }
+      rememberStatsEvidenceOrigin(location, window.scrollY);
       navigate(
         buildStatsCashEvidencePath(metric, {
           clubId: selectedClubId,
           asset: statsScope,
-          from,
-          to,
+          ...statsEvidenceWindow(
+            windowDays,
+            statsTimezone,
+            full?.contract.generated_at,
+            cashOpportunityStats?.coverage.from
+          ),
         })
       );
     },
-    [navigate, selectedClubId, statsScope, windowDays]
+    [
+      location,
+      navigate,
+      selectedClubId,
+      statsScope,
+      windowDays,
+      statsTimezone,
+      full?.contract.generated_at,
+      cashOpportunityStats?.coverage.from,
+    ]
   );
   const canSeeRake = (agentRoles?.length ?? 0) > 0;
   const TABS = useMemo<StatCategory[]>(() => {
@@ -718,8 +714,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [changeCategory]
   );
-  const toast = useToast();
-  const isMounted = useIsMounted();
   const hasStatsRef = useRef(false);
   const statsLoadingRef = useRef(false);
   // A refresh arriving while one is in flight is remembered and replayed once
@@ -803,16 +797,22 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       if (filters.position) params.set('position', filters.position);
       if (filters.bigBlind) params.set('bigBlind', String(filters.bigBlind));
       if (selectedClubId) params.set('statsClub', selectedClubId);
-      if (windowDays) {
-        const to = new Date();
-        const from = new Date(to);
-        from.setDate(from.getDate() - windowDays + 1);
-        params.set('from', from.toISOString().slice(0, 10));
-        params.set('to', to.toISOString().slice(0, 10));
-      }
+      const bounds = statsEvidenceWindow(windowDays, statsTimezone, full?.contract.generated_at);
+      if (bounds.from) params.set('from', bounds.from);
+      if (bounds.to) params.set('to', bounds.to);
+      rememberStatsEvidenceOrigin(location, window.scrollY);
       navigate(`/hand-history?${params.toString()}`);
     },
-    [navigate, windowDays, selectedClubId, gameMode, statsScope]
+    [
+      location,
+      navigate,
+      windowDays,
+      selectedClubId,
+      gameMode,
+      statsScope,
+      statsTimezone,
+      full?.contract.generated_at,
+    ]
   );
   const openLeakFinder = useCallback(() => {
     const formatQuery =
@@ -1545,7 +1545,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return (
       <div className="stats-page arena-workspace">
         {mast}
-        <div className="stats-empty-state">
+        <div className="stats-empty-state stats-workbench-surface">
           <span className="empty-status">Readout Unavailable</span>
           <span className="empty-title">Couldn't Load Your Stats</span>
           <span className="empty-description">
@@ -1570,7 +1570,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     return (
       <div className="stats-page arena-workspace" aria-busy={failed ? undefined : true}>
         {mast}
-        <div className="stats-empty-state" role={failed ? 'alert' : 'status'}>
+        <div
+          className="stats-empty-state stats-workbench-surface"
+          role={failed ? 'alert' : 'status'}
+        >
           <span className="empty-description">
             {failed
               ? 'Your Privacy Preference Could Not Be Verified. Private Detail Remains Hidden.'
@@ -1590,7 +1593,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   }
   const hasData = overall.total_hands > 0 || (gameMode === 'tournament' && tourn.entries > 0);
   const emptyState = (
-    <div className="stats-empty-state">
+    <div className="stats-empty-state stats-workbench-surface">
       <span className="empty-status">Awaiting Hand Ledger</span>
       <span className="empty-title">No Stats Yet</span>
       <span className="empty-description">
@@ -1711,7 +1714,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           role="tabpanel"
           id={`stats-panel-${category}`}
           aria-labelledby={`stats-tab-${category}`}
-          className="stats-content"
+          className="stats-content stats-workbench"
           variants={reduceMotion ? undefined : tabTransition}
           initial="initial"
           animate="animate"
@@ -1921,9 +1924,8 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
             </div>
           </div>
           <div className="stats-brief-grid">
-            {intelligenceBrief.map((item, index) => (
+            {intelligenceBrief.map((item) => (
               <article className={`stats-brief-item tone-${item.tone}`} key={item.id}>
-                <span className="stats-brief-index">{String(index + 1).padStart(2, '0')}</span>
                 <span className="stats-brief-label">{item.label}</span>
                 <strong>{item.value}</strong>
                 <p>{item.detail}</p>

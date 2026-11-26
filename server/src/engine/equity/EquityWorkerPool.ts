@@ -745,7 +745,7 @@ export class EquityWorkerPool {
       this.scheduleRespawn();
       return;
     }
-    this.beginTermination(slot);
+    void this.beginTermination(slot);
   }
 
   private beginTermination(slot: WorkerSlot): Promise<void> {

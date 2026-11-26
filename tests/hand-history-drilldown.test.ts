@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { filterHandsByStatsDrilldown, readStatsDrilldown } from '../src/lib/handHistoryDrilldown';
+import {
+  filterHandsByStatsDrilldown,
+  readStatsDrilldown,
+  statsEvidenceQueryFromDrilldown,
+  statsEvidenceWindow,
+} from '../src/lib/handHistoryDrilldown';
 
 const hand = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -23,6 +28,43 @@ describe('Stats to hand-history drilldowns', () => {
       from: '2026-08-01',
       to: '2026-08-30',
     });
+  });
+
+  it.each([
+    ['2026-03-09T03:30:00Z', '2026-03-08T08:00:00.000Z', '2026-03-09T07:00:00.000Z'],
+    ['2026-11-02T06:30:00Z', '2026-11-01T07:00:00.000Z', '2026-11-02T08:00:00.000Z'],
+  ])('carries the displayed local day through the evidence query at %s', (asOf, start, end) => {
+    const bounds = statsEvidenceWindow(1, 'America/Los_Angeles', asOf);
+    expect(bounds).toEqual({ from: start, to: end });
+    const drill = readStatsDrilldown(new URLSearchParams(bounds));
+    expect(statsEvidenceQueryFromDrilldown(drill)).toMatchObject({ from: start, to: end });
+    expect(
+      filterHandsByStatsDrilldown(
+        [
+          hand({ id: 'previous', played_at: new Date(Date.parse(start) - 1).toISOString() }),
+          hand({ id: 'first', played_at: start }),
+          hand({ id: 'last', played_at: new Date(Date.parse(end) - 1).toISOString() }),
+          hand({ id: 'next', played_at: end }),
+        ],
+        drill,
+        'player-1'
+      ).map((row) => row.id)
+    ).toEqual(['first', 'last']);
+  });
+
+  it('uses the recorded cash opportunity cutoff even when a newer report crossed midnight', () => {
+    expect(
+      statsEvidenceWindow(
+        7,
+        'America/Los_Angeles',
+        '2026-11-10T20:00:00Z',
+        '2026-10-29T07:00:00+00:00'
+      )
+    ).toEqual({
+      from: '2026-10-29T07:00:00+00:00',
+      to: '2026-11-05T08:00:00.000Z',
+    });
+    expect(statsEvidenceWindow(null, 'America/Los_Angeles', '2026-11-10T20:00:00Z')).toEqual({});
   });
 
   it('filters by game, stake, position, and inclusive date without inventing data', () => {
