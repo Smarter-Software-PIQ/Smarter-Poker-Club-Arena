@@ -22,6 +22,7 @@
  *
  * Pure over the installed HUD packet: no database, no clock, no random draw from the brain's stream.
  */
+import { HUD_ANCHOR_RAISE_SHARE, hudAnchorMode } from './HorseEquilibriumAnchor.js';
 import type { Card } from '../types.js';
 import { omahaPreflopPercentile } from './HorseEval.js';
 import { omahaReraisedEquity, omahaReraisedEquityAgainst } from './HorseOmahaReraisedPot.js';
@@ -103,6 +104,20 @@ export const HUD_PF_BVO_PRIOR: Readonly<PreflopResponseTriplet> = Object.freeze(
   raise: 0.1,
 });
 
+/** EQUILIBRIUM ANCHORS (2026-11-26, lane prior-anchor; read while hudAnchorMode()): a limper facing a pot-sized
+ *  isolation raise folds 0.5 (its indifference point); a blind facing a pot-sized open folds 1/3 (it defends to its
+ *  price); the continuing part splits call : raise 85 : 15 (HUD_ANCHOR_RAISE_SHARE). Never the population. */
+export const HUD_PF_LR_ANCHOR: Readonly<PreflopResponseTriplet> = Object.freeze({
+  fold: 0.5,
+  call: 0.5 * (1 - HUD_ANCHOR_RAISE_SHARE),
+  raise: 0.5 * HUD_ANCHOR_RAISE_SHARE,
+});
+export const HUD_PF_BVO_ANCHOR: Readonly<PreflopResponseTriplet> = Object.freeze({
+  fold: 1 / 3,
+  call: (2 / 3) * (1 - HUD_ANCHOR_RAISE_SHARE),
+  raise: (2 / 3) * HUD_ANCHOR_RAISE_SHARE,
+});
+
 export interface SixMaxPreflopHudVerdict {
   action: 'fold' | 'call' | 'raise';
   evFold: number | null;
@@ -144,9 +159,27 @@ export function shrunkPreflopExactTriplet(
   family: HudFamily,
   stat: 'pf.lr' | 'pf.bvo',
   size: HudTableSize,
-  prior: Readonly<PreflopResponseTriplet> = stat === 'pf.lr' ? HUD_PF_LR_PRIOR : HUD_PF_BVO_PRIOR,
-  k: number = HUD_DEFAULT_K
+  prior: Readonly<PreflopResponseTriplet> = hudAnchorMode()
+    ? stat === 'pf.lr'
+      ? HUD_PF_LR_ANCHOR
+      : HUD_PF_BVO_ANCHOR
+    : stat === 'pf.lr'
+      ? HUD_PF_LR_PRIOR
+      : HUD_PF_BVO_PRIOR,
+  k: number = HUD_DEFAULT_K,
+  responders = 1
 ): PreflopResponseTriplet | null {
+  // the anchor is one responder's indifference point; with m responders each folds the joint minimum defence share
+  // 1 - (1 - f)^(1/m) (HorseEquilibriumAnchor.anchorFold), the continuing part keeping its call : raise split
+  if (hudAnchorMode() && responders > 1) {
+    const f1 = prior.fold;
+    const fm = 1 - Math.pow(1 - f1, 1 / responders);
+    const rest = prior.call + prior.raise;
+    prior =
+      rest > 0
+        ? { fold: fm, call: ((1 - fm) * prior.call) / rest, raise: ((1 - fm) * prior.raise) / rest }
+        : prior;
+  }
   const xc = hudPreflopExactCounts(userId, family, stat, size);
   if (xc === null) return null;
   const f = Math.max(0, Number.isFinite(xc.fold) ? xc.fold : 0);
@@ -403,12 +436,28 @@ export function priceOmahaPreflopHudSixMax(
     let vsRaise: PreflopResponseTriplet;
     if (isLimper) {
       // Law 11: limpers require exact pf.lr (strict silence when absent)
-      const lr = shrunkPreflopExactTriplet(p.user_id, fam, 'pf.lr', 'sh');
+      const lr = shrunkPreflopExactTriplet(
+        p.user_id,
+        fam,
+        'pf.lr',
+        'sh',
+        undefined,
+        undefined,
+        live.length
+      );
       if (lr === null) return null;
       vsRaise = lr;
     } else if (raises === 0 && isBlindBehind) {
       // Law 11: behind blinds in unopened/limped pots require exact pf.bvo (strict silence when absent)
-      const bvo = shrunkPreflopExactTriplet(p.user_id, fam, 'pf.bvo', 'sh');
+      const bvo = shrunkPreflopExactTriplet(
+        p.user_id,
+        fam,
+        'pf.bvo',
+        'sh',
+        undefined,
+        undefined,
+        live.length
+      );
       if (bvo === null) return null;
       vsRaise = bvo;
     } else if (isRaiser) {

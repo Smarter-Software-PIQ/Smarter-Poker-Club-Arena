@@ -478,6 +478,17 @@ export function omahaMathCoreState(
       }
     }
   }
+  // 2026-11-26 (equilibrium anchor): each live opponent's lifetime folds to a first wager on this street
+  if (recs?.firstWagerFolds && (street === 'flop' || street === 'turn' || street === 'river')) {
+    const players = live.length === 1 ? 'hu' : 'mw';
+    for (const o of live) {
+      try {
+        o.firstWagerFolds = recs.firstWagerFolds(gs, o.seat, variant, street, players);
+      } catch {
+        o.firstWagerFolds = null;
+      }
+    }
+  }
   const heroRank = orderRank(player.seat, gs.dealerSeat);
   const ip = live.every((o) => orderRank(o.seat, gs.dealerSeat) < heroRank);
   // lane CORE-POOLED-5: the rated player count is the platform's own count at settlement
