@@ -450,10 +450,12 @@ git() { echo "2026-11-24T07:00:00Z"; }
         { encoding: 'utf8' }
       );
       expect(parsed.stdout.trim()).toBe('1500');
-      // One read, no loop around it: the wait cannot be repeated.
-      expect(run(due).match(/engine-release-installed-migrations\.py refresh-due/g)).toHaveLength(
-        1
-      );
+      // One waiting read, no loop around it: the wait cannot be repeated. The
+      // second read (O29, 2026-11-26) judges the copy for a stepped-down commit
+      // and carries no --wait at all.
+      const reads = run(due).split('engine-release-installed-migrations.py refresh-due').slice(1);
+      expect(reads).toHaveLength(2);
+      expect(reads.map((text) => text.split(') ||')[0].includes('--wait'))).toEqual([true, false]);
     });
 
     it('still uninstalled after the wait: hands the host back as a push run does, no status, no soak', () => {
