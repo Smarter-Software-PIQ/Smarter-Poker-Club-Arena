@@ -43,8 +43,7 @@ import {
   learnablePublicAction,
   type ExploitHandAction,
 } from './HorseOpponentExploit.js';
-import { omahaReraisedEquity } from './HorseOmahaReraisedPot.js';
-import { omahaPreflopPercentile } from './HorseEval.js';
+import { omahaReraisedEquityInPercentileBand } from './HorseOmahaReraisedPot.js';
 import {
   omahaPreflopDefenceRealization,
   omahaPreflopDefenceShape,
@@ -729,16 +728,9 @@ function equityAgainstBand(
     const seed = fnv(`${[...hole].map(cardKey).sort().join('')}|${r4(a)}|${r4(b)}`);
     return holdemRangeEquity(hole, [], [range], seed, OOP_RERAISE_HOLDEM_ITERATIONS);
   }
-  return omahaReraisedEquity(
-    hole,
-    [],
-    dead,
-    (h) => {
-      const p = omahaPreflopPercentile([...h], false);
-      return p >= a && p <= b;
-    },
-    OOP_RERAISE_OMAHA_SAMPLES
-  );
+  // The same equity as omahaReraisedEquity(hole, [], dead, percentile in [a, b]), bit for bit, without its cost
+  // (HorseOmahaReraisedPot.omahaReraisedEquityInPercentileBand, 2026-11-26).
+  return omahaReraisedEquityInPercentileBand(hole, dead, a, b, OOP_RERAISE_OMAHA_SAMPLES);
 }
 
 /**

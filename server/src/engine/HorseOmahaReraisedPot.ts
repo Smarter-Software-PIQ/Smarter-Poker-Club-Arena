@@ -39,7 +39,16 @@
  * never drawn. A sample that cannot be filled keeps today's decision.
  */
 import type { Card } from '../types.js';
-import { omahaDrawQuality, omahaMadeClass, scoreOmahaHi } from './HorseEval.js';
+import {
+  omahaCardId,
+  omahaDrawQuality,
+  omahaMadeClass,
+  omahaPreflopPercentile,
+  omahaPreflopScoreOfIds,
+  omahaRunTriples,
+  scoreOmahaHi,
+  scoreOmahaHiOfIdsOnRun,
+} from './HorseEval.js';
 import { omahaStrategyGameInScope, omahaStrategyGameScopeNow } from './HorseOmahaStrategyGame.js';
 import { PLO6_HOLE_CARDS, plo6ReraisedPremium } from './HorsePlo6StrategyCalibration.js';
 
@@ -190,30 +199,173 @@ export function omahaReraisedEquity(
   const need = 5 - board.length;
   if (deck.length < size + need) return null;
   const rnd = generator(seedOf([...hole, ...board]));
-  const pick = (n: number, from: Card[]): Card[] => {
-    for (let i = 0; i < n; i++) {
-      const j = i + Math.floor(rnd() * (from.length - i));
-      const t = from[i];
-      from[i] = from[j];
-      from[j] = t;
-    }
-    return from.slice(0, n);
+  // THE SAME DRAWS, NO DECK COPY PER TRY (2026-11-26, PLO-OWNER lead-7; omahaOopReraiseRangeHoldsVsReraise cost):
+  // each try used to shuffle a fresh copy of the deck (the opponent's cards: a partial Fisher-Yates over the whole
+  // deck; the run-out: the same over the rest after them). The swaps are now made in one working deck and undone
+  // after the try, so every try starts from the same order as a fresh copy, consumes the same draws and yields the
+  // same cards: byte-identical answers, without allocating a deck for each of the (mostly rejected) tries.
+  const work = deck.slice();
+  const len = work.length;
+  const swapAt = new Int32Array(size + need);
+  const swapTo = new Int32Array(size + need);
+  let swaps = 0;
+  const swap = (i: number, j: number): void => {
+    const t = work[i];
+    work[i] = work[j];
+    work[j] = t;
+    swapAt[swaps] = i;
+    swapTo[swaps] = j;
+    swaps++;
   };
+  const undo = (): void => {
+    while (swaps > 0) {
+      swaps--;
+      const i = swapAt[swaps];
+      const j = swapTo[swaps];
+      const t = work[i];
+      work[i] = work[j];
+      work[j] = t;
+    }
+  };
+  const heroHole = [...hole];
   let won = 0;
   let got = 0;
   const budget = samples * 200;
   for (let tries = 0; got < samples && tries < budget; tries++) {
-    const d = deck.slice();
-    const opp = pick(size, d);
-    if (!inRange(opp, board)) continue;
-    const rest = d.slice(size);
-    const run = [...board, ...pick(need, rest)];
-    const a = scoreOmahaHi([...hole], run);
+    for (let i = 0; i < size; i++) swap(i, i + Math.floor(rnd() * (len - i)));
+    const opp = work.slice(0, size);
+    if (!inRange(opp, board)) {
+      undo();
+      continue;
+    }
+    const restLen = len - size;
+    for (let i = 0; i < need; i++) swap(size + i, size + i + Math.floor(rnd() * (restLen - i)));
+    const run = [...board, ...work.slice(size, size + need)];
+    undo();
+    const a = scoreOmahaHi(heroHole, run);
     const b = scoreOmahaHi(opp, run);
     const result = a > b ? 1 : a === b ? 0.5 : 0;
     won += result;
     got++;
     if (onSample) onSample(opp, result);
+  }
+  return got >= samples / 2 ? won / got : null;
+}
+
+/**
+ * omahaReraisedEquity before the flop against the opponent hands whose preflop percentile
+ * (omahaPreflopPercentile, high only) lies in [lo, hi]: THE SAME NUMBER, bit for bit (2026-11-26, PLO-OWNER
+ * lead-7; law anOopReraiseRangeEquityIsUnchanged.law.test.ts), at a fraction of the cost.
+ *
+ * WHY. omahaOopReraiseRangeHoldsVsReraise prices three such equities per decision; live shadow (2026-11-26
+ * 01:07-01:35Z, build d07cd7d7) re-decided it in 60-90 ms where it applied and its breaker tripped (3 over 50 ms in
+ * 20). Profiled: the rejection draws (a deck copy, a preflop score and a reservoir search per drawn hand, most of
+ * them rejected) and the showdowns on Card objects were all of it.
+ *
+ * WHAT. The same generator, seed, deck order and partial shuffles as omahaReraisedEquity, on card ids in one
+ * working deck whose swaps are undone after each try; the band test reads the raw preflop score of the ids and the
+ * percentile of each distinct score once (the percentile is a function of the raw score); the showdown scores both
+ * hands on the run's ten precomputed triples (scoreOmahaHiOfIdsOnRun, the scoreOmahaHi value), the opponent's
+ * stopping at the first combination that beats the Horse's. The draws, the accepted hands, the run-outs, the
+ * results and their sum are the same, in the same order.
+ */
+export function omahaReraisedEquityInPercentileBand(
+  hole: readonly Card[],
+  dead: readonly Card[],
+  lo: number,
+  hi: number,
+  samples: number = RERAISED_EQUITY_SAMPLES
+): number | null {
+  const deck = unseenDeck([...hole, ...dead]);
+  const size = hole.length;
+  const need = 5;
+  if (deck.length < size + need) return null;
+  // generator(seedOf(hole)), inlined (the same arithmetic, one draw per call of next())
+  let state = seedOf([...hole]) >>> 0;
+  const len = deck.length;
+  const work = new Int32Array(len);
+  const cardOfId: Card[] = [];
+  for (let i = 0; i < len; i++) {
+    work[i] = omahaCardId(deck[i]);
+    cardOfId[work[i]] = deck[i];
+  }
+  const swapTo = new Int32Array(size + need);
+  const heroIds = new Int32Array(size);
+  for (let i = 0; i < size; i++) heroIds[i] = omahaCardId(hole[i]);
+  const oppIds = new Int32Array(size);
+  const runIds = new Int32Array(need);
+  let insideMin = Infinity;
+  let insideMax = -Infinity;
+  let outsideBelow = -Infinity;
+  let outsideAbove = Infinity;
+  const restLen = len - size;
+  let won = 0;
+  let got = 0;
+  const budget = samples * 200;
+  for (let tries = 0; got < samples && tries < budget; tries++) {
+    // the opponent's cards: the partial shuffle of a fresh deck copy, made in place (undone below)
+    for (let i = 0; i < size; i++) {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let x = state;
+      x = Math.imul(x ^ (x >>> 15), x | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      const j = i + Math.floor((((x ^ (x >>> 14)) >>> 0) / 4294967296) * (len - i));
+      swapTo[i] = j;
+      const t = work[i];
+      work[i] = work[j];
+      work[j] = t;
+    }
+    const raw = omahaPreflopScoreOfIds(work, 0, size, false);
+    // The percentile never falls as the raw score rises, so the scores whose percentile is in [lo, hi] are one
+    // interval: a score inside the inside scores already seen is inside, one at or past an outside score already
+    // seen (on the same side) is outside, and only a score between them is ranked (and narrows them).
+    let inside: boolean;
+    if (raw >= insideMin && raw <= insideMax) inside = true;
+    else if (raw <= outsideBelow || raw >= outsideAbove) inside = false;
+    else {
+      const opp: Card[] = [];
+      for (let i = 0; i < size; i++) opp.push(cardOfId[work[i]]);
+      const p = omahaPreflopPercentile(opp, false);
+      inside = p >= lo && p <= hi;
+      if (inside) {
+        if (raw < insideMin) insideMin = raw;
+        if (raw > insideMax) insideMax = raw;
+      } else if (p < lo) {
+        if (raw > outsideBelow) outsideBelow = raw;
+      } else if (raw < outsideAbove) outsideAbove = raw;
+    }
+    let made = size;
+    if (inside) {
+      for (let i = 0; i < size; i++) oppIds[i] = work[i];
+      // the run-out: the partial shuffle of the rest of that copy after the opponent's cards
+      for (let i = 0; i < need; i++) {
+        const k = size + i;
+        state = (state + 0x6d2b79f5) >>> 0;
+        let x = state;
+        x = Math.imul(x ^ (x >>> 15), x | 1);
+        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+        const j = k + Math.floor((((x ^ (x >>> 14)) >>> 0) / 4294967296) * (restLen - i));
+        swapTo[k] = j;
+        const t = work[k];
+        work[k] = work[j];
+        work[j] = t;
+      }
+      made = size + need;
+      for (let i = 0; i < need; i++) runIds[i] = work[size + i];
+    }
+    // undo the swaps, last first: the working deck is the fresh order again
+    for (let k = made - 1; k >= 0; k--) {
+      const j = swapTo[k];
+      const t = work[k];
+      work[k] = work[j];
+      work[j] = t;
+    }
+    if (!inside) continue;
+    omahaRunTriples(runIds, 0);
+    const a = scoreOmahaHiOfIdsOnRun(heroIds, 0, size, Infinity);
+    const b = scoreOmahaHiOfIdsOnRun(oppIds, 0, size, a);
+    won += a > b ? 1 : a === b ? 0.5 : 0;
+    got++;
   }
   return got >= samples / 2 ? won / got : null;
 }
