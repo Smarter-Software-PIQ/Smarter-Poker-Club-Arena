@@ -86,6 +86,11 @@ const PRESUME_ROSTER =
   'humanUserIds (Dan 2026-10-25, "TAG THEM ALL FROM THE START, UNLESS OTHERWISE PROVEN DIFFERENTLY", PLO only) hands the horse brain the roster of seats a person plays, so presumedAggressorRead can read each PERSON as an aggressive raiser until their own hands prove otherwise. It is IDENTIFICATION passed as data to the brain\'s opponent read: no horse is denied, paid, timed or treated differently by it, and it is recorded as the owner exception in CLAUDE.md 10.5. See docs/changelog/2026-10-25-plo-every-person-is-an-aggressive-raiser-until-proven-otherwise.md.';
 
 const REGISTER = {
+  'server/src/engine/HorseHoldemMultiwayOpeningIsPriced.law.test.ts': {
+    allowed: 1,
+    kind: 'EQUAL OUTCOME',
+    why: 'The law of the multiway opening bet price (2026-11-26) flips is_horse on every opponent of a recorded audited node and asserts that the decision and its size are the same, which proves a Horse opponent and a person opponent are priced exactly alike. It is a test: it seats, pays, times and decides nothing for any horse.',
+  },
   'server/src/engine/anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts': {
     allowed: 1,
     kind: 'EQUAL OUTCOME',
