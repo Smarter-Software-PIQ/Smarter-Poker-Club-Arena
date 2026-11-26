@@ -1688,7 +1688,7 @@ export default function ClubMembersPage() {
             <span className="members-result-count" aria-live="polite">
               {loading && !hasVerifiedDirectory
                 ? 'Loading...'
-                : `${filteredTotal.toLocaleString()} Results`}
+                : `${filteredTotal.toLocaleString()} ${filteredTotal === 1 ? 'Result' : 'Results'}`}
             </span>
           </div>
         }
