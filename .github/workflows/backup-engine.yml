@@ -762,7 +762,7 @@ jobs:
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           # A sealed receiver's run-post-deploy-e2e, or Stage's O27 "Backup after
           # keep-serving" workflow_dispatch: each is proved as its own intent.
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ]; then
             node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
           else
             node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
@@ -1582,7 +1582,7 @@ jobs:
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           # A sealed receiver's run-post-deploy-e2e, or Stage's O27 "Backup after
           # keep-serving" workflow_dispatch: each is proved as its own intent.
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ]; then
             node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
           else
             node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
