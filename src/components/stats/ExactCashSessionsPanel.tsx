@@ -8,7 +8,7 @@ import { titleCase } from '../../utils/titleCase';
 import StatsEvidenceLink from './StatsEvidenceLink';
 import { reportError } from '../../utils/errorReporter';
 import './ExactCashSessionsPanel.css';
-import { SpadeConsole } from '../console/SpadeConsole';
+import StatsSection from './StatsSection';
 import { buildStatsSessionEvidencePath } from '../../lib/statsEvidenceNavigation';
 
 interface Props {
@@ -61,27 +61,20 @@ export default function ExactCashSessionsPanel(props: Props) {
 
   if (state === 'loading')
     return (
-      <SpadeConsole
-        family="spade"
-        foot="foot"
-        crest="spade"
+      <StatsSection
         eyebrow="Cash Session Evidence"
         title="Opening Exact Session Ledger..."
-        pill="Verifying"
+        status="Verifying"
         className="exact-session-shell is-loading"
         aria-busy="true"
       />
     );
   if (state === 'error')
     return (
-      <SpadeConsole
-        family="spade"
-        foot="foot"
-        crest="spade"
+      <StatsSection
         eyebrow="Cash Session Evidence"
         title="Session Evidence Could Not Be Verified"
-        pill="Interrupted"
-        pillInk="red"
+        status="Interrupted"
         className="exact-session-shell is-error"
         role="alert"
       >
@@ -95,19 +88,16 @@ export default function ExactCashSessionsPanel(props: Props) {
             Retry Exact Read
           </button>
         </section>
-      </SpadeConsole>
+      </StatsSection>
     );
 
   const sessions = report?.sessions ?? [];
   return (
-    <SpadeConsole
-      family="spade"
-      foot="foot"
-      crest="spade"
+    <StatsSection
       eyebrow={`Cash Session Evidence // ${label(props.clubLabel)}`}
       title="Exact Session Ledger"
       titleId="exact-session-title"
-      pill={`${report?.coverage.total_sessions ?? 0} Sessions`}
+      status={`${report?.coverage.total_sessions ?? 0} Sessions`}
       className="exact-session-shell"
       aria-labelledby="exact-session-title"
     >
@@ -187,6 +177,6 @@ export default function ExactCashSessionsPanel(props: Props) {
           </div>
         )}
       </section>
-    </SpadeConsole>
+    </StatsSection>
   );
 }
