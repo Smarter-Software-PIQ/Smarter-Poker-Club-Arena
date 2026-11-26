@@ -132,7 +132,7 @@
     {
       "fn": "fn_ca_shared_hand_open(p_token text, p_count boolean)",
       "reason": "public-read",
-      "note": "Short shared-hand replay link (smarter.poker/h/<token>). Takes an 8-char random token minted by the authenticated sender and returns only that explicitly shared hand snapshot, preview and invite code; malformed, missing or deleted-sender tokens return {found:false}, and revoked links return {found:true,revoked:true} with no hand payload. Consults auth.uid() so sender views are not counted. Deliberately granted to anon in migration 20261107021555 so signed-out visitors and link-preview crawlers can open shared hands."
+      "note": "Short shared-hand replay link (smarter.poker/h/<token>). Takes an 8-char random token minted by the authenticated sender and returns only that explicitly shared hand snapshot, preview and invite code; malformed, missing or deleted-sender tokens return {found:false}, and revoked links return {found:true,revoked:true} with no hand payload. Deliberately granted to anon in migration 20261107021555 so signed-out visitors and link-preview crawlers can open shared hands. Since migration 20261126054024 (issue #9828) it is STABLE and writes nothing: p_count is accepted and ignored, and views are counted by fn_ca_shared_hand_count_view (authenticated and service_role only). Recorded in public.ca_browser_definer_allowlist, reviewedAnonReaders and anonPublicSurface in that change."
     },
     {
       "fn": "fn_ca_tournament_prize_funding(p_tournament_id uuid)",

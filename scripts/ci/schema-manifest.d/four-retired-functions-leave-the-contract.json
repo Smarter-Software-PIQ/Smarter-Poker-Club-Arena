@@ -1,0 +1,9 @@
+{
+  "_owner": "Schema Integrity Audit `refresh` job (dispatch runs red since 2026-11-24 on 'PHANTOM: 4 name(s) the contract blesses that production lacks'). Each was retired by a migration on main and is absent from production (pg_proc, every schema, 2026-11-26): pgmigrate by 20261115051140 (DROP FUNCTION), fn_union_totals_follow_club_counts by 20261118161703 (live-proof: to_regprocedure IS NULL), fn_cash_clusters_tick_all and fn_cash_cluster_tick by 20261123083628 (DROP FUNCTION; the engine calls the _uncapped pair).",
+  "removedFunctions": [
+    "fn_cash_cluster_tick",
+    "fn_cash_clusters_tick_all",
+    "fn_union_totals_follow_club_counts",
+    "pgmigrate"
+  ]
+}

@@ -45,6 +45,10 @@
  *     and  the body never consults auth.uid() / auth.role() / auth.jwt()
  *         -> FAIL, whether or not it writes
  *
+ *   RULE 5, the anon WRITER rule (2026-11-26, see anonExecutableWriters below):
+ *     SECURITY DEFINER  and  it writes  and  ANON can execute it
+ *         -> FAIL, whatever the body consults, and with no allowlist
+ *
  * Rule 2 exists because rule 1 only ever looked at WRITERS, and in one
  * afternoon three read-only SECURITY DEFINER functions arrived anon-executable
  * and it cleared every one of them. One returned the schema's table and index
@@ -571,6 +575,87 @@ export function anonReadableDefiners(sql, allowlist = new Set(), grantSql = sql)
 }
 
 /**
+ * --- THE FIFTH RULE: NOTHING A CALLER WITH NO ACCOUNT CAN RUN WRITES (2026-11-26)
+ *
+ * Rules 1 and 2 both clear a body that MENTIONS auth.uid(). For a logged-out
+ * caller that mention proves nothing: auth.uid() is NULL by definition, so a
+ * body that only uses it to skip something ("the sender's own view is not
+ * counted") still writes for anybody. That is exactly how
+ * fn_ca_shared_hand_open shipped in 20261107021555: SECURITY DEFINER, granted
+ * to anon so a signed-out visitor can open a shared hand, bumping a view count
+ * on every call, and naming auth.uid() once. Every rule here cleared it. The
+ * live audit's question 2 (scripts/ci/audit-live-definer-exposure.mjs,
+ * `anon_writers`, "must be 0") found it the next hour and failed every run for
+ * nineteen days (issue #9828).
+ *
+ * So the repository now asks that question too, BEFORE the merge, in the same
+ * words as the live audit: SECURITY DEFINER, anon (or PUBLIC, which anon
+ * inherits) can execute it after everything the branch says, and the body
+ * writes. There is NO allowlist, on purpose: the live audit has none either,
+ * and a gate that forgave what production refuses would only move the alarm
+ * an hour later. Split the read from the write instead: the anon door reads,
+ * and the write is a door only authenticated/service_role can execute
+ * (20261126054024 is the worked example).
+ *
+ * WHAT SILENCE MEANS HERE. A NEW function gets Postgres's default EXECUTE for
+ * PUBLIC (and Supabase's for anon), so a first declaration with no REVOKE is
+ * open, exactly as rules 1 and 2 read it. A CREATE OR REPLACE of a function
+ * that already exists PRESERVES its grants (see the event_trigger note at the
+ * top of this file), so for a name an earlier migration on main already
+ * declared, silence is "unchanged" and only an explicit GRANT to anon or
+ * PUBLIC in this branch opens it. Measured 2026-11-26 over the 977 migrations
+ * since 2026-11-01: reading silence as open for replacements too flagged 19
+ * files while production held exactly one anon-executable writer, and a gate
+ * that cries wolf teaches people to stop reading it. Read this way it flags 5,
+ * and each one says so in its own text: fn_ca_shared_hand_open and one other
+ * GRANT anon outright, and three CREATE a new writer revoking only PUBLIC,
+ * which leaves Supabase's default anon grant (pg_default_acl on public gives
+ * functions to anon) in place until something else closes it.
+ * Whatever this reading misses (a grant applied straight to production, or a
+ * dropped and re-created function), the hourly live audit still asks.
+ *
+ * `priorDeclared` is the set of lower-cased names declared by migrations
+ * outside this branch; it defaults to empty, which reads every declaration as
+ * new (the strict reading, and what every single-migration test gets).
+ */
+export function anonExecutableWriters(sql, grantSql = sql, priorDeclared = new Set()) {
+  const clean = stripComments(sql);
+  const grants = grantSql === sql ? clean : stripComments(grantSql);
+  const out = [];
+  for (const fn of declaredFunctions(clean)) {
+    if (!/SECURITY\s+DEFINER/i.test(fn.header)) continue;
+    if (/RETURNS\s+(?:event_)?trigger\b/i.test(fn.header)) continue;
+    if (!/(?:^|[^a-z_])(?:insert\s+into|update\s+[a-z_"]|delete\s+from)/i.test(fn.body)) continue;
+    const isNew = !priorDeclared.has(fn.name.toLowerCase());
+    const held = { public: isNew, anon: isNew };
+    for (const statement of grantLedger(grants).get(fn.name.toLowerCase()) ?? []) {
+      for (const role of statement.roles) {
+        if (role in held) held[role] = statement.verb === 'GRANT';
+      }
+    }
+    if (!held.public && !held.anon) continue;
+    out.push(fn.name);
+  }
+  return out;
+}
+
+/** Lower-cased names of every function a migration OUTSIDE `branchFiles`
+ *  declares. A plain scan, comments included: a name that only appears in a
+ *  comment is read as existing, the lenient direction, which the live audit
+ *  backs up. */
+export function functionsDeclaredOutside(branchFiles, dir = join(REPO, DIR)) {
+  const skip = new Set(branchFiles.map((f) => f.split('/').pop()));
+  const names = new Set();
+  const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?"?([A-Za-z_]\w*)"?\s*\(/gi;
+  if (!existsSync(dir)) return names;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.sql') || skip.has(f)) continue;
+    for (const m of readFileSync(join(dir, f), 'utf8').matchAll(re)) names.add(m[1].toLowerCase());
+  }
+  return names;
+}
+
+/**
  * --- THE FOURTH RULE: A ROSTER NOBODY CAN BE SCOPED OUT OF (2026-09-06) -----
  *
  * WHY, and why it is not simply "extend rule 2 to authenticated".
@@ -785,6 +870,7 @@ function main() {
   const anonOffenders = [];
   const cloneOffenders = [];
   const rosterOffenders = [];
+  const anonWriterOffenders = [];
   let inspected = 0;
 
   // Every migration this branch touches, concatenated, so a REVOKE in one file
@@ -795,6 +881,7 @@ function main() {
     .filter((p) => existsSync(p))
     .map((p) => readFileSync(p, 'utf8'))
     .join('\n');
+  const priorDeclared = functionsDeclaredOutside(judge);
 
   for (const file of judge) {
     const path = join(REPO, file);
@@ -805,6 +892,10 @@ function main() {
     ).length;
     for (const name of unauthorisedWriters(sql, allowlist, branchSql)) {
       offenders.push({ name, file });
+    }
+    // Rule 5 is judged on its own and reported first: no allowlist reaches it.
+    for (const name of anonExecutableWriters(sql, branchSql, priorDeclared)) {
+      anonWriterOffenders.push({ name, file });
     }
     // A writer already reported above is not reported twice: the writer verdict
     // is the more specific one and its guidance is the one worth reading.
@@ -841,11 +932,60 @@ function main() {
   // same "a branch is applied as a unit" rule that makes grants branch-wide.
   const droppedInBranch = droppedFunctions(branchSql);
   if (droppedInBranch.size > 0) {
-    for (const arr of [offenders, anonOffenders, cloneOffenders, rosterOffenders]) {
+    for (const arr of [
+      anonWriterOffenders,
+      offenders,
+      anonOffenders,
+      cloneOffenders,
+      rosterOffenders,
+    ]) {
       for (let i = arr.length - 1; i >= 0; i--) {
         if (droppedInBranch.has(arr[i].name)) arr.splice(i, 1);
       }
     }
+  }
+
+  if (anonWriterOffenders.length > 0) {
+    console.error('');
+    console.error(
+      '[check-definer-authorization] BLOCKED -- a caller with no account can run a writer.'
+    );
+    console.error('');
+    for (const o of anonWriterOffenders) {
+      console.error(`  ${o.name}`);
+      console.error(`    declared in ${o.file}`);
+      console.error('    SECURITY DEFINER, it writes, and anon (or PUBLIC, which anon inherits)');
+      console.error('    can execute it. Naming auth.uid() does not help: for a logged-out caller');
+      console.error('    it is NULL, so the body writes for anybody.');
+      console.error('');
+    }
+    console.error('  The live audit refuses this shape with no allowlist ("anon-executable');
+    console.error('  writers: N (must be 0)"), so neither does this gate. fn_ca_shared_hand_open');
+    console.error('  shipped this way on 2026-11-07 and failed that audit every hour for 19 days.');
+    console.error('');
+    console.error('  Split the read from the write:');
+    console.error('');
+    console.error('  1. The door a signed-out visitor needs READS ONLY (STABLE, no INSERT/');
+    console.error('     UPDATE/DELETE, calls no writer).');
+    console.error('  2. The write is its own function, closed to the pre-login roles:');
+    console.error('');
+    console.error(
+      '       REVOKE ALL ON FUNCTION public.<name>(<types>) FROM PUBLIC, anon, authenticated;'
+    );
+    console.error(
+      '       GRANT EXECUTE ON FUNCTION public.<name>(<types>) TO authenticated, service_role;'
+    );
+    console.error('');
+    console.error(
+      '  Replacing a function anon cannot execute today? Then this branch GRANTs it to'
+    );
+    console.error('  anon or PUBLIC somewhere, or it is new: a new function is open by default.');
+    console.error('');
+    console.error(
+      '  Worked example: supabase/migrations/20261126054024_a_shared_hand_link_reads_without_writing.sql'
+    );
+    console.error('');
+    process.exit(1);
   }
 
   if (rosterOffenders.length > 0) {
@@ -1018,15 +1158,16 @@ function main() {
     process.exit(1);
   }
 
-  // The summary names all four rules on purpose. A pass line that describes
+  // The summary names all five rules on purpose. A pass line that describes
   // fewer checks than actually ran teaches the next reader that the ones it
   // omits do not exist - which is how rule 4's shape went unjudged until a
   // live audit found it.
   console.log(
     `[check-definer-authorization] OK — ${inspected} SECURITY DEFINER function(s) declared across ` +
       `${files.length} migration(s); every writer a browser can reach consults the request, ` +
-      'nothing new answers a caller with no account, every clone names its grants, ' +
-      'and no unreviewed unscoped roster is browser-reachable.'
+      'nothing new answers a caller with no account, nothing a caller with no account can ' +
+      'run writes, every clone names its grants, and no unreviewed unscoped roster is ' +
+      'browser-reachable.'
   );
 }
 

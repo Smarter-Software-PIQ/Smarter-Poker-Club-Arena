@@ -8,8 +8,7 @@
     "fn_lightning_instance_is_disciplined",
     "fn_lightning_reap_formations",
     "fn_lightning_pool_slot_open",
-    "fn_lightning_form_hand",
-    "fn_cash_clusters_tick_all"
+    "fn_lightning_form_hand"
   ],
   "columns": {
     "lightning_hand": [
