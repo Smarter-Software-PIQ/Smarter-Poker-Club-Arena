@@ -218,6 +218,9 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   holdemTournamentHeadsUpBigBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
   holdemTournamentBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
   holdemTournamentCommittedRaiseIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
+  // plo-lead7 tourney-postflop 2026-11-26: the tournament bluff after the flop, heads-up in the pot, not facing a wager
+  holdemTournamentRiverBluffIsPriced: holdemStage(['nlh_tournament'], ['river']),
+  holdemTournamentTurnBluffIsPriced: holdemStage(['nlh_tournament'], ['turn']),
   // NLH cash preflop facing a single open (the V85/V87 defence path reads it at cash tables, Lightning included)
   cashDefenceTrimColdCalls: holdemStage(['nlh_cash', 'nlh_lightning'], ['preflop']),
   // plo-lead7 2026-11-25: the opening side of NLH cash, heads-up, not facing a wager (value: every postflop street;
