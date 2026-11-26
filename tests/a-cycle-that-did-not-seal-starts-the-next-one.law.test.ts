@@ -11,8 +11,18 @@
  *
  * Stage's owner run now waits once to the cycle start + 25 minutes, reads live
  * /health and, when the cycle did not seal, starts ONE Backup of main titled
- * "Backup after keep-serving <cycle>"; Stage admits that run's successful
- * completion as the next election trigger.
+ * "Backup after keep-serving <cycle> <nonce>".
+ *
+ * O27b (2026-11-26). Live, run 45775146770 was dispatched with the job token,
+ * had refresh and certify skipped by Backup's job-token refusal and ended
+ * green in nine seconds, and no Stage run followed it. So:
+ *   - Stage records the exact dispatch intent on its own run BEFORE sending,
+ *     and Backup's refresh and certify admit exactly that event and prove it;
+ *   - a keep-serving Backup that certified nothing is red, and Stage fails
+ *     when the run it started skipped its refresh job;
+ *   - GitHub creates no workflow_run for a run the job token started, so
+ *     that completion is NOT an election trigger; Stage's listener clause
+ *     admits the titled run only when GitHub delivers it (a person's run).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -119,14 +129,35 @@ describe('when the owner run waits until', () => {
     expect(py('plan', '--cycle', 'tomorrow').status).toBe(2);
   });
 
-  it('any certification of 25 to 124 minutes completes inside the next election window [start + 50, start + 150)', () => {
+  it('a real certification is written before the next cutoff, and a completion inside 25 minutes is never a certificate', () => {
     const src = readFileSync(SCRIPT, 'utf8');
-    const wait = Number(/^WAIT_AFTER_START_MINUTES = (\d+)$/m.exec(src)?.[1]);
+    const constant = (name: string) => Number(new RegExp(`^${name} = (\\d+)$`, 'm').exec(src)?.[1]);
+    const wait = constant('WAIT_AFTER_START_MINUTES');
+    const cutoff = constant('NEXT_CUTOFF_AFTER_START_MINUTES');
+    const opens = constant('ELECTION_OPENS_AFTER_START_MINUTES');
+    const certification = constant('CERTIFICATION_MINUTES');
     expect(wait).toBe(25);
     // Opens after the +10 migration window and the 04:15 freeze release.
     expect(wait).toBeGreaterThan(15);
-    expect(wait + 25).toBe(50);
-    expect(wait + 125).toBe(150);
+    // Three-hourly: next start = start + 180; cutoff = next - 30; the election
+    // window is the 100 minutes before the cutoff.
+    expect(cutoff).toBe(180 - 30);
+    expect(opens).toBe(cutoff - 100);
+    // plan 1 + refresh 15 + certify 55, inside the job timeouts Backup allows.
+    expect(certification).toBe(1 + 15 + 55);
+    expect(backup.jobs.certify['timeout-minutes']).toBeGreaterThanOrEqual(55);
+    // The certificate is written 54 minutes before the cutoff.
+    expect(wait + certification).toBe(96);
+    expect(cutoff - (wait + certification)).toBe(54);
+    // A run of 25 to 124 minutes completes inside [start + 50, start + 150);
+    // a real certification (71) is one, a three-minute run never is.
+    expect(wait + 25).toBe(opens);
+    expect(wait + 124).toBeLessThan(cutoff);
+    expect(wait + certification).toBeGreaterThanOrEqual(opens);
+    expect(wait + 3).toBeLessThan(opens);
+    // The script says plainly what the completion does not do.
+    expect(src).toContain('does NOT start the next election');
+    expect(src).not.toContain('admitted exactly like a push Backup');
   });
 });
 
@@ -205,8 +236,10 @@ describe('the Stage job', () => {
       (m) => `${m[1]} ${m[2]}`
     );
     expect(writes).toEqual(['POST repos/$REPO/actions/workflows/backup-engine.yml/dispatches']);
+    // O27b: the body is the one the recorded intent printed, never typed here.
+    expect(run).not.toContain('inputs[refresh]');
     expect(run).toContain(
-      '-f ref=main -f \'inputs[refresh]=true\' -f "inputs[after_cycle]=$RELEASE_DATE"'
+      'gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json"'
     );
     // One wait, bounded by the plan and the job timeout.
     expect(run.match(/sleep "\$wait"/g)).toHaveLength(1);
@@ -216,12 +249,233 @@ describe('the Stage job', () => {
 
   it('names the run it started or fails out loud', () => {
     const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
-    expect(run).toContain('title="Backup after keep-serving $RELEASE_DATE"');
+    expect(run).toContain('title="Backup after keep-serving $RELEASE_DATE $INTENT_NONCE"');
     expect(run).toContain('no \\"$title\\" run appeared');
+  });
+
+  it('records the exact intent on its own run before it sends anything (O27b)', () => {
+    type Step = {
+      id?: string;
+      name?: string;
+      run?: string;
+      uses?: string;
+      if?: string;
+      with?: Record<string, string>;
+    };
+    const steps = job.steps as Step[];
+    const at = (test: (s: Step) => boolean) => steps.findIndex(test);
+    const decided = at((s) => s.id === 'next');
+    const wrote = at((s) => s.id === 'intent');
+    const published = at((s) => String(s.uses ?? '').startsWith('actions/upload-artifact@'));
+    const sent = at((s) => String(s.run ?? '').includes('/dispatches'));
+    expect(decided).toBeGreaterThan(0);
+    expect(wrote).toBeGreaterThan(decided);
+    expect(published).toBe(wrote + 1);
+    expect(sent).toBe(published + 1);
+    for (const index of [wrote, published, sent])
+      expect(steps[index].if).toBe("steps.next.outputs.did_not_seal == 'true'");
+    expect(steps[wrote].run).toContain(
+      'node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents"'
+    );
+    expect(steps[wrote].run).toContain('--input "after_cycle=$RELEASE_DATE" --input refresh=true');
+    expect(steps[published].with).toMatchObject({
+      name: 'dispatch-intents-${{ github.run_attempt }}',
+      path: '${{ runner.temp }}/dispatch-intents',
+      'if-no-files-found': 'error',
+    });
+    // The sender checks the body it is about to send against what it decided.
+    expect(steps[sent].run).toContain(
+      '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce'
+    );
+    expect(steps[sent].run).toContain('[[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]]');
+    // The sparse checkout carries the script it runs.
+    expect(JSON.stringify(steps[0])).toContain('scripts/ci/dispatch-intent.mjs');
+    // The wait/decide step sends nothing any more.
+    expect(steps[decided].run).not.toContain('gh api');
+  });
+
+  it('fails when the run it started skipped its refresh job, and says "could not tell" as a warning (O27b)', () => {
+    const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
+    expect(run).toContain('"repos/$REPO/actions/runs/$backup_id/jobs?per_page=100"');
+    expect(run).toContain(
+      'if . == null then "unknown" elif .conclusion == "skipped" then "skipped" else "admitted" end'
+    );
+    expect(run).toMatch(
+      /if \[ "\$refresh" = skipped \]; then\n\s+echo "::error title=KEEP-SERVING BACKUP REFUSED::[^\n]+\n\s+exit 1/
+    );
+    expect(run).toContain('::warning title=KEEP-SERVING BACKUP UNKNOWN::');
+    // Bounded reads, no open-ended loop.
+    expect(run).toContain('for _ in $(seq 1 24); do');
+    expect(run).not.toMatch(/while (true|:)/);
+    // It no longer claims the completion starts the election.
+    expect(run).not.toContain('starts the next election');
+    expect(run).toContain('Its completion does not start the election');
   });
 });
 
-describe('the Backup it starts is the next election trigger', () => {
+describe('the keep-serving Backup proves its intent and is never green for nothing (O27b)', () => {
+  const ADMITTED = "(github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')";
+  const REFUSAL =
+    "!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))";
+  const PROVE = 'Prove a job-token dispatch is the exact intent its trusted sender recorded';
+
+  it.each(['refresh', 'certify'])(
+    '%s admits exactly the after_cycle dispatch and proves it first',
+    (name) => {
+      const job = backup.jobs[name];
+      expect(job.if).toContain(
+        `(${REFUSAL} || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || ${ADMITTED})`
+      );
+      const first = job.steps[0];
+      expect(first.name).toBe(PROVE);
+      expect(first.if).toContain(
+        "(github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')"
+      );
+      expect(first.run).toMatch(
+        /if \[ "\$\{GITHUB_EVENT_NAME:-\}" = workflow_dispatch \]; then\n\s+node "\$RUNNER_TEMP\/dispatch-intent\.mjs" prove --receiver backup-after-keep-serving\n\s*else\n\s+node "\$RUNNER_TEMP\/dispatch-intent\.mjs" prove --receiver backup-after-seal\n\s*fi/
+      );
+      // Nothing of the job runs before the proof.
+      expect(JSON.stringify(first)).not.toMatch(/secrets\./);
+    }
+  );
+
+  it('declares the three intent inputs, empty for a person, and an empty default for sha', () => {
+    const inputs = backup.on.workflow_dispatch.inputs;
+    for (const key of ['intent_run_id', 'intent_run_attempt', 'intent_nonce'])
+      expect(inputs[key]).toMatchObject({ required: false, type: 'string', default: '' });
+    expect(inputs.sha).toMatchObject({ required: false, type: 'string', default: '' });
+    expect(Object.keys(inputs).sort()).toEqual([
+      'after_cycle',
+      'intent_nonce',
+      'intent_run_attempt',
+      'intent_run_id',
+      'refresh',
+      'sha',
+    ]);
+  });
+
+  it('a keep-serving Backup whose work was skipped is red', () => {
+    const job = backup.jobs['keep-serving-outcome'];
+    expect(job.needs).toEqual(['plan', 'refresh', 'certify']);
+    expect(job.if).toBe(
+      "always() && github.event_name == 'workflow_dispatch' && inputs.after_cycle != ''"
+    );
+    expect(job.permissions).toEqual({});
+    expect(job.environment).toBeUndefined();
+    expect(JSON.stringify(job)).not.toMatch(/secrets\.|github\.token/);
+    const step = job.steps[0];
+    expect(step.env).toMatchObject({
+      PLAN: '${{ needs.plan.result }}',
+      PLANNED: '${{ needs.plan.outputs.sha }}',
+      REFRESH: '${{ needs.refresh.result }}',
+      DEFERRED: '${{ needs.refresh.outputs.deferred }}',
+      CERTIFY: '${{ needs.certify.result }}',
+    });
+    // Run the step's own script against the outcomes that matter.
+    const outcome = (env: Record<string, string>) =>
+      spawnSync('bash', ['-c', step.run], {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH ?? '',
+          CYCLE: '2026-11-26T01',
+          GITHUB_STEP_SUMMARY: '/dev/null',
+          ...env,
+        },
+      });
+    const sha = 'c'.repeat(40);
+    // Run 45775146770: planned, then both jobs skipped by the refusal.
+    const refused = outcome({
+      PLAN: 'success',
+      PLANNED: sha,
+      REFRESH: 'skipped',
+      DEFERRED: '',
+      CERTIFY: 'skipped',
+    });
+    expect(refused.status).toBe(1);
+    expect(refused.stdout).toContain('KEEP-SERVING BACKUP CERTIFIED NOTHING');
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: sha,
+        REFRESH: 'success',
+        DEFERRED: '',
+        CERTIFY: 'skipped',
+      }).status
+    ).toBe(1);
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: sha,
+        REFRESH: 'failure',
+        DEFERRED: '',
+        CERTIFY: 'failure',
+      }).status
+    ).toBe(1);
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: sha,
+        REFRESH: 'success',
+        DEFERRED: '',
+        CERTIFY: 'cancelled',
+      }).status
+    ).toBe(1);
+    expect(
+      outcome({
+        PLAN: 'failure',
+        PLANNED: '',
+        REFRESH: 'skipped',
+        DEFERRED: '',
+        CERTIFY: 'skipped',
+      }).status
+    ).toBe(1);
+    // Certified, or one of the two documented nothing-to-certify outcomes.
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: sha,
+        REFRESH: 'success',
+        DEFERRED: '',
+        CERTIFY: 'success',
+      }).status
+    ).toBe(0);
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: sha,
+        REFRESH: 'success',
+        DEFERRED: '1',
+        CERTIFY: 'skipped',
+      }).status
+    ).toBe(0);
+    expect(
+      outcome({
+        PLAN: 'success',
+        PLANNED: '',
+        REFRESH: 'skipped',
+        DEFERRED: '',
+        CERTIFY: 'skipped',
+      }).status
+    ).toBe(0);
+  });
+
+  it("a person's manual dispatch is untouched: the refusal names only the job token", () => {
+    for (const name of ['refresh', 'certify']) {
+      const condition = String(backup.jobs[name].if);
+      expect(condition).toContain("github.actor == 'github-actions[bot]'");
+      expect(condition).not.toMatch(/inputs\.sha|inputs\.intent_/);
+    }
+    // plan holds no secret and admits the dispatch as before.
+    expect(backup.jobs.plan.if).toBe(
+      "github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '')"
+    );
+  });
+});
+
+// O27b: GitHub delivers this completion only for a run a person (or a push)
+// started. The run Stage starts with the job token fires no workflow_run, so
+// these pins describe what Stage admits WHEN the event exists, nothing more.
+describe('Stage admits a delivered keep-serving Backup completion', () => {
   const reservation = 'Automatic Backup daily reservation';
   const outside = 'Backup completion outside election';
 
@@ -239,6 +493,18 @@ describe('the Backup it starts is the next election trigger', () => {
     expect(
       evaluate(backup['run-name'], ctx('workflow_dispatch', { after_cycle: '2026-11-25T10' }))
     ).toBe('Backup after keep-serving 2026-11-25T10');
+    // O27b: Stage's dispatch carries its one-time nonce in the title (the
+    // one-time rule of dispatch-intent.mjs), still under the same prefix.
+    const nonce = '0123456789abcdef0123456789abcdef';
+    expect(
+      evaluate(
+        backup['run-name'],
+        ctx('workflow_dispatch', { after_cycle: '2026-11-25T10', intent_nonce: nonce })
+      )
+    ).toBe(`Backup after keep-serving 2026-11-25T10 ${nonce}`);
+    expect(evaluate(backup['run-name'], ctx('workflow_dispatch', { intent_nonce: nonce }))).toBe(
+      ''
+    );
     expect(evaluate(backup['run-name'], ctx('workflow_dispatch', { after_cycle: '' }))).toBe('');
     expect(evaluate(backup['run-name'], ctx('workflow_dispatch', {}))).toBe('');
     expect(evaluate(backup['run-name'], ctx('push', { after_cycle: '2026-11-25T10' }))).toBe('');

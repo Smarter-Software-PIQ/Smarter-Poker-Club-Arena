@@ -1,5 +1,5 @@
 name: Backup Engine (Clone, Stage, Certify)
-run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || '' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}{1}', inputs.after_cycle, inputs.intent_nonce && format(' {0}', inputs.intent_nonce) || '') || '' }}
 
 # THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
 # engine runs on its own Hetzner host against an isolated copy of the
@@ -14,6 +14,9 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 #   00:01 Chicago nightly        refresh the production structure and seed,
 #                                re-clone the serving engine, certify main
 #   workflow_dispatch            certify one exact SHA
+#   workflow_dispatch + after_cycle  Stage's certification of main after a
+#                             cycle that did not seal (O27, O27b): intent
+#                             proved, and red when it certified nothing
 #   sealed receiver event     certify the NEXT candidate on a fresh copy,
 #                             rehearsed against the build that just sealed
 #                             (O24; nothing newer: the run ends in seconds)
@@ -161,6 +164,7 @@ on:
       sha:
         description: 'Exact 40-hex commit to certify (default: main)'
         required: false
+        default: ''
         type: string
       refresh:
         description: 'Refresh the production structure and seed first'
@@ -168,11 +172,29 @@ on:
         default: false
         type: boolean
       after_cycle:
-        # O27 (2026-11-25): set only by Stage's next-candidate-after-cycle job
-        # for a cycle that did not seal. It names the run "Backup after
-        # keep-serving <cycle>", whose successful completion Stage admits as
-        # the next cycle's election trigger. It changes nothing else here.
+        # O27 (2026-11-25), O27b (2026-11-26): set by Stage's
+        # next-candidate-after-cycle job for a cycle that did not seal. It
+        # names the run "Backup after keep-serving <cycle> <nonce>". That job
+        # sends with the job token, so refresh and certify admit it only as
+        # the exact intent the Stage run recorded (the three intent_* inputs,
+        # scripts/ci/dispatch-intent.mjs receiver backup-after-keep-serving),
+        # and keep-serving-outcome fails the run when it certified nothing.
         description: 'Internal: the Chicago cycle (YYYY-MM-DD or YYYY-MM-DDTHH) that did not seal'
+        required: false
+        default: ''
+        type: string
+      intent_run_id:
+        description: 'Internal: set by Stage with after_cycle; the run whose dispatch-intents artifact binds this dispatch (empty for a person)'
+        required: false
+        default: ''
+        type: string
+      intent_run_attempt:
+        description: 'Internal: set by Stage with after_cycle (empty for a person)'
+        required: false
+        default: ''
+        type: string
+      intent_nonce:
+        description: 'Internal: set by Stage with after_cycle; the one-time intent key (empty for a person)'
         required: false
         default: ''
         type: string
@@ -632,7 +654,7 @@ jobs:
 
   refresh:
     needs: plan
-    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     # Whether this run ever held the Backup host. A run that never got its
@@ -640,12 +662,12 @@ jobs:
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
       deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
-      sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+      sha: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
       control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
     timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -662,7 +684,13 @@ jobs:
             if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
-          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          # O27b: the one job-token workflow_dispatch admitted above is Stage's
+          # keep-serving certification; the seal's repository_dispatch is the other.
+          if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ]; then
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
+          else
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -677,6 +705,7 @@ jobs:
             scripts/ci/ubuntu-apt-mirror.py
             scripts/ci/ubuntu-apt-mirrors.txt
             scripts/dr
+            scripts/release/step-down-past-held-migration.py
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
             server/scripts/engine-release-installed-migrations.py
@@ -1067,6 +1096,8 @@ jobs:
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
           POST_SEAL: ${{ needs.plan.outputs.post_seal }}
           SEALED_SHA: ${{ needs.plan.outputs.sealed_sha }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          AFTER_CYCLE: ${{ github.event.inputs.after_cycle }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
@@ -1102,7 +1133,58 @@ jobs:
           # sealed-build runs are exempt; unreadable production emits no pending=.
           # A post-seal next-candidate run (O24) follows the push rule although
           # its refresh is forced: its target is an ordinary candidate.
-          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+          held=0
+          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then held=1; fi
+          # A HELD MIGRATION DOES NOT BLOCK THE COMMIT BELOW IT (2026-11-26, O29).
+          # Run 45758112198 handed the host back for 6f062e8f0d1d (migration
+          # 20261126021630, held until 04:15 CST) while a5e971803865, one commit
+          # below with current release controls and nothing uninstalled, was
+          # never certified: the 01:00 CST cycle kept serving. Before handing
+          # back, ask ONCE for the newest shippable commit below the held
+          # migration (scripts/release/step-down-past-held-migration.py: ahead
+          # of the serving build (the sealed build after a seal, else /health's
+          # releaseSha), same release-control projection as CONTROL,
+          # nothing of its own uninstalled) and certify that instead; CONTROL
+          # never moves. A "Backup after keep-serving" run (O27: no sha input)
+          # asks too, and otherwise certifies main exactly as before. A run
+          # given an explicit sha is never stepped down. No fallback, or any
+          # unreadable answer: exactly the O7 hand-back below (CLAUDE.md 10.86).
+          step_why=''
+          if [ "$held" = 1 ] || { [ -n "$pending_migrations" ] && [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ] && [ -z "${INPUT_SHA:-}" ]; }; then
+            serving=''
+            if [ "${POST_SEAL:-}" = 1 ]; then serving="${SEALED_SHA:-}"; fi
+            step=$(python3 -B scripts/release/step-down-past-held-migration.py --sha "$SHA" --control "$CONTROL" \
+              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" --input-sha "${INPUT_SHA:-}" 2>/dev/null) && step_rc=0 || step_rc=$?
+            fallback=$(printf '%s\n' "$step" | sed -n 's/^fallback=//p')
+            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]]; then
+              if [ "$fallback" = "$SHA" ]; then
+                echo "NOT HELD: migration(s) ($pending_migrations) held until the dispatcher's window were added above $SHA, which carries none of them; certifying it."
+                { echo "### Backup Engine"; echo ""; echo "- NOT HELD \`$SHA\`: held migration(s) \`$pending_migrations\` were added above it; certified as planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              else
+                echo "STEPPED DOWN: $SHA carries held migration(s) ($pending_migrations) not installed until the dispatcher's window; certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: held migration(s) \`$pending_migrations\`; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              fi
+              SHA="$fallback"
+              echo "sha=$fallback" >> "$GITHUB_OUTPUT"
+              verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+                --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
+                --control "$CONTROL" --sha "$SHA" 2> due-reason.txt) || verdict='due=true'
+              contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+              comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
+              [ "$contents_due" = false ] || contents_due=true
+              pending_migrations=''
+              held=0
+            else
+              step_why=$(printf '%s\n' "$step" | sed -n 's/^reason=//p' | head -1)
+              if [ "$step_rc" = 1 ] && [ -n "$step_why" ]; then
+                step_why=" No commit below was certified: $step_why."
+              else
+                step_why=" No commit below was certified: could not tell${step_why:+ ($step_why)} (CLAUDE.md 10.86)."
+              fi
+              [ "$held" = 1 ] || echo "KEEP-SERVING BACKUP NOT STEPPED DOWN: $SHA carries uninstalled ordinary migration(s) ($pending_migrations); certifying it exactly as before.$step_why"
+            fi
+          fi
+          if [ "$held" = 1 ]; then
             sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
@@ -1120,7 +1202,7 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
-            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written."
+            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written.$step_why"
             { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             echo "due=false" >> "$GITHUB_OUTPUT"
             echo "deferred=1" >> "$GITHUB_OUTPUT"
@@ -1307,7 +1389,7 @@ jobs:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          SHA: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail
@@ -1363,7 +1445,7 @@ jobs:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
@@ -1371,7 +1453,7 @@ jobs:
       CONTROL_SHA: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1388,7 +1470,13 @@ jobs:
             if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
-          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          # O27b: the one job-token workflow_dispatch admitted above is Stage's
+          # keep-serving certification; the seal's repository_dispatch is the other.
+          if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ]; then
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
+          else
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          fi
       - name: Mark the certification pending
         id: pending
         # A run that never held the Backup host tests nothing; it must not
@@ -1516,7 +1604,7 @@ jobs:
           o1_noted=''
           : > certificate.out
           ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 1800" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 900" \
             > certificate.out 2>&1 &
           ssh_pid=$!
           yielded=0
@@ -1743,3 +1831,37 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
+
+  keep-serving-outcome:
+    # NEVER GREEN FOR NOTHING (O27b, 2026-11-26). Run 45775146770 ("Backup
+    # after keep-serving 2026-11-26T01") planned a commit, had refresh and
+    # certify skipped by the job-token refusal, and still completed "success"
+    # in nine seconds: a certificate nobody made, reported as one (CLAUDE.md
+    # 10.86). A run that carries after_cycle exists only to certify, so it is
+    # green only when it certified, or ended in one of the two documented
+    # nothing-to-certify outcomes: plan planned nothing, or refresh handed the
+    # Backup host back (deferred). Reads job results only: no token, no secret.
+    name: A Keep-Serving Backup Certified Or Says Why Not
+    needs: [plan, refresh, certify]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.after_cycle != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Refuse a keep-serving Backup whose work was skipped
+        env:
+          CYCLE: ${{ inputs.after_cycle }}
+          PLAN: ${{ needs.plan.result }}
+          PLANNED: ${{ needs.plan.outputs.sha }}
+          REFRESH: ${{ needs.refresh.result }}
+          DEFERRED: ${{ needs.refresh.outputs.deferred }}
+          CERTIFY: ${{ needs.certify.result }}
+        run: |
+          set -euo pipefail
+          say() { echo "$1"; { echo "### Keep-Serving Backup"; echo ""; echo "- $1"; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
+          [ "$PLAN" = success ] || { echo "::error::Keep-serving Backup for cycle $CYCLE: plan ended $PLAN; nothing was certified."; exit 1; }
+          if [ -z "$PLANNED" ]; then say "Cycle $CYCLE: plan planned nothing; nothing to certify."; exit 0; fi
+          if [ "$REFRESH" = success ] && [ "$DEFERRED" = 1 ]; then say "Cycle $CYCLE: refresh handed the Backup host back (deferred); nothing to certify."; exit 0; fi
+          if [ "$REFRESH" = success ] && [ "$CERTIFY" = success ]; then say "Cycle $CYCLE: $PLANNED was refreshed and certified."; exit 0; fi
+          echo "::error title=KEEP-SERVING BACKUP CERTIFIED NOTHING::Cycle $CYCLE planned $PLANNED but refresh ended $REFRESH and certify ended $CERTIFY. A skipped job means this dispatch was not admitted (a job-token dispatch must carry the exact intent Stage recorded); the next cycle has no fresh certificate from this run."
+          exit 1

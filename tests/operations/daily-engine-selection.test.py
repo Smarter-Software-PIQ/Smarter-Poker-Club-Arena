@@ -58,6 +58,21 @@ class DailySelection(unittest.TestCase):
         for result in [['c' * 40], [producer, '.github/workflows/backup-engine.yml']]:
             with patch.object(mod, 'git', side_effect=result), self.assertRaisesRegex(ValueError, 'retarget'):
                 read()
+        # A 900 s soak (since 2026-11-26) is selectable only with a passing
+        # memory growth check; the 1800 s certificate above has no such key.
+        with patch.object(mod, 'git', side_effect=[producer, '']):
+            cert['soakSeconds'] = 900
+            with self.assertRaisesRegex(ValueError, 'conflicts with certificate contents'):
+                read()
+        for check, accepted in [({'status': 'pass'}, True), ({'status': 'fail'}, False),
+                                ({'status': 'unreadable'}, False), (None, False)]:
+            cert['memoryGrowthCheck'] = check
+            with patch.object(mod, 'git', side_effect=[producer, '']):
+                if accepted:
+                    self.assertEqual(read()['artifactId'], 99)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'conflicts with certificate contents'):
+                        read()
         run['event'] = 'workflow_dispatch'
         with self.assertRaisesRegex(ValueError, 'retarget'):
             read()

@@ -315,10 +315,10 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
         '${{ github.token }}'
       );
       expect(backup.jobs.refresh.if).toBe(
-        "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+        "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
       expect(backup.jobs.certify.if).toBe(
-        "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+        "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
       );
     });
     it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
@@ -1666,11 +1666,12 @@ ${Object.entries(states)
         expect(due.env.CONTROL).toBe(
           '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
         );
+        // O29 (2026-11-26): a commit the due step stepped down to is preferred.
         expect(latePriority.env.SHA).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.sha).toBe(
-          '${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
+          '${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}'
         );
         expect(backup.jobs.refresh.outputs.control_sha).toBe(
           '${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}'
@@ -3265,7 +3266,7 @@ git() { echo "2026-11-22T10:15:00Z"; }
     expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
     expect(backup.jobs.certify.if).toBe(
-      "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+      "always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
     expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');
@@ -3274,7 +3275,7 @@ git() { echo "2026-11-22T10:15:00Z"; }
     );
     expect(certify.run).toContain('database_refresh_failed');
     expect(backup.jobs.certify.steps.find((s: any) => s.id === 'certify').run).toContain(
-      'standby-engine certify $SHA 1800'
+      'standby-engine certify $SHA 900'
     );
   });
 });

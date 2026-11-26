@@ -6,12 +6,17 @@
  * workflow_dispatch or repository_dispatch events. Those run main's trusted
  * workflows with the queued code's inputs. Every job that reads a secret in a
  * workflow such an event can start therefore refuses a dispatch whose
- * triggering actor is the job token (github-actions[bot]). The three trusted
+ * triggering actor is the job token (github-actions[bot]). The four trusted
  * senders that legitimately dispatch with the job token first record the exact
  * intent (operation, inputs, sender run, attempt, head SHA, nonce) as an
  * artifact of their own run, and every receiver job that admits the job token
  * proves its dispatch is that exact intent, once, before it reads anything
  * (scripts/ci/dispatch-intent.mjs). Citing a recent sender run is not enough.
+ *
+ * O27b (2026-11-26) added the fourth sender and one admitted event, by the
+ * same pattern and nothing else: Stage's next-candidate-after-cycle job sends
+ * backup-engine.yml a workflow_dispatch carrying after_cycle, and Backup's two
+ * secret-holding jobs admit exactly that event and prove it first.
  *
  * The same review capped the queue-reachable token in ci.yml, refused fork
  * pull requests at the Money trigger reporter without minting its App token,
@@ -41,6 +46,7 @@ const SENDERS: Array<[string, string]> = [
   ['auto-deploy-hetzner.yml', 'certify-production'],
   ['dispatch-merged-migrations.yml', 'dispatch-merged-migrations'],
   ['gto-v31-qualification.yml', 'recheck-after-release'],
+  ['stage-engine-release.yml', 'next-candidate-after-cycle'],
 ];
 const DISPATCH_ONLY = new Set([
   'workflow_dispatch',
@@ -53,7 +59,11 @@ const DISPATCH_ONLY = new Set([
 // never see the admitted dispatch (with the clause that excludes it).
 const ADMITTED: Record<
   string,
-  { admitted: string; receiver?: string; unreachable?: Record<string, string> }
+  {
+    admitted: string | string[];
+    receiver?: string | string[];
+    unreachable?: Record<string, string>;
+  }
 > = {
   'apply-merged-migration.yml': {
     admitted:
@@ -65,11 +75,14 @@ const ADMITTED: Record<
       "github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'",
     receiver: 'post-deploy-e2e',
   },
-  // The seal's run-post-deploy-e2e dispatch also refreshes Backup.
+  // The seal's run-post-deploy-e2e dispatch also refreshes Backup, and Stage's
+  // owner run starts one certification after a cycle that did not seal (O27b).
   'backup-engine.yml': {
-    admitted:
+    admitted: [
       "github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'",
-    receiver: 'backup-after-seal',
+      "github.event_name == 'workflow_dispatch' && inputs.after_cycle != ''",
+    ],
+    receiver: ['backup-after-seal', 'backup-after-keep-serving'],
   },
   'gto-v31-qualification.yml': {
     admitted: "github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'",
@@ -136,8 +149,9 @@ describe('a job token cannot start trusted work', () => {
     if (OUT_OF_SCOPE.has(f)) continue;
     const doc = parse(read(f)) as { on: Record<string, unknown>; jobs: Record<string, Job> };
     const base = Object.keys(doc.on).every((t) => DISPATCH_ONLY.has(t)) ? SHORT : FULL;
-    const admitted = ADMITTED[f]?.admitted;
-    const guard = admitted ? `(${base} || (${admitted}))` : base;
+    const admittedAll = [ADMITTED[f]?.admitted ?? []].flat();
+    const admitted = admittedAll[0];
+    const guard = admitted ? `(${base} || ${admittedAll.map((a) => `(${a})`).join(' || ')})` : base;
     for (const [name, job] of Object.entries(doc.jobs)) {
       if (!holdsSecret(job)) continue;
       it(`${f} ${name} refuses a job-token dispatch`, () => {
@@ -160,8 +174,8 @@ describe('a job token cannot start trusted work', () => {
         const whole = String(job.if ?? '').replace(/\s+/g, ' ');
         expect(condition.includes(expected) || whole.includes(expected), `${condition}`).toBe(true);
       });
-      const receiver = ADMITTED[f]?.receiver;
-      if (receiver && Array.isArray(job.steps)) {
+      const receivers = [ADMITTED[f]?.receiver ?? []].flat();
+      if (receivers.length && Array.isArray(job.steps)) {
         const excluded = ADMITTED[f].unreachable?.[name];
         it(`${f} ${name} ${excluded ? 'can never see the admitted dispatch' : 'proves the exact dispatch intent first'}`, () => {
           const condition = String(job.if ?? '').replace(/\s+/g, ' ');
@@ -185,8 +199,14 @@ describe('a job token cannot start trusted work', () => {
           expect(String(first.run)).toContain(
             'contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA'
           );
-          expect(String(first.run)).toContain(`prove --receiver ${receiver}`);
-          expect(RECEIVERS[receiver].path).toBe(`.github/workflows/${f}`);
+          for (const receiver of receivers) {
+            expect(String(first.run)).toContain(`prove --receiver ${receiver}`);
+            expect(RECEIVERS[receiver].path).toBe(`.github/workflows/${f}`);
+            // The proof runs for every event a receiver of this file admits.
+            expect(String(first.if)).toContain(
+              `github.event_name == '${RECEIVERS[receiver].event}'`
+            );
+          }
         });
       }
     }
@@ -220,7 +240,57 @@ describe('a job token cannot start trusted work', () => {
     }
   });
 
-  it('the three job-token senders record the exact intent on their own run before sending it', () => {
+  it('exactly four senders and five receivers exist, and Backup admits exactly two events', () => {
+    expect(Object.keys(OPERATIONS).sort()).toEqual([
+      'apply-merged-migration',
+      'backup-after-keep-serving',
+      'engine-certification',
+      'gto-recheck',
+    ]);
+    expect(Object.keys(RECEIVERS).sort()).toEqual([
+      'apply-merged-migration',
+      'backup-after-keep-serving',
+      'backup-after-seal',
+      'gto-recheck',
+      'post-deploy-e2e',
+    ]);
+    expect(SENDERS).toHaveLength(4);
+    expect(Object.keys(ADMITTED)).toHaveLength(5);
+    expect([ADMITTED['backup-engine.yml'].admitted].flat()).toHaveLength(2);
+    // The new operation: one sender file, one receiver file, exact inputs.
+    const op = OPERATIONS['backup-after-keep-serving'];
+    expect(op.sender).toBe('.github/workflows/stage-engine-release.yml');
+    expect(op.senderEvents).toEqual(['push', 'schedule', 'workflow_run', 'repository_dispatch']);
+    expect(op.dispatch).toEqual({
+      kind: 'workflow_dispatch',
+      workflow: 'backup-engine.yml',
+      ref: 'main',
+    });
+    expect(Object.keys(op.inputs).sort()).toEqual(['after_cycle', 'refresh']);
+    expect(op.inputs.after_cycle.test('2026-11-26T01')).toBe(true);
+    expect(op.inputs.after_cycle.test('2026-11-26')).toBe(true);
+    expect(op.inputs.after_cycle.test('2026-11-26T01 x')).toBe(false);
+    expect(op.inputs.after_cycle.test('')).toBe(false);
+    expect(op.inputs.refresh.test('true')).toBe(true);
+    expect(op.inputs.refresh.test('false')).toBe(false);
+    const receiver = RECEIVERS['backup-after-keep-serving'];
+    expect(receiver.event).toBe('workflow_dispatch');
+    expect(receiver.emptyInputs).toEqual(['sha']);
+    expect(receiver.title({ after_cycle: '2026-11-26T01' }, 'n')).toBe(
+      'Backup after keep-serving 2026-11-26T01 n'
+    );
+    // A job-token workflow_dispatch WITHOUT after_cycle stays refused: the
+    // admitted clause names the input, and no other job of the file admits it.
+    const jobs = (parse(read('backup-engine.yml')) as { jobs: Record<string, Job> }).jobs;
+    const admitting = Object.entries(jobs)
+      .filter(([, job]) => String(job.if ?? '').includes("inputs.after_cycle != ''"))
+      .map(([name]) => name);
+    expect(admitting.sort()).toEqual(['certify', 'keep-serving-outcome', 'refresh']);
+    expect(holdsSecret(jobs['keep-serving-outcome'])).toBe(false);
+    expect(jobs['keep-serving-outcome'].permissions).toEqual({});
+  });
+
+  it('the four job-token senders record the exact intent on their own run before sending it', () => {
     const migrations = readFileSync('.github/scripts/dispatch-merged-migrations.sh', 'utf8');
     expect(migrations).toContain('dispatch-intent.mjs write --operation apply-merged-migration');
     expect(migrations).toContain('client_payload[intent_nonce]=$NONCE');
@@ -232,10 +302,33 @@ describe('a job token cannot start trusted work', () => {
     expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain(
       "operation: 'gto-recheck'"
     );
+    // O27b: Stage records, publishes, then sends, in that order, in one job.
+    const stage = (parse(read('stage-engine-release.yml')) as { jobs: Record<string, Job> }).jobs[
+      'next-candidate-after-cycle'
+    ];
+    const order = (stage.steps ?? []).map((st) => String(st.run ?? st.uses ?? ''));
+    const wrote = order.findIndex((r) =>
+      r.includes('dispatch-intent.mjs write --operation backup-after-keep-serving')
+    );
+    const published = (stage.steps ?? []).findIndex(
+      (st) =>
+        String(st.uses ?? '').startsWith('actions/upload-artifact@') &&
+        (st.with as Record<string, string>)?.name === 'dispatch-intents-${{ github.run_attempt }}'
+    );
+    const sent = order.findIndex((r) =>
+      r.includes(
+        'gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json"'
+      )
+    );
+    expect(wrote).toBeGreaterThan(0);
+    expect(published).toBeGreaterThan(wrote);
+    expect(sent).toBeGreaterThan(published);
+    expect(order.filter((r) => r.includes('/dispatches')).length).toBe(1);
     for (const f of [
       'dispatch-merged-migrations.yml',
       'auto-deploy-hetzner.yml',
       'gto-v31-qualification.yml',
+      'stage-engine-release.yml',
     ]) {
       expect(read(f), f).toContain('name: dispatch-intents-${{ github.run_attempt }}');
     }
