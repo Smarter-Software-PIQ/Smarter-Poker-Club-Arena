@@ -33,7 +33,9 @@ vi.mock('../src/hooks/useAuthUser', () => ({
 }));
 vi.mock('../src/components/common/Toast', () => ({ useToast: () => fx.toast }));
 vi.mock('../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../src/core/MasterBus', () => ({ masterBus: { emit: vi.fn() } }));
+vi.mock('../src/core/MasterBus', () => ({
+  masterBus: { emit: vi.fn(), subscribe: vi.fn(() => () => {}) },
+}));
 vi.mock('../src/components/wallet/ChipMintModal', () => ({
   default: (props: { isOpen: boolean; onClose: () => void }) =>
     props.isOpen ? (

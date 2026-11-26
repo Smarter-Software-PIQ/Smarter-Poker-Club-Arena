@@ -146,7 +146,8 @@ const BASELINE = new Map<string, number>([
   ['src/components/agent/AgentCommissionDashboard.tsx', 0],
   ['src/utils/settlementLock.ts', 2],
   ['src/stores/useHeaderDataStore.ts', 1],
-  ['src/services/WalletService.ts', 2],
+  // The bank-scoped mint now uses the permission RPC and binds its error.
+  ['src/services/WalletService.ts', 0],
   // TournamentTimerService now binds and reports both observer read errors.
   ['src/services/TournamentTimerService.ts', 0],
   ['src/services/ThrowableService.ts', 0],
