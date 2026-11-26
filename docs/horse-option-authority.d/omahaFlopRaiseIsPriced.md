@@ -27,9 +27,9 @@ On 8 real heads-up flop raises against a person the first build priced the pot r
 | probe raise-folder PLO4 / PLO5 | 20261127                     | -0.02 +/- 4.85 / +3.15 +/- 6.90                      | -5.94 +/- 4.50 / -5.06 +/- 6.58 |
 | probe raise-caller PLO4 / PLO5 | 20261127                     | +7.55 +/- 6.27 / +9.70 +/- 8.96                      | +1.33 +/- 5.42 / +7.10 +/- 8.00 |
 | probe mdf PLO4                 | 20261127, 20261201, 20261202 | -8.54 +/- 5.36, +6.13 +/- 5.67, +5.80 +/- 5.04       | +1.24 +/- 4.61                  |
-| probe mdf PLO5                 | 20261127                     | -3.32 +/- 8.29                                       | -8.12 +/- 8.66                  |
+| probe mdf PLO5                 | 20261127, 20261201           | -3.32 +/- 8.29, +2.90 +/- 7.58                       | -8.12 +/- 8.66                  |
 | probe re-raiser PLO4           | 20261127, 20261201, 20261202 | -11.56 +/- 5.88, +5.21 +/- 6.50, -3.37 +/- 6.12      | -2.56 +/- 5.18                  |
-| probe re-raiser PLO5           | 20261127                     | +9.69 +/- 7.10                                       | -0.25 +/- 7.93                  |
+| probe re-raiser PLO5           | 20261127, 20261201           | +9.69 +/- 7.10, -7.50 +/- 7.97                       | -0.25 +/- 7.93                  |
 
 Read honestly: the 6-max mirrors rose and the PLO4 one is significant; the heads-up mirrors fell from slightly positive to slightly negative, neither significant; the PLO4 re-raiser probe is -1.97 standard errors on its first seed and +0.8 and -0.6 on two more (pooled about -3.2 +/- 3.6): not a significant loss, and the one to watch in shadow. The bigger raise wins more from a caller and loses more to a player who re-raises only his strongest hands.
 
