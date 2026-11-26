@@ -41,7 +41,7 @@ PREPARATION_LEAD_SECONDS = 30 * 60
 RECOMMENDED_HOLD_LEAD_SECONDS = 75 * 60
 DRAIN_LEAD_SECONDS = 2 * 60
 BREAK_DURATION_SECONDS = 5 * 60
-O3_PRE_CUTOFF_DEFER_SECONDS = 90 * 60
+O3_PRE_CUTOFF_DEFER_SECONDS = 150 * 60
 O3_POST_SEAL_CLEAR_SECONDS = 10 * 60
 NIGHTLY_FREEZE_START_CHICAGO = (23, 45)
 NIGHTLY_FREEZE_END_CHICAGO = (4, 15)
@@ -544,7 +544,7 @@ def compute_migration_gate(now_utc, frequency, start_hours=None):
     """Compute ordinary merged-migration deferral gate matching merged-migration-dispatch.mjs.
 
     Matches RELEASE_SCHEMA_FREEZE_CHICAGO (23:45-04:15 America/Chicago) and
-    Optimization O3 ([cycleStart - 90m, cycleStart + 10m) on three-hourly cadence),
+    Optimization O3 ([cycleStart - 150m, cycleStart + 10m) on three-hourly cadence, O21),
     DST-aware across spring-forward and fall-back transitions.
     """
     if now_utc.utcoffset() is None:
@@ -574,7 +574,11 @@ def compute_migration_gate(now_utc, frequency, start_hours=None):
         }
 
     if frequency == "three-hourly":
-        for cycle_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=3):
+        # Look as many whole hours ahead as the deferral reaches (offsets 0..3 for
+        # 150 minutes, O21 part 2). A fixed 3 (offsets 0..2) only fit 90 minutes and
+        # silently reported OPEN for the first hour of a 150-minute deferral.
+        look_ahead = -(-O3_PRE_CUTOFF_DEFER_SECONDS // 3600) + 1
+        for cycle_epoch, local in _iter_scheduled_cycles(now_epoch, slots, max_hours=look_ahead):
             if local.hour == 4:
                 continue
             defer_start = cycle_epoch - O3_PRE_CUTOFF_DEFER_SECONDS
@@ -1060,7 +1064,7 @@ def compute_migration_hold_advisory(
 ):
     """Recommend holding ordinary migrations from a certifying/certified copy time (O19/W8a).
 
-    O3 deferral starts at cycleStart - 90m, but a Backup run certifying the
+    O3 deferral starts at cycleStart - 150m (O21), but a Backup run certifying the
     cycle's candidate often exports production earlier. When the migration gate
     is still OPEN and either a selectable candidate or an active non-post-seal
     Backup run started before O3 deferral, ordinary migration installs would
