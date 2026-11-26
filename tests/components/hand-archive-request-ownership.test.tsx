@@ -6,6 +6,8 @@ const state = vi.hoisted(() => ({
   refresh: null as null | (() => void),
   getHand: vi.fn(),
   getHands: vi.fn(),
+  getEvidence: vi.fn(),
+  getHandsByIds: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 vi.mock('../../src/hooks/useVIP', () => ({
@@ -30,9 +32,14 @@ vi.mock('../../src/core/MasterBus', () => ({
     },
   },
 }));
+vi.mock('../../src/services/StatsEvidenceService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/StatsEvidenceService')>()),
+  StatsEvidenceService: { list: state.getEvidence },
+}));
 vi.mock('../../src/services/HandHistoryService', () => ({
   handHistoryService: {
     getPlayerHands: (...args: unknown[]) => state.getHands(...args),
+    getHandsByIds: state.getHandsByIds,
     getHand: (...args: unknown[]) => state.getHand(...args),
   },
 }));
@@ -115,9 +122,44 @@ beforeEach(() => {
   state.refresh = null;
   state.getHand.mockReset();
   state.getHands.mockReset();
+  state.getEvidence.mockReset();
+  state.getHandsByIds.mockReset();
   state.toast.error.mockReset();
 });
 describe('Hand archive request ownership', () => {
+  it.each([
+    ['chips', 'cash'],
+    ['diamonds', 'tournament'],
+  ])('keeps the all-time all-clubs %s %s evidence scope for both pages', async (asset, mode) => {
+    state.search = `?source=stats&gameMode=${mode}&statsAsset=${asset}`;
+    const first = { ...rows('first', 1)[0], tournament_id: mode === 'tournament' ? 't' : null };
+    const second = { ...rows('second', 1)[0], tournament_id: first.tournament_id };
+    const cursor = { played_at: first.played_at, hand_id: first.id };
+    state.getEvidence
+      .mockResolvedValueOnce({
+        hands: [{ hand_id: first.id }],
+        has_more: true,
+        next_cursor: cursor,
+      })
+      .mockResolvedValueOnce({
+        hands: [{ hand_id: second.id }],
+        has_more: false,
+        next_cursor: null,
+      });
+    state.getHandsByIds.mockResolvedValueOnce([first]).mockResolvedValueOnce([second]);
+    render(<HandHistoryPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load More Hands' }));
+    await waitFor(() => expect(document.getElementById('hand-second-0')).toBeTruthy());
+    const query = expect.objectContaining({
+      tournament: mode === 'tournament',
+      from: null,
+      to: null,
+    });
+    expect(state.getEvidence).toHaveBeenNthCalledWith(1, 'a', asset, null, query, null, 25);
+    expect(state.getEvidence).toHaveBeenNthCalledWith(2, 'a', asset, null, query, cursor, 25);
+    expect(state.getHandsByIds.mock.calls).toEqual([[[first.id]], [[second.id]]]);
+    expect(state.getHands).not.toHaveBeenCalled();
+  });
   it('opens Replay outside the isolated archive so shell controls cannot cover it', async () => {
     state.search = '?hand=linked-0';
     state.getHands.mockResolvedValue(rows('linked', 1));

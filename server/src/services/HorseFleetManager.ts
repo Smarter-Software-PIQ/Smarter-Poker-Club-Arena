@@ -91,9 +91,9 @@ import {
   varietyFirstPlan,
   varietyHoldsThisCycle,
   varietyOwedGamesThisCycle,
-  owedStartsFit,
+  drainShortfall,
   publishVarietyDrain,
-  varietyDrainTable,
+  varietyDrainTables,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -313,8 +313,10 @@ interface CycleBeat {
    *  not take the slot an owed Main 1 needs (fn_cash_hourly_feeder_admissible,
    *  20261124072701). Empty in a cycle that holds nothing. */
   varietyOwedGames: string[];
-  /** The one extra table this cycle releases for an owed Main 1 (HorseVarietyFirst.varietyDrainTable). */
+  /** The first extra table this cycle releases for an owed Main 1 (HorseVarietyFirst.varietyDrainTables). */
   varietyDrainTable: string | null;
+  /** Every extra table this cycle releases (the drain scales with the backlog, 2026-11-26). */
+  varietyDrainTables: string[];
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -783,7 +785,7 @@ export class HorseFleetManager {
   /** This cycle's held starts, for the seat-call door (claimOfferedSeats). */
   private varietyHeldStarts: ReadonlySet<string> = new Set();
   /** The extra table released for an owed Main 1 last cycle, kept while it is a candidate. */
-  private varietyDrainTableId: string | null = null;
+  private varietyDrainTableIds: string[] = [];
   /* Last time a failed fleet-state publish was reported. The engine can ship
      before the World Hub migration that creates fn_ca_fleet_state_upsert, and
      an unthrottled report would file one error reporting event and one console line
@@ -1481,6 +1483,7 @@ export class HorseFleetManager {
       openingFeeders: [],
       varietyOwedGames: [],
       varietyDrainTable: null,
+      varietyDrainTables: [],
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -3165,7 +3168,7 @@ export class HorseFleetManager {
          HorseSessionRotator stands its Horses up through the ordinary door.
          A failed read of the cap, the census or the Lightning games releases
          nothing. */
-      let varietyDrain: string | null = null;
+      let varietyDrain: string[] = [];
       // A table is released only on a fully read waiting list: an unread list
       // must never be taken for "no person waiting" (fail closed).
       if (
@@ -3180,7 +3183,7 @@ export class HorseFleetManager {
           if (t.cluster_id && (humansWaitingByTable.get(t.id) ?? 0) > 0)
             personWaitingGames.add(String(t.cluster_id));
         }
-        varietyDrain = varietyDrainTable({
+        varietyDrain = varietyDrainTables({
           tables,
           seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
           personSeatedAt: (tableId) =>
@@ -3188,7 +3191,7 @@ export class HorseFleetManager {
           personWaitingGames,
           neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...cashPlanLightningGames]),
           owedGames: beat.varietyOwedGames,
-          owedStartsFit: owedStartsFit({
+          shortfall: drainShortfall({
             cap: room?.cap ?? null,
             counted: room?.counted ?? null,
             openingFeeders: tables.filter(
@@ -3203,7 +3206,7 @@ export class HorseFleetManager {
               hourlyAdmissions.has(tableId)
             ),
           }),
-          current: this.varietyDrainTableId,
+          current: this.varietyDrainTableIds,
         });
       }
       /* A cycle that could not decide (an unread list, cap or Lightning set)
@@ -3213,13 +3216,15 @@ export class HorseFleetManager {
         beat.varietyOwedGames.length === 0 ||
         (cashPlanLightningGames && this.humansWaitingReadComplete)
       )
-        this.varietyDrainTableId = varietyDrain;
-      beat.varietyDrainTable = varietyDrain;
-      if (varietyDrain) {
-        surplusTableIds.add(varietyDrain);
+        this.varietyDrainTableIds = varietyDrain;
+      beat.varietyDrainTable = varietyDrain[0] ?? null;
+      beat.varietyDrainTables = varietyDrain;
+      for (const tableId of varietyDrain) surplusTableIds.add(tableId);
+      if (varietyDrain.length > 0) {
         console.log(
-          `[HorseFleet] extra table ${varietyDrain.slice(0, 8)} released for ` +
-            `${beat.varietyOwedGames.length} owed start(s) - not seating it`
+          `[HorseFleet] ${varietyDrain.length} extra table(s) ` +
+            `${varietyDrain.map((id) => id.slice(0, 8)).join(',')} released for ` +
+            `${beat.varietyOwedGames.length} owed start(s) - not seating them`
         );
       }
       publishVarietyDrain(varietyDrain, Date.now());
@@ -5564,6 +5569,7 @@ export class HorseFleetManager {
             opening_feeders: beat.openingFeeders,
             variety_owed_games: beat.varietyOwedGames,
             variety_drain_table: beat.varietyDrainTable,
+            variety_drain_tables: beat.varietyDrainTables,
           },
         },
       });

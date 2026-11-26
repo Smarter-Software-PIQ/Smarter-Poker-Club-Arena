@@ -63,7 +63,7 @@ function mapSessions(data: SessionRowLike[]): SessionRecord[] {
       buyIn: num(s?.buy_in),
       cashOut: num(s?.cash_out),
       profitLoss: pl,
-      hourlyRate: dur > 0 ? (pl / dur) * 60 : 0,
+      hourlyRate: dur > 0 ? chipCents((pl / dur) * 60) : 0,
     };
   });
   // Newest first. The streak and the timeline both assume descending order;

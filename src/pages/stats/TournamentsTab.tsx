@@ -32,9 +32,8 @@ export default function TournamentsTab({
   financialPanel,
 }: TournamentsTabProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      {financialPanel}
-      <div>
+    <div className="stats-workbench tournament-stats">
+      <section className="stats-workbench-surface" aria-label="Tournament Results">
         <div className="stats-section-header">
           <h3>Tournament Results</h3>
         </div>
@@ -101,16 +100,16 @@ export default function TournamentsTab({
             color="#55b4ed"
           />
         </div>
-      </div>
+      </section>
 
       {(full?.recent_tournaments?.length ?? 0) > 0 ? (
-        <div>
+        <section className="stats-workbench-surface" aria-label="Recent Tournaments">
           <div className="stats-section-header">
             <h3>Recent Tournaments</h3>
           </div>
-          <div className="tournament-list">
+          <div className="tournament-list" aria-label="Tournament Finishes">
             {(full?.recent_tournaments || []).map((t, i) => (
-              <div className="tournament-item" key={i}>
+              <div className="tournament-item" key={t.tournament_id ?? i}>
                 <div className="tournament-item-main">
                   <span className="tournament-item-name">{titleCase(t.name)}</span>
                   <span className="tournament-item-date">
@@ -135,7 +134,7 @@ export default function TournamentsTab({
                 </div>
                 <div className="tournament-item-result">
                   <span className="tournament-item-rank">
-                    {t.finish_rank ? `#${t.finish_rank}` : enumToTitleCase(t.status) || '-'}
+                    Finish {t.finish_rank ? `#${t.finish_rank}` : enumToTitleCase(t.status) || '-'}
                   </span>
                   {/* Dan section 45: Finish / Prize / Bounties / Bounty
                         Earnings / Total Won. The net below is
@@ -143,29 +142,29 @@ export default function TournamentsTab({
                         line always showed - the old `prize` field WAS
                         prize + bounty. What changed is that the two
                         halves are now visible instead of merged. */}
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: '#94a3b8',
-                      display: 'block',
-                      marginTop: 2,
-                    }}
-                  >
-                    Prize {compactChips(num(t.prize))}
-                    {num(t.bounty_winnings) > 0 && (
-                      <>
-                        {' '}
-                        / {num(t.bounties).toLocaleString()} KO
-                        {num(t.bounties) === 1 ? '' : 's'} {compactChips(num(t.bounty_winnings))}
-                      </>
+                  <dl className="tournament-awards" aria-label="Prize Breakdown">
+                    <div>
+                      <dt>Prize</dt>
+                      <dd>{compactChips(num(t.prize))}</dd>
+                    </div>
+                    {(num(t.bounties) > 0 || num(t.bounty_winnings) > 0) && (
+                      <div>
+                        <dt>
+                          {num(t.bounties).toLocaleString()}{' '}
+                          {num(t.bounties) === 1 ? 'Knockout' : 'Knockouts'}
+                        </dt>
+                        <dd>{compactChips(num(t.bounty_winnings))}</dd>
+                      </div>
                     )}
-                    {' / Total '}
-                    {compactChips(num(t.total_won))}
-                  </span>
+                    <div>
+                      <dt>Total Won</dt>
+                      <dd>{compactChips(num(t.total_won))}</dd>
+                    </div>
+                  </dl>
                   <span
                     className={`tournament-item-net ${num(t.total_won) - num(t.buyin) >= 0 ? 'positive' : 'negative'}`}
                   >
-                    {num(t.total_won) - num(t.buyin) >= 0 ? '+' : ''}
+                    <small>Net Result</small> {num(t.total_won) - num(t.buyin) >= 0 ? '+' : ''}
                     {compactChips(chipCents(num(t.total_won) - num(t.buyin)))}
                   </span>
                   {t.tournament_id ? (
@@ -183,15 +182,16 @@ export default function TournamentsTab({
               </div>
             ))}
           </div>
-        </div>
+        </section>
       ) : (
-        <div className="stats-empty-state">
+        <div className="stats-empty-state stats-workbench-surface">
           <span className="empty-title">No Tournament Results Available</span>
           <span className="empty-description">
             No Tournament Records Were Returned For This Analysis Window.
           </span>
         </div>
       )}
+      {financialPanel}
     </div>
   );
 }

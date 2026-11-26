@@ -62,7 +62,7 @@ export default function RakeTab({
   viewerId,
 }: RakeTabProps) {
   return (
-    <>
+    <div className="stats-workbench player-study-console study-rake">
       {rakeLoading && (
         <div className="stats-section-loading" role="status">
           Loading Rake For This Analysis Window...
@@ -110,39 +110,42 @@ export default function RakeTab({
       {/* Live downline earnings, agents only */}
       {isOwnProfile && rakeStats && rakeStats.hands > 0 && (
         <PanelBoundary name="Your Rake" resetKey={panelResetKey}>
-          <div className="stats-grid">
-            <StatRow
-              label="Rake Paid"
-              value={compactChips(rakeStats.rake_paid)}
-              color="#8edbff"
-              highlight
-            />
-            <StatRow
-              label="Rake Per 100 Hands"
-              value={compactChips(rakeStats.rake_per_100)}
-              color="#45adff"
-            />
-            <StatRow
-              label="Rake In Big Blinds"
-              value={`${rakeStats.rake_in_bb.toFixed(1)} BB`}
-              color="#e4e7ec"
-            />
-            <StatRow
-              label="Raked Hands"
-              value={compactChips(rakeStats.raked_hands)}
-              color="#c8ffd2"
-            />
-            <StatRow
-              label="Average Per Raked Hand"
-              value={compactChips(rakeStats.avg_rake_per_raked_hand)}
-              color="#45adff"
-            />
-            <StatRow
-              label="Cash Hands Counted"
-              value={compactChips(rakeStats.hands)}
-              color="#e4e7ec"
-            />
-          </div>
+          <section className="stats-workbench-surface" aria-label="Your Rake">
+            <h3>Your Rake</h3>
+            <div className="stats-grid">
+              <StatRow
+                label="Rake Paid"
+                value={compactChips(rakeStats.rake_paid)}
+                color="#8edbff"
+                highlight
+              />
+              <StatRow
+                label="Rake Per 100 Hands"
+                value={compactChips(rakeStats.rake_per_100)}
+                color="#45adff"
+              />
+              <StatRow
+                label="Rake In Big Blinds"
+                value={`${rakeStats.rake_in_bb.toFixed(1)} BB`}
+                color="#e4e7ec"
+              />
+              <StatRow
+                label="Raked Hands"
+                value={compactChips(rakeStats.raked_hands)}
+                color="#c8ffd2"
+              />
+              <StatRow
+                label="Average Per Raked Hand"
+                value={compactChips(rakeStats.avg_rake_per_raked_hand)}
+                color="#45adff"
+              />
+              <StatRow
+                label="Cash Hands Counted"
+                value={compactChips(rakeStats.hands)}
+                color="#e4e7ec"
+              />
+            </div>
+          </section>
         </PanelBoundary>
       )}
 
@@ -175,6 +178,6 @@ export default function RakeTab({
           </Suspense>
         </PanelBoundary>
       )}
-    </>
+    </div>
   );
 }

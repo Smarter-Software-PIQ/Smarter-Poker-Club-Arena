@@ -8,6 +8,7 @@
  * conditions that gate the tab (`showTab`, `hasData`, `isOwnProfile`) stay in
  * the page, where `printing` can override them for the dossier.
  */
+import './StatsReadouts.css';
 import { lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
@@ -31,7 +32,7 @@ export default function HandsTab({
   windowDays,
 }: HandsTabProps) {
   return (
-    <div>
+    <div className="stats-workbench stats-readouts">
       <PanelBoundary name="Starting Hands" resetKey={panelResetKey}>
         <HoleCardHeatmap userId={targetUserId} days={windowDays} scope={scope} clubId={clubId} />
       </PanelBoundary>

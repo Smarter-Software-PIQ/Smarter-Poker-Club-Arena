@@ -8,6 +8,7 @@
  * conditions that gate the tab (`showTab`, `hasData`, `isOwnProfile`) stay in
  * the page, where `printing` can override them for the dossier.
  */
+import './StatsReadouts.css';
 import { lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
@@ -69,87 +70,94 @@ export default function OverviewTab({
   privacyPresentationMode = false,
 }: OverviewTabProps) {
   return (
-    <>
-      <div className="stats-section-lead">
-        <div>
-          <span className="stats-section-kicker">Live Readout</span>
-          <h2>Core Tendencies</h2>
+    <div className="stats-workbench stats-readouts">
+      <section
+        className="stats-workbench-surface stats-tendencies"
+        aria-labelledby="tendencies-heading"
+      >
+        <div className="stats-section-lead">
+          <div>
+            <h2 id="tendencies-heading">Core Tendencies</h2>
+          </div>
+          <span>{RANGES.find((r) => r.key === rangeKey)?.label ?? 'All'} Window</span>
         </div>
-        <span>{RANGES.find((r) => r.key === rangeKey)?.label ?? 'All'} Window</span>
-      </div>
-      {/* STATS CONTRACT TRUTH (2026-09-20). One grid, two populations: the
+        {/* STATS CONTRACT TRUTH (2026-09-20). One grid, two populations: the
           scope tag says which hands each row counts (see StatRow `scope`),
           and a rate over an empty sample says Not Yet Measured instead of a
           confident zero (see ratioOrUnmeasured). Rows whose label already
           names the population ("Cash Hands") are not tagged twice. */}
-      <div className="stats-grid stats-overview-grid">
-        <StatRow
-          label="VPIP"
-          value={ratioOrUnmeasured(
-            overall.vpip,
-            overall.total_hands,
-            (v) => `${(v * 100).toFixed(1)}%`
-          )}
-          color="#00d4ff"
-          scope={SCOPE_CASH}
-        />
-        <StatRow
-          label="PFR"
-          value={ratioOrUnmeasured(
-            overall.pfr,
-            overall.total_hands,
-            (v) => `${(v * 100).toFixed(1)}%`
-          )}
-          color="#55b4ed"
-          scope={SCOPE_CASH}
-        />
-        {/* Aggressive actions over CALL actions. The payload does not carry
+        <div className="stats-rate-grid stats-overview-grid">
+          <StatRow
+            label="BB/100"
+            value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
+            color="#c0e7ff"
+            highlight
+            scope={SCOPE_CASH}
+          />
+          <StatRow
+            label="VPIP"
+            value={ratioOrUnmeasured(
+              overall.vpip,
+              overall.total_hands,
+              (v) => `${(v * 100).toFixed(1)}%`
+            )}
+            color="#c0e7ff"
+            scope={SCOPE_CASH}
+          />
+          <StatRow
+            label="PFR"
+            value={ratioOrUnmeasured(
+              overall.pfr,
+              overall.total_hands,
+              (v) => `${(v * 100).toFixed(1)}%`
+            )}
+            color="#c0e7ff"
+            scope={SCOPE_CASH}
+          />
+          {/* Aggressive actions over CALL actions. The payload does not carry
             call_actions, and with none the SQL returns the raw aggressive
             count, which is not a ratio; the empty sample the client can prove
             is "no hands scored", so that is the one that stops printing a
             number here. */}
-        <StatRow
-          label={aggressionFactorLabel(overall.aggression_factor_basis)}
-          value={
-            clubId && !metricAvailability.aggression_factor
-              ? NOT_YET_MEASURED
-              : ratioOrUnmeasured(overall.aggression_factor, overall.total_hands, (v) =>
-                  v.toFixed(1)
-                )
-          }
-          color="#80dfff"
-          scope={SCOPE_CASH}
-        />
-        <StatRow
-          label="Hours Played"
-          value={
-            metricAvailability?.hours_played === false
-              ? NOT_YET_MEASURED
-              : `${overall.hours_played.toFixed(1)}h`
-          }
-          color="#06b6d4"
-          scope={SCOPE_CASH}
-        />
-        <StatRow
-          label="Showdown Win %"
-          value={showdownWinRate}
-          color="#22c55e"
-          scope={SCOPE_CASH}
-        />
-        <StatRow
-          label="BB/100"
-          value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
-          color="#80baff"
-          highlight
-          scope={SCOPE_CASH}
-        />
-        <StatRow label="Cash Hands" value={overall.cash_hands.toLocaleString()} color="#00d4ff" />
-      </div>
-
+          <StatRow
+            label={aggressionFactorLabel(overall.aggression_factor_basis)}
+            value={
+              clubId && !metricAvailability.aggression_factor
+                ? NOT_YET_MEASURED
+                : ratioOrUnmeasured(overall.aggression_factor, overall.total_hands, (v) =>
+                    v.toFixed(1)
+                  )
+            }
+            color="#c0e7ff"
+            scope={SCOPE_CASH}
+          />
+          <StatRow
+            label="Hours Played"
+            value={
+              metricAvailability?.hours_played === false
+                ? NOT_YET_MEASURED
+                : `${overall.hours_played.toFixed(1)}h`
+            }
+            color="#c0e7ff"
+            scope={SCOPE_CASH}
+          />
+          <StatRow
+            label="Showdown Win %"
+            value={showdownWinRate}
+            color="#c0e7ff"
+            scope={SCOPE_CASH}
+          />
+          <StatRow label="Cash Hands" value={overall.cash_hands.toLocaleString()} color="#c0e7ff" />
+        </div>
+      </section>
       <div className="stats-ledger-grid">
         {/* Per-variant breakdown */}
         {(full?.variants?.length ?? 0) > 0 && (
-          <div className="variant-table" role="region" aria-label="Performance By Game">
+          <div
+            className="variant-table stats-workbench-surface"
+            role="region"
+            aria-label="Performance By Game"
+          >
             <h3 className="variant-title">Game Mix</h3>
             <div className="variant-row variant-head">
               <span>Game</span>
@@ -182,7 +190,11 @@ export default function OverviewTab({
         {/* Per-stake breakdown: which game size is actually carrying (or
             bleeding) the results, instead of one blended number. */}
         {(full?.stakes?.length ?? 0) > 1 && (
-          <div className="variant-table" role="region" aria-label="Performance By Stake">
+          <div
+            className="variant-table stats-workbench-surface"
+            role="region"
+            aria-label="Performance By Stake"
+          >
             <h3 className="variant-title">Stake Ledger</h3>
             <div className="variant-row variant-head">
               <span>Stake</span>
@@ -295,6 +307,6 @@ export default function OverviewTab({
           {printing ? 'Preparing Dossier...' : 'Print Or Save Dossier'}
         </button>
       </div>
-    </>
+    </div>
   );
 }

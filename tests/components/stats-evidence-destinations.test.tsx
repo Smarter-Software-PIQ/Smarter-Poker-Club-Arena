@@ -245,6 +245,11 @@ describe('Stats evidence destinations', () => {
       expect(screen.queryByRole('button', { name: 'Load More Evidence' })).toBeNull()
     );
     expect(vi.mocked(StatsEvidenceService.list).mock.lastCall?.[4]).toEqual(firstPage.next_cursor);
+    const closeEvidence = screen.getByRole('button', { name: 'Close Evidence' });
+    const openEvidence = screen.getByRole('region', { name: 'First Hand Evidence' });
+    expect(closeEvidence).toHaveAttribute('aria-controls', openEvidence.id);
+    fireEvent.click(closeEvidence);
+    expect(openEvidence).not.toBeInTheDocument();
     expect(screen.getAllByText('Individual Trophy Evidence Unavailable').length).toBeGreaterThan(0);
   });
 

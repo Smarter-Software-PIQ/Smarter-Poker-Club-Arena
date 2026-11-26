@@ -66,7 +66,7 @@ export default function FinancialReportingPanel(p: Props) {
         eyebrow="Verified Financial Ledger"
         title="Opening Receipt Vault..."
         status="Verifying"
-        className="financial-vault-shell is-loading"
+        className="stats-workbench-surface financial-vault-shell is-loading"
         aria-busy="true"
       />
     );
@@ -76,7 +76,7 @@ export default function FinancialReportingPanel(p: Props) {
         eyebrow="Financial Readout Interrupted"
         title="Receipts Could Not Be Verified"
         status="Interrupted"
-        className="financial-vault-shell is-error"
+        className="stats-workbench-surface financial-vault-shell is-error"
         role="alert"
       >
         <div className="financial-console">
@@ -103,7 +103,7 @@ export default function FinancialReportingPanel(p: Props) {
       title="Financial Reporting Vault"
       titleId="financial-console-title"
       status={p.asset === 'diamonds' ? 'Diamond Ledger' : 'Chip Ledger'}
-      className="financial-vault-shell"
+      className="stats-workbench-surface financial-vault-shell"
       aria-labelledby="financial-console-title"
     >
       <section className="financial-console">

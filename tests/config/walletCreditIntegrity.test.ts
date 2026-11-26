@@ -66,12 +66,15 @@ const CREDIT_RPCS = [
   'fn_credit_player_wallet_once',
 ] as const;
 
-/** Every credit call site: { file, line, rpc, body }. */
-function creditCallSites() {
-  const re = new RegExp(
+const creditCallPattern = () =>
+  new RegExp(
     `rpc\\(\\s*'(${CREDIT_RPCS.join('|')})'\\s*,\\s*\\{([\\s\\S]*?)\\n\\s*\\}\\s*\\)`,
     'g'
   );
+
+/** Every credit call site: { file, line, rpc, body }. */
+function creditCallSites() {
+  const re = creditCallPattern();
   const sites: Array<{ file: string; line: number; rpc: string; body: string }> = [];
   for (const file of SERVER_FILES) {
     const src = stripComments(readFileSync(join(ROOT, file), 'utf8'));
@@ -110,7 +113,25 @@ describe('every wallet credit in the server carries an idempotency key', () => {
        The one site left is the cash-table add-on refund via
        `atomic_credit_wallet_and_log`. The single-path rule for tournaments is
        pinned server-side by OneSettlePathForTournamentMoney.law.test.ts. */
-    expect(sites.length).toBeGreaterThanOrEqual(1);
+    /* NO SERVER CODE CREDITS A WALLET BY RPC (2026-11-26). The last site,
+       the cash-table add-on refund via `atomic_credit_wallet_and_log`, was
+       dead code (its only caller had been removed) and is gone; every wallet
+       credit now happens inside a database function that derives its key from
+       the row it locks. So the count is now exactly zero, pinned by
+       tests/no-runtime-code-credits-a-wallet-unkeyed.law.test.ts too. The
+       regex-rot guard moves to a fixture: the pattern must still find a
+       credit call written the way these calls are written, so a future site
+       is checked by the per-site key test below rather than missed. */
+    const fixture = [
+      "const { error } = await supabase.rpc('atomic_credit_wallet_and_log', {",
+      '  p_user_id: userId,',
+      '  p_idempotency_key: key,',
+      '});',
+    ].join('\n');
+    expect([...fixture.matchAll(creditCallPattern())].map((m) => m[1])).toEqual([
+      'atomic_credit_wallet_and_log',
+    ]);
+    expect(sites).toEqual([]);
   });
 
   for (const s of sites) {
@@ -134,6 +155,10 @@ describe('no site credits and then logs as a separate, ungated step', () => {
    * call whose result gates the write.
    */
   const WINDOW = 34;
+
+  it('scans the whole server', () => {
+    expect(SERVER_FILES.length).toBeGreaterThan(100);
+  });
 
   for (const file of SERVER_FILES) {
     const src = stripComments(readFileSync(join(ROOT, file), 'utf8'));

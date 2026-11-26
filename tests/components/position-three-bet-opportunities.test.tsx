@@ -44,3 +44,15 @@ describe('positional three-bet opportunity agreement', () => {
     expect(screen.getByText(/3-Bet Is Not Yet Measured/)).toBeInTheDocument();
   });
 });
+
+it('pins the selected position after hover or focus and releases it through the keyboard', () => {
+  render(<PositionWinRates initialPositions={rows} />);
+  const seat = screen.getByRole('button', { name: /^BTN,/ });
+  fireEvent.mouseEnter(seat);
+  fireEvent.focus(seat);
+  fireEvent.click(seat);
+  fireEvent.mouseLeave(seat);
+  expect(seat).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.keyDown(seat, { key: 'Enter' });
+  expect(seat).toHaveAttribute('aria-pressed', 'false');
+});

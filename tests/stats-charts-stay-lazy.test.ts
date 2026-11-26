@@ -61,6 +61,9 @@ const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s
 
 /** Page source with block and line comments stripped, so prose cannot satisfy a match. */
 const PAGE_CODE = strip(PAGE);
+const PRINT_CODE = strip(
+  readFileSync(resolve(__dirname, '../src/pages/statsDossierPrint.ts'), 'utf8')
+);
 /** The page and every tab chunk, comments stripped. */
 const CODE = [PAGE_CODE, ...TABS.map(strip)].join('\n');
 
@@ -169,7 +172,7 @@ describe('the extracted chart component owns the recharts dependency', () => {
     expect(CHARTS).toMatch(
       /const StatsPositionPiePlot\s*=\s*lazy\(\(\)\s*=>\s*import\('\.\/StatsPositionPiePlot'\)\)/
     );
-    expect(PAGE_CODE).toContain("import('../components/stats/StatsPositionPiePlot')");
+    expect(PRINT_CODE).toContain("import('../components/stats/StatsPositionPiePlot')");
   });
 
   it('is presentational: it takes its data as props and fetches nothing', () => {
@@ -199,13 +202,15 @@ describe('the print dossier survives the lazy split', () => {
      * pass, not a network round trip, so without this the PDF captured the
      * Suspense fallbacks: a "Charts" heading followed by "Loading Charts...".
      */
-    expect(PAGE_CODE).toMatch(
+    expect(PAGE_CODE).toContain("await import('./statsDossierPrint')");
+    expect(PAGE_CODE).toContain('await prepareStatsDossier()');
+    expect(PRINT_CODE).toMatch(
       /await Promise\.all\(\[[\s\S]{0,700}StatsCharts[\s\S]{0,200}EVLuckChart[\s\S]{0,200}BankrollTracker/
     );
     // ... and, since phase 2, the tab chunks themselves, or the dossier prints
     // "Loading Section..." where a tab should be.
     for (const tab of TAB_NAMES) {
-      expect(PAGE_CODE).toMatch(
+      expect(PRINT_CODE).toMatch(
         new RegExp(`await Promise\\.all\\(\\[[\\s\\S]{0,700}import\\('./stats/${tab}'\\)`)
       );
     }

@@ -72,3 +72,102 @@ for (const width of [375, 393, 768]) {
     }
   });
 }
+
+test('cash and tournament position numbers stay inside their own table viewport', async ({
+  page,
+}) => {
+  const { buildSync } = await import('esbuild');
+  const sheet = [
+    'src/pages/PlayerStatsPage.css',
+    'src/components/stats/PositionWinRates.css',
+    'src/components/stats/StatsDataTable.css',
+    'src/pages/stats/StatsReadouts.css',
+    'src/pages/stats/StatsWorkbench.css',
+  ]
+    .map((file) => readFileSync(resolve(file), 'utf8'))
+    .join('\n');
+
+  // Exercise the shipping table producers, including unmeasured 3-bet opportunities.
+  const fixture = buildSync({
+    stdin: {
+      resolveDir: process.cwd(),
+      loader: 'tsx',
+      contents: `
+        import { createRoot } from 'react-dom/client';
+        import Cash from './src/components/stats/PositionWinRates';
+        import Tournament from './src/pages/stats/TournamentPlayingStats';
+        const sample = [{
+          position: 'BB', hands_played: 149, vpip_count: 39, pfr_count: 16,
+          three_bet_opps: 0, bb100: -23.7, total_profit: -1200,
+        }, {
+          position: 'UTG+1', hands_played: 134, vpip_count: 25, pfr_count: 23,
+          three_bet_opps: 12, three_bet_count: 3, bb100: 8.1, total_profit: 289,
+        }];
+        const totals = { tourney_hands: 283, hands_won: 45, showdowns_total: 16 };
+        const full = { positions: sample, contract: { quality: { metric_availability: {} }, coverage: {} } };
+        createRoot(document.querySelector('main')).render(<>
+          <Tournament overall={totals} full={full}/>
+          <Cash initialPositions={sample}/>
+        </>);
+      `,
+    },
+    loader: { '.css': 'empty' },
+    write: false,
+    bundle: true,
+    jsx: 'automatic',
+    jsxImportSource: 'react',
+    minify: true,
+    define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
+  });
+  await page.setContent(`<style>* { box-sizing:border-box } body { margin:0 }
+    ${sheet}
+    main { margin:auto; width:calc(100% - 32px) }
+    @media (min-width:800px) { main { width:calc(100% - 80px) } }
+    </style><div class="stats-page arena-workspace"><main class="stats-readouts stats-workbench"></main></div>`);
+  await page.addScriptTag({ content: fixture.outputFiles[0].text });
+  await page.getByText('Show Data Table', { exact: true }).click();
+  const tournament = page.getByRole('table', { name: 'Tournament Positions' });
+  const cash = page.getByRole('table', { name: 'Win Rate By Position' });
+  for (const width of [320, 393, 898, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const table of [tournament, cash]) {
+      const row = table.getByRole('row').filter({ hasText: /^BB|Big Blind/ });
+      await expect(row).toContainText('149');
+      await expect(row).toContainText('26.2%');
+      await expect(row).toContainText('10.7%');
+      const fits = await table.evaluate((node) => {
+        const wrap = node.parentElement!;
+        const bounds = wrap.getBoundingClientRect();
+        return {
+          internalOverflow: wrap.scrollWidth - wrap.clientWidth,
+          clipped: [...node.querySelectorAll('tbody th, tbody td')]
+            .filter((cell) => {
+              const box = cell.getBoundingClientRect();
+              const text = document.createRange();
+              text.selectNodeContents(cell);
+              const ink = text.getBoundingClientRect();
+              return (
+                box.left < bounds.left - 1 ||
+                box.right > bounds.right + 1 ||
+                ink.left < box.left - 1 ||
+                ink.right > box.right + 1
+              );
+            })
+            .map((cell) => cell.textContent),
+        };
+      });
+      expect(fits.internalOverflow, `${width}px internal table overflow`).toBeLessThanOrEqual(1);
+      expect(fits.clipped, `${width}px clipped cell values`).toEqual([]);
+    }
+    if (width < 400) {
+      const blind = cash.getByRole('row').filter({ hasText: 'Big Blind' });
+      const primary = await blind
+        .locator(':scope > :nth-child(-n + 4)')
+        .evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().top)));
+      expect(new Set(primary).size).toBe(1);
+      await expect(blind.getByText('3-Bet', { exact: true })).toBeVisible();
+      await expect(blind).toContainText('Not Yet Measured');
+      await expect(blind.getByText('Profit', { exact: true })).toBeVisible();
+    }
+  }
+});

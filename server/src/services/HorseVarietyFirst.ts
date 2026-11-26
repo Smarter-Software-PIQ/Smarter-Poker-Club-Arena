@@ -327,11 +327,48 @@ export interface VarietyDrainInput<T extends DrainTable> {
   current?: string | null;
 }
 
-/** PURE. The one extra table to release this cycle, or null. */
+export interface VarietyDrainManyInput<T extends DrainTable> extends Omit<
+  VarietyDrainInput<T>,
+  'owedStartsFit' | 'current'
+> {
+  /** Owed starts the cap cannot fit now (drainShortfall): 0 releases nothing new. */
+  shortfall: number;
+  /** The tables released last cycle, each kept while it is still the top of its ladder. */
+  current: ReadonlyArray<string>;
+}
+
+/** PURE. The one extra table to release this cycle, or null (the single-table view). */
 export function varietyDrainTable<T extends DrainTable>(
   input: VarietyDrainInput<T>
 ): string | null {
-  if (input.owedGames.length === 0) return null;
+  const { owedStartsFit: fits, current, ...rest } = input;
+  return (
+    varietyDrainTables({
+      ...rest,
+      shortfall: fits ? 0 : Math.max(1, input.owedGames.length),
+      current: current ? [current] : [],
+    })[0] ?? null
+  );
+}
+
+/**
+ * PURE. THE DRAIN SCALES WITH THE BACKLOG (2026-11-26). The extra tables to
+ * release this cycle. Every table already released stays released while it is
+ * still the top of its Horse-only ladder (A RELEASED TABLE STAYS RELEASED,
+ * below). A NEW table is added only while the released tables are fewer than
+ * the owed starts the cap cannot fit (drainShortfall), and at most one new
+ * table per cycle, so releases ramp with the backlog instead of waiting for
+ * each table to close. One table at a time freed one slot every few minutes
+ * while nineteen games waited at a full cap (2026-11-26 10:12 CST); one new
+ * table per cycle also spreads the leave sweeps (each costs a slower next deal
+ * at that table) instead of starting many at once.
+ */
+export function varietyDrainTables<T extends DrainTable>(
+  input: VarietyDrainManyInput<T>
+): string[] {
+  if (input.owedGames.length === 0) return [];
+  const currentSet = new Set(input.current);
+  const kept: string[] = [];
   const owed = new Set(input.owedGames);
   const seated = (t: T): number => {
     const n = input.seatedAt(String(t.id));
@@ -372,19 +409,33 @@ export function varietyDrainTable<T extends DrainTable>(
        Horses straight back in (production 2026-11-26 04:05-04:16 CST, NLH
        0.05/0.10 Classic Feeder: seven Horses left and four re-joined in twelve
        minutes, every re-join in a cycle the table was not named). */
-    if (top.id === input.current) return top.id;
+    if (currentSet.has(top.id)) {
+      kept.push(top.id);
+      continue;
+    }
     if (seated(top) === 0) continue;
     candidates.push(top);
   }
-  /* A new table is released only when the cap has no free slot (owedStartsFit). */
-  if (candidates.length === 0 || input.owedStartsFit) return null;
+  /* A new table is released only when the cap has no free slot and the tables
+     already released do not cover the owed starts (drainShortfall). */
+  if (candidates.length === 0 || kept.length >= input.shortfall) return kept;
   candidates.sort(
     (a, b) =>
       seated(a) - seated(b) ||
       String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')) ||
       String(a.id).localeCompare(String(b.id))
   );
-  return candidates[0].id;
+  return [...kept, candidates[0].id];
+}
+
+/**
+ * How many owed starts the cap cannot fit now. Zero whenever owedStartsFit
+ * says they fit (a free slot, an admitted owed start, a failed read): with a
+ * free slot the owed start takes it, so emptying a table frees nothing. At a
+ * cap with no free slot, every owed start is short.
+ */
+export function drainShortfall(room: Parameters<typeof owedStartsFit>[0]): number {
+  return owedStartsFit(room) ? 0 : Math.max(0, room.owedStarts);
 }
 
 /**
@@ -414,11 +465,15 @@ export function owedStartsFit(room: {
   return room.counted + room.openingFeeders < room.cap;
 }
 
-let publishedDrain: { tableId: string; atMs: number } | null = null;
+let publishedDrain: { tableIds: readonly string[]; atMs: number } | null = null;
 
-/** The fleet names the table it is releasing, once per cycle (or none). */
-export function publishVarietyDrain(tableId: string | null, nowMs: number): void {
-  publishedDrain = tableId ? { tableId, atMs: nowMs } : null;
+/** The fleet names the tables it is releasing, once per cycle (or none). */
+export function publishVarietyDrain(
+  tables: string | ReadonlyArray<string> | null,
+  nowMs: number
+): void {
+  const ids = tables === null ? [] : typeof tables === 'string' ? [tables] : [...tables];
+  publishedDrain = ids.length > 0 ? { tableIds: ids, atMs: nowMs } : null;
 }
 
 /**
@@ -426,10 +481,15 @@ export function publishVarietyDrain(tableId: string | null, nowMs: number): void
  * A publication older than VARIETY_HOLD_FRESH_MS names nothing: a fleet that
  * has stopped cycling never keeps a table draining.
  */
-export function varietyDrainingTable(nowMs: number = Date.now()): string | null {
-  if (!publishedDrain) return null;
+export function varietyDrainingTables(nowMs: number = Date.now()): readonly string[] {
+  if (!publishedDrain) return [];
   const age = nowMs - publishedDrain.atMs;
-  return age >= 0 && age < VARIETY_HOLD_FRESH_MS ? publishedDrain.tableId : null;
+  return age >= 0 && age < VARIETY_HOLD_FRESH_MS ? publishedDrain.tableIds : [];
+}
+
+/** The first released table (the single-table view). */
+export function varietyDrainingTable(nowMs: number = Date.now()): string | null {
+  return varietyDrainingTables(nowMs)[0] ?? null;
 }
 
 /** Test seam. */

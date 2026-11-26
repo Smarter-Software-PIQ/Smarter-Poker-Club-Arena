@@ -119,7 +119,7 @@ export default function StatsShareCard({
     [styleSource]
   );
   const styleLabel = style?.shareable ? style.label : null;
-  const styleColor = style?.shareable ? style.color : null;
+  const styleColor = style?.shareable ? '#a9dbff' : null;
   const hands = styleSource?.overall.total_hands ?? 0;
   const styleNote = style
     ? style.shareable
@@ -184,7 +184,7 @@ export default function StatsShareCard({
 
     ctx.fillStyle = 'rgba(0,148,255,0.72)';
     ctx.fillRect(25, 25, 210, 3);
-    ctx.fillStyle = 'rgba(166,119,59,0.7)';
+    ctx.fillStyle = 'rgba(142,177,201,0.7)';
     ctx.fillRect(W - 225, H - 28, 200, 3);
 
     // Name
@@ -292,7 +292,7 @@ export default function StatsShareCard({
       ctx.lineWidth = 1;
       chamferRect(ctx, x, startY, tileW, tileH, 9);
       ctx.stroke();
-      ctx.fillStyle = i === 0 ? 'rgba(166,119,59,0.78)' : 'rgba(0,148,255,0.62)';
+      ctx.fillStyle = i === 0 ? 'rgba(142,177,201,0.78)' : 'rgba(0,148,255,0.62)';
       ctx.fillRect(x, startY + 13, 3, tileH - 26);
 
       ctx.fillStyle = 'rgba(200,224,245,0.5)';
@@ -360,7 +360,7 @@ export default function StatsShareCard({
   };
 
   return (
-    <div className="sharecard">
+    <div className="stats-workbench-surface sharecard">
       <h3 className="sharecard-title">Share Your Stats</h3>
       <div className="sharecard-preview">
         <canvas
