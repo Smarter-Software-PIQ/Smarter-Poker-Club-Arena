@@ -1,14 +1,8 @@
 {
-  "spinCancellationReportingExecutionAudit20261126": {
-    "reason": "Reviewed the exact additive four-line accounting shard4 step for the Spin cancellation reporting native PostgreSQL regression. Structured projection comparison proves all other execution and admission bytes unchanged. Only current source identity is refreshed; historical financial sources, assertions, audits, status and qualification verdicts are unchanged. This is not financial recertification or production proof.",
-    "previousProjectionPins": {
-      "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
-    }
-  },
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "de40c7389ff05778e61a6fac907ccc59c01bccf94f3afff7b169b9faadc05519",
+    "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d",
     "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",

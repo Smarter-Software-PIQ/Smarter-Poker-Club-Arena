@@ -447,8 +447,8 @@ describe('backed payout discovery is the same accounting question in a batch', (
     expect(reportingNative).toContain('batch excludes Spins');
     expect(reportingNative).toContain('batch scalar parity');
     expect(reportingNative).toContain('non-Spin batch parity');
-    expect(read('.github/workflows/ci.yml')).toContain(
-      'run: python3 -B scripts/ci/test-spin-cancellation-reporting-postgres.py'
+    expect(read('scripts/ci/test-undrawn-spin-cancellation.py')).toContain(
+      "str(ROOT/'scripts/ci/test-spin-cancellation-reporting-postgres.py')"
     );
 
     // The reviewed dynamic successor is exactly its anchored swaps applied to

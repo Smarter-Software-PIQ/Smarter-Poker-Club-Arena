@@ -38,4 +38,24 @@ BEGIN
  IF updated=conservation THEN RAISE EXCEPTION 'spin_cancellation_conservation_anchor_missing'; END IF;
  EXECUTE updated;
 END $migration$;
+-- Read-only execution against an already cancelled incident event. The
+-- native qualification separately proves populated cases and missing receipts.
+-- @probe-for: public.fn_ca_tournament_escrow_chips
+DO $probe$
+BEGIN
+ PERFORM public.fn_ca_tournament_escrow_chips('d46b69ac-6b7a-4db4-99e4-00843412fe9b'::uuid);
+ RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+ IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- Read-only execution against an already cancelled incident event. The
+-- native qualification separately proves populated cases and missing receipts.
+-- @probe-for: public.fn_tournament_conservation_delta
+DO $probe$
+BEGIN
+ PERFORM public.fn_tournament_conservation_delta('d46b69ac-6b7a-4db4-99e4-00843412fe9b'::uuid);
+ RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+ IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 COMMIT;

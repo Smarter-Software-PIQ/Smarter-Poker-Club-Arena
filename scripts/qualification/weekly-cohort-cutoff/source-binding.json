@@ -1,13 +1,4 @@
 {
-  "spinCancellationReportingExecutionAudit20261126": {
-    "reason": "Reviewed the exact additive four-line accounting shard4 step for the Spin cancellation reporting native PostgreSQL regression. Structured projection comparison proves all other execution and admission bytes unchanged. Only current source identity is refreshed; historical financial sources, assertions, audits, status and qualification verdicts are unchanged. This is not financial recertification or production proof.",
-    "previousProjectionPins": {
-      "scripts/qualification/ci-accounting-inputs.json": {
-        "bytes": 147115,
-        "sha256": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
-      }
-    }
-  },
   "clientExecutionBudgetSourceAudit20261029": {
     "scope": "Source identity only: ten general and ten disjoint occupied-portrait CSS shards preserve the complete case inventory, plus requested four client workers bounded by actual CPU capacity; all financial matrices, assertions, independent browser gates, deadlines and production safeguards preserved.",
     "previousCiPin": {
@@ -307,8 +298,8 @@
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 147338,
-      "sha256": "de40c7389ff05778e61a6fac907ccc59c01bccf94f3afff7b169b9faadc05519"
+      "bytes": 147115,
+      "sha256": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,

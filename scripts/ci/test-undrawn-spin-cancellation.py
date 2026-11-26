@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real booked-undrawn Spin cancellation in a private socket-only PG17 cluster."""
-import argparse, hashlib, json, sys
+import argparse, hashlib, json, sys, subprocess
 from pathlib import Path
 sys.dont_write_bytecode=True
 from satellite_qualifier_fixture import module
@@ -170,6 +170,9 @@ SET LOCAL session_replication_role=origin;"""
    left.close();right.close()
   for path in (Path(__file__),MIGRATION,helper_path,ROOT/'scripts/ci/probes/spin-funded-launch-native.sql'):
    e.report['source_sha256'][str(path.relative_to(ROOT))]=hashlib.sha256(path.read_bytes()).hexdigest()
+  # The original required cancellation proof also owns reporting of its unwind.
+  subprocess.run([sys.executable, str(ROOT/'scripts/ci/test-spin-cancellation-reporting-postgres.py'),
+                  '--pg-bin', str(a.pg_bin), '--scratch', str(a.socket_root)], check=True)
   e.report['status']='passed';e.report['passed']=True
  finally:
   e.close();(a.evidence/'report.json').write_text(json.dumps(e.report,indent=2)+'\n')
