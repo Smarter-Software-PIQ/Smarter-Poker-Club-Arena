@@ -81,6 +81,28 @@ Two heads-up probes against a fixed production Horse (memory on, 15,000 hands pe
 
 Fixing that needs his raise share facing a bet. No per-opponent counter of it exists in the read frame the live worker reads (ExploitCounters has none; HorseOpponentStyle lists it as not available). With no record, the raise share would need an equilibrium anchor that is not measured here. That is the next step: a memory counter and a read-frame field for postflop raises per opportunity, then the bet EV priced with his raise branch and the Horse's answer to it. Earlier root-cause fix, in this branch: the fold cap at his modelled weak share (river value bets -12.0 -> -1.7 bb/100).
 
+## His Raise Priced (2026-11-25, Records Branch)
+
+What changed: the bet's EV now has his raise branch.
+
+- The strongest share of his range, read without the Horse's cards, raises to 3x the bet.
+- His raise share comes from his own postflop record (`postflop_bets` raiseToBet), shrunk with 20 pseudo-opportunities to an equilibrium-scale anchor: 0.10 flop, 0.08 turn, 0.06 river.
+- The Horse takes the better of folding and calling the raise.
+
+| Grade                                       | Before (no raise branch) | With the raise branch                                                  |
+| ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
+| League mirror heads-up (bb/100 per seat)    | -12.4 ± 4.8 (seed 3303)  | -11.1 ± 4.8 (seed 3303) and -12.7 ± 4.9 (seed 5505), 60,000 hands each |
+| League mirror 6-max                         | +0.5 ± 3.3               | +0.9 ± 3.6                                                             |
+| Probe: plain production Horse               | -17.1 ± 6.4              | -15.4 ± 5.9                                                            |
+| Probe: same Horse, raises turned into calls | -3.4 ± 5.8               | -8.1 ± 5.2                                                             |
+| Probe: always-caller                        |                          | +118.7 ± 13.0                                                          |
+| Probe: over-folder                          |                          | +3.1 ± 5.1                                                             |
+| Probe: balanced bluffer                     |                          | -10.8 ± 6.0                                                            |
+
+Probes are heads-up, 15,000 hands per arm.
+
+Pricing his raise did not fix the heads-up loss, so it is not the whole cause. It stays OFF. The next step is a decision-level trace of the hands the option changes heads-up: what the Horse does after the new bet is called and on later streets.
+
 ## Limits
 
 - Heads-up only: multiway opening spots (several of the audit's missed bluffs and flop value bets were multiway) are not touched.
