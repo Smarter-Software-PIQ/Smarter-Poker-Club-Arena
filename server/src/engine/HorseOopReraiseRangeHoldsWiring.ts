@@ -50,7 +50,11 @@ import {
   type OopReraiseSpot,
   type OopReraiseState,
   type OpenerAnswersRead,
+  HORSE_OOP_THREE_BET_WIDTH,
+  OOP_RERAISE_PRIOR_OPEN_BAND,
+  OPENER_ANSWERS_PRIOR_INDIFFERENCE,
 } from './HorseOopReraiseRangeHolds.js';
+import { reraiseSizeOf } from './HorsePreflopIndifferenceAnchor.js';
 
 /** The options this wiring reads (each `=== true`), and the cap. */
 export interface OopReraiseOpts {
@@ -58,6 +62,8 @@ export interface OopReraiseOpts {
   holdemOopReraiseRangeHoldsVsReraise?: boolean;
   /** horse.reraiseFoldShareCap (runtime setting); absent: RERAISE_FOLD_SHARE_CAP_DEFAULT */
   reraiseFoldShareCap?: number;
+  /** horse.openerAnswersPriorVersion (runtime setting); 2: the indifference prior; absent or 1: the fitted table */
+  openerAnswersPriorVersion?: number;
   mind?: boolean;
   telemetry?: boolean;
   observeMind?: boolean;
@@ -217,7 +223,22 @@ export function oopReraiseRangeHoldsStage(
         openBand = null;
       }
     }
-    const answers = openerAnswersThreeBetRead(spot.game, spot.effBB, measuredFold);
+    // horse.openerAnswersPriorVersion 2: the prior is the indifference answer to this 3-bet (1: the fitted table).
+    const anchored = opts.openerAnswersPriorVersion === OPENER_ANSWERS_PRIOR_INDIFFERENCE;
+    const answers = openerAnswersThreeBetRead(
+      spot.game,
+      spot.effBB,
+      measuredFold,
+      anchored
+        ? {
+            size: reraiseSizeOf(spot.pot, raiseTo, spot.heroBet),
+            openWidth: openBand
+              ? openBand[1] - openBand[0]
+              : OOP_RERAISE_PRIOR_OPEN_BAND[1] - OOP_RERAISE_PRIOR_OPEN_BAND[0],
+            threeBetWidth: HORSE_OOP_THREE_BET_WIDTH[spot.game],
+          }
+        : null
+    );
     if (answers === null) return decision;
     const hole = player.cards ?? [];
     const dead = player.knownDeadCards ?? [];

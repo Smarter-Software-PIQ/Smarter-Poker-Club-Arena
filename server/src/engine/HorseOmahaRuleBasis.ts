@@ -153,7 +153,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaOopReraiseRangeHoldsVsReraise: {
     kind: 'priced',
     range:
-      "the opener's band (HorseMind.bandFor of his line) split by his answer to a 3-bet: his measured fold to a 3-bet shrunk to the fitted population answer (OPENER_ANSWERS_PRIOR, game x depth), 4-bet range on top, calling range below it",
+      "the opener's band (HorseMind.bandFor of his line) split by his answer to a 3-bet: his measured fold to a 3-bet shrunk to the prior horse.openerAnswersPriorVersion selects (1: the fitted table OPENER_ANSWERS_PRIOR, game x depth; 2: the indifference answer to the 3-bet faced, HorsePreflopIndifferenceAnchor), 4-bet range on top, calling range below it",
     equity:
       'seeded sampled equity of the exact hand against each band (omahaReraisedEquity over omahaPreflopPercentile)',
     realization:

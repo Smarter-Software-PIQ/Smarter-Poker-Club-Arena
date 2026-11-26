@@ -1312,6 +1312,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'openerAnswersPriorVersion',
+    "Runtime setting horse.openerAnswersPriorVersion (compiled default 1; PLO lead-7 2026-11-26): the prior of the opener's answer to an out-of-position 3-bet that omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise price with. 1 = the fitted table OPENER_ANSWERS_PRIOR 2026-11-24.v1 (people and Horses pooled from hand_history: the mis-playing field the prior-anchor law forbids, kept selectable for the comparison); 2 = the indifference answer to the 3-bet faced (HorsePreflopIndifferenceAnchor.preflopAnswerToReraise: fold = s/(1+s) at the 3-bet's risk over the pot, the 4-bet share = the hands ahead of the Horse's own 3-bet range plus the bluffs a pot 4-bet carries at its own indifference, the rest calls); the opener's own fold-to-3-bet record on top with the same shrinkage either way; a parameter, not a switch",
+    'V94'
+  ),
+  flag(
     'reraiseFoldShareCap',
     'Runtime setting horse.reraiseFoldShareCap (default 0.45): the most of the out-of-position 3-bet range the two OOP re-raise range options let fold to a 4-bet (planned blocker folds kept at the frequency that holds it); never above the pure-bluff break-even of the 4-bet size; a parameter, not a switch',
     'V94'

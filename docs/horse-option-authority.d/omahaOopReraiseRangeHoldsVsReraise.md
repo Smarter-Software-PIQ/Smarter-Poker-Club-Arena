@@ -79,6 +79,17 @@ Exploit probes (ExploiterLeague `runExploiterCell`, heads-up, the script in seat
 
 Reading. ON never loses chips in PLO at the measured standard errors: it gains against the always-4-bet script (PLO5 +12 at 100 bb, +22 at 300 bb), and the near-aces range at 300 bb gains or breaks even against the scripts that do not 4-bet light (b, c), because the 3-bets it drops were losing ones and the call or fold that replaces them is the existing rule's. The mirror cards are all within about one standard error of 0. Against script a the share of the out-of-position 3-bets that fold to the 4-bet falls from 73-80% to 3% (PLO5 100 bb) and 21% (PLO5 300 bb); PLO4 at 300 bb reads 50% of 66 3-bets, over the cap: the keep table was fitted on six-max positions and heads-up ranges are wider (stated, not tuned). The heads-up out-of-position 3-bet count falls about four times (PLO5 223-235 -> 52-61 per 12,000 hands; PLO4 149-151 -> 64-67). Winning setting for PLO4/PLO5: the default (`horse.reraiseFoldShareCap` 0.45, ace blockers); nothing was tuned.
 
+## Prior anchor
+
+The opener's answer to the 3-bet (fold / call / 4-bet) has two selectable priors, runtime setting horse.openerAnswersPriorVersion (PLO lead-7, 2026-11-26):
+
+- Baseline: version 2 is the indifference answer to the 3-bet faced (server/src/engine/HorsePreflopIndifferenceAnchor.ts): fold = s/(1+s) with s the 3-bet's risk over the pot it wins (2/3 for a pot-limit pot 3-bet); the 4-bet share is the opener's hands ahead of the Horse's own 3-bet range (the top half of that range's width, HORSE_OOP_THREE_BET_WIDTH, as a share of his open band) plus the bluffs a pot 4-bet carries at its own indifference (s/(1+2s)); the rest calls.
+- Population weight: version 1 (compiled default, kept selectable for the comparison) is the table OPENER_ANSWERS_PRIOR 2026-11-24.v1 fitted on people and Horses pooled from hand_history, the mis-playing field; version 2 gives that population no weight.
+- Own record: the opener's own decayed fold-to-3-bet record sits on top of either prior with weight OPENER_ANSWERS_PRIOR_MASS (6 opportunities), so it dominates once it has a real sample.
+- No unshown cards: neither prior nor the record reads a hole card.
+
+Graded 2026-11-26 (server/scripts/oop-reraise-range/league.ts, live options, heads-up probes 4,000 pairs seed 11, option ON - OFF bb/100 (SE), version 2 / version 1): always 4-bets the 3-bet (a): PLO5 100 bb +20.4 (8.3) / +16.9 (9.4); PLO5 300 bb +1.0 (12.2) / +19.3 (9.4); PLO4 300 bb -1.0 (6.8) / -5.9 (6.5); NLH 100 bb +75.4 (15.0) / +78.1 (14.3). 4-bets aces or kings only (b): +3.9 (8.1) / +7.2 (8.0); +23.8 (12.1) / +24.0 (11.8); +7.5 (10.7) / +5.4 (10.3); -13.8 (12.6) / -24.3 (13.2). Calls every 3-bet (c): +16.1 (8.4) / +20.9 (8.9); +21.7 (10.0) / +10.3 (8.4); +2.8 (6.9) / -0.7 (7.5); -22.5 (17.5) / -23.3 (17.5). League mirror PLO5 6-max 100 bb, 6,000 pairs: -0.18 (1.97) / +3.19 (2.12). Version 2 loses significantly to none of them; against version 1 it is within noise everywhere (largest gap PLO5 300 bb probe a, -18.3 with SEs of 9-12). Fold to the 4-bet against probe a with version 2: PLO5 100 bb 7%, 300 bb 42%, PLO4 300 bb 27%, NLH 18% (all under the 0.45 cap).
+
 ## Replay
 
 - Replay: NOT RUN (the audited-decision scorer was not run; the generated-state replay above, server/scripts/oop-reraise-range/replay.ts, is the only grade)
