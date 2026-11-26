@@ -741,6 +741,11 @@ export class InsuranceEngine {
     return this.activeOffers.get(tableId) || [];
   }
 
+  /** Configured insurance offer countdown length in seconds for this table. */
+  getOfferTimeoutSeconds(tableId: string): number {
+    return (this.tableConfigs.get(tableId) || this.DEFAULT_CONFIG).offerTimeoutSeconds;
+  }
+
   /**
    * Latest live DeadlineScheduler expiry timestamp across still-'offered'
    * insurance offers for this table, or 0 when no offer is awaiting response.

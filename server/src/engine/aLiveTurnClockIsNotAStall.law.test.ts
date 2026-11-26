@@ -26,6 +26,7 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DeadlineScheduler } from './DeadlineScheduler.js';
 import { InsuranceEngine } from './InsuranceEngine.js';
+import { PreciseActionTimer } from './PreciseActionTimer.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 
 const TABLE = 'f1458b1c-fd8e-4dcb-8c79-762dbb2d29cf';
@@ -486,6 +487,70 @@ describe('a live bounded in-hand clock is not a stall (incident 9313cabc)', () =
     } finally {
       e.preciseTimer.dispose();
     }
+  });
+
+  it('HARDENING (second pass): PreciseActionTimer.getDeadline honors pauseTimer(), waitForInsuranceResponses waits past 25s and preserves preflop parity, and recovered/published timebank expiry guards reconnect protection & rejected auto-action', () => {
+    // 1. PreciseActionTimer.getDeadline() stays shifted while paused via pauseTimer().
+    let now = 1_700_000_000_000;
+    const sched = new DeadlineScheduler({ tickMs: 50, now: () => now });
+    const timer = new PreciseActionTimer(undefined, sched, () => now);
+    try {
+      timer.startTimer(TABLE, 'u1', 15_000, () => {});
+      now += 5_000; // 10s left
+      timer.pauseTimer(TABLE, 'u1');
+      now += 20_000; // wall clock moved past original deadline while paused
+      expect(timer.getDeadline(TABLE, 'u1')).toBe(now + 10_000);
+      timer.cancelTimer(TABLE, 'u1');
+      expect(timer.getDeadline(TABLE, 'u1')).toBe(0);
+    } finally {
+      timer.dispose();
+      sched.stop();
+    }
+
+    // 2. waitForInsuranceResponses safety timeout strictly exceeds InsuranceEngine's 25s offer timer
+    //    and preserves preflop street-only decline parity (forHand = false when boardLength < 3).
+    vi.useFakeTimers();
+    try {
+      const h = buildHarness({ currentSeat: -1 });
+      const declined: Array<[string, string, boolean | undefined, string | undefined]> = [];
+      let completed = 0;
+      const preflopOffer = { playerId: 'u1', status: 'offered', boardLength: 0 };
+      h.e.insuranceEngine = {
+        getOfferTimeoutSeconds: () => 25,
+        allResponded: () => preflopOffer.status !== 'offered',
+        getOffers: () => [preflopOffer],
+        decline: (t: string, p: string, forHand?: boolean, src?: string) => {
+          preflopOffer.status = 'declined';
+          declined.push([t, p, forHand, src]);
+        },
+      };
+      h.e.waitForInsuranceResponses(() => {
+        completed++;
+      });
+      // At 23s (past the old broken 22s hardcoded cutoff, before 25s offer expiry): NOT cut short.
+      vi.advanceTimersByTime(23_000);
+      expect(declined).toHaveLength(0);
+      expect(completed).toBe(0);
+      // At 30s (25s + 5s safety slack): safety net fires with preflop forHand=false, source='timeout'.
+      vi.advanceTimersByTime(7_100);
+      expect(declined).toEqual([[TABLE, 'u1', false, 'timeout']]);
+      expect(completed).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // 3. Source law: recovered and deferred-published timebank expiry callbacks both check
+    //    armRemainingReconnectProtection and re-arm via forceArmTurnTimer if forceResolveSeat fails.
+    const turnsSrc = fs.readFileSync(path.join(__dirname, 'ServerTableEngineTurns.ts'), 'utf8');
+    const pubIdx = turnsSrc.indexOf('resumeDeferredPublication(');
+    const pubSlice = turnsSrc.slice(pubIdx, pubIdx + 1200);
+    expect(pubSlice).toContain('this.armRemainingReconnectProtection(');
+    expect(pubSlice).toContain('this.forceArmTurnTimer(');
+
+    const recIdx = turnsSrc.indexOf('resumeRecoveredAllocation(');
+    const recSlice = turnsSrc.slice(recIdx, recIdx + 1200);
+    expect(recSlice).toContain('this.armRemainingReconnectProtection(');
+    expect(recSlice).toContain('this.forceArmTurnTimer(');
   });
 
   it('SOURCE LAW: msSinceProgress() and runTableWatchdog() share hasLiveBoundedInHandClock() and forceArmTurnTimer marks recovery', () => {

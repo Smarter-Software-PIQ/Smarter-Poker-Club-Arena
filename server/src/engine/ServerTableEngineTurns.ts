@@ -3340,6 +3340,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           this.handController?.getState().currentPlayerSeat !== actor.seat
         )
           return;
+        if (this.armRemainingReconnectProtection(actor.user_id)) return;
         const current = this.handController.getState();
         const player = current.players.find((p) => p.seat === actor.seat);
         if (
@@ -3351,6 +3352,16 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         ) {
           this.disconnectEngine.recordConnectedTimeout(this.tableId, actor.user_id);
           this.markProgress();
+        } else {
+          reportError(
+            new Error(
+              'Published time bank auto-action rejected at seat ' +
+                actor.seat +
+                ' - re-arming clock'
+            ),
+            'ServerTableEngine.' + this.tableId + '.published_timebank_auto_action_rejected'
+          );
+          this.forceArmTurnTimer(actor.seat, this.actionClockSeconds());
         }
       }
     );
@@ -3645,6 +3656,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           this.handController?.getState().currentPlayerSeat !== seat
         )
           return;
+        if (this.armRemainingReconnectProtection(player.user_id)) return;
         const current = this.handController.getState();
         const actor = current.players.find((p) => p.seat === seat);
         if (
@@ -3656,6 +3668,14 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         ) {
           this.disconnectEngine.recordConnectedTimeout(this.tableId, player.user_id);
           this.markProgress();
+        } else {
+          reportError(
+            new Error(
+              'Recovered time bank auto-action rejected at seat ' + seat + ' - re-arming clock'
+            ),
+            'ServerTableEngine.' + this.tableId + '.recovered_timebank_auto_action_rejected'
+          );
+          this.forceArmTurnTimer(seat, this.actionClockSeconds());
         }
       }
     );

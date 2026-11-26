@@ -239,10 +239,11 @@ export class PreciseActionTimer {
   getDeadline(tableId: string, playerId: string): number {
     const key = this.key(tableId, playerId);
     const dl = this.deadlines.get(key);
-    if (dl && this.weeklyPauses.get(tableId)?.timers.has(key)) {
+    if (!dl) return 0;
+    if (dl.isPaused || this.weeklyPauses.get(tableId)?.timers.has(key)) {
       return this.now() + dl.pausedRemainingMs;
     }
-    return dl?.deadline ?? 0;
+    return dl.deadline;
   }
 
   /**
