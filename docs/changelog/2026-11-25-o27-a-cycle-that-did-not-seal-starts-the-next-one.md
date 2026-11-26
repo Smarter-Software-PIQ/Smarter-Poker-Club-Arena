@@ -41,7 +41,7 @@ it dispatched does not appear.
 Only the 04:30 `EngineCutoverMissed` page ever reached the owner; the other seven daily
 cycles reached nobody. When the job decides a cycle did not seal, a last step sends one
 Messenger line through `public.fn_ca_note_cycle_did_not_seal` (migration
-`20261126031810`), for example: "Engine cutover at 10:00 PM CST did not happen: no new
+`20261126031810`, shipped alone in `#12043` so it installs in a post-cutover window; until it exists the note step warns and the Backup is unaffected), for example: "Engine cutover at 10:00 PM CST did not happen: no new
 build passed its test in time. The current engine keeps running, and the next build is
 being tested for the 1:00 AM CST cutover." It is keyed by the cycle, so a replay sends
 nothing; it goes in the reliability controller's existing owner conversation from its
