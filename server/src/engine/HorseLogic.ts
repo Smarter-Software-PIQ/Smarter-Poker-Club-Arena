@@ -1077,6 +1077,7 @@ import {
   omahaPreflopReraiseDefenceHeadsUpInPosition,
   omahaPreflopReraiseDefenceRule,
 } from './HorseOmahaPreflopReraiseDefenceRule.js';
+import { omahaReraisedPotPricedRule } from './HorseOmahaReraisedPotPricedRule.js';
 import {
   omahaReraisedRaiseMultiwayPriced,
   omahaReraisedRaisePriced,
@@ -4291,6 +4292,15 @@ export interface HorseDecideOpts {
    * out-of-position one included is the one with this option off. Default OFF until its declared evaluation
    * passes. */
   omahaPreflopReraiseDefencePricedInPosition?: boolean;
+  /** PLO lead-6 2026-11-24 (default OFF, read `=== true`; HorseOmahaReraisedPotPricedRule): PLO4/PLO5 cash,
+   * preflop, facing a 3-bet or more: the call or fold every earlier rule leaves standing is replaced by the priced
+   * one (HorseOmahaReraisedPotPriced: equity against the whole field, the players behind as probable continuers,
+   * self-play realization by position against that field, players and depth, rake). With it on the in-position
+   * defence of omahaPreflopReraiseDefencePricedInPosition answers to this price. */
+  omahaReraisedPotCallIsPriced?: boolean;
+  /** PLO lead-6 2026-11-24 (default OFF, read `=== true`): the same spot; a standing re-raise (a 4-bet or more)
+   * stands only when priced above the call and the fold, else it becomes the priced call or the fold. */
+  omahaReraisedPotReraiseIsPriced?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -11129,7 +11139,25 @@ function omahaReraisedPotRulesThenCallVsRaise(
   // omahaReraisedCallVsRaisePriced (default OFF): the standing call, or a
   // reference raise those rules lowered, priced as call against raise. With
   // the option off this line returns `standing` itself.
-  return omahaReraisedCallVsRaise(decision0, standing, player, gs, opts);
+  const priced = omahaReraisedCallVsRaise(decision0, standing, player, gs, opts);
+  // omahaReraisedPotCallIsPriced / omahaReraisedPotReraiseIsPriced (default OFF): the call, fold or re-raise left
+  // standing facing a 3-bet or more, priced against the whole field (HorseOmahaReraisedPotPricedRule). Both off:
+  // `priced` itself.
+  if (opts.omahaReraisedPotCallIsPriced !== true && opts.omahaReraisedPotReraiseIsPriced !== true)
+    return priced;
+  return omahaReraisedPotPricedRule(
+    priced,
+    player,
+    gs,
+    {
+      call: opts.omahaReraisedPotCallIsPriced === true,
+      reraise: opts.omahaReraisedPotReraiseIsPriced === true,
+    },
+    {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+    }
+  );
 }
 
 /**

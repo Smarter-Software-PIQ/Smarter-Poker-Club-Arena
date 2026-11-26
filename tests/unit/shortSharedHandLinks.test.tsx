@@ -18,6 +18,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const rpc = vi.hoisted(() => vi.fn());
+const signedIn = vi.hoisted(() => vi.fn(() => false));
 vi.mock('@/lib/supabase', () => {
   const chain = () => {
     const q: Record<string, unknown> = {};
@@ -34,7 +35,7 @@ vi.mock('@/services/SoundService', () => ({
 vi.mock('@/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: null }) }));
 vi.mock('@/lib/authUtils', async (orig) => ({
   ...(await orig<typeof import('@/lib/authUtils')>()),
-  hasLocalSession: () => false,
+  hasLocalSession: signedIn,
 }));
 
 import {
@@ -90,8 +91,19 @@ const hand = (): ShareableHand =>
     { id: ROW.id, tableName: 'NLH 0.25/0.50', heroUserId: SENDER }
   );
 
-beforeEach(() => rpc.mockReset());
-afterEach(cleanup);
+const post = vi.hoisted(() => vi.fn());
+beforeEach(() => {
+  rpc.mockReset();
+  signedIn.mockReset();
+  signedIn.mockReturnValue(false);
+  post.mockReset();
+  post.mockResolvedValue({ ok: true, json: async () => ({ counted: true }) });
+  vi.stubGlobal('fetch', post);
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('the service', () => {
   it('accepts only the 8-character token alphabet', () => {
@@ -135,6 +147,96 @@ describe('the service', () => {
     expect(await openSharedHand('nope')).toEqual({ status: 'missing' });
     expect(rpc).not.toHaveBeenCalled();
   });
+
+  // Migration 20261126054024 (issue #9828): the anon door only reads, and a
+  // view is counted through its own signed-in door.
+  it('opening only reads: a signed-out visitor never reaches the view counter', async () => {
+    rpc.mockResolvedValue({
+      data: { found: true, revoked: false, payload: 'v4~x', invite: null },
+      error: null,
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', { p_token: 'AbCd2345' });
+  });
+
+  // A signed-out open is counted by World Hub's server route with the service
+  // role (POST /api/club-arena/shared-hand-view), never through the RPC.
+  it('a signed-out open posts the token to World Hub once, and never calls the counter RPC', async () => {
+    rpc.mockResolvedValue({
+      data: { found: true, revoked: false, payload: 'v4~x', invite: null },
+      error: null,
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const [url, init] = post.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe('/api/club-arena/shared-hand-view');
+    expect(init).toMatchObject({ method: 'POST', credentials: 'omit', keepalive: true });
+    expect(JSON.parse(init.body)).toEqual({ token: 'AbCd2345' });
+    expect(Object.keys(init.headers).map((h: string) => h.toLowerCase())).not.toContain(
+      'authorization'
+    );
+    expect(rpc.mock.calls.map(([fn]) => fn)).toEqual(['fn_ca_shared_hand_open']);
+  });
+
+  it('a signed-out count that fails or hangs never fails or holds the open', async () => {
+    rpc.mockResolvedValue({
+      data: { found: true, revoked: false, payload: 'v4~x', invite: null },
+      error: null,
+    });
+    post.mockRejectedValueOnce(new Error('offline'));
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    post.mockReturnValueOnce(new Promise(() => {}));
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    signedIn.mockImplementationOnce(() => {
+      throw new Error('storage blocked');
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+  });
+
+  it('a revoked, missing or unreachable link posts nothing', async () => {
+    rpc.mockResolvedValueOnce({ data: { found: true, revoked: true }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'revoked' });
+    rpc.mockResolvedValueOnce({ data: { found: false }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'missing' });
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'down' } });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'unreachable' });
+    expect(await openSharedHand('bad')).toEqual({ status: 'missing' });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('a signed-in opener counts one view after the hand opens', async () => {
+    signedIn.mockReturnValue(true);
+    rpc.mockImplementation(async (fn: string) =>
+      fn === 'fn_ca_shared_hand_open'
+        ? { data: { found: true, revoked: false, payload: 'v4~x', invite: null }, error: null }
+        : { data: { counted: true }, error: null }
+    );
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+    await waitFor(() =>
+      expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_count_view', { p_token: 'AbCd2345' })
+    );
+    // Counted once: the signed-in open never also posts to World Hub.
+    expect(rpc.mock.calls.filter(([fn]) => fn === 'fn_ca_shared_hand_count_view')).toHaveLength(1);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('a revoked, missing or unreachable link counts nothing, and a failed count never fails the open', async () => {
+    signedIn.mockReturnValue(true);
+    rpc.mockResolvedValueOnce({ data: { found: true, revoked: true }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'revoked' });
+    rpc.mockResolvedValueOnce({ data: { found: false }, error: null });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'missing' });
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'down' } });
+    expect(await openSharedHand('AbCd2345')).toEqual({ status: 'unreachable' });
+    expect(rpc.mock.calls.map(([fn]) => fn)).not.toContain('fn_ca_shared_hand_count_view');
+
+    rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'fn_ca_shared_hand_count_view') throw new Error('offline');
+      return { data: { found: true, revoked: false, payload: 'v4~x', invite: null }, error: null };
+    });
+    expect((await openSharedHand('AbCd2345')).status).toBe('open');
+  });
 });
 
 describe('the /h/:token page', () => {
@@ -156,10 +258,7 @@ describe('the /h/:token page', () => {
     });
     await open();
     await screen.findByText('Hand #56019216');
-    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', {
-      p_token: 'AbCd2345',
-      p_count: true,
-    });
+    expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_open', { p_token: 'AbCd2345' });
     expect(screen.getByRole('link', { name: 'Create Account' }).getAttribute('href')).toBe(
       '/i/HSTAAAA'
     );

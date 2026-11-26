@@ -1,4 +1,5 @@
--- Every door of 20261107021555, as the role that really calls it.
+-- Every door of 20261107021555 and 20261126054024, as the role that really
+-- calls it. Opening a link reads; counting a view is its own signed-in door.
 \set payload 'djR-TkxIfjAuMjUtMC41fjZ-bXc1ZWI3MHB-MTpUVzl1WjI4'
 CREATE FUNCTION pg_temp.check(name text, ok boolean) RETURNS void LANGUAGE plpgsql AS
   $$ BEGIN RAISE NOTICE '% %', CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END, name; END $$;
@@ -22,32 +23,60 @@ EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS anon cannot read t
 DO $$ BEGIN PERFORM fn_ca_shared_hand_reserve('djR-TkxIfjAuMjUtMC41fjZ-bXc1ZWI3MHB-MTpUVzl1WjI4'); RAISE NOTICE 'FAIL anon cannot reserve';
 EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS anon cannot reserve'; END $$;
 SELECT pg_temp.check('a signed-out viewer opens the hand', fn_ca_shared_hand_open(:'tok') ->> 'payload' = :'payload');
-SELECT pg_temp.check('a preview crawler opens it without counting', (fn_ca_shared_hand_open(:'tok', false) ->> 'found')::boolean);
+SELECT pg_temp.check('a preview crawler opens it', (fn_ca_shared_hand_open(:'tok', false) ->> 'found')::boolean);
+DO $$ BEGIN PERFORM fn_ca_shared_hand_count_view('AbCd2345'); RAISE NOTICE 'FAIL anon cannot count a view';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS anon cannot count a view'; END $$;
 RESET ROLE;
-SELECT pg_temp.check('one counted view', (SELECT view_count FROM ca_shared_hands WHERE token = :'tok') = 1);
+SELECT pg_temp.check('a signed-out open writes nothing', (SELECT view_count = 0 AND last_viewed_at IS NULL FROM ca_shared_hands WHERE token = :'tok'));
+SELECT pg_temp.check('the anon door is STABLE and its body never writes',
+  (SELECT provolatile = 's' AND pg_get_functiondef(oid) !~* '(^|[^a-z_])(insert into|update |delete from)'
+     FROM pg_proc WHERE oid = 'fn_ca_shared_hand_open(text,boolean)'::regprocedure));
+SELECT pg_temp.check('no shared-hand writer is executable by anon',
+  NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname LIKE 'fn\_ca\_shared\_hand\_%' AND prosecdef
+     AND has_function_privilege('anon', oid, 'EXECUTE')
+     AND pg_get_functiondef(oid) ~* '(^|[^a-z_])(insert into|update |delete from)'));
+SELECT pg_temp.check('the public reader is recorded where the telemetry sweep reads it',
+  EXISTS (SELECT 1 FROM ca_browser_definer_allowlist WHERE proname = 'fn_ca_shared_hand_open'));
 
 SET ROLE authenticated; SELECT pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 SELECT pg_temp.check('the sender opening their own link', (fn_ca_shared_hand_open(:'tok') ->> 'found')::boolean);
+SELECT pg_temp.check('the sender''s own open is not a view', NOT (fn_ca_shared_hand_count_view(:'tok') ->> 'counted')::boolean);
 SELECT pg_temp.check('mark sent', (fn_ca_shared_hand_mark_sent(:'tok') ->> 'success')::boolean);
 SELECT pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 SELECT pg_temp.check('another player cannot revoke it', NOT (fn_ca_shared_hand_revoke(:'tok') ->> 'success')::boolean);
 SELECT pg_temp.check('another player cannot mark it sent', NOT (fn_ca_shared_hand_mark_sent(:'tok') ->> 'success')::boolean);
 SELECT pg_temp.check('another player opens it', (fn_ca_shared_hand_open(:'tok') ->> 'found')::boolean);
+SELECT pg_temp.check('another signed-in player counts a view', (fn_ca_shared_hand_count_view(:'tok') ->> 'counted')::boolean);
+SELECT pg_temp.check('a malformed token counts nothing', NOT (fn_ca_shared_hand_count_view('../../etc') ->> 'counted')::boolean);
+SELECT pg_temp.as_user('');
+DO $$ BEGIN PERFORM fn_ca_shared_hand_count_view('AbCd2345'); RAISE NOTICE 'FAIL a session with no account is refused';
+EXCEPTION WHEN invalid_authorization_specification THEN RAISE NOTICE 'PASS a session with no account is refused'; END $$;
 RESET ROLE;
-SELECT pg_temp.check('the sender is not counted; the other player is', (SELECT view_count FROM ca_shared_hands WHERE token = :'tok') = 2);
+SELECT pg_temp.check('the sender is not counted; the other player is', (SELECT view_count = 1 AND last_viewed_at IS NOT NULL FROM ca_shared_hands WHERE token = :'tok'));
 SELECT pg_temp.check('sent is recorded', (SELECT sent_at IS NOT NULL FROM ca_shared_hands WHERE token = :'tok'));
 
 SET ROLE authenticated; SELECT pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 SELECT pg_temp.check('the sender revokes', (fn_ca_shared_hand_revoke(:'tok') ->> 'success')::boolean);
 SELECT pg_temp.check('a revoked link carries no hand', fn_ca_shared_hand_open(:'tok') = '{"found": true, "revoked": true}'::jsonb);
-SELECT pg_temp.check('sharing again makes a new token', fn_ca_shared_hand_reserve(:'payload') ->> 'token' <> :'tok');
+SELECT fn_ca_shared_hand_reserve(:'payload') ->> 'token' AS tok2 \gset
+SELECT pg_temp.check('sharing again makes a new token', :'tok2' <> :'tok');
+SELECT pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+SELECT pg_temp.check('a revoked link counts no view', NOT (fn_ca_shared_hand_count_view(:'tok') ->> 'counted')::boolean);
 RESET ROLE;
+SET ROLE service_role; SELECT pg_temp.as_user(''); SELECT set_config('request.jwt.claim.role', 'service_role', false);
+SELECT pg_temp.check('the server (service_role) can count a signed-out visit', (fn_ca_shared_hand_count_view(:'tok2') ->> 'counted')::boolean);
+SELECT set_config('request.jwt.claim.role', '', false);
+RESET ROLE;
+SELECT pg_temp.check('the revoked link kept its count', (SELECT view_count FROM ca_shared_hands WHERE token = :'tok') = 1);
 
 INSERT INTO ca_shared_hands (token, sender_id, payload, payload_md5)
   VALUES ('Zz23Zz23', '33333333-3333-3333-3333-333333333333', :'payload', md5('deleted'));
 SET ROLE anon;
 SELECT pg_temp.check('a deleted sender''s link opens nothing', fn_ca_shared_hand_open('Zz23Zz23') = '{"found": false}'::jsonb);
 SELECT pg_temp.check('a malformed token opens nothing', fn_ca_shared_hand_open('../../etc') = '{"found": false}'::jsonb);
+RESET ROLE;
+SET ROLE authenticated; SELECT pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+SELECT pg_temp.check('a deleted sender''s link counts no view', NOT (fn_ca_shared_hand_count_view('Zz23Zz23') ->> 'counted')::boolean);
 RESET ROLE;
 
 -- The short-link store transports the browser's recording opaquely. It only
