@@ -22,7 +22,9 @@ Production logged 134 `duplicate key value violates unique constraint "ca_browse
 
 `tests/unit/aBrowserBindsOncePerAccount.test.ts` reads the latest definition of the key and of each writer across every migration. It fails if the key goes back to `browser_token` alone, if a binding insert lacks `ON CONFLICT (browser_token, user_id)`, if a conflict rewrites `user_id`, or if the claim refreshes `last_seen` without the account filter. All four cases fail with the migration removed.
 
-The migration was rehearsed on a local PostgreSQL 16 with the production state (account A bound to a browser, exempt account B signing in on it). Before: the same `ca_browser_bindings_pkey` error. After: B gets its own binding and device, a repeat claim reuses it, and A's binding is untouched.
+Each redefined function has a `-- @probe-for:` block that runs it before COMMIT as a signed-in caller with no live session; the first also proves one browser holds a row per account and the conflict target finds the caller's own row. `scripts/ci/rehearsal-auth-schema.sql` now carries `auth.sessions` in production's shape, which plpgsql_check on the rehearsal copy needed to resolve `ca_claim_active_login`.
+
+The migration was rehearsed on a local PostgreSQL 16 with the production state (account A bound to a browser, exempt account B signing in on it). Before: the same `ca_browser_bindings_pkey` error. With the key left on `browser_token`, the first probe refuses and the migration rolls back. After: B gets its own binding and device, a repeat claim reuses it, and A's binding is untouched.
 
 ## Verify
 
