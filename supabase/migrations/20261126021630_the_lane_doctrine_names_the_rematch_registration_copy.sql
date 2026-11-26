@@ -36,6 +36,10 @@
 -- violation before COMMIT.
 --
 -- No table is touched. The doctrine is a STABLE catalog reader.
+--
+-- The doctrine is replaced through EXECUTE, so no CREATE names it here; the
+-- proof that production carries this change reads the installed body.
+-- @live-proof: (position('fn_ca_rematch_register_for_payer,fn_register_for_tournament,fn_register_for_tournament_with_ticket' IN pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure)) > 0)
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';

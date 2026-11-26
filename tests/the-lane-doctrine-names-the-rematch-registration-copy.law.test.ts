@@ -52,6 +52,10 @@ describe('the lane doctrine names the rematch registration copy', () => {
     expect(body).toContain("'LANE_DOCTRINE_REMATCH_COPY: the doctrine still reports %'");
     expect(body).toContain("'LANE_DOCTRINE_REMATCH_COPY: rule 7 lost its seat-gate clause'");
     expect(read(mine[0])).toContain('-- @probe-for: public.fn_ca_settlement_lane_doctrine\n');
+    // Patched through EXECUTE, so the merged-must-be-live law needs the proof said out loud.
+    expect(read(mine[0])).toMatch(
+      /^-- @live-proof: \(position\('fn_ca_rematch_register_for_payer,/m
+    );
   });
 
   it('every migration that re-derives the rematch copies after the first proves the doctrine before COMMIT', () => {
