@@ -1,0 +1,3 @@
+# tests/the-backup-certifies-what-can-ship.law.test.ts
+
+2026-11-26: a Backup run whose target carries an uninstalled migration certifies the newest first-parent server commit behind it that carries none (when ahead of the serving engine, control unchanged) instead of deferring, and a target carrying none of the pending files is never deferred; the install window's last successful dispatcher install of apply-merged-migration.yml starts one "Backup after installs <run>" certification of main's newest server commit (workflow_run, no timer), which Stage admits as an election trigger. Anything unreadable defers as before.

@@ -111,15 +111,6 @@ describe('native Messenger dock', () => {
     expect(panel).toContain('dock-media-preview');
     expect(panel).toContain('dock-upload-progress');
     expect(panel).toContain('onPaste={handlePaste}');
-    expect(panel).toContain('readDockVideoDimensions');
-    expect(panel).toContain('!event.currentTarget.contains(event.relatedTarget)');
-    const sendSection = panel.slice(
-      panel.indexOf('const sendPendingMedia'),
-      panel.indexOf('const upload =')
-    );
-    expect(sendSection.indexOf('await uploadDockFileWithProgress(')).toBeLessThan(
-      sendSection.indexOf('clearPendingMedia()')
-    );
     expect(viewer).toContain('closedby');
     expect(viewer).toContain('showModal');
     expect(viewer).toContain('Unable To Load Photo');

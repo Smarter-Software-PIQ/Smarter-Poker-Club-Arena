@@ -198,8 +198,12 @@ describe('the post-seal Backup certifies the next candidate (O24)', () => {
     expect(stepOf(refresh, 'late_retarget').if).toMatch(/^github\.event_name == 'push' && /);
     expect(planJob.outputs.control_sha).toBe('${{ steps.plan.outputs.control_sha || github.sha }}');
     expect(run(next)).not.toContain('control_sha=');
-    // No timer, no chained trigger: the receiver's one existing event starts it.
-    expect(backup.on.workflow_run).toBeUndefined();
+    // No timer: the receiver's one existing event starts it. The only chained
+    // trigger is the window's last install (2026-11-26), never a Backup run.
+    expect(backup.on.workflow_run).toEqual({
+      workflows: ['Apply Merged Migration'],
+      types: ['completed'],
+    });
     expect(backup.on.schedule).toHaveLength(2);
     expect(backup.on.repository_dispatch.types).toEqual([
       'run-post-deploy-e2e',

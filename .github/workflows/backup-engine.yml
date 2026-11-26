@@ -1,5 +1,5 @@
 name: Backup Engine (Clone, Stage, Certify)
-run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || '' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || github.event_name == 'workflow_dispatch' && inputs.after_cycle && format('Backup after keep-serving {0}', inputs.after_cycle) || github.event_name == 'workflow_run' && format('Backup after installs {0}', github.event.workflow_run.id) || '' }}
 
 # THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
 # engine runs on its own Hetzner host against an isolated copy of the
@@ -149,6 +149,19 @@ on:
       - 'scripts/ci/record-engine-deploy-attempt.mjs'
       - 'scripts/ci/record-engine-deploy-exit.mjs'
       - 'scripts/ci/record-engine-release-alert.mjs'
+  workflow_run:
+    # THE WINDOW'S LAST INSTALL STARTS ONE CERTIFICATION (2026-11-26). Every
+    # install stales every Backup copy, and nothing certified again after a
+    # post-cutover install window: on 2026-11-25 the 10:15Z and 19:10Z
+    # installs left b7948ca90719 stale for good while no run followed them.
+    # The plan job admits only a successful dispatcher install
+    # (repository_dispatch) of apply-merged-migration.yml on this repository's
+    # main, and only when no other Apply Merged Migration run is still going,
+    # so the window's last install starts exactly one certification of main's
+    # newest server commit ("Backup after installs <run>"). No timer, no
+    # watcher, no retry: one event, one run.
+    workflows: [Apply Merged Migration]
+    types: [completed]
   schedule:
     # Nightly refresh after midnight America/Chicago (05 UTC is CDT, 06 UTC
     # is CST). GitHub has delivered schedules hours late or not at all, so
@@ -203,7 +216,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '')
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '') && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.path == '.github/workflows/apply-merged-migration.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'))
     permissions:
       contents: read
       actions: read
@@ -387,6 +400,7 @@ jobs:
           SEALED_SHA: ${{ steps.seal.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
+          INSTALL_RUN: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           sha="${INPUT_SHA:-$GITHUB_SHA}"
@@ -535,6 +549,41 @@ jobs:
             echo "priority=$priority" >> "$GITHUB_OUTPUT"
             echo "inherit_eligible=true" >> "$GITHUB_OUTPUT"
           fi
+          # THE WINDOW'S LAST INSTALL STARTS ONE CERTIFICATION (2026-11-26).
+          # Only the last Apply Merged Migration run still going plans; a newer
+          # after-install Backup run supersedes this one. The target is main's
+          # newest server commit when this run started (GITHUB_SHA is main's
+          # head for a workflow_run event); the refresh job certifies the
+          # newest one that carries no uninstalled migration. Unreadable
+          # answers plan, as a push run does (CLAUDE.md 10.86).
+          if [ "$EVENT" = workflow_run ]; then
+            api="repos/${GITHUB_REPOSITORY:-}/actions/workflows"
+            going=$(gh api "$api/apply-merged-migration.yml/runs?per_page=100" \
+              --jq "[.workflow_runs[] | select(.id != ${INSTALL_RUN:-0} and .status != \"completed\")] | length" 2>/dev/null || echo unreadable)
+            if [[ "$going" =~ ^[0-9]+$ ]] && [ "$going" -gt 0 ]; then
+              echo "NOT THE LAST INSTALL: $going other Apply Merged Migration run(s) are still going after install run ${INSTALL_RUN:-unknown}; the last one to finish starts the certification. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- NOT THE LAST INSTALL: $going other install run(s) still going; nothing planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            newer=$(gh api "$api/backup-engine.yml/runs?event=workflow_run&per_page=100" \
+              --jq "[.workflow_runs[] | select(.id > $RUN_ID)] | length" 2>/dev/null || echo unreadable)
+            if [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt 0 ]; then
+              echo "SUPERSEDED AFTER INSTALLS: $newer newer after-install Backup run(s) exist; the newest certifies main after the last install. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- SUPERSEDED AFTER INSTALLS: $newer newer after-install run(s); nothing planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            head=$(gh api "repos/${GITHUB_REPOSITORY:-}/commits?sha=$GITHUB_SHA&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
+            if [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then sha="$head"; fi
+            echo "AFTER INSTALLS: Apply Merged Migration run ${INSTALL_RUN:-unknown} was the window's last install; certifying $sha, main's newest server commit at $GITHUB_SHA, on a copy that holds the new installs."
+            { echo "### Backup Engine"; echo ""; echo "- AFTER INSTALLS \`$sha\` (install run ${INSTALL_RUN:-unknown}; main at \`$GITHUB_SHA\`)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "refresh=auto" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The refresh job decides from the standby's restore stamp whether a
           # refresh is due: forced, a new Chicago date, or a migration newer
           # than the copy. A schedule event certifies main after refreshing.
@@ -640,8 +689,8 @@ jobs:
     outputs:
       turn: ${{ steps.turn.outputs.acquired }}
       deferred: ${{ (steps.turn.outputs.superseded == '1' || steps.late_inherit.outputs.inherited == '1' || steps.due.outputs.deferred == '1' || steps.late_priority.outputs.deferred == '1') && '1' || '' }}
-      sha: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
-      control_sha: ${{ steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
+      sha: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+      control_sha: ${{ steps.due.outputs.control_sha || steps.late_retarget.outputs.control_sha || needs.plan.outputs.control_sha }}
     timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
@@ -1102,7 +1151,72 @@ jobs:
           # sealed-build runs are exempt; unreadable production emits no pending=.
           # A post-seal next-candidate run (O24) follows the push rule although
           # its refresh is forced: its target is an ordinary candidate.
-          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+          # THE BACKUP CERTIFIES WHAT CAN SHIP (2026-11-26). A migration merged
+          # outside the post-cutover install window sits uninstalled on main for
+          # up to 150 minutes, and every later commit carries it. On 2026-11-25
+          # this guard therefore deferred every push run until the next window
+          # while the newest certifiable build (c951436a6ead) lost its run to
+          # supersession. Before deferring, the run now certifies the newest
+          # first-parent server commit at or behind its target whose tree holds
+          # none of the uninstalled files, when that commit is ahead of the
+          # serving engine. Its control stays this run's own commit (or, for a
+          # push run retargeting forward, the target itself), which is what
+          # select-daily-engine.py admits. A target whose tree holds none of the
+          # pending files is not deferred at all: the copy and production both
+          # lack them. Anything unreadable defers exactly as before (CLAUDE.md
+          # 10.86).
+          retargeted_down=''
+          if [ -n "$pending_migrations" ] && { { { [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
+            carries() { # carries <commit>: the pending versions its tree holds; fails when unreadable
+              local listed
+              [ "$(git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null)" = "$1" ] || return 1
+              listed=$(git ls-tree --name-only "$1" -- supabase/migrations/ 2>/dev/null) || return 1
+              local v
+              for v in ${pending_migrations//,/ }; do
+                grep -q "^supabase/migrations/${v}_" <<< "$listed" && printf '%s\n' "$v"
+              done
+              return 0
+            }
+            if held=$(carries "$SHA"); then
+              if [ -z "$held" ]; then
+                echo "UNINSTALLED BUT NOT CARRIED: $SHA holds none of $pending_migrations (only main after it does); the copy and production both lack them, so it is certified as planned."
+                pending_migrations=''
+              else
+                down=''
+                for c in $(git rev-list --first-parent --max-count=200 "$SHA" -- server 2>/dev/null); do
+                  if c_held=$(carries "$c"); then
+                    if [ -z "$c_held" ]; then down="$c"; break; fi
+                  else
+                    down=''; break
+                  fi
+                done
+                serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health 2>/dev/null | jq -r '.releaseSha // ""' 2>/dev/null) || serving=''
+                down_control=''
+                if [[ "$down" =~ ^[0-9a-f]{40}$ ]] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$down" != "$serving" ] \
+                   && git merge-base --is-ancestor "$serving" "$down" 2>/dev/null; then
+                  if git merge-base --is-ancestor "$down" "$GITHUB_SHA" 2>/dev/null; then
+                    down_control="$GITHUB_SHA"
+                  elif [ "$EVENT" = push ] && git merge-base --is-ancestor "$GITHUB_SHA" "$down" 2>/dev/null \
+                     && git diff --quiet "$GITHUB_SHA" "$down" -- .github/workflows/backup-engine.yml 2>/dev/null; then
+                    down_control="$down"
+                  fi
+                fi
+                held_list=$(printf '%s' "$held" | tr '\n' ',')
+                if [ -n "$down_control" ]; then
+                  echo "RETARGETED TO WHAT CAN SHIP: $SHA carries uninstalled migration(s) ($held_list); certifying $down, the newest server commit behind it that carries none and is ahead of the serving engine $serving (control $down_control)."
+                  { echo "### Backup Engine"; echo ""; echo "- RETARGETED TO WHAT CAN SHIP \`$SHA\` -> \`$down\`: the target carries uninstalled migration(s) \`$held_list\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                  SHA="$down"; CONTROL="$down_control"; retargeted_down=1
+                  echo "sha=$down" >> "$GITHUB_OUTPUT"
+                  echo "control_sha=$down_control" >> "$GITHUB_OUTPUT"
+                else
+                  echo "no certifiable commit behind $SHA (newest without the uninstalled files: ${down:-none or unreadable}; serving: ${serving:-unreadable}); deferring as before."
+                fi
+              fi
+            else
+              echo "the migrations $SHA carries are unreadable; deferring as before (CLAUDE.md 10.86)."
+            fi
+          fi
+          if [ -n "$pending_migrations" ] && [ -z "$retargeted_down" ] && { { { [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then
             sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
@@ -1191,7 +1305,7 @@ jobs:
           # Stale copies (due=true), forced runs, freeze baselines, mismatched
           # digests, or unreadable statuses proceed normally (CLAUDE.md 10.86).
           if [ "$due" = false ] && [ "$MODE" != force ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
-             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ]; } \
+             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ] || [ "$EVENT" = workflow_run ]; } \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
             standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
               --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)\t\(.description // \"\")\"" 2>/dev/null) || standing_line=''
@@ -1307,7 +1421,7 @@ jobs:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          SHA: ${{ steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
+          SHA: ${{ steps.due.outputs.sha || steps.late_retarget.outputs.sha || needs.plan.outputs.sha }}
           PLAN_PRIORITY: ${{ needs.plan.outputs.priority }}
         run: |
           set -euo pipefail
