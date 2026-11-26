@@ -1322,6 +1322,41 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetRangeIsMeasuredByLine',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetEv on the turn and river, the bettor's range is his measured strength histogram by street, line, size and pot type (fitted from shown hands), his own shown record shrunk toward it, priced exactly against the hand; no per-street narrowing and no fixed bluff share (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaMeasuredBettorRange.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetIndifferenceCalls',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. the facing-bet verdicts call at EV >= the estimate's own error (0 for an exact count, the sampling error for a sample) instead of EV > 2% of the final pot (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaFlopCallTree.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFlopRealizationIsPriced',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. the flop call facing a bet or a raise is the two-street tree on the bettor's measured flop range and the field dealt on the same runouts, his later bet rates measured; no realization factor or fitted multiplier (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFlopCallTree.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetMinimumDefencePrior',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaMeasuredBettorRange.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetFieldIsJoint',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayCallNeedsNutShare',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside the joint field price, the field holds flush draws at the measured share of callers and a better same-category hand of the field is priced into the call (an input to the price, never a rule; default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayValueBetIsPriced',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a final multiway check with nothing to call becomes the best of three bet sizes where its EV against the field's measured fold and calling ranges beats the check's by 2% of the pot (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaMultiwayValueBet.ts",
+    'V94'
+  ),
+  flag(
     'omahaReraisedPotCallIsPriced',
     "PLO lead-6 2026-11-24 (decision audit of every PLO4/PLO5 cash hand with a person Nov 20-24, leaks 1-4: calls of a 3-bet or 4-bet, out of position multiway the largest; owner: calling 3-bets and 4-bets out of position is a losing play, out of position needs a much stronger range, no blanket rules, nothing keyed on person-vs-Horse identity). PLO4/PLO5 cash, high only, one board, no bomb pot, preflop facing a 3-bet or more with a fold available; default off (read === true). The call or fold every earlier rule leaves standing is replaced by the priced one (HorseOmahaReraisedPotPricedRule): EV(call) = sum over which players behind continue of P x [R x equity x (pot - rake) - call] - P(re-raise behind) x call, with equity against the whole field (the re-raiser's range from his own decayed re-raise record against the anchored prior; callers and players behind as self-play measured multiples; the players behind as probable continuers at the self-play answer rates), position against EVERY player in that field (the guard it supersedes read position against the re-raiser and the players already in only), and realization measured in league self-play by role, position, players, depth and equity. A call stands unless EV(call) < -1% of the pot after the call; a fold becomes the call when EV(call) > +1%. With it on the in-position defence (omahaPreflopReraiseDefencePricedInPosition) answers to this price. Never a raise invented; never PLO6, a tournament, hi-lo, a bomb pot or more than one board; no unshown card read.",
     'V94'
@@ -6043,6 +6078,102 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
     "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_range_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "a PLO4/PLO5 cash turn or river facing-bet decision priced on the bettor's measured range (omahaFacingBetRangeIsMeasuredByLine) that calls",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_range_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_joint_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'a PLO4/PLO5 cash multiway turn or river facing-bet decision priced with the field dealt on the same cards (omahaFacingBetFieldIsJoint) that calls',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_joint_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_margin_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "today's facing-bet EV decided at the indifference margin alone (omahaFacingBetIndifferenceCalls) and calls",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_margin_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price read the bettor's own shown record of the cell",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_min_defence_bounded',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price raised a no-record prior to the cell's minimum-defence share (omahaFacingBetMinimumDefencePrior)",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price's call or fold differs from today's facing-bet verdict",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_call',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    'a PLO4/PLO5 cash flop facing-bet decision priced as the two-street tree on measured ranges (omahaFlopRealizationIsPriced) that calls',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_fold',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_changed',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree's call or fold differs from the decision it was given",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_record_read',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree read the bettor's own shown record of the cell",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_min_defence_bounded',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree raised a no-record prior to the cell's minimum-defence share (omahaFacingBetMinimumDefencePrior)",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_value_bet_priced_bet',
+    'HorseOmahaMultiwayValueBet (omahaMultiwayValueBetIsPriced)',
+    'a PLO4/PLO5 cash final multiway check became the priced bet (omahaMultiwayValueBetIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_value_bet_check_kept',
+    'HorseOmahaMultiwayValueBet (omahaMultiwayValueBetIsPriced)',
+    'the multiway value bet was priced and the check is worth at least as much: the check stands',
     'V94'
   ),
   receipt(

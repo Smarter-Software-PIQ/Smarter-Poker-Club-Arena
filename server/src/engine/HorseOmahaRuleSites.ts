@@ -519,6 +519,27 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaFacingBetRangeIsMeasuredByLine: priced(
+    "inside omahaFacingBetEv on the turn and river, the bettor's range is his measured strength histogram by street, line, size and pot type (fitted from shown hands), his own shown record shrunk toward it, priced exactly against the hand; no per-street narrowing and no fixed bluff share (default OFF; PLO-OWNER lead-6 2026-11-24)"
+  ),
+  omahaFacingBetIndifferenceCalls: priced(
+    "the facing-bet verdicts call at EV >= the estimate's own error (0 for an exact count, the sampling error for a sample) instead of EV > 2% of the final pot (default OFF; PLO-OWNER lead-6 2026-11-24)"
+  ),
+  omahaFlopRealizationIsPriced: priced(
+    "the flop call facing a bet or a raise is the two-street tree on the bettor's measured flop range and the field dealt on the same runouts, his later bet rates measured; no realization factor or fitted multiplier (default OFF; PLO-OWNER lead-6 2026-11-24)"
+  ),
+  omahaFacingBetMinimumDefencePrior: priced(
+    "a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24)"
+  ),
+  omahaFacingBetFieldIsJoint: priced(
+    'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
+  ),
+  omahaMultiwayCallNeedsNutShare: priced(
+    'inside the joint field price, the field holds flush draws at the measured share of callers and a better same-category hand of the field is priced into the call (an input to the price, never a rule; default OFF; PLO-OWNER lead-6 2026-11-24)'
+  ),
+  omahaMultiwayValueBetIsPriced: priced(
+    "a final multiway check with nothing to call becomes the best of three bet sizes where its EV against the field's measured fold and calling ranges beats the check's by 2% of the pot (default OFF; PLO-OWNER lead-6 2026-11-24)"
+  ),
   omahaStabDefenceIsPriced: priced(
     "facing the first wager of a turn or river street, the bettor's non-value share is priced from his own lifetime public first-wager frequency against the population's, shrunk n / (n + k) with the measured k; no record is the population prior exactly (default OFF)"
   ),

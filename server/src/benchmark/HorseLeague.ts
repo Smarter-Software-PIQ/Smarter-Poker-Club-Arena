@@ -3407,9 +3407,78 @@ export const HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS: readonly LeagueMatchup[]
  * nightly card may not seat, or when it is a development candidate card graded by
  * name only.
  */
+/**
+ * 2026-11-24 PLO-OWNER lead-6 grade cards (development: dealt by name only, never nightly). The corrected PLO4/PLO5
+ * facing-bet price as a set and in its three parts, at heads-up, 6-max and 9-max: b is today's live facing-bet
+ * verdicts (omahaFacingBetEv, omahaFlopFacingBetEv), a adds the options. Same seeds both sides (duplicate pairs).
+ */
+const PLO_FACING_BET_PRICED_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  [
+    'all',
+    {
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFacingBetIndifferenceCalls: true,
+      omahaFlopRealizationIsPriced: true,
+      omahaFacingBetMinimumDefencePrior: true,
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+      omahaMultiwayValueBetIsPriced: true,
+    },
+  ],
+  ['f3', { omahaFlopRealizationIsPriced: true }],
+  [
+    'f1f2f6',
+    {
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFacingBetIndifferenceCalls: true,
+      omahaFacingBetMinimumDefencePrior: true,
+    },
+  ],
+  [
+    'm1m2m3',
+    {
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+      omahaMultiwayValueBetIsPriced: true,
+    },
+  ],
+  ['m3', { omahaMultiwayValueBetIsPriced: true }],
+];
+const PLO_FACING_BET_PRICED_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_FACING_BET_PRICED_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6, 9] as const).map((seats) => ({
+        name: `${variant}_omaha_facing_bet_priced_grade_${part}_${seats === 2 ? 'hu' : seats + 'max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { omahaFacingBetEv: true, omahaFlopFacingBetEv: true, ...on },
+        b: { omahaFacingBetEv: true, omahaFlopFacingBetEv: true },
+      }))
+    )
+);
+/**
+ * The flop call tree against the live switches of 2026-11-24 after 07:08Z (omahaFacingBetEv on, omahaFlopFacingBetEv
+ * off): b is that live set, a adds omahaFlopRealizationIsPriced alone. Development cards, dealt by name only.
+ */
+const PLO_FLOP_CALL_TREE_VS_LIVE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    ([2, 6, 9] as const).map((seats) => ({
+      name: `${variant}_omaha_facing_bet_priced_grade_f3live_${seats === 2 ? 'hu' : seats + 'max'}`,
+      variant,
+      seats,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaFacingBetEv: true, omahaFlopRealizationIsPriced: true },
+      b: { omahaFacingBetEv: true },
+    }))
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
+  ...PLO_FACING_BET_PRICED_GRADE_CARDS,
+  ...PLO_FLOP_CALL_TREE_VS_LIVE_CARDS,
   // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced V2 empirical priors, default OFF, dark):
   // both arms carry holdemPersonaPostflop on (its production row); a prices the four V87 spots it scales
   // (range c-bet, turn takeaway, OOP check-trap, check-raise into a stabber) by EV against the line range
@@ -4839,6 +4908,77 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaPreflopJamFacingReraiseIsPriced: true },
+    b: {},
+  })),
+  // 2026-11-24 PLO-OWNER lead-6 (default OFF, PLO4/PLO5 cash): the corrected facing-bet price on measured ranges
+  // (F1-F3, F6, multiway M1-M3); each card's a adds one option to the b that carries what it acts inside.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_range_is_measured_by_line`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetRangeIsMeasuredByLine: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_indifference_calls`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetIndifferenceCalls: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_realization_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFlopRealizationIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_minimum_defence_prior`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFlopRealizationIsPriced: true,
+      omahaFacingBetMinimumDefencePrior: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetRangeIsMeasuredByLine: true,
+      omahaFlopRealizationIsPriced: true,
+    },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_field_is_joint`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_call_needs_nut_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetFieldIsJoint: true,
+      omahaMultiwayCallNeedsNutShare: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_value_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaMultiwayValueBetIsPriced: true },
     b: {},
   })),
   // 2026-11-20 EMERG lane STAB-DEFENCE (default OFF, PLO4/PLO5 cash): omahaStabDefenceIsPriced; a on, b today. The
