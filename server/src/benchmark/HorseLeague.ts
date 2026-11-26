@@ -5137,6 +5137,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOopReraiseRangeHoldsVsReraise: true },
     b: {},
   },
+  // 2026-11-25 plo-lead7 (default OFF): the Hold'em opening side priced, each option alone; a switches it on, b is
+  // today's brain. Graded by the lane's own mirror and probes (docs/horse-option-authority.d).
+  {
+    name: 'nlh_holdem_opening_value_bet_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOpeningValueBetIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_holdem_opening_bluff_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOpeningBluffIsPriced: true },
+    b: {},
+  },
   // 2026-11-24 PLO-LEAD-6 (default OFF): the same rules reading the opener's own record of answering a 3-bet
   // (omaha/holdemOopReraiseRangeReadsOpenerRecord); a switches both on, b is today's brain. Declared, not run.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

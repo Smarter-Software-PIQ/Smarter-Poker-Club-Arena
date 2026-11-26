@@ -2803,6 +2803,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemOpeningValueBetIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (real-hand audit, NLH cash against people, 2026-11-24/25: missed turn value bets 106 bb in 390 hands, missed flop value, turn bets sized too small). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, not facing a wager: the brain's check becomes a value bet at the legal priced size of highest EV when the hands that call at that size lose chips to it on balance (equity against his calling part above one half) and the bet prices above the check; a turn value bet is resized to that size when it prices higher (HorseHoldemOpeningIsPriced). His fold to a bet: his own record (river response record on the river, else his fold to a bet), shrunk with 20 pseudo-opportunities to the equilibrium anchor where his fold equals the bettor's break-even price; never the Horse population. Who folds: the weakest share of his public line range read without the Horse's cards. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemOpeningBluffIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (real-hand audit, NLH cash against people: missed river bluffs 114 bb in 390 hands, the top leak; missed turn bluffs 55 bb; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn and river, not facing a wager: the brain's check becomes a bluff at the legal priced size of highest EV only when it prices above the check AND either the Horse's cards remove more of his calling part than of his folding part (his fold given the Horse's hand above his fold without it) or the Horse's public line range outscores his on this board (HorseHoldemOpeningIsPriced). His fold from his own record shrunk to the equilibrium anchor (no record: a pure bluff breaks even, so only blockers make it pay). Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -10229,6 +10239,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
     "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
     'V94'
+  ),
+  receipt(
+    'holdem_opening_value_bet',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'not facing a wager heads-up (NLH cash), a check became a value bet: the hands that call at the priced size lose chips to it and it prices above the check',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_value_resized',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'a turn value bet heads-up (NLH cash) was resized to the legal priced size of highest EV',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_bluff_bet',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    "not facing a wager heads-up (NLH cash), turn or river, a check became a bluff: it prices above the check and the Horse's cards block his calling part or its range outscores his",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_bluff_no_edge',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    "a bluff priced above the check but neither blockers nor the range advantage were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_priced_unpriced',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'the opening side could not be priced (no range): the decision stands',
+    "Hold'em Strategy"
   ),
   receipt(
     'holdem_priced_raise',
