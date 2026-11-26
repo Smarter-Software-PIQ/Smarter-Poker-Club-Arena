@@ -139,3 +139,24 @@ describe('a failed rehearsal spends the copy', () => {
     expect(STANDBY).toContain('local player_reconnect=false rehearsal_failure=null');
   });
 });
+
+describe('a failed rehearsal keeps the hung engine log', () => {
+  it('prints the filtered, masked tail of the engine still running', () => {
+    const r =
+      bash(`docker() { printf '%s\\n' 'boot ok' 'maintenance: adopted break token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abcdefghijklmnop' 'thaw/release unproven; keeping every table paused' 'hand 12 dealt' "leader key ${'a'.repeat(48)}"; }
+rehearsal_engine_log`);
+    expect(r.status, r.stderr).toBe(0);
+    const lines = r.stdout.trim().split('\n');
+    expect(lines).toEqual([
+      'rehearsal engine: maintenance: adopted break token=<masked>',
+      'rehearsal engine: thaw/release unproven; keeping every table paused',
+      'rehearsal engine: leader key <masked>',
+    ]);
+  });
+
+  it('certify calls it on a failed swap and says so when the log cannot be read', () => {
+    expect(STANDBY).toContain(
+      `rehearsal_engine_log >&2 || log "certify $sha: the rehearsal engine's log could not be read"`
+    );
+  });
+});
