@@ -1,0 +1,50 @@
+.stats-report-section {
+  --stats-section-rule: #294054;
+  min-width: 0;
+  container: stats-report / inline-size;
+  color: #e7f1fa;
+  font-variant-numeric: tabular-nums;
+}
+.stats-report-section + .stats-report-section {
+  margin-top: 1.25rem;
+}
+.stats-report-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  padding: 0.7rem 0;
+  border-block: 1px solid var(--stats-section-rule);
+}
+.stats-section-label,
+.stats-report-status {
+  color: #8ad8fc;
+  font:
+    700 0.72rem/1.35 'Roboto Condensed',
+    sans-serif;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.stats-report-status {
+  letter-spacing: 0.035em;
+}
+.stats-report-heading h2 {
+  margin: 0.14rem 0;
+  color: #edf5fb;
+  font:
+    700 1.2rem/1.14 'Roboto Condensed',
+    sans-serif;
+}
+.stats-report-heading p,
+.stats-section-copy {
+  margin: 0.25rem 0;
+  color: #b9cbd9;
+  font:
+    400 0.85rem/1.4 Inter,
+    sans-serif;
+}
+.stats-report-section :where(button, a, select, input, textarea):focus-visible {
+  outline: 2px solid #8ad8fc;
+  outline-offset: 2px;
+}

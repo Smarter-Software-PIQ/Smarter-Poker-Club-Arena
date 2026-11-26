@@ -1,4 +1,4 @@
-import { SpadeConsole } from '../console/SpadeConsole';
+import StatsSection from './StatsSection';
 import type {
   StatsWorkspaceSnapshot,
   WorkspaceLeakStatus,
@@ -41,34 +41,34 @@ export default function StatsWorkspacePanel({
 }: Props) {
   if (!isOwnProfile) {
     return (
-      <SpadeConsole eyebrow="Private Stats" title="Study Workspace" pill="Owner Only" foot="foot">
-        <p className="sc-copy stats-workspace__state" role="status">
+      <StatsSection eyebrow="Private Stats" title="Study Workspace" status="Owner Only">
+        <p className="stats-section-copy stats-workspace__state" role="status">
           This Workspace Is Available Only To Its Player.
         </p>
-      </SpadeConsole>
+      </StatsSection>
     );
   }
 
   if (loading) {
     return (
-      <SpadeConsole eyebrow="Private Stats" title="Study Workspace" pill="Loading" foot="foot">
-        <p className="sc-copy stats-workspace__state" role="status">
+      <StatsSection eyebrow="Private Stats" title="Study Workspace" status="Loading">
+        <p className="stats-section-copy stats-workspace__state" role="status">
           Loading Your Saved Workspace.
         </p>
-      </SpadeConsole>
+      </StatsSection>
     );
   }
 
   if (error || !workspace) {
     return (
-      <SpadeConsole eyebrow="Private Stats" title="Study Workspace" pill="Unavailable" foot="foot">
+      <StatsSection eyebrow="Private Stats" title="Study Workspace" status="Unavailable">
         <div className="stats-workspace__state" role="alert">
-          <p className="sc-copy">Your Saved Workspace Could Not Be Loaded.</p>
+          <p className="stats-section-copy">Your Saved Workspace Could Not Be Loaded.</p>
           <button type="button" className="stats-workspace__word-action" onClick={onRetry}>
             Try Again
           </button>
         </div>
-      </SpadeConsole>
+      </StatsSection>
     );
   }
 
@@ -80,16 +80,15 @@ export default function StatsWorkspacePanel({
     workspace.alerts.length === 0;
 
   return (
-    <SpadeConsole
+    <StatsSection
       eyebrow="Private Stats"
       title="Study Workspace"
-      pill={workspace.preferences.privacyPresentationMode ? 'Presentation Safe' : 'Full Detail'}
-      foot="foot"
+      status={workspace.preferences.privacyPresentationMode ? 'Presentation Safe' : 'Full Detail'}
       aria-label="Private Study Workspace"
     >
       <div className="stats-workspace">
         <div className="stats-workspace__intro">
-          <p className="sc-copy">
+          <p className="stats-section-copy">
             Reports Are Player-Authored Or Generated From Versioned Rules, Not A Model.
           </p>
           <button
@@ -104,23 +103,23 @@ export default function StatsWorkspacePanel({
         </div>
 
         {workspace.coverage.capped && (
-          <p className="sc-copy stats-workspace__state" role="status">
+          <p className="stats-section-copy stats-workspace__state" role="status">
             Showing The {workspace.coverage.rowLimit} Most Recent Items Per Workspace Ledger.
           </p>
         )}
 
         {isEmpty && (
-          <p className="sc-copy stats-workspace__state" role="status">
+          <p className="stats-section-copy stats-workspace__state" role="status">
             No Reports, Goals, Study Collections, Or Alerts Have Been Saved Yet.
           </p>
         )}
 
         <section className="stats-workspace__section" aria-labelledby="workspace-reports-title">
-          <h3 id="workspace-reports-title" className="sc-label">
+          <h3 id="workspace-reports-title" className="stats-section-label">
             Saved Analysis Reports
           </h3>
           {workspace.reports.length === 0 ? (
-            <p className="sc-copy stats-workspace__muted">No Saved Reports.</p>
+            <p className="stats-section-copy stats-workspace__muted">No Saved Reports.</p>
           ) : (
             workspace.reports.map((report) => (
               <div className="stats-workspace__row" key={report.id}>
@@ -135,7 +134,7 @@ export default function StatsWorkspacePanel({
 
         <section className="stats-workspace__section" aria-labelledby="workspace-leaks-title">
           <div className="stats-workspace__intro">
-            <h3 id="workspace-leaks-title" className="sc-label">
+            <h3 id="workspace-leaks-title" className="stats-section-label">
               Leak Lifecycle
             </h3>
             {onOpenLeakFinder && (
@@ -149,7 +148,7 @@ export default function StatsWorkspacePanel({
             )}
           </div>
           {workspace.leaks.length === 0 ? (
-            <p className="sc-copy stats-workspace__muted">No Tracked Leaks.</p>
+            <p className="stats-section-copy stats-workspace__muted">No Tracked Leaks.</p>
           ) : (
             workspace.leaks.map((leak) => (
               <div className="stats-workspace__row stats-workspace__row--action" key={leak.id}>
@@ -176,11 +175,11 @@ export default function StatsWorkspacePanel({
         </section>
 
         <section className="stats-workspace__section" aria-labelledby="workspace-goals-title">
-          <h3 id="workspace-goals-title" className="sc-label">
+          <h3 id="workspace-goals-title" className="stats-section-label">
             Goals And Progress
           </h3>
           {workspace.goals.length === 0 ? (
-            <p className="sc-copy stats-workspace__muted">No Measurable Goals.</p>
+            <p className="stats-section-copy stats-workspace__muted">No Measurable Goals.</p>
           ) : (
             workspace.goals.map((goal) => {
               const measured = latestProgress(workspace, goal.id);
@@ -197,11 +196,11 @@ export default function StatsWorkspacePanel({
         </section>
 
         <section className="stats-workspace__section" aria-labelledby="workspace-study-title">
-          <h3 id="workspace-study-title" className="sc-label">
+          <h3 id="workspace-study-title" className="stats-section-label">
             Study Collections
           </h3>
           {workspace.collections.length === 0 ? (
-            <p className="sc-copy stats-workspace__muted">No Saved Hand Collections.</p>
+            <p className="stats-section-copy stats-workspace__muted">No Saved Hand Collections.</p>
           ) : (
             workspace.collections.map((collection) => (
               <div className="stats-workspace__row" key={collection.id}>
@@ -218,7 +217,7 @@ export default function StatsWorkspacePanel({
         </section>
 
         <section className="stats-workspace__section" aria-labelledby="workspace-layout-title">
-          <h3 id="workspace-layout-title" className="sc-label">
+          <h3 id="workspace-layout-title" className="stats-section-label">
             Saved Dashboard
           </h3>
           <div className="stats-workspace__row">
@@ -230,10 +229,12 @@ export default function StatsWorkspacePanel({
         </section>
 
         <section className="stats-workspace__section" aria-labelledby="workspace-alerts-title">
-          <h3 id="workspace-alerts-title" className="sc-label">
+          <h3 id="workspace-alerts-title" className="stats-section-label">
             Controlled Alerts
           </h3>
-          <p className="sc-copy stats-workspace__muted">Evaluated Only When Stats Refresh.</p>
+          <p className="stats-section-copy stats-workspace__muted">
+            Evaluated Only When Stats Refresh.
+          </p>
           {workspace.alerts.map((alert) => (
             <div className="stats-workspace__row stats-workspace__row--action" key={alert.id}>
               <span>
@@ -257,6 +258,6 @@ export default function StatsWorkspacePanel({
           ))}
         </section>
       </div>
-    </SpadeConsole>
+    </StatsSection>
   );
 }

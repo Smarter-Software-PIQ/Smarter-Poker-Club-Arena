@@ -4,7 +4,7 @@
 
 .financial-console {
   position: relative;
-  padding: clamp(18px, 3vw, 30px);
+  padding: 0.6rem 0;
   color: #e4e7ec;
 }
 
@@ -37,7 +37,7 @@
 
 .financial-readouts article {
   min-width: 0;
-  padding: 14px;
+  padding: 0.45rem;
 }
 
 .financial-readouts article + article {
@@ -63,7 +63,7 @@
 .financial-ledger-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 1rem;
 }
 
 .financial-ledger-grid > section {
@@ -163,7 +163,7 @@
   text-transform: uppercase;
 }
 
-@media (max-width: 760px) {
+@container stats-report (max-width: 760px) {
   .financial-readouts {
     grid-template-columns: repeat(2, 1fr);
   }

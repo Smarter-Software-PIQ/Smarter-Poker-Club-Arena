@@ -166,8 +166,13 @@ vi.mock('../../src/services/ClubsService', () => ({
 
 // Read status since 2026-09-20 (Stats contract truth): { roles, error? }, so
 // a failed roles read is never mistaken for a player who holds no roles.
-vi.mock('../../src/services/AgentRakeService', () => ({
-  AgentRakeService: { getMyAgentRoles: vi.fn().mockResolvedValue({ roles: [] }) },
+vi.mock('../../src/services/AgentRakeService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/AgentRakeService')>()),
+  AgentRakeService: {
+    getMyAgentRoles: vi.fn().mockResolvedValue({ roles: [] }),
+    getDownlineRake: vi.fn().mockResolvedValue([]),
+    getDownlineRakeSummary: vi.fn().mockResolvedValue(null),
+  },
 }));
 
 vi.mock('../../src/services/StatsFactsService', () => {
@@ -234,6 +239,7 @@ import { StatsFactsService } from '../../src/services/StatsFactsService';
 import { getUserMemberships } from '../../src/services/ClubsService';
 import { AgentRakeService } from '../../src/services/AgentRakeService';
 import PlayerStatsPage from '../../src/pages/PlayerStatsPage';
+import { masterBus } from '../../src/core/MasterBus';
 import { clearStatsRangeMemo } from '../../src/lib/statsCache';
 import { isFullStatsPayload } from '../../src/pages/stats/playerStatsPageModel';
 import { normalizeHands } from '../../src/pages/stats/notableHandsContract';
@@ -395,7 +401,7 @@ describe('PlayerStatsPage mounts', () => {
   it('keeps independent agent-book records live while a different personal club is selected', async () => {
     const personalClub = '60000000-0000-0000-0000-000000000001';
     const agentClub = '60000000-0000-0000-0000-000000000002';
-    statsRouteState.search = `?statsClub=${personalClub}`;
+    statsRouteState.search = `?statsClub=${personalClub}&tab=rake`;
     vi.mocked(getUserMemberships).mockResolvedValue([
       { club: { id: personalClub, name: 'Personal Club' } },
     ] as Awaited<ReturnType<typeof getUserMemberships>>);
@@ -422,10 +428,107 @@ describe('PlayerStatsPage mounts', () => {
     await waitFor(() => expect(liveRecords.enabled).toBe(true));
     expect(liveRecords.clubIds).toEqual([personalClub, agentClub]);
     const before = vi.mocked(StatsFactsService.getRakeStats).mock.calls.length;
+    const personalReads = rpcMock.mock.calls.filter(([fn]) =>
+      fn.startsWith('ca_player_stats_overview_separated')
+    ).length;
+    const opportunityReads = vi.mocked(StatsFactsService.getCashOpportunityStats).mock.calls.length;
     act(() => liveRecords.onChange());
     await waitFor(() => expect(StatsFactsService.getRakeStats).toHaveBeenCalledTimes(before + 1), {
       timeout: 4000,
     });
+    expect(
+      rpcMock.mock.calls.filter(([fn]) => fn.startsWith('ca_player_stats_overview_separated'))
+    ).toHaveLength(personalReads);
+    expect(StatsFactsService.getCashOpportunityStats).toHaveBeenCalledTimes(opportunityReads);
+  });
+
+  it.each(['cash', 'tournament'] as const)(
+    'refreshes only committed personal inputs on the %s dashboard and catches up once after returning',
+    async (mode) => {
+      statsRouteState.search = '?gameMode=' + mode;
+      rpcPayload.scope = { ...(rpcPayload.scope as object), game_mode: mode };
+      const overviewReads = () =>
+        rpcMock.mock.calls.filter(([fn]) => fn.startsWith('ca_player_stats_overview_separated'))
+          .length;
+      vi.mocked(masterBus.subscribe).mockClear();
+      const view = render(<PlayerStatsPage />);
+      await waitFor(() => expect(overviewReads()).toBe(1));
+      const balanceEvent = vi
+        .mocked(masterBus.subscribe)
+        .mock.calls.findLast(([name]) => name === 'BALANCE_UPDATED')![1];
+      vi.useFakeTimers();
+      const tick = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      };
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      try {
+        for (let i = 0; i < 4; i++) {
+          view.rerender(<PlayerStatsPage />);
+          act(() =>
+            balanceEvent({
+              type: 'BALANCE_UPDATED',
+              payload: { source: 'tournament_rebuy', userId: 'another-player' },
+            } as never)
+          );
+          await tick(2100);
+        }
+        expect(overviewReads()).toBe(1);
+        visibility.mockReturnValue('hidden');
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          livePulse.onChange();
+        });
+        await tick(6000);
+        expect(overviewReads()).toBe(1);
+        visibility.mockReturnValue('visible');
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          livePulse.onChange();
+        });
+        await tick(2100);
+        expect(overviewReads()).toBe(2);
+        act(() =>
+          balanceEvent({
+            type: 'BALANCE_UPDATED',
+            payload: { source: 'tournament_rebuy', userId: authUserId },
+          } as never)
+        );
+        await tick(2100);
+        expect(overviewReads()).toBe(mode === 'tournament' ? 3 : 2);
+      } finally {
+        visibility.mockRestore();
+      }
+    }
+  );
+
+  it('keeps confirmed statistics visible while a personal change is being read', async () => {
+    rpcPayload.quality = { ...(rpcPayload.quality as object), live_tail_included: true };
+    const read = () =>
+      rpcMock.mock.calls.filter(([name]) => name === 'ca_player_stats_overview_separated').length;
+    render(<PlayerStatsPage />);
+    const live = await screen.findByText('Live', { selector: '.stats-range-status' });
+    expect(read()).toBe(1);
+    let finish!: (value: { data: Record<string, unknown>; error: null }) => void;
+    rpcMock.mockImplementation((name: string) =>
+      name === 'ca_player_stats_overview_separated'
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ data: null, error: null })
+    );
+    vi.useFakeTimers();
+    act(() => livePulse.onChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2050);
+    });
+    expect(read()).toBe(2);
+    expect(live).toHaveTextContent('Live');
+    await act(async () => {
+      finish({ data: rpcPayload, error: null });
+    });
+    expect(live).toHaveTextContent('Live');
   });
 
   it('refreshes rake when live stats change without changing the range', async () => {
