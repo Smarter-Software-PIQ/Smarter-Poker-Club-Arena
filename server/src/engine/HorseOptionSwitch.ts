@@ -195,6 +195,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'v65TurnShadeCapOverride',
         'v68AirShadeScaleOverride',
         'reraiseFoldShareCap',
+        'openerAnswersPriorVersion',
         'styleShadow',
         'styleCarryOverWeight',
         'horsePlayStyleForce',

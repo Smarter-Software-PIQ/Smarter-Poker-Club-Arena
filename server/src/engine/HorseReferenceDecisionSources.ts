@@ -173,6 +173,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the same rule's pure price: joint seeded equity against the whole field, self-play realization by role, position, players and depth, EV(call) and EV(re-raise); no I/O, no random stream",
     'src/engine/HorseOopReraiseRangeHoldsWiring.ts':
       "the default-off out-of-position 3-bet range rule wiring (PLO-LEAD-6 2026-11-24, omahaOopReraiseRangeHoldsVsReraise and holdemOopReraiseRangeHoldsVsReraise): routes an out-of-position decision facing one open, asks the Horse's own answer to the 4-bet on the public frame, applies the priced call or fold in wager_rules; inert with both options off",
+    'src/engine/HorsePreflopIndifferenceAnchor.ts':
+      'pure preflop indifference anchors (PLO lead-7 2026-11-26): fold = s/(1+s), bluff share = s/(1+2s), the anchored fold / call / re-raise answer to a re-raise; read by the out-of-position 3-bet range rule only under horse.openerAnswersPriorVersion 2; no I/O, no random stream',
     'src/engine/HorseOopReraiseRangeHolds.ts':
       "the same rule's pure price: the opener's answers to a 3-bet (fitted population prior), the 4-bet frame, EV(3-bet) against the admitted call, the seeded planned-fold keep frequency; no I/O, no random stream",
     'src/engine/HorseOmahaFourBetFoldPricedCall.ts':

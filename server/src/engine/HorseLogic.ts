@@ -4924,6 +4924,11 @@ export interface HorseDecideOpts {
   /** horse.reraiseFoldShareCap (runtime setting, default 0.45): the most of the out-of-position 3-bet range the two
    *  options above let fold to a 4-bet; never above the 4-bettor's pure-bluff break-even for the size. */
   reraiseFoldShareCap?: number;
+  /** horse.openerAnswersPriorVersion (runtime setting, compiled default 1; PLO lead-7 2026-11-26): the prior of the
+   *  opener's answer to an out-of-position 3-bet the two OOP re-raise range options price with. 1: the fitted table
+   *  OPENER_ANSWERS_PRIOR 2026-11-24.v1 (people and Horses pooled); 2: the indifference answer to the 3-bet faced
+   *  (HorsePreflopIndifferenceAnchor). His own fold-to-3-bet record sits on top either way. */
+  openerAnswersPriorVersion?: number;
   /** As omahaReraiseRangeOutOfPosition, for the EARLY-POSITION spots: the
    * Horse sits under the gun or under the gun plus one (the first two seats
    * left of the big blind) at a table of six or more dealt in, with a live
