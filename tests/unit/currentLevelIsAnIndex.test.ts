@@ -195,11 +195,12 @@ describe('the display path of the projector clock and the HUD agree', () => {
     expect(src).not.toMatch(/Number\(payload\.level\)\s*\|\|\s*0\)\s*\+\s*1/);
   });
 
-  it('TournamentDetails stores the bus payload as the index the column expects', () => {
-    // The third consumer, and the one that did damage beyond its own render:
-    // `current_level` is read by every tab off the shared tournament object.
-    const src = stripComments(read('src/pages/tournament/TournamentDetails.tsx'));
-    expect(src).toMatch(/current_level:\s*displayLevel - 1/);
+  it('TournamentDetails reads the committed index and its matching clock together', () => {
+    const page = stripComments(read('src/pages/tournament/TournamentDetails.tsx'));
+    expect(page).not.toMatch(/current_level:\s*(displayLevel|event\.payload\.level)/);
+    expect(page).toMatch(
+      /'TOURNAMENT_UPDATED',[\s\S]{0,190}loadTournament\(undefined, \{ quiet: true \}\)/
+    );
   });
 
   it('TablePage converts the engine level_up index for display', () => {

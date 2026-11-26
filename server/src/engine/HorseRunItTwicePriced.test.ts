@@ -27,7 +27,13 @@ import {
   receiveHorseRunItTwiceSwitchMessage,
   resetHorseRunItTwiceSwitchForTest,
 } from './HorseRunItTwiceSwitch.js';
-import { OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
+import {
+  OPTION_SWITCH_NAMES,
+  OPTION_SWITCH_PLAIN_NAMES,
+  OPTION_SWITCH_REFUSED,
+  optionSwitchRefusal,
+} from './HorseOptionSwitch.js';
+import { HORSE_DATA_LEDGER, ledgerReceiptFor } from './HorseDataLedger.js';
 import { STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
 import { disarmBrainTelemetryForTest, drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
@@ -449,5 +455,23 @@ describe('horseRunItTwiceIsPriced (default OFF)', () => {
     expect(c.roles.chooser.n).toBe(376);
     expect(c.roles.responder.n).toBe(413);
     expect(JSON.stringify(c)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('registers horseRunItTwiceIsPriced and all five horse_rit_priced_* receipts in HorseDataLedger while staying strictly in OPTION_SWITCH_REFUSED', () => {
+    expect(
+      HORSE_DATA_LEDGER.some((e) => e.kind === 'flag' && e.key === 'horseRunItTwiceIsPriced')
+    ).toBe(true);
+    for (const receipt of [
+      'horse_rit_priced_owner_cut',
+      'horse_rit_priced_equity_unknown',
+      'horse_rit_priced_three',
+      'horse_rit_priced_multi',
+      'horse_rit_priced_once',
+    ]) {
+      expect(ledgerReceiptFor(receipt)?.key, receipt).toBe(receipt);
+    }
+    expect(OPTION_SWITCH_NAMES).not.toContain('horseRunItTwiceIsPriced');
+    expect(Object.keys(OPTION_SWITCH_REFUSED)).toContain('horseRunItTwiceIsPriced');
+    expect(optionSwitchRefusal('horseRunItTwiceIsPriced')).toBeTruthy();
   });
 });

@@ -70,6 +70,9 @@ import {
   matchedByName,
   matchedByOwnBytes,
   proofIsRunnable,
+  inFlightSince,
+  mergedAt,
+  stampedAt,
 } from '../scripts/ci/check-migrations-are-live.mjs';
 import { classifyMigration } from '../scripts/ci/recording-only.mjs';
 import { migrationCorpus } from './helpers/migrationCorpus';
@@ -667,5 +670,65 @@ describe('a merged migration must be live', () => {
         'creates a function, table, view, index, trigger or policy needs nothing: the ' +
         'check looks those up itself.'
     ).toEqual([]);
+  });
+});
+
+describe('a held migration is in flight from its merge, not from its stamp (2026-11-25)', () => {
+  // 20261124171043 was stamped 2026-11-24 17:10Z, merged 2026-11-26 02:56Z and
+  // held by the 150-minute pre-cutover deferral to 04:10Z. Read from the stamp,
+  // it failed every pull request for those hours.
+  const FILE = '20261124171043_the_hand_gap_grade_names_its_worst_hands.sql';
+  const MERGED = Date.parse('2026-11-26T02:56:33Z');
+  const STAMP = Date.parse('2026-11-24T17:10:43Z');
+
+  it('dates the file from the later of its stamp and the commit that added it', () => {
+    expect(stampedAt(FILE)).toBe(STAMP);
+    expect(inFlightSince(FILE, MERGED)).toBe(MERGED);
+    // A merge older than the stamp (a re-stamped file) never shortens the grace below the stamp.
+    expect(inFlightSince(FILE, STAMP - 3_600_000)).toBe(STAMP);
+  });
+
+  it('a history that cannot answer leaves the stamp in charge, exactly as before', () => {
+    expect(inFlightSince(FILE, null)).toBe(STAMP);
+    expect(mergedAt(FILE, { spawn: () => '' })).toBeNull();
+    expect(mergedAt(FILE, { spawn: () => 'not a number\n' })).toBeNull();
+    expect(
+      mergedAt(FILE, {
+        spawn: () => {
+          throw new Error('shallow');
+        },
+      })
+    ).toBeNull();
+    expect(mergedAt(FILE, { spawn: () => '1795661793\n' })).toBe(1795661793000);
+  });
+
+  it('asks git for the adding commit of that one file, bounded', () => {
+    let seen: unknown[] = [];
+    mergedAt(FILE, {
+      cwd: '/x',
+      spawn: (...args: unknown[]) => {
+        seen = args;
+        return '1\n';
+      },
+    });
+    expect(seen[0]).toBe('git');
+    expect(seen[1]).toEqual([
+      'log',
+      '-1',
+      '--diff-filter=A',
+      '--format=%ct',
+      '--',
+      `supabase/migrations/${FILE}`,
+    ]);
+    expect((seen[2] as { timeout: number }).timeout).toBeGreaterThan(0);
+  });
+
+  it('the pull-request job checks out enough of main to answer', () => {
+    const wf = fs.readFileSync(
+      path.join(__dirname, '..', '.github/workflows/migration-ledger-reconciled.yml'),
+      'utf8'
+    );
+    expect(wf).toContain('fetch-depth: 500');
+    expect(wf).toContain('node scripts/ci/check-migrations-are-live.mjs --min-age-hours 24');
   });
 });

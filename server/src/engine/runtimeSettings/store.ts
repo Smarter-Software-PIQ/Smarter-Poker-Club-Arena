@@ -28,6 +28,7 @@ import {
   parseRuntimeSettings,
   type RuntimeSettingsSnapshot,
 } from './snapshot.js';
+import { validateSingleBlanketOffStep } from '../HorseBlanketOffSingleStepGuard.js';
 
 export const RUNTIME_SETTINGS_POLL_MS = 30_000;
 export const RUNTIME_SETTINGS_READ_TIMEOUT_MS = 5_000;
@@ -155,6 +156,25 @@ export function createRuntimeSettingsStore(
       return 'refused';
     }
     if (parsed.snapshot.version === active.version) return 'unchanged';
+    // 1-at-a-time blanket-off transition guard (2026-11-21, Horse Switch lane):
+    // refuse any initial v1 publish or live database->database transition that turns >= 2 new
+    // blanket rules OFF in a single version. Cold-boot hydration of an already-established v2+
+    // steady-state version is allowed; emergency rollbacks turning any number of rules back ON
+    // are always allowed.
+    if (active.source === 'database' || parsed.snapshot.version === 1) {
+      const step = validateSingleBlanketOffStep(active.values, parsed.snapshot.values);
+      if (!step.ok) {
+        lastRefusal = { version: parsed.snapshot.version, reason: step.reason };
+        if (refusedVersionReported !== parsed.snapshot.version) {
+          refusedVersionReported = parsed.snapshot.version;
+          warn(
+            `[EngineRuntimeSettings] refused version ${parsed.snapshot.version}: ${step.reason}; ` +
+              `version ${active.version} keeps serving`
+          );
+        }
+        return 'refused';
+      }
+    }
     const previous = active.version;
     active = parsed.snapshot;
     lastRefusal = null;

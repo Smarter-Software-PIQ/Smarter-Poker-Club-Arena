@@ -753,6 +753,27 @@ test.describe('the mobile lobby chrome on production', () => {
         routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Details left the running table route'
       ).toBe(true);
+      const embedded = page.locator('.tournament-details[data-lobby-tab="true"]:visible');
+      for (const [label, content] of [
+        ['Satellites', '.sat-state, .sat-list'],
+        ['Blinds', '.blinds-tab'],
+        ['Ranking', '.rk-panel'],
+        ['Entries', '.et-panel'],
+        ['Unions', '.un-panel'],
+        ['Tables', '.tt-panel'],
+        ['Rewards', '.rw'],
+        ['Details', '.dov'],
+      ]) {
+        const tab = embedded.getByRole('tab', { name: label, exact: true });
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        const panel = embedded.getByRole('tabpanel', { name: label, exact: true });
+        await expect(panel.locator(content).first()).toBeVisible();
+        await testInfo.attach(`tournament-lobby-${label.toLowerCase()}`, {
+          body: await embedded.screenshot(),
+          contentType: 'image/png',
+        });
+      }
       // Only the player's explicit Close Lobby gesture removes this page.
       await lobbyTab.click({ button: 'right', noWaitAfter: true });
       await page

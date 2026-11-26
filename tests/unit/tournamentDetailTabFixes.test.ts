@@ -43,14 +43,12 @@ describe('the blind-level bus payload has one meaning, and all three readers use
     expect(svc).toMatch(/BLIND_LEVEL_CHANGE'[\s\S]{0,120}level:\s*displayLevel/);
   });
 
-  it('TournamentDetails converts the payload back to an index before storing it', () => {
-    // It used to write the 1-based payload straight into `current_level`, which
-    // is the 0-based index. That corrupted the shared tournament object EVERY
-    // tab reads, so one bad write put the whole page a level ahead until the
-    // next poll.
+  it('TournamentDetails reads the committed index and its matching clock together', () => {
     const page = strip(read('pages/tournament/TournamentDetails.tsx'));
-    expect(page).toMatch(/current_level:\s*displayLevel - 1/);
-    expect(page).not.toMatch(/current_level:\s*event\.payload\.level\b/);
+    expect(page).not.toMatch(/current_level:\s*(displayLevel|event\.payload\.level)/);
+    expect(page).toMatch(
+      /'TOURNAMENT_UPDATED',[\s\S]{0,190}loadTournament\(undefined, \{ quiet: true \}\)/
+    );
   });
 
   it('TournamentClock does not add one to a number that already counts from one', () => {
