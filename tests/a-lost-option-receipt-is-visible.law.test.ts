@@ -27,6 +27,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { sliceCall, sliceEnclosingBlock } from './helpers/sourceWindow';
 
 const h = vi.hoisted(() => ({
   reply: { error: null } as unknown,
@@ -110,9 +111,7 @@ describe('LAW: a lost Horse option receipt is visible from outside the engine', 
     expect(index).toMatch(
       /import \{ setHorseHandReceiptsAlertSink \} from '\.\/services\/HorseHandReceipts\.js';/
     );
-    const at = index.indexOf('setHorseHandReceiptsAlertSink({');
-    expect(at).toBeGreaterThan(0);
-    const wiring = index.slice(at, at + 300);
+    const wiring = sliceCall(index, 'setHorseHandReceiptsAlertSink({');
     expect(wiring).toMatch(/raise: \(alert\) => void raiseEngineAlert\(alert\)/);
     expect(wiring).toMatch(/void resolveEngineAlert\(alertname, component, summary\)/);
   });
@@ -129,10 +128,8 @@ describe('LAW: a lost Horse option receipt is visible from outside the engine', 
     expect(gs).toMatch(
       /import \{ horseHandReceiptsSnapshot \} from '\.\/services\/HorseHandReceipts\.js';/
     );
-    const at = gs.indexOf('horseHandReceipts: horseHandReceiptsSnapshot(),');
-    expect(at).toBeGreaterThan(0);
     // It sits in the same object as the other published Horse health fields.
-    const near = gs.slice(at - 1500, at + 1500);
+    const near = sliceEnclosingBlock(gs, 'horseHandReceipts: horseHandReceiptsSnapshot(),');
     expect(near).toContain('horseWatchcounters: peekBrainWatchcounters(),');
     expect(near).toContain('horseUpgradeManifest: computeHorseUpgradeActivationManifest(),');
   });
