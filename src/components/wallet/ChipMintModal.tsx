@@ -62,6 +62,7 @@ import { resolveClubUUID } from '../../utils/clubIdResolver';
 import { uuid } from '../../utils/uuid';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { readCashierMintScope, type CashierMintScope } from '../../services/cashierMintScope';
 import './ChipMintModal.css';
 
 interface ChipMintModalProps {
@@ -70,6 +71,7 @@ interface ChipMintModalProps {
   /** The club whose money surface opened the mint. The RPC routes union
    *  clubs to the union bank and refuses non-union-owners there. */
   clubId: string;
+  scope?: CashierMintScope;
   onMinted?: () => void;
 }
 
@@ -85,7 +87,17 @@ type MintTarget =
   | { state: 'revoked'; label: string }
   | { state: 'denied'; label: string };
 
-export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: ChipMintModalProps) {
+export default function ChipMintModal(props: ChipMintModalProps) {
+  const { user } = useAuthUser();
+  return props.isOpen ? (
+    <ChipMintForm
+      key={JSON.stringify([props.clubId, props.scope || 'club', user?.id])}
+      {...props}
+    />
+  ) : null;
+}
+
+function ChipMintForm({ isOpen, onClose, clubId, scope = 'club', onMinted }: ChipMintModalProps) {
   const { user } = useAuthUser();
   const toast = useToast();
   const [diamonds, setDiamonds] = useState('');
@@ -212,9 +224,10 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
          this pre-flight used to assemble from four table reads. A read that
          fails, or a refusal, falls to the denied side: nothing here can make
          a mint LOOK permitted that the RPC would refuse. */
-      const { data: panelData, error: panelError } = await supabase.rpc('fn_club_money_panel', {
-        p_club_id: uuidResolved,
-      });
+      const [{ data: panelData, error: panelError }, permittedScope] = await Promise.all([
+        supabase.rpc('fn_club_money_panel', { p_club_id: uuidResolved }),
+        readCashierMintScope(uuidResolved),
+      ]);
       if (!live) return;
       if (panelError) {
         reportError(panelError, 'ChipMintModal.preflight');
@@ -250,7 +263,11 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
         if (!live) return;
         if (unionError) reportError(unionError, 'ChipMintModal.unionName');
         const unionName = (union?.name as string | undefined) || '';
-        const mayMint = panel.scope === 'union';
+        const mayMint =
+          scope === 'union' &&
+          permittedScope === 'union' &&
+          panel.scope === 'union' &&
+          unionId === uuidResolved;
         setTarget(
           mayMint
             ? { state: 'union', clubUuid: uuidResolved, label: `${unionName || 'Union'} Bank` }
@@ -263,7 +280,12 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
       // scope also admits a manager, whom the RPC refuses, so the caller's own
       // membership row (self-scoped) narrows it; an owner with no row at all
       // is 'club' scoped by owner_id alone and keeps the right.
-      if (panel.scope !== 'club') {
+      if (
+        scope !== 'club' ||
+        permittedScope !== 'club' ||
+        panel.scope !== 'club' ||
+        panel.in_union !== false
+      ) {
         setTarget({ state: 'denied', label: 'Only A Club Owner Or Admin May Mint' });
         return;
       }
@@ -291,7 +313,7 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
     return () => {
       live = false;
     };
-  }, [isOpen, user?.id, clubId]);
+  }, [isOpen, user?.id, clubId, scope]);
 
   if (!isOpen) return null;
 
@@ -310,14 +332,21 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
     d > 0 && spelledWhole && balance !== null && !overBalance && canMintHere && rate !== null;
 
   const mint = async () => {
-    if (!valid || busy || busyRef.current) return;
+    if (!valid || busy || busyRef.current || (target.state !== 'club' && target.state !== 'union'))
+      return;
     busyRef.current = true;
     setBusy(true);
     try {
+      const permission = await readCashierMintScope(target.clubUuid);
+      if (!isMounted.current) return;
+      if (permission !== scope) {
+        setTarget({ state: 'denied', label: 'Mint Rights Could Not Be Verified' });
+        return;
+      }
       if (!opIdRef.current) opIdRef.current = uuid();
       const { data, error } = await supabase.rpc('fn_mint_chips_from_diamonds', {
         // Resolved uuid from the pre-flight, never the raw route param.
-        p_club_id: canMintHere ? (target as { clubUuid: string }).clubUuid : clubId,
+        p_club_id: target.clubUuid,
         p_diamonds: d,
         p_op_id: opIdRef.current,
       });
@@ -329,10 +358,13 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
         chips?: number;
         diamonds_after?: number;
       } | null;
-      if (!res?.success) throw new Error(res?.error || 'Mint Refused');
+      if (res?.success === false) throw new Error(res.error || 'Mint Refused');
+      if (res?.success !== true || res.scope !== scope)
+        throw new Error('Mint Outcome Needs Verification');
+      if (!isMounted.current) return;
       // Landed. The next press is a new mint, so it needs a new key.
       opIdRef.current = null;
-      if (isMounted.current) setBalance(Number(res.diamonds_after) || 0);
+      setBalance(Number(res.diamonds_after) || 0);
       toast?.success?.(
         `Minted ${fmt(Number(res.chips) || chips)} Chips Into The ${
           res.scope === 'union' ? 'Union Bank' : 'Club Bank'
@@ -343,7 +375,7 @@ export default function ChipMintModal({ isOpen, onClose, clubId, onMinted }: Chi
       onClose();
     } catch (e) {
       reportError(e, 'ChipMintModal.mint');
-      toast?.error?.((e as Error).message || 'Mint Failed');
+      if (isMounted.current) toast?.error?.((e as Error).message || 'Mint Failed');
     } finally {
       busyRef.current = false;
       if (isMounted.current) setBusy(false);

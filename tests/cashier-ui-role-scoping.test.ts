@@ -452,7 +452,7 @@ describe('nothing in flight can be dismissed by accident', () => {
      * idempotency key at all, so a second delivery is a second real mint.
      */
     expect(MINT).toContain('const busyRef = useRef(false)');
-    expect(MINT).toContain('if (!valid || busy || busyRef.current) return');
+    expect(MINT).toMatch(/if\s*\(\s*!valid\s*\|\|\s*busy\s*\|\|\s*busyRef\.current/);
     expect(MINT).toContain("if (e.key === 'Escape' && !busyRef.current) onClose()");
     expect(MINT).toContain("document.body.style.overflow = 'hidden'");
     expect(MINT).toContain('if (isMounted.current) setBusy(false)');

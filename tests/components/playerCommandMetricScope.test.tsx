@@ -208,6 +208,52 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('opens each scoped record destination and expands downline rows without changing a member', async () => {
+  const rows = Array.from({ length: 51 }, (_, index) => ({
+    user_id: `member-${index}`,
+    alias: `Test Member ${index}`,
+    role: 'player',
+    total_fees: 0,
+    chip_balance: 0,
+  }));
+  state.getDownline.mockResolvedValue(rows);
+  render(<MemberManagementPage />);
+  const more = await screen.findByRole('button', { name: 'Show 1 More' });
+  expect(screen.queryByRole('button', { name: 'Open Test Member 50, Player' })).toBeNull();
+  fireEvent.click(more);
+  fireEvent.click(screen.getByRole('button', { name: 'Open Test Member 50, Player' }));
+  expect(state.navigate).toHaveBeenLastCalledWith('/clubs/shark-club/members/member-50');
+  fireEvent.click(screen.getByRole('button', { name: /Promo Vault/ }));
+  expect(state.navigate).toHaveBeenLastCalledWith(
+    `/clubs/shark-club/promo-vault?player=${state.params.userId}`
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Player Statistics/ }));
+  const destination = new URL(state.navigate.mock.calls.at(-1)![0], 'https://example.test');
+  expect(destination.pathname).toBe(`/clubs/shark-club/members/${state.params.userId}/statistics`);
+  expect(destination.searchParams.get('range')).toBe('day');
+});
+
+it.each([0, 1])(
+  'the performance Back button returns a direct visit to the member record and preserves in-app Back (history index %i)',
+  async (idx) => {
+    const previous = window.history.state;
+    window.history.replaceState({ idx }, '');
+    try {
+      render(<PlayerStatisticsPage />);
+      await screen.findByRole('status', { name: 'Displayed Performance Scope' });
+      fireEvent.click(screen.getByRole('button', { name: 'Go Back' }));
+      if (idx) expect(state.navigate).toHaveBeenCalledWith(-1);
+      else
+        expect(state.navigate).toHaveBeenCalledWith(
+          '/clubs/shark-club/members/11111111-1111-4111-8111-111111111111',
+          { replace: true }
+        );
+    } finally {
+      window.history.replaceState(previous, '');
+    }
+  }
+);
+
 it.each(['record', 'statistics'] as const)(
   '%s keeps custom drafts out of its RPC and identifies the actual displayed scope until Confirm succeeds',
   async (kind) => {

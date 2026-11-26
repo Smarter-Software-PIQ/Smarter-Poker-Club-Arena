@@ -1575,7 +1575,7 @@ function FullApp() {
                     <AuthGuard>
                       <ClubMemberGuard>
                         <PageErrorBoundary pageName="Cashier">
-                          <CashierEntrance legacy />
+                          <CashierEntrance />
                         </PageErrorBoundary>
                       </ClubMemberGuard>
                     </AuthGuard>

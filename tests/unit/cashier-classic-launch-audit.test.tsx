@@ -100,6 +100,7 @@ function deferred(): Deferred {
 
 /** How club_members.select('role') answers for each club. */
 let roleReads: Record<string, () => Promise<RoleRead>>;
+let agentWalletBalance: number;
 let rpcCalls: Array<[string, Record<string, unknown>]>;
 let mintResponses: Array<{ data: unknown; error: unknown }>;
 let recipientProfiles: Array<{
@@ -145,7 +146,7 @@ function installSupabase() {
           table === 'clubs'
             ? { name: 'Shark Club', union_id: null }
             : table === 'agents'
-              ? { agent_wallet_balance: 50_000 }
+              ? { agent_wallet_balance: agentWalletBalance }
               : null,
         error: null,
       });
@@ -186,10 +187,13 @@ function installSupabase() {
     rpcCalls.push([name, args]);
     const recovery = recoveries.answer(name, args);
     if (recovery) return Promise.resolve(recovery);
+    if (name === 'fn_cashier_mint_scope') return Promise.resolve({ data: 'club', error: null });
     if (name === 'fn_ca_bridge_rate') return Promise.resolve({ data: MINT_RATE, error: null });
     if (name === 'fn_mint_chips_from_diamonds') {
       const next = mintResponses.shift();
-      return Promise.resolve(next ?? { data: { success: true, chips: 1 }, error: null });
+      return Promise.resolve(
+        next ?? { data: { success: true, scope: 'club', chips: 1 }, error: null }
+      );
     }
     return Promise.resolve({ data: null, error: null });
   }) as never);
@@ -220,6 +224,7 @@ describe('Cashier Classic launch audit', () => {
     Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
     mocks.walletProps.length = 0;
     rpcCalls = [];
+    agentWalletBalance = 50_000;
     recoveries.clear();
     mintResponses = [];
     recipientProfiles = [];
@@ -299,6 +304,21 @@ describe('Cashier Classic launch audit', () => {
   });
 
   // ── P-01 ─────────────────────────────────────────────────────────────────
+  it.each([0.29, 50_000.65])(
+    'Max fills the exact sendable agent balance %s including its cents',
+    async (balance) => {
+      agentWalletBalance = balance;
+      start();
+      const presets = await screen.findByRole('group', { name: 'Send Amount Presets' });
+      const button = within(presets).getByRole('button', { name: 'Max' });
+      await waitFor(() => expect(button).toBeEnabled());
+      fireEvent.click(button);
+      expect(
+        parseChipAmount((screen.getByRole('textbox', { name: 'Amount' }) as HTMLInputElement).value)
+      ).toMatchObject({ ok: true, value: balance });
+      expect(rpcCalls.some(([method]) => method === 'fn_agent_wallet_send')).toBe(false);
+    }
+  );
   it('keeps presets exact while recipient wallets retain exact cents', async () => {
     start();
     await screen.findByRole('tab', { name: 'Send', selected: true });

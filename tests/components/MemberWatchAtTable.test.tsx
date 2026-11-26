@@ -6,9 +6,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), info: vi.fn() }));
@@ -85,6 +85,37 @@ describe('Player Record: Watch At Table', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('current route')).toHaveTextContent('/table/table-9?observer=1')
     );
+  });
+
+  it('stays on the destination the viewer chose after leaving a pending watch', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([
+      { table_id: 'table-9', name: 'Test Table', stakes: '', is_tournament: false },
+    ]);
+    let allow!: () => void;
+    vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          allow = () =>
+            resolve({ found: true, table_id: 'table-9', can_watch: true, action: 'watch' });
+        })
+    );
+    render(
+      <MemoryRouter initialEntries={['/record']}>
+        <Link to="/elsewhere">Leave Record</Link>
+        <Routes>
+          <Route
+            path="/record"
+            element={<MemberWatchAtTable clubUuid="club-1" memberUserId="player-1" seated />}
+          />
+          <Route path="*" element={<Where />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await user.click(await screen.findByRole('button', { name: /Watch At Table/ }));
+    await user.click(screen.getByRole('link', { name: 'Leave Record' }));
+    await act(async () => allow());
+    expect(screen.getByLabelText('current route')).toHaveTextContent('/elsewhere');
   });
 
   it('keeps the caption when no live table can be read', async () => {

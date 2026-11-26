@@ -261,6 +261,14 @@ BEGIN
     RAISE EXCEPTION 'cashier promo hardening successor migration history drift';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261126030501'
+       AND name = 'chip_mints_bind_to_the_selected_standalone_club_or_union_bank'
+  ) THEN
+    RAISE EXCEPTION 'cashier bank-target mint migration history missing';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
@@ -596,7 +604,11 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_mint_chips_from_diamonds(uuid,numeric,uuid)',
-      'hash', 'd6e453042dd2591855dd796adeae58c5'
+      'hash', '8ec4f50babb062f9dcb77bf26689581f'
+    ),
+    jsonb_build_object(
+      'signature', 'public.fn_cashier_mint_scope(uuid)',
+      'hash', '813bfe249f9a8b7284273a14257da86c'
     ),
     jsonb_build_object(
       'signature', 'public.fn_promo_disburse(text,uuid,text,uuid,numeric,text,uuid,uuid)',

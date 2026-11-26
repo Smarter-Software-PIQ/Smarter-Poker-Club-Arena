@@ -12,6 +12,7 @@
  * MINT RATE (Dan 2026-08-21, BINDING): 100 Diamonds = 10,000 Chips.
  */
 
+import { readCashierMintScope } from './cashierMintScope';
 import { supabase, getAuthUser } from '../lib/supabase';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { retryAsync } from '../utils/retryAsync';
@@ -224,7 +225,7 @@ export const WalletService = {
    * Mint chips using diamonds.
    *
    * MINTING RULES:
-   * - If the club belongs to a Union, ONLY the Union owner can mint chips.
+   * - A member club has no chip mint, including when the viewer owns its union.
    *   The club's mint functionality is LOCKED once they join a union.
    *   All chips must originate from the Union level and flow down.
    * - If the club is standalone (no union affiliation), the club owner can mint directly.
@@ -249,49 +250,19 @@ export const WalletService = {
     if (!idempotencyKey || typeof idempotencyKey !== 'string') {
       throw new Error('A mint needs an idempotency key held by the caller');
     }
-    // Resolve the authenticated minter. Server-side authorization is enforced by
-    // mint_club_chips (which now rejects a null minter), but we resolve it here so
-    // the union-lock check below is never silently skipped when a caller omits the
-    // id — previously callers that passed no requestingUserId bypassed the lock.
-    let minterId = requestingUserId;
-    if (!minterId) {
-      const authData = await import('../lib/authUtils').then((m) => m.readLocalSession());
-      minterId = authData?.userId;
-    }
-    if (!minterId) throw new Error('Authentication required to mint chips');
-
-    // clubId from a route param may be an integer club_id; resolve to the uuid PK so
-    // the lookup and the mint_club_chips RPC (uuid arg) don't reject it.
+    const callerId =
+      requestingUserId ?? (await import('../lib/authUtils')).readLocalSession()?.userId;
+    if (!callerId) throw new Error('Authentication required to mint chips');
     const resolvedClubId = await resolveClubUUID(clubId);
-
-    // 1. Check if club belongs to a union
-    const { data: club } = await supabase
+    if (!resolvedClubId || (await readCashierMintScope(resolvedClubId)) !== 'club') {
+      throw new Error('Minting Requires An Authorized Standalone Club Bank.');
+    }
+    const { data: club, error: clubError } = await supabase
       .from('clubs')
-      .select('id, name, owner_id, union_id')
+      .select('id, owner_id')
       .eq('id', resolvedClubId)
       .maybeSingle();
-
-    if (!club) throw new Error('Club not found');
-
-    // 2. If club is in a union, minting must go through the union owner
-    if (club.union_id) {
-      const { data: union } = await supabase
-        .from('unions')
-        .select('id, owner_id, name')
-        .eq('id', club.union_id)
-        .maybeSingle();
-
-      if (!union) throw new Error('Union not found');
-
-      // Only the union owner can mint — club owners cannot mint when in a union
-      if (minterId !== union.owner_id) {
-        throw new Error(
-          `Minting is locked for clubs in a union. Only the Union owner (${union.name}) can mint chips. ` +
-            `Contact your union owner for chip allocation.`
-        );
-      }
-    }
-
+    if (clubError || !club) throw new Error('Club Bank Could Not Be Verified.');
     // The price is NOT computed here. /api/club-arena/mint-chips converts the
     // chips with the live rate (fn_ca_bridge_rate, the same function
     // fn_mint_chips_from_diamonds charges at) and reports what it actually
@@ -308,7 +279,10 @@ export const WalletService = {
       data: { session },
     } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) throw new Error('Authentication required to mint chips');
+    const minterId = session?.user?.id;
+    if (!token || !minterId || callerId !== minterId) {
+      throw new Error('Authentication required to mint chips');
+    }
 
     const mintResp = await fetch('/api/club-arena/mint-chips', {
       method: 'POST',
@@ -320,7 +294,7 @@ export const WalletService = {
       body: JSON.stringify({
         clubId: resolvedClubId,
         amount: chipAmount,
-        notes: club.union_id ? 'Union mint' : 'Standalone club mint',
+        notes: 'Standalone club mint',
       }),
     });
     const mintData = await mintResp
@@ -331,33 +305,10 @@ export const WalletService = {
     }
     const diamondCost = Number(mintData.diamondsSpent) || 0;
 
-    // 4. Determine who receives the minted chips
-    const mintRecipientId = club.union_id
-      ? (await supabase.from('unions').select('owner_id').eq('id', club.union_id).maybeSingle())
-          .data?.owner_id
-      : club.owner_id;
-
-    // 5. Log mint transaction with full audit trail
-    if (mintRecipientId) {
-      await this.logTransaction(
-        mintRecipientId,
-        'PLAYER',
-        chipAmount,
-        'credit',
-        'mint',
-        club.union_id
-          ? `Union mint: ${chipAmount} chips for ${club.name} (${diamondCost} diamonds spent)`
-          : `Club mint: ${chipAmount} chips (${diamondCost} diamonds spent) - standalone club`,
-        undefined,
-        undefined,
-        clubId
-      );
-    }
-
     // Emit bus event so other pages (CashierPage, ClubFinancials) refresh instantly
     masterBus.emit('BALANCE_UPDATED', {
       source: 'mint',
-      userId: mintRecipientId || clubId,
+      userId: club.owner_id || clubId,
       amount: chipAmount,
     });
 

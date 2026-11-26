@@ -82,6 +82,13 @@ async function expectStaffTabs() {
 describe('Cashier Classic loads the viewer role on mount', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(supabase.rpc).mockImplementation(
+      (name) =>
+        Promise.resolve({
+          data: name === 'fn_cashier_mint_scope' ? 'club' : null,
+          error: null,
+        }) as never
+    );
     sessionStorage.clear();
     roleReads = [];
     vi.spyOn(engineChannelClient, 'onStatusChange').mockReturnValue(() => {});

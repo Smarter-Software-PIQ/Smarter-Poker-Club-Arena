@@ -82,6 +82,7 @@ vi.mock('../src/lib/supabase', () => ({
          and the promo pot through the role-checked fn_club_money_panel (with
          an abort signal), never through a direct clubs select. The fixture
          club is served through it, unchanged. */
+      if (fn === 'fn_cashier_mint_scope') return Promise.resolve({ data: 'club', error: null });
       if (fn === 'fn_club_money_panel') {
         const answer = Promise.resolve({
           data: {
