@@ -144,6 +144,16 @@ export function buildRegistryRefusalSql(option, state) {
   return `SELECT public.fn_ca_horse_option_registry_refusal(${sqlLiteral(safeOpt)}, ${sqlLiteral(safeState)}) AS refusal;`;
 }
 
+/**
+ * The states the database itself lets the option take: public.fn_ca_horse_option_switch_states reads the
+ * option's row in public.ca_horse_option_whitelist (20261125234502) and is what the switch table's row trigger
+ * enforces. NULL for an option that is not registered.
+ */
+export function buildWhitelistStatesSql(option) {
+  const safeOpt = assertSafeOptionName(option);
+  return `SELECT public.fn_ca_horse_option_switch_states(${sqlLiteral(safeOpt)}) AS states;`;
+}
+
 export function buildStatusQueries() {
   return {
     switchRows:
@@ -942,6 +952,7 @@ export function evaluatePreflight(input) {
     requireInbox = false,
     recentConfigAlarms = [],
     authorityEvidence = null,
+    whitelistStates = undefined,
   } = input;
 
   const failures = [];
@@ -1079,6 +1090,30 @@ export function evaluatePreflight(input) {
               : `The authority file for "${option}" does not state "Evidence MET" in its status paragraph; state "${targetState}" needs it`,
       });
     }
+  }
+
+  // 12. The database's own whitelist (public.ca_horse_option_whitelist, read through
+  // fn_ca_horse_option_switch_states, the same answer the switch table's row trigger enforces). The serving
+  // engine's registry (check 4) and this whitelist are kept by different hands since list-once
+  // (20261125234502): an option can be registered in one and not the other, or held off-only in one. Without
+  // this check a preflight passes and the write is refused by the database after the pre-notice and the
+  // VERIFIER-10 confirmation were spent on it. `undefined` = not read (a database before list-once).
+  if (whitelistStates === null) {
+    failures.push({
+      code: 'OPTION_NOT_WHITELISTED',
+      reason: `"${option}" is not registered in public.ca_horse_option_whitelist; register it with a migration from gen-horse-option-switch-sql.ts --register before any switch row`,
+    });
+  } else if (Array.isArray(whitelistStates) && !whitelistStates.includes(targetState)) {
+    failures.push({
+      code: 'STATE_NOT_IN_WHITELIST',
+      reason: `public.ca_horse_option_whitelist lets "${option}" take only ${whitelistStates.join(', ') || '(nothing)'}; "${targetState}" would be refused by the switch table`,
+    });
+  } else if (whitelistStates === undefined) {
+    warnings.push({
+      code: 'WHITELIST_NOT_READ',
+      reason:
+        'public.fn_ca_horse_option_switch_states was not read; the database whitelist was not checked',
+    });
   }
 
   return {

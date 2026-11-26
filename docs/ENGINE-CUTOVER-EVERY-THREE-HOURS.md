@@ -100,3 +100,15 @@ Set `frequency` to `"daily"` in `server/src/maintenance/maintenanceSchedulePolic
 ## A Cycle That Did Not Seal Starts The Next One (O27, 2026-11-25)
 
 GitHub delivers few of Stage's scheduled runs, so a cycle used to be prepared only when a push or a Backup completion created a Stage run inside its window. After a seal the post-seal Backup's completion does that. After a kept-serving cycle, or a selected cycle whose receiver did not seal, the cycle owner's Stage run now waits once to the cycle start + 25 minutes and starts one `Backup after keep-serving <cycle>` certification of main on a fresh copy (job `next-candidate-after-cycle`, decisions in `scripts/release/next-candidate-after-cycle.py`). Its successful completion lands inside the next election window and is admitted like a push Backup. Changelog: `docs/changelog/2026-11-25-o27-a-cycle-that-did-not-seal-starts-the-next-one.md`.
+
+## A Hand Install Waits For The Same Windows As The Dispatcher (O28, 2026-11-26)
+
+The merge dispatcher defers an ordinary migration through `[cycle - 150 m, cycle + 10 m)` of every non-04:00 cycle (O21), so the copy a candidate certifies on still equals production at its cutoff. The applier itself only knew the nightly 23:45 to 04:15 Chicago freeze. A hand dispatch of Apply Merged Migration in the daytime therefore still installed inside a cycle's hold; the soak in flight then yielded (O16) and that cycle kept serving.
+
+`scripts/ci/release-freeze-admission.mjs` now refuses a hand install inside every cycle hold, with nothing sent, and names the cycle and the minute it clears. The exceptions are the ones the nightly freeze already has: a dry run, the maintenance-window route, the dispatcher's own proven job-token send, and an outage named in at least 20 characters with `release_freeze_override`. A hand install lands only in `[cycle + 10 m, cycle + 30 m)` and 04:15 to 04:30 Chicago: 135 minutes a day, minute for minute the dispatcher's windows.
+
+The cadence is read from this revision's `server/src/maintenance/maintenanceSchedulePolicy.json`. Only an explicit `daily` lifts the cycle hold; a policy that cannot be read holds.
+
+This is the applier's rule, not a database trigger. World Hub shares the migration history, and its migrations do not stale a Club Arena copy (O23), so refusing every repository's DDL for most of the day would cost that lane its installs and protect nothing here.
+
+Law: `tests/a-hand-install-respects-the-release-freeze.law.test.ts`.

@@ -1,5 +1,5 @@
 /**
- * A HAND INSTALL RESPECTS THE NIGHTLY RELEASE SCHEMA FREEZE (2026-11-24).
+ * A HAND INSTALL RESPECTS THE RELEASE SCHEMA FREEZE AND EVERY CYCLE HOLD (2026-11-24, 2026-11-26).
  *
  * #11196 made the merge dispatcher hold every ordinary migration merged inside
  * the release schema freeze (RELEASE_SCHEMA_FREEZE_CHICAGO, 23:45-04:15
@@ -23,21 +23,92 @@
  *     stale certificate it causes has a named cause;
  *   - anything else: REFUSED with nothing sent; the dispatcher's own 04:15
  *     send installs it.
+ *
+ * THE SAME RULE HOLDS BEFORE EVERY THREE-HOURLY CYCLE (2026-11-26). The
+ * dispatcher defers an ordinary file through [cycle - 150m, cycle + 10m) of
+ * each non-04:00 cycle (O21, THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES) so the copy
+ * a candidate certifies on still equals production at its cutoff. The applier
+ * read only the nightly freeze, so a hand dispatch at, say, 11:40 Chicago
+ * installed 50 minutes before the 13:00 cycle's cutoff, the soak in flight
+ * yielded (O16) and the cycle kept serving. A hand install is now held to the
+ * dispatcher's own windows, [cycle + 10m, cycle + 30m) and 04:15-04:30, with
+ * the same dry-run, maintenance-window and written-outage exceptions. The
+ * cadence is read from this revision's maintenanceSchedulePolicy.json; when it
+ * cannot be read the hold applies (an unreadable policy is not "daily").
  */
-import { inReleaseSchemaFreeze, RELEASE_SCHEMA_FREEZE_CHICAGO } from './merged-migration-dispatch.mjs';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  inReleaseSchemaFreeze,
+  RELEASE_SCHEMA_FREEZE_CHICAGO,
+  THREE_HOURLY_POST_SEAL_CLEAR_MINUTE,
+  THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES,
+  threeHourlyDeferralWindow,
+} from './merged-migration-dispatch.mjs';
+
+// A plain path, not a URL object: under a DOM test environment the global URL
+// is not node's, and readFileSync refuses it.
+const POLICY_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../server/src/maintenance/maintenanceSchedulePolicy.json'
+);
+
+/**
+ * The cutover cadence this revision declares: 'three-hourly', 'daily', or
+ * 'unknown' when the policy cannot be read or names neither.
+ */
+export function declaredCutoverCadence(read = () => readFileSync(POLICY_PATH, 'utf8')) {
+  try {
+    const frequency = JSON.parse(read())?.frequency;
+    return frequency === 'three-hourly' || frequency === 'daily' ? frequency : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 
 export const RELEASE_FREEZE_OVERRIDE_MIN_LENGTH = 20;
 
 const hhmm = ([h, m]) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-export function releaseFreezeAdmission({ nowMs, dryRun = false, maintenanceWindow = false, override = null }) {
+export function releaseFreezeAdmission({
+  nowMs,
+  dryRun = false,
+  maintenanceWindow = false,
+  override = null,
+  cadence = declaredCutoverCadence(),
+}) {
   if (!Number.isFinite(nowMs)) throw new Error('nowMs must be a finite epoch millisecond');
-  if (!inReleaseSchemaFreeze(nowMs)) return { admit: true, basis: 'outside_freeze' };
+  const nightly = inReleaseSchemaFreeze(nowMs);
+  // 'unknown' holds like three-hourly: only an explicit 'daily' lifts the cycle hold.
+  const cycle = !nightly && cadence !== 'daily' ? threeHourlyDeferralWindow(nowMs) : null;
+  if (!nightly && !cycle) return { admit: true, basis: 'outside_freeze' };
   if (dryRun) return { admit: true, basis: 'dry_run' };
   if (maintenanceWindow) return { admit: true, basis: 'maintenance_window_route' };
   const why = typeof override === 'string' ? override.trim() : '';
   if (why.length >= RELEASE_FREEZE_OVERRIDE_MIN_LENGTH) {
     return { admit: true, basis: 'outage_override', override: why };
+  }
+  if (cycle) {
+    return {
+      admit: false,
+      basis: why ? 'override_too_short' : 'inside_cycle_hold',
+      cycle: cycle.cycleLabel,
+      clearAt: cycle.clearAt,
+      reason:
+        `it is inside the ${cycle.cycleLabel} America/Chicago engine cutover hold (from ` +
+        `${THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES} minutes before the cycle to ` +
+        `${THREE_HOURLY_POST_SEAL_CLEAR_MINUTE} minutes after it` +
+        (cadence === 'unknown'
+          ? '; the cutover cadence could not be read, so the hold applies'
+          : '') +
+        `); an install now makes the copy that cycle's candidate certified on lack it and the cycle ` +
+        `keeps serving. The merge dispatcher sends held files at ${cycle.clearLabel} (${cycle.clearAt}). ` +
+        `Only an outage that cannot wait installs now, with ` +
+        `--release-freeze-override "<at least ${RELEASE_FREEZE_OVERRIDE_MIN_LENGTH} characters naming the outage>"` +
+        (why ? ` (the given justification is too short)` : '') +
+        '. Nothing was sent.',
+    };
   }
   const window = `${hhmm(RELEASE_SCHEMA_FREEZE_CHICAGO.from)}-${hhmm(RELEASE_SCHEMA_FREEZE_CHICAGO.until)} America/Chicago`;
   return {
