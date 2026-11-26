@@ -380,10 +380,17 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaRiverCurrentNutsCallFloor',
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED: the priced call of a fold facing a 4-bet (ships dark)
   'omahaFourBetFoldPricedCall',
+  // 2026-11-24 PLO lead-6 (audit leaks 1-4, 6, 9): calls and re-raises facing a 3-bet or more priced against the whole
+  // field by position, depth and players (ships dark)
+  'omahaReraisedPotCallIsPriced',
+  'omahaReraisedPotReraiseIsPriced',
   // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
   'holdemOopReraiseRangeHoldsVsReraise',
+  // 2026-11-24 PLO-LEAD-6: the two rules above read the opener's own record of answering a 3-bet (ships dark)
+  'omahaOopReraiseRangeReadsOpenerRecord',
+  'holdemOopReraiseRangeReadsOpenerRecord',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
@@ -408,6 +415,15 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-21 EMERG lane STAB-DEFENCE-5: the two river bet rules price the opponent's own lifetime public river
   // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetFoldIsHisRecord',
+  // 2026-11-24 PLO-OWNER lead-6 (plo-overfold F1-F3, F6; multiway M1-M3): the corrected PLO4/PLO5 cash facing-bet
+  // price on measured ranges and the priced multiway value bet (ship dark)
+  'omahaFacingBetRangeIsMeasuredByLine',
+  'omahaFacingBetIndifferenceCalls',
+  'omahaFlopRealizationIsPriced',
+  'omahaFacingBetMinimumDefencePrior',
+  'omahaFacingBetFieldIsJoint',
+  'omahaMultiwayCallNeedsNutShare',
+  'omahaMultiwayValueBetIsPriced',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
@@ -1078,6 +1094,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash tables, out of position facing one open (no caller)',
     "an out-of-position 3-bet stands only when priced at or above the call the brain's call bar admits and the Horse's own 4-bet answer is not a planned fold",
+  ],
+  holdemOopReraiseRangeReadsOpenerRecord: [
+    HOLDEM,
+    'NLH cash tables, out of position facing one open (no caller), with holdemOopReraiseRangeHoldsVsReraise on',
+    "the out-of-position 3-bet rule binds in proportion to this opener's own 4-bet record (0.10 baseline); rejected 3-bets stand at the seeded frequency 1 - w",
   ],
   holdemValueAndCallsArePriced: [
     HOLDEM,

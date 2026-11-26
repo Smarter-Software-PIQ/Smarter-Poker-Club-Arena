@@ -1,0 +1,29 @@
+# omahaFacingBetRangeIsMeasuredByLine: Authority For The Live Switch
+
+Built 2026-11-24 by PLO-OWNER lead-6 (session 01BNteGX) from the PLO4/PLO5 over-fold root cause (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4) and the multiway audit (multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). Evidence NOT MET: the option is registered, default off (read `=== true`), and has offline replay and law-test evidence only. This file does not authorize switching the option on.
+
+## What It Does
+
+F1. PLO4/PLO5 cash (tables and Lightning), turn and river, heads-up (a multiway spot is `omahaFacingBetFieldIsJoint`'s; with it off a multiway spot keeps today's verdict), inside `omahaFacingBetEv` (it acts only where that verdict decides; `HorseLogic.omahaFacingBetEvCount` -> `HorseOmahaFacingBetPriced.ts`).
+
+The bettor's range is his MEASURED strength histogram (8 bins of the share of holdings of his size that beat his hand) for the street, line (the previous street's aggressor, any other first wager, a raise), size bucket and pot type (heads-up or multiway). Where his own shown record of the cell has at least 4 shown bets (`HorseOmahaBetRead` per-opponent cells, the same learner for every opponent), the cell's weak share is moved by his shown weak share against the population's (prior 8 shown bets). With no record, today's public read factor moves the table, as today. The Horse's share against every bin is an exact count (`omahaEvHandCounts`), so the price is exact; the turn keeps today's realization and caps. The per-street 0.8 / 0.9 narrowing and the fixed 13-19% river bluff share are not used. Receipts `omaha_priced_facing_bet_range_call` / `_fold`, `omaha_priced_facing_bet_changed`, `omaha_priced_facing_bet_record_read`.
+
+Untouched: PLO6, tournaments, hi-lo, bomb pots, multi-board hands, hold'em and every other game (byte-identical; `scripts/ops/horse-flag-off-check.sh origin/main HEAD` 0 differences with every new option off). No input reads whether an opponent is a person or a Horse, a user id, a name or another seat's cards (`anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`). Scopable per game (`horse.omahaGameScope.<option>`); staged for shadow re-decision on the listed streets.
+
+Tables: `server/src/engine/HorseOmahaFacingBetRangeTables.json` (v1-2026-11-24), fitted by `scripts/ops/omaha-facing-bet-range-fit.mjs` from PLO4/PLO5 cash hand_history Nov 17 06Z - Nov 24 07Z (232,468 hands read, 113,115 reaching a flop on one board), hole cards only of players the showdown lists as not mucked, every player pooled.
+
+## What Was Measured
+
+Offline replay of the root-cause report's PLO4/PLO5 cash state set (`plo-overfold/abl/states`, 4,661 postflop facing-bet states, 2 seeds, live switch rows of 2026-11-24 05:20Z): see `plo-lead6-01BNteGX/plo-pricing/BUILD.md` (heads-up and multiway fold % by street and size, before / after, every option alone and together). Law tests: `anOmahaFacingBetDefendsAtThePrice.law.test.ts`, `HorseOmahaFacingBetPriced.realHands.law.test.ts`, `anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`. Not measured: live rates, the league mirror and the human-calibrated league (cards `plo4_/plo5_omahaFacingBetRangeIsMeasuredByLine` in `HorseLeague.ts`).
+
+## Prior anchor
+
+- Baseline: break-even defence, fold at most s / (1 + s) to a wager of s pot; `anOmahaFacingBetDefendsAtThePrice.law.test.ts` holds the whole heads-up range of a no-record bettor to s / (1 + s) + 0.05 under 0.7 pot.
+- Population weight: the measured population histogram (every player pooled, showdown-bias corrected) is the no-record prior at full weight when this option is on alone; where that population makes the range fold above the baseline it is weakened by `omahaFacingBetMinimumDefencePrior` (F6), which raises its air share to the calibrated bound (`minDefence` in `HorseOmahaFacingBetRangeTables.json`). Bets of 0.7 pot and over get no bound: the measured range there is value-heavy (independent equity check, 56 of 60 folds below the price).
+- Own record: the bettor's own shown record of the cell (`HorseOmahaBetRead`, from 4 shown bets) replaces the table's weak share through a Beta-binomial shrink with 8 prior bets (`OMAHA_MEASURED_RECORD_PRIOR`), so it dominates once it has a real sample; a record is never bounded by F6.
+- No unshown cards: the tables are fitted by `scripts/ops/omaha-facing-bet-range-fit.mjs` from `hand_history` hole cards only of players the showdown lists as not mucked; at decision time the option reads the public table state and the deciding Horse's own cards only (`anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts`).
+
+## Replay
+
+- Replay: fixed 20; newlyWrong 8; changed 31; unchanged 3732; unjudged 3; set HVH48 B PLO4/PLO5 cash (memory off); scorer 5302af2ab3e; source placed verdict-only; arm f1f2f6 vs off; replayed 3763 of 3884
+- Note (2026-11-24): arm f1f2f6 is omahaFacingBetRangeIsMeasuredByLine + omahaFacingBetIndifferenceCalls + omahaFacingBetMinimumDefencePrior together (they act inside one verdict); harness scripts/audited-node-option-replay.ts, seeds 1,7,42, opponent memory off. Bar fixed >= 2 x newly wrong: met (20 vs 8). Real-card EV grade not run (see omahaFlopRealizationIsPriced.md).

@@ -21,6 +21,11 @@ import {
   validReraiseResponse,
   type ReraiseResponseCounters,
 } from './HorseOmahaReraiseResponse.js';
+import {
+  copyOpenerResponse,
+  validOpenerResponse,
+  type OpenerResponseCounters,
+} from './HorseOpenerAnswersThreeBet.js';
 import { copyFlopShown, validFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
 import {
   copyStreetPrice,
@@ -92,6 +97,15 @@ export interface DurableOpponentProfile {
    */
   reraise_response?: ReraiseResponseCounters | null;
   /**
+   * 2026-11-24 how this exact row's player answers a 3-bet of his own open (horse_exact_profiles.opener_response: in
+   * position and out of position against the 3-bettor, each cell his opportunities and his folds, calls and 4-bets,
+   * aged by its own opportunities with the preflop counters' half-life of 30, written by the accepted-hand learner
+   * for nlh, plo4 and plo5 from the hand after its column was installed; HorseOpenerAnswersThreeBet). Public actions
+   * only. Null or absent: none on file (also before the column exists). Never part of the row's validity: a stored
+   * copy keeps it only when it is well formed (copyOpenerResponseRecord). Read only by default-OFF options.
+   */
+  opener_response?: OpenerResponseCounters | null;
+  /**
    * 2026-11-19 what this exact row's player showed after making the first bet of a flop, and what calls of those
    * bets returned (horse_exact_profiles.flop_shown: shown first flop bets by line, flop texture and the hand's class
    * on the flop; calls of his first flop bets by the caller's kind, class and position with their price and their
@@ -142,6 +156,17 @@ export function copyReraiseResponseRecord(p: {
   if (p.reraise_response === null) return { reraise_response: null };
   if (!validReraiseResponse(p.reraise_response)) return {};
   return { reraise_response: copyReraiseResponse(p.reraise_response) };
+}
+
+/** A copy of a profile's opener response record for a stored copy of the profile: absent stays absent, null stays
+ *  null, and a malformed record is dropped (absent) rather than failing the row. */
+export function copyOpenerResponseRecord(p: {
+  opener_response?: unknown;
+}): Pick<DurableOpponentProfile, 'opener_response'> {
+  if (p.opener_response === undefined) return {};
+  if (p.opener_response === null) return { opener_response: null };
+  if (!validOpenerResponse(p.opener_response)) return {};
+  return { opener_response: copyOpenerResponse(p.opener_response) };
 }
 
 /** A copy of a profile's street read for a stored copy of the profile: absent stays absent, null stays null, and a

@@ -26,6 +26,7 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import { noteFire, telemetryOn, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import { restoreFastRandom, saveFastRandom } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
+import { openerFourBetRead, type OpenerFourBetRead } from './HorseOpenerAnswersThreeBet.js';
 import { omahaDowngradedThreeBetCalls } from './HorseOmahaOopReraisedPot.js';
 import { withStyleRecordsKept } from './HorseStyleShadow.js';
 import { restoreHorseBetSizeRandom, saveHorseBetSizeRandom } from './horsePublicBetSize.js';
@@ -33,6 +34,7 @@ import { restoreHorseTimingRandom, saveHorseTimingRandom } from './horsePublicAc
 import {
   HOLDEM_OOP_RERAISE_RANGE_HOLDS,
   OMAHA_OOP_RERAISE_RANGE_HOLDS,
+  OMAHA_OOP_RERAISE_READS_OPENER_RECORD,
   RERAISE_FOLD_SHARE_CAP_DEFAULT,
   oopReraiseAnswerOf,
   oopReraiseFourBetFrame,
@@ -56,6 +58,10 @@ import {
 export interface OopReraiseOpts {
   omahaOopReraiseRangeHoldsVsReraise?: boolean;
   holdemOopReraiseRangeHoldsVsReraise?: boolean;
+  /** default OFF: the planned-fold guard and the opener's call : 4-bet split read this opener's own record of
+   *  answering a 3-bet (HorseOpenerAnswersThreeBet); each only with its game's rule above on */
+  omahaOopReraiseRangeReadsOpenerRecord?: boolean;
+  holdemOopReraiseRangeReadsOpenerRecord?: boolean;
   /** horse.reraiseFoldShareCap (runtime setting); absent: RERAISE_FOLD_SHARE_CAP_DEFAULT */
   reraiseFoldShareCap?: number;
   mind?: boolean;
@@ -97,11 +103,19 @@ export function oopReraiseRangeHoldsScoped<
   O extends OopReraiseOpts & { omahaOptionGameScope?: unknown },
 >(opts: O, game: 4 | 5 | null): O {
   const scope = opts.omahaOptionGameScope as Readonly<Record<string, unknown>> | undefined;
-  const only =
-    scope && typeof scope === 'object' ? scope[OMAHA_OOP_RERAISE_RANGE_HOLDS] : undefined;
-  if (game === null || (only !== 4 && only !== 5) || only === game) return opts;
-  if (opts.omahaOopReraiseRangeHoldsVsReraise !== true) return opts;
-  return { ...opts, omahaOopReraiseRangeHoldsVsReraise: false };
+  if (game === null || !scope || typeof scope !== 'object') return opts;
+  let out = opts;
+  // each option reads its own horse.omahaGameScope.<option> (4 or 5 only: the other Omaha game reads it off)
+  for (const name of [
+    OMAHA_OOP_RERAISE_RANGE_HOLDS,
+    OMAHA_OOP_RERAISE_READS_OPENER_RECORD,
+  ] as const) {
+    const only = scope[name];
+    if ((only !== 4 && only !== 5) || only === game) continue;
+    if ((out as Record<string, unknown>)[name] !== true) continue;
+    out = { ...out, [name]: false };
+  }
+  return out;
 }
 
 /** The inputs the stage collects in pass 1. */
@@ -114,6 +128,8 @@ interface Collected {
   openBand: readonly [number, number] | null;
   callAdmitted: boolean;
   rakeOfPot: (pot: number) => number;
+  /** the opener's own record, read only with the game's opener-record option on (absent otherwise) */
+  openerRecord?: OpenerFourBetRead | null;
 }
 
 /** The route in progress (null: none; the stage returns its input). Synchronous, one decision at a time. */
@@ -219,6 +235,22 @@ export function oopReraiseRangeHoldsStage(
     }
     const answers = openerAnswersThreeBetRead(spot.game, spot.effBB, measuredFold);
     if (answers === null) return decision;
+    // The opener-record option: his own answers to a 3-bet in position (the Horse is out of position here), anchored.
+    const readsRecord =
+      spot.game === 'nlh'
+        ? opts.holdemOopReraiseRangeReadsOpenerRecord === true
+        : opts.omahaOopReraiseRangeReadsOpenerRecord === true;
+    let openerRecord: OpenerFourBetRead | null = null;
+    if (readsRecord) {
+      let row = null;
+      if (opts.mind !== false)
+        try {
+          row = HorseMind.openerResponseOf(spot.openerId);
+        } catch {
+          row = null;
+        }
+      openerRecord = openerFourBetRead(row, 'inPosition', answers.fold);
+    }
     const hole = player.cards ?? [];
     const dead = player.knownDeadCards ?? [];
     let callAdmitted: boolean;
@@ -250,6 +282,7 @@ export function oopReraiseRangeHoldsStage(
       openBand,
       callAdmitted,
       rakeOfPot: ctx.rakeOfPot,
+      ...(readsRecord ? { openerRecord } : {}),
     };
     return decision;
   } catch {
@@ -371,6 +404,7 @@ export function oopReraiseRangeHoldsDecide(
           ? opts.reraiseFoldShareCap
           : RERAISE_FOLD_SHARE_CAP_DEFAULT,
       horseId: player.user_id,
+      ...(collected.openerRecord !== undefined ? { openerRecord: collected.openerRecord } : {}),
     });
   } catch {
     receipt = null;

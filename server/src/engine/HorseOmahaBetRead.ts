@@ -852,3 +852,24 @@ export function omahaBetReadIsLaterBarrel(
   }
   return false;
 }
+
+/**
+ * omahaFacingBetRangeIsMeasuredByLine (PLO-OWNER lead-6 2026-11-24): his OWN shown record of the first bet of this
+ * street and size (no population, no comparison with anyone): the shown bets and how many were value. `laterBarrel`
+ * reads the cells of a bet made after his own wager of the street before. Null with no row. Pure read.
+ */
+export function omahaBetReadOwnCellOf(
+  userId: string | null | undefined,
+  variant: string,
+  street: string,
+  potFrac: number,
+  laterBarrel: boolean
+): { shown: number; value: number } | null {
+  const v = String(variant ?? '').toLowerCase();
+  if (!userId || !OMAHA_BET_READ_VARIANTS.has(v) || !Number.isFinite(potFrac)) return null;
+  if (street !== 'flop' && street !== 'turn' && street !== 'river') return null;
+  const me = rows.get(rowKey(userId, v));
+  if (!me) return null;
+  const c = (laterBarrel ? me.cells2 : me.cells)[street][omahaBetReadBucketOf(potFrac)];
+  return { shown: c.shown, value: c.value };
+}

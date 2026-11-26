@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaReraisedPotPriced.identity.law.test.ts
+
+omahaReraisedPotCallIsPriced and omahaReraisedPotReraiseIsPriced never key on person-vs-Horse identity (owner rule: nothing keyed on identity or a named player): for every spot (out of position multiway, heads-up out of and in position, facing a 5-bet), with and without a measured record, and for a standing fold, call and pot re-raise, the priced decision, its receipt and both EVs are identical whether the re-raiser is seated as a person or as a Horse; and the two rule files read no is_horse flag, no roster of persons and no opponent-kind reader.

@@ -765,6 +765,46 @@ function topShareThreshold(
   return { t: sorted[pick], above: aboveOf(pick) };
 }
 
+/**
+ * The region of holdings whose share of holdings that beat them is below `edge` (the measured tables' strength scale,
+ * HorseOmahaFacingBetRangeTables.json): a block of holdings tied on one score belongs wholly to the side its own
+ * beat share falls on. topShareThreshold instead picks the block boundary nearest a wanted share, which for a top
+ * tie block bigger than the edge (a nut straight many holdings share) leaves the region empty. Used only through
+ * omahaEvHandCountsByBeatShare (the corrected facing-bet price); today's verdicts never reach it.
+ */
+function beatShareThreshold(
+  core: EvCore,
+  edge: number,
+  memo: Map<number, number>
+): { t: number; above: number } {
+  const { scores, sorted, m, n, total } = core;
+  const aboveOf = (idx: number): number => {
+    let v = memo.get(idx);
+    if (v === undefined) {
+      v = core.above.get(idx);
+      if (v === undefined) {
+        v = total - countHoldingsWithout(m, n, pairsAbove(scores, m, sorted[idx], false));
+        core.above.set(idx, v);
+      }
+      memo.set(idx, v);
+    }
+    return v;
+  };
+  const want = edge * total;
+  // sorted ascending; the block AT sorted[idx] is beaten by aboveOf(idx) holdings. The lowest idx whose block is
+  // beaten by fewer than `want` opens the region: every holding scoring at least sorted[idx].
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (aboveOf(mid) < want) hi = mid;
+    else lo = mid + 1;
+  }
+  if (lo >= sorted.length) return { t: sorted[sorted.length - 1], above: 0 };
+  if (lo === 0) return { t: sorted[0] - 1, above: total };
+  return { t: sorted[lo - 1], above: aboveOf(lo - 1) };
+}
+
 export interface OmahaEvShares {
   win: number;
   tie: number;
@@ -825,6 +865,22 @@ export function omahaEvHandCountsSixCardTurn(
   return evHandCountsGuarded(hole, board, dead, valueShare, true);
 }
 
+/**
+ * The exact counts with every region cut on the beat-share scale of the measured tables (beatShareThreshold): the
+ * value region of `edge` and every top(s) region hold exactly the holdings beaten by less than that share. Four and
+ * five card hands only. Used by the corrected facing-bet price (HorseOmahaFacingBetPriced.omahaPricedBinShares).
+ */
+export function omahaEvHandCountsByBeatShare(
+  hole: Card[],
+  board: Card[],
+  dead: Card[],
+  edge: number
+): OmahaEvHandCounts | null {
+  if (!Array.isArray(hole) || (hole.length !== 4 && hole.length !== 5)) return null;
+  if (!(edge > 0 && edge < 1)) return null;
+  return evHandCounts(hole, board, dead, edge, false, true);
+}
+
 function evHandCountsGuarded(
   hole: Card[],
   board: Card[],
@@ -871,7 +927,8 @@ function evHandCounts(
   board: Card[],
   dead: Card[],
   valueShare: number,
-  sixCardTurn: boolean
+  sixCardTurn: boolean,
+  byBeatShare = false
 ): OmahaEvHandCounts | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
   // Six cards: the river; the turn only where PLO6_FACING_BET_EV_TURN admits
@@ -904,7 +961,9 @@ function evHandCounts(
     return c;
   };
   const share = Math.max(0.01, Math.min(0.95, valueShare));
-  const v = topShareThreshold(core, share, memo);
+  const v = byBeatShare
+    ? beatShareThreshold(core, valueShare, memo)
+    : topShareThreshold(core, share, memo);
 
   if (board.length === 5) {
     const hero = scoreOmahaHiPartial(hole, board);
@@ -966,7 +1025,9 @@ function evHandCounts(
         const k = Math.round(s * 1000);
         let r = topMemo.get(k);
         if (!r) {
-          const th = topShareThreshold(core, s, memo);
+          const th = byBeatShare
+            ? beatShareThreshold(core, s, memo)
+            : topShareThreshold(core, s, memo);
           r = { ...againstAbove(th.t, th.above), share: th.above / total };
           topMemo.set(k, r);
         }
@@ -1083,7 +1144,9 @@ function evHandCounts(
       const kk = Math.round(s * 1000);
       let r = topMemo.get(kk);
       if (!r) {
-        const th = topShareThreshold(core, s, memo);
+        const th = byBeatShare
+          ? beatShareThreshold(core, s, memo)
+          : topShareThreshold(core, s, memo);
         if (!(th.above > 0) || heroNow <= th.t) r = { win: 0, tie: 0, share: th.above / total };
         else {
           const S = pairsAbove(scores, m, th.t, false);
