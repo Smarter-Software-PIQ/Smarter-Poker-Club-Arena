@@ -863,7 +863,7 @@ try:
  # HorsePostflopBetRecord.
  pbmig=(ROOT/'supabase/migrations/20261126021624_exact_profile_keeps_his_postflop_raises_and_shown_bets.sql').read_text()
  pb_proof=next(line.removeprefix('-- @live-proof: ') for line in pbmig.splitlines() if line.startswith('-- @live-proof: '))
- PB_RS=['flop','turn','river']; PB_SS=['turn','river']; PB_BS=['small','medium','large','overbet']
+ PB_RS=['flop','turn','river']; PB_SS=['flop','turn','river']; PB_BS=['small','medium','large','overbet']
  def pb_row(rec):
   assert sorted(rec)==['raiseToBet','shownBet'],rec
   out=[]
@@ -872,7 +872,7 @@ try:
    for b in PB_BS: c=rec['shownBet'][st][b]; assert sorted(c)==['air','called','shown']; out+=[c['called'],c['shown'],c['air']]
   return out
  def pb_record(r):
-  o={'raiseToBet':{},'shownBet':{'turn':{},'river':{}}}; i=0
+  o={'raiseToBet':{},'shownBet':{'flop':{},'turn':{},'river':{}}}; i=0
   for st in PB_RS: o['raiseToBet'][st]={'opp':r[i],'raise':r[i+1]}; i+=2
   for st in PB_SS:
    for b in PB_BS: o['shownBet'][st][b]={'called':r[i],'shown':r[i+1],'air':r[i+2]}; i+=3
@@ -909,10 +909,10 @@ try:
    got=json.loads(run('pb-add-'+str(k),"SELECT coalesce("+pb_chain+"::text,'null');")); pb_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
    want=pb_cps[k]
    assert (got is None)==(want is None),(k,got,want)
-   if got is not None: assert len(want)==30 and all(abs(x-y)<1e-12 for x,y in zip(pb_row(got),want)),(k,got,want)
+   if got is not None: assert len(want)==42 and all(abs(x-y)<1e-12 for x,y in zip(pb_row(got),want)),(k,got,want)
  assert len(pb_cps)>=12
  assert run('pb-add-null-delta',"SELECT fn_horse_postflop_bets_add(NULL,NULL) IS NULL AND fn_horse_postflop_bets_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
- pb_one=[0]*30; pb_one[2]=1; pb_one[3]=1
+ pb_one=[0]*42; pb_one[2]=1; pb_one[3]=1
  pb_damaged=json.loads(run('pb-add-damaged',"SELECT fn_horse_postflop_bets_add('{\"raiseToBet\":{\"turn\":{\"opp\":\"x\",\"raise\":1e400}},\"shownBet\":7}'::jsonb,"+jsonb_literal(pb_record(pb_one))+")::text;"))
  assert pb_row(pb_damaged)==pb_one,pb_damaged
  assert run('pb-increments-not-array',"SELECT fn_horse_postflop_bets_increments('{}'::jsonb,NULL)::text||fn_horse_postflop_bets_increments(NULL,NULL)::text||fn_horse_postflop_bets_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb,'[]'::jsonb)::text;")=='{}{}{}'

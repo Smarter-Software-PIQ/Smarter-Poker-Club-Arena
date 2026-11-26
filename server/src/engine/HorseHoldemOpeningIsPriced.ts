@@ -145,6 +145,84 @@ export function holdemRangeAdvantage(
   return total / (wa * wb);
 }
 
+/** The strength cutoff above which the strongest share `t` of `range` lies; `frac` of the weight AT the cutoff is in. */
+export function holdemTopCutoff(
+  range: HoldemPricedRange,
+  t: number
+): { cut: number; frac: number } {
+  let want = Math.max(0, Math.min(1, t)) * range.total;
+  const ord = range.order;
+  if (want <= 1e-12 || ord.length === 0) return { cut: Infinity, frac: 0 };
+  let k = 0;
+  while (k < ord.length) {
+    const s = range.strength[ord[k]];
+    let w = 0;
+    let j = k;
+    while (j < ord.length && range.strength[ord[j]] === s) {
+      w += range.weight[ord[j]];
+      j++;
+    }
+    if (w >= want - 1e-12) return { cut: s, frac: w > 0 ? Math.min(1, want / w) : 1 };
+    want -= w;
+    k = j;
+  }
+  return { cut: -Infinity, frac: 1 };
+}
+
+/** In `range`, the shares that fold (under `foldCut`), raise (over `raiseCut`) and call, with the Horse's equity against
+ *  the calling and the raising parts. */
+export function holdemFoldCallRaise(
+  range: HoldemPricedRange,
+  foldCut: { cut: number; frac: number },
+  raiseCut: { cut: number; frac: number }
+): { fold: number; call: number; raise: number; callEquity: number; raiseEquity: number } {
+  let fw = 0;
+  let cw = 0;
+  let ce = 0;
+  let rw = 0;
+  let re = 0;
+  for (const i of range.order) {
+    const w = range.weight[i];
+    const st = range.strength[i];
+    const f = st < foldCut.cut ? 1 : st === foldCut.cut ? foldCut.frac : 0;
+    const r0 = st > raiseCut.cut ? 1 : st === raiseCut.cut ? raiseCut.frac : 0;
+    const r = Math.min(r0, 1 - f);
+    fw += w * f;
+    rw += w * r;
+    re += w * r * range.equity[i];
+    const c = w * (1 - f - r);
+    cw += c;
+    ce += c * range.equity[i];
+  }
+  const t = range.total > 0 ? range.total : 1;
+  const all = holdemEquityOfShare(range, 1).equity;
+  return {
+    fold: fw / t,
+    call: cw / t,
+    raise: rw / t,
+    callEquity: cw > 0 ? ce / cw : all,
+    raiseEquity: rw > 0 ? re / rw : all,
+  };
+}
+
+/**
+ * His raise of the Horse's bet (holdemOpeningValueBetIsPriced, 2026-11-25): he raises with the strongest `share` of
+ * his range read without the Horse's cards (value raises), to `factor` times the bet, capped at the effective stack;
+ * the Horse then takes the better of folding and calling at that price.
+ */
+export interface HoldemOpeningRaise {
+  share: number;
+  factor: number;
+}
+/**
+ * The no-record anchor of his raise share facing a bet, per street: equilibrium-scale rates (solver strategies raise
+ * a single bet roughly a tenth of the time on the flop and less on later streets, where ranges are narrower). His own
+ * record (HorsePostflopBetRecord.raiseToBetShare) dominates as it grows: n / (n + 20).
+ */
+export const HOLDEM_OPENING_RAISE_ANCHOR = { flop: 0.1, turn: 0.08, river: 0.06 } as const;
+/** The raise-to size as a multiple of the Horse's bet (a standard raise; a price input, not a gate). */
+export const HOLDEM_OPENING_RAISE_FACTOR = 3;
+
 export interface HoldemOpeningSpot {
   pot: number;
   heroIn: number;
@@ -176,7 +254,8 @@ export function holdemOpeningPrice(
   spot: HoldemOpeningSpot,
   range: HoldemPricedRange,
   base: HoldemPricedRange,
-  targets: readonly number[]
+  targets: readonly number[],
+  raise?: HoldemOpeningRaise | null
 ): { check: number; equity: number; bets: HoldemOpeningCandidate[] } {
   const all = holdemEquityOfShare(range, 1).equity;
   const check = spot.r * all * spot.pot;
@@ -191,10 +270,25 @@ export function holdemOpeningPrice(
     // -12.0 +- 4.1 bb/100 with the cap, -1.7 +- 4.3 without, heads-up, seed 3303)
     const fb = holdemPricedFold(spot.foldRef, matched, spot.pot);
     const cut = holdemFoldCutoff(base, fb);
-    const g = holdemFoldAndCallEquity(range, cut);
-    const ev =
+    let g = holdemFoldAndCallEquity(range, cut);
+    let ev =
       g.fold * spot.pot +
       (1 - g.fold) * (spot.r * g.callEquity * (spot.pot + matched + his) - matched);
+    if (raise && raise.share > 0 && spot.villainStack > his) {
+      // his raise branch: the strongest share of his range (read without the Horse's cards) raises
+      const top = holdemTopCutoff(base, Math.min(raise.share, Math.max(0, 1 - fb)));
+      const p3 = holdemFoldCallRaise(range, cut, top);
+      g = { fold: p3.fold, callEquity: p3.callEquity, callWeight: 0 };
+      const allIn = Math.min(spot.heroIn + spot.heroStack, spot.villainIn + spot.villainStack);
+      const raiseTo = Math.min(allIn, to * raise.factor);
+      const heroAdd = Math.max(0, raiseTo - spot.heroIn);
+      const hisAdd = Math.max(0, raiseTo - spot.villainIn);
+      const callRaise = spot.r * p3.raiseEquity * (spot.pot + heroAdd + hisAdd) - heroAdd;
+      ev =
+        p3.fold * spot.pot +
+        p3.call * (spot.r * p3.callEquity * (spot.pot + matched + his) - matched) +
+        p3.raise * Math.max(-matched, callRaise);
+    }
     bets.push({
       to,
       ev,

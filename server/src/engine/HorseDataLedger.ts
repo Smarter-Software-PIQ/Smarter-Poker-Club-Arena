@@ -2643,6 +2643,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemRiverCallVsMeasuredBluffIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (owner: call more ONLY against an opponent whose own record shows bluffing above the balanced share; #11921 lost by calling a field that rarely bluffs). Default off (read === true). No-limit hold'em cash, table and Lightning, heads-up, the river, facing his bet: the brain's fold becomes a call only when his own record of called, SHOWN river bets of this size (horse_exact_profiles.postflop_bets shownBet: air = shown high card; mucked or folded hands are never read) puts his bluff share above the balanced share s / (1 + 2s), shrunk to it with 20 pseudo-observations, and the call prices above zero against his bet read with that share. No record: the decision stands. Never a raise. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemMultiwayFlopSmallBetCallIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (real-hand audit: Horses over-fold small multiway flop bets where people bluffed 35-42%). Default off (read === true). No-limit hold'em cash, table and Lightning, the flop, multiway, facing a small first bet (under half the pot) with the Horse closing the action: the brain's fold becomes a call only when the bettor's own record of called, shown flop bets of that size puts his bluff share above balanced (shrunk to it) and the call prices above zero against his bet read with that share and every caller's line range. No record: the decision stands. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemOpeningValueBetIsPriced',
     "PLO-OWNER lead-7 2026-11-25 (real-hand audit, NLH cash against people, 2026-11-24/25: missed turn value bets 106 bb in 390 hands, missed flop value, turn bets sized too small). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, not facing a wager: the brain's check becomes a value bet at the legal priced size of highest EV when the hands that call at that size lose chips to it on balance (equity against his calling part above one half) and the bet prices above the check; a turn value bet is resized to that size when it prices higher (HorseHoldemOpeningIsPriced). His fold to a bet: his own record (river response record on the river, else his fold to a bet), shrunk with 20 pseudo-opportunities to the equilibrium anchor where his fold equals the bettor's break-even price; never the Horse population. Who folds: the weakest share of his public line range read without the Horse's cards. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -9633,6 +9643,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
     "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
     'V94'
+  ),
+  receipt(
+    'holdem_river_call_vs_measured_bluff_called',
+    'HorseLogic.holdemRiverCallVsMeasuredBluff (holdemRiverCallVsMeasuredBluffIsPriced)',
+    'heads-up NLH cash river, a fold became a call: his own shown record of called river bets at this size is bluff-heavy beyond balanced and the call prices above zero',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_call_vs_measured_bluff_kept_fold',
+    'HorseLogic.holdemRiverCallVsMeasuredBluff (holdemRiverCallVsMeasuredBluffIsPriced)',
+    'his shown record is bluff-heavy beyond balanced but the call still prices at or under zero: the fold stands',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_call_vs_measured_bluff_not_above',
+    'HorseLogic.holdemRiverCallVsMeasuredBluff (holdemRiverCallVsMeasuredBluffIsPriced)',
+    'his shown record (shrunk to balanced) is not above the balanced bluff share for the size: the fold stands',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_mw_flop_small_bet_called',
+    'HorseLogic.holdemMultiwayFlopSmallBetCall (holdemMultiwayFlopSmallBetCallIsPriced)',
+    "multiway NLH cash flop, closing the action against a small first bet, a fold became a call: the bettor's shown flop record is bluff-heavy beyond balanced and the call prices above zero against every caller",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_mw_flop_small_bet_kept_fold',
+    'HorseLogic.holdemMultiwayFlopSmallBetCall (holdemMultiwayFlopSmallBetCallIsPriced)',
+    'the bettor shows bluffs beyond balanced but the call still prices at or under zero: the fold stands',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_mw_flop_small_bet_not_above',
+    'HorseLogic.holdemMultiwayFlopSmallBetCall (holdemMultiwayFlopSmallBetCallIsPriced)',
+    "the bettor's shown flop record (shrunk to balanced) is not above the balanced bluff share: the fold stands",
+    "Hold'em Strategy"
   ),
   receipt(
     'holdem_opening_value_bet',

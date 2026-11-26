@@ -19,7 +19,7 @@
 --
 -- This file gives the exact profile one nullable column postflop_bets jsonb:
 --   {"raiseToBet": {flop|turn|river: {opp, raise}},
---    "shownBet":   {turn|river: {small|medium|large|overbet: {called, shown, air}}}}
+--    "shownBet":   {flop|turn|river: {small|medium|large|overbet: {called, shown, air}}}}
 -- written by the accepted-hand learner for nlh hands only:
 --   - fn_horse_postflop_bets_increments(actions, showdown): one hand's counts,
 --     replayed from the public action log and the public showdown list exactly
@@ -27,8 +27,8 @@
 --       raiseToBet: he acts on a street where another player has wagered and he
 --         has not wagered on it yet (one opportunity per player per street);
 --         raise = a bet, a raise or a full-raise all-in.
---       shownBet: his first wager of a turn or river made when nobody had
---         wagered on that street, called by another player before any raise;
+--       shownBet: his first wager of a street made when nobody had wagered
+--         on that street, called by another player before any raise;
 --         size bucket = that wager over the pot before it (the shown-river
 --         buckets, the pot summed as fn_horse_shown_river_increments sums it);
 --         shown = the showdown list names him and he did not muck; air = shown
@@ -79,6 +79,7 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public AS $fn$
  SELECT jsonb_build_object(
   'raiseToBet',jsonb_build_object('flop','{"opp":0,"raise":0}'::jsonb,'turn','{"opp":0,"raise":0}'::jsonb,'river','{"opp":0,"raise":0}'::jsonb),
   'shownBet',jsonb_build_object(
+    'flop',jsonb_build_object('small','{"called":0,"shown":0,"air":0}'::jsonb,'medium','{"called":0,"shown":0,"air":0}'::jsonb,'large','{"called":0,"shown":0,"air":0}'::jsonb,'overbet','{"called":0,"shown":0,"air":0}'::jsonb),
     'turn',jsonb_build_object('small','{"called":0,"shown":0,"air":0}'::jsonb,'medium','{"called":0,"shown":0,"air":0}'::jsonb,'large','{"called":0,"shown":0,"air":0}'::jsonb,'overbet','{"called":0,"shown":0,"air":0}'::jsonb),
     'river',jsonb_build_object('small','{"called":0,"shown":0,"air":0}'::jsonb,'medium','{"called":0,"shown":0,"air":0}'::jsonb,'large','{"called":0,"shown":0,"air":0}'::jsonb,'overbet','{"called":0,"shown":0,"air":0}'::jsonb)))
 $fn$;
@@ -125,7 +126,7 @@ BEGIN
      open_id:=NULL;
     END IF;
    END IF;
-   IF ag AND wagered_by IS NULL AND st IN ('turn','river') AND inc>0 AND pot>0 THEN
+   IF ag AND wagered_by IS NULL AND inc>0 AND pot>0 THEN
     frac:=inc/pot;
     open_id:=uid; open_st:=st;
     open_b:=CASE WHEN frac<0.5 THEN 'small' WHEN frac<0.66 THEN 'medium' WHEN frac<=1 THEN 'large' ELSE 'overbet' END;
@@ -169,7 +170,7 @@ BEGIN
    res:=jsonb_set(res,ARRAY['raiseToBet',s,f],to_jsonb(v));
   END LOOP;
  END LOOP;
- FOREACH s IN ARRAY ARRAY['turn','river'] LOOP
+ FOREACH s IN ARRAY ARRAY['flop','turn','river'] LOOP
   FOREACH b IN ARRAY ARRAY['small','medium','large','overbet'] LOOP
    gate:=CASE WHEN jsonb_typeof(p_delta#>ARRAY['shownBet',s,b,'called'])='number' AND abs((p_delta#>>ARRAY['shownBet',s,b,'called'])::numeric)<1e12 THEN (p_delta#>>ARRAY['shownBet',s,b,'called'])::double precision ELSE 0 END;
    FOREACH f IN ARRAY ARRAY['called','shown','air'] LOOP

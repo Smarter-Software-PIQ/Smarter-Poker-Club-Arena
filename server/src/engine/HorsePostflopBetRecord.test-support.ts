@@ -26,7 +26,7 @@ const act = (
   extra: Record<string, unknown> = {}
 ): PostflopVectorAction => ({ userId, stage, action, amount, origin: 'player', ...extra });
 
-/** What the engine computes for one hand: per player, the 30 numbers of his row. */
+/** What the engine computes for one hand: per player, the 42 numbers of his row. */
 export function enginePostflopBetIncrements(
   actions: readonly PostflopVectorAction[],
   showdown: readonly PostflopShowdownEntry[] | null
@@ -226,19 +226,19 @@ export function buildPostflopBetVectors(): PostflopBetVectors {
       expected: enginePostflopBetIncrements(actions, showdown as PostflopShowdownEntry[] | null),
     };
   });
-  // The add rule through a chain of 120 hands (rows of 30 numbers, each a valid one-hand increment).
+  // The add rule through a chain of 120 hands (rows of 42 numbers, each a valid one-hand increment).
   const steps: number[][] = [];
   const checkpoints: { after: number; row: number[] | null }[] = [];
   let row: PostflopBetCounters | null = null;
   for (let k = 1; k <= 120; k++) {
-    const r = new Array<number>(30).fill(0);
+    const r = new Array<number>(42).fill(0);
     for (let s = 0; s < 3; s++)
       if (rnd() < 0.35) {
         r[2 * s] = 1;
         r[2 * s + 1] = rnd() < 0.3 ? 1 : 0;
       }
     if (rnd() < 0.3) {
-      const cell = Math.floor(rnd() * 8);
+      const cell = Math.floor(rnd() * 12);
       const shown = rnd() < 0.7 ? 1 : 0;
       r[6 + 3 * cell] = 1;
       r[6 + 3 * cell + 1] = shown;

@@ -8,7 +8,7 @@
  *   raiseToBet[street]           street = flop | turn | river. An opportunity: he acts on a street where another
  *                                player has wagered and he has not wagered yet on that street (at most one per player
  *                                per street). `raise`: that action was a bet, a raise or a full-raise all-in.
- *   shownBet[street][size]       street = turn | river; size = his wager over the pot before it: small (< 0.5),
+ *   shownBet[street][size]       street = flop | turn | river; size = his wager over the pot before it: small (< 0.5),
  *                                medium (< 0.66), large (<= 1), overbet (the shown-river buckets). His FIRST wager on
  *                                that street, made when nobody had wagered on it yet, and then called by another
  *                                player before any raise: `called`. `shown`: the public showdown list names him and
@@ -37,7 +37,7 @@ import {
 
 export const POSTFLOP_RAISE_STREETS = ['flop', 'turn', 'river'] as const;
 export type PostflopRaiseStreet = (typeof POSTFLOP_RAISE_STREETS)[number];
-export const POSTFLOP_SHOWN_STREETS = ['turn', 'river'] as const;
+export const POSTFLOP_SHOWN_STREETS = ['flop', 'turn', 'river'] as const;
 export type PostflopShownStreet = (typeof POSTFLOP_SHOWN_STREETS)[number];
 export const POSTFLOP_SIZE_BUCKETS = ['small', 'medium', 'large', 'overbet'] as const;
 export type PostflopSizeBucket = (typeof POSTFLOP_SIZE_BUCKETS)[number];
@@ -72,7 +72,7 @@ const shownStreet = (): Record<PostflopSizeBucket, ShownBetCell> => ({
 export function emptyPostflopBets(): PostflopBetCounters {
   return {
     raiseToBet: { flop: raiseCell(), turn: raiseCell(), river: raiseCell() },
-    shownBet: { turn: shownStreet(), river: shownStreet() },
+    shownBet: { flop: shownStreet(), turn: shownStreet(), river: shownStreet() },
   };
 }
 
@@ -160,8 +160,8 @@ export function postflopBetHandIncrements(
           open = null;
         }
       }
-      if (ag && wageredBy === null && (st === 'turn' || st === 'river') && inc > 0 && pot > 0)
-        open = { id: uid, street: st, bucket: postflopSizeBucket(inc, pot) };
+      if (ag && wageredBy === null && inc > 0 && pot > 0)
+        open = { id: uid, street: st as PostflopShownStreet, bucket: postflopSizeBucket(inc, pot) };
       if (ag) {
         wageredBy = uid;
         wagered.add(uid);
@@ -275,8 +275,8 @@ export function postflopBetsCarriedFor(variant: string | null | undefined): bool
   );
 }
 
-/** The read-frame row: raiseToBet [opp, raise] x 3 streets, then shownBet [called, shown, air] x 2 x 4. */
-export const POSTFLOP_BETS_ROW_LENGTH = 3 * 2 + 2 * 4 * 3;
+/** The read-frame row: raiseToBet [opp, raise] x 3 streets, then shownBet [called, shown, air] x 3 streets x 4 sizes. */
+export const POSTFLOP_BETS_ROW_LENGTH = 3 * 2 + 3 * 4 * 3;
 export function postflopBetsRow(r: PostflopBetCounters): number[] {
   const out: number[] = [];
   for (const s of POSTFLOP_RAISE_STREETS) out.push(r.raiseToBet[s].opp, r.raiseToBet[s].raise);

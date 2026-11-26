@@ -202,7 +202,7 @@ const reraiseResponseCarried = (version: unknown) => version === RERAISE_RESPONS
 const FLOP_SHOWN_VERSION = 'horse-decision-reads-v20';
 const flopShownCarried = (version: unknown) => version === FLOP_SHOWN_VERSION;
 /** 2026-11-25: v20 plus how the pooled exact rows' NLH players answer a postflop bet and what their called bets
- * showed (`postflopBets`: per nlh row with a durable record, its 30 numbers, HorsePostflopBetRecord.postflopBetsRow),
+ * showed (`postflopBets`: per nlh row with a durable record, its 42 numbers, HorsePostflopBetRecord.postflopBetsRow),
  * so a `DECIDE_DEEP` second look and an exact replay carry the same record `DECIDE_FAST` did. Written only when the
  * view carries such a row (never before the column holds a record), so every snapshot without one keeps its exact
  * v1-v20 bytes. A v22 body always carries every v17-v20 list (any of them may be empty) and at least one
@@ -673,7 +673,7 @@ function validateBody(
       return fail();
   }
   if (postflopBetsCarried(value.version)) {
-    // 30 numbers per row: every row is a valid record, names an exploit row this same frame carries, and a v22 body
+    // 42 numbers per row: every row is a valid record, names an exploit row this same frame carries, and a v22 body
     // carries at least one (or it would have been v20 or older).
     const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
     const betsValid = (v: unknown) =>
