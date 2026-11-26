@@ -306,6 +306,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
                         {
                             "id": 777,
                             "status": "in_progress",
+                            "event": "push",
                             "head_sha": sha_pending,
                             "display_title": "Backup pending",
                         }
@@ -1481,6 +1482,48 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertEqual(len(report["candidates"]), 10)
         self.assertIn("searched 14", mod.render_table(report))
 
+
+    def test_a_dispatched_backup_names_its_real_target_not_its_head(self):
+        # 2026-11-26 06:xxZ: manual run 45759269821 (head 6f062e8f0d1d, main)
+        # certified c951436a6ead, which release-control PR #12038 had made
+        # unselectable; the post said IN_FLIGHT 6f062e8f0d1d.
+        serving = _sha("0")
+        head = _sha("6")
+        old = _sha("c")
+        now = datetime(2026, 11, 26, 6, 10, tzinfo=timezone.utc)
+
+        def gh_get(path):
+            if "stage-engine-release.yml/runs" in path:
+                return {"workflow_runs": []}
+            if "backup-engine.yml/runs" in path:
+                return {"workflow_runs": [{"id": 45759269821, "status": "in_progress",
+                                           "event": "workflow_dispatch", "head_sha": head,
+                                           "display_title": "Backup Engine (Clone, Stage, Certify)"}]}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": head}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {"workflow_runs": []}
+            if f"/commits/{head}/status" in path:
+                return {"statuses": []}
+            if f"/commits/{old}/status" in path:
+                return {"statuses": [{"context": "backup-engine/certified", "state": "pending",
+                                      "target_url": "https://github.com/o/r/actions/runs/45759269821",
+                                      "updated_at": "2026-11-26T05:11:00Z"}]}
+            raise AssertionError(path)
+
+        report = mod.collect_readiness(
+            repo="o/r",
+            now_utc=now,
+            health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get,
+            git_fn=_make_git_stub(head, serving, [(head, "fix(doctrine)"), (old, "perf(horse)")]),
+            projection_fn=lambda sha: "old-controls" if sha == old else "new-controls",
+        )
+        self.assertNotIn("45759269821", report["candidates"][0]["reason"])
+        self.assertEqual(report["candidates"][1]["status"], "DISQUALIFIED")
+        self.assertIn(f"run 45759269821 certifies {old[:12]}, which cannot be selected (CONTROL_INPUTS mismatch",
+                      report["summary"])
+        self.assertNotIn(f"{head[:12]} is in flight", report["summary"])
 
 if __name__ == "__main__":
     unittest.main()
