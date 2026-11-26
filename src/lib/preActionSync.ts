@@ -163,11 +163,18 @@ export interface PreActionSyncInput {
   handNumber: () => number;
   /** Lightning only: the id of the hand an arm must name. Null at a table. */
   lightningArmHandId: () => string | null;
+  /**
+   * The decision on screen (`action_context`), read at the moment the arm is
+   * sent. On the player's own turn the engine runs a Call or Call Any only
+   * against this decision (Dan 2026-11-24, CoachTim68).
+   */
+  actionContext?: () => string | null | undefined;
   serverSetPreAction: (
     tableId: string,
     action: string,
     maxCallAmount?: number,
-    handId?: string
+    handId?: string,
+    actionContext?: string | null
   ) => Promise<PreActionReply>;
   setPreAction: (next: PreActionChoice | null) => void;
   toastError: (message: string) => void;
@@ -268,9 +275,19 @@ export function syncPreActionToEngine(input: PreActionSyncInput): void {
           /* LIGHTNING PHASE 6: in a Lightning room the arm names its hand. */
           const lightningArmHandId = input.lightningArmHandId();
           if (foldOnTurnHand && lightningArmHandId !== foldOnTurnHand) return null;
+          /* Only an arm that can put chips in names its decision; the
+             engine needs it for nothing else (PreActionOnOwnTurn). */
+          const seen =
+            serverAction === 'auto_call' || serverAction === 'auto_call_any'
+              ? (input.actionContext?.() ?? null)
+              : null;
           const res = lightningArmHandId
-            ? await serverSetPreAction(tableId, serverAction, armCap, lightningArmHandId)
-            : await serverSetPreAction(tableId, serverAction, armCap);
+            ? seen
+              ? await serverSetPreAction(tableId, serverAction, armCap, lightningArmHandId, seen)
+              : await serverSetPreAction(tableId, serverAction, armCap, lightningArmHandId)
+            : seen
+              ? await serverSetPreAction(tableId, serverAction, armCap, undefined, seen)
+              : await serverSetPreAction(tableId, serverAction, armCap);
           const outcome = classifyPreActionReply(res);
           if (outcome === 'not_delivered') {
             throw new Error(`network/preaction-arm: ${res?.error || 'engine refused'}`);
@@ -301,7 +318,12 @@ export function syncPreActionToEngine(input: PreActionSyncInput): void {
           setPreAction(null); // the bar must not claim something the engine has not armed
           /* A hand that is over, or one the player is not in, has nothing to
              play manually: say nothing. Any other refusal is worth a word. */
-          if (res && classifyPreActionReply(res) === 'refused') {
+          if (res && res.hint?.engineCode === 'STALE_ACTION') {
+            /* The turn reached this player before the arm did, at a decision
+               this page had not shown yet. Nothing was armed or played: the
+               real decision is on the table now. Expected, not a fault. */
+            input.toastError('The Action Changed. Review The Table And Act.');
+          } else if (res && classifyPreActionReply(res) === 'refused') {
             reportError(
               new Error(`preaction-arm refused: ${res.error || 'no reason given'}`),
               'TablePage.PreAction_set_refused'

@@ -1578,6 +1578,59 @@ export function parseAuthorityDocState(text) {
 }
 
 /**
+ * Live options whose authority doc was written before the machine-read `**State: ...**` token existed
+ * (2026-11-15 to 2026-11-21 formats, most of them PLO-OWNER docs), read 2026-11-24 against the live rows
+ * (audit max 196). The drift check cannot judge them, so this list may only shrink
+ * (tests/an-authority-doc-states-the-live-switch.law.test.ts holds it to that): a doc that gains a readable
+ * State leaves it, and any other live option without one fails the law. The case that made this law:
+ * cashDefenceTrimColdCalls went live at audit #193 while its doc read "default OFF in source", which
+ * parsed as unknown and was never judged.
+ */
+export const AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN = Object.freeze([
+  'horseActionTimeIsPublicOnly',
+  'lightningVpipFloorLimpOnly',
+  'omahaBareOverpairOopFlopCheck',
+  'omahaBigBetIsPotShare',
+  'omahaBigDrawAggression',
+  'omahaBlanketRowsOffInPlo45Cash',
+  'omahaBluffShareFromBetRate',
+  'omahaCardImpact',
+  'omahaEliteContinuesVsMeasuredWideThreeBettor',
+  'omahaEvFoldModelHeadsUp',
+  'omahaFacingBetEv',
+  'omahaMadeHandDefenseVsValueLeader',
+  'omahaManiacReRaiseWidthMeasured',
+  'omahaNoCallColdFourBetWithoutPremium',
+  'omahaNoDrawRaiseOutOfPosition',
+  'omahaOopReraisedPotStrongRange',
+  'omahaOopTurnCheckAfterFlopCall',
+  'omahaOverpairNoOopBarrelVsValueLeader',
+  'omahaPairedBoardFoldRespectsPrice',
+  'omahaPairedRiverNoThinLeadVsValueLeader',
+  'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
+  'omahaPreflopReraiseDefencePricedInPosition',
+  'omahaPressureNeedsPostflopAggression',
+  'omahaReraiseRangeEarlyPosition',
+  'omahaReraiseRangeOutOfPosition',
+  'omahaReraisedPotFlopContinueNeedsEquityShape',
+  'omahaRiverCurrentNutsCallFloor',
+  'omahaRiverMediumBetStrongHandCalls',
+  'omahaRiverNutBlockerBluffReachable',
+  'omahaSmallBetIsPriced',
+  'omahaStabDefenceIsPriced',
+  'omahaStrategyInTournaments',
+  'omahaStreetPlan',
+  'omahaStrongHandSlowplayMix',
+  'omahaStrongHandValue',
+  'omahaTurnBetNeedsRiverPlan',
+  'omahaTurnRiverRaiseIsPriced',
+  'omahaTurnRiverRaiseNeedsNuts',
+  'omahaValueSizeIsUnreadable',
+  'omahaVpipFloorByLimp',
+  'vpipFloorLimpOnly',
+]);
+
+/**
  * Every authority doc the drift check cannot judge although its option has a live row (any state): a State
  * token that is missing or reads as 'unknown'. On 2026-11-24 cashDefenceTrimColdCalls went live while its
  * doc read "default OFF in source", which parsed as unknown, so the drift law never looked at it.

@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  SCRATCH_POSTGRES_PORT,
+  scratchPostgresListenOptions,
+  scratchPostgresSocket,
+  showServerLogWhenStartFails,
+} from '../helpers/scratchPostgres';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -61,9 +67,9 @@ CREATE FUNCTION public.fn_ca_money_rpc_balance_columns() RETURNS text[] LANGUAGE
   SELECT ARRAY['chip_balance','held_chips','locked_chips','credit_used','stack','balance','chips','prize','bounty_winnings','chip_treasury','promo_wallet'] $$;
 CREATE FUNCTION public.fn_ca_money_rpc_writes_balances(p_src text) RETURNS boolean LANGUAGE sql AS $$
   SELECT COALESCE(
-    p_src ~* 'UPDATE\s+(public\.)?(club_members|club_wallets|union_wallets|unions|table_seats|bbj_pools|clubs|agents|wallets|spin_bonus_pools|tournament_players)\y'
-    OR p_src ~* 'INSERT\s+INTO\s+(public\.)?(club_members|club_wallets|union_wallets|unions|bbj_pools|clubs|agents|wallets|spin_bonus_pools)\y', false)
-  AND COALESCE(p_src ~* ('\y(' || array_to_string(public.fn_ca_money_rpc_balance_columns(), '|') || ')\y'), false) $$;
+    p_src ~* 'UPDATE\\s+(public\\.)?(club_members|club_wallets|union_wallets|unions|table_seats|bbj_pools|clubs|agents|wallets|spin_bonus_pools|tournament_players)\\y'
+    OR p_src ~* 'INSERT\\s+INTO\\s+(public\\.)?(club_members|club_wallets|union_wallets|unions|bbj_pools|clubs|agents|wallets|spin_bonus_pools)\\y', false)
+  AND COALESCE(p_src ~* ('\\y(' || array_to_string(public.fn_ca_money_rpc_balance_columns(), '|') || ')\\y'), false) $$;
 CREATE FUNCTION public.fn_ca_money_rpc_registry_guard() RETURNS event_trigger LANGUAGE plpgsql AS $$
 DECLARE obj record; v_name text; v_src text;
 BEGIN
@@ -136,13 +142,13 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
   mkdirSync(cache, { recursive: true });
   const scratch = mkdtempSync(resolve(cache, 'guarantee-entry-close-'));
   if (asRoot) chmodSync(scratch, 0o777);
-  const port = 20000 + Math.floor(Math.random() * 30000);
+  const socket = scratchPostgresSocket();
   const data = resolve(scratch, 'data');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     LC_ALL: process.env.LC_ALL || 'C',
-    PGHOST: '127.0.0.1',
-    PGPORT: String(port),
+    PGHOST: socket,
+    PGPORT: SCRATCH_POSTGRES_PORT,
     PGDATABASE: 'postgres',
     PGUSER: asRoot ? serverUser : process.env.USER || 'runner',
     PGSSLMODE: 'disable',
@@ -174,16 +180,18 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
   let started = false;
   try {
     run('initdb', ['-D', data, '-A', 'trust']);
-    run('pg_ctl', [
-      '-D',
-      data,
-      '-l',
-      resolve(scratch, 'postgres.log'),
-      '-o',
-      `-p ${port} -h 127.0.0.1 -k ''`,
-      '-w',
-      'start',
-    ]);
+    showServerLogWhenStartFails(resolve(scratch, 'postgres.log'), () =>
+      run('pg_ctl', [
+        '-D',
+        data,
+        '-l',
+        resolve(scratch, 'postgres.log'),
+        '-o',
+        scratchPostgresListenOptions(socket),
+        '-w',
+        'start',
+      ])
+    );
     started = true;
     sql(STUB);
     for (const name of ['late', 'rebuy', 'close', 'apply', 'lock']) sql(`${fixture(name)};`);
@@ -392,5 +400,6 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       }
     }
     rmSync(scratch, { recursive: true, force: true });
+    rmSync(socket, { recursive: true, force: true });
   }
 }, 120_000);

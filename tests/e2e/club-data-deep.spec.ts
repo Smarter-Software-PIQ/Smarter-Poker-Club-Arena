@@ -2,29 +2,21 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { isDeepStrictEqual } from 'node:util';
 
-// #6895 made clubs/:clubId/data the PokerBros-style everyday screen and moved
-// this full operator report (and its Simple/Advanced modes) to data/advanced.
-const CLUB_DATA_PATH = 'clubs/shark-club/data/advanced';
+// A fresh browser still restores this account's saved tab. This bookmark opens
+// the Games report without changing what the account normally opens.
+export const CLUB_DATA_PATH = 'clubs/shark-club/data?report=open&dataTab=games';
 type ClubDataAccess = 'authorized' | 'restricted';
 
-/** Establish an actual choice before a delayed saved preference can hydrate. */
-async function selectSimpleMode(
-  page: Page,
-  selector: string,
-  controlRole: 'button' | 'radio' = 'button'
-): Promise<void> {
-  const root = page.locator(selector);
-  const attribute = selector.slice(1, -1);
-  await expect(root).toBeVisible({ timeout: 60_000 });
-  // Selecting an already-Simple default is intentionally a no-op in
-  // usePlayerPreference, so it cannot supersede a pending saved Advanced read.
-  // Establish Advanced, then make Simple a genuine user choice.
-  if ((await root.getAttribute(attribute)) !== 'advanced') {
-    await page.getByRole(controlRole, { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
-  }
-  await expect(root).toHaveAttribute(attribute, 'advanced');
-  await page.getByRole(controlRole, { name: 'Simple', exact: true }).click();
-  await expect(root).toHaveAttribute(attribute, 'simple');
+function toolName(root: string) {
+  if (root.includes('cashier')) return /^Requests, Tickets And Tools/;
+  if (root.includes('players')) return /^Sort And Roster Tools$/;
+  return /^(Open|Close) Club Report$/;
+}
+async function closeTools(page: Page, selector: string) {
+  const trigger = page.getByRole('button', { name: toolName(selector) });
+  await expect(trigger).toBeVisible({ timeout: 60_000 });
+  if ((await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 }
 
 interface ObservedPlayerPage {
@@ -84,25 +76,50 @@ export function loadMorePlayerCount(label: string | null): number | null {
   return match ? Number(match[1].replace(/,/g, '')) : null;
 }
 
-/** Returning to a sort the operator already expanded paints that sort's cached
- * window (ClubDataPage keeps an expanded ledger across revalidation and caches
- * it per sort), so the label is either the fresh first page or a window that
- * contains it. Either is correct; anything smaller is not. */
-async function returnedSortWindow(
-  loadMore: ReturnType<Page['getByRole']>,
-  firstPage: ObservedPlayerPage
-): Promise<number> {
-  let shown: number | null = null;
-  await expect
-    .poll(
-      async () => {
-        shown = loadMorePlayerCount(await loadMore.textContent());
-        return shown !== null && shown >= firstPage.rows.length;
-      },
-      { timeout: 60_000 }
-    )
-    .toBe(true);
-  return shown!;
+/** A partial player window exposes the continuation count. On the last page,
+ * confirm the advertised final position can actually be reached in the list. */
+async function playerWindow(page: Page): Promise<number> {
+  const loadMore = page.getByRole('button', { name: /Load More Players|Loading More Players/i });
+  const [label] = await loadMore.allTextContents();
+  if (label !== undefined) return loadMorePlayerCount(label) ?? 0;
+  const list = page.getByRole('list', { name: 'Players' });
+  return list.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    const last = element.querySelector('[role="listitem"]:last-of-type');
+    const position = Number(last?.getAttribute('aria-posinset'));
+    return position === Number(last?.getAttribute('aria-setsize')) ? position : 0;
+  });
+}
+
+async function advanceGameWindow(page: Page) {
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  const count = report.getByText(/Loaded [\d,]+ Of [\d,]+ Games/i);
+  const counts = async () => {
+    const match = /Loaded ([\d,]+) Of ([\d,]+) Games/i.exec((await count.textContent()) || '');
+    if (!match) throw new Error('Game ledger did not report its loaded and filtered totals');
+    return {
+      loaded: Number(match[1].replace(/,/g, '')),
+      total: Number(match[2].replace(/,/g, '')),
+    };
+  };
+  const loadMore = report.getByRole('button', { name: /Load More Games/i });
+  const before = await counts();
+  expect(before.loaded).toBeGreaterThan(0);
+  expect(before.loaded).toBeLessThanOrEqual(before.total);
+  if (before.loaded < before.total) {
+    await expect(loadMore).toBeEnabled({ timeout: 60_000 });
+    await loadMore.click();
+    await expect
+      .poll(async () => (await counts()).loaded, { timeout: 60_000 })
+      .toBeGreaterThan(before.loaded);
+  }
+  const after = await counts();
+  if (after.loaded === after.total) await expect(loadMore).toHaveCount(0);
+  else
+    await expect(loadMore).toContainText(
+      `- ${after.loaded.toLocaleString()} Of ${after.total.toLocaleString()}`
+    );
+  return { count, expanded: after.loaded > before.loaded ? after.loaded : 0 };
 }
 
 /** Load More from a restored window continues from that window's own cursor,
@@ -167,15 +184,16 @@ async function openClubData(page: Page, testInfo: TestInfo): Promise<ClubDataAcc
 
   await expect(workspace).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-page="club-data"]')).toBeVisible();
-  await selectSimpleMode(page, '[data-club-data-mode]');
-  await expect(page.locator('[data-club-data-mode="simple"]')).toBeVisible();
-  await page.getByRole('button', { name: /^Advanced(?: \([\d,]+\))?$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Read The Room', exact: true })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Games' }).getByRole('listitem').first()).toBeVisible(
-    {
-      timeout: 60_000,
-    }
+  const report = page.getByRole('region', { name: 'Club Report', exact: true });
+  await expect(report).toBeVisible();
+  await expect(report.getByRole('heading', { name: 'Report Status', exact: true })).toBeVisible();
+  await expect(report.getByRole('tab', { name: 'Games', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
   );
+  await expect(
+    report.getByRole('list', { name: 'Games', exact: true }).getByRole('listitem').first()
+  ).toBeVisible({ timeout: 60_000 });
   return 'authorized';
 }
 
@@ -187,8 +205,34 @@ async function requireAuthorizedClubData(page: Page, testInfo: TestInfo): Promis
   );
 }
 
+async function expectDataFits(page: Page, width: number, textScale: number) {
+  const geometry = await page.locator('[data-page="club-data"]').evaluate((root) => {
+    const documentRoot = document.documentElement;
+    const pageExcess = documentRoot.scrollWidth - documentRoot.clientWidth;
+    const reportExcess = root.scrollWidth - root.clientWidth;
+    const right = root.getBoundingClientRect().right;
+    const spills =
+      Math.max(pageExcess, reportExcess) > 1
+        ? Array.from(root.querySelectorAll('*'), (element) => ({
+            tag: element.tagName,
+            classes: Array.from(element.classList).join('.'),
+            rightExcess: Math.round(element.getBoundingClientRect().right - right),
+          }))
+            .filter((element) => element.rightExcess > 1)
+            .sort((a, b) => b.rightExcess - a.rightExcess)
+            .slice(0, 8)
+        : [];
+    return { pageExcess, reportExcess, spills };
+  });
+  expect(
+    Math.max(geometry.pageExcess, geometry.reportExcess),
+    `Club Data at ${width}px and ${textScale}% text ${JSON.stringify(geometry)}`
+  ).toBeLessThanOrEqual(1);
+}
+
 test.describe('Club Data production experience', () => {
-  test.describe.configure({ mode: 'serial', timeout: 120_000 });
+  // Each check opens its own authenticated page; run in order while reporting each outcome.
+  test.describe.configure({ mode: 'default', timeout: 120_000 });
 
   test('renders the exact role-scoped Club Data decision', async ({ page }, testInfo) => {
     const access = await openClubData(page, testInfo);
@@ -213,25 +257,12 @@ test.describe('Club Data production experience', () => {
       { width: 320, height: 568 },
     ]) {
       await page.setViewportSize(viewport);
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth - document.documentElement.clientWidth
-        )
-      ).toBeLessThanOrEqual(1);
-      expect(
-        await page
-          .locator('[data-page="club-data"]')
-          .evaluate((root) => root.scrollWidth - root.clientWidth)
-      ).toBeLessThanOrEqual(1);
+      await expectDataFits(page, viewport.width, 100);
     }
 
     await page.evaluate(() => document.documentElement.style.setProperty('font-size', '200%'));
     await page.setViewportSize({ width: 320, height: 568 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth
-      )
-    ).toBeLessThanOrEqual(1);
+    await expectDataFits(page, 320, 200);
     await expect(page.getByRole('button', { name: /Refresh Club Ledger/i })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Games' })).toBeVisible();
   });
@@ -293,7 +324,9 @@ test.describe('Club Data production experience', () => {
   }, testInfo) => {
     test.setTimeout(180_000);
     await requireAuthorizedClubData(page, testInfo);
-    const gamesList = page.getByRole('list', { name: 'Games' });
+    const gamesList = page
+      .getByRole('region', { name: 'Club Report', exact: true })
+      .getByRole('list', { name: 'Games' });
     await expect(gamesList.getByRole('listitem').first()).toBeVisible();
 
     const highestFee = page.getByRole('button', { name: 'Highest Fee' });
@@ -306,18 +339,7 @@ test.describe('Club Data production experience', () => {
     // entire timeout without identifying the failed read.
     await expect(gamesList).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
 
-    const loadMoreGames = page.getByRole('button', { name: /Load More Games/i });
-    await expect(loadMoreGames).toBeVisible({ timeout: 60_000 });
-    await expect(loadMoreGames).toBeEnabled({ timeout: 60_000 });
-    const before = (await loadMoreGames.textContent()) || '';
-    await loadMoreGames.click();
-    await expect
-      .poll(
-        async () =>
-          (await loadMoreGames.count()) === 0 || (await loadMoreGames.textContent()) !== before,
-        { timeout: 60_000 }
-      )
-      .toBe(true);
+    await advanceGameWindow(page);
 
     // Keep a bounded, identity-free receipt if player pagination stalls. The
     // failure screenshot alone cannot distinguish a refused/slow request from
@@ -398,7 +420,7 @@ test.describe('Club Data production experience', () => {
     await expect(playersList).toHaveAttribute('aria-busy', 'false');
     const loadMorePlayers = page.getByRole('button', { name: /Load More Players/i });
     let expandedPlayerCount = 0;
-    if (await loadMorePlayers.isVisible()) {
+    if (firstLosers.next_cursor) {
       await expect(loadMorePlayers).toContainText(
         `- ${firstLosers.rows.length.toLocaleString()} Of`
       );
@@ -412,12 +434,7 @@ test.describe('Club Data production experience', () => {
         expect(expandedPlayerCount, 'the continuation added no new player').toBeGreaterThan(
           firstLosers.rows.length
         );
-        await expect(loadMorePlayers).toContainText(
-          `- ${expandedPlayerCount.toLocaleString()} Of`,
-          {
-            timeout: 60_000,
-          }
-        );
+        await expect.poll(() => playerWindow(page), { timeout: 60_000 }).toBe(expandedPlayerCount);
       } catch (error) {
         await testInfo.attach('player-pagination-receipts', {
           body: JSON.stringify({ before, receipts: playerPageReceipts }, null, 2),
@@ -425,27 +442,28 @@ test.describe('Club Data production experience', () => {
         });
         throw error;
       }
+    } else {
+      await expect(loadMorePlayers).toHaveCount(0);
+      await expect.poll(() => playerWindow(page)).toBe(firstLosers.rows.length);
     }
 
     if (expandedPlayerCount) {
       const biggestWinners = page.getByRole('button', { name: 'Biggest winners' });
       const winners = await observePlayerPage(page, 'winners', null, () => biggestWinners.click());
       await expect(biggestWinners).toHaveAttribute('aria-pressed', 'true');
-      await returnedSortWindow(loadMorePlayers, winners);
+      await expect.poll(() => playerWindow(page)).toBeGreaterThanOrEqual(winners.rows.length);
       firstLosers = await observePlayerPage(page, 'losers', null, () => biggestLosers.click());
       await expect(biggestLosers).toHaveAttribute('aria-pressed', 'true');
       await expect(playersList).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
-      const returnedLosers = await returnedSortWindow(loadMorePlayers, firstLosers);
-      if (returnedLosers === firstLosers.rows.length) {
+      await expect.poll(() => playerWindow(page)).toBeGreaterThanOrEqual(firstLosers.rows.length);
+      const returnedLosers = await playerWindow(page);
+      if (returnedLosers === firstLosers.rows.length && firstLosers.next_cursor) {
         const continuation = await observePlayerPage(page, 'losers', firstLosers.next_cursor, () =>
           loadMorePlayers.click()
         );
         expandedPlayerCount = playerPageUnion(firstLosers, continuation).length;
         expect(expandedPlayerCount).toBeGreaterThan(firstLosers.rows.length);
-        await expect(loadMorePlayers).toContainText(
-          `- ${expandedPlayerCount.toLocaleString()} Of`,
-          { timeout: 60_000 }
-        );
+        await expect.poll(() => playerWindow(page), { timeout: 60_000 }).toBe(expandedPlayerCount);
       } else if (await loadMorePlayers.isVisible()) {
         // The restored window continues from its own cursor and must grow.
         const continuation = await observeContinuation(page, 'losers', () =>
@@ -453,10 +471,11 @@ test.describe('Club Data production experience', () => {
         );
         expect(continuation.rows.length, 'the continuation returned no player').toBeGreaterThan(0);
         await expect
-          .poll(async () => loadMorePlayerCount(await loadMorePlayers.textContent()) ?? 0, {
-            timeout: 60_000,
-          })
+          .poll(() => playerWindow(page), { timeout: 60_000 })
           .toBeGreaterThan(returnedLosers);
+        expandedPlayerCount = await playerWindow(page);
+      } else {
+        expandedPlayerCount = returnedLosers;
       }
     }
 
@@ -469,7 +488,7 @@ test.describe('Club Data production experience', () => {
       // refreshAll calls loadPlayers(true); preserveExpandedClubDataRows keeps
       // this exact expanded window while re-reading the first page and totals.
       // Unlike switching sorts above, refresh must not reset its cardinality.
-      await expect(loadMorePlayers).toContainText(`- ${expandedPlayerCount.toLocaleString()} Of`);
+      await expect.poll(() => playerWindow(page)).toBe(expandedPlayerCount);
     }
 
     // The live union projection belongs to the union-root game scope while
@@ -490,7 +509,9 @@ test.describe('Club Data production experience', () => {
       .evaluateAll((rows) =>
         Math.max(...rows.map((row) => Number(row.getAttribute('aria-posinset') || 0)))
       );
-    expect(mountedStart).toBeLessThan(handsPage.rows.length);
+    // A full server page must be windowed. A short field can fit completely
+    // in the first render; both layouts must still expose the last position.
+    if (handsPage.next_cursor) expect(mountedStart).toBeLessThan(handsPage.rows.length);
     await playersList.evaluate((list) => {
       list.scrollTop = list.scrollHeight;
       list.dispatchEvent(new Event('scroll'));
@@ -513,27 +534,20 @@ test.describe('Club Data production experience', () => {
   }, testInfo) => {
     test.setTimeout(180_000);
     await requireAuthorizedClubData(page, testInfo);
-    const gamesList = page.getByRole('list', { name: 'Games' });
+    const gamesList = page
+      .getByRole('region', { name: 'Club Report', exact: true })
+      .getByRole('list', { name: 'Games' });
     const firstRow = gamesList.getByRole('listitem').first();
     await expect(firstRow).toBeVisible();
     const identity = (await firstRow.textContent()) || '';
-    const loadMore = page.getByRole('button', { name: /Load More Games/i });
-    let expandedCount = '';
-    if (await loadMore.isVisible()) {
-      const before = (await loadMore.textContent()) || '';
-      await loadMore.click();
-      await expect
-        .poll(async () => (await loadMore.textContent()) || '', { timeout: 60_000 })
-        .not.toBe(before);
-      expandedCount = ((await loadMore.textContent()) || '').match(/- ([\d,]+) Of/i)?.[1] || '';
-    }
+    const { count, expanded } = await advanceGameWindow(page);
 
     await page.waitForTimeout(65_000);
 
     await expect(page.getByText(/Could Not Load Club Data\./i)).toHaveCount(0);
     await expect(gamesList.getByRole('listitem').first()).toContainText(identity.slice(0, 12));
-    await expect(page.getByText(/Loaded [\d,]+ Of [\d,]+ Games/i)).toBeVisible();
-    if (expandedCount) await expect(loadMore).toContainText(`- ${expandedCount} Of`);
+    await expect(count).toBeVisible();
+    if (expanded) await expect(count).toContainText(`Loaded ${expanded.toLocaleString()} Of`);
   });
 
   test('passes axe and remains operable in forced colors with reduced motion', async ({
@@ -555,7 +569,7 @@ test.describe('Club Data production experience', () => {
 
 // Read-only acceptance for the repaired page-channel admission/recovery owner.
 // Financial action and report contracts already have their own certificates.
-test('keeps Cashier, Players and Club Data realtime connected in both modes and viewport sizes', async ({
+test('keeps Cashier, Players and Club Data realtime connected with tools open and closed at both viewport sizes', async ({
   page,
 }, testInfo) => {
   test.setTimeout(6 * (60_000 + 80_000 + 70_000) + 60_000);
@@ -565,7 +579,6 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
       path: 'cashier',
       root: '[data-cashier-mode]',
       prefixes: ['realtime:cashier-member-authority:'],
-      button: true,
     },
     {
       path: 'members',
@@ -575,12 +588,10 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
         'realtime:club-roster-wallet:',
         'realtime:club-members-audit-',
       ],
-      button: true,
     },
     {
-      // #6895: these realtime channels belong to the full report at data/advanced;
-      // the everyday screen at data re-reads on a timer and opens none of them.
-      path: 'data/advanced',
+      // The everyday figures use a timed read. The inline report owns these feeds.
+      path: 'data?report=open',
       root: '[data-club-data-mode]',
       prefixes: [
         'realtime:club-data-tables-',
@@ -588,7 +599,6 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
         'realtime:club-data-invoices-',
         'realtime:club-data-members-',
       ],
-      button: true,
     },
   ];
   for (const width of [375, 1440]) {
@@ -663,7 +673,8 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
       page.on('websocket', onSocket);
       try {
         await page.goto(new URL('clubs/shark-club/' + surface.path, base).toString());
-        await selectSimpleMode(page, surface.root, surface.button ? 'button' : 'radio');
+        const isReport = surface.root === '[data-club-data-mode]';
+        if (!isReport) await closeTools(page, surface.root);
         await expect(page.locator(surface.root)).toHaveAttribute(
           surface.root.slice(1, -1),
           'simple',
@@ -681,10 +692,13 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
           .toBe(true);
         observing = true;
         const observeMode = async (mode: string) => {
-          await expect(page.locator(surface.root)).toHaveAttribute(surface.root.slice(1, -1), mode);
+          await expect(page.getByRole('button', { name: toolName(surface.root) })).toHaveAttribute(
+            'aria-expanded',
+            mode === 'tools-open' ? 'true' : 'false'
+          );
           const start = Date.now();
-          // 35 seconds in each mode spans multiple native SDK heartbeats and
-          // the existing 60-second report refresh across the two-mode window.
+          // 35 seconds in each state spans multiple native SDK heartbeats and
+          // the existing 60-second report refresh while the tools are opened.
           await page.waitForTimeout(35_000);
           expect(allJoined(), surface.path + ' lost an acknowledged feed').toBe(true);
           expect(interruptions, surface.path + ' interrupted during observation').toEqual([]);
@@ -705,11 +719,22 @@ test('keeps Cashier, Players and Club Data realtime connected in both modes and 
             contentType: 'application/json',
           });
         };
-        await observeMode('simple');
-        await page
-          .getByRole(surface.button ? 'button' : 'radio', { name: /^Advanced(?: \([\d,]+\))?$/ })
-          .click();
-        await observeMode('advanced');
+        if (isReport) {
+          await observeMode('tools-open');
+          observing = false;
+          await page.getByRole('button', { name: 'Close Club Report' }).click();
+          await expect(page.getByRole('region', { name: 'Club Report', exact: true })).toHaveCount(
+            0
+          );
+          await expect(page.getByRole('heading', { name: 'Club Totals' })).toBeVisible();
+          await page.getByRole('button', { name: 'Open Club Report' }).click();
+          await expect.poll(allJoined, { timeout: 80_000 }).toBe(true);
+          observing = true;
+        } else {
+          await observeMode('tools-closed');
+          await page.getByRole('button', { name: toolName(surface.root) }).click();
+        }
+        await observeMode('tools-open');
       } finally {
         observing = false;
         page.off('websocket', onSocket);

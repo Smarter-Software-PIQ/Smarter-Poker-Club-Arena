@@ -1,3 +1,4 @@
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
 import ClubDataSourceDetails, {
   type ClubDataSourceRow,
@@ -118,7 +119,13 @@ import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
-import { clubDataRangeDays, readClubDataRange } from '../../lib/clubDataRange';
+import {
+  CLUB_DATA_PRESETS,
+  clubDataRangeDays,
+  readClubDataPreset,
+  readClubDataRange,
+  writeClubDataRange,
+} from '../../lib/clubDataRange';
 import {
   CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
   isClubDataPacificIncomplete,
@@ -128,14 +135,6 @@ import {
   clubDataReadFailure,
 } from './clubDataReadOutcome';
 
-/**
- * The ledger presets. 90 is the ceiling because ca_club_data_snapshot clamps
- * its own window at 93 days - it materialises one row per game, and a year of
- * those does not finish inside the statement timeout. Longer periods are the
- * rake snapshot's job: it reads the daily rollups only and answers for a year.
- */
-type PresetId = 1 | 7 | 14 | 30 | 90;
-const PRESETS: PresetId[] = [1, 7, 14, 30, 90];
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 type GameSort = 'recent' | 'fee' | 'winnings' | 'hands';
@@ -1026,7 +1025,7 @@ function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
   return [head.join(','), ...lines].join('\n');
 }
 
-export default function ClubDataPage() {
+export default function ClubDataPage({ inline = false }: { inline?: boolean } = {}) {
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1042,7 +1041,7 @@ export default function ClubDataPage() {
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
-  const [preset, setPreset] = useState<PresetId>(1);
+  const preset = readClubDataPreset(searchParams);
   // Every Data report begins on the Pacific calendar day; verified answers
   // retain their distinct accounting or net-flow financial basis.
   const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
@@ -1054,26 +1053,27 @@ export default function ClubDataPage() {
   const [customStart, setCustomStart] = useState<string | null>(
     () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.start ?? null
   );
-  const customStartRef = useRef(customStart);
-  customStartRef.current = customStart;
+  const endPinnedRef = useRef(false);
+  endPinnedRef.current = searchParams.has('dataEnd') || searchParams.has('dataUntil');
   const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
   const routeDatesKey = searchParams.toString();
   const handledRouteDates = useRef(routeDatesKey);
   const selectReportDates = useCallback(
-    (first: string | null, last: string) => {
+    (first: string | null, last: string, days = preset) => {
       setCustomStart(first);
       setEndDate(last);
-      const next = new URLSearchParams(searchParams);
-      next.delete('dataUntil');
-      if (first !== null) next.set('dataStart', first);
-      else next.delete('dataStart');
-      if (first !== null || last !== clubDataDayOn(dayBasisRef.current)) next.set('dataEnd', last);
-      else next.delete('dataEnd');
+      const next = writeClubDataRange(
+        searchParams,
+        first,
+        last,
+        clubDataDayOn(dayBasisRef.current),
+        days
+      );
       handledRouteDates.current = next.toString();
       setSearchParams(next);
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams, preset]
   );
   useEffect(() => {
     if (handledRouteDates.current === routeDatesKey) return;
@@ -1103,7 +1103,7 @@ export default function ClubDataPage() {
   );
   const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
   const { game, setGame, stakes, setStakes, searchInput, setSearchInput, clearFilters } =
-    useClubDataFilters('club/ClubDataPage');
+    useClubDataFilters(inline ? 'club/ClubDataSimplePage' : 'club/ClubDataPage');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
     'club/ClubDataPage:gameSort',
     'recent'
@@ -1128,15 +1128,16 @@ export default function ClubDataPage() {
   const [ledgerSource, setLedgerSource] = useState<'cold' | 'cached' | 'live' | 'degraded'>('cold');
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const [savedAdvanced, saveAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
-  // Report is an explicit navigation choice, including after a saved Simple
-  // preference hydrates. The URL also lets the user switch modes normally.
-  const requestedView = searchParams.get('view');
-  const advanced = requestedView === 'advanced' || (requestedView !== 'simple' && savedAdvanced);
-  const setAdvanced = (next: boolean) => {
-    saveAdvanced(next);
+  // Existing bookmarked report links open their tools directly. The everyday layout
+  // always stays in place when a viewer expands the additional reporting controls.
+  const reportToolsOpen = inline || searchParams.get('view') === 'advanced';
+  const setReportToolsOpen = (open: boolean) => {
     const params = new URLSearchParams(searchParams);
-    params.set('view', next ? 'advanced' : 'simple');
+    params.set('view', open ? 'advanced' : 'simple');
+    if (!open) {
+      params.set('dataTab', 'games');
+      saveTab('games');
+    }
     setSearchParams(params, { replace: true });
   };
   const [savedTab, saveTab] = usePlayerPreference<'games' | 'players'>(
@@ -1157,10 +1158,10 @@ export default function ClubDataPage() {
   };
   const openReportBreakdown = (next: 'games' | 'players') => {
     saveTab(next);
-    saveAdvanced(true);
     const params = new URLSearchParams(searchParams);
     params.set('dataTab', next);
-    params.set('view', 'advanced');
+    if (inline) params.set('report', 'open');
+    else params.set('view', 'advanced');
     setSearchParams(params, { replace: true });
     requestAnimationFrame(() =>
       document.getElementById('club-data-tab-games')?.scrollIntoView({ block: 'start' })
@@ -1323,12 +1324,10 @@ export default function ClubDataPage() {
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
     const cur = endDateRef.current;
-    const moves = cur > today || (customStartRef.current === null && cur === previousToday);
+    const moves = cur > today || (!endPinnedRef.current && cur === previousToday);
     if (cur > today) setCustomStart(null);
     setEndDate((current) =>
-      current > today || (customStartRef.current === null && current === previousToday)
-        ? today
-        : current
+      current > today || (!endPinnedRef.current && current === previousToday) ? today : current
     );
     // A clamped answer kept the skeleton up for the re-read the move causes.
     // If 02:00 passed in between, the end does not move: read again here so
@@ -1352,9 +1351,7 @@ export default function ClubDataPage() {
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
     setEndDate((current) =>
-      current > today || (customStartRef.current === null && current === previousToday)
-        ? today
-        : current
+      current > today || (!endPinnedRef.current && current === previousToday) ? today : current
     );
   });
 
@@ -2701,7 +2698,7 @@ export default function ClubDataPage() {
       const previousToday = observedUtcDayRef.current;
       observedUtcDayRef.current = today;
       setEndDate((cur) =>
-        cur > today || (customStartRef.current === null && cur === previousToday) ? today : cur
+        cur > today || (!endPinnedRef.current && cur === previousToday) ? today : cur
       );
     };
     const id = setInterval(() => {
@@ -3495,9 +3492,11 @@ export default function ClubDataPage() {
 
   return (
     <div
-      className={`${styles.page} ${advanced ? '' : styles.simple}`}
+      className={`${styles.page} arena-workspace ${styles.simple}`}
       data-page="club-data"
-      data-club-data-mode={advanced ? 'advanced' : 'simple'}
+      data-inline-report={inline || undefined}
+      data-club-data-mode="simple"
+      data-report-tools={reportToolsOpen ? 'open' : 'closed'}
     >
       {sourceRow?.key === gameScopeKey && clubUuid && (
         <ClubDataSourceDetails
@@ -3508,50 +3507,45 @@ export default function ClubDataPage() {
           onClose={() => setSourceRow(null)}
         />
       )}
-      <header className={styles.simpleHeader}>
-        <button
-          type="button"
-          className={styles.word}
-          onClick={() => navigate(-1)}
-          aria-label="Go Back To Club"
-        >
-          Back
-        </button>
-        <h1>Club Data</h1>
-        <div className={styles.modeSwitch} role="group" aria-label="Club Data Mode">
-          <button
-            type="button"
-            className={styles.word}
-            aria-pressed={!advanced}
-            onClick={() => {
-              saveAdvanced(false);
-              saveTab('games');
-              const next = new URLSearchParams(searchParams);
-              next.set('view', 'simple');
-              next.set('dataTab', 'games');
-              setSearchParams(next, { replace: true });
-            }}
-          >
-            Simple
-          </button>
-          <button
-            type="button"
-            className={styles.word}
-            aria-pressed={advanced}
-            onClick={() => setAdvanced(true)}
-          >
-            Advanced
-          </button>
-        </div>
-        {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
+      {!inline && (
+        <>
+          <ArenaWorkspaceHeader
+            area="data"
+            title="Club Data"
+            context={clubLabel}
+            subtitle="Club Reporting"
+          />
+          <header className={styles.simpleHeader}>
+            <button
+              type="button"
+              className={styles.word}
+              onClick={() => navigate(-1)}
+              aria-label="Go Back To Club"
+            >
+              Back
+            </button>
+
+            <div className="arena-switch">
+              <button
+                type="button"
+                aria-controls="club-report-details club-report-ledger-tools"
+                aria-expanded={reportToolsOpen}
+                onClick={() => setReportToolsOpen(!reportToolsOpen)}
+              >
+                Report Tools
+              </button>
+            </div>
+            {/* Dan, 2026-10-17: the tagline that explained this screen moved behind
             the painted "?", top right of the header. The header itself stays
             exactly as it reads. */}
-        <PageHelp
-          title="Club Data"
-          summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
-        />
-      </header>
-      {!advanced && (
+            <PageHelp
+              title="Club Data"
+              summary="Track Every Game, Fee, Player Result, And Union Square-Up From One Operator-Grade View."
+            />
+          </header>
+        </>
+      )}
+      {!reportToolsOpen && (
         <div className={styles.simpleStatus}>
           <span role="status">{statusLine}</span>
           <button
@@ -3581,165 +3575,6 @@ export default function ClubDataPage() {
               : '')}
       </div>
 
-      <div className={styles.advancedOnly} hidden={!advanced}>
-        {/* ── The ledger head: status, the two page actions, the export notes ── */}
-        <SpadeConsole
-          eyebrow={clubLabel || 'Club Intelligence'}
-          title="Read The Room"
-          titleId="club-data-title"
-          subtitle="Own The Numbers"
-          pill={statusWord}
-          pillInk={statusInk}
-          crest="spade"
-          family="spade"
-          className={styles.console}
-          aria-labelledby="club-data-title"
-          plates={{
-            secondary: {
-              label: manualRefreshing ? 'Refreshing' : 'Refresh',
-              onClick: () => void refreshAll(),
-              disabled: manualRefreshing || !clubUuid || isHydrating,
-              'aria-label': 'Refresh Club Ledger',
-            },
-            primary: {
-              label: exporting ? 'Cancel Export' : 'Export CSV',
-              ink: exporting ? 'red' : 'white',
-              onClick: () => {
-                if (exporting) cancelExport();
-                else void exportCsv();
-              },
-              disabled:
-                !exporting &&
-                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
-              'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
-              title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
-            },
-          }}
-        >
-          <div className={styles.headRow}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--muted`}
-              onClick={() => navigate(-1)}
-              aria-label="Go Back"
-            >
-              Back
-            </button>
-            <span className={`${styles.statusLine} sc-ink--${statusInk}`} aria-live="polite">
-              <span className={styles.statusLight} aria-hidden="true" />
-              <span>{statusLine}</span>
-            </span>
-          </div>
-          <div className={styles.rows}>
-            <div className={styles.dataRow}>
-              <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Cash Updated</span>
-              <span className={`sc-ink--silver ${styles.dataValue}`}>
-                {snapshot?.data_updated_at
-                  ? zonedTime(snapshot.data_updated_at)
-                  : loading
-                    ? 'Loading Live Records'
-                    : 'Live Records Ready'}
-              </span>
-            </div>
-          </div>
-          {(ledgerSource === 'cached' || ledgerSource === 'degraded') && snapshot && (
-            <p className={`sc-copy ${styles.note}`} role="status">
-              {ledgerSource === 'cached'
-                ? 'Showing A Recent Verified Snapshot While Live Numbers Refresh.'
-                : 'Live Refresh Is Delayed. Showing The Last Verified Snapshot And Retrying Automatically.'}
-            </p>
-          )}
-          {exportNote && (
-            <p className={`sc-copy ${styles.note}`} role="status">
-              {exportNote}
-            </p>
-          )}
-          {exportProgress && (
-            <p className={`sc-copy ${styles.note}`} role="status" aria-live="polite">
-              {exportProgress.stage === 'preparing'
-                ? 'Preparing An Exact Snapshot For Export...'
-                : `Downloading ${compactInt(exportProgress.loaded)} Of ${compactInt(exportProgress.total)} Rows...`}
-            </p>
-          )}
-        </SpadeConsole>
-
-        {/* Rake production and invoice results retain their own financial
-          definitions, while this Data panel shares the Pacific date window. */}
-        {clubUuid && unionBasis && (
-          <DataHelpTip label="About Agent Rake Production">
-            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
-          </DataHelpTip>
-        )}
-        {clubUuid && !reportRangeError && (
-          <RakeSnapshotPanel
-            reportBasis="pacific"
-            reportRange={{ start: startDate, end: endDate }}
-            unframed
-            clubId={clubUuid}
-            userId={userId}
-            scopes={rakeScopes}
-            active={advanced && !reportRangeError}
-            refreshToken={rakeRefreshKey}
-          />
-        )}
-
-        {clubUuid && <ClubRakebackVerifiedSoFar clubId={clubUuid} />}
-
-        {/* ── Data integrity ─────────────────────────────────────────────── */}
-        <SpadeConsole
-          eyebrow="Operator Trust Layer"
-          title="Data Integrity"
-          titleId="club-data-integrity-title"
-          pill={!snapshot ? 'Checking' : integrityNeedsAttention ? 'Recovery Active' : 'Verified'}
-          pillInk={!snapshot ? 'muted' : integrityNeedsAttention ? 'red' : 'green'}
-          crest="flat"
-          family="spade"
-          foot="foot"
-          className={`${styles.console} ${integrityNeedsAttention ? styles.integrityAttention : ''}`}
-          aria-labelledby="club-data-integrity-title"
-        >
-          <dl className={styles.rows}>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Payload Checks</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {integrity ? `${integrity.passed} / ${integrity.checks}` : NO_VALUE}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Live Feeds</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {realtimeEnabled ? `${liveFeedCount} / 4` : 'Standby'}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Last Verified</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {lastVerifiedAt ? formatClubDataAge(telemetryClock - lastVerifiedAt) : 'Checking'}
-              </dd>
-            </div>
-            <div className={styles.dataRow}>
-              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Ledger Read</dt>
-              <dd className={`sc-ink--silver ${styles.dataValue}`}>
-                {lastRequestMs === null ? 'Checking' : `${lastRequestMs.toLocaleString()}ms`}
-              </dd>
-            </div>
-          </dl>
-          <p className={`sc-copy ${styles.note}`}>
-            {integrity?.issues.length
-              ? `${integrity.issues.length} Integrity Check${integrity.issues.length === 1 ? '' : 's'} Need Review. Verified Rows Stay Visible While Recovery Runs.`
-              : liveFeedCount < 4 && realtimeEnabled
-                ? 'The 60-Second Verified Poll Remains Active While Live Feeds Reconnect.'
-                : 'Internal Totals Reconcile. Live Invalidations And The 60-Second Verified Poll Are Active.'}
-          </p>
-          {integrity?.issues.length ? (
-            <ul className={`sc-copy ${styles.issues}`}>
-              {integrity.issues.map((issue) => (
-                <li key={issue}>{titleCase(issue)}</li>
-              ))}
-            </ul>
-          ) : null}
-        </SpadeConsole>
-      </div>
       {/* ── Club pulse: the reporting window and the headline figures ──── */}
       <SpadeConsole
         eyebrow="Performance Ledger"
@@ -3863,15 +3698,17 @@ export default function ClubDataPage() {
           which is impossible for a tab and leaves a tablist with nothing
           selected. A screen reader was told "tab 3 of 6" for a filter. */}
           <div className={styles.words} role="group" aria-label="Date Range">
-            {(advanced ? PRESETS : PRESETS.filter((p) => p <= 14 || p === preset)).map((p) => (
+            {(reportToolsOpen
+              ? CLUB_DATA_PRESETS
+              : CLUB_DATA_PRESETS.filter((p) => p <= 14 || p === preset)
+            ).map((p) => (
               <button
                 key={p}
                 type="button"
                 aria-pressed={customStart === null && preset === p}
                 className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
                 onClick={() => {
-                  selectReportDates(null, clubDataDayOn(dayBasisRef.current));
-                  setPreset(p);
+                  selectReportDates(null, clubDataDayOn(dayBasisRef.current), p);
                 }}
               >
                 {p === 1 ? '1 Day' : `${p} Days`}
@@ -3961,7 +3798,7 @@ export default function ClubDataPage() {
             onHistory={
               latestInvoice
                 ? () => {
-                    setAdvanced(true);
+                    if (!inline) setReportToolsOpen(true);
                     setShowInvoiceDetail(true);
                     setShowInvoiceHistory(true);
                     requestAnimationFrame(() =>
@@ -3984,7 +3821,7 @@ export default function ClubDataPage() {
         )}
       </SpadeConsole>
 
-      <div className={styles.advancedOnly} hidden={!advanced}>
+      <div id="club-report-details" className={styles.advancedOnly} hidden={!reportToolsOpen}>
         {/* ── The union statement ────────────────────────────────────────── */}
         {(latestInvoice || invoicesError) && (
           <SpadeConsole
@@ -4229,6 +4066,164 @@ export default function ClubDataPage() {
         {/* ── The ledger: games and players ──────────────────────────────── */}
       </div>
       {/* HIT AND RUN (owner 2026-11-06): members owing hands before leaving. */}
+      <div id="club-report-ledger-tools" className={styles.advancedOnly} hidden={!reportToolsOpen}>
+        {/* ── The ledger head: status, the two page actions, the export notes ── */}
+        <SpadeConsole
+          eyebrow={clubLabel || 'Club Intelligence'}
+          title="Report Status"
+          titleId="club-data-title"
+          pill={statusWord}
+          pillInk={statusInk}
+          crest="spade"
+          family="spade"
+          className={styles.console}
+          aria-labelledby="club-data-title"
+          plates={{
+            secondary: {
+              label: manualRefreshing ? 'Refreshing' : 'Refresh',
+              onClick: () => void refreshAll(),
+              disabled: manualRefreshing || !clubUuid || isHydrating,
+              'aria-label': 'Refresh Club Ledger',
+            },
+            primary: {
+              label: exporting ? 'Cancel Export' : 'Export CSV',
+              ink: exporting ? 'red' : 'white',
+              onClick: () => {
+                if (exporting) cancelExport();
+                else void exportCsv();
+              },
+              disabled:
+                !exporting &&
+                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
+              'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
+              title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
+            },
+          }}
+        >
+          <div className={styles.headRow}>
+            <button
+              type="button"
+              className={`${styles.word} sc-ink--muted`}
+              onClick={() => navigate(-1)}
+              aria-label="Go Back"
+            >
+              Back
+            </button>
+            <span className={`${styles.statusLine} sc-ink--${statusInk}`} aria-live="polite">
+              <span className={styles.statusLight} aria-hidden="true" />
+              <span>{statusLine}</span>
+            </span>
+          </div>
+          <div className={styles.rows}>
+            <div className={styles.dataRow}>
+              <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Cash Updated</span>
+              <span className={`sc-ink--silver ${styles.dataValue}`}>
+                {snapshot?.data_updated_at
+                  ? zonedTime(snapshot.data_updated_at)
+                  : loading
+                    ? 'Loading Live Records'
+                    : 'Live Records Ready'}
+              </span>
+            </div>
+          </div>
+          {(ledgerSource === 'cached' || ledgerSource === 'degraded') && snapshot && (
+            <p className={`sc-copy ${styles.note}`} role="status">
+              {ledgerSource === 'cached'
+                ? 'Showing A Recent Verified Snapshot While Live Numbers Refresh.'
+                : 'Live Refresh Is Delayed. Showing The Last Verified Snapshot And Retrying Automatically.'}
+            </p>
+          )}
+          {exportNote && (
+            <p className={`sc-copy ${styles.note}`} role="status">
+              {exportNote}
+            </p>
+          )}
+          {exportProgress && (
+            <p className={`sc-copy ${styles.note}`} role="status" aria-live="polite">
+              {exportProgress.stage === 'preparing'
+                ? 'Preparing An Exact Snapshot For Export...'
+                : `Downloading ${compactInt(exportProgress.loaded)} Of ${compactInt(exportProgress.total)} Rows...`}
+            </p>
+          )}
+        </SpadeConsole>
+
+        {/* Rake production and invoice results retain their own financial
+          definitions, while this Data panel shares the Pacific date window. */}
+        {clubUuid && unionBasis && (
+          <DataHelpTip label="About Agent Rake Production">
+            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
+          </DataHelpTip>
+        )}
+        {clubUuid && !reportRangeError && (
+          <RakeSnapshotPanel
+            reportBasis="pacific"
+            reportRange={{ start: startDate, end: endDate }}
+            unframed
+            clubId={clubUuid}
+            userId={userId}
+            scopes={rakeScopes}
+            active={reportToolsOpen && !reportRangeError}
+            refreshToken={rakeRefreshKey}
+          />
+        )}
+
+        {clubUuid && <ClubRakebackVerifiedSoFar clubId={clubUuid} />}
+
+        {/* ── Data integrity ─────────────────────────────────────────────── */}
+        <SpadeConsole
+          eyebrow="Operator Trust Layer"
+          title="Data Integrity"
+          titleId="club-data-integrity-title"
+          pill={!snapshot ? 'Checking' : integrityNeedsAttention ? 'Recovery Active' : 'Verified'}
+          pillInk={!snapshot ? 'muted' : integrityNeedsAttention ? 'red' : 'green'}
+          crest="flat"
+          family="spade"
+          foot="foot"
+          className={`${styles.console} ${integrityNeedsAttention ? styles.integrityAttention : ''}`}
+          aria-labelledby="club-data-integrity-title"
+        >
+          <dl className={styles.rows}>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Payload Checks</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {integrity ? `${integrity.passed} / ${integrity.checks}` : NO_VALUE}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Live Feeds</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {realtimeEnabled ? `${liveFeedCount} / 4` : 'Standby'}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Last Verified</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {lastVerifiedAt ? formatClubDataAge(telemetryClock - lastVerifiedAt) : 'Checking'}
+              </dd>
+            </div>
+            <div className={styles.dataRow}>
+              <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Ledger Read</dt>
+              <dd className={`sc-ink--silver ${styles.dataValue}`}>
+                {lastRequestMs === null ? 'Checking' : `${lastRequestMs.toLocaleString()}ms`}
+              </dd>
+            </div>
+          </dl>
+          <p className={`sc-copy ${styles.note}`}>
+            {integrity?.issues.length
+              ? `${integrity.issues.length} Integrity Check${integrity.issues.length === 1 ? '' : 's'} Need Review. Verified Rows Stay Visible While Recovery Runs.`
+              : liveFeedCount < 4 && realtimeEnabled
+                ? 'The 60-Second Verified Poll Remains Active While Live Feeds Reconnect.'
+                : 'Internal Totals Reconcile. Live Invalidations And The 60-Second Verified Poll Are Active.'}
+          </p>
+          {integrity?.issues.length ? (
+            <ul className={`sc-copy ${styles.issues}`}>
+              {integrity.issues.map((issue) => (
+                <li key={issue}>{titleCase(issue)}</li>
+              ))}
+            </ul>
+          ) : null}
+        </SpadeConsole>
+      </div>
       <ClubHitRunPanel clubId={clubUuid} className={styles.console} />
       <SpadeConsole
         eyebrow="Games And Players"
@@ -4243,7 +4238,7 @@ export default function ClubDataPage() {
         aria-labelledby="club-data-ledger-title"
       >
         <div
-          hidden={!advanced}
+          hidden={!reportToolsOpen}
           className={`${styles.words} ${styles.tabs}`}
           role="tablist"
           aria-label="View"
@@ -4281,10 +4276,10 @@ export default function ClubDataPage() {
         {tab === 'games' && (
           <div
             className={styles.panel}
-            role={advanced ? 'tabpanel' : 'region'}
+            role={reportToolsOpen ? 'tabpanel' : 'region'}
             id="club-data-panel-games"
-            aria-label={advanced ? undefined : 'Games'}
-            aria-labelledby={advanced ? 'club-data-tab-games' : undefined}
+            aria-label={reportToolsOpen ? undefined : 'Games'}
+            aria-labelledby={reportToolsOpen ? 'club-data-tab-games' : undefined}
             tabIndex={0}
           >
             <label className={styles.searchField}>
@@ -4326,7 +4321,12 @@ export default function ClubDataPage() {
               ))}
             </div>
 
-            <div hidden={!advanced} className={styles.words} role="group" aria-label="Sort Games">
+            <div
+              hidden={!reportToolsOpen}
+              className={styles.words}
+              role="group"
+              aria-label="Sort Games"
+            >
               {GAME_SORTS.map((option) => (
                 <button
                   key={option.id}

@@ -417,7 +417,7 @@ describe('Find Your Game starts with two separate sections', () => {
     await flush();
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const filterTabs = within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole(
+    const filterTabs = within(screen.getByRole('dialog', { name: 'Game Filters' })).getByRole(
       'group',
       { name: 'Game Type' }
     );
@@ -642,7 +642,7 @@ describe('lobby filters stay attached to the selected game', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    const dialog = screen.getByRole('dialog', { name: 'Game Filters' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Spins', exact: true }));
     await flush();
     expect(screen.getByRole('tab', { name: 'SPINS', exact: true })).toHaveAttribute(
@@ -681,7 +681,7 @@ it.each(['SPINS', "SIT N GO'S"])(
     fireEvent.click(screen.getByRole('tab', { name: label, exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    const dialog = screen.getByRole('dialog', { name: 'Game Filters' });
     expect(within(dialog).queryByRole('button', { name: 'Starting Time', exact: true })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Most Players', exact: true })).toBeTruthy();
   }
@@ -725,7 +725,7 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
   fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
   await flush();
   fireEvent.click(
-    within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole('button', {
+    within(screen.getByRole('dialog', { name: 'Game Filters' })).getByRole('button', {
       name: 'Starting Time',
       exact: true,
     })

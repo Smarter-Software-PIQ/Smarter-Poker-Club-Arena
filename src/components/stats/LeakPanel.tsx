@@ -23,6 +23,8 @@ interface Props {
   metricAvailability?: Partial<
     Record<'fold_to_three_bet' | 'aggression_factor' | 'cbet_flop', boolean>
   >;
+  /** Optional handoff to the World Hub Personal Assistant Leak Finder. */
+  onOpenLeakFinder?: () => void;
 }
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -36,6 +38,7 @@ export default function LeakPanel({
   positions,
   still = false,
   metricAvailability = {},
+  onOpenLeakFinder,
 }: Props) {
   const reduceMotionPref = useReducedMotion();
   const reduceMotion = reduceMotionPref || still;
@@ -45,77 +48,78 @@ export default function LeakPanel({
     [overall, positions, metricAvailability]
   );
 
-  if (!analysed) {
-    return (
-      <div className="leak-card">
-        <h3 className="leak-title">What To Work On</h3>
-        <p className="leak-empty-text">
-          {handsShort >= LEAK_MIN_HANDS
-            ? 'Play Some Hands And This Will Tell You What To Work On First.'
-            : `About ${handsShort.toLocaleString()} More Hands And There Will Be Enough Here To Point At Something Real. Naming A Leak Off A Smaller Sample Would Mostly Be Describing Variance.`}
-        </p>
-      </div>
-    );
-  }
-
-  if (leaks.length === 0) {
-    return (
-      <div className="leak-card">
-        <h3 className="leak-title">What To Work On</h3>
-        <p className="leak-empty-text">
-          Unmeasured Advanced Rates Are Not Assessed. Nothing Stands Out As A Clear Leak In Your
-          Measured Numbers Right Now. That Does Not Mean The Game Is Solved, Only That The Obvious
-          Structural Problems Are Not There - The Next Gains Are In Hand-By-Hand Decisions Rather
-          Than In Your Overall Frequencies.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="leak-card">
-      <div className="leak-head">
-        <h3 className="leak-title">What To Work On</h3>
-        <p className="leak-sub">
-          Ranked By What Is Costing The Most. Worked Out From Your Own Frequencies, Not From A
-          Template.
-        </p>
-      </div>
+      {!analysed ? (
+        <>
+          <h3 className="leak-title">What To Work On</h3>
+          <p className="leak-empty-text">
+            {handsShort >= LEAK_MIN_HANDS
+              ? 'Play Some Hands And This Will Tell You What To Work On First.'
+              : `About ${handsShort.toLocaleString()} More Hands And There Will Be Enough Here To Point At Something Real. Naming A Leak Off A Smaller Sample Would Mostly Be Describing Variance.`}
+          </p>
+        </>
+      ) : leaks.length === 0 ? (
+        <>
+          <h3 className="leak-title">What To Work On</h3>
+          <p className="leak-empty-text">
+            Unmeasured Advanced Rates Are Not Assessed. Nothing Stands Out As A Clear Leak In Your
+            Measured Numbers Right Now. That Does Not Mean The Game Is Solved, Only That The Obvious
+            Structural Problems Are Not There - The Next Gains Are In Hand-By-Hand Decisions Rather
+            Than In Your Overall Frequencies.
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="leak-head">
+            <h3 className="leak-title">What To Work On</h3>
+            <p className="leak-sub">
+              Ranked By What Is Costing The Most. Worked Out From Your Own Frequencies, Not From A
+              Template.
+            </p>
+          </div>
 
-      {/* Plain list semantics with the animation on a motion.div: motion.div
-          and motion.button are the only wrappers this codebase uses in
-          production, and this component is destined for the Personal
-          Assistant, so it should not carry a tag nothing else has proven. */}
-      <motion.div
-        className="leak-list"
-        role="list"
-        variants={reduceMotion ? undefined : staggerContainer}
-        initial="initial"
-        animate="animate"
-      >
-        {leaks.map((leak) => (
+          {/* Plain list semantics with the animation on a motion.div: motion.div
+              and motion.button are the only wrappers this codebase uses in
+              production, and this component is destined for the Personal
+              Assistant, so it should not carry a tag nothing else has proven. */}
           <motion.div
-            key={leak.id}
-            role="listitem"
-            className={`leak-item sev-${leak.severity}`}
-            variants={reduceMotion ? undefined : fadeUp}
+            className="leak-list"
+            role="list"
+            variants={reduceMotion ? undefined : staggerContainer}
+            initial="initial"
+            animate="animate"
           >
-            <div className="leak-item-head">
-              <span className={`leak-sev sev-${leak.severity}`}>
-                {SEVERITY_LABEL[leak.severity] ?? leak.severity}
-              </span>
-              <h4 className="leak-item-title">{leak.title}</h4>
-            </div>
-            <p className="leak-evidence">{leak.evidence}</p>
-            <p className="leak-action">{leak.action}</p>
+            {leaks.map((leak) => (
+              <motion.div
+                key={leak.id}
+                role="listitem"
+                className={`leak-item sev-${leak.severity}`}
+                variants={reduceMotion ? undefined : fadeUp}
+              >
+                <div className="leak-item-head">
+                  <span className={`leak-sev sev-${leak.severity}`}>
+                    {SEVERITY_LABEL[leak.severity] ?? leak.severity}
+                  </span>
+                  <h4 className="leak-item-title">{leak.title}</h4>
+                </div>
+                <p className="leak-evidence">{leak.evidence}</p>
+                <p className="leak-action">{leak.action}</p>
+              </motion.div>
+            ))}
           </motion.div>
-        ))}
-      </motion.div>
 
-      <p className="leak-note">
-        These Are Frequency-Level Findings. They Cannot See How You Played Any Individual Hand, So
-        Treat Them As Where To Look Rather Than As A Verdict.
-      </p>
+          <p className="leak-note">
+            These Are Frequency-Level Findings. They Cannot See How You Played Any Individual Hand,
+            So Treat Them As Where To Look Rather Than As A Verdict.
+          </p>
+        </>
+      )}
+      {onOpenLeakFinder && !still && (
+        <button type="button" className="leak-assistant-btn" onClick={onOpenLeakFinder}>
+          Open Personal Assistant Leak Finder
+        </button>
+      )}
     </div>
   );
 }

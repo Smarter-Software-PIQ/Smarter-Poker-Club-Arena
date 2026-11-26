@@ -140,7 +140,7 @@ describe('the cashier transaction history', () => {
 
   it('puts Transaction History where the Available and Selected count was', () => {
     expect(page).not.toMatch(/Available · \{selected\.size/);
-    const players = page.indexOf("{advanced ? 'Select Recipients' : 'Players'}");
+    const players = page.indexOf('id="trade-workspace-title"');
     const link = page.indexOf('Transaction History\n                </button>', players);
     expect(players).toBeGreaterThan(0);
     expect(link).toBeGreaterThan(players);

@@ -1,9 +1,12 @@
 import { RETIRED_TOURNAMENT_IDS } from '../../src/lib/retiredTournamentVisibility';
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ from: vi.fn(), report: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { from: mocks.from } }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: mocks.report }));
+import SatellitesTab from '../../src/components/tournament/details/SatellitesTab';
+import type { TournamentTabProps } from '../../src/components/tournament/details/types';
+vi.mock('../../src/components/tournament/details/SatelliteCard', () => ({ default: () => null }));
 import { useSatellites } from '../../src/components/tournament/details/useSatellites';
 function query(data: unknown) {
   const q: any = { then: (resolve: any) => Promise.resolve({ data, error: null }).then(resolve) };
@@ -26,6 +29,34 @@ describe('satellite reads distinguish an empty answer from no answer', () => {
     expect(result.current.cards.map((card) => card.id)).toEqual(['satellite']);
     expect(result.current.registration).toEqual({ satellite: false });
   });
+  it.each(['diamonds', 'chips'])(
+    'displays admission in the feeder arena denomination for %s',
+    async (asset) => {
+      const q = query([
+        {
+          ...row,
+          arena: { asset, is_platform: true, union_id: null },
+          buy_in_amount: 9,
+          buy_in_fee: 1,
+        },
+      ]);
+      const select = vi.spyOn(q, 'select');
+      mocks.from.mockReturnValue(q);
+      render(
+        <SatellitesTab
+          {...({ tournament: { id: 'target', name: 'Main Event' } } as TournamentTabProps)}
+        />
+      );
+      expect(
+        await screen.findByText(asset === 'diamonds' ? '10 Diamonds' : '10 Chips')
+      ).toBeVisible();
+      expect(select).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
+        )
+      );
+    }
+  );
   it('does not query satellites for a retired target', () => {
     const { result } = renderHook(() => useSatellites(RETIRED_TOURNAMENT_IDS[0], 'viewer'));
     expect(result.current.cards).toEqual([]);

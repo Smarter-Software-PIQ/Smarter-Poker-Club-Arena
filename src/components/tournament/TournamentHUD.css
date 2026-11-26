@@ -198,7 +198,7 @@
 }
 
 .tournament-dock__seg--break:first-child {
-  color: #ffd700;
+  color: #92dfff;
 }
 
 /* Keep grouped chip totals legible alongside the short Level, Left and Paid values. */
@@ -338,7 +338,7 @@
   z-index: 105;
   max-width: calc(100vw - 100px);
   padding: 5px 8px;
-  color: #ffd700;
+  color: #92dfff;
   background: #050607;
   font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-size: clamp(12px, 3.2vw, 16px);

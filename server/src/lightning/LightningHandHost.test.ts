@@ -1320,3 +1320,51 @@ it('freezes completed observer receipts into the original settlement retry', asy
     await t.host.abort('test_complete');
   }
 });
+
+// Dan 2026-11-24 (CoachTim68): an arm on the player's own turn is played at
+// once, so a Call or Call Any must name the decision it was made against.
+describe('a Call Any armed on your own turn must have seen the decision', () => {
+  async function onTurn(seed: number) {
+    const formed = formedHand(3, seed);
+    const t = buildHost(formed, [100, 100, 100]);
+    await t.host.start();
+    await flush();
+    const st = t.host.peekState()!;
+    const actor = st.players.find((p) => p.seat === st.currentPlayerSeat)!;
+    const { playerActionContext } = await import('../engine/PlayerActionContext.js');
+    const now = playerActionContext((t.host as any).hc) as string;
+    expect(now).toBeTruthy();
+    return { formed, t, actor, now };
+  }
+
+  it('is refused against a decision the page had not shown, and nothing moves', async () => {
+    const { formed, t, actor } = await onTurn(4401);
+    const before = t.host.peekState()!;
+    try {
+      expect(
+        t.host.setPreAction(actor.user_id, 'auto_call_any', undefined, formed.handId, 'old-view')
+      ).toMatchObject({ success: false, code: 'STALE_ACTION' });
+      expect(
+        t.host.setPreAction(actor.user_id, 'auto_call_any', undefined, formed.handId)
+      ).toMatchObject({ success: false, code: 'STALE_ACTION' });
+      const after = t.host.peekState()!;
+      expect(after.currentPlayerSeat).toBe(before.currentPlayerSeat);
+      expect(after.players.find((p) => p.user_id === actor.user_id)!.stack).toBe(actor.stack);
+    } finally {
+      await t.host.abort('test_complete');
+    }
+  });
+
+  it('is played at once against the decision on the table now', async () => {
+    const { formed, t, actor, now } = await onTurn(4402);
+    try {
+      expect(
+        t.host.setPreAction(actor.user_id, 'auto_call_any', undefined, formed.handId, now)
+      ).toMatchObject({ success: true });
+      await flush();
+      expect(t.host.peekState()!.currentPlayerSeat).not.toBe(actor.seat);
+    } finally {
+      await t.host.abort('test_complete');
+    }
+  });
+});

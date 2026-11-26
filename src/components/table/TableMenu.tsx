@@ -99,6 +99,8 @@ const SEAT_ONLY_ROWS = new Set([
   'rebuy',
   'addon',
   'auto-top-up',
+  'auto-tournament-rebuy',
+  'auto-tournament-addon',
   'leave-next-hand',
 ]);
 
@@ -173,6 +175,8 @@ export function createDefaultMenuSections(
     onRebuy?: () => void;
     onAutoTopUp?: () => void;
     onAddOn?: () => void;
+    onToggleAutoTournamentRebuy?: () => void;
+    onToggleAutoTournamentAddOn?: () => void;
     onSessionStats?: () => void;
     onSettings?: () => void;
     onToggleSounds?: () => void;
@@ -197,6 +201,8 @@ export function createDefaultMenuSections(
     /** 'ON' while a leave is queued for the end of the hand. */
     leaveNextHandBadge?: string;
     autoTopUpBadge?: string;
+    autoTournamentRebuyBadge?: string;
+    autoTournamentAddOnBadge?: string;
     isTournament?: boolean;
     soundsBadge?: string;
     vibrationsBadge?: string;
@@ -297,6 +303,30 @@ export function createDefaultMenuSections(
                     },
                   ]),
             ]),
+        ...(state?.isTournament && handlers.onToggleAutoTournamentRebuy
+          ? [
+              {
+                id: 'auto-tournament-rebuy',
+                label: 'Auto Rebuy',
+                icon: <RebuyIcon />,
+                badge: state.autoTournamentRebuyBadge,
+                keepOpen: true,
+                onClick: handlers.onToggleAutoTournamentRebuy,
+              },
+            ]
+          : []),
+        ...(state?.isTournament && handlers.onToggleAutoTournamentAddOn
+          ? [
+              {
+                id: 'auto-tournament-addon',
+                label: 'Auto Add-On',
+                icon: <AddOnIcon />,
+                badge: state.autoTournamentAddOnBadge,
+                keepOpen: true,
+                onClick: handlers.onToggleAutoTournamentAddOn,
+              },
+            ]
+          : []),
         ...(handlers.onOpenMarketplace
           ? [
               {

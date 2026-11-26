@@ -1,7 +1,7 @@
 {
   "schema": "horse-option-switch-state/v1",
-  "asOfUtc": "2026-11-24T14:49:54.589Z",
-  "auditMax": 196,
+  "asOfUtc": "2026-11-25T23:38:13.678Z",
+  "auditMax": 198,
   "rows": {
     "cashDefenceTrimColdCalls": {
       "state": "on",
@@ -207,6 +207,11 @@
       "state": "off",
       "auditId": 155,
       "changedAt": "2026-11-20T06:01:05.948Z"
+    },
+    "omahaPricedRaiseNeverMakesNonNutRaise": {
+      "state": "on",
+      "auditId": 198,
+      "changedAt": "2026-11-24T18:09:58.496Z"
     },
     "omahaReraiseRangeEarlyPosition": {
       "state": "on",

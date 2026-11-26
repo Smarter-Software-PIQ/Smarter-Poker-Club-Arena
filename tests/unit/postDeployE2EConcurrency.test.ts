@@ -61,7 +61,7 @@ describe('post-deploy E2E concurrency', () => {
 
     expect(concurrency).toContain('cancel-in-progress: false');
     expect(concurrency).toContain(
-      "group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+      "group: ${{ needs.publication-gate.outputs.club_data == 'true' && 'post-deploy-e2e-club-data' || needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
     );
     expect(concurrency).not.toContain('manual-');
   });

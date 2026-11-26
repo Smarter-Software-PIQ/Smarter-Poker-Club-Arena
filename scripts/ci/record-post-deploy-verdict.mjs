@@ -103,6 +103,7 @@
  * Run:  DATABASE_URL=... WORKFLOW_LABEL=... ALERT_SOURCE=... ALERT_NAME=... RUN_ID=...
  *       GATE_RESULT=... LANES=$'success|Lane A\nskipped|Lane B' \
  *       [UNOWED_LANES=$'Lane B'] [NON_VERDICT_LANES=$'Lane A'] \
+ *       [FAILURE_DETAIL=$'Failed steps: ...\nFirst error: ...'] \
  *       [GH_TOKEN=... GITHUB_REPOSITORY=owner/repo] \
  *       node scripts/ci/record-post-deploy-verdict.mjs
  */
@@ -313,6 +314,9 @@ export function describeIncomplete(verdict, { failed, skipped, couldNotTell, gat
     lines.push(`Could not tell whether these started: ${couldNotTell.slice().sort().join(', ')}`);
   if (nothingVerified)
     lines.push('Nothing about production was verified: the gate failed and every lane below it was skipped.');
+  // FAILURE_DETAIL (2026-11-24): the failed steps and first error line a
+  // production certificate read from its own job, so the alert says what broke.
+  for (const line of verdict.detail || []) lines.push(line);
   return { summary, description: lines.join('\n').slice(0, 2000) };
 }
 
@@ -497,6 +501,7 @@ export function readVerdict(env) {
       ? { name: (env.GATE_NAME || '').trim() || 'gate', result: gateResult, shouldRun: (env.GATE_SHOULD_RUN || '').trim() }
       : null,
     lanes,
+    detail: (env.FAILURE_DETAIL || '').split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 12),
   };
 }
 

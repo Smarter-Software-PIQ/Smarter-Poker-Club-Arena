@@ -1,3 +1,5 @@
+import seatingRail from '../../lobby/console-art/seating-rail.webp';
+import { useCountdown } from '../../../hooks';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TABLES — a straight list, one table per line
@@ -57,8 +59,19 @@
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { warmTable, observeLobbyTableWarmups } from '../../../services/tableWarmup';
 import { useToast } from '../../common/Toast';
-import { chips, stackChips, isPlayerLive, shortTableName, type TournamentTabProps } from './types';
+import {
+  chips,
+  clockText,
+  stackChips,
+  isPlayerLive,
+  shortTableName,
+  type TournamentTabProps,
+} from './types';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
+import {
+  tournamentClosingStatus,
+  tournamentStartsWhenFull,
+} from '../../../utils/tournamentPresentation';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
 import { useMyPlayers } from './useMyPlayers';
@@ -336,16 +349,24 @@ const TableRow = React.memo(function TableRow({
 //  THE TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
+function EventStartClock({ start }: { start: string }) {
+  const deadline = useMemo(() => new Date(start), [start]);
+  const remaining = useCountdown(deadline);
+  if (!Number.isFinite(remaining) || remaining <= 0) return null;
+  return <b className="mtt-start-clock">Event Starts In {clockText(remaining / 1000)}</b>;
+}
+
 export default function TablesTab({
   tournament,
   entries,
   tables,
   currentUserId,
+  viewerLinkClub,
   onWatchPlayer,
 }: TournamentTabProps) {
   const toast = useToast();
   const tableListRef = useRef<HTMLUListElement>(null);
-  const myPlayers = useMyPlayers(tournament, entries, tables, currentUserId);
+  const myPlayers = useMyPlayers(tournament, entries, tables, currentUserId, viewerLinkClub);
   const myByTable = myPlayers.ready ? myPlayers.summary.byTable : null;
 
   /** Live players only. An eliminated row keeps its last table_id, and counting
@@ -501,16 +522,19 @@ export default function TablesTab({
        Starts": a promise about the future, printed under a header that says
        Completed. Each state has its own true sentence. */
     const status = String(tournament?.status || '').toUpperCase();
+    const closingStatus = tournamentClosingStatus(status);
     const empty =
-      status === 'COMPLETED'
-        ? { title: 'No Tables', hint: 'This Event Has Finished And Its Tables Are Closed' }
-        : status === 'CANCELLED'
-          ? { title: 'No Tables', hint: 'This Event Was Cancelled' }
-          : isBaggedStatus(status)
-            ? { title: 'No Tables Right Now', hint: 'Tables Reopen When The Next Day Starts' }
-            : status === 'RUNNING' || status === 'LATE_REG' || status === 'LATE_REGISTRATION'
-              ? { title: 'No Tables Yet', hint: 'Seating Is Being Drawn Now' }
-              : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
+      closingStatus === 'Completing'
+        ? { title: 'No Tables', hint: 'Results Are Being Finalized' }
+        : closingStatus === 'Completed'
+          ? { title: 'No Tables', hint: 'This Event Has Finished And Its Tables Are Closed' }
+          : closingStatus === 'Cancelled'
+            ? { title: 'No Tables', hint: 'This Event Was Cancelled' }
+            : isBaggedStatus(status)
+              ? { title: 'No Tables Right Now', hint: 'Tables Reopen When The Next Day Starts' }
+              : status === 'RUNNING' || status === 'LATE_REG' || status === 'LATE_REGISTRATION'
+                ? { title: 'No Tables Yet', hint: 'Seating Is Being Drawn Now' }
+                : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
     return (
       <div className="tl-panel tt-panel">
         {myPlayers.ready && (
@@ -520,9 +544,28 @@ export default function TablesTab({
             onWatchPlayer={onWatchPlayer}
           />
         )}
-        <div className="tl-empty">
-          <span>{empty.title}</span>
-          <span className="tl-empty__hint">{empty.hint}</span>
+        <h3 className="console-section-heading">Tables</h3>
+        <div className="console-table" aria-label="Tables">
+          <img className="seating-rail" src={seatingRail} alt="" />
+          <div className="seating-copy">
+            <span className="seating-brand">
+              <svg aria-hidden="true" width="26" height="27" viewBox="0 0 28 28">
+                <path
+                  fill="currentColor"
+                  d="M14 1C11 6 2 11 2 17a6 6 0 0 0 11 3c0 3-2 5-4 7h10c-2-2-4-4-4-7a6 6 0 0 0 11-3c0-6-9-11-12-16Z"
+                />
+              </svg>
+              <small>Smarter.Poker</small>
+            </span>
+            <strong className="table-message">{empty.title}</strong>
+            <span className="table-hint">{empty.hint}</span>
+            {['REGISTERING', 'ANNOUNCED', 'SCHEDULED', 'OPEN', 'PENDING'].includes(status) &&
+              (tournamentStartsWhenFull(tournament) ? (
+                <b className="mtt-start-clock">Starts When Full</b>
+              ) : tournament.start_time ? (
+                <EventStartClock start={tournament.start_time} />
+              ) : null)}
+          </div>
         </div>
       </div>
     );

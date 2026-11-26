@@ -185,9 +185,12 @@ describe('the live source still obeys both rules after the widening', () => {
     expect(run('scripts/ci/check-title-case.mjs')).toBe(0);
   }, 120_000);
 
+  // 2026-11-24: inside a pre-push hook on the shared Mac the same checker
+  // took 330 s and passed nothing else wrong; the run is synchronous, so the
+  // bound only decides when a finished pass is called a failure.
   it('check-ui-text still passes', () => {
     expect(run('scripts/ci/check-ui-text.mjs')).toBe(0);
-  }, 120_000);
+  }, 600_000);
 });
 
 describe('the two gaps in how work reaches production', () => {

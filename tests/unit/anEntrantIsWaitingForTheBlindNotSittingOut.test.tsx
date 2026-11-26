@@ -18,7 +18,7 @@ import { render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import SeatSlot, { type SeatPlayer } from '../../src/components/table/SeatSlot';
-import { mapEngineSnapshot } from '../../src/utils/mapEngineSnapshot';
+import { mapEngineSnapshot, resolveSeatSitOut } from '../../src/utils/mapEngineSnapshot';
 import type { EngineSnapshot } from '../../src/services/EngineStateClient';
 import { sliceBetween } from '../helpers/sourceWindow';
 
@@ -90,7 +90,11 @@ describe('what a sat-out seat says', () => {
 
   it('the held-arrival footer scopes Sitting Out to tournaments and offers no return action', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
-    const bar = sliceBetween(page, 'heroWaitingForButton ? (', ') : lightningRoom');
+    const bar = sliceBetween(
+      page,
+      'heroWaitingForButton && !heroSitsOutPerRow ? (',
+      ') : lightningRoom'
+    );
     expect(bar).toContain(
       "tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'"
     );
@@ -231,7 +235,10 @@ describe('occupied nonparticipants survive the client mapper', () => {
 
 // Run the actual DB-poll paint callback between engine frames. The row's
 // voluntary sit-out flag does not encode the engine's waiting-for-BB hold.
-function seatPollPaint(update: (fn: (state: any) => any) => void) {
+function seatPollPaint(
+  update: (fn: (state: any) => any) => void,
+  snapshot: Pick<EngineSnapshot, 'table_id' | 'players'> | null = null
+) {
   const source = ts.createSourceFile(
     'TablePage.tsx',
     readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8'),
@@ -255,10 +262,38 @@ function seatPollPaint(update: (fn: (state: any) => any) => void) {
   const compiled = ts.transpileModule('const paint = ' + paint, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  return new Function('setTableState', 'cancelled', compiled + '\nreturn paint;')(update, false);
+  return new Function(
+    'setTableState',
+    'cancelled',
+    'engineSnapshotRef',
+    'tableId',
+    'resolveSeatSitOut',
+    compiled + '\nreturn paint;'
+  )(update, false, { current: snapshot }, 'test-table', resolveSeatSitOut);
 }
 
 describe('DB seat refresh cannot release an engine entry hold', () => {
+  it('uses the reconnect snapshot even when a database refresh reports the opposite badge', () => {
+    let state: any = { players: [entrant(), entrant({ id: 'other', status: 'sitting_out' })] };
+    const paint = seatPollPaint(
+      (update) => {
+        state = update(state);
+      },
+      {
+        table_id: 'test-table',
+        players: [
+          { seat: 1, user_id: 'u-kingfish', stack: 100, is_sitting_out: true },
+          { seat: 2, user_id: 'other', stack: 100, position: 'BB', is_sitting_out: false },
+        ],
+      }
+    );
+    paint(new Set(['other']));
+    expect(state.players.map((player: SeatPlayer) => player.status)).toEqual([
+      'sitting_out',
+      'active',
+    ]);
+  });
+
   it('keeps a tournament button hold sitting out between frames and releases it on admission', () => {
     let state: any = { players: [entrant({ waitingForButton: true })] };
     const paint = seatPollPaint((update) => {

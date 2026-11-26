@@ -108,7 +108,7 @@ describe('other readers', () => {
     const src = read('src/pages/tournament/TournamentDetails.tsx');
     const bagged = src.indexOf('if (isBaggedStatus(tournament.status)) {');
     expect(bagged).toBeGreaterThan(0);
-    expect(bagged).toBeLessThan(src.indexOf("if (tournament.status === 'COMPLETED') {"));
+    expect(bagged).toBeLessThan(src.indexOf('if (closingStatus) {'));
     expect(bagged).toBeLessThan(src.indexOf('onClick={handleUnregister}'));
   });
 

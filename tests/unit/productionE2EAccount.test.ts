@@ -23,6 +23,7 @@ import {
   RETIREMENT_REFUSAL_CLUB_HAS_HISTORY,
   RABBIT_HUNT_CLUB_NAME_PREFIX,
   STALE_RESIDUE_SWEEP_HINT,
+  participantOfRetiredFixtureHistory,
 } from '../../scripts/ci/production-e2e-account.mjs';
 
 const USER_ID = '00000000-0000-4000-8000-000000000099';
@@ -2911,5 +2912,198 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
         databaseClientFactory: async () => world.client,
       })
     ).rejects.toThrow('Refusing to retire rabbit-hunt certification club');
+  });
+});
+
+/* 2026-11-25: manual Heads-Up Rematch Certification run 45506954667 died in
+   cleanup and left its two players holding the entry of the one Sit & Go they
+   finished, in a club the stale sweep then retired. The account door refuses
+   any identity with a tournament entry, so once the two aged into the stale
+   inventory every Club Create Certification failed on them (32 runs, 20
+   hours) while club creation itself worked. A player of a retired fixture's
+   finished game is kept as a player of record, like its owner, and only when
+   every row it still holds is proved terminal. */
+describe("the stale sweep keeps a player of a retired fixture's finished game (2026-11-25)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const NOW = Date.parse('2026-11-25T23:00:00.000Z');
+  const HU = '8791a0ab-0000-4000-8000-000000000001';
+  const GAME = 'eecb2521-0000-4000-8000-000000000002';
+  const player = {
+    id: '819bd2ec-0000-4000-8000-000000000003',
+    email: 'ca-customization-cert-postdeploy-1795561665533-hu-a@example.invalid',
+    created_at: '2026-11-24T23:07:45.750Z',
+  };
+  const REFUSAL = 'CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY';
+  type World = {
+    owned: unknown[];
+    agents: unknown[];
+    memberships: Record<string, unknown>[];
+    clubs: Record<string, unknown>[];
+    entries: Record<string, unknown>[];
+    tournaments: Record<string, unknown>[];
+    openSeats: unknown[];
+    wallets: Record<string, unknown>[];
+    refusal: string;
+  };
+  const terminal = (): World => ({
+    owned: [],
+    agents: [],
+    memberships: [
+      {
+        club_id: HU,
+        role: 'player',
+        chip_balance: 0,
+        promo_balance: '0',
+        held_chips: 0,
+        locked_chips: 0,
+        credit_used: 0,
+        credit_limit: 0,
+        parent_agent_id: null,
+      },
+    ],
+    clubs: [{ id: HU, name: 'Cert HU 61667112', lifecycle_status: 'retired' }],
+    entries: [{ tournament_id: GAME }],
+    tournaments: [{ id: GAME, status: 'COMPLETED', club_id: HU }],
+    openSeats: [],
+    wallets: [{ balance: 0, locked_balance: 0 }],
+    refusal: REFUSAL,
+  });
+  const build = (world: World) => {
+    const doors: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = decodeURIComponent(String(input));
+      if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json([player]);
+      if (url.includes('/rpc/cleanup_reserved_certification_account')) {
+        doors.push(url);
+        return Response.json({ code: '55000', message: world.refusal }, { status: 500 });
+      }
+      if (url.includes('/rest/v1/clubs?') && url.includes('id=in.'))
+        return Response.json(world.clubs);
+      if (url.includes('/rest/v1/clubs?')) return Response.json(world.owned);
+      if (url.includes('/rest/v1/agents?')) return Response.json(world.agents);
+      if (url.includes('/rest/v1/club_members?')) return Response.json(world.memberships);
+      if (url.includes('/rest/v1/tournament_players?')) return Response.json(world.entries);
+      if (url.includes('/rest/v1/tournaments?')) return Response.json(world.tournaments);
+      if (url.includes('/rest/v1/table_seats?')) {
+        expect(url).toContain('left_at=is.null');
+        return Response.json(world.openSeats);
+      }
+      if (url.includes('/rest/v1/wallets?')) return Response.json(world.wallets);
+      return new Response('unexpected request ' + url, { status: 500 });
+    });
+    return { fetchImpl, doors };
+  };
+  const sweep = (world: World) => {
+    const built = build(world);
+    const outcome = cleanupStaleProductionE2EAccounts({
+      environment: {
+        ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+        DATABASE_URL: 'postgres://synthetic',
+      },
+      fetchImpl: built.fetchImpl as typeof fetch,
+      now: NOW,
+      wait: vi.fn().mockResolvedValue(undefined),
+      databaseClientFactory: async () => ({
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(),
+        end: vi.fn(),
+      }),
+    });
+    return { ...built, outcome };
+  };
+
+  it('a refused player whose every holding is terminal is kept and named, and the sweep passes', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const run = sweep(terminal());
+    await expect(run.outcome).resolves.toBe(0);
+    // The door is still asked first: the keeping is its refusal plus the proof.
+    expect(run.doors).toHaveLength(1);
+    expect(log.mock.calls.flat().join('\n')).toContain(
+      `kept stale identity ${player.id} as a player of record of retired fixture(s) ${HU}`
+    );
+  });
+
+  const refusedWhen: [string, (world: World) => void][] = [
+    [
+      'the door refused for another reason',
+      (w) => (w.refusal = 'CERTIFICATION_RETIREMENT_PROFILE_REFUSED'),
+    ],
+    ['it owns a club', (w) => (w.owned = [{ id: HU }])],
+    ['it is an agent', (w) => (w.agents = [{ user_id: player.id }])],
+    ['it has no membership at all', (w) => (w.memberships = [])],
+    ['a membership is not a player row', (w) => (w.memberships[0].role = 'admin')],
+    ['a membership holds chips', (w) => (w.memberships[0].chip_balance = '0.05')],
+    ['a membership holds locked chips', (w) => (w.memberships[0].locked_chips = 1)],
+    ['a membership has a parent agent', (w) => (w.memberships[0].parent_agent_id = HU)],
+    ['its club is still active', (w) => (w.clubs[0].lifecycle_status = 'active')],
+    ['its club is not one that plays by design', (w) => (w.clubs[0].name = 'Kings Club')],
+    ['its club row cannot be read', (w) => (w.clubs = [])],
+    ['it has no tournament entry to explain the refusal', (w) => (w.entries = [])],
+    ['an entry is in a running game', (w) => (w.tournaments[0].status = 'RUNNING')],
+    ['an entry is in a registering game', (w) => (w.tournaments[0].status = 'REGISTERING')],
+    ['an entry is in another club', (w) => (w.tournaments[0].club_id = GAME)],
+    ['an entry names a game that cannot be read', (w) => (w.tournaments = [])],
+    ['it still sits at a table', (w) => (w.openSeats = [{ table_id: GAME }])],
+    ['a wallet holds a balance', (w) => (w.wallets = [{ balance: '1.00', locked_balance: 0 }])],
+    ['a wallet holds a locked balance', (w) => (w.wallets = [{ balance: 0, locked_balance: 2 }])],
+  ];
+  it.each(refusedWhen)('stays a failed recovery when %s', async (_name, change) => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = terminal();
+    change(world);
+    const run = sweep(world);
+    await expect(run.outcome).rejects.toThrow(
+      'Stale recovery left 1 of 1 stale account(s) unrecovered'
+    );
+    await expect(run.outcome).rejects.toThrow(STALE_RESIDUE_SWEEP_HINT);
+  });
+
+  it('a proof read that fails keeps the door refusal as the failure', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const built = build(terminal());
+    const failing = vi.fn(async (input: string | URL | Request) => {
+      if (decodeURIComponent(String(input)).includes('/rest/v1/wallets?'))
+        return new Response('{"message":"upstream timeout"}', { status: 504 });
+      return built.fetchImpl(input);
+    });
+    await expect(
+      cleanupStaleProductionE2EAccounts({
+        environment: {
+          ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+          DATABASE_URL: 'postgres://synthetic',
+        },
+        fetchImpl: failing as typeof fetch,
+        now: NOW,
+        wait: vi.fn().mockResolvedValue(undefined),
+        databaseClientFactory: async () => ({
+          query: vi.fn(async () => ({ rows: [] })),
+          connect: vi.fn(),
+          end: vi.fn(),
+        }),
+      })
+    ).rejects.toThrow(REFUSAL);
+  });
+
+  it('is never asked about an identity outside the reserved namespace', async () => {
+    const built = build(terminal());
+    await expect(
+      participantOfRetiredFixtureHistory({
+        environment: environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+        fetchImpl: built.fetchImpl as typeof fetch,
+        account: { id: player.id, email: 'someone@example.com' },
+        error: new Error(REFUSAL),
+      })
+    ).resolves.toBeNull();
+    expect(built.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("the heads-up certificate's own cleanup keeps its players the same way", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'scripts/ci/certify-heads-up-rematch.mjs'),
+      'utf8'
+    );
+    expect(source).toContain('participantOfRetiredFixtureHistory({');
+    expect(source).toContain('kept as a player of record of retired club');
   });
 });

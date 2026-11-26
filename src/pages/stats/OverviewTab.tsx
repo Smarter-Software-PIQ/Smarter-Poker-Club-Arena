@@ -117,7 +117,7 @@ export default function OverviewTab({
                   v.toFixed(1)
                 )
           }
-          color="#f59e0b"
+          color="#80dfff"
           scope={SCOPE_CASH}
         />
         <StatRow
@@ -215,9 +215,10 @@ export default function OverviewTab({
         )}
       </div>
 
-      {/* Coaching is intentionally absent until the persisted Personal
-          Assistant workflow is real. Phase 1 removed the demo solver path
-          rather than presenting fabricated analysis as player evidence. */}
+      {/* Hand-by-hand solver audit and persisted coaching live in World Hub's
+          Personal Assistant Leak Finder (linked from Analysis -> What To Work On
+          and Hand History -> Analyze), keeping this Overview strictly
+          focused on measured session & lifetime frequencies. */}
 
       {/* Rivals: the most socially engaging stat on the page, so it sits
           where a player looks first. Owner only - head-to-head chip flow

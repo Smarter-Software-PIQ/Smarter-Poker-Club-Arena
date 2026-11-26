@@ -538,3 +538,7 @@
     transition: none;
   }
 }
+.afx-sheet .afx-head {
+  background: #14283e;
+  border-bottom: 2px solid #4b80ae;
+}

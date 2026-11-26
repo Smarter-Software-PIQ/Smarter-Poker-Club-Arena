@@ -12,7 +12,13 @@ import { Suspense, lazy, useMemo, type ReactNode } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import LeakPanel from '../../components/stats/LeakPanel';
 import type { AdvancedStatsInput } from '../../components/stats/AdvancedStatsSummary';
-import { formatCard, handDate } from './format';
+import {
+  buildOverviewExportPayload,
+  buildStatsExportMetadata,
+  formatCard,
+  handDate,
+  OVERVIEW_RATE_FIELDS,
+} from './format';
 import StatsEvidenceLink from '../../components/stats/StatsEvidenceLink';
 import { buildStatsHandEvidencePath } from '../../lib/statsEvidenceNavigation';
 import { localDateFromYmd } from '../../lib/localTime';
@@ -36,6 +42,12 @@ const StatsCharts = lazy(() => import('../../components/stats/StatsCharts'));
 const BankrollTracker = lazy(() => import('../../components/stats/BankrollTracker'));
 const SessionHistory = lazy(() => import('../../components/stats/SessionHistory'));
 const AdvancedStatsSummary = lazy(() => import('../../components/stats/AdvancedStatsSummary'));
+
+const HAND_MODE_OPTIONS: [HandMode, string][] = [
+  ['biggest_won', 'Biggest Cash Wins'],
+  ['biggest_lost', 'Worst Cash Losses'],
+  ['recent', 'Most Recent'],
+];
 
 export interface AnalysisTabProps {
   overall: OverallStats;
@@ -64,6 +76,7 @@ export interface AnalysisTabProps {
   handsError: boolean;
   setHandsReload: (fn: (n: number) => number) => void;
   openHandEvidence: (filter?: HandEvidenceFilter) => void;
+  onOpenLeakFinder?: () => void;
   clubId?: string | null;
   exactSessionPanel?: ReactNode;
 }
@@ -88,6 +101,7 @@ export default function AnalysisTab({
   handsError,
   setHandsReload,
   openHandEvidence,
+  onOpenLeakFinder,
   clubId = null,
   exactSessionPanel,
 }: AnalysisTabProps) {
@@ -135,37 +149,19 @@ export default function AnalysisTab({
       .join(', ')}.`;
   }, [positionPie]);
 
-  const exportMetadata = () => ({
-    clubId,
-    clubName: exportContext.clubName,
-    range: rangeLabel === 'All' ? 'All Time' : `Last ${rangeLabel}`,
-    timezone: exportContext.timezone,
-    asset: exportContext.asset,
-    unit: exportContext.asset,
-    coverage: JSON.stringify({
-      analysis_hand_cap: exportContext.contract.coverage.analysis_hand_cap,
-      analysis_hands_capped: exportContext.contract.coverage.analysis_hands_capped,
-      lifetime_index_complete: exportContext.contract.coverage.lifetime_index_complete,
-      rollup_covered_through: exportContext.contract.coverage.rollup_covered_through,
-      club_breakdown_starts_at: exportContext.contract.quality.club_breakdown_starts_at,
-    }),
-    source: exportContext.contract.quality.cash_money_source,
-    schemaVersion: exportContext.contract.contract_version,
-    generatedAt: exportContext.contract.generated_at,
-    privacyPresentationMode: exportContext.privacyPresentationMode,
-  });
+  const exportMetadata = () => buildStatsExportMetadata(exportContext, clubId, rangeLabel);
   const exportSessionsCSV = async () => {
     try {
       const { exportStatsSessions } = await import('./statsCsvExport');
       exportStatsSessions(
-        sessionRows.map((session) => ({
-          date: new Date(session.date).toLocaleString(),
-          ended: session.ended ? new Date(session.ended).toLocaleString() : '',
-          duration_minutes: session.duration_minutes,
-          hands: session.hands_played,
-          buy_in: session.buy_in,
-          cash_out: session.cash_out,
-          profit: session.profit_loss,
+        sessionRows.map((s) => ({
+          date: new Date(s.date).toLocaleString(),
+          ended: s.ended ? new Date(s.ended).toLocaleString() : '',
+          duration_minutes: s.duration_minutes,
+          hands: s.hands_played,
+          buy_in: s.buy_in,
+          cash_out: s.cash_out,
+          profit: s.profit_loss,
         })),
         exportMetadata(),
         `player_session_history_${clubId ?? 'all_clubs'}_${rangeKey}.csv`
@@ -177,47 +173,13 @@ export default function AnalysisTab({
   const exportOverviewCSV = async () => {
     try {
       const { exportStatsOverview } = await import('./statsCsvExport');
-      const rateFields = new Set([
-        'vpip',
-        'pfr',
-        'three_bet_percent',
-        'fold_to_three_bet',
-        'cbet_flop',
-        'wtsd',
-        'itm_percent',
-        'roi',
-      ]);
-      const availability = exportContext.contract.quality.metric_availability;
-      const tournaments = exportContext.tournaments;
       exportStatsOverview(
-        {
-          ...overall,
-          three_bet_percent: !availability.three_bet_percent
-            ? 'Unavailable'
-            : overall.three_bet_percent,
-          fold_to_three_bet: !availability.fold_to_three_bet
-            ? 'Unavailable'
-            : overall.fold_to_three_bet,
-          cbet_flop: !availability.cbet_flop ? 'Unavailable' : overall.cbet_flop,
-          aggression_factor: !availability.aggression_factor
-            ? 'Unavailable'
-            : overall.aggression_factor,
-          wtsd: !availability.wtsd ? 'Unavailable' : overall.wtsd,
-          hours_played: !availability.hours_played ? 'Unavailable' : overall.hours_played,
-          tournament_entries: tournaments.entries,
-          tournament_cashes: tournaments.cashes,
-          tournament_wins: tournaments.wins,
-          tournament_best_finish: tournaments.best_finish ?? '',
-          tournament_total_buyins: tournaments.total_buyins,
-          tournament_total_winnings: tournaments.total_winnings,
-          tournament_total_prizes: tournaments.total_prizes,
-          tournament_total_bounty_winnings: tournaments.total_bounty_winnings,
-          tournament_total_bounties: tournaments.total_bounties,
-          tournament_net_profit: tournaments.net_profit,
-          itm_percent: tournaments.itm_percent,
-          roi: tournaments.roi,
-        },
-        rateFields,
+        buildOverviewExportPayload(
+          overall as unknown as Record<string, unknown>,
+          exportContext.contract.quality.metric_availability,
+          exportContext.tournaments
+        ),
+        OVERVIEW_RATE_FIELDS,
         exportMetadata(),
         `player_stats_overview_${clubId ?? 'all_clubs'}_${rangeKey}.csv`
       );
@@ -240,18 +202,13 @@ export default function AnalysisTab({
           positions={full?.positions}
           still={printing}
           metricAvailability={advancedInitialData.metric_availability}
+          onOpenLeakFinder={onOpenLeakFinder}
         />
       </PanelBoundary>
 
-      {/* Advanced Stats */}
-      <div>
-        <div className="stats-section-header">
-          <h3>Advanced Stats</h3>
-        </div>
-        <PanelBoundary name="Advanced Stats" resetKey={panelResetKey}>
-          <AdvancedStatsSummary initialData={advancedInitialData} rangeLabel={rangeLabel} />
-        </PanelBoundary>
-      </div>
+      <PanelBoundary name="Betting And Showdown Statistics" resetKey={panelResetKey}>
+        <AdvancedStatsSummary initialData={advancedInitialData} rangeLabel={rangeLabel} />
+      </PanelBoundary>
 
       {/* Charts */}
       <PanelBoundary name="Charts" resetKey={panelResetKey}>
@@ -300,13 +257,7 @@ export default function AnalysisTab({
             <span className="hero-stat-sub">All Time</span>
           </div>
           <div className="hand-mode-row">
-            {(
-              [
-                ['biggest_won', 'Biggest Cash Wins'],
-                ['biggest_lost', 'Worst Cash Losses'],
-                ['recent', 'Most Recent'],
-              ] as [HandMode, string][]
-            ).map(([mode, label]) => (
+            {HAND_MODE_OPTIONS.map(([mode, label]) => (
               <button
                 key={mode}
                 className={handMode === mode ? 'active' : ''}

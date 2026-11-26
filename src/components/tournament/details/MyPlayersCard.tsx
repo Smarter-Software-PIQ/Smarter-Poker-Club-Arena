@@ -1,7 +1,6 @@
 /**
  * MyPlayersCard - "how are my players doing", on Details, Ranking, Rewards and
- * Tables. The strip Ranking always had, now on every tab, and never silent: an
- * agent with nobody in the event is told so rather than shown nothing.
+ * Tables. The same inline roster appears wherever an agent has entrants in the event.
  *
  * Rendered only when `useMyPlayers` says the read settled and the viewer
  * carries a downline. Styling follows Ranking's legend (cyan rail, same type
@@ -10,6 +9,7 @@
 
 import { useId, useState, type ReactNode } from 'react';
 import { chips, chipsCompact, ordinal, type TournamentTabProps } from './types';
+import PlayerAvatar from '../../avatars/PlayerAvatar';
 import WatchAtTableButton from '../../club/WatchAtTableButton';
 import { myPlayerStatusText, type MyPlayersSummary } from './myPlayersSummary';
 import '../../../styles/tournament-lobby-3d.css';
@@ -63,7 +63,8 @@ export default function MyPlayersCard({
   // Open by default once nobody is left, because then the list IS the answer.
   const defaultOpen = summary.mode === 'finished';
   const [toggled, setToggled] = useState<boolean | null>(null);
-  const open = hasList && (toggled ?? defaultOpen);
+  if (summary.mode === 'none') return null;
+  const open = hasList && (defaultOpen || toggled === true);
   const { line, sub } = headline(summary);
 
   return (
@@ -96,6 +97,7 @@ export default function MyPlayersCard({
           {summary.players.map((p) => (
             <li key={p.userId} className={`mp-card__row mp-card__row--${p.state}`}>
               <span className="mp-card__player">
+                <PlayerAvatar src={p.avatarUrl ?? undefined} name={p.username} size="xs" />
                 <span className="mp-card__name">{p.username}</span>
                 <span className="mp-card__status">
                   {myPlayerStatusText(p, ordinal, chipsCompact)}
