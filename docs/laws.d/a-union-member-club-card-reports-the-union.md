@@ -1,0 +1,3 @@
+# tests/a-union-member-club-card-reports-the-union.law.test.tsx
+
+Dan 2026-11-26: once a club joins a union, its club card's ACTIVE figure reports what is live in the union at that moment (distinct live seats on the union floor), not the club's own count. That is the default; a club manager can switch the card back to the club's own live data in Club Settings (`clubs.settings.card_active_source = 'club'`, set only through `fn_set_club_card_active_source`). The law pins the client rule (`src/lib/clubCardActiveSource.ts`), its SQL mirror (`fn_club_card_active_source`), Kings Club's display RPC, the home carousel and the settings switch.

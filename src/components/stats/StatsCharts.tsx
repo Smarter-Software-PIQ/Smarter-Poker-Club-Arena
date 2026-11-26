@@ -94,7 +94,7 @@ export default function StatsCharts({
       </div>
 
       {/* Profit Over Time Chart */}
-      <div className="chart-card">
+      <div className="stats-workbench-surface chart-card">
         <div className="chart-card-header">
           {/* Derived, not hardcoded. `daily` is windowed by the RPC's
             p_days, so with "7 Days" selected this chart plotted a
@@ -165,7 +165,7 @@ export default function StatsCharts({
       </div>
 
       {/* Session Results Bar Chart */}
-      <div className="chart-card">
+      <div className="stats-workbench-surface chart-card">
         <div className="chart-card-header">
           <h3>{`Daily Cash Results (${rangeLabel})`}</h3>
           <p className="sr-only">{dailyChartSummary}</p>
@@ -212,7 +212,7 @@ export default function StatsCharts({
 
       {/* Position Breakdown Pie Chart */}
       {positionPie.length > 0 && (
-        <div className="chart-card">
+        <div className="stats-workbench-surface chart-card">
           <div className="chart-card-header">
             <h3>Hands Won By Position (Count)</h3>
             <p className="sr-only">{positionChartSummary}</p>

@@ -108,7 +108,7 @@ import {
 } from './HorsePloRoster.js';
 import { horseSitOutPlan } from './HorseSitOutChoice.js';
 import { holdemPersonaFor, ploPersonaFor } from '../engine/HorsePersona.js';
-import { varietyDrainingTable } from './HorseVarietyFirst.js';
+import { varietyDrainingTables } from './HorseVarietyFirst.js';
 
 const CYCLE_MS = 90_000; // examine the floor every 90s
 const GLOBAL_DEPARTURES_PER_CYCLE = 4;
@@ -1514,8 +1514,7 @@ export class HorseSessionRotator {
        sweep; the ones in the hand follow next cycle, the table is then empty
        and deals no further hand, so a released table costs at most one or two
        slow gaps and empties in about three minutes instead of nine to fifteen. */
-    const drainTableId = varietyDrainingTable(Date.now());
-    if (drainTableId) {
+    for (const drainTableId of varietyDrainingTables(Date.now())) {
       const drainSeats = byTable.get(drainTableId) ?? [];
       const engine = this.getEngine(drainTableId);
       const horsesOnly =

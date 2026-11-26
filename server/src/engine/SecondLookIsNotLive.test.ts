@@ -488,8 +488,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure arithmetic: the same persona shift the live base takes, on the untrimmed base of that receipt',
       ],
       noteDecisionRuleReceipt: [
-        21,
-        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
+        27,
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision (2026-11-26: +3, the river opening value and bluff receipts and the trips-board full house call; +3 the flop raise price receipts)',
       ],
     },
     methods: {
@@ -583,6 +583,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'passes the gate to a module that counts with it (2026-11-24: also omahaMultiwayValueBetRule and omahaFlopCallTreeRule, which only noteFire with it; and the re-raised pot price rule)',
       ],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
+      'equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)': [
+        1,
+        'omahaFacingBetPriorIsPeopleMeasured: decides whether to re-run the verdict on the old read only to name the changed receipt; the decision is the same either way',
+      ],
       tele: [
         2,
         'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',

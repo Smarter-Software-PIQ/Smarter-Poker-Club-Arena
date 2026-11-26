@@ -1,3 +1,8 @@
+import {
+  accountingDateOnly,
+  zonedAccountingDate,
+  zonedAccountingInstant,
+} from '../utils/pacificAccountingCalendar';
 import type { HandRecord } from '../services/HandHistoryService';
 import {
   isCashEvidenceMetric,
@@ -20,6 +25,30 @@ export interface StatsHandDrilldown {
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i;
+function isInstant(value: string): boolean {
+  return INSTANT.test(value) && Number.isFinite(Date.parse(value));
+}
+
+/** Match ca_stats_calendar_bounds for the report that actually supplied the figures. */
+export function statsEvidenceWindow(
+  days: number | null,
+  zone: string,
+  generatedAt?: string | null,
+  recordedStart?: string | null
+): { from?: string; to?: string } {
+  if (!days) return {};
+  const exactStart = recordedStart && isInstant(recordedStart) ? recordedStart : null;
+  const anchor = exactStart || generatedAt;
+  const localDay = accountingDateOnly(
+    zonedAccountingDate(anchor ? new Date(anchor) : new Date(), zone)
+  );
+  if (!exactStart) localDay.setUTCDate(localDay.getUTCDate() - days + 1);
+  const from = exactStart || zonedAccountingInstant(localDay.toISOString().slice(0, 10), 0, zone);
+  localDay.setUTCDate(localDay.getUTCDate() + days);
+  return { from, to: zonedAccountingInstant(localDay.toISOString().slice(0, 10), 0, zone) };
+}
+
 export function readStatsDrilldown(params: URLSearchParams): StatsHandDrilldown {
   const clubId = params.get('statsClub')?.trim();
   const variant = params.get('variant')?.trim().toLowerCase();
@@ -36,23 +65,31 @@ export function readStatsDrilldown(params: URLSearchParams): StatsHandDrilldown 
     ...(variant ? { variant } : {}),
     ...(position ? { position } : {}),
     ...(Number.isFinite(bigBlindRaw) && bigBlindRaw > 0 ? { bigBlind: bigBlindRaw } : {}),
-    ...(DATE_ONLY.test(fromRaw) ? { from: fromRaw } : {}),
-    ...(DATE_ONLY.test(toRaw) ? { to: toRaw } : {}),
+    ...(DATE_ONLY.test(fromRaw) || isInstant(fromRaw) ? { from: fromRaw } : {}),
+    ...(DATE_ONLY.test(toRaw) || isInstant(toRaw) ? { to: toRaw } : {}),
     ...(isCashEvidenceMetric(statsMetricRaw) ? { statsMetric: statsMetricRaw } : {}),
     ...(statsSessionRaw && UUID.test(statsSessionRaw) ? { statsSession: statsSessionRaw } : {}),
   };
 }
 
 export function statsEvidenceQueryFromDrilldown(drilldown: StatsHandDrilldown): StatsEvidenceQuery {
-  const toExclusive = drilldown.to
-    ? new Date(`${drilldown.to}T00:00:00.000Z`).getTime() + 86_400_000
-    : null;
+  // Prior shared links carried inclusive UTC dates. New links carry exact [from, to) instants.
+  const from =
+    drilldown.from && DATE_ONLY.test(drilldown.from)
+      ? `${drilldown.from}T00:00:00.000Z`
+      : (drilldown.from ?? null);
+  let to = drilldown.to ?? null;
+  if (to && DATE_ONLY.test(to)) {
+    const end = new Date(`${to}T00:00:00.000Z`);
+    end.setUTCDate(end.getUTCDate() + 1);
+    to = Number.isFinite(end.getTime()) ? end.toISOString() : null;
+  }
   return {
     variant: drilldown.variant,
     position: drilldown.position,
     bigBlind: drilldown.bigBlind,
-    from: drilldown.from ? `${drilldown.from}T00:00:00.000Z` : null,
-    to: toExclusive === null ? null : new Date(toExclusive).toISOString(),
+    from,
+    to,
     cashMetric: drilldown.statsMetric,
     tournament: drilldown.gameMode ? drilldown.gameMode === 'tournament' : false,
   };
@@ -79,8 +116,9 @@ export function filterHandsByStatsDrilldown(
   drilldown: StatsHandDrilldown,
   userId: string
 ): HandRecord[] {
-  const from = drilldown.from ? Date.parse(`${drilldown.from}T00:00:00Z`) : null;
-  const to = drilldown.to ? Date.parse(`${drilldown.to}T23:59:59.999Z`) : null;
+  const bounds = statsEvidenceQueryFromDrilldown(drilldown);
+  const from = bounds.from ? Date.parse(bounds.from) : null;
+  const to = bounds.to ? Date.parse(bounds.to) : null;
   return hands.filter((hand) => {
     if (drilldown.gameMode && Boolean(hand.tournament_id) !== (drilldown.gameMode === 'tournament'))
       return false;
@@ -102,7 +140,7 @@ export function filterHandsByStatsDrilldown(
       return false;
     const playedAt = Date.parse(hand.played_at);
     if (from !== null && (!Number.isFinite(playedAt) || playedAt < from)) return false;
-    if (to !== null && (!Number.isFinite(playedAt) || playedAt > to)) return false;
+    if (to !== null && (!Number.isFinite(playedAt) || playedAt >= to)) return false;
     return true;
   });
 }

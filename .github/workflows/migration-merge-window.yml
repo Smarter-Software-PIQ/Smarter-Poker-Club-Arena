@@ -1,0 +1,78 @@
+name: Migration merge window
+# A MIGRATION MERGES ONLY INSIDE ITS INSTALL WINDOW (2026-11-26).
+# Keeps the required commit status "Migration merge window" on every open pull
+# request into main (scripts/ci/migration-merge-window.mjs): success with no
+# ordinary migration; with one, success only while releaseFreezeAdmission
+# admits an install (10-30 minutes after each engine cycle, 04:15-04:30
+# Chicago, never in the nightly freeze) or under a written outage override.
+#
+# TRUSTED BY CONSTRUCTION: pull_request_target and schedule both run the
+# DEFAULT BRANCH's script. The pull request's files are read only as data
+# through the API (their paths and the migration text's window header); no
+# branch code is checked out or executed.
+#
+# Holding: every run that finds a window open (or opening within 25 minutes)
+# holds it minute by minute and closes it itself, so no window depends on
+# GitHub's schedule, which drops most ticks here. A pull request event holds
+# its own pull request; mode=keep by hand holds all. The :10 keeper and :40
+# sweep are best-effort backstops.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+    branches: [main]
+  schedule:
+    - cron: '10 * * * *'
+    - cron: '40 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'sweep (every open pull request, once) or keep (hold the next window)'
+        required: true
+        default: sweep
+        type: choice
+        options: [sweep, keep]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event.schedule || 'dispatch' }}
+  cancel-in-progress: true
+
+jobs:
+  merge-window:
+    name: Keep the migration merge window status
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out the default branch only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            server/src/maintenance/maintenanceSchedulePolicy.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Set the status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request_target) node scripts/ci/migration-merge-window.mjs keep --pr "$PR_NUMBER" ;;
+            schedule)
+              if [ "$SCHEDULE" = '10 * * * *' ]; then node scripts/ci/migration-merge-window.mjs keep
+              else node scripts/ci/migration-merge-window.mjs sweep; fi ;;
+            workflow_dispatch) node scripts/ci/migration-merge-window.mjs "${MODE:-sweep}" ;;
+            *) echo "unexpected event $EVENT"; exit 1 ;;
+          esac

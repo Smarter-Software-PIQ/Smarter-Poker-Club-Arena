@@ -132,7 +132,7 @@ export default function BenchmarkPanel({
 
   if (loading || loadedScope !== scope) {
     return (
-      <div className="bench-panel">
+      <div className="stats-workbench-surface bench-panel">
         <div className="bench-skeleton" />
       </div>
     );
@@ -142,7 +142,7 @@ export default function BenchmarkPanel({
   // from "nothing to compare". Say so, and offer the retry.
   if (readError) {
     return (
-      <div className="bench-panel">
+      <div className="stats-workbench-surface bench-panel">
         <div className="bench-head">
           <h3 className="bench-title">How You Compare</h3>
           <p className="bench-sub" role="alert">
@@ -158,7 +158,7 @@ export default function BenchmarkPanel({
 
   if (results.length === 0) {
     return (
-      <div className="bench-panel">
+      <div className="stats-workbench-surface bench-panel">
         <h3 className="bench-title">How You Compare</h3>
         <p className="bench-note">Comparable Field Data Is Not Yet Available For This Asset.</p>
       </div>
@@ -174,7 +174,7 @@ export default function BenchmarkPanel({
   const thinHero = handsPlayed > 0 && handsPlayed < MIN_HERO_HANDS;
 
   return (
-    <div className="bench-panel">
+    <div className="stats-workbench-surface bench-panel">
       <div className="bench-head">
         <h3 className="bench-title">How You Compare</h3>
         <p className="bench-sub">

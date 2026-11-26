@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from '../../src/utils/colorContrast';
 import {
+  consoleText,
   DEFAULT_ACCENT,
   DEFAULT_RAIL_BACKGROUND,
   flagBackground,
@@ -164,5 +165,15 @@ describe('the tone palette', () => {
     for (const value of Object.values(TONE_ACCENT)) {
       expect(value).toMatch(/^#[0-9a-f]{6}$/);
     }
+  });
+});
+
+describe('console message ink', () => {
+  it('keeps a readable cool club choice and substitutes legible ink for retired colors', () => {
+    expect(consoleText('#bce8ff', '#081420')).toBe('#bce8ff');
+    for (const ink of ['#ffe000', '#b260e2', '#fb54a4', '#100e11']) {
+      expect(consoleText(ink, '#081420')).toBe(readableInk('#081420'));
+    }
+    expect(contrastRatio(consoleText('#ffff00', '#fafaff'), '#fafaff')).toBeGreaterThanOrEqual(4.5);
   });
 });

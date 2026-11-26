@@ -323,9 +323,18 @@ describe('omahaRiverCheckedToBetIsMeasured: the decision', () => {
     const rule = src.indexOf('const checkedTo2 = omahaRiverCheckedToBetRule(');
     expect(rule).toBeGreaterThan(src.indexOf('const openMeasured = omahaOpenMeasuredRule('));
     expect(rule).toBeGreaterThan(src.indexOf('const firstToAct = omahaRiverFirstToActBetRule('));
-    expect(
-      src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        checkedTo2.decision')
-    ).toBeGreaterThan(rule);
+    expect(src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        tripsBoat')).toBeGreaterThan(
+      rule
+    );
+    // 2026-11-26 (lead-7 plo-postflop): the river opening rule (omahaRiverValueBetInPositionIsPriced,
+    // omahaRiverBluffIsPricedOnBlockers, default off) takes this rule's answer, and the floor takes its answer.
+    const opening = src.indexOf(
+      'const opening = omahaRiverOpeningBetRule(\n        checkedTo2.decision,'
+    );
+    expect(opening).toBeGreaterThan(rule);
+    expect(src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        tripsBoat')).toBeGreaterThan(
+      opening
+    );
     expect(src.indexOf("decision = graph.run('wager_rules'")).toBeGreaterThan(rule);
   });
 });

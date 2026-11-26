@@ -58,10 +58,24 @@ NON_RELEASE_SERVER_SCRIPT_PREFIXES = (
     "server/scripts/measure-",
     "server/scripts/nash-push-fold/",
     "server/scripts/fixtures/",
+    # O31 (2026-11-26): Horse strategy research and qualification families. A
+    # Horse-only edit to oop-reraise-range/league.ts (#12085) made a certified
+    # build unselectable. Each family below is reached by no release workflow,
+    # server/Dockerfile, server/standby, release CI helper or release script
+    # (tests/the-release-projection-names-only-release-files.law.test.ts).
+    # The two directories are excluded whole so a new file beside them does
+    # not repeat the incident; legacy-census-*, finite-evaluation-worker*,
+    # phase*, qualify-* and every engine-*/install-* script stay hashed.
+    "server/scripts/oop-reraise-range/",
+    "server/scripts/omaha-reraised-pot-priced/",
+    "server/scripts/feature-ablation-",
+    "server/scripts/gto-v31-",
+    "server/scripts/assemble-public215-",
 )
 NON_RELEASE_SERVER_SCRIPT_EXACT = (
     "server/scripts/style-shadow-rerun.mjs",
     "server/scripts/river-one-pair-fixture.ts",
+    "server/scripts/prepare-public215-feature-request.py",
 )
 
 

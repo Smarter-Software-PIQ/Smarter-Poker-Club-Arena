@@ -102,7 +102,7 @@ export default function CashIntelligencePanel({
       title="Cash Intelligence"
       subtitle="Opportunity-Based Rates From Accepted Hands"
       status={state}
-      className="cash-intel-console"
+      className="stats-workbench-surface cash-intel-console"
       aria-label="Cash Intelligence"
     >
       <div className="cash-intel">

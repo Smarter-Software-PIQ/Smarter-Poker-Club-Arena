@@ -1351,7 +1351,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       fixture_native: '5ad4eff1fd198db8bd3f8a95e763496520ddff7c63c0b380afd7a49d4b6a82a6',
       typecheck: '9befab7487852fbbf2c6991d1e7e781c4c5a4391d070ef617dd4dfe193895e61',
       // November 20: retain the 3 added migration-safety parallel invariant guards (PR #11547).
-      typecheck_compile: '25308bd201c11d4a41f1926036e67544a0c3bcf66da45a9058f6fb5eb0d7d749',
+      // November 26: add the engine promise gate (no-floating-promises over server/src).
+      // November 26: that gate gets a 6 GB heap (NODE_OPTIONS) so it stops running out of memory.
+      typecheck_compile: '182de10d8032c4642a432133a71dfd613a7e8e23238ced322fbc46266c8bcf19',
       unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.

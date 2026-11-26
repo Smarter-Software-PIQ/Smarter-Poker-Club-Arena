@@ -410,7 +410,7 @@ export default function WorkspaceTab({
   };
 
   return (
-    <>
+    <div className="stats-workbench player-study-console study-workspace">
       <StatsWorkspacePanel
         isOwnProfile={isOwnProfile}
         workspace={workspace}
@@ -430,7 +430,12 @@ export default function WorkspaceTab({
             aria-busy={mutationPending}
             disabled={mutationPending}
           >
-            <form onSubmit={savePlayerReport}>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Write A Report"
+              onSubmit={savePlayerReport}
+            >
+              <h3>Write A Report</h3>
               <label>
                 Report Title
                 <input
@@ -455,13 +460,18 @@ export default function WorkspaceTab({
                 />
               </label>
               <button type="submit">Save Player-Authored Report</button>
+              {ruleReport && (
+                <button type="button" onClick={() => void saveRuleReport()}>
+                  Save Current Rule-Derived Report
+                </button>
+              )}
             </form>
-            {ruleReport && (
-              <button type="button" onClick={() => void saveRuleReport()}>
-                Save Current Rule-Derived Report
-              </button>
-            )}
-            <form onSubmit={trackLeak}>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Track A Leak"
+              onSubmit={trackLeak}
+            >
+              <h3>Track A Leak</h3>
               <label>
                 Leak To Practice
                 <input
@@ -476,7 +486,8 @@ export default function WorkspaceTab({
               </label>
               <button type="submit">Track Leak</button>
             </form>
-            <form onSubmit={saveGoal}>
+            <form className="stats-workbench-surface" aria-label="Set A Goal" onSubmit={saveGoal}>
+              <h3>Set A Goal</h3>
               <label>
                 Goal To Edit
                 <select value={goalId} onChange={(event) => chooseGoal(event.target.value)}>
@@ -524,7 +535,12 @@ export default function WorkspaceTab({
               </label>
               <button type="submit">Save Goal</button>
             </form>
-            <form onSubmit={addProgress}>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Record Goal Progress"
+              onSubmit={addProgress}
+            >
+              <h3>Record Goal Progress</h3>
               <label>
                 Goal
                 <select
@@ -551,7 +567,12 @@ export default function WorkspaceTab({
               </label>
               <button type="submit">Record Progress</button>
             </form>
-            <form onSubmit={saveCollection}>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Create A Collection"
+              onSubmit={saveCollection}
+            >
+              <h3>Create A Collection</h3>
               <label>
                 Collection Name
                 <input
@@ -562,7 +583,12 @@ export default function WorkspaceTab({
               </label>
               <button type="submit">Create Study Collection</button>
             </form>
-            <form onSubmit={addStudyHand}>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Add A Study Hand"
+              onSubmit={addStudyHand}
+            >
+              <h3>Add A Study Hand</h3>
               <label>
                 Study Collection
                 <select
@@ -588,17 +614,23 @@ export default function WorkspaceTab({
               </label>
               <button type="submit">Add Owned Hand</button>
             </form>
-            <div>
+            <section className="stats-workbench-surface" aria-label="Dashboard Layout">
+              <h3>Dashboard Layout</h3>
               <label>
                 Dashboard Zones
                 <input value={layout} onChange={(event) => chooseLayout(event.target.value)} />
               </label>
               <p>Valid Dashboard Zones Save Automatically.</p>
-            </div>
-            <button type="button" onClick={() => void restoreLayout()}>
-              Restore Default Dashboard
-            </button>
-            <form onSubmit={saveAlert}>
+              <button type="button" onClick={() => void restoreLayout()}>
+                Restore Default Dashboard
+              </button>
+            </section>
+            <form
+              className="stats-workbench-surface"
+              aria-label="Set A Refresh Alert"
+              onSubmit={saveAlert}
+            >
+              <h3>Set A Refresh Alert</h3>
               <label>
                 Alert Name
                 <input
@@ -640,6 +672,6 @@ export default function WorkspaceTab({
           </fieldset>
         </StatsSection>
       )}
-    </>
+    </div>
   );
 }

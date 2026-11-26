@@ -1,0 +1,2871 @@
+{
+  "schema": "horse-option-acted-receipts/v1",
+  "generatedBy": "server/scripts/gen-horse-option-acted-receipts.ts from HorseDataLedger.ts (do not edit by hand)",
+  "options": {
+    "styleValueBettorNotManiac": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_value_bettor_not_maniac_changed_action_seen",
+        "style_value_bettor_not_maniac_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleBigBetHonesty": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_big_bet_honesty_changed_action_seen",
+        "style_big_bet_honesty_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleRaiseRespect": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_raise_respect_changed_action_seen",
+        "style_raise_respect_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleTightReRaiserRespect": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_tight_reraiser_respect_changed_action_seen",
+        "style_tight_reraiser_respect_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleFoldRatePreRepair": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_fold_rate_pre_repair_changed_action_seen",
+        "style_fold_rate_pre_repair_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleValueExtraction": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_value_extraction_changed_action_seen",
+        "style_value_extraction_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleFoldBluff": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["style_fold_bluff_changed_action_seen", "style_fold_bluff_receipt_picked_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "streetIQ": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "handReading": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7Preflop": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7Barrels": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7SizeReads": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7CounterAdapt": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v7AdaptiveMC": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v8": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v8Draws": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v8HiLo": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v8Nlh": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v9": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v9Sizing": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v9Timing": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "decisionGravityTiming": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "horseActionTimeIsPublicOnly": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it changes the think time of a decision, not its action; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaBetSizeByPublicState": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_public_bet_size_applied",
+        "omaha_public_bet_size_committed",
+        "omaha_public_bet_size_illegal_kept",
+        "omaha_public_bet_size_nut_class_kept",
+        "omaha_public_bet_size_unchanged"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaNutClassValueSize"]
+    },
+    "v9Mood": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10Cbet": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10Spr": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10Rake": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10ThinValue": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v10Iso": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v11": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v12": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v12Ranges": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v12River": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v13": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v15": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v15Boats": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16Reads": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16Icm": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16Blockers": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16SizeCond": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16PloPolar": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v16Ratio": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: a bet-ratio threshold inside two existing postflop reads; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "v17Pos": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v17CatchBlock": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v17ShortDeck": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v18Straddle": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v18Squeeze": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v18SelfImage": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v18ExploitSize": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v18Families": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v20Multiway": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v20Mzone": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v21River": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v21Deep": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v23Endgame": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v23Plan": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v23Reads": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v23Variants": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v23Spin": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v24Bounty": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v25PloTourney": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v26Prizes": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v27GtoCharts": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v29GtoFlop": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v30GtoTurnRiver": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v37Satellite": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v38Ev": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v40Omaha": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "holdemPremiumAggression": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "holdemDominatedFold": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "ploPairedBoardFold": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["plo_paired_board_fold_plo6"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "ploPairedBoardRiverCheck": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["plo_paired_board_river_check_plo6"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "ploSuitedAcesFourBet": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v86PloOverhaul": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v87HoldemOverhaul": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": [
+        "v87_bubble_cover_pressure",
+        "v87_bubble_covered_pot_control",
+        "v87_combo_draw_jam",
+        "v87_combo_draw_raise",
+        "v87_deep_cash_onepair_pot_control",
+        "v87_double_board_dead_half_fold",
+        "v87_flop_stab_check_raise",
+        "v87_flop_stab_jam",
+        "v87_ip_checkback_trap",
+        "v87_ip_flop_float",
+        "v87_low_spr_commit",
+        "v87_multiway_wet_air_check",
+        "v87_oop_stab_trap",
+        "v87_range_cbet",
+        "v87_river_block_blocker_bluff",
+        "v87_river_block_lag_check",
+        "v87_river_block_nut_trap",
+        "v87_river_block_raised_one_pair_fold",
+        "v87_river_block_trap_reraise",
+        "v87_river_blocker_bluff_raise",
+        "v87_turn_takeaway"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v87RiverBlockBetTrap": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v87HollywoodTank": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v87FlopStabCheckRaise": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v46Charts": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v51RiverFlat": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v56OmahaPressureRange": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v57TournamentAggression": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v61RiverOnePairShade": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v66BetRaisedOnePair": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v67RiverBetRaisedOnePair": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v88CommitmentHonored": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaTournamentFirstIn": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaHiLoTournamentFirstIn": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_hilo_tournament_first_in"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "tokenCallPrice": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["token_call_price_river_covered", "token_call_price_scaled"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverNutRaiseOnly": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["omaha_river_non_nut_raise_flatted_plo6"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnSetPound": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaCurrentNutsRaise": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaReraisedPotStackOffFold": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: a branch of the re-raised-pot stack-off rule, counted by that rule; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaReraisedPotStackOffRealistic": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: a branch of the re-raised-pot stack-off rule, counted by that rule; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaEliteContinuesVsMeasuredWideThreeBettor": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_elite_continues_vs_measured_wide_three_bettor",
+        "omaha_elite_continues_vs_measured_wide_three_bettor_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaOopReraisedPotStrongRange": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_oop_reraised_call_folded",
+        "omaha_oop_reraised_call_kept",
+        "omaha_preflop_stack_plan_folded",
+        "omaha_reraised_call_in_position_caller_pending_seen",
+        "omaha_reraised_call_priced_call",
+        "omaha_reraised_call_priced_call_after_own_raise",
+        "omaha_reraised_call_priced_fold",
+        "omaha_reraised_call_priced_fold_after_own_raise",
+        "omaha_reraised_call_priced_heads_up_diluted",
+        "omaha_reraised_call_priced_in_position",
+        "omaha_reraised_call_priced_multiway_equity",
+        "omaha_reraised_call_priced_out_of_position"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaPreflopStackPlan", "omahaReraisedPositionInLightning"]
+    },
+    "omahaPreflopReraiseDefencePricedInPosition": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_preflop_reraise_defence_call", "omaha_preflop_reraise_defence_changed"],
+      "prefixes": [],
+      "unlessOn": ["omahaPreflopReraiseDefencePriced"]
+    },
+    "omahaReraiseRangeOutOfPosition": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraise_by_position_aces_committed",
+        "omaha_reraise_by_position_called",
+        "omaha_reraise_by_position_folded",
+        "omaha_reraise_by_position_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraiseRangeEarlyPosition"]
+    },
+    "omahaReraisedCallVsRaisePriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_raise_priced_call",
+        "omaha_reraised_raise_priced_raise",
+        "omaha_reraised_raise_priced_reference_raise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPreflopJamFacingReraiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_preflop_three_way_call",
+        "omaha_preflop_three_way_changed",
+        "omaha_preflop_three_way_fold",
+        "omaha_preflop_three_way_raise"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReraiseRangeEarlyPosition": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraise_by_position_aces_committed",
+        "omaha_reraise_by_position_called",
+        "omaha_reraise_by_position_folded",
+        "omaha_reraise_by_position_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraiseRangeOutOfPosition"]
+    },
+    "omahaMadeHandDefenseVsValueLeader": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_value_leader_defense_applied", "omaha_value_leader_defense_withheld"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBluffCatcherFoldVsValueLeader": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_bluff_catcher_fold_vs_value_leader",
+        "omaha_bluff_catcher_fold_vs_value_leader_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverMediumBetStrongHandCalls": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_river_medium_bet_strong_hand_call",
+        "omaha_river_medium_bet_strong_hand_call_unpriced",
+        "omaha_river_medium_bet_strong_hand_call_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBigBetIsPotShare": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_big_bet_by_pot_share",
+        "omaha_small_bet_floor_size_priced_kept",
+        "omaha_small_bet_floor_size_priced_taken"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaSmallBetIsPriced"]
+    },
+    "omahaPairedRiverNoThinLeadVsValueLeader": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_paired_board_no_boat_ip_bet_checked_by_price",
+        "omaha_paired_board_no_boat_oop_bet_checked",
+        "omaha_paired_river_thin_lead_checked",
+        "omaha_paired_river_thin_lead_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaPairedTurnNoBarrelWithoutBoatVsValueLeader"]
+    },
+    "omahaOverpairNoOopBarrelVsValueLeader": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_overpair_oop_turn_barrel_checked", "omaha_overpair_oop_turn_barrel_withheld"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPairedTurnNoBarrelWithoutBoatVsValueLeader": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_paired_board_no_boat_ip_bet_checked_by_price",
+        "omaha_paired_board_no_boat_oop_bet_checked",
+        "omaha_paired_turn_barrel_checked",
+        "omaha_paired_turn_barrel_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaPairedRiverNoThinLeadVsValueLeader"]
+    },
+    "omahaPairedBoardFoldRespectsPrice": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_paired_board_fold_price_respected",
+        "omaha_paired_board_fold_price_respected_vetoed"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBandFallbackInBandUnit": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaTurnStrongHandRealizationIsMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_turn_strong_hand_realization_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBetReadIsPerOpponent": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_bet_read_person_priced", "omaha_bet_read_population_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFacingBetPaysTheWholeDeduction": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_facing_bet_whole_deduction_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaMathCoreNetsTheWholeDeduction": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaColdCallOutsideBigBlindIsMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_cold_call_measured_fold"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaOpenNeedsMeasuredStrength": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_open_measured_fold"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaAcesReraiseIsMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_aces_measured_reraise"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReraiseRangeIsMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_range_measured_reraise"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaNoMadeClassCap": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_made_class_cap_not_applied"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBetReadIsModeSplit": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_bet_read_mode_split_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRundownReraiseRangeIsMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_rundown_measured_call"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRundownReraiseRangeTrial": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_rundown_trial_reraise"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaClassCapsRespectEquity": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_class_cap_floor_raise_kept_to_call",
+        "omaha_class_cap_floor_undersampled",
+        "omaha_class_cap_held_at_measured_equity"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaMathCorePlo4Flop": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCorePlo4Turn": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCorePlo4River": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCorePlo5Flop": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_math_core_"],
+      "unlessOn": ["omahaMathCore"]
+    },
+    "omahaMathCorePlo5Turn": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCorePlo5River": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCorePreflop": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaMathCore": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "lightning_fold_through_math_core_owned",
+        "omaha_math_core_refused_choice_priced_call",
+        "v44_declined_math_core_owned"
+      ],
+      "prefixes": [],
+      "unlessOn": ["lightningEarlyFoldNeedsFoldThrough"]
+    },
+    "omahaFlopFacingBetEv": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_facing_bet_ev_call",
+        "omaha_flop_facing_bet_ev_changed",
+        "omaha_flop_facing_bet_ev_fold",
+        "omaha_flop_facing_raise_hud_range_scaled",
+        "omaha_flop_facing_stab_hud_range_scaled"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaFlopBetIsPricedOnHisResponse"]
+    },
+    "omahaOopReraiseRangeHoldsVsReraise": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_oop_reraise_range_holds_blocker_kept",
+        "omaha_oop_reraise_range_holds_called",
+        "omaha_oop_reraise_range_holds_folded",
+        "omaha_oop_reraise_range_holds_kept",
+        "omaha_oop_reraise_range_holds_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemOopReraiseRangeHoldsVsReraise": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_oop_reraise_range_holds_blocker_kept",
+        "holdem_oop_reraise_range_holds_called",
+        "holdem_oop_reraise_range_holds_folded",
+        "holdem_oop_reraise_range_holds_kept",
+        "holdem_oop_reraise_range_holds_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaOopReraiseRangeReadsOpenerRecord": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_oop_reraise_range_holds_"],
+      "unlessOn": ["omahaOopReraiseRangeHoldsVsReraise"]
+    },
+    "holdemOopReraiseRangeReadsOpenerRecord": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["holdem_oop_reraise_range_holds_"],
+      "unlessOn": ["holdemOopReraiseRangeHoldsVsReraise"]
+    },
+    "omahaFourBetFoldPricedCall": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_four_bet_fold_priced_call"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFacingBetRangeIsMeasuredByLine": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetFieldIsJoint", "omahaFacingBetIndifferenceCalls"]
+    },
+    "omahaFacingBetIndifferenceCalls": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetFieldIsJoint", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaFlopRealizationIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_call_tree_call",
+        "omaha_flop_call_tree_changed",
+        "omaha_flop_call_tree_fold",
+        "omaha_flop_call_tree_min_defence_bounded",
+        "omaha_flop_call_tree_record_read"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFacingBetMinimumDefencePrior": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_call_tree_", "omaha_priced_facing_bet_"],
+      "unlessOn": [
+        "omahaFacingBetFieldIsJoint",
+        "omahaFacingBetIndifferenceCalls",
+        "omahaFacingBetRangeIsMeasuredByLine",
+        "omahaFlopRealizationIsPriced"
+      ]
+    },
+    "omahaFacingBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_people_prior_"],
+      "unlessOn": []
+    },
+    "omahaFacingBetFieldIsJoint": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_priced_facing_bet_"],
+      "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaMultiwayCallNeedsNutShare": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_call_tree_", "omaha_priced_facing_bet_"],
+      "unlessOn": [
+        "omahaFacingBetFieldIsJoint",
+        "omahaFacingBetIndifferenceCalls",
+        "omahaFacingBetRangeIsMeasuredByLine",
+        "omahaFlopRealizationIsPriced"
+      ]
+    },
+    "omahaMultiwayValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_multiway_value_bet_check_kept", "omaha_multiway_value_bet_priced_bet"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReraisedPotCallIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_call_folded",
+        "omaha_reraised_pot_priced_call_kept",
+        "omaha_reraised_pot_priced_call_reraised",
+        "omaha_reraised_pot_priced_failed",
+        "omaha_reraised_pot_priced_fold_called",
+        "omaha_reraised_pot_priced_fold_kept",
+        "omaha_reraised_pot_priced_reraise_called",
+        "omaha_reraised_pot_priced_reraise_folded",
+        "omaha_reraised_pot_priced_reraise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraisedPotReraiseIsPriced"]
+    },
+    "omahaReraisedPotReraiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_call_folded",
+        "omaha_reraised_pot_priced_call_kept",
+        "omaha_reraised_pot_priced_call_reraised",
+        "omaha_reraised_pot_priced_failed",
+        "omaha_reraised_pot_priced_fold_called",
+        "omaha_reraised_pot_priced_fold_kept",
+        "omaha_reraised_pot_priced_reraise_called",
+        "omaha_reraised_pot_priced_reraise_folded",
+        "omaha_reraised_pot_priced_reraise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaReraisedPotCallIsPriced"]
+    },
+    "omahaStabDefenceIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_stab_defence_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaStrongHandCheckIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_strong_hand_check_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaCbetRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_cbet_raise_priced_branch", "omaha_cbet_raise_priced_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFlopRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_raise_priced_called",
+        "omaha_flop_raise_priced_folded",
+        "omaha_flop_raise_priced_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverTripsBoardBoatIsNotNutClass": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_trips_board_boat_called"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverValueBetInPositionIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_value_bet_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_bluff_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverCheckedToBetIsMeasured": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_checked_to_bet_measured"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverFirstToActBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_first_to_act_bet_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaOpponentLifetimeHudDecides": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it hands the lifetime read to the postflop read options; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaPreflopReadIsPricedFromLifetime": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it changes the preflop read the memory hands the decision; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaBigBetSizeIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_big_bet_size_kept",
+        "omaha_priced_big_bet_size_range_applied",
+        "omaha_priced_big_bet_size_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverCurrentNutsCallFloor": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_current_nuts_call_floor"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReadIsByStreetAndTexture": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_read_by_street_carried"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnBetNeedsRiverPlan": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_turn_bet_without_river_plan_checked"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPressureNeedsPostflopAggression": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_pressure_withheld_value_leader", "omaha_value_raise_beaten_by_board_flatted"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaOopTurnCheckAfterFlopCall": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_oop_turn_check_after_flop_call",
+        "omaha_oop_turn_check_call_nut_draw",
+        "omaha_oop_turn_check_call_nut_draw_vetoed",
+        "omaha_oop_turn_check_fold_no_outs",
+        "omaha_oop_turn_check_fold_no_outs_vetoed",
+        "omaha_oop_turn_check_raise_flatted",
+        "omaha_oop_turn_check_raise_flatted_vetoed"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBareOverpairOopFlopCheck": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_bare_overpair_oop_flop_check_called",
+        "omaha_bare_overpair_oop_flop_check_failsafe_flatted",
+        "omaha_bare_overpair_oop_flop_check_folded",
+        "omaha_bare_overpair_oop_flop_check_raise_flatted",
+        "omaha_bare_overpair_oop_flop_checked"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaNoCallColdFourBetWithoutPremium": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_no_call_cold_four_bet_without_premium",
+        "omaha_no_call_cold_four_bet_without_premium_priced_in"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaUnderpairNoMultiwayFlopContinue": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_underpair_no_multiway_flop_continue",
+        "omaha_underpair_no_multiway_flop_continue_priced_in"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaMultiwayWeakHandNoBet": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_multiway_weak_hand_bet_checked",
+        "omaha_multiway_weak_hand_bet_checked_vetoed"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaVpipFloorByLimp": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_vpip_floor_limp",
+        "omaha_vpip_floor_limp_fold",
+        "omaha_vpip_floor_three_bet_bar_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "vpipFloorLimpOnly": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "vpip_floor_limp_only_fold_kept",
+        "vpip_floor_limp_only_limp",
+        "vpip_floor_limp_only_not_governed_ten_hand_window",
+        "vpip_floor_limp_only_priced_out",
+        "vpip_floor_limp_only_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "vpipFloorLimpOnlyTenHandWindow": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["vpip_floor_limp_only_governed_ten_hand_window"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "lightningVpipFloorLimpOnly": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "lightning_vpip_floor_limp_only_fold_kept",
+        "lightning_vpip_floor_limp_only_limp",
+        "lightning_vpip_floor_limp_only_priced_out",
+        "lightning_vpip_floor_limp_only_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaReraisedPositionInLightning": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_call_priced_call",
+        "omaha_reraised_call_priced_call_after_own_raise",
+        "omaha_reraised_call_priced_fold",
+        "omaha_reraised_call_priced_fold_after_own_raise",
+        "omaha_reraised_call_priced_heads_up_diluted",
+        "omaha_reraised_call_priced_in_position",
+        "omaha_reraised_call_priced_multiway_equity",
+        "omaha_reraised_call_priced_out_of_position"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaOopReraisedPotStrongRange"]
+    },
+    "omahaReraisedPositionVsEveryoneToAct": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: a position weight inside the live re-raised-pot priced call, whose receipts fire by design; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaManiacReRaiseWidthMeasured": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_maniac_reraise_width_measured"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaCardImpact": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_card_impact_changed",
+        "omaha_card_impact_defence_check",
+        "omaha_card_impact_defence_check_vetoed",
+        "omaha_card_impact_freeroll_pot",
+        "omaha_card_impact_freeroll_pot_vetoed",
+        "omaha_card_impact_paired_board_press_to_small_bet",
+        "omaha_card_impact_paired_board_press_withheld",
+        "omaha_card_impact_press_bet",
+        "omaha_card_impact_press_bet_vetoed",
+        "omaha_card_impact_resized_vetoed",
+        "omaha_small_bet_paired_board_press_bet",
+        "omaha_small_bet_paired_board_press_bet_vetoed",
+        "omaha_strategy_rule_failed"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaFacingBetEv", "omahaSmallBetIsPriced", "omahaStreetPlan"]
+    },
+    "omahaFacingBetEv": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_facing_bet_ev_call",
+        "omaha_facing_bet_ev_call_blocked_by_plo6_river_fold",
+        "omaha_facing_bet_ev_changed",
+        "omaha_facing_bet_ev_fold",
+        "omaha_strategy_rule_failed"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "omahaCardImpact",
+        "omahaFacingBetEvShownField",
+        "omahaFacingBetValueIsRangeRelative",
+        "omahaPairedBoardRiverIsPriced",
+        "omahaRiverBluffCatchIsPriced",
+        "omahaStrategyInPlo6",
+        "omahaStreetPlan",
+        "omahaTurnCallRealizationByRunout"
+      ]
+    },
+    "omahaTurnStabDefenceIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_turn_stab_defence_changed", "omaha_turn_stab_defence_priced_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnStabLightningRow": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_turn_stab_lightning_row_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnCallRealizationByRunout": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_facing_bet_ev_call",
+        "omaha_facing_bet_ev_changed",
+        "omaha_facing_bet_ev_fold"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "omahaFacingBetEv",
+        "omahaFacingBetEvShownField",
+        "omahaFacingBetValueIsRangeRelative",
+        "omahaPairedBoardRiverIsPriced",
+        "omahaRiverBluffCatchIsPriced"
+      ]
+    },
+    "omahaFacingBetEvShownField": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_facing_bet_ev_call",
+        "omaha_facing_bet_ev_changed",
+        "omaha_facing_bet_ev_fold"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "omahaFacingBetEv",
+        "omahaFacingBetValueIsRangeRelative",
+        "omahaPairedBoardRiverIsPriced",
+        "omahaRiverBluffCatchIsPriced",
+        "omahaTurnCallRealizationByRunout"
+      ]
+    },
+    "omahaRiverBluffCatchIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_facing_bet_ev_call",
+        "omaha_facing_bet_ev_changed",
+        "omaha_facing_bet_ev_fold"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "omahaFacingBetEv",
+        "omahaFacingBetEvShownField",
+        "omahaFacingBetValueIsRangeRelative",
+        "omahaPairedBoardRiverIsPriced",
+        "omahaTurnCallRealizationByRunout"
+      ]
+    },
+    "omahaTurnRiverRaiseNeedsNuts": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_turn_river_raise_needs_nuts_by_ev",
+        "omaha_turn_river_raise_needs_nuts_by_oop_turn_verdict",
+        "omaha_turn_river_raise_needs_nuts_by_price",
+        "omaha_turn_river_raise_needs_nuts_called",
+        "omaha_turn_river_raise_needs_nuts_folded",
+        "omaha_turn_river_raise_needs_nuts_kept_nuts"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaStreetPlan": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_strategy_rule_failed",
+        "omaha_street_plan_commit_avoided",
+        "omaha_street_plan_commit_avoided_vetoed",
+        "omaha_street_plan_followed",
+        "omaha_street_plan_line_changed",
+        "omaha_street_plan_line_changed_vetoed"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaCardImpact", "omahaFacingBetEv"]
+    },
+    "omahaStreetPlanThreeWay": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_street_plan_three_way_checked", "omaha_street_plan_three_way_checked_vetoed"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBigDrawAggression": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_big_draw_aggression_bet",
+        "omaha_big_draw_aggression_bet_vetoed",
+        "omaha_big_draw_aggression_final_check_unpriced",
+        "omaha_big_draw_aggression_raise",
+        "omaha_big_draw_aggression_raise_vetoed",
+        "omaha_big_draw_aggression_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBigDrawBetIsPricedOnHisResponse": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_big_draw_bet_on_his_response_bet",
+        "omaha_big_draw_bet_on_his_response_final_check_unpriced",
+        "omaha_big_draw_bet_on_his_response_withheld"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaNoDrawRaiseOutOfPosition": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_no_draw_raise_final_call",
+        "omaha_no_draw_raise_ft_semibluff",
+        "omaha_no_draw_raise_v53_semibluff",
+        "omaha_no_draw_raise_v86_pump"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaStrategyInTournaments": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaNoCategoricalRules": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it removes other options for one decision; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaBlanketRowsOffInPlo45Cash": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_blanket_rows_off_in_plo45_cash_applied"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTournamentsExcludeCategoricalRules": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it removes other options in a tournament decision; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "omahaStrongHandSlowplayMix": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_strong_hand_slowplay_call", "omaha_strong_hand_slowplay_check"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnRiverRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_raise_called",
+        "omaha_priced_raise_folded",
+        "omaha_priced_raise_kept",
+        "omaha_priced_raise_made_bluff",
+        "omaha_priced_raise_made_value",
+        "omaha_priced_raise_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPricedRaiseNeverMakesNonNutRaise": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_raise_non_nut_raise_not_made",
+        "omaha_priced_raise_non_nut_unpriced_called"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaLateFlattenedCallIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_late_flattened_call_priced_folded", "omaha_late_flattened_call_priced_kept"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaDrawRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_draw_raise_called",
+        "omaha_priced_draw_raise_kept",
+        "omaha_priced_draw_raise_mixed_called",
+        "omaha_priced_draw_raise_mixed_kept",
+        "omaha_priced_draw_raise_mixed_resized",
+        "omaha_priced_draw_raise_resized",
+        "omaha_priced_draw_raise_site_admitted",
+        "omaha_priced_draw_raise_site_withheld",
+        "omaha_priced_draw_raise_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaPricedMix", "omahaSampledRaiseIsPricedAtEverySize"]
+    },
+    "omahaOopTurnBarrelIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_oop_turn_barrel_checked",
+        "omaha_priced_oop_turn_barrel_kept",
+        "omaha_priced_oop_turn_barrel_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPackEffectiveDepth": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaPackClampDeepDepth": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaFacingBetRangeIsContinuous": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_facing_inputs_changed_to_call",
+        "omaha_priced_facing_inputs_changed_to_fold"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaBluffShareFromBetRate"]
+    },
+    "omahaPressureIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_pressure_call_down_admitted",
+        "omaha_priced_pressure_call_down_withheld",
+        "omaha_priced_pressure_raise_admitted",
+        "omaha_priced_pressure_raise_resized",
+        "omaha_priced_pressure_raise_withheld",
+        "omaha_priced_pressure_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaSampledRaiseIsPricedAtEverySize"]
+    },
+    "omahaBigBetCallsArePriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_big_bet_call_folded",
+        "omaha_priced_big_bet_call_kept",
+        "omaha_priced_big_bet_call_unpriced_kept",
+        "omaha_priced_big_bet_raise_called",
+        "omaha_priced_big_bet_raise_folded",
+        "omaha_priced_big_bet_raise_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaUnderpairMultiwayIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_priced_underpair_multiway_called", "omaha_priced_underpair_multiway_folded"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaSampledRaiseIsPricedAtEverySize": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_draw_raise_mixed_resized",
+        "omaha_priced_draw_raise_resized",
+        "omaha_priced_pressure_raise_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaDrawRaiseIsPriced", "omahaPressureIsPriced", "omahaPricedMix"]
+    },
+    "omahaTurnSetSizeIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_site_turn_set_size_kept",
+        "omaha_priced_site_turn_set_size_resized",
+        "omaha_priced_site_turn_set_size_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaBlockerBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_priced_site_blocker_bluff_admitted",
+        "omaha_priced_site_blocker_bluff_gate_withheld",
+        "omaha_priced_site_blocker_bluff_refused",
+        "omaha_priced_site_blocker_bluff_unpriced_kept"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFlopBetIsPricedOnHisResponse": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_flop_bet_on_his_response_checked",
+        "omaha_flop_bet_on_his_response_kept",
+        "omaha_flop_bet_on_his_response_unpriced_kept",
+        "omaha_flop_facing_raise_hud_range_scaled",
+        "omaha_flop_facing_stab_hud_range_scaled"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaFlopFacingBetEv"]
+    },
+    "omahaPricedInLightning": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_priced_in_lightning_scope_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaSlowplayMixInLightning": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_slowplay_mix_in_lightning_scope_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaPublicBetSizeInLightning": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_public_bet_size_in_lightning_scope_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaCheckedToBetResponseIsMeasured": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_checked_to_bet_measured_response"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaCheckedToBetInLightning": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_checked_to_bet_in_lightning"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "horseRiverNoBlockerBet": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "river_no_blocker_bet_checked",
+        "river_no_blocker_bet_failed",
+        "river_no_blocker_bet_resized_nuts",
+        "river_no_blocker_bet_resized_priced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "horsePlayStyles": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "horse_play_style_current",
+        "horse_play_style_fallback_current_floor_seen",
+        "horse_play_style_fallback_current_lightning_seen",
+        "horse_play_style_fallback_current_short_stack_seen",
+        "horse_play_style_fallback_current_tournament_seen",
+        "horse_play_style_fallback_current_unmapped_seen",
+        "horse_play_style_pressure",
+        "horse_play_style_tight"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaStrongHandValue": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "omaha_strong_hand_induce_check",
+        "omaha_strong_hand_value_bet",
+        "omaha_strong_hand_value_raise"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaValueSizeIsUnreadable": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_value_size_band_applied", "omaha_value_size_full_pot_kept"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverNutBlockerBluffReachable": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [],
+      "prefixes": ["v86_"],
+      "unlessOn": []
+    },
+    "holdemHeadsUpPostflopBalance": {
+      "releaseDefault": "code",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default code: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "plo6ManiacPriceRefusalToRangePlay": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "plo6_maniac_price_refusal_floored_continued",
+        "plo6_maniac_price_refusal_floored_folded",
+        "plo6_maniac_price_refusal_range_play_seen",
+        "plo6_maniac_price_refusal_unfloored_continued",
+        "plo6_maniac_price_refusal_unfloored_folded"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "plo6FacingBetIsPricedV2": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "plo6_facing_bet_priced_v2_called",
+        "plo6_facing_bet_priced_v2_folded",
+        "plo6_facing_bet_priced_v2_paired_fold_priced_out",
+        "plo6_facing_bet_priced_v2_raise_to_call",
+        "plo6_facing_bet_priced_v2_raised",
+        "plo6_facing_bet_priced_v2_river_nut_rule_not_run"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "fixedLimitHiLoNutLowRiverBet": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["hilo_nut_low_freeroll_bet"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "fixedLimitRiverOneBetValueRaise": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["fixed_limit_river_one_bet_value_raise"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v64RiverRaiseNeedsTwoPair": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v63LargeRiverBetShade": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v74OmahaSemiBluffNeedsDraw": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v60CashPressure": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v65TurnOnePairShade": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v68TurnAirDrawCalls": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v69TurnCallGaps": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v70GtoOpeningRanges": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v71AnteAwarePushFold": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v72DefenceByOpener": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["v72_defend_vs_opener"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v73Vs3BetDefence": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v75SqueezeDefence": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v79TopPairWeakKicker": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v81OmahaBigBetCalls": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v15RiverNoNearLock": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v85CashAction": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "lightningStyleReadSeparate": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["style_lightning_separate_empty_seen", "style_lightning_separate_read_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleTightPlayerExploit": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "style_tight_limper_isolation_seen",
+        "style_tight_player_checked_to_bluff_seen",
+        "style_tight_player_exploit_changed_action_seen",
+        "style_tight_player_exploit_receipt_picked_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleTightMultiSignal": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["style_tight_multi_signal_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "styleTightMethodLine": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["style_tight_method_line_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemManiacSampleGate": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["maniac_sample_gate_withheld_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemManiacShortHandedReach": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["holdem_maniac_short_handed_reach_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemGearShiftReach": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["holdem_gear_shift_reach_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemCallDownExcludesCurrentHand": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["holdem_call_down_excludes_current_hand_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemCallDownNeedsStyleEvidence": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["holdem_call_down_needs_style_evidence_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v84OmahaRiverReraiseCalls": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["v84_omaha_river_reraise_call_fold_plo6"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v83AggressionNeedsBluffs": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "readShrinkResponse": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it changes how far a read shrinks toward the prior; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "readBreakEvenBluff": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["break_even_bluff_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaEvFoldModel": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["omaha_ev_fold_model_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaEvFoldModelHeadsUp": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["omaha_ev_fold_model_heads_up_priced"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaEvFoldModelSkipsPlo45": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_ev_fold_model_skipped_plo45"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "tournamentUtilityStackScaledMargin": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "tournament_utility_stack_scaled_margin_changed_seen",
+        "tournament_utility_stack_scaled_margin_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "icmBustPaysPlace": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": ["icm_bust_pays_place_factor_changed_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemRiverFullHouseValue": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["holdem_river_full_house_lead_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemRiverFullHouseValueIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_full_house_check_priced",
+        "holdem_river_full_house_lead_priced",
+        "holdem_river_full_house_lead_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemValueAndCallsArePriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_priced_bet",
+        "holdem_priced_bluff_raise_kept",
+        "holdem_priced_call",
+        "holdem_priced_changed",
+        "holdem_priced_check",
+        "holdem_priced_fold",
+        "holdem_priced_not_value_kept",
+        "holdem_priced_raise",
+        "holdem_priced_unpriced",
+        "holdem_priced_unpriced_multiway",
+        "holdem_priced_value_raise_deferred"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemOpeningValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_opening_bluff_bet",
+        "holdem_opening_bluff_no_edge",
+        "holdem_opening_priced_unpriced",
+        "holdem_opening_value_bet",
+        "holdem_opening_value_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemOpeningBluffIsPriced"]
+    },
+    "holdemOpeningBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_opening_bluff_bet",
+        "holdem_opening_bluff_no_edge",
+        "holdem_opening_priced_unpriced",
+        "holdem_opening_value_bet",
+        "holdem_opening_value_resized"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemOpeningValueBetIsPriced"]
+    },
+    "cashDefenceTrimColdCalls": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["cash_defence_trim_cold_calls_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "readScopedShrink": {
+      "releaseDefault": "off",
+      "source": "none_declared",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "fires no receipt of its own: it changes how far a read shrinks toward the prior; an acted leak cannot be read from receipts (read the trial's agree/disagree counters)"
+    },
+    "planFingerprint": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v80TopPairStrongKicker": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v78NoCommittingBluffRaise": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v70FacingOpenZone": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["v70_facing_open_zone_changed_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "huBbDefendsUnreadToPrice": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["hu_bb_defends_unread_to_price"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemPersonaReRaiseMix": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_persona_3bet_bluff_capped_seen",
+        "holdem_persona_3bet_bluff_changed_seen",
+        "holdem_persona_3bet_bluff_eligible_seen",
+        "holdem_persona_hand_identity_fallback_seen",
+        "holdem_persona_scale_held_by_style_seen",
+        "holdem_persona_squeeze_bluff_capped_seen",
+        "holdem_persona_squeeze_bluff_changed_seen",
+        "holdem_persona_squeeze_bluff_eligible_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemPersonaPostflop": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_persona_postflop_cbet_seen",
+        "holdem_persona_postflop_check_raise_seen",
+        "holdem_persona_postflop_stab_seen",
+        "holdem_persona_postflop_trap_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "nashCallVsJam": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["nash_call_vs_jam"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemTournamentAllInCallIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tournament_all_in_call_arbiter_reversal_refused_seen",
+        "holdem_tournament_all_in_call_phase8_reversal_refused_seen",
+        "holdem_tournament_all_in_call_priced_call_seen",
+        "holdem_tournament_all_in_call_priced_fold_seen",
+        "holdem_tournament_all_in_call_reference_kept_seen",
+        "holdem_tournament_all_in_call_unpriced_seen",
+        "holdem_tournament_committed_stack_call_seen",
+        "holdem_tournament_postflop_all_in_call_priced_seen",
+        "holdem_tournament_postflop_call_priced_fold_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemTournamentHeadsUpBigBlindDefenceIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tournament_raise_defence_blanket_stood_aside_seen",
+        "holdem_tournament_raise_defence_blind_defence_priced_seen",
+        "holdem_tournament_raise_defence_call_seen",
+        "holdem_tournament_raise_defence_changed_seen",
+        "holdem_tournament_raise_defence_committed_raise_priced_seen",
+        "holdem_tournament_raise_defence_committed_seen",
+        "holdem_tournament_raise_defence_fold_seen",
+        "holdem_tournament_raise_defence_hu_bb_priced_seen",
+        "holdem_tournament_raise_defence_mixed_seen",
+        "holdem_tournament_raise_defence_moved_seen",
+        "holdem_tournament_raise_defence_reraise_seen",
+        "holdem_tournament_raise_defence_reversal_refused_seen",
+        "holdem_tournament_raise_defence_shove_seen",
+        "holdem_tournament_raise_defence_unpriced_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemTournamentBlindDefenceIsPriced", "holdemTournamentCommittedRaiseIsPriced"]
+    },
+    "holdemTournamentBlindDefenceIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tournament_raise_defence_blanket_stood_aside_seen",
+        "holdem_tournament_raise_defence_blind_defence_priced_seen",
+        "holdem_tournament_raise_defence_call_seen",
+        "holdem_tournament_raise_defence_changed_seen",
+        "holdem_tournament_raise_defence_committed_raise_priced_seen",
+        "holdem_tournament_raise_defence_committed_seen",
+        "holdem_tournament_raise_defence_fold_seen",
+        "holdem_tournament_raise_defence_hu_bb_priced_seen",
+        "holdem_tournament_raise_defence_mixed_seen",
+        "holdem_tournament_raise_defence_moved_seen",
+        "holdem_tournament_raise_defence_reraise_seen",
+        "holdem_tournament_raise_defence_reversal_refused_seen",
+        "holdem_tournament_raise_defence_shove_seen",
+        "holdem_tournament_raise_defence_unpriced_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "holdemTournamentCommittedRaiseIsPriced",
+        "holdemTournamentHeadsUpBigBlindDefenceIsPriced"
+      ]
+    },
+    "holdemTournamentCommittedRaiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tournament_raise_defence_blanket_stood_aside_seen",
+        "holdem_tournament_raise_defence_blind_defence_priced_seen",
+        "holdem_tournament_raise_defence_call_seen",
+        "holdem_tournament_raise_defence_changed_seen",
+        "holdem_tournament_raise_defence_committed_raise_priced_seen",
+        "holdem_tournament_raise_defence_committed_seen",
+        "holdem_tournament_raise_defence_fold_seen",
+        "holdem_tournament_raise_defence_hu_bb_priced_seen",
+        "holdem_tournament_raise_defence_mixed_seen",
+        "holdem_tournament_raise_defence_moved_seen",
+        "holdem_tournament_raise_defence_reraise_seen",
+        "holdem_tournament_raise_defence_reversal_refused_seen",
+        "holdem_tournament_raise_defence_shove_seen",
+        "holdem_tournament_raise_defence_unpriced_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": [
+        "holdemTournamentBlindDefenceIsPriced",
+        "holdemTournamentHeadsUpBigBlindDefenceIsPriced"
+      ]
+    },
+    "holdemTournamentRiverBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tourney_bluff_no_edge",
+        "holdem_tourney_bluff_payout_unpriced",
+        "holdem_tourney_bluff_unpriced",
+        "holdem_tourney_river_bluff_bet",
+        "holdem_tourney_turn_bluff_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemTournamentTurnBluffIsPriced"]
+    },
+    "holdemTournamentTurnBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_tourney_bluff_no_edge",
+        "holdem_tourney_bluff_payout_unpriced",
+        "holdem_tourney_bluff_unpriced",
+        "holdem_tourney_river_bluff_bet",
+        "holdem_tourney_turn_bluff_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemTournamentRiverBluffIsPriced"]
+    },
+    "fixedLimitReadIgnoresProbes": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["fixed_limit_read_probe_discount_withheld"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "fixedLimitHiLoLowHalfFloor": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["fixed_limit_hilo_low_half_kept_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "fixedLimitRiverStrongHandLeads": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["fixed_limit_river_strong_hand_lead"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "fixedLimitOmahaNoPresumption": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["fixed_limit_omaha_presumption_withheld"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "lightningEarlyFoldNeedsFoldThrough": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "lightning_fold_through_kept",
+        "lightning_fold_through_limp_kept",
+        "lightning_fold_through_math_core_owned",
+        "lightning_fold_through_released"
+      ],
+      "prefixes": [],
+      "unlessOn": ["omahaMathCore"]
+    },
+    "facingClosedAllIn": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["facing_closed_all_in_call_seen"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "limpReraiseIsoRead": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["limp_reraise_iso_read"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "v77SeatAwareJams": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v76RetireFourBetBluffBand": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v74NlhOpenSizes": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v52RangeAdvantage": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v53Pressure": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v58Plo6RiverNuts": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v59Plo6RiverUnpaired": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "drawOutlookQuality": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "committedRaiseDiscipline": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "callDeductionPricing": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "flopTurnBluffBaseline": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffBaseline": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverLeadRange": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffHiLo": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffMultiway": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverFastCalldown": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "probeAwareAggression": {
+      "releaseDefault": "on",
+      "source": "ledger",
+      "keys": ["opponent_read_probe_bets_discounted"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "riverBluffFixedLimit": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffShortDeck": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffBombPot": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "riverBluffMultiBoard": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v43Tempo": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v86UnblockedPreflop": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "v86MultiStreetUnblocked": {
+      "releaseDefault": "on",
+      "source": "not_applicable",
+      "keys": [],
+      "prefixes": [],
+      "unlessOn": [],
+      "reason": "release default on: in shadow the acted decision runs it, so its receipts fire by design"
+    },
+    "omahaRiverBetFoldIsHisRecord": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_bet_fold_his_record_read"],
+      "prefixes": [],
+      "unlessOn": []
+    }
+  }
+}

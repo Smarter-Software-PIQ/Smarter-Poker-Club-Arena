@@ -581,6 +581,29 @@ jobs:
           npx tsc --noEmit
           npx tsc -p tsconfig.node.json --noEmit
 
+      # ONE TABLE'S ASYNC FAILURE IS NEVER THE PROCESS'S (2026-11-26).
+      # server/src/index.ts treats an unhandledRejection as fatal: the engine
+      # drains and every hand in flight on every table is voided. A promise in
+      # the engine is awaited, returned, caught or marked `void` on purpose;
+      # server/eslint.promises.config.mjs refuses anything else. Type-aware,
+      # so it needs the server's own dependencies; skipped when no engine
+      # source changed. The type-aware program over all of server/src peaks
+      # above Node's default 2 GB heap on the runner (it aborted with "heap
+      # out of memory" on #12123); measured locally it finishes at 4 GB, so
+      # the step gives it 6 GB of the runner's 16.
+      - name: Engine promises are never dropped by accident
+        if: steps.compile_scope.outputs.instructions_only != 'true'
+        env:
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          if [ -n "$CI_BASE_SHA" ] && git diff --quiet "$CI_BASE_SHA" HEAD -- server/src server/eslint.promises.config.mjs server/tsconfig.json server/package-lock.json package-lock.json; then
+            echo "No engine source changed; nothing to lint."
+            exit 0
+          fi
+          npm ci --prefix server --ignore-scripts --no-audit --no-fund
+          npm run -s lint:engine-promises
+
       # BLOCKING (2026-08-15 incident): the server ships as ESM, so a CommonJS
       # require() in server/src throws ReferenceError at runtime and tsc cannot
       # catch it (@types/node declares require). Four such lines took down

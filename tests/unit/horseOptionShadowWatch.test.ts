@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTED_RECEIPTS,
+  actedReceiptsFor,
   buildWatchQueries,
   evaluateWatch,
   formatWatchReport,
@@ -205,7 +206,7 @@ describe('the report and the VERDICT', () => {
     expect(evaluateWatch({ option: PLO, since: SINCE }, rows).over100).toBe(5);
     expect(lifted.over100Pct).toBeLessThan(1);
   });
-  it('an option with no known acted receipt is DIRTY until --acted-prefix names one', () => {
+  it('an unregistered name has no acted receipt: evaluated directly it is DIRTY, and the CLI refuses it outright', () => {
     const rows = cleanHoldemRows();
     const o = 'someNewPricedOption';
     rows.switchRows = [{ option: o, state: 'shadow', updated_at: SINCE }];
@@ -213,9 +214,55 @@ describe('the report and the VERDICT', () => {
     expect(evaluateWatch({ option: o, since: SINCE }, rows).reasons).toEqual([
       'acted_leak_unchecked',
     ]);
-    expect(
-      evaluateWatch({ option: o, since: SINCE, actedPrefixes: ['some_new_'] }, rows).verdict
-    ).toBe('CLEAN');
+    expect(() => parseWatchArgs([o, '--since', SINCE])).toThrow(
+      /not a registered option that takes shadow/
+    );
+  });
+  it('the acted receipts come from the ledger: a clean shadow of an option the script never listed reads CLEAN (2026-11-26)', () => {
+    const o = 'omahaOopReraiseRangeHoldsVsReraise';
+    const acted = actedReceiptsFor(o);
+    expect(acted).toMatchObject({ registered: true, source: 'ledger', known: true });
+    expect(acted.keys).toContain('omaha_oop_reraise_range_holds_folded');
+    const rows = cleanHoldemRows();
+    rows.switchRows = [{ option: o, state: 'shadow', updated_at: SINCE }];
+    rows.fires = [
+      fire(`option_shadow_${o}_same_seen`, 50),
+      fire(`option_shadow_${o}_changed_seen`, 5),
+    ];
+    const clean = evaluateWatch({ option: o, since: SINCE }, rows);
+    expect(clean.leakCheck).toBe('checked');
+    expect(clean.verdict).toBe('CLEAN');
+    expect(formatWatchReport(clean)).toMatch(/acted_leaks=0 \(ledger: \d+ receipts\)/);
+    // its own receipt in the window is a leak
+    rows.fires.push(fire('omaha_oop_reraise_range_holds_folded', 2));
+    expect(evaluateWatch({ option: o, since: SINCE }, rows).reasons).toEqual(['acted_leak']);
+    // and the query reads exactly those keys
+    expect(buildWatchQueries({ option: o, since: SINCE }).fires).toContain(
+      "'omaha_oop_reraise_range_holds_folded'"
+    );
+  });
+  it('an option declared to fire no receipt of its own, or on by release default, is not DIRTY for the leak check; the report says why', () => {
+    const none = 'readShrinkResponse';
+    expect(actedReceiptsFor(none).source).toBe('none_declared');
+    const rows = cleanHoldemRows();
+    rows.switchRows = [{ option: none, state: 'shadow', updated_at: SINCE }];
+    rows.fires = [fire(`option_shadow_${none}_same_seen`, 5)];
+    const a = evaluateWatch({ option: none, since: SINCE }, rows);
+    expect([a.leakCheck, a.verdict]).toEqual(['none_declared', 'CLEAN']);
+    expect(formatWatchReport(a)).toContain('not readable: fires no receipt of its own');
+    const byDefault = Object.entries(ACTED_RECEIPTS).find(
+      ([, v]) => (v as { source: string }).source === 'not_applicable'
+    )![0];
+    rows.switchRows = [{ option: byDefault, state: 'shadow', updated_at: SINCE }];
+    rows.fires = [fire(`option_shadow_${byDefault}_same_seen`, 5)];
+    const b = evaluateWatch({ option: byDefault, since: SINCE }, rows);
+    expect([b.leakCheck, b.verdict]).toEqual(['release_default', 'CLEAN']);
+  });
+  it('every option the derived table holds has a source the build gate allows (no unknown)', () => {
+    const sources = new Set(
+      Object.values(ACTED_RECEIPTS).map((v) => (v as { source: string }).source)
+    );
+    expect([...sources].sort()).toEqual(['declared', 'ledger', 'none_declared', 'not_applicable']);
   });
   it('the histogram quantile is the upper bucket edge', () => {
     expect(histogramQuantile([0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0, 0.5)).toBeNull();

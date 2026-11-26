@@ -19,7 +19,7 @@
  * gathered yet", never "you have not played", and the copy below says so.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useStatsFactRead } from '../../hooks/useStatsFactRead';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
@@ -103,6 +103,7 @@ export default function EVLuckChart({
   // Recharts renders axis ticks with an INLINE fill, which no stylesheet can
   // override - so on a printed white page the near-white ticks disappear and
   // the chart loses both axes. `still` is only true while the dossier renders.
+  const [lines, setLines] = useState({ actual: true, ev: true });
   const axisTick = { fill: still ? '#374151' : 'rgba(200,224,245,0.45)', fontSize: 10 };
   const gridStroke = still ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.06)';
   const zeroStroke = still ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.18)';
@@ -134,7 +135,7 @@ export default function EVLuckChart({
 
   if (loading) {
     return (
-      <div className="evluck-card evluck-loading">
+      <div className="stats-workbench-surface evluck-card evluck-loading">
         <div className="evluck-skeleton" />
       </div>
     );
@@ -146,7 +147,7 @@ export default function EVLuckChart({
   // A failed read is not an empty history. Say which.
   if (readError) {
     return (
-      <div className="evluck-card evluck-empty" role="alert">
+      <div className="stats-workbench-surface evluck-card evluck-empty" role="alert">
         <h3 className="evluck-title">Luck: Actual Vs Expected</h3>
         <p className="evluck-empty-text">
           This Chart Could Not Be Loaded Right Now.{' '}
@@ -160,7 +161,7 @@ export default function EVLuckChart({
 
   if (!hasHands) {
     return (
-      <div className="evluck-card evluck-empty">
+      <div className="stats-workbench-surface evluck-card evluck-empty">
         <h3 className="evluck-title">Luck: Actual Vs Expected</h3>
         <p className="evluck-empty-text">
           Nothing To Plot Yet. This Chart Is Built From A New Per-Hand Record That Started
@@ -178,7 +179,7 @@ export default function EVLuckChart({
 
   return (
     <motion.div
-      className="evluck-card"
+      className="stats-workbench-surface evluck-card"
       variants={reduceMotion ? undefined : chartReveal}
       initial="initial"
       animate="animate"
@@ -203,6 +204,26 @@ export default function EVLuckChart({
         )}
       </div>
 
+      <div className="stats-series-controls" role="group" aria-label="Chart Lines">
+        {(['actual', 'ev'] as const).map((key) => (
+          <button
+            type="button"
+            key={key}
+            aria-pressed={lines[key]}
+            disabled={lines[key] && !lines[key === 'ev' ? 'actual' : 'ev']}
+            onClick={() => setLines((current) => ({ ...current, [key]: !current[key] }))}
+          >
+            <span
+              aria-hidden="true"
+              className={key === 'ev' ? 'evluck-swatch is-dashed' : 'evluck-swatch'}
+            />
+            {key === 'actual' ? 'Actual' : 'Expected'}
+          </button>
+        ))}
+        {lines.actual && lines.ev && (
+          <span className="stats-series-key">Shaded Gap · Above / Below Expected</span>
+        )}
+      </div>
       <div className="evluck-chart">
         <ResponsiveContainer width="100%" height={240}>
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -246,6 +267,7 @@ export default function EVLuckChart({
                 well. See the Row docblock. */}
             <Area
               type="monotone"
+              hide={!lines.actual || !lines.ev}
               dataKey="above"
               name="Above Expected"
               stroke="none"
@@ -256,6 +278,7 @@ export default function EVLuckChart({
             />
             <Area
               type="monotone"
+              hide={!lines.actual || !lines.ev}
               dataKey="below"
               name="Below Expected"
               stroke="none"
@@ -266,6 +289,7 @@ export default function EVLuckChart({
             />
             <Line
               type="monotone"
+              hide={!lines.ev}
               dataKey="ev"
               name="Expected"
               stroke="#55b4ed"
@@ -276,6 +300,7 @@ export default function EVLuckChart({
             />
             <Line
               type="monotone"
+              hide={!lines.actual}
               dataKey="actual"
               name="Actual"
               stroke="#00d4ff"
@@ -298,23 +323,6 @@ export default function EVLuckChart({
           { key: 'gap', label: 'Luck Gap BB', render: (row) => fmtBB(row.luck) },
         ]}
       />
-
-      <div className="evluck-legend">
-        <span className="evluck-key">
-          <i className="evluck-swatch" style={{ background: '#00d4ff' }} /> Actual
-        </span>
-        <span className="evluck-key">
-          <i className="evluck-swatch is-dashed" style={{ borderColor: '#55b4ed' }} /> Expected
-        </span>
-        <span className="evluck-key">
-          <i className="evluck-swatch" style={{ background: 'rgba(34,197,94,0.45)' }} /> Above
-          Expected
-        </span>
-        <span className="evluck-key">
-          <i className="evluck-swatch" style={{ background: 'rgba(239,68,68,0.45)' }} /> Below
-          Expected
-        </span>
-      </div>
 
       {allIns > 0 && allIns < MEANINGFUL_ALL_INS && (
         <p className="evluck-note">

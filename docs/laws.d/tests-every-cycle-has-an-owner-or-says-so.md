@@ -1,0 +1,3 @@
+# tests/every-cycle-has-an-owner-or-says-so.law.test.ts
+
+O32: a first-attempt Backup completion on main elects a cycle owner whether the Backup succeeded, failed or timed out (the election needs an event, not a certificate; nothing downstream reads the Backup that woke the run), and every Stage run looks back once (job cycle-look-back, scripts/release/cycle-without-outcome.py) and posts NO OWNER or NO OUTCOME on the cutover log for a cycle whose election closed with no result, with one owner Messenger note per cycle and a gap record on the outcome ledger. Reporting only: no trigger, timer, wait or dispatch, no secret outside the note job, never able to fail the run, and an unreadable read posts nothing.

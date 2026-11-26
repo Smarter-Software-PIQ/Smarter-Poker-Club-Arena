@@ -145,7 +145,7 @@ export default function NemesisPanel({
 
   if (loading) {
     return (
-      <div className="nemesis-panel">
+      <div className="stats-workbench-surface nemesis-panel">
         <div className="nemesis-skeleton" />
       </div>
     );
@@ -155,7 +155,7 @@ export default function NemesisPanel({
 
   if (readError) {
     return (
-      <div className="nemesis-panel nemesis-empty" role="alert">
+      <div className="stats-workbench-surface nemesis-panel nemesis-empty" role="alert">
         <h3 className="nemesis-title">Rivals</h3>
         <p className="nemesis-empty-text">
           Your Rivals Could Not Be Loaded Right Now.{' '}
@@ -169,7 +169,7 @@ export default function NemesisPanel({
 
   if (!hasAny) {
     return (
-      <div className="nemesis-panel nemesis-empty">
+      <div className="stats-workbench-surface nemesis-panel nemesis-empty">
         <h3 className="nemesis-title">Rivals</h3>
         <p className="nemesis-empty-text">
           No Rivalries Yet. An Opponent Appears Here Once You Have Played At Least{' '}
@@ -181,7 +181,7 @@ export default function NemesisPanel({
   }
 
   return (
-    <div className="nemesis-panel">
+    <div className="stats-workbench-surface nemesis-panel">
       <div className="nemesis-head">
         <h3 className="nemesis-title">Rivals</h3>
         <p className="nemesis-sub">

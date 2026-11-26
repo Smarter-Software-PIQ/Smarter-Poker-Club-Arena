@@ -554,6 +554,13 @@ export interface OmahaReraisedCallPricing {
   /** the seat-order facts behind inPosition (receipts; absent: not derived) */
   position?: OmahaReraisedPosition;
   /**
+   * omahaReraisedPositionVsEveryoneToAct (default off): the chance the Horse plays the flop out of position, from the
+   * players who act after him on later streets (in for the price: certain; still to act: their measured chance to
+   * continue, omahaReraisedPendingContinue). Present only with the option on in a PLO4/PLO5 cash table hand with
+   * hero in position against the re-raiser; the realization is then weighted by it. Absent: inPosition decides.
+   */
+  oopWeight?: number;
+  /**
    * other players in the pot besides the re-raiser. PLO4/PLO5 cash: the players
    * who have called the current price (the measurements' count). Tournaments,
    * fast-table cash: those, and a raiser of this hand still to act (as before).
@@ -648,12 +655,17 @@ export function omahaReraisedCallEv(
   const price = call / potAfter;
   const behind = Math.max(0, Math.min(stack - call, Math.max(0, p.raiserBehind)));
   const sprAfter = behind / potAfter;
-  const realization = omahaReraisedCallRealization(
-    p.inPosition,
-    sprAfter,
-    p.othersIn,
-    p.headsUpDiluted ?? 0
-  );
+  const realization =
+    p.oopWeight !== undefined && Number.isFinite(p.oopWeight)
+      ? (() => {
+          const w = Math.min(1, Math.max(0, p.oopWeight));
+          return (
+            w * omahaReraisedCallRealization(false, sprAfter, p.othersIn, p.headsUpDiluted ?? 0) +
+            (1 - w) *
+              omahaReraisedCallRealization(true, sprAfter, p.othersIn, p.headsUpDiluted ?? 0)
+          );
+        })()
+      : omahaReraisedCallRealization(p.inPosition, sprAfter, p.othersIn, p.headsUpDiluted ?? 0);
   const award =
     potAfter * (1 - clamp01(Number.isFinite(p.rakeFraction) ? p.rakeFraction : 0, 0, 0.5));
   const evCall = realization * equity * award - call;
@@ -810,6 +822,37 @@ export function omahaReraisedPositionOf(
     callersPendingBehind,
     inPosition: ipVsRaiser && inForBehind === 0 && raisersPendingBehind === 0,
   };
+}
+
+/**
+ * omahaReraisedPositionVsEveryoneToAct (PLO lead-7 2026-11-26, default off). The chance that a player who acts after
+ * the Horse on later streets and has not yet answered the current price continues to the flop: one minus his fold to
+ * a re-raise, his own decayed fold-to-3-bet record against an anchored prior worth RERAISED_PENDING_PRIOR_MASS
+ * opportunities. Prior (break-even anchored, then the measured shape of 2026-11-17..24, 58,681 PLO4/PLO5/NLH cash
+ * hands with two or more preflop raises, public actions only): an opener facing a re-raise with a caller in folds
+ * about half the time (measured 49-56%; the break-even of a pot-sized re-raise with no equity when called is 0.5), so
+ * he continues 0.5 (PLO4) / 0.52 (PLO5); a player who has not raised and faces a re-raise cold continues 0.2 / 0.25
+ * (measured 21-34% for a caller of the open; the people at the tables never fold, their own record outweighs this
+ * after a few opportunities). Pure.
+ */
+export const RERAISED_PENDING_CONTINUE_PRIOR: Readonly<
+  Record<'plo4' | 'plo5', { raiser: number; other: number }>
+> = Object.freeze({
+  plo4: { raiser: 0.5, other: 0.2 },
+  plo5: { raiser: 0.52, other: 0.25 },
+});
+export const RERAISED_PENDING_PRIOR_MASS = 8;
+export function omahaReraisedPendingContinue(
+  game: 'plo4' | 'plo5',
+  raisedBefore: boolean,
+  measured: { fold: number; opportunities: number } | null
+): number {
+  const prior = RERAISED_PENDING_CONTINUE_PRIOR[game][raisedBefore ? 'raiser' : 'other'];
+  const n =
+    measured && Number.isFinite(measured.opportunities) ? Math.max(0, measured.opportunities) : 0;
+  if (!measured || !(n > 0) || !Number.isFinite(measured.fold)) return prior;
+  const cont = 1 - Math.min(1, Math.max(0, measured.fold));
+  return (cont * n + prior * RERAISED_PENDING_PRIOR_MASS) / (n + RERAISED_PENDING_PRIOR_MASS);
 }
 
 export type OmahaFlopContinueReason =

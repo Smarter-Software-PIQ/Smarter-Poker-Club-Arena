@@ -86,8 +86,30 @@ test('daily summary fits small and wide screens with four totals and one calenda
   await expect(page.locator('section').filter({ has: window })).not.toContainText(
     /AM|Chicago Time|Pacific Calendar Dates/
   );
+  const mast = page.locator('.arena-workspace-mast');
+  const help = mast.getByRole('button', { name: 'Page Help' });
+  await expect(page.getByRole('button', { name: 'Page Help' })).toHaveCount(1);
+  const title = mast.getByRole('heading', { level: 1 });
+  await expect(title).toHaveCSS('color', 'rgb(244, 249, 255)');
+  await expect(title).toHaveCSS('background-image', 'none');
+  await help.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Club Data' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(help).toBeFocused();
   for (const width of [320, 375, 1280]) {
     await page.setViewportSize({ width, height: 850 });
+    const [frame, button, words] = await Promise.all([
+      mast.boundingBox(),
+      help.boundingBox(),
+      title.boundingBox(),
+    ]);
+    expect(button!.y - frame!.y).toBeGreaterThanOrEqual(0);
+    expect(button!.y - frame!.y).toBeLessThan(16);
+    expect(frame!.x + frame!.width - button!.x - button!.width).toBeLessThan(16);
+    expect(button!.x + button!.width).toBeLessThanOrEqual(frame!.x + frame!.width);
+    expect(button!.width).toBeGreaterThanOrEqual(44);
+    expect(button!.height).toBeGreaterThanOrEqual(44);
+    expect(words!.x + words!.width).toBeLessThanOrEqual(button!.x);
     const edges = await page.locator('.arena-workspace').evaluate((workspace) => {
       const shell = workspace.parentElement!.getBoundingClientRect();
       const mast = workspace.querySelector('.arena-workspace-mast')!.getBoundingClientRect();

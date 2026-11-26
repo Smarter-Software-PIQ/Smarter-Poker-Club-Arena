@@ -3497,7 +3497,69 @@ const PLO_FLOP_CALL_TREE_VS_LIVE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as c
       b: { omahaFacingBetEv: true },
     }))
 );
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-postflop: the live PLO4/PLO5 option rows of 2026-11-26 05:45Z as decide options
+ * (the omaha* rows on, and horseActionTimeIsPublicOnly), the b arm of the river opening cards below.
+ */
+export const OMAHA_LIVE_OPTIONS_20261126: HorseDecideOpts = Object.freeze({
+  horseActionTimeIsPublicOnly: true,
+  omahaBareOverpairOopFlopCheck: true,
+  omahaBigBetIsPotShare: true,
+  omahaBigDrawAggression: true,
+  omahaBlanketRowsOffInPlo45Cash: true,
+  omahaCardImpact: true,
+  omahaEliteContinuesVsMeasuredWideThreeBettor: true,
+  omahaFacingBetEv: true,
+  omahaMadeHandDefenseVsValueLeader: true,
+  omahaManiacReRaiseWidthMeasured: true,
+  omahaMathCorePlo5Flop: true,
+  omahaNoCallColdFourBetWithoutPremium: true,
+  omahaNoDrawRaiseOutOfPosition: true,
+  omahaOopReraisedPotStrongRange: true,
+  omahaOpponentLifetimeHud: true,
+  omahaOverpairNoOopBarrelVsValueLeader: true,
+  omahaPairedBoardFoldRespectsPrice: true,
+  omahaPairedRiverNoThinLeadVsValueLeader: true,
+  omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true,
+  omahaPreflopReraiseDefencePricedInPosition: true,
+  omahaPricedRaiseNeverMakesNonNutRaise: true,
+  omahaReraiseRangeEarlyPosition: true,
+  omahaRiverCurrentNutsCallFloor: true,
+  omahaRiverMediumBetStrongHandCalls: true,
+  omahaStrategyInTournaments: true,
+  omahaStrongHandValue: true,
+  omahaTurnRiverRaiseIsPriced: true,
+  omahaTurnRiverRaiseNeedsNuts: true,
+  omahaValueSizeIsUnreadable: true,
+  omahaVpipFloorByLimp: true,
+} as HorseDecideOpts);
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-postflop grade cards (development: dealt by name only, never nightly): the
+ * heads-up river opening bet (omahaRiverValueBetInPositionIsPriced, omahaRiverBluffIsPricedOnBlockers), each alone,
+ * heads-up and 6-max: b is the live set of 2026-11-26, a adds the option. Same seeds both sides (duplicate pairs).
+ */
+const PLO_RIVER_OPENING_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  ['value', { omahaRiverValueBetInPositionIsPriced: true }],
+  ['bluff', { omahaRiverBluffIsPricedOnBlockers: true }],
+  ['tripsboat', { omahaRiverTripsBoardBoatIsNotNutClass: true }],
+  ['flopraise', { omahaFlopRaiseIsPriced: true }],
+];
+const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_RIVER_OPENING_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6] as const).map((seats) => ({
+        name: `${variant}_${part === 'flopraise' ? 'omaha_flop_raise_priced' : 'omaha_river_opening_' + part}_${seats === 2 ? 'hu' : '6max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+        b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+      }))
+    )
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  ...PLO_RIVER_OPENING_GRADE_CARDS,
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   ...PLO_FACING_BET_PRICED_GRADE_CARDS,
@@ -4976,6 +5038,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFlopRealizationIsPriced: true,
     },
   })),
+  // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the bettor's non-value share anchored to the balanced
+  // share for the price, moved only by his own shown bets (HorseOmahaEquilibriumAnchor).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_prior_is_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
     variant,
@@ -5242,6 +5314,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOopReraiseRangeHoldsVsReraise: true, holdemOopReraiseRangeReadsOpenerRecord: true },
     b: {},
   },
+  // 2026-11-26 PLO lead-7 plo-preflop (default OFF, PLO4/PLO5 cash): omahaReraisedPositionVsEveryoneToAct (the priced
+  // call of a re-raise holds position against every live player still to see the flop, not the re-raiser alone). Both
+  // arms carry production's live set (omahaOopReraisedPotStrongRange on, whose priced call reads the position); a adds
+  // the option. Graded 6-max, 3-handed and heads-up at 100 and 300 bb (authority file).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_position_vs_everyone_to_act`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPositionVsEveryoneToAct: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
   // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
   // a re-raise is positive); a switches it on, b is today's brain.

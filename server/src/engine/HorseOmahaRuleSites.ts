@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetMinimumDefencePrior: priced(
     "a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24)"
   ),
+  omahaFacingBetPriorIsPeopleMeasured: priced(
+    'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
+  ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
   ),
@@ -551,6 +554,18 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaCbetRaiseIsPriced: priced(
     "facing a raise of its own flop continuation bet, the Horse prices the call against the top W x rho of holdings, rho the raiser's lifetime public raise share facing a first flop c-bet shrunk to the population's by K; heads-up bluff and semi-bluff c-bets carry that raise branch"
+  ),
+  omahaFlopRaiseIsPriced: priced(
+    "a heads-up flop raise facing a wager is priced at its sizes beside the call and the fold on the bettor's measured flop range (his fold share the equilibrium minimum defence); the best replaces it only by more than the equity estimate's error; it never makes a raise out of a call or a fold (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaRiverTripsBoardBoatIsNotNutClass: priced(
+    'a river raise with a full house on a trips board that quads or a straight flush can beat (exact count, the Horse cards removed) becomes the call; it may call, never raise (default OFF; PLO-OWNER lead-7 2026-11-26)'
+  ),
+  omahaRiverValueBetInPositionIsPriced: priced(
+    "a heads-up river check after the opponent checked becomes the best-priced bet only where it is a value bet against the hands that continue (his measured checking range, exact card removal, his fold rate from equilibrium moved by his own record) and beats the check by more than his fold rate's error (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaRiverBluffIsPricedOnBlockers: priced(
+    "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's cards raise his fold share (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'
@@ -636,6 +651,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPreflopJamFacingReraiseIsPriced: outside(PREFLOP),
   omahaReraisedFoldVsTight: outside(PREFLOP),
   omahaReraisedPositionInLightning: outside(PREFLOP),
+  omahaReraisedPositionVsEveryoneToAct: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),
   omahaOopReraisedPotStrongRange: outside(
     PREFLOP +

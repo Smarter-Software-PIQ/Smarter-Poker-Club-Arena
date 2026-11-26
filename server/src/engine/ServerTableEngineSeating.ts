@@ -354,7 +354,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     const stack = Number(data.stack);
     if (!Number.isFinite(stack) || stack < 0) return;
     player.stack = stack;
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
   }
 
   /** The chip add-on once the seat-versus-queue decision can no longer race hand preparation. */
@@ -399,7 +399,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         player.stack = receipt.stack;
       this.pendingAddOns.set(userId, receipt.pending);
       if (receipt.pending > 0) this.requestPendingAddOnSweep();
-      this.broadcastCurrentState();
+      void this.broadcastCurrentState();
       return { success: true, applied: receipt.amount, queued: receipt.queued, replayed };
     };
     try {
@@ -575,7 +575,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         console.log(
           `[ServerTableEngine:${this.tableId}] Add-on debited + queued for ${userId}: +${applied} (pending ${livePending + applied}) - hand in progress`
         );
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         return { success: true, queued: true, applied };
       }
 
@@ -595,7 +595,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         .catch((err) =>
           reportError(err, `ServerTableEngine.${this.tableId}.continuity_addon_failed`)
         );
-      this.broadcastCurrentState();
+      void this.broadcastCurrentState();
       return { success: true, applied };
     } finally {
       if (seatCredit)
@@ -645,7 +645,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       if (!receipt) return null;
       if (!midHand && !this.handController && !this.hasSettlementInFlight())
         player.stack = receipt.stack;
-      this.broadcastCurrentState();
+      void this.broadcastCurrentState();
       return { success: true, applied: receipt.amount, replayed };
     };
     try {
@@ -749,7 +749,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         const written = typeof rawStack === 'number' ? rawStack : NaN;
         if (!Number.isSafeInteger(written) || written < 0) break;
         player.stack = written;
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         return { success: true, applied };
       }
       lastError = error;
@@ -864,7 +864,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           if (existing) {
             player.stack = existing.stack;
             complete(requestId, intent.userId, existing.amount, 'applied');
-            this.broadcastCurrentState();
+            void this.broadcastCurrentState();
             continue;
           }
         } catch (error) {
@@ -919,7 +919,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         if (!outcome.error && Number.isSafeInteger(written) && written >= 0) {
           player.stack = written;
           complete(requestId, intent.userId, applied, 'applied');
-          this.broadcastCurrentState();
+          void this.broadcastCurrentState();
           continue;
         }
         try {
@@ -932,7 +932,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           if (committed) {
             player.stack = committed.stack;
             complete(requestId, intent.userId, committed.amount, 'applied');
-            this.broadcastCurrentState();
+            void this.broadcastCurrentState();
             continue;
           }
         } catch (error) {
@@ -1183,7 +1183,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       this.pendingAddOns.clear();
       if (this.pendingAddOnSweepGen === genAtStart) this.pendingAddOnSweepNeeded = false;
       if (delivered > 0 || [...beforeStack].some(([id, stack]) => stackByUser.get(id) !== stack)) {
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
       }
       return;
     }
@@ -1303,7 +1303,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     } else {
       this.requestPendingAddOnSweep();
     }
-    if (delivered > 0) this.broadcastCurrentState();
+    if (delivered > 0) void this.broadcastCurrentState();
   }
 
   /**
@@ -1521,58 +1521,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       await this.rebuildPendingAddOnCache();
     } catch (err) {
       reportError(err, `ServerTableEngine.${this.tableId}.orphaned_addon_sweep_failed`);
-    }
-  }
-
-  /**
-   * @deprecated DEAD as of the A2 durable ledger — zero callers repo-wide.
-   *
-   * Refunds now happen inside resolve_pending_addon, keyed `addon_refund:<row
-   * id>`, in the same transaction that resolves the ledger row. This helper is
-   * retained only because a future non-ledger add-on path might need it, and it
-   * is documented as dead so nobody calls it ALONGSIDE the RPC and refunds the
-   * same chips twice. If you reach for this, pass an idempotency key.
-   *
-   * Refund unused add-on chips back to the player's PLAYER wallet (the same
-   * balance atomic_table_addon debited). Uses atomic_credit_wallet_and_log so
-   * the refund is logged and matches the debit side.
-   */
-  protected async _refundAddOnToWallet(
-    userId: string,
-    amount: number,
-    idempotencyKey?: string
-  ): Promise<void> {
-    if (amount <= 0) return;
-    try {
-      const { error } = await supabase.rpc('atomic_credit_wallet_and_log', {
-        p_user_id: userId,
-        p_amount: amount,
-        p_category: 'addon_refund',
-        p_description: 'Add-on exceeded table max buy-in - refunded',
-        p_table_id: this.tableId,
-        p_hand_id: null,
-        p_related_entity_id: null,
-        // A2 FIX: the ledger path (resolve_pending_addon) keys its own refund on
-        // `addon_refund:<row id>`. This helper is now only a fallback for
-        // callers that have no ledger row, but it must still be keyable — an
-        // unkeyed refund inside any retry is a mint waiting to happen.
-        p_idempotency_key: idempotencyKey ?? null,
-      });
-      if (error) {
-        reportError(error, `ServerTableEngine.${this.tableId}.addon_refund_failed`, {
-          userId,
-          amount,
-        });
-      } else {
-        console.log(
-          `[ServerTableEngine:${this.tableId}] Refunded ${amount} chips to ${userId}'s PLAYER wallet`
-        );
-      }
-    } catch (err) {
-      reportError(err, `ServerTableEngine.${this.tableId}.addon_refund_failed`, {
-        userId,
-        amount,
-      });
     }
   }
 
@@ -2049,7 +1997,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       hands_remaining: handsRemaining,
       timestamp: Date.now(),
     });
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
     return {
       success: true,
       immediate: false,
@@ -2421,7 +2369,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
          were still active. The seat legitimately stays theirs (a tournament
          sit-out is blinded off by design); what changes is that everyone can
          now see that it is sitting out. */
-          this.broadcastCurrentState();
+          void this.broadcastCurrentState();
           return { success: true, immediate: true, tournament: true };
         }
 
@@ -2630,7 +2578,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
          Between-hands leaves have always re-broadcast (see both calls below);
          the deferred path is the one a player actually hits when they leave
          mid-hand, and it was the silent one. */
-          this.broadcastCurrentState();
+          void this.broadcastCurrentState();
 
           return { success: true, immediate: false };
         } else if (
@@ -2807,7 +2755,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             );
             if (teardown()) {
               emitSeatLeft();
-              this.broadcastCurrentState();
+              void this.broadcastCurrentState();
               this.wakeClusterGame('seat_left');
             }
             return { success: true, immediate: true };
@@ -2825,7 +2773,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             );
             if (teardown()) {
               emitSeatLeft();
-              this.broadcastCurrentState();
+              void this.broadcastCurrentState();
               this.wakeClusterGame('seat_left');
             }
             return { success: true, immediate: true };
@@ -2961,7 +2909,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       `[ServerTableEngine:${this.tableId}] leave for ${userId} queued behind a live Lightning hand ` +
         '- completes on the first pass after it'
     );
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
     return { success: true, immediate: false, code: 'LIGHTNING_HAND_IN_PROGRESS' };
   }
 
@@ -3071,7 +3019,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         this.seatedPlayers = this.seatedPlayers.filter(
           (p) => p.user_id !== userId || p.occupancy_id !== seated.occupancy_id
         );
-        this.broadcastCurrentState();
+        void this.broadcastCurrentState();
         this.wakeClusterGame('seat_left');
         return 'evicted';
       } finally {
@@ -3463,7 +3411,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     this.showHandPlayers.add(userId);
 
     // Broadcast updated state so this player's cards become visible
-    this.broadcastCurrentState();
+    void this.broadcastCurrentState();
 
     return { success: true };
   }

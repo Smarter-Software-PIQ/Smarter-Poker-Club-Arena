@@ -27,6 +27,7 @@ import {
   type TickerItem,
 } from './tickerMessages';
 import {
+  consoleText,
   DEFAULT_ACCENT,
   flagBackground,
   railBackground,
@@ -35,6 +36,7 @@ import {
   safeHex,
   TONE_ACCENT,
 } from './tickerTheme';
+import { IconMegaphone, IconTrophy, WalletIcon } from '../icons/LobbyIcons';
 import { useTickerMarquee } from './useTickerMarquee';
 import './TournamentStartingTicker.css';
 
@@ -156,6 +158,7 @@ export function TickerRail({
   const left = secondsLeft(primary, now);
   const urgent = left !== null && left <= URGENT_SECONDS;
   const flagInk = readableInk(flagAccent);
+  const messageInk = consoleText(appearance.textColor, appearance.backgroundColor);
   const copies = Array.from({ length: marquee.copies }, (_, i) => i);
 
   const style = {
@@ -165,7 +168,7 @@ export function TickerRail({
     // twice turned a 34px strip into a ~90px band on notched iPhones.
     paddingTop: top > 0 ? 0 : undefined,
     background: railBackground(appearance.backgroundColor),
-    color: appearance.textColor,
+    color: messageInk,
     /* THE MATERIAL IS NOT SET HERE (2026-09-13). The rail's bevel, cavity and
        lift are composed in the stylesheet from the estate's --realism-* tokens
        so a colour setting cannot overwrite them - an inline `box-shadow` beats
@@ -174,7 +177,7 @@ export function TickerRail({
        the stylesheet decides where it lands. */
     '--ticker-glow': railGlow(flagAccent),
     fontFamily: appearance.fontFamily === 'System' ? 'system-ui' : appearance.fontFamily,
-    '--ticker-text': appearance.textColor,
+    '--ticker-text': messageInk,
     '--ticker-accent': flagAccent,
     '--ticker-flag-bg': flagBackground(flagAccent),
     '--ticker-flag-ink': flagInk,
@@ -205,6 +208,17 @@ export function TickerRail({
           The chip is aria-hidden either way - the spoken announcement above
           carries the flag in full. */}
       <span className="mtt-ticker__flag" aria-hidden="true">
+        <span className="mtt-ticker__seal" aria-hidden="true">
+          {primary.tone === 'time' ? (
+            <i className="mtt-ticker__dial" />
+          ) : primary.tone === 'money' ? (
+            <WalletIcon name="chip" size={16} />
+          ) : primary.tone === 'service' ? (
+            <IconMegaphone size={16} />
+          ) : (
+            <IconTrophy size={16} />
+          )}
+        </span>
         <span className="mtt-ticker__flag-full">{primary.flag}</span>
         <span className="mtt-ticker__flag-short">{primary.flagShort}</span>
       </span>

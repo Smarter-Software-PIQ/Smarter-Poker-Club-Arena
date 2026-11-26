@@ -1003,10 +1003,12 @@ describe('standby adoption authority and timing', () => {
         admission() {
           sha='${sha}'; verdict=pass
           record() { echo "$1"; verdict=fail; }
+          log() { echo "log:$*"; }
+          mark_copy_spent() { echo "spent:$2"; }
           curl() { echo '{"releaseSha":"${serving}"}'; }
           unset -f certified_player_swap || :
           if [ '${mode}' = different ] || [ '${mode}' = rollback-failed ] || [ '${mode}' = slow-rollback ]; then
-            certified_player_swap() { SWAP_ADOPTION_SECONDS=5; [ '${mode}' != slow-rollback ] || SWAP_ADOPTION_SECONDS=136; echo "$1->$2" >&2; [ '${mode}' != rollback-failed ]; }
+            certified_player_swap() { SWAP_ADOPTION_SECONDS=5; [ '${mode}' != slow-rollback ] || SWAP_ADOPTION_SECONDS=136; echo "$1->$2" >&2; echo '{"trial":"swap","verdict":"fail","reasons":"to_did_not_deal_after_thaw"}'; [ '${mode}' != rollback-failed ]; }
           fi
           ${gate}
           [ "$verdict" = pass ]
@@ -1022,7 +1024,17 @@ describe('standby adoption authority and timing', () => {
     if (mode === 'rollback-failed') {
       expect(result.stderr.trim()).toBe(`${sha}->${serving}`);
       expect(result.stdout).toContain('rollback_rehearsal_failed_to_');
+      // O30: the trial's own cause is logged and the copy is spent.
+      expect(result.stdout).toContain('"cause": "to_did_not_deal_after_thaw"');
+      expect(result.stdout).toMatch(
+        /spent:\{"cause": "to_did_not_deal_after_thaw", "direction": "rollback"/
+      );
+    } else {
+      expect(result.stdout).not.toContain('spent:');
     }
+    // The swap runs in this shell: a slow rollback is still measured.
+    if (mode === 'slow-rollback')
+      expect(result.stdout).toContain('rollback_rehearsal_exceeded_reserve');
   });
   it('consumes health JSON even when the pipeline producer is delayed', () => {
     const sha = 'a'.repeat(40);

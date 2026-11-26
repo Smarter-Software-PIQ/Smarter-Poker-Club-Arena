@@ -1772,7 +1772,7 @@
 
   .stats-club-table {
     width: 100%;
-    min-width: 1120px;
+    min-width: 0;
     border-collapse: collapse;
     color: #dfe7ed;
     font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
@@ -1781,10 +1781,11 @@
 
   .stats-club-table th,
   .stats-club-table td {
-    padding: 12px 10px;
+    padding: 0.45rem clamp(0.25rem, 0.8vw, 0.65rem);
     border-bottom: 1px solid rgba(199, 210, 220, 0.1);
     text-align: right;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .stats-club-table th:first-child,
@@ -2155,19 +2156,10 @@
     border-bottom-color: rgba(222, 87, 87, 0.58);
   }
 
-  .stats-brief-index {
-    display: block;
-    margin-bottom: 17px;
-    color: rgba(216, 201, 167, 0.48);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
-  }
-
   .stats-brief-label {
     display: block;
-    color: #71808b;
-    font-size: 0.65rem;
+    color: #aec5d9;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.11em;
     text-transform: uppercase;
@@ -3025,45 +3017,6 @@
   }
   .stats-page.arena-workspace .stats-ledger-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
-  }
-  .stats-page.arena-workspace
-    .stats-content
-    :is(
-      .leak-card,
-      .bench-panel,
-      .heatmap-card,
-      .nemesis-panel,
-      .pos-radar-card,
-      .trophy-card,
-      .session-history,
-      .advanced-stats-summary,
-      .dlr-panel
-    ) {
-    min-width: 0;
-    margin-inline: 0;
-    padding: 0.6rem 0;
-    border: 0;
-    border-top: 1px solid #294255;
-    background: none;
-    box-shadow: none;
-  }
-  .stats-page.arena-workspace
-    .stats-content
-    :is(
-      .advanced-stat-card,
-      .position-stat-card,
-      .trophy-item,
-      .hand-row,
-      .tournament-item,
-      .callout
-    ) {
-    min-width: 0;
-    padding: 0.45rem 0.2rem;
-    border: 0;
-    border-bottom: 1px solid #283e52;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
   }
   .stats-page.arena-workspace
     .stats-content

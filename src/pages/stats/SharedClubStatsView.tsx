@@ -8,6 +8,7 @@ import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import { ratioOrUnmeasured } from './format';
 import { RANGES } from './types';
+import { sharedStatsHelp } from './StatsWorkspaceHeader';
 import PageBar from '../../components/help/PageBar';
 
 interface Props {
@@ -173,19 +174,16 @@ export default function SharedClubStatsView(props: Props) {
   );
   return (
     <>
-      {props.renderMast?.(clubLabel)}
-      <PageBar
-        titleAs={props.renderMast ? false : 'h1'}
-        title="Player Intelligence"
-        summary="An Authorized Shared-Club Readout: Public Performance Aggregates From A Club You Both Currently Share."
-      />
+      {props.renderMast ? (
+        props.renderMast(clubLabel)
+      ) : (
+        <PageBar title="Player Intelligence" summary={sharedStatsHelp} />
+      )}
       {visibleClubs.length > 0 && (
-        <section className="stats-club-command" aria-labelledby="shared-club-title">
-          <img
-            src={`${import.meta.env.BASE_URL}images/stats/player-intelligence-console-v1.webp`}
-            alt=""
-            aria-hidden="true"
-          />
+        <section
+          className="stats-club-command stats-club-picker stats-workbench-surface"
+          aria-labelledby="shared-club-title"
+        >
           <div className="stats-club-command-copy">
             <h2 id="shared-club-title">{clubLabel}</h2>
             <p>No All-Clubs, Private Financial, Hand, Note, Or Opponent Data Is Exposed.</p>
@@ -219,12 +217,12 @@ export default function SharedClubStatsView(props: Props) {
         ))}
       </div>
       {displayState === 'loading' && (
-        <div className="stats-empty-state" role="status">
+        <div className="stats-empty-state stats-workbench-surface" role="status">
           <span className="empty-title">Opening Shared Readout...</span>
         </div>
       )}
       {displayState === 'empty' && (
-        <div className="stats-empty-state" role="status">
+        <div className="stats-empty-state stats-workbench-surface" role="status">
           <span className="empty-title">No Eligible Shared Club</span>
           <span className="empty-description">
             Both Players Must Have Active Or Approved Membership In The Same Club.
@@ -232,7 +230,7 @@ export default function SharedClubStatsView(props: Props) {
         </div>
       )}
       {displayState === 'error' && (
-        <div className="stats-empty-state" role="alert">
+        <div className="stats-empty-state stats-workbench-surface" role="alert">
           <span className="empty-title">Shared Readout Unavailable</span>
           <span className="empty-description">
             {errorStage === 'clubs'
@@ -245,14 +243,17 @@ export default function SharedClubStatsView(props: Props) {
         </div>
       )}
       {displayState === 'ready' && readyPayload && o && t && (
-        <section className="stats-club-comparison" aria-label="Shared Club Public Aggregates">
+        <section
+          className="stats-club-comparison stats-workbench-surface"
+          aria-label="Shared Club Public Aggregates"
+        >
           <div className="stats-club-comparison-head">
             <div>
               <h2>{tournament ? 'Tournament Performance' : 'Cash Performance'}</h2>
             </div>
           </div>
           <div className="stats-club-table-wrap">
-            <table className="stats-club-table">
+            <table className="stats-club-table stats-club-ledger" role="table">
               <thead>
                 <tr>
                   <th>Hands</th>
@@ -271,24 +272,24 @@ export default function SharedClubStatsView(props: Props) {
               </thead>
               <tbody>
                 <tr>
-                  <td>{o.hands ?? 0}</td>
-                  <td>{o.hands_won ?? 0}</td>
+                  <td data-label="Hands">{o.hands ?? 0}</td>
+                  <td data-label="Won">{o.hands_won ?? 0}</td>
                   {!tournament && (
-                    <td>
+                    <td data-label="BB/100">
                       {ratioOrUnmeasured(o.bb_per_100, o.cash_hands, (value) => value.toFixed(1))}
                     </td>
                   )}
-                  <td>
+                  <td data-label="VPIP">
                     {ratioOrUnmeasured(o.vpip, o.hands, (value) => `${(value * 100).toFixed(1)}%`)}
                   </td>
-                  <td>
+                  <td data-label="PFR">
                     {ratioOrUnmeasured(o.pfr, o.hands, (value) => `${(value * 100).toFixed(1)}%`)}
                   </td>
                   {tournament && (
                     <>
-                      <td>{t.entries ?? 0}</td>
-                      <td>{t.cashes ?? 0}</td>
-                      <td>{t.wins ?? 0}</td>
+                      <td data-label="Tournaments">{t.entries ?? 0}</td>
+                      <td data-label="Cashes">{t.cashes ?? 0}</td>
+                      <td data-label="Wins">{t.wins ?? 0}</td>
                     </>
                   )}
                 </tr>

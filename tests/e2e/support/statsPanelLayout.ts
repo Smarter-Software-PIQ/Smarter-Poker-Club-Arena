@@ -10,6 +10,15 @@ export async function expectStatsPanelLayout(panel: Locator) {
     if (frame.left < -1 || frame.right > document.documentElement.clientWidth + 1) {
       issues.push('Panel extends past the viewport');
     }
+    for (const track of root.querySelectorAll<HTMLElement>(
+      '.stats-data-table__scroll, .stats-club-table-wrap, .heatmap-scroll'
+    )) {
+      if (track.clientWidth && track.scrollWidth > track.clientWidth + 1) {
+        issues.push(
+          `${track.className} needs ${track.scrollWidth - track.clientWidth}px of sideways scrolling`
+        );
+      }
+    }
     const groups = [
       ['.stats-overview-grid .stat-row', '.stat-label-text, .hero-stat-sub, .row-value'],
       ['.cash-intel__decision', '.cash-intel__decision-name > *, .cash-intel__reading > *, button'],

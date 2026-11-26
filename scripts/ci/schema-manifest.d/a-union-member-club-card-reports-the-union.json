@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/union-club-card-active-shows-union-floor",
+  "_comment": "20261126190606: a union member club card reports the union floor by default; Club Settings switch.",
+  "functions": ["fn_club_card_active_source", "fn_set_club_card_active_source"]
+}

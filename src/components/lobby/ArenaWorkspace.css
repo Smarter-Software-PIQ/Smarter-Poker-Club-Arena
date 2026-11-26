@@ -191,6 +191,38 @@
   width: 76%;
   height: 76%;
 }
+.arena-mast-credential {
+  position: relative;
+  display: grid;
+  grid-template-columns: 49% 40%;
+  align-items: center;
+  width: 66%;
+  aspect-ratio: 1.45;
+  padding: 2%;
+  box-sizing: border-box;
+  border: 1px solid #d9eaff;
+  border-radius: 3px;
+  background: linear-gradient(155deg, #daf3ff, #88b7d2 45%, #5f85a3 48%, #b4d6e8);
+  box-shadow:
+    1px 3px 3px #010610,
+    inset 0 0 0 1px #557994;
+  transform: rotate(-9deg);
+}
+.arena-mast-credential img {
+  width: 100%;
+  height: 90%;
+  object-fit: contain;
+  border-radius: 2px;
+  background: #123350;
+}
+.arena-mast-credential i {
+  width: 90%;
+  height: 32%;
+  justify-self: end;
+  border-top: 2px solid #183c62;
+  border-bottom: 2px solid #183c62;
+  box-sizing: border-box;
+}
 .arena-mast-cash-chips {
   width: 76%;
   height: 76%;
@@ -275,11 +307,8 @@
 }
 .arena-workspace .arena-mast-lettering {
   min-width: 0;
-  padding-right: 2px;
-  text-align: left;
-}
-.arena-workspace:has(.ca-page-help) .arena-mast-lettering {
   padding-right: 48px;
+  text-align: left;
 }
 .arena-workspace .arena-mast-lettering > span {
   display: block;
@@ -306,26 +335,10 @@
   letter-spacing: -0.035em;
   color: #f4f9ff;
   overflow-wrap: break-word;
-  text-shadow: none;
-}
-@supports (background-clip: text) {
-  .arena-workspace .arena-workspace-mast h1 {
-    width: fit-content;
-    max-width: 100%;
-    padding-right: 0.13em;
-    background: linear-gradient(
-      #ffffff 5%,
-      #e1f2ff 38%,
-      #a2bace 48%,
-      #edf8ff 54%,
-      #c9deed 76%,
-      #97aec5 94%
-    );
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 1px 0 #0b1623) drop-shadow(1px 2px 1px #0009);
-  }
+  width: fit-content;
+  max-width: 100%;
+  padding-right: 0.13em;
+  text-shadow: 0 1px 2px #020812;
 }
 .arena-workspace .arena-mast-lettering small {
   display: block;
@@ -338,9 +351,8 @@
 }
 @media (forced-colors: active) {
   .arena-workspace .arena-workspace-mast h1 {
-    background: none;
     color: CanvasText;
-    filter: none;
+    text-shadow: none;
   }
 }
 .arena-workspace .arena-case,
@@ -348,8 +360,6 @@
 .arena-workspace .members-list,
 .arena-workspace .mm-card,
 .arena-workspace .stats-command-deck,
-.arena-workspace .stats-content,
-.arena-workspace .stats-club-command,
 .arena-workspace .stats-intelligence-brief {
   box-sizing: border-box;
   position: relative;
@@ -365,8 +375,6 @@
 .arena-workspace .members-list::before,
 .arena-workspace .mm-card::before,
 .arena-workspace .stats-command-deck::before,
-.arena-workspace .stats-content::before,
-.arena-workspace .stats-club-command::before,
 .arena-workspace .stats-intelligence-brief::before {
   content: '';
   position: absolute;
@@ -775,7 +783,7 @@
 .arena-workspace {
   position: relative;
 }
-.arena-workspace .ca-page-bar > .ca-page-help {
+.arena-workspace .arena-workspace-mast > .ca-page-help {
   position: absolute;
   top: 8px;
   right: 10px;

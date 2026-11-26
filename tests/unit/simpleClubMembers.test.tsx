@@ -222,6 +222,15 @@ it('shows one Player Management title and direct roster controls without a tools
     .closest('.arena-workspace-mast');
   expect(mast).toBeVisible();
   expect(mast).not.toHaveTextContent('Member Directory');
+  const help = screen.getByRole('button', { name: 'Page Help' });
+  expect(mast).toContainElement(help);
+  expect(screen.queryByText(/Find Any Member, Read Their Live Club Status/)).toBeNull();
+  fireEvent.click(help);
+  expect(screen.getByRole('dialog', { name: 'Player Management' })).toHaveTextContent(
+    'Find Any Member, Read Their Live Club Status'
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Close Help' }));
+  expect(help).toHaveFocus();
   expect(screen.queryByRole('button', { name: 'Sort And Roster Tools' })).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Find A Player' })).toBeVisible();
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toBeVisible();

@@ -65,6 +65,7 @@ import {
 } from './services/BrainTelemetryFlush.js';
 import { startHorseErrorLog } from './services/HorseErrorLog.js';
 import { handleHorseTelemetryGapEvent } from './services/horseTelemetryGapAlert.js';
+import { setHorseHandReceiptsAlertSink } from './services/HorseHandReceipts.js';
 import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
 import {
@@ -201,6 +202,10 @@ const channelWs = new ChannelWebSocketServer((tournamentId) =>
 );
 
 const httpServer = createEngineHttpServer(
+  // createRouter's listener awaits the route inside its own try/catch and
+  // answers 500 on any error (router.ts, "ONE REQUEST CANNOT RESTART THE
+  // ENGINE"), so http.createServer ignoring its promise drops nothing.
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   createRouter({ gameServer, tableStateHub, engineWs, channelHub })
 );
 const internalLivenessServer =
@@ -271,6 +276,14 @@ async function drainLeaderBootMutations(): Promise<void> {
 // load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
 // (independent review of 27a56324, finding 2).
 setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
+// 2026-11-26: a lost per-hand option receipt write reaches Production Alerts (warning, never a page) and the next
+// written hand resolves it. Injected here so HorseHandReceipts.ts, which is on the Horse decision closure, never
+// imports the alert module. The running tally is on /health as `horseHandReceipts`.
+setHorseHandReceiptsAlertSink({
+  raise: (alert) => void raiseEngineAlert(alert),
+  resolve: (alertname, component, summary) =>
+    void resolveEngineAlert(alertname, component, summary),
+});
 // OPPONENT HUD (2026-11-20): opponent-profile failures, late profiles and reconciliation drift reach Production Alerts
 // (engine_alerts -> operational_alert_events; page false, never a phone) through this main-process sink.
 setOpponentHudAlertSink((name, firing, summary) =>

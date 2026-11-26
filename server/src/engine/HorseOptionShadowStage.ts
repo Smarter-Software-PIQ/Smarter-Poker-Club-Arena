@@ -139,6 +139,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['preflop']),
   }),
+  // PLO lead-7 2026-11-26: the position term of the priced call of a re-raise, preflop only
+  omahaReraisedPositionVsEveryoneToAct: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['preflop']),
+  }),
   omahaStabDefenceIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
@@ -161,6 +166,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
   }),
+  omahaFacingBetPriorIsPeopleMeasured: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
   omahaFacingBetFieldIsJoint: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
@@ -176,6 +185,23 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaRiverBetFoldIsHisRecord: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
+  }),
+  // PLO-OWNER lead-7 2026-11-26: each acts only on a heads-up river check (nothing to call)
+  omahaRiverValueBetInPositionIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaRiverBluffIsPricedOnBlockers: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaRiverTripsBoardBoatIsNotNutClass: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaFlopRaiseIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
   }),
   omahaCbetRaiseIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),

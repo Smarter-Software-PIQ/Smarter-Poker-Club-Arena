@@ -16,7 +16,7 @@ interface Props {
 function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
   return (
     <div className="stats-club-table-wrap">
-      <table className="stats-club-table">
+      <table className="stats-club-table stats-club-ledger" role="table">
         <thead>
           <tr>
             <th scope="col">Club</th>
@@ -39,29 +39,35 @@ function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
                   {titleCase(row.club.name)}
                 </button>
               </th>
-              <td>{row.hands.toLocaleString()}</td>
+              <td data-label="Hands">{row.hands.toLocaleString()}</td>
               {!tournament && (
                 <>
-                  <td className={row.profit >= 0 ? 'positive' : 'negative'}>
+                  <td data-label="Profit" className={row.profit >= 0 ? 'positive' : 'negative'}>
                     {row.profit >= 0 ? '+' : ''}
                     {compactChips(row.profit)}
                   </td>
-                  <td>{row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}</td>
+                  <td data-label="BB/100">{row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}</td>
                 </>
               )}
-              <td>{row.hands ? `${(row.vpip * 100).toFixed(1)}%` : NOT_YET_MEASURED}</td>
-              <td>{row.hands ? `${(row.pfr * 100).toFixed(1)}%` : NOT_YET_MEASURED}</td>
-              <td>{row.hours === null ? 'Unavailable' : row.hours.toFixed(1)}</td>
-              {!tournament && <td>{compactChips(row.rake)}</td>}
+              <td data-label="VPIP">
+                {row.hands ? `${(row.vpip * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+              </td>
+              <td data-label="PFR">
+                {row.hands ? `${(row.pfr * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+              </td>
+              <td data-label="Hours">
+                {row.hours === null ? 'Unavailable' : row.hours.toFixed(1)}
+              </td>
+              {!tournament && <td data-label="Rake">{compactChips(row.rake)}</td>}
               {tournament && (
-                <td>
+                <td data-label="Tournament Results">
                   {row.tournamentEntries.toLocaleString()} Entries //{' '}
                   {row.tournamentCashes.toLocaleString()} Cashes //{' '}
                   {row.tournamentWins.toLocaleString()} Wins //{' '}
                   {compactChips(row.tournamentWinnings)} Won
                 </td>
               )}
-              <td>
+              <td data-label="Last Play">
                 {row.lastPlayedAt
                   ? new Date(row.lastPlayedAt).toLocaleDateString('en-US', {
                       month: 'short',
@@ -101,13 +107,12 @@ export default function ClubComparisonPanel({
 }: PanelProps) {
   return (
     <section
-      className="stats-club-comparison"
+      className="stats-club-comparison stats-workbench-surface"
       id="stats-club-comparison"
       aria-labelledby="stats-club-comparison-title"
     >
       <div className="stats-club-comparison-head">
         <div>
-          <span className="stats-section-kicker">One Read // Every Authorized Club</span>
           <h2 id="stats-club-comparison-title">Club Comparison</h2>
         </div>
         <div className="stats-club-sort" role="group" aria-label="Sort Club Comparison">
@@ -143,6 +148,9 @@ export default function ClubComparisonPanel({
           tournament={tournament}
           changeClub={changeClub}
         />
+      )}
+      {!comparisonLoading && !comparisonError && sortedComparisonRows.length === 0 && (
+        <p role="status">No Club Records In This Window.</p>
       )}
       <p className="stats-club-comparison-footnote">
         Club Hours Are Unavailable Because The Per-Club Facts Contract Does Not Retain Session

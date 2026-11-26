@@ -26,7 +26,7 @@ describe('Stats chart data tables', () => {
     expect(within(table).getByRole('cell', { name: '125' })).toBeInTheDocument();
   });
 
-  it('wires every audited chart to a same-data table and keeps the phone overflow contained', () => {
+  it('wires every audited chart to a same-data table and reflows its extra columns at the width of the table', () => {
     const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8');
     for (const file of [
       'src/components/stats/StatsCharts.tsx',
@@ -40,7 +40,7 @@ describe('Stats chart data tables', () => {
     );
     const css = read('src/components/stats/StatsDataTable.css');
     expect(css).toMatch(/overflow-x:\s*auto/);
-    expect(css).toMatch(/@media \(max-width: 390px\)/);
+    expect(css).toContain('@container stats-chart-table');
     expect(css).toMatch(/min-height:\s*44px/);
     expect(css).not.toContain(':hover');
   });
