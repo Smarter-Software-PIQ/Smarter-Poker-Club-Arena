@@ -1138,6 +1138,14 @@
   outline-offset: 2px;
 }
 @media (max-width: 720px) {
+  /* The status, table button, role and ID share one phone column. Let each
+     wrap to that track even when only the wider system fonts are available. */
+  .arena-workspace.club-members-page .member-subline > * {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
     left: 0;
   }
@@ -1173,6 +1181,20 @@
     grid-template-rows: auto auto;
     align-content: center;
   }
+  /* Reserve the end of the identity line for the selection target and
+     chevron. The ledger retains the same combined width in the line below. */
+  .arena-workspace.club-members-page
+    .member-row:has(> .member-select)
+    .member-row__open:has(.member-simple-balance) {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, calc(50% - 44px)) 54px;
+    grid-template-rows: minmax(44px, max-content) auto;
+  }
+  .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
+    inset: 2px 2px auto auto;
+  }
+  .arena-workspace.club-members-page .member-row:has(> .member-select) .member-chevron {
+    justify-self: start;
+  }
   .arena-workspace.club-members-page .member-main:has(.member-simple-balance) {
     display: contents;
   }
@@ -1181,14 +1203,11 @@
   }
   .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-subline {
     grid-area: 2 / 1 / 3 / 3;
-  }
-  /* Keep the ID readable when the phone falls back to a wider system font. */
-  .arena-workspace.club-members-page .member-number {
-    white-space: normal;
-    overflow-wrap: anywhere;
+    align-self: start;
   }
   .arena-workspace.club-members-page .member-simple-balance {
     grid-area: 2 / 3 / 3 / 5;
+    row-gap: 1px;
   }
   .arena-workspace.club-members-page .member-row__open:has(.member-simple-balance) .member-chevron {
     grid-area: 1 / 4;

@@ -455,7 +455,11 @@ for (const rosterLoadsLast of [false, true]) {
         <span class="member-avatar"><span>${m.alias[0]}</span></span>
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
-        }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
+        }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span>${
+          m.status === 'At Table'
+            ? '<button type="button" class="member-seated member-seated--table">Prime Time Free Buy (NLH) · Table 28 · 500/1000</button>'
+            : `<span class="${m.status === 'Online' ? 'member-online' : 'member-seen'}">${m.status}</span>`
+        }</span>
         <span class="member-simple-balance"><strong>585.67</strong><span>Fees This Week</span><span class="member-simple-balance__wallet">Wallet Balance 18,251.59</span>${
           m.downline ? '<span>Agent Wallet 12,345,678.9012</span><span>Downlines 123</span>' : ''
         }<span class="member-simple-balance__secondary member-winloss--up">Today +12,345.6789</span>${
@@ -473,7 +477,7 @@ for (const rosterLoadsLast of [false, true]) {
         .application-shell { width: calc(100% - 32px); margin: auto; }
         /* Reproduce the ordinary sans-serif fallback when condensed fonts are
            unavailable, as on the hosted Chromium runner. */
-        @media (max-width: 320px) { .application-shell .member-number { font-family: Arial, sans-serif; } }
+        @media (max-width: 320px) { .application-shell .member-subline { font-family: Arial, sans-serif; } }
       </style>
       <main class="application-shell"><section class="club-members-page members-simple arena-workspace" style="--member-row-pitch:187px">
         <header class="arena-workspace-mast"></header>
@@ -520,6 +524,14 @@ for (const rosterLoadsLast of [false, true]) {
                 found.push(`outside its row: ${e.textContent}`);
             });
           const selection = row.querySelector('.member-select')!.getBoundingClientRect();
+          const identity = row.querySelector('.member-identity')!.getBoundingClientRect();
+          if (
+            identity.left < selection.right &&
+            identity.right > selection.left &&
+            identity.top < selection.bottom &&
+            identity.bottom > selection.top
+          )
+            found.push('selection covers player identity');
           const subline = row.querySelector('.member-subline')!.getBoundingClientRect();
           for (const field of row.querySelectorAll('.member-subline > *')) {
             const text = document.createRange();
@@ -550,6 +562,13 @@ for (const rosterLoadsLast of [false, true]) {
             // A flex item can fit even while right-aligned text paints into the
             // name on its left. Check the painted lines, including sign and cents.
             for (const line of text.getClientRects()) {
+              if (
+                line.left < selection.right &&
+                line.right > selection.left &&
+                line.top < selection.bottom &&
+                line.bottom > selection.top
+              )
+                found.push(`selection covers financial text: ${field.textContent}`);
               if (
                 line.left < limit.left - 1 ||
                 line.right > limit.right + 1 ||
