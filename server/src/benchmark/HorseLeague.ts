@@ -4981,6 +4981,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOopReraiseRangeHoldsVsReraise: true },
     b: {},
   },
+  // 2026-11-26 PLO lead-7 plo-preflop (default OFF, PLO4/PLO5 cash): omahaReraisedPositionVsEveryoneToAct (the priced
+  // call of a re-raise holds position against every live player still to see the flop, not the re-raiser alone). Both
+  // arms carry production's live set (omahaOopReraisedPotStrongRange on, whose priced call reads the position); a adds
+  // the option. Graded 6-max, 3-handed and heads-up at 100 and 300 bb (authority file).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_position_vs_everyone_to_act`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPositionVsEveryoneToAct: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
   // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
   // a re-raise is positive); a switches it on, b is today's brain.

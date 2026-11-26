@@ -381,6 +381,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
   'holdemOopReraiseRangeHoldsVsReraise',
+  // 2026-11-26 PLO lead-7 plo-preflop (audit: 13 of 27 fold-best OOP multiway 3-bet calls priced in position): the
+  // re-raised-pot call's position is held against every live player still to see the flop (ships dark)
+  'omahaReraisedPositionVsEveryoneToAct',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)

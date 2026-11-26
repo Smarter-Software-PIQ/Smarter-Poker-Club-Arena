@@ -133,6 +133,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaMultiwayWeakHandNoBet',
   'omahaVpipFloorByLimp',
   'omahaReraisedPositionInLightning',
+  // PLO lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
+  'omahaReraisedPositionVsEveryoneToAct',
   'omahaManiacReRaiseWidthMeasured',
   'omahaCardImpact',
   'omahaFacingBetEv',
