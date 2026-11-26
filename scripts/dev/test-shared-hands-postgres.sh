@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Native proof for migration 20261107021555 (short shared-hand links) on a
-# throwaway PostgreSQL cluster: every door, as the role that really calls it.
+# Native proof for migrations 20261107021555 (short shared-hand links) and
+# 20261126054024 (the link reads without writing; views are their own door) on
+# a throwaway PostgreSQL cluster: every door, as the role that really calls it.
 # PG17_BINDIR points at the server binaries (default: the Mac's Homebrew PG17).
 set -euo pipefail
 export LC_ALL=C LANG=C
@@ -10,7 +11,8 @@ pgbin="${PG17_BINDIR:-/opt/homebrew/opt/postgresql@17/bin}"
 cases="$repo/scripts/dev/shared-hands"
 migration="$repo/supabase/migrations/20261107021555_short_share_links_for_hands.sql"
 recording="$repo/supabase/migrations/20261116055627_shared_hands_preserve_the_recorded_table.sql"
-expected=26
+reader="$repo/supabase/migrations/20261126054024_a_shared_hand_link_reads_without_writing.sql"
+expected=38
 
 [[ -x "$pgbin/initdb" && -x "$pgbin/postgres" ]] || {
   echo 'PostgreSQL tools unavailable; set PG17_BINDIR.' >&2; exit 2;
@@ -30,7 +32,7 @@ trap cleanup EXIT
 "$pgbin/initdb" -D "$data" -U postgres --auth-local=trust --auth-host=reject --no-locale -E UTF8 >/dev/null
 "$pgbin/pg_ctl" -D "$data" -o "-h '' -k '$socket' -p $port" -w start >/dev/null
 psql=("${PSQL:-$pgbin/psql}" -X -q -t -v ON_ERROR_STOP=1 -h "$socket" -p "$port" -U postgres -d postgres)
-out="$("${psql[@]}" -f "$cases/00_base.sql" -f "$migration" -f "$recording" -f "$cases/01_cases.sql" 2>&1)"
+out="$("${psql[@]}" -f "$cases/00_base.sql" -f "$migration" -f "$recording" -f "$reader" -f "$cases/01_cases.sql" 2>&1)"
 printf '%s\n' "$out" | grep -E 'PASS|FAIL' | sed 's/^.*NOTICE: *//' || true
 if printf '%s\n' "$out" | grep -q 'FAIL'; then echo 'shared-hands: FAILED' >&2; exit 1; fi
 passes="$(printf '%s\n' "$out" | grep -c 'PASS')"
