@@ -37,6 +37,7 @@ import {
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
+import { horseHandReceiptsSnapshot } from './services/HorseHandReceipts.js';
 import {
   peekBrainWatchcounters,
   renderBrainWatchcountersPrometheus,
@@ -6584,6 +6585,10 @@ export class GameServer {
       // running (handsAudited, riverActionsAudited) and whether it is firing.
       horseRiverValueAlarm: horseRiverValueAlarmSnapshot(),
       horseWatchcounters: peekBrainWatchcounters(),
+      // Per-hand option receipt writes (2026-11-26): attempted, written, failed
+      // and the last failure class, so a lost receipt is visible without a shell.
+      // Pure counter read; it cannot throw.
+      horseHandReceipts: horseHandReceiptsSnapshot(),
       horseUpgradeManifest: computeHorseUpgradeActivationManifest(),
       engineStartedAt: new Date(this.startTime).toISOString(),
       adaptiveJournalWorker: horseAdaptiveJournalWorker.status(),
