@@ -329,7 +329,7 @@ describe('omahaRiverFirstToActBetIsPriced: the decision', () => {
     const rule = src.indexOf('const firstToAct = omahaRiverFirstToActBetRule(');
     expect(rule).toBeGreaterThan(src.indexOf('const openMeasured = omahaOpenMeasuredRule('));
     expect(
-      src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        checkedTo2.decision')
+      src.indexOf('omahaRiverCurrentNutsCallFloorRule(\n        opening.decision')
     ).toBeGreaterThan(rule);
     expect(src.indexOf("decision = graph.run('wager_rules'")).toBeGreaterThan(rule);
   });
