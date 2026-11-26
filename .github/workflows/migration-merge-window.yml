@@ -37,7 +37,7 @@ permissions:
 
 concurrency:
   group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event.schedule || 'dispatch' }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   merge-window:
