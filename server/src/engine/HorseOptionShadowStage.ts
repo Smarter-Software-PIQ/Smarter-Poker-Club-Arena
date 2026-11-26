@@ -230,6 +230,12 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     ['flop', 'turn', 'river']
   ),
   holdemOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  // plo-lead7 2026-11-26: the first bet of the turn or river against two or more opponents (NLH cash)
+  holdemMultiwayOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  holdemMultiwayOpeningValueBetIsPriced: holdemStage(
+    ['nlh_cash', 'nlh_lightning'],
+    ['turn', 'river']
+  ),
 });
 
 /**

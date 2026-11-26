@@ -2813,6 +2813,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemMultiwayOpeningBluffIsPriced',
+    "PLO-OWNER lead-7 2026-11-26 (daily NLH cash hand audit against people, 2026-11-26: 31 missed profitable turn and river bluffs, 19 of them and 182 of 265 bb MULTIWAY, where holdemOpeningBluffIsPriced does nothing; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, turn and river, two or more opponents, nobody has bet the street: the brain's check becomes a bluff at the legal priced size of highest EV only when it prices above the check AND either the Horse's cards remove more of the field's calling parts than of its folding parts (the joint fold given the Horse's hand above the joint fold without it) or the Horse's public line range outscores every opponent's on this board (HorseHoldemMultiwayOpeningIsPriced). Every opponent must fold: the field's joint fold is the minimum defence shared across the field (no record: the bettor's break-even B / (B + P), each of N opponents folding its N-th root, so a pure bluff breaks even and only blockers make it pay), moved by each opponent's own record shrunk with 20 pseudo-opportunities to that anchor (the joint moves by the geometric mean of their ratios, never by a product of over-folds); never the Horse population. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemMultiwayOpeningValueBetIsPriced',
+    "PLO-OWNER lead-7 2026-11-26 (daily NLH cash hand audit against people, 2026-11-26: thin value missed on the turn and river; the heads-up value option does nothing multiway). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, turn and river, two or more opponents, nobody has bet the street: the brain's check becomes a value bet at the legal priced size of highest EV when the chips the callers add are won on balance (over every set of callers, the chance the hand beats every caller's calling part: the share of the joint calling range the hand beats; on the turn the product is taken per river card) and the bet prices above the check (HorseHoldemMultiwayOpeningIsPriced). The field's fold: the minimum defence shared across the field, each opponent's own record first, anchored to equilibrium; never the Horse population. Who folds: the weakest share of each public line range read without the Horse's cards. Raises by the field are not priced. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -10308,6 +10318,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_opening_priced_unpriced',
     'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
     'the opening side could not be priced (no range): the decision stands',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_multiway_opening_value_bet',
+    'HorseLogic.holdemMultiwayOpeningPriced (holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced)',
+    'the first bet of the turn or river against two or more opponents (NLH cash), a check became a value bet: the chips the callers add are won on balance and it prices above the check',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_multiway_opening_bluff_bet',
+    'HorseLogic.holdemMultiwayOpeningPriced (holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced)',
+    "the first bet of the turn or river against two or more opponents (NLH cash), a check became a bluff: it prices above the check against the field's joint fold and the Horse's cards block the field's calling parts or its range outscores every opponent's",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_multiway_opening_bluff_no_edge',
+    'HorseLogic.holdemMultiwayOpeningPriced (holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced)',
+    "a multiway bluff priced above the check but neither blockers nor the range advantage over every opponent were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_multiway_opening_unpriced',
+    'HorseLogic.holdemMultiwayOpeningPriced (holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced)',
+    'the multiway opening bet could not be priced (no range): the decision stands',
     "Hold'em Strategy"
   ),
   receipt(

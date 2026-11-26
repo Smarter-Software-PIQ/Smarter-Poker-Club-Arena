@@ -5176,6 +5176,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOpeningBluffIsPriced: true },
     b: {},
   },
+  // 2026-11-26 plo-lead7 (default OFF): the first bet of the turn or river against two or more opponents priced,
+  // each option alone at a six-handed table (heads-up they never act); a switches it on, b is today's brain. Graded
+  // by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
+  {
+    name: 'nlh6_holdem_multiway_opening_bluff_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    a: { holdemMultiwayOpeningBluffIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh6_holdem_multiway_opening_value_bet_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    a: { holdemMultiwayOpeningValueBetIsPriced: true },
+    b: {},
+  },
   // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option
   // alone, in the format it moves most (six-max MTT far from the money, 30bb) and on the three-left Sit & Go bubble
   // (bubble factor priced from the stacks); a switches it on, b is today's brain. Graded by the lane's own mirror,

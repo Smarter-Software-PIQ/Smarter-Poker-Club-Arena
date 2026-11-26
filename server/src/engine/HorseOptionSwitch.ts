@@ -358,6 +358,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-25 plo-lead7: the opening side of NLH cash priced (value bets; blocker or range-advantage bluffs) (ship dark)
   'holdemOpeningValueBetIsPriced',
   'holdemOpeningBluffIsPriced',
+  // 2026-11-26 plo-lead7: the first bet of the turn or river against two or more opponents priced (ship dark)
+  'holdemMultiwayOpeningBluffIsPriced',
+  'holdemMultiwayOpeningValueBetIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1128,6 +1131,16 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up, turn/river, not facing a wager',
     "a check becomes a bluff only when it prices above the check and blockers or the range advantage are the Horse's",
+  ],
+  holdemMultiwayOpeningBluffIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), two or more opponents, turn/river, the first bet of the street',
+    "a check becomes a bluff only when it prices above the check against the field's joint fold (minimum defence shared across the field) and blockers or the range advantage over every opponent are the Horse's",
+  ],
+  holdemMultiwayOpeningValueBetIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), two or more opponents, turn/river, the first bet of the street',
+    'a check becomes a value bet when the chips the callers add are won on balance (the share of the joint calling range the hand beats) and it prices above the check',
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,
