@@ -166,7 +166,7 @@ const REGISTER = {
   'server/src/lightning/LightningBankTheWin.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',
-    why: "Bank the win on Lightning (owner 2026-11-10): picks the horses whose committed pool hand put them at their 4-6x line, one orbit after a big pot and due for the big blind, and stands them up through the ordinary Leave door a person uses (hit-and-run included). The same fleet steering the Classic settlement step does; it denies a horse nothing.",
+    why: 'Bank the win on Lightning (owner 2026-11-10): picks the horses whose committed pool hand put them at their 4-6x line, one orbit after a big pot and due for the big blind, and stands them up through the ordinary Leave door a person uses (hit-and-run included). The same fleet steering the Classic settlement step does; it denies a horse nothing.',
   },
   'server/src/engine/ServerTableEngineSettlement.ts': {
     allowed: 2,
@@ -225,6 +225,11 @@ const REGISTER = {
     allowed: 2,
     kind: 'IDENTIFICATION',
     why: 'Horse-ONLY again: writes the per-hand leak review rows for the fleet, and (2026-09-05) touches ca_horse_fleet_state - a table that has a row per horse and none per human - with the settlement time. Horses get MORE here than humans do, not less.',
+  },
+  'server/src/engine/aPloFacingBetPriorTableNamesItsPeopleFit.law.test.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: "The law that every PLO facing-bet bluff/fold prior table names its fit (2026-11-26) checks that a fitted population table's generator measures PEOPLE's play only (owner order 2026-11-26: \"the stats need to be used against human players, not horses\"): one fixture line is a generator's filter text, a string the law reads, not code that runs. It chooses whose hands a statistic is measured from; every bettor, person or Horse, is priced by the same function, and no horse is seated, paid, timed or denied anything by it. It is a test: it decides nothing.",
   },
 };
 
