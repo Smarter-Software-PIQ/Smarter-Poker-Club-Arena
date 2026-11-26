@@ -97,4 +97,25 @@ COMMENT ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) IS
 REVOKE ALL ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) TO service_role;
 
+-- Run the new body once, all of it (note row, owner conversation, message),
+-- inside a subtransaction that is always undone (scripts/ci/templates/function-probe.sql).
+-- @probe-for: public.fn_ca_note_cycle_did_not_seal
+DO $probe$
+DECLARE
+  v_first jsonb;
+  v_replay jsonb;
+BEGIN
+  v_first := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Probe note, undone with its subtransaction.');
+  IF NOT coalesce((v_first->>'sent')::boolean, false) OR (v_first->>'message_id') IS NULL THEN
+    RAISE EXCEPTION 'cutover note probe: the first call did not send (%)', v_first;
+  END IF;
+  v_replay := public.fn_ca_note_cycle_did_not_seal('1999-01-01T01', 'Again.');
+  IF coalesce((v_replay->>'sent')::boolean, true) THEN
+    RAISE EXCEPTION 'cutover note probe: a replay sent a second message (%)', v_replay;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
