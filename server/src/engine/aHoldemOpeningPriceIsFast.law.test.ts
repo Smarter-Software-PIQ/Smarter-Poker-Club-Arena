@@ -25,7 +25,7 @@ import {
 } from './HorseComplaintReplay.js';
 import { measureRelativeCost } from '../testing/relativeCost.js';
 
-const RATIO_DECISION = 12;
+const RATIO_DECISION = 16;
 const OPTIONS = ['holdemOpeningValueBetIsPriced', 'holdemOpeningBluffIsPriced'] as const;
 
 const FIX = JSON.parse(
