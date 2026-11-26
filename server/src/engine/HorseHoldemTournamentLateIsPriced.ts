@@ -22,7 +22,9 @@
  *                  up to 29 ms cold on a 600-left field); BF = 1 (chip EV)
  *                  where no pay jump is live (far from the money, heads-up, winner-take-all). Where a pay jump is
  *                  live and the context cannot price it (no trusted stacks/payouts, a satellite, a PKO or a mystery
- *                  bounty) the option stands down: unknown is not "no pay jump".
+ *                  bounty) the option stands down: unknown is not "no pay jump". On a live pay jump of a field larger
+ *                  than HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX (60) it stands down too: a compute bound (the ICM read
+ *                  costs 2-5 ms per equity cold there), not a poker threshold.
  *   bluff          a hand with no value size (eqCall <= 1/2 at every size), EV(bet) > EV(check), and the Horse's
  *                  cards remove more of his calling part than of his folding part (blocker dependent) or the
  *                  Horse's line range outscores his (range advantage). Never random.

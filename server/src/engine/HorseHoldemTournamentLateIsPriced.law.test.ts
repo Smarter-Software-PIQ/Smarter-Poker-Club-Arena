@@ -12,7 +12,8 @@
  *  - real audited tournament nodes (the deciding Horse's own cards only, HorseHoldemTournamentLateIsPriced.fixture.json):
  *    on every seed where the option-off brain checks, the option for that street alone bets with its receipt (one
  *    size where every seed checked); the other street's option does not; a truthy non-boolean is off; a cash copy of the node is never touched; a copy on
- *    a live bubble whose context carries no stacks stands down with its receipt.
+ *    a live bubble whose context carries no stacks, or a live pay jump of a field past the ICM compute bound
+ *    (HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX), stands down.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -24,7 +25,11 @@ import {
   holdemTournamentWagerParts,
 } from './HorseHoldemTournamentLateIsPriced.js';
 import { holdemFillEquities, holdemLineRange } from './HorseHoldemValueAndCallsArePriced.js';
-import { postflopWagerPayoutPrice, type HorseGameStateV2 } from './HorseLogic.js';
+import {
+  HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX,
+  postflopWagerPayoutPrice,
+  type HorseGameStateV2,
+} from './HorseLogic.js';
 import {
   replayAt,
   replayProfiles,
@@ -230,6 +235,31 @@ describe('the tournament bluff is priced: real audited tournament nodes', () => 
           nearBubble: true,
           inMoney: false,
         };
+        // a live pay jump on a field past the ICM compute bound stands down too
+        const big = stateAt(n.hand, node);
+        const bigStacks = Array.from(
+          { length: HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX + 1 },
+          () => 5000
+        );
+        (big.gs as unknown as { tournament: Record<string, unknown> }).tournament = {
+          schemaVersion: 1,
+          contextStatus: 'complete',
+          contextIssues: [],
+          playersLeft: bigStacks.length,
+          spotsPaid: bigStacks.length - 1,
+          payoutPct: bigStacks.slice(1).map((_, i) => 20 / (i + 1)),
+          nearBubble: true,
+          inMoney: false,
+          stacks: bigStacks,
+          stackByUser: Object.fromEntries(
+            (big.gs as unknown as { players: { user_id: string }[] }).players.map((p) => [
+              p.user_id,
+              5000,
+            ])
+          ),
+        };
+        const gOn = replayAt(big, prof, SEEDS, { ...PROD, [n.option]: true });
+        expect(gOn.receipts[n.expect] ?? 0).toBe(0);
         const bOff = replayAt(bub, prof, SEEDS, PROD);
         const bOn = replayAt(bub, prof, SEEDS, { ...PROD, [n.option]: true });
         expect(bOn.kinds).toEqual(bOff.kinds);

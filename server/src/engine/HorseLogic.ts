@@ -2917,6 +2917,16 @@ export function payJumpBubbleFactor(
  * context cannot price it (no trusted context at all, a satellite, a PKO, a mystery bounty, or no stacks, payouts or
  * identity): unknown is not "no pay jump", and the caller stands down.
  */
+/**
+ * The largest field (stacks carried in the tournament context) on which holdemTournamentRiverBluffIsPriced /
+ * holdemTournamentTurnBluffIsPriced read the bubble factor on a live pay jump: a compute bound, not a poker
+ * threshold. Cold, two ICM equities cost about 0.3 ms at 10 left, 1 ms at 30, 3 ms at 90 and 6.5 ms at 200 (lane
+ * bench, IcmModel.bubbleFactor); on a 200-left bubble the decision with the option on took p95 14.5 / max 30.5 ms
+ * against the 10 / 25 ms stage bar. Above it, on a live pay jump, the options stand down (not within the pay-jump
+ * zone of a large field); away from a pay jump they price chips at any field size.
+ */
+export const HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX = 60;
+
 export function postflopWagerPayoutPrice(
   gs: HorseGameStateV2,
   stackBB: number,
@@ -35148,7 +35158,13 @@ export class HorseLogic {
         : gs.legalActions.some((x) => x === 'raise' || x === 'bet' || x === 'all_in');
       if (!canWager) return decision;
       const payout = postflopWagerPayoutPrice(gs, heroStack / gs.bigBlind, player.user_id);
-      if (payout === 'unknown') {
+      // a live pay jump on a field larger than HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX stands the option down: the two
+      // ICM equities of the bubble factor cost 2-5 ms each cold there (IcmModel), past the decision budget
+      if (
+        payout === 'unknown' ||
+        (payout !== 'chips' &&
+          (gs.tournament?.stacks?.length ?? 0) > HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX)
+      ) {
         if (tele) noteFire('holdem_tourney_bluff_payout_unpriced');
         return decision;
       }
