@@ -37,6 +37,8 @@
  * cannot be read the hold applies (an unreadable policy is not "daily").
  */
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   inReleaseSchemaFreeze,
   RELEASE_SCHEMA_FREEZE_CHICAGO,
@@ -45,16 +47,18 @@ import {
   threeHourlyDeferralWindow,
 } from './merged-migration-dispatch.mjs';
 
-const POLICY_URL = new URL(
-  '../../server/src/maintenance/maintenanceSchedulePolicy.json',
-  import.meta.url
+// A plain path, not a URL object: under a DOM test environment the global URL
+// is not node's, and readFileSync refuses it.
+const POLICY_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../server/src/maintenance/maintenanceSchedulePolicy.json'
 );
 
 /**
  * The cutover cadence this revision declares: 'three-hourly', 'daily', or
  * 'unknown' when the policy cannot be read or names neither.
  */
-export function declaredCutoverCadence(read = () => readFileSync(POLICY_URL, 'utf8')) {
+export function declaredCutoverCadence(read = () => readFileSync(POLICY_PATH, 'utf8')) {
   try {
     const frequency = JSON.parse(read())?.frequency;
     return frequency === 'three-hourly' || frequency === 'daily' ? frequency : 'unknown';
