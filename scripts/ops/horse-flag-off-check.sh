@@ -69,7 +69,7 @@ HEAD_SHA=$(git -C "$REPO" rev-parse --verify "${HEAD_REF}^{commit}" 2>/dev/null)
 [ -d "$NODE_MODULES/tsx" ] || { say "REFUSING: $NODE_MODULES has no tsx. Give --node-modules <an installed server/node_modules>."; exit 2; }
 NODE_MODULES=$(cd "$NODE_MODULES" && pwd -P)
 
-# Both builds run on ONE installed node_modules. Say so when a lockfile says they should not.
+# Both builds run on clones of ONE installed node_modules. Say so when a lockfile says they should not.
 LOCK_HERE=$(git -C "$REPO" rev-parse "HEAD:server/package-lock.json" 2>/dev/null || echo unknown)
 for pair in "base:$BASE_SHA" "head:$HEAD_SHA"; do
   LOCK=$(git -C "$REPO" rev-parse "${pair#*:}:server/package-lock.json" 2>/dev/null || echo missing)
@@ -93,7 +93,11 @@ for pair in "base:$BASE_SHA" "head:$HEAD_SHA"; do
   wt="$RUN/${pair%%:*}"
   git -C "$REPO" worktree add --detach "$wt" "${pair#*:}" >/dev/null 2>&1 || { say "could not create the ${pair%%:*} worktree at ${pair#*:}"; exit 2; }
   ADDED+=("$wt")
-  ln -s "$NODE_MODULES" "$wt/server/node_modules" || exit 2
+  # The tree owns its node_modules: a copy-on-write clone (APFS: no extra disk),
+  # else a plain copy. Never a symlink: npm writes through one, so an npm ci in
+  # this throwaway tree would empty the installed source (2026-11-26).
+  cp -Rc "$NODE_MODULES" "$wt/server/node_modules" 2>/dev/null \
+    || { rm -rf "$wt/server/node_modules"; cp -R "$NODE_MODULES" "$wt/server/node_modules"; } || exit 2
 done
 
 COMMON=(--options "$OPTIONS")

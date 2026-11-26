@@ -104,3 +104,27 @@ BEGIN
      RETURNS void LANGUAGE plpgsql AS $body$ BEGIN END $body$;
   END IF;
 END $realtime_send$;
+
+-- auth.sessions as production has it (read read-only on 2026-11-26), less the
+-- aal column, whose auth.aal_level type the image may not carry and no
+-- application object reads. fn_ca_live_session_id and ca_claim_active_login read
+-- it to tell a live sign-in from a revoked one; without it plpgsql_check refused
+-- ca_claim_active_login on the copy (42P01) while it resolves on production, and
+-- a migration probe of any device function could not run. The copy holds no
+-- sessions, so every probe sees a signed-out caller. The image's own wins if present.
+CREATE TABLE IF NOT EXISTS auth.sessions (
+  id uuid NOT NULL PRIMARY KEY,
+  user_id uuid NOT NULL,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone,
+  factor_id uuid,
+  not_after timestamp with time zone,
+  refreshed_at timestamp without time zone,
+  user_agent text,
+  ip inet,
+  tag text,
+  oauth_client_id uuid,
+  refresh_token_hmac_key text,
+  refresh_token_counter bigint,
+  scopes text
+);

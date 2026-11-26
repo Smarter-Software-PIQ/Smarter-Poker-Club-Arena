@@ -95,19 +95,27 @@ test('cash and tournament position numbers stay inside their own table viewport'
       contents: `
         import { createRoot } from 'react-dom/client';
         import Cash from './src/components/stats/PositionWinRates';
+        import ChartData from './src/components/stats/StatsDataTable';
         import Tournament from './src/pages/stats/TournamentPlayingStats';
         const sample = [{
           position: 'BB', hands_played: 149, vpip_count: 39, pfr_count: 16,
           three_bet_opps: 0, bb100: -23.7, total_profit: -1200,
         }, {
           position: 'UTG+1', hands_played: 134, vpip_count: 25, pfr_count: 23,
-          three_bet_opps: 12, three_bet_count: 3, bb100: 8.1, total_profit: 289,
+          three_bet_opps: 12, three_bet_count: 3, bb100: 8.1, total_profit: 1234567.89,
+        }, {
+          position: 'CO', hands_played: 199, vpip_count: 199, pfr_count: 198,
+          three_bet_opps: 2, three_bet_count: 2, bb100: -21.1, total_profit: -2189.30,
         }];
         const totals = { tourney_hands: 283, hands_won: 45, showdowns_total: 16 };
         const full = { positions: sample, contract: { quality: { metric_availability: {} }, coverage: {} } };
         createRoot(document.querySelector('main')).render(<>
           <Tournament overall={totals} full={full}/>
           <Cash initialPositions={sample}/>
+          <ChartData caption="Exact Figures" rows={[[1, '+12,345,678.90', '-2,189.30', '100.0%']]}
+            rowKey={row => String(row[0])} columns={['Hand', 'Actual BB', 'Expected BB', 'Rate'].map((label, i) => ({
+              key: label, label, render: row => row[i],
+            }))}/>
         </>);
       `,
     },
@@ -125,7 +133,11 @@ test('cash and tournament position numbers stay inside their own table viewport'
     @media (min-width:800px) { main { width:calc(100% - 80px) } }
     </style><div class="stats-page arena-workspace"><main class="stats-readouts stats-workbench"></main></div>`);
   await page.addScriptTag({ content: fixture.outputFiles[0].text });
-  await page.getByText('Show Data Table', { exact: true }).click();
+  const disclosures = page.getByText('Show Data Table', { exact: true });
+  await expect(disclosures).toHaveCount(2);
+  for (const disclosure of await disclosures.all()) {
+    await disclosure.click();
+  }
   const tournament = page.getByRole('table', { name: 'Tournament Positions' });
   const cash = page.getByRole('table', { name: 'Win Rate By Position' });
   for (const width of [320, 393, 898, 1280]) {
@@ -159,6 +171,39 @@ test('cash and tournament position numbers stay inside their own table viewport'
       expect(fits.internalOverflow, `${width}px internal table overflow`).toBeLessThanOrEqual(1);
       expect(fits.clipped, `${width}px clipped cell values`).toEqual([]);
     }
+    const chart = page.getByRole('table', { name: 'Exact Figures' });
+    for (const table of [cash, chart, tournament]) {
+      const splitNumbers = await table.evaluate((node) => {
+        const problems: string[] = [];
+        const outer = node.parentElement!.getBoundingClientRect();
+        for (const cell of node.querySelectorAll<HTMLTableCellElement>('tbody td')) {
+          const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const value = walker.currentNode;
+            if (!/^[+\-−]?[\d,.]+%?$/.test(value.textContent?.trim() ?? '')) continue;
+            const range = document.createRange();
+            range.selectNodeContents(value);
+            const lines = [...range.getClientRects()].filter((r) => r.width && r.height);
+            if (
+              lines.length !== 1 ||
+              lines.some((r) => r.left < outer.left - 0.5 || r.right > outer.right + 0.5)
+            ) {
+              problems.push(
+                `${cell.getAttribute('data-label') || cell.cellIndex}: ${value.textContent} (${lines.length} lines)`
+              );
+            }
+          }
+        }
+        return problems;
+      });
+      expect(
+        splitNumbers,
+        `${width}px ${(await table.getAttribute('aria-label')) || (await table.locator('caption').innerText())} values must remain whole and on screen`
+      ).toEqual([]);
+    }
+    await expect(cash.getByRole('row').filter({ hasText: 'Cutoff' })).toContainText('-2,189.30');
+    await expect(cash.getByRole('row').filter({ hasText: 'Cutoff' })).toContainText('100.0%');
+    await expect(chart).toContainText('+12,345,678.90');
     if (width < 400) {
       const blind = cash.getByRole('row').filter({ hasText: 'Big Blind' });
       const primary = await blind

@@ -95,13 +95,19 @@ export function certificateConclusion(jobsPayload, jobName) {
   if (matches.length === 0) return null;
   const job = matches[matches.length - 1];
   const conclusion = job.conclusion;
+  // A run in which the superseded step RAN certified nothing, whatever its
+  // conclusion: red before 2026-11-26 (it stood down with exit 1), green after.
+  // Reading a green one as 'success' would break a real failing streak.
+  const steps = Array.isArray(job.steps) ? job.steps : [];
+  const superseded = steps.some(
+    (step) =>
+      step &&
+      step.name === SUPERSEDED_STEP &&
+      (step.conclusion === PASSED || FAILED.has(step.conclusion))
+  );
+  if (superseded) return null;
   if (conclusion === PASSED) return 'success';
-  if (FAILED.has(conclusion)) {
-    const superseded = (Array.isArray(job.steps) ? job.steps : []).some(
-      (step) => step && step.name === SUPERSEDED_STEP && FAILED.has(step.conclusion)
-    );
-    return superseded ? null : 'failure';
-  }
+  if (FAILED.has(conclusion)) return 'failure';
   return null;
 }
 
