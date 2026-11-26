@@ -49,6 +49,12 @@ describe('an engine promise is never dropped by accident', () => {
     expect(step).toContain('npm ci --prefix server --ignore-scripts');
     expect(step).toContain('npm run -s lint:engine-promises');
     expect(step).not.toMatch(/continue-on-error|\|\|\s*true/);
+    // Type-aware over all of server/src, it needs more than Node's default
+    // 2 GB heap on the runner; without this it aborts and blocks every
+    // engine pull request.
+    const heap = /NODE_OPTIONS:\s*--max-old-space-size=(\d+)/.exec(step);
+    expect(heap, 'the step sets its own heap').not.toBeNull();
+    expect(Number(heap![1])).toBeGreaterThanOrEqual(4096);
   });
 
   it('the process still treats an unhandled rejection as fatal', () => {
