@@ -6,6 +6,9 @@ export interface KingsClubDisplayTotals {
   active_total: number | null;
   member_addition: number;
   active_addition: number;
+  /** 'union' (default once in a union): active_total is the union floor. */
+  active_source?: 'union' | 'club';
+  active_union_name?: string | null;
 }
 
 let pending: Promise<KingsClubDisplayTotals | null> | null = null;
@@ -34,6 +37,12 @@ async function fetchTotals(): Promise<KingsClubDisplayTotals | null> {
         active_total: totals.active_total,
         member_addition: totals.member_addition,
         active_addition: totals.active_addition,
+        active_source:
+          totals.active_source === 'club' || totals.active_source === 'union'
+            ? totals.active_source
+            : undefined,
+        active_union_name:
+          typeof totals.active_union_name === 'string' ? totals.active_union_name : null,
       };
     }
   } catch (error) {
