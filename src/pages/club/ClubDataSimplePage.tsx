@@ -1,9 +1,8 @@
 import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
-import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import { clubDataRequestedRangeError } from '../../lib/clubDataRange';
 import ClubDataSourceDetails, {
   type ClubDataSourceRow,
 } from '../../components/club/ClubDataSourceDetails';
-import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
 import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDataFilters';
 /**
  * CLUB DATA (the owner's everyday screen)
@@ -40,7 +39,7 @@ import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDat
  * New URLs carry dataStart/dataEnd; older exclusive dataUntil links remain readable.
  * The calendar selects inclusive dates: the same date twice selects one day.
  * A fresh visit and every 1 Day preset start on today; explicit links retain their range.
- * Boundary timestamps on the page are Chicago time.
+ * The date picker displays inclusive calendar dates without converting them to local clock times.
  * The full operator report (union statement, per-player breakdown, export)
  * opens inside this page.
  */
@@ -55,7 +54,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
@@ -65,7 +64,6 @@ import styles from './ClubDataSimplePage.module.css';
 import {
   CLUB_DATA_PRESETS,
   type ClubDataPreset,
-  clubDataRangeDays,
   clubDataRangeError,
   readClubDataPreset,
   readClubDataRange,
@@ -74,7 +72,6 @@ import {
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
-import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
 import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
@@ -94,9 +91,8 @@ import {
   clubDataDayBasis,
   clubDataDayOn,
   clubDataDayRule,
-  clubDataWindowLabel,
+  clubDataSelectedDatesLabel,
   coverageNotices,
-  coverageWindowLabel,
   isCalendarDate,
   isUnionClubAnswer,
   UNION_BASIS_DEFINITIONS,
@@ -110,6 +106,7 @@ import {
 import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
 
 import { clubDataReportPath } from '../../utils/clubDataReportPath';
+
 const ClubReport = lazy(() => import('./ClubDataPage'));
 
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
@@ -344,7 +341,7 @@ export default function ClubDataSimplePage({
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const isToday = endDate >= today;
   const startDate = customStart ?? addDays(endDate, -(preset - 1));
-  const rangeDays = clubDataRangeDays(startDate, endDate);
+  const calendarSelected = !!requestedRange || preset > 14;
   const stakesApply = game === 'ALL' || game === 'HOLDEM' || game === 'OMAHA' || game === 'MIXED';
   const scopeKey = JSON.stringify([
     userId,
@@ -588,12 +585,6 @@ export default function ClubDataSimplePage({
     return () => window.clearTimeout(id);
   }, [searchInput]);
 
-  const shift = (dir: -1 | 1) => {
-    const next = addDays(endDate, dir * rangeDays);
-    const end = next > today ? today : next;
-    selectDates(customStart !== null ? addDays(end, -(rangeDays - 1)) : null, end);
-  };
-
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
   // Every label states the basis the visible answer was given on.
@@ -610,12 +601,6 @@ export default function ClubDataSimplePage({
       visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS ||
       visibleSnapshot?.member_fees?.day_basis === 'America/Chicago 02:00');
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
-  const completeWindowLabel =
-    (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, answerBasis);
-  const windowLabel = isToday
-    ? completeWindowLabel.replace(/ To .*$/, ' To Now')
-    : completeWindowLabel;
   const startClock = clubDataBoundaryClock(answerBasis, startDate);
   const boundaryClock = clubDataBoundaryClock(answerBasis, addDays(endDate, 1));
   const feeText = isDownline
@@ -636,24 +621,10 @@ export default function ClubDataSimplePage({
     !!userId &&
     (currentScope ?? authorizedScope) === 'club';
   const reportOpen = canOpenReport && searchParams.get('report') === 'open';
-  const openReport = (games = false) => {
-    const query = clubDataContextQuery(searchParams, {
-      start: startDate,
-      end: endDate,
-      game,
-      stakes,
-      search: searchInput,
-    });
-    if (customStart === null) {
-      if (preset !== 1) query.set('dataDays', String(preset));
-      query.delete('dataStart');
-      if (!requestedRange) query.delete('dataEnd');
-    }
-    if (games) query.set('dataTab', 'games');
-    navigate(
-      clubDataReportPath(clubParam || clubKey, query, games ? '#club-data-panel-games' : '')
-    );
-  };
+  const reportQuery = new URLSearchParams(searchParams);
+  reportQuery.set('dataGame', game);
+  reportQuery.set('dataStakes', stakes);
+  reportQuery.set('dataSearch', searchInput);
   const closeReport = () => {
     const query = new URLSearchParams(searchParams);
     query.delete('report');
@@ -692,18 +663,25 @@ export default function ClubDataSimplePage({
           onClose={() => setSourceRow(null)}
         />
       )}
-      <Header
-        clubName={clubName}
-        /* The full report is the whole club's; an agent's view is his own. */
-        onReport={canOpenReport ? () => (reportOpen ? closeReport() : openReport()) : undefined}
-        reportOpen={reportOpen}
-      />
+      <Header clubName={clubName} />
 
       {reportOpen && (
         <section aria-label="Club Report" id="club-data-report">
-          <Suspense fallback={<p role="status">Loading Club Report</p>}>
-            <ClubReport inline />
-          </Suspense>
+          <div className="arena-switch">
+            <button
+              type="button"
+              aria-expanded="true"
+              aria-controls="club-report-content"
+              onClick={closeReport}
+            >
+              Close Club Report
+            </button>
+          </div>
+          <div id="club-report-content">
+            <Suspense fallback={<p role="status">Loading Club Report</p>}>
+              <ClubReport inline />
+            </Suspense>
+          </div>
         </section>
       )}
       {visibleSnapshot?.reporting_scope === 'union' && (
@@ -712,71 +690,50 @@ export default function ClubDataSimplePage({
       {isDownline && <div className={styles.agentScopeBanner}>You And Your Downline</div>}
 
       <section className="arena-case">
-        <h2 className="arena-section-title">
-          Reporting Window <small>{CLUB_DATA_ZONE_LABEL}</small>
-        </h2>
-        <div className={styles.rangeBar}>
+        <h2 className="arena-section-title">Reporting Window</h2>
+        <div className="arena-switch" role="group" aria-label="Date Range">
+          {CLUB_DATA_PRESETS.filter((days) => days <= 14).map((days) => (
+            <button
+              key={days}
+              type="button"
+              aria-pressed={!calendarSelected && preset === days}
+              onClick={() => {
+                selectDates(null, clubDataToday(new Date(), dayBasisRef.current), days);
+                setEditingDates(false);
+              }}
+            >
+              {days === 1 ? '1 Day' : `${days} Days`}
+            </button>
+          ))}
           <button
             type="button"
-            className={styles.arrow}
-            onClick={() => shift(-1)}
-            aria-label="Previous Period"
-            disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M16 3 L5 12 L16 21 Z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className={styles.rangeChip}
-            aria-label="Select Date Range"
+            aria-haspopup="dialog"
+            aria-describedby={
+              calendarSelected && !reportRangeError ? 'club-data-selected-dates' : undefined
+            }
             aria-expanded={editingDates}
-            aria-controls="club-data-date-range"
-            onClick={() => {
-              setEditingDates((open) => !open);
-            }}
+            aria-controls={editingDates ? 'club-data-date-range' : undefined}
+            className={calendarSelected ? 'active' : undefined}
+            onClick={() => setEditingDates(true)}
           >
-            <span>{windowLabel}</span>
-            <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
-          </button>
-          <button
-            type="button"
-            className={styles.arrow}
-            onClick={() => shift(1)}
-            disabled={isToday}
-            aria-label="Next Period"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 3 L19 12 L8 21 Z" />
-            </svg>
+            Calendar
           </button>
         </div>
-
+        {calendarSelected && !reportRangeError && (
+          <p id="club-data-selected-dates" className={styles.selectedDates} aria-live="polite">
+            {clubDataSelectedDatesLabel(startDate, endDate)}
+          </p>
+        )}
         {reportRangeError && (
           <p role="alert" className={styles.liveLine}>
             {reportRangeError}
           </p>
         )}
-        <ClubDataReportGuide
-          start={startDate}
-          end={endDate}
-          basis={answerBasis}
-          union={unionBasis}
-        />
-
         {editingDates && (
           <ClubDataRangeCalendar
             start={startDate}
             end={endDate}
             today={today}
-            zoneLabel={
-              answerBasis === 'accounting'
-                ? 'Pacific Accounting Dates'
-                : answerBasis === 'pacific'
-                  ? 'Pacific Calendar Dates'
-                  : 'Chicago Calendar Dates'
-            }
             onClose={() => setEditingDates(false)}
             onApply={(first, last) => {
               selectDates(first, last);
@@ -784,32 +741,10 @@ export default function ClubDataSimplePage({
             }}
           />
         )}
-        <div className={`${styles.segment} arena-switch`} role="group" aria-label="Date Range">
-          {CLUB_DATA_PRESETS.filter((days) => days <= 14 || days === preset).map((p) => (
-            <button
-              key={p}
-              type="button"
-              aria-pressed={customStart === null && preset === p}
-              className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
-              onClick={() => {
-                selectDates(null, clubDataToday(new Date(), dayBasisRef.current), p);
-                setEditingDates(false);
-              }}
-            >
-              {p === 1 ? '1 Day' : `${p} Days`}
-            </button>
-          ))}
-        </div>
       </section>
       <section className="arena-case">
         <h2 className="arena-section-title">Club Totals</h2>
         <dl className={styles.stats} aria-busy={loading} aria-label="Club Totals">
-          <div className={`${styles.stat} arena-meter`}>
-            <dt className={styles.statLabel}>Games</dt>
-            <dd className={styles.statValue}>
-              {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
-            </dd>
-          </div>
           <div className={`${styles.stat} arena-meter`}>
             <dt className={styles.statLabel}>
               <button
@@ -853,11 +788,7 @@ export default function ClubDataSimplePage({
           <div className={`${styles.stat} arena-meter`}>
             <dt className={styles.statLabel}>
               {isDownline ? (
-                downlineAccountingFees ? (
-                  'Downline Fees'
-                ) : (
-                  'My Fees Earned'
-                )
+                'Fee'
               ) : (
                 <button
                   type="button"
@@ -879,60 +810,36 @@ export default function ClubDataSimplePage({
               {feeText}
             </dd>
           </div>
+          <div className={`${styles.stat} arena-meter`}>
+            <dt className={styles.statLabel}>Games</dt>
+            <dd className={styles.statValue}>
+              {summary ? Number(summary.games).toLocaleString('en-US') : '-'}
+            </dd>
+          </div>
         </dl>
-        {visibleSnapshot && !isDownline && (
-          <ClubDataReconciliation
-            basis={visibleSnapshot.accounting_basis}
-            coverage={visibleSnapshot.accounting_coverage}
-            range={visibleSnapshot.range}
-            reconciliation={summary?.reconciliation}
-            generatedAt={visibleSnapshot?.generated_at}
-            onPlayers={() => setBreakdown('total_winnings')}
-            onGames={() => openReport(true)}
-          />
-        )}
-        {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
-          <ClubDataByClub
-            clubs={visibleSnapshot.clubs}
-            end={endDate}
-            start={startDate}
-            filters={{ game, stakes, search: searchInput }}
-          />
-        )}
-        {breakdown && visibleSnapshot && clubUuid && userId && (
-          <ClubDataTotalsBreakdown
-            key={scopeKey}
-            clubId={clubUuid}
-            start={startDate}
-            end={endDate}
-            basis={answerBasis}
-            game={game}
-            stakes={stakesApply ? stakes : 'ALL'}
-            search={search || null}
-            metric={breakdown}
-            onClose={() => setBreakdown(null)}
-          />
-        )}
-        {summary &&
-          summary.running_mtt_entries !== undefined &&
-          summary.running_mtt_entries !== null && (
-            <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-              <dt>Unfinished MTT Entries</dt>
-              <dd
-                className={inkFor(summary.running_mtt_entries)}
-                title={formatMoney(summary.running_mtt_entries)}
-              >
-                {formatMoney(summary.running_mtt_entries)}
-              </dd>
-            </dl>
-          )}
-        {unionBasis && summary && typeof summary.on_felt === 'number' && (
-          <dl className={styles.runningLine} aria-label="Chips On The Felt">
-            <dt>On The Felt Now</dt>
-            <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
-          </dl>
-        )}
       </section>
+      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+        <ClubDataByClub
+          clubs={visibleSnapshot.clubs}
+          end={endDate}
+          start={startDate}
+          filters={{ game, stakes, search: searchInput }}
+        />
+      )}
+      {breakdown && visibleSnapshot && clubUuid && userId && (
+        <ClubDataTotalsBreakdown
+          key={scopeKey}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          basis={answerBasis}
+          game={game}
+          stakes={stakesApply ? stakes : 'ALL'}
+          search={search || null}
+          metric={breakdown}
+          onClose={() => setBreakdown(null)}
+        />
+      )}
       <div className={styles.liveRow}>
         <div className={styles.liveLine} role="status">
           {readMessage ? (
@@ -1005,7 +912,18 @@ export default function ClubDataSimplePage({
       </div>
 
       <section className="arena-case">
-        <h2 className="arena-section-title">Game Reports</h2>
+        <h2 className="arena-section-title">
+          {canOpenReport && !reportOpen ? (
+            <Link
+              className={styles.reportLink}
+              to={clubDataReportPath(clubParam || clubKey, reportQuery, '#club-data-report')}
+            >
+              Game Reports
+            </Link>
+          ) : (
+            'Game Reports'
+          )}
+        </h2>
         <label className={styles.search}>
           <input
             type="search"
@@ -1160,37 +1078,8 @@ export function headerTitle(clubName: string | null | undefined): string {
   return name ? `${name.toUpperCase()} - CLUB DATA` : 'Club Data';
 }
 
-function Header({
-  onReport,
-  clubName,
-  reportOpen = false,
-}: {
-  onReport?: () => void;
-  clubName?: string | null;
-  reportOpen?: boolean;
-}) {
-  return (
-    <>
-      <ArenaWorkspaceHeader
-        area="data"
-        title="Club Data"
-        context={clubName}
-        subtitle="Club Reporting"
-      />
-      {onReport && (
-        <nav className="arena-switch" aria-label="Club Reports">
-          <button
-            type="button"
-            aria-expanded={reportOpen}
-            aria-controls="club-data-report"
-            onClick={onReport}
-          >
-            {reportOpen ? 'Close Club Report' : 'Open Club Report'}
-          </button>
-        </nav>
-      )}
-    </>
-  );
+function Header({ clubName }: { clubName?: string | null }) {
+  return <ArenaWorkspaceHeader area="data" title="Club Data" context={clubName} />;
 }
 
 function SpadeMark() {

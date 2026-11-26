@@ -65,7 +65,7 @@ async function requireDataRouteReady(page: import('@playwright/test').Page, rout
     await expect(page.getByRole('heading', { name: EVERYDAY_CLUB_DATA_HEADING })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole('button', { name: 'Open Club Report', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toBeVisible();
     await expect(
       page.getByRole('list', { name: 'Games' }).or(page.getByText('No Data In This Period.'))
     ).toBeVisible({
