@@ -32,14 +32,29 @@ export const STALE_ACCOUNT_AGE_MS = 162 * 60_000;
  * ("Refusing to clean more than 20 stale accounts at once"), and it ran only
  * inside certification jobs. Once residue passed 20 the recovery could never
  * run again, and the queue grew to 429 PostDeploy / crest_cert identities and
- * three live 'Crest Cert' clubs. It now works through the inventory in
- * batches until it is empty or its time budget is spent, re-reading the
- * inventory between batches; the hourly Cert Residue Sweep workflow
+ * three live 'Crest Cert' clubs. It now works through the inventory page
+ * by page until it ends or its time budget is spent (STALE_INVENTORY_PAGE
+ * below); the hourly Cert Residue Sweep workflow
  * (.github/workflows/cert-residue-sweep.yml) gives it a long budget, and a
  * certification job's own cleanup a short one. The 162-minute age floor
  * (STALE_ACCOUNT_AGE_MS) is unchanged: nothing younger is ever a candidate.
  */
-const STALE_ACCOUNT_BATCH = 20;
+/*
+ * THE INVENTORY IS WALKED PAGE BY PAGE (2026-11-25).
+ *
+ * fn_ca_stale_certification_accounts returns only the 21 oldest listed
+ * identities, and the sweep keeps some identities for good (the owner of
+ * record of a retired fixture, a player of record of its finished game): a
+ * kept identity is never deleted, so it never leaves the listing. On
+ * 2026-11-25 the listing held 21 and every stale one was kept, with Rabbit
+ * Hunt Certification adding one a day. A page full of identities no door
+ * removes hides every newer stale identity, which is the failure of
+ * 2026-11-14 (39 filled the LIMIT 21) and of 2026-10-31 above. The sweep now
+ * reads fn_ca_stale_certification_accounts_after (20261125235742): the same
+ * listing, strictly after the last identity of the previous page, until a
+ * short page ends it or the time budget is spent.
+ */
+export const STALE_INVENTORY_PAGE = 21;
 export const STALE_CLEANUP_DEFAULT_BUDGET_MS = 6 * 60_000;
 function staleCleanupBudgetMs(environment, budgetMs) {
   if (Number.isFinite(budgetMs) && budgetMs > 0) return budgetMs;
@@ -1134,11 +1149,18 @@ export async function cleanupStaleProductionE2EAccounts({
   const budget = staleCleanupBudgetMs(environment, budgetMs);
   const startedAt = clock();
   const outOfTime = () => clock() - startedAt >= budget;
-  const inventory = async () => {
+  const readPage = async (after) => {
     const accounts = await serviceRequest(
       configuration,
-      '/rest/v1/rpc/fn_ca_stale_certification_accounts',
-      { method: 'POST', body: JSON.stringify({ p_before: cutoff }) },
+      '/rest/v1/rpc/fn_ca_stale_certification_accounts_after',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          p_before: cutoff,
+          p_after_created_at: after ? after.created_at : null,
+          p_after_id: after ? after.id : null,
+        }),
+      },
       fetchImpl
     );
     if (!Array.isArray(accounts)) throw new Error('Stale account query returned a non-array body.');
@@ -1154,6 +1176,10 @@ export async function cleanupStaleProductionE2EAccounts({
         throw new Error('Refusing an invalid stale post-deploy account candidate.');
       }
     }
+    // A page that does not move forward would be read for ever: refuse it.
+    if (after && accounts.some((account) => account.id === after.id)) {
+      throw new Error('Stale account inventory returned a page that does not advance.');
+    }
     return accounts;
   };
   // ONE REFUSED ACCOUNT NO LONGER STRANDS THE REST (2026-10-26). This loop
@@ -1165,26 +1191,25 @@ export async function cleanupStaleProductionE2EAccounts({
   // reached. Each account is now recovered on its own; any that fails is still
   // reported, all together, after every other account has been tried.
   //
-  // Every identity is attempted at most once per run: one that fails or is
-  // kept as an owner of record is still in the next inventory read, and must
-  // not be retried in a loop.
-  const attempted = new Set();
+  // Every identity is attempted at most once per run: each page starts
+  // strictly after the last identity of the page before it, so one that fails
+  // or is kept as an owner or player of record is never read twice.
   const failures = [];
   const keptOwners = [];
   const keptPlayers = [];
   let recovered = 0;
   let seen = 0;
   let remaining = 0;
+  let moreBehind = false;
+  let after = null;
   for (;;) {
-    const pending = (await inventory()).filter((account) => !attempted.has(account.id));
-    if (!pending.length) break;
-    if (outOfTime()) {
-      remaining = pending.length;
-      break;
-    }
-    for (const account of pending.slice(0, STALE_ACCOUNT_BATCH)) {
+    const page = await readPage(after);
+    if (!page.length) break;
+    const fullPage = page.length >= STALE_INVENTORY_PAGE;
+    let handled = 0;
+    for (const account of page) {
       if (outOfTime()) break;
-      attempted.add(account.id);
+      handled += 1;
       seen += 1;
       try {
         // A certification run that died between creating its fixture clubs and
@@ -1252,12 +1277,16 @@ export async function cleanupStaleProductionE2EAccounts({
         failures.push(error);
       }
     }
-    // The inventory is everything older than a FIXED cutoff, so it can only
-    // shrink: a pass that covered the whole of it leaves nothing to re-read.
-    if (pending.length <= STALE_ACCOUNT_BATCH) {
-      if (outOfTime()) remaining = pending.filter((account) => !attempted.has(account.id)).length;
+    if (handled < page.length) {
+      // Out of time inside this page; a full page may have more behind it.
+      remaining = page.length - handled;
+      moreBehind = fullPage;
       break;
     }
+    // The inventory is everything older than a FIXED cutoff, in a fixed
+    // order: a short page is its end.
+    if (!fullPage) break;
+    after = page[page.length - 1];
   }
   if (recovered) {
     console.log(`[production-e2e-account] recovered ${recovered} stale account(s).`);
@@ -1267,7 +1296,7 @@ export async function cleanupStaleProductionE2EAccounts({
     // a backlog is never silent.
     console.log(
       `[production-e2e-account] stale cleanup time budget (${Math.round(budget / 1000)}s) spent; ` +
-        `${remaining} stale account(s) remain for the next sweep.`
+        `${remaining}${moreBehind ? ' or more' : ''} stale account(s) remain for the next sweep.`
     );
   }
   if (failures.length) {

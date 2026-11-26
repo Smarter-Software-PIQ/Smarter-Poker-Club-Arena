@@ -572,6 +572,14 @@ test.describe('Production Cashier Certification', () => {
         { timeout: 30_000 }
       )
       .toEqual({ loading: 0, walletVisible: true, walletVerified: true });
+    const ledger = balances.locator('.cashier-balance-ledger');
+    const walletRows = ledger.locator('[data-wallet-key]');
+    await expect(walletRows.last()).toHaveAttribute('data-wallet-key', 'diamonds');
+    await expect(walletRows.last().locator('.cashier-balance-unit')).toHaveText('Diamonds');
+    await expect(agentWallet.locator('.cashier-balance-unit')).toHaveText('Chips');
+    await expect(agentWallet).toHaveAccessibleDescription(
+      (await agentWallet.locator('.dw__row-value').innerText()) + ' Chips'
+    );
     const advancedWalletRows = balances.locator(
       '[data-wallet-key]:not([data-wallet-key="diamonds"]):not([data-wallet-key="backup_bbj"])'
     );

@@ -8,7 +8,7 @@ import {
 } from '../../lib/tableSettingIntents';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import StatsWorkspacePanel from '../../components/stats/StatsWorkspacePanel';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+import StatsSection from '../../components/stats/StatsSection';
 import {
   statsWorkspaceService,
   type StatsWorkspaceSnapshot,
@@ -419,7 +419,7 @@ export default function WorkspaceTab({
         onOpenLeakFinder={onOpenLeakFinder}
       />
       {isOwnProfile && workspace && (
-        <SpadeConsole eyebrow="Private Controls" title="Workspace Builder" pill="Saved" foot="foot">
+        <StatsSection eyebrow="Private Controls" title="Workspace Builder" status="Saved">
           <fieldset
             className="stats-workspace-composer"
             aria-label="Workspace Builder"
@@ -634,7 +634,7 @@ export default function WorkspaceTab({
               {notice}
             </p>
           </fieldset>
-        </SpadeConsole>
+        </StatsSection>
       )}
     </>
   );

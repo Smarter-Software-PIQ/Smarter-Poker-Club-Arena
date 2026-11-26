@@ -1,0 +1,3 @@
+# tests/heads-up-rematch-copies-follow-their-sources.law.test.ts
+
+Migration `20261126000707` (2026-11-25): the heads-up rematch's eight named-payer buy-in copies are re-derived from their installed sources by `smarter_private.heads_up_rematch_rederive()`, with the anchored replacements of `20261109021122` byte for byte, and every source is re-pinned in `public.ca_heads_up_rematch_sources`. Any later migration that can replace a pinned source (a direct definition, or its name in a file that runs `EXECUTE`) must call the derivation, or the build fails. Two migrations of 2026-11-19 replaced two sources without it and every accepted "Play Again" was refused as unavailable from 2026-11-20 to 2026-11-25.

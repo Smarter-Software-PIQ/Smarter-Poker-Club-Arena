@@ -40,7 +40,7 @@ export default function ClubDataRangeCalendar({
   start: string;
   end: string;
   today: string;
-  zoneLabel: string;
+  zoneLabel?: string;
   maxDays?: number;
   onApply: (first: string, last: string) => void;
   onClose: () => void;
@@ -145,7 +145,7 @@ export default function ClubDataRangeCalendar({
             {dateName(last)}
           </p>
           <p className={`sc-label sc-ink--muted ${styles.hint}`}>
-            {zoneLabel}. Both Dates Included.
+            {zoneLabel && `${zoneLabel}. `}Both Dates Included.
           </p>
           <div className={styles.navigation}>
             <button
