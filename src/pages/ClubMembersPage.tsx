@@ -285,9 +285,8 @@ export default function ClubMembersPage() {
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [filter, setFilter] = useState<RosterFilter>(() => readFilter(searchParams.get('view')));
   const [sortKey, setSortKey] = useState<RosterSort>(() => readSort(searchParams.get('sort')));
-  const [toolsOpen, setToolsOpen] = useState(false);
   // Daily figures and exact wallet balances can occupy several lines on phones.
-  const rowHeight = toolsOpen ? ROSTER_ROW_HEIGHT + 64 : ROSTER_ROW_HEIGHT + 28;
+  const rowHeight = ROSTER_ROW_HEIGHT + 64;
   const [winLossPeriod, setWinLossPeriod] = usePlayerPreference<WinLossPeriod>(
     'roster:winLossPeriod',
     'week',
@@ -1646,7 +1645,6 @@ export default function ClubMembersPage() {
             ? routeClub.replace(/[-_]/g, ' ')
             : undefined
         }
-        subtitle="Member Directory"
         id="members-page-title"
       />
       <PageBar
@@ -1654,7 +1652,7 @@ export default function ClubMembersPage() {
         className="members-page-bar"
         title="Player Management"
         summary="Find Any Member, Read Their Live Club Status, And Open The Controls Behind Their Seat."
-        status={toolsOpen ? (summaryStatusMessage ?? undefined) : undefined}
+        status={summaryStatusMessage ?? undefined}
         statusTone={
           summaryFreshness === 'failed'
             ? 'danger'
@@ -1662,16 +1660,12 @@ export default function ClubMembersPage() {
               ? 'attention'
               : 'default'
         }
-        metrics={
-          !toolsOpen
-            ? []
-            : [
-                { label: 'Total Members', value: stat(summary.counts.total) },
-                { label: 'Online Now', value: stat(summary.counts.online), tone: 'live' },
-                { label: 'At Tables', value: stat(summary.counts.seated) },
-                { label: 'Agents', value: stat(summary.counts.agents) },
-              ]
-        }
+        metrics={[
+          { label: 'Total Members', value: stat(summary.counts.total) },
+          { label: 'Online Now', value: stat(summary.counts.online), tone: 'live' },
+          { label: 'At Tables', value: stat(summary.counts.seated) },
+          { label: 'Agents', value: stat(summary.counts.agents) },
+        ]}
         steps={SIMPLE_TOUR}
       />
       <section
@@ -1741,172 +1735,6 @@ export default function ClubMembersPage() {
             )}
           </div>
         }
-        <button
-          type="button"
-          className="members-tools-trigger"
-          aria-expanded={toolsOpen}
-          aria-controls="roster-tools"
-          onClick={() => setToolsOpen((open) => !open)}
-        >
-          Sort And Roster Tools
-        </button>
-        <div id="roster-tools" hidden={!toolsOpen} className="arena-roster-tools">
-          {toolsOpen && (
-            <div className="members-filter-rail" role="group" aria-label="Saved Roster Views">
-              <label className="members-view-filter">
-                <span>Filter Players</span>
-                <select
-                  aria-label="Filter Players"
-                  disabled={!workspaceReady}
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value as RosterFilter)}
-                >
-                  {filters.map((value) => (
-                    <option key={value} value={value}>
-                      {FILTER_LABEL[value]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-
-          <div className="members-toolbar">
-            <button
-              type="button"
-              className="members-group-role"
-              aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
-              disabled={!workspaceReady || Boolean(searchQuery.trim())}
-              onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
-            >
-              Group By Role
-            </button>
-            {showWinLoss && (
-              <label className="members-sort members-winloss-period">
-                <span className="members-sort__label">Win / Loss</span>
-                <select
-                  aria-label="Win And Loss Period"
-                  value={winLossPeriod}
-                  onChange={(event) => setWinLossPeriod(event.target.value as WinLossPeriod)}
-                >
-                  {(Object.keys(WIN_LOSS_LABEL) as WinLossPeriod[]).map((value) => (
-                    <option key={value} value={value}>
-                      {WIN_LOSS_LABEL[value]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label className="members-sort">
-              <span className="members-sort__label">Sort By</span>
-              <select
-                aria-label="Sort Players"
-                disabled={!workspaceReady || Boolean(searchQuery.trim())}
-                value={searchQuery.trim() ? 'search' : sortKey}
-                onChange={(event) => setSortKey(event.target.value as RosterSort)}
-              >
-                {searchQuery.trim() && <option value="search">Player Name Matches</option>}
-                {sorts.map((value) => (
-                  <option key={value} value={value}>
-                    {SORT_LABEL[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {toolsOpen && canUseFinancialViews && (
-              <details className="members-columns">
-                <summary>Columns</summary>
-                <div className="members-columns__menu">
-                  {(['fees', 'downlines', 'activity', 'wallets'] as OptionalColumn[]).map(
-                    (column) => (
-                      <label key={column}>
-                        <input
-                          type="checkbox"
-                          disabled={!workspaceReady}
-                          checked={columns.has(column)}
-                          onChange={() => toggleColumn(column)}
-                        />
-                        {titleCase(column)}
-                      </label>
-                    )
-                  )}
-                </div>
-              </details>
-            )}
-
-            {toolsOpen && summary.capabilities.can_export && members.length > 0 && (
-              <button
-                type="button"
-                className="members-select-loaded"
-                aria-pressed={loadedSelected}
-                onClick={() =>
-                  setSelected(loadedSelected ? new Set() : selectLoadedRoster(loadedMemberIds))
-                }
-              >
-                {loadedSelected ? 'Clear Selection' : 'Select Loaded'}
-              </button>
-            )}
-
-            {toolsOpen && summary.capabilities.can_export && (
-              <button
-                type="button"
-                className="members-export"
-                onClick={() => void handleExport()}
-                disabled={loading || isRefreshing || isExporting || searchIsSettling}
-              >
-                {isExporting
-                  ? 'Preparing...'
-                  : selected.size
-                    ? `Export Selected (${selected.size})`
-                    : 'Export CSV'}
-              </button>
-            )}
-          </div>
-
-          {toolsOpen && summary.capabilities.can_export && (
-            <p className="members-count" role="note" aria-label="Export Scope">
-              <strong>Export Scope: </strong>
-              <span>
-                {selected.size
-                  ? 'Selected Players Matching The Current Filter And Search'
-                  : 'All Matching Players Across Every Page'}
-              </span>{' '}
-              Includes Authorized Fields Regardless Of Visible Columns.
-            </p>
-          )}
-          {toolsOpen && (
-            <details className="members-columns">
-              <summary>Metric Definitions</summary>
-              <div className="members-count">
-                <p>Downlines: Players In The Recursive Downline, Excluding This Player.</p>
-                <p>
-                  Player Wallet: Current Club Member Chip Balance. Agent Wallet: Current Active
-                  Agent Chip Balance. Wallets Are An Optional Column And Never Replace Fees.
-                </p>
-                <p>
-                  Fees Generated (Indiv. Fees): Cash Game Rake Attributed To This Player Plus Their
-                  Tournament Entry Fees. Downline Fees: Fees Generated By The Recursive Downline
-                  Only, Excluding This Player.
-                </p>
-                <p>
-                  Fees Are Read From The Club Fee Ledgers That Pay Agents And Rakeback. They Count
-                  From The Week Of October 12, 2026 (Monday Midnight Pacific) And Keep Accumulating
-                  From Then On, With No Weekly Reset. Wallets And Fees Are In Club Chips.
-                </p>
-                <p>
-                  Recent Activity Uses Login Time When Available, Otherwise Presence Or Club
-                  Activity Time. Online Includes Players At A Live Table Or With Fresh Presence.
-                </p>
-                <p>
-                  Select Loaded Selects Only Players Already Loaded. Export Without A Selection
-                  Reads All Authorized Matches Across Every Page. A Selection Is Further Limited By
-                  The Current Filter And Search.
-                </p>
-              </div>
-            </details>
-          )}
-        </div>
         {(loadSlow || !['live', 'connecting'].includes(connectionState)) && (
           <RosterConnectionStatus
             state={connectionState}
@@ -1953,49 +1781,13 @@ export default function ClubMembersPage() {
               ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players`
               : `Showing ${members.length.toLocaleString()} Previously Verified Players. Current Filter And Search Not Yet Verified.`
             : 'Directory Not Yet Verified.'}{' '}
-          {toolsOpen && summary.capabilities.can_export
+          {summary.capabilities.can_export
             ? `${selected.size.toLocaleString()} Loaded Players Selected. Selection Limit ${MAX_ROSTER_SELECTION.toLocaleString()}.`
             : ''}
         </p>
-        {exportOperation &&
-          exportOperation.owner === exportScopeRef.current &&
-          summary.capabilities.can_export && (
-            <p
-              className="members-count"
-              role="status"
-              aria-label="Export Operation"
-              aria-live="polite"
-              data-operation-state={exportOperation.state}
-            >
-              {exportOperation.state === 'preparing'
-                ? 'Preparing Export.'
-                : exportOperation.state === 'success'
-                  ? `${exportOperation.rowCount?.toLocaleString()} Players Exported. CSV Prepared. Download Requested.`
-                  : exportOperation.state === 'empty'
-                    ? 'No Matching Players. No CSV Download Started.'
-                    : `Export Failed. ${titleCase(exportOperation.message ?? 'Could Not Export The Roster')}`}{' '}
-              {exportOperation.selectedCount
-                ? `${exportOperation.selectedCount.toLocaleString()} Selected Loaded Players.`
-                : 'All Matching Players Across Every Page.'}{' '}
-              Filter: {FILTER_LABEL[exportOperation.filter]}. Sort:{' '}
-              {exportOperation.searchApplied
-                ? 'Player Name Matches'
-                : SORT_LABEL[exportOperation.sort]}
-              . Search: {exportOperation.searchApplied ? 'Applied' : 'None'}.
-              {exportOperation.auditId ? ` Audit Reference: ${exportOperation.auditId}.` : ''}
-            </p>
-          )}
-        {toolsOpen && resolvedClubId && user?.id && (
-          <PlayerChangeHistory
-            key={`history:${resolvedClubId}:${user.id}`}
-            clubId={resolvedClubId}
-            viewerId={user.id}
-            enabled={!accessDenied && ['owner', 'co_owner', 'admin'].includes(summary.viewer_role)}
-          />
-        )}
       </section>
 
-      {toolsOpen && summary.capabilities.can_export && selected.size > 0 && (
+      {summary.capabilities.can_export && selected.size > 0 && (
         <div className="members-bulk" role="region" aria-label="Selected Players">
           <strong>{selected.size.toLocaleString()} Selected</strong>
           <button type="button" onClick={() => setSelected(selectLoadedRoster(loadedMemberIds))}>
@@ -2021,6 +1813,87 @@ export default function ClubMembersPage() {
           scope={summary.viewer_role === 'owner' ? 'club' : 'downline'}
         />
       )}
+      <div
+        className="members-toolbar members-display-controls"
+        role="group"
+        aria-label="Roster Display"
+      >
+        <label className="members-view-filter">
+          <span>Filter Players</span>
+          <select
+            aria-label="Filter Players"
+            disabled={!workspaceReady}
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as RosterFilter)}
+          >
+            {filters.map((value) => (
+              <option key={value} value={value}>
+                {FILTER_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="members-group-role"
+          aria-pressed={!searchQuery.trim() && sortKey === 'hierarchy'}
+          disabled={!workspaceReady || Boolean(searchQuery.trim())}
+          onClick={() => setSortKey(sortKey === 'hierarchy' ? 'name' : 'hierarchy')}
+        >
+          Group By Role
+        </button>
+        {showWinLoss && (
+          <label className="members-sort members-winloss-period">
+            <span className="members-sort__label">Win / Loss</span>
+            <select
+              aria-label="Win And Loss Period"
+              value={winLossPeriod}
+              onChange={(event) => setWinLossPeriod(event.target.value as WinLossPeriod)}
+            >
+              {(Object.keys(WIN_LOSS_LABEL) as WinLossPeriod[]).map((value) => (
+                <option key={value} value={value}>
+                  {WIN_LOSS_LABEL[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="members-sort">
+          <span className="members-sort__label">Sort By</span>
+          <select
+            aria-label="Sort Players"
+            disabled={!workspaceReady || Boolean(searchQuery.trim())}
+            value={searchQuery.trim() ? 'search' : sortKey}
+            onChange={(event) => setSortKey(event.target.value as RosterSort)}
+          >
+            {searchQuery.trim() && <option value="search">Player Name Matches</option>}
+            {sorts.map((value) => (
+              <option key={value} value={value}>
+                {SORT_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {canUseFinancialViews && (
+          <details className="members-columns">
+            <summary>Columns</summary>
+            <div className="members-columns__menu">
+              {(['fees', 'downlines', 'activity', 'wallets'] as OptionalColumn[]).map((column) => (
+                <label key={column}>
+                  <input
+                    type="checkbox"
+                    disabled={!workspaceReady}
+                    checked={columns.has(column)}
+                    onChange={() => toggleColumn(column)}
+                  />
+                  {titleCase(column)}
+                </label>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
       <div
         className="members-list"
         role="list"
@@ -2067,9 +1940,9 @@ export default function ClubMembersPage() {
                 total={filteredTotal}
                 query={debouncedSearch}
                 onOpen={openMember}
-                selectable={toolsOpen && summary.capabilities.can_export}
+                selectable={summary.capabilities.can_export}
                 simpleMode
-                showColumns={toolsOpen}
+                showColumns
                 selected={selected.has(member.user_id)}
                 onSelect={toggleSelected}
                 columns={columns}
@@ -2096,6 +1969,113 @@ export default function ClubMembersPage() {
             : `Loaded ${members.length.toLocaleString()} Of ${filteredTotal.toLocaleString()}`}
         </div>
       )}
+      <div className="members-roster-footer">
+        {summary.capabilities.can_export && (
+          <div className="members-toolbar" role="group" aria-label="Roster Export">
+            {members.length > 0 && (
+              <button
+                type="button"
+                className="members-select-loaded"
+                aria-pressed={loadedSelected}
+                onClick={() =>
+                  setSelected(loadedSelected ? new Set() : selectLoadedRoster(loadedMemberIds))
+                }
+              >
+                {loadedSelected ? 'Clear Selection' : 'Select Loaded'}
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="members-export"
+              onClick={() => void handleExport()}
+              disabled={loading || isRefreshing || isExporting || searchIsSettling}
+            >
+              {isExporting
+                ? 'Preparing...'
+                : selected.size
+                  ? `Export Selected (${selected.size})`
+                  : 'Export CSV'}
+            </button>
+          </div>
+        )}
+        {summary.capabilities.can_export && (
+          <p className="members-count" role="note" aria-label="Export Scope">
+            <strong>Export Scope: </strong>
+            <span>
+              {selected.size
+                ? 'Selected Players Matching The Current Filter And Search'
+                : 'All Matching Players Across Every Page'}
+            </span>{' '}
+            Includes Authorized Fields Regardless Of Visible Columns.
+          </p>
+        )}
+        <details className="members-columns">
+          <summary>Metric Definitions</summary>
+          <div className="members-count">
+            <p>Downlines: Players In The Recursive Downline, Excluding This Player.</p>
+            <p>
+              Player Wallet: Current Club Member Chip Balance. Agent Wallet: Current Active Agent
+              Chip Balance. Wallets Are An Optional Column And Never Replace Fees.
+            </p>
+            <p>
+              Fees Generated (Indiv. Fees): Cash Game Rake Attributed To This Player Plus Their
+              Tournament Entry Fees. Downline Fees: Fees Generated By The Recursive Downline Only,
+              Excluding This Player.
+            </p>
+            <p>
+              Fees Are Read From The Club Fee Ledgers That Pay Agents And Rakeback. They Count From
+              The Week Of October 12, 2026 (Monday Midnight Pacific) And Keep Accumulating From Then
+              On, With No Weekly Reset. Wallets And Fees Are In Club Chips.
+            </p>
+            <p>
+              Recent Activity Uses Login Time When Available, Otherwise Presence Or Club Activity
+              Time. Online Includes Players At A Live Table Or With Fresh Presence.
+            </p>
+            <p>
+              Select Loaded Selects Only Players Already Loaded. Export Without A Selection Reads
+              All Authorized Matches Across Every Page. A Selection Is Further Limited By The
+              Current Filter And Search.
+            </p>
+          </div>
+        </details>
+        {exportOperation &&
+          exportOperation.owner === exportScopeRef.current &&
+          summary.capabilities.can_export && (
+            <p
+              className="members-count"
+              role="status"
+              aria-label="Export Operation"
+              aria-live="polite"
+              data-operation-state={exportOperation.state}
+            >
+              {exportOperation.state === 'preparing'
+                ? 'Preparing Export.'
+                : exportOperation.state === 'success'
+                  ? `${exportOperation.rowCount?.toLocaleString()} Players Exported. CSV Prepared. Download Requested.`
+                  : exportOperation.state === 'empty'
+                    ? 'No Matching Players. No CSV Download Started.'
+                    : `Export Failed. ${titleCase(exportOperation.message ?? 'Could Not Export The Roster')}`}{' '}
+              {exportOperation.selectedCount
+                ? `${exportOperation.selectedCount.toLocaleString()} Selected Loaded Players.`
+                : 'All Matching Players Across Every Page.'}{' '}
+              Filter: {FILTER_LABEL[exportOperation.filter]}. Sort:{' '}
+              {exportOperation.searchApplied
+                ? 'Player Name Matches'
+                : SORT_LABEL[exportOperation.sort]}
+              . Search: {exportOperation.searchApplied ? 'Applied' : 'None'}.
+              {exportOperation.auditId ? ` Audit Reference: ${exportOperation.auditId}.` : ''}
+            </p>
+          )}
+        {resolvedClubId && user?.id && (
+          <PlayerChangeHistory
+            key={`history:${resolvedClubId}:${user.id}`}
+            clubId={resolvedClubId}
+            viewerId={user.id}
+            enabled={!accessDenied && ['owner', 'co_owner', 'admin'].includes(summary.viewer_role)}
+          />
+        )}
+      </div>
     </div>
   );
 }

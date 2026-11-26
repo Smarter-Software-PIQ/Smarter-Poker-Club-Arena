@@ -157,6 +157,11 @@ describe('heads-up rematch copies follow their sources', () => {
       );
     }
     expect(body.match(/RAISE EXCEPTION 'probe-unwind';/g)).toHaveLength(2);
+    // 2026-11-26: the first install was refused by a probe that re-raised the body's own
+    // P0001 refusal of an unknown payer. A P0001 is the probe passing; any other SQLSTATE
+    // (a body that cannot run) is not caught and still refuses the migration.
+    expect(body.match(/EXCEPTION WHEN raise_exception THEN\n {2}NULL;/g)).toHaveLength(2);
+    expect(body).not.toMatch(/WHEN OTHERS/);
   });
 
   it('the scan sees a direct replacement and a list-driven one, and not a longer name', () => {

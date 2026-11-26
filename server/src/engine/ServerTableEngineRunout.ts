@@ -1992,7 +1992,25 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         },
         true
       );
-      if (answer.priced) noteFire(horseRunItTwicePricedReceipt(answer.priced));
+      if (answer.priced) {
+        switch (horseRunItTwicePricedReceipt(answer.priced)) {
+          case 'horse_rit_priced_owner_cut':
+            noteFire('horse_rit_priced_owner_cut');
+            break;
+          case 'horse_rit_priced_equity_unknown':
+            noteFire('horse_rit_priced_equity_unknown');
+            break;
+          case 'horse_rit_priced_three':
+            noteFire('horse_rit_priced_three');
+            break;
+          case 'horse_rit_priced_multi':
+            noteFire('horse_rit_priced_multi');
+            break;
+          case 'horse_rit_priced_once':
+            noteFire('horse_rit_priced_once');
+            break;
+        }
+      }
       return answer.runs;
     }
     return horseRunItTwiceRuns({

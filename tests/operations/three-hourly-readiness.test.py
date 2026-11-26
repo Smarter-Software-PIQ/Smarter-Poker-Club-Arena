@@ -681,9 +681,9 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         )
         self.assertEqual(day_cycle["cycleId"], "2026-11-22T07")
         self.assertEqual(day_cycle["o3DeferKind"], "o3-deferral")
-        self.assertEqual(day_cycle["o3DeferStartUtc"], "2026-11-22T11:30:00Z")
-        self.assertEqual(day_cycle["o3DeferStartChicago"], "2026-11-22T05:30:00-06:00")
-        self.assertEqual(day_cycle["o3DeferStartChicagoLabel"], "2026-11-22 05:30:00 CST")
+        self.assertEqual(day_cycle["o3DeferStartUtc"], "2026-11-22T10:30:00Z")
+        self.assertEqual(day_cycle["o3DeferStartChicago"], "2026-11-22T04:30:00-06:00")
+        self.assertEqual(day_cycle["o3DeferStartChicagoLabel"], "2026-11-22 04:30:00 CST")
         self.assertEqual(day_cycle["o3ClearUtc"], "2026-11-22T13:10:00Z")
         self.assertEqual(day_cycle["o3ClearChicagoLabel"], "2026-11-22 07:10:00 CST")
         self.assertFalse(day_cycle["inO3DeferWindow"])
@@ -743,7 +743,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertEqual(open_cycle["cycleStartUtc"], "2026-11-22T13:00:00Z")
         self.assertEqual(open_cycle["cycleStartChicagoLabel"], "2026-11-22 07:00:00 CST")
         self.assertEqual(open_cycle["preparationCutoffUtc"], "2026-11-22T12:30:00Z")
-        self.assertEqual(open_cycle["o3DeferStartUtc"], "2026-11-22T11:30:00Z")
+        self.assertEqual(open_cycle["o3DeferStartUtc"], "2026-11-22T10:30:00Z")
         self.assertEqual(open_cycle["o3ClearUtc"], "2026-11-22T13:10:00Z")
         self.assertEqual(open_cycle["recommendedHoldStartUtc"], "2026-11-22T11:15:00Z")
         self.assertFalse(open_cycle["cutoffPassed"])
@@ -765,15 +765,15 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertEqual(g_freeze["minutesToClear"], 32.0)
         self.assertIsNone(g_freeze["nextDeferStartUtc"])
 
-        # 2. OPEN right at 10:15Z (04:15 CST): nextDefer is O3 at 11:30Z on three-hourly, 23:45 CST on daily
+        # 2. OPEN right at 10:15Z (04:15 CST): nextDefer is O3 at 10:30Z on three-hourly, 23:45 CST on daily
         g_open_3h = mod.compute_migration_gate(
             datetime(2026, 11, 22, 10, 15, tzinfo=timezone.utc), "three-hourly"
         )
         self.assertEqual(g_open_3h["status"], "OPEN")
         self.assertIsNone(g_open_3h["clearAtUtc"])
         self.assertEqual(g_open_3h["nextDeferKind"], "O3_DEFERRAL")
-        self.assertEqual(g_open_3h["nextDeferStartUtc"], "2026-11-22T11:30:00Z")
-        self.assertEqual(g_open_3h["nextDeferStartChicagoLabel"], "2026-11-22 05:30:00 CST")
+        self.assertEqual(g_open_3h["nextDeferStartUtc"], "2026-11-22T10:30:00Z")
+        self.assertEqual(g_open_3h["nextDeferStartChicagoLabel"], "2026-11-22 04:30:00 CST")
 
         g_open_daily = mod.compute_migration_gate(
             datetime(2026, 11, 22, 10, 15, tzinfo=timezone.utc), "daily"
@@ -782,9 +782,9 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertEqual(g_open_daily["nextDeferKind"], "NIGHTLY_FREEZE")
         self.assertEqual(g_open_daily["nextDeferStartUtc"], "2026-11-23T05:45:00Z")
 
-        # 3. O3_DEFERRAL daytime [cycleStart - 90m, cycleStart + 10m) for 07:00 CST (13:00Z)
+        # 3. O3_DEFERRAL daytime [cycleStart - 150m, cycleStart + 10m) for 07:00 CST (13:00Z)
         g_o3_start = mod.compute_migration_gate(
-            datetime(2026, 11, 22, 11, 30, tzinfo=timezone.utc), "three-hourly"
+            datetime(2026, 11, 22, 10, 30, tzinfo=timezone.utc), "three-hourly"
         )
         self.assertEqual(g_o3_start["status"], "O3_DEFERRAL")
         self.assertEqual(g_o3_start["cycleId"], "2026-11-22T07")
@@ -800,7 +800,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
             datetime(2026, 11, 22, 13, 10, 0, tzinfo=timezone.utc), "three-hourly"
         )
         self.assertEqual(g_after_o3["status"], "OPEN")
-        self.assertEqual(g_after_o3["nextDeferStartUtc"], "2026-11-22T14:30:00Z")
+        self.assertEqual(g_after_o3["nextDeferStartUtc"], "2026-11-22T13:30:00Z")
 
         # Daily cadence does NOT activate O3_DEFERRAL at 11:30Z
         g_daily_day = mod.compute_migration_gate(
@@ -827,7 +827,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
             datetime(2026, 3, 8, 9, 15, tzinfo=timezone.utc), "three-hourly"
         )
         self.assertEqual(g_sf_open["status"], "OPEN")
-        self.assertEqual(g_sf_open["nextDeferStartUtc"], "2026-03-08T10:30:00Z")
+        self.assertEqual(g_sf_open["nextDeferStartUtc"], "2026-03-08T09:30:00Z")  # 04:30 CDT, 150 min before 07:00 CDT
 
         g_fb_freeze = mod.compute_migration_gate(
             datetime(2026, 11, 1, 4, 50, tzinfo=timezone.utc), "three-hourly"
@@ -910,7 +910,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertIn("MIGRATION GATE", table)
         self.assertIn("NIGHTLY_FREEZE", table)
         self.assertIn("45000042559", table)
-        self.assertIn("2026-11-22T11:30:00Z", table)
+        self.assertIn("2026-11-22T10:30:00Z", table)
         self.assertNotIn("\u2014", table)
         self.assertNotIn("\u2013", table)
 
@@ -1342,9 +1342,10 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         # holding ordinary migrations immediately from that copy time.
         serving = _sha("0")
         head = _sha("a")
-        # 2026-11-23T14:02Z (08:02 CST): next cycle is 10:00 CST (16:00Z),
-        # O3 deferral starts at 14:30Z, gate is currently OPEN.
-        now = datetime(2026, 11, 23, 14, 2, tzinfo=timezone.utc)
+        # 2026-11-23T13:25Z (07:25 CST, inside the 07:10-07:30 install window):
+        # next cycle is 10:00 CST (16:00Z), O3 deferral starts at 13:30Z (150 min,
+        # O21 part 2), gate is currently OPEN.
+        now = datetime(2026, 11, 23, 13, 25, tzinfo=timezone.utc)
 
         def run_with_backups(backup_runs, backup_status_state="absent", backup_status_run=None):
             def gh_get(path):
@@ -1394,7 +1395,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
                 projection_fn=lambda _sha: "same-control",
             )
 
-        # Active workflow_dispatch Backup started at 13:56:39Z (before 14:30Z O3).
+        # Active workflow_dispatch Backup started at 13:16:39Z (before 13:30Z O3).
         active_report = run_with_backups(
             [
                 {
@@ -1403,7 +1404,7 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
                     "conclusion": None,
                     "event": "workflow_dispatch",
                     "head_sha": head,
-                    "created_at": "2026-11-23T13:56:39Z",
+                    "created_at": "2026-11-23T13:16:39Z",
                 }
             ]
         )
@@ -1411,10 +1412,10 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertTrue(adv["active"])
         self.assertEqual(adv["source"], "active_backup")
         self.assertEqual(adv["runId"], 45188945088)
-        self.assertEqual(adv["sinceUtc"], "2026-11-23T13:56:39Z")
+        self.assertEqual(adv["sinceUtc"], "2026-11-23T13:16:39Z")
         self.assertIn("copyHold:      ACTIVE NOW", mod.render_table(active_report))
 
-        # Certified SELECTABLE candidate copied at 13:20:00Z (before 14:30Z O3).
+        # Certified SELECTABLE candidate copied at 13:20:00Z (before 13:30Z O3).
         sel_report = run_with_backups(
             [
                 {

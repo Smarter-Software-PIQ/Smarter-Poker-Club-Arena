@@ -15,6 +15,7 @@
  */
 import { tournamentRowUnitCents, type TournamentTabProps } from './types';
 import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
+import satelliteTicket from '../../lobby/console-art/ticket.webp';
 import SatelliteCard from './SatelliteCard';
 import { useSatellites } from './useSatellites';
 import './SatellitesTab.css';
@@ -49,8 +50,10 @@ export default function SatellitesTab({ tournament, currentUserId }: TournamentT
 
   if (cards.length === 0) {
     return (
-      <div className="tab-pane-content sat-state" role="status">
-        No Upcoming Satellites Running For This Event.
+      <div className="tab-pane-content sat-state sat-state--empty" role="status">
+        <img src={satelliteTicket} alt="" width="88" height="70" />
+        <h3>No Upcoming Satellites</h3>
+        <p>No Qualifiers Are Scheduled For {tournament.name}.</p>
       </div>
     );
   }

@@ -1,10 +1,12 @@
 # holdemCommittedNoPairIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Measured harm, locked off-only as measured harm. Evidence NOT MET: the option is off-only in the registry (`OPTION_SWITCH_OFF_ONLY`, status `harm`, Antigravity Coordinator ruling of 2026-11-21 on PR #11634: value-only harm control `-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant; pot barreler not resolved) and the database refuses `on` for it once list migration 20261121184749 is installed (read `=== true`, release default off, no switch row). This file proposes no switch row. Decided 2026-11-21 on the recorded league runs (the Horse mirror and the scripted barreler not significant; the value-only harm control significantly negative, `z = -3.02`) and a replay on real audited decisions (`1` changed of `2734`); see Verdict.
+Owner order of 2026-11-17 11:49 America/Chicago. **State: OFF**, locked off-only as measured harm, and it stays so after the 2026-11-22 repair and grade below. Evidence NOT MET: the option is off-only in the registry (`OPTION_SWITCH_OFF_ONLY`, status `harm`, Antigravity Coordinator ruling of 2026-11-21 on PR #11634: value-only harm control `-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant; pot barreler not resolved) and the database refuses `on` for it once list migration 20261121184749 is installed (read `=== true`, release default off, no switch row). This file proposes no switch row. Update 2026-11-22: the EV pricing was repaired (`bf38179622d8`, `0878ee69f45e`; code in the dark Hold'em bundle PR #11812, stacked on the HORSE DECISIONS combo, open, not merged, read 2026-11-22) and the repaired code PASSED its pre-registered offline league grade `committed-no-pair-priced` (PRIMARY 6-max cash `+0.083 +/- 0.324 bb/100`, `z = +0.257`, equal-weight pooled over 4 seeds, a not-worse bar, not a measured gain; worst guarded cell `-0.561 +/- 0.619`, `z = -0.906`; CONTROL inert; `0` illegal, `0` truncated, `0` brain fallbacks; see `## Grade (2026-11-22)`). The lock is not lifted by that grade: its own Criterion 5 asks first for the scripted harm-control re-run (`nlh_committed_no_pair_is_priced_vs_value_barreler` and `_vs_pot_barreler`, seeds `20261120` and `20261121`) showing the `-0.21` harm gone, and an HVH48 Auditor D replay of the repaired code; neither is recorded. Only then may a separate switch-list migration, with the Coordinator's clearance, take it out of `OPTION_SWITCH_OFF_ONLY`. The 2026-11-21 text below (decided on the recorded league runs and a replay on real audited decisions, `1` changed of `2734`) is kept as history; it describes the code before the repair.
 
 Built by the Hold'em Strategy lane (2026-11-20, building on helper session_01TLQer8xSzdhPzuDRJXTPag) as the priced rebuild of the "Ace-High jamming gate" in Antigravity commits `633eec005d5` (HOLDEM STRATEGY) and `6496e1610f0` (HEADS UP), preserved locally as `archive/holdem-strategy/ace-high-jam-board-discipline-633eec0` and `archive/heads-up/bb-overfold-6496e16`. Those drafts (`if (aceHighJammingGate && cat === 1 && !holdemHoleDrawPresent && potFrac >= 0.40) return all_in`) forced a jam by hand class and an unmeasured `0.40` pot fraction; the brief and witness hands (`#59784826`, `#59784258`) asked for the opposite, that committed unpaired high-card hands stop jamming and calling off without positive expected value. This option drops the unmeasured `0.40` threshold and prices the spot by EV.
 
 ## What it does
+
+As built on 2026-11-20 (history: the repair of 2026-11-22, in the next section, replaces the fold share `f` and the value of the call).
 
 No-limit hold'em cash, one board, no bomb pot, no All-In-Or-Fold, not Lightning, not a tournament; heads-up; the committed branch of the facing-bet logic; the Horse holds no pair (made category 1) and no real hole draw (`holdemHoleDrawPresent` false). It takes the best of:
 
@@ -18,6 +20,28 @@ No-limit hold'em cash, one board, no bomb pot, no All-In-Or-Fold, not Lightning,
 - `Ec` hero's exact equity against the strongest `(1 - f)` of the bettor's range, where his range is the strongest prefix (by made strength now) of the unseen two-card combos whose mean hero equity first reaches `E` (`holdemCalledRangeEquity`: calibrated to the engine's own read). River exact, turn every river card, flop a fixed stride of 45 turn-river runouts; no random number.
 
 Stated assumptions and sample limitations, not unconditioned range measurements: the empirical raise-fold curve (`n = 124` person responses to Horse postflop raises across `<0.20`: `0/5`, `0.20-0.30`: `24/55`, `>=0.30`: `28/64`; pooled `52/124`) measures observed responses to raises Horses actually made rather than the bettor's full betting range, and `HOLDEM_DANGER_BOARD_BETTOR_SHOWN` (`n = 50` showdowns) in the companion module is likewise a called-hand showdown distribution biased toward hands that reached showdown rather than the bettor's unconditioned betting range; future betting after a call is not priced (the committed branch is the stack decision); the bettor is modeled as folding the weakest part of his range; a Horse bettor is priced at the people's fold curve. Off (absent, false or a truthy non-boolean): never entered, byte-identical.
+
+## The repair of 2026-11-22 (what the graded code does)
+
+Commits `bf38179622d8` (repair holdemCommittedNoPairIsPriced EV pricing and add dev grade cards) and `0878ee69f45e` (apply `smallPriceScale` once in `holdemCommittedJamFoldShare` with a HUD present), both in `server/src/engine/HorseHoldemCommittedPricing.ts`, with the wiring in `HorseLogic.decidePostflop` strictly inside the `opts.holdemCommittedNoPairIsPriced === true` gate (no default-on change, no SQL migration, no switch-list change). They repair the two defects named as the cause of the value-barreler harm:
+
+- **The jam's fold share** (`holdemCommittedJamFoldShare`). The three-bucket step (`HOLDEM_RAISE_FOLD_SHARE_BY_PRICE`, with its Laplace floor of `1/7` as the price goes to 0 and its cliff at `0.20`) is replaced by a smooth curve anchored on `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise` in `holdemEmpiricalPriors.ts` (`88/294 = 29.93%` at `avgVillainCallPrice = 0.1855`): below that price it falls quadratically (`(p / avg)^2`, so a near-free min-jam earns no fold equity), above it it rises linearly to at most `1.5x` (capped at `0.45`); with a HUD packet (`r.fRaise`, else the street's `fBet`) it is shrunk by `empiricalBayesShrink` (no `opponentHud/` import).
+- **The call's value** (`holdemCommittedContinuationBarrelShare` and `holdemCommittedNoPairPrice`). A call that is not all in on the flop or turn, with chips left behind (`remainingEff = min(stack - toCall, oppBehind) > 0`), no longer assumes a free showdown: his chance to bet the later street(s) is `estimateHoldemBetWhenCheckedTo` (river `1,619 / 5,180 = 31.25%` on the turn; on the flop `1 - (1 - pTurn)(1 - pRiver)`, the module's figure `58.03%`), shrunk with HorseMind `ExploitCounters`, and `EV(call) = max(0, E - pBar x Ebar) x (P + C)(1 - r) + pBar x max(0, Ebar x (P + C + 2B)(1 - r) - B) - C`, with `B = min(remainingEff, P + C)` and `Ebar` the equity against the barrelling part of his range. On the river, or when the call is all in, it is the closed form above.
+
+## Grade (2026-11-22, `committed-no-pair-priced`)
+
+Evidence: `/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/committed-no-pair-priced/` (`VERDICT.md`, `verdict.json`, `results.jsonl` sha256 `fce00c5db3a0983eaf10d334e743502c1a86c69eadaeac0195f8c6ecefa3834f`). Pre-registered manifest `grade-manifests/committed-no-pair-priced.manifest.json` (sha256 `66f9629e6f5072af19006a5f6666e60c231e7532cabfbaa367425b874739a914`, the sha the verdict records) and criteria `grade-manifests/CRITERIA-holdem-committed-no-pair-is-priced.md` (sha256 `bbf60bf9a25944bc1411d21c6f1df77202974f059644457b1644f09377e21fc6`; the file's sha256, recomputed 2026-11-22, matches). Harness `scripts/ops/grade-holdem-option.mjs` (schema `holdem-grade-harness/v1`, runner sha256 `a10e3a07f494868446854b812cbd2946af30a03b221078e4fdeea3207d80d6e5`, library sha256 `0be911c9b6414562b985f6510d9a097800dad6971dfc8cd8bdf530e2a69572de`), pinned HEAD `0878ee69f45e278ca67c455187a3efa324edcacf` (merged into the bundle by `729bf4c9151f`; `HorseHoldemCommittedPricing.ts` in the bundle is byte-identical to it), offline solver stores, 6,000 pairs per seed, seeds `20261122` to `20261125`.
+
+Arms: A `{ holdemCommittedNoPairIsPriced: true }` vs B `{}`. Bars (pre-registered): PRIMARY equal-weight pooled `z >= -1.0` (not worse); every PRIMARY and GUARD seed and the pooled GUARD above `-2.0 x` its own SE; CONTROL inert; no illegal, truncated or fallback action.
+
+- **Verdict: PASS.** All `9` cell exit codes `0`.
+- PRIMARY `cash6_holdem_committed_no_pair_is_priced` (6-max NLH cash): equal-weight pooled **`+0.083 +/- 0.324 bb/100` (`z = +0.257`)**; inverse-variance cross-check `+0.105 +/- 0.189` (`z = +0.555`). Seeds: `+0.238 +/- 0.677` (`z = +0.351`), `+0.509 +/- 0.889` (`+0.573`), `-0.561 +/- 0.619` (`-0.906`), `+0.147 +/- 0.213` (`+0.690`). `106` divergent pairs.
+- GUARD `hu_holdem_committed_no_pair_is_priced` (heads-up NLH cash): pooled inverse-variance `+0.857 +/- 0.952` (`z = +0.900`), equal-weight `+2.924 +/- 1.805`. Seeds: `+0.325 +/- 1.040`, `+2.368 +/- 3.857`, `+6.946 +/- 4.359`, `+2.058 +/- 4.144`.
+- Worst guarded cell: `cash6_holdem_committed_no_pair_is_priced` seed `20261124`, `-0.561 +/- 0.619` (`z = -0.906`), inside the `-2.0` bar.
+- CONTROL (`a = b = {}`, seed `20261122`): `0` parted hands, `0` divergent pairs, `0.000 bb/100` (inert).
+- Hard flags: `0` illegal, `0` truncated, `0` brain fallbacks.
+- VERIFIER-10 recompute: the verdict names the command (`node scripts/ops/grade-holdem-option.mjs recompute ... --criteria-sha=bbf60bf9... --compare=<verdict.json>`); no recompute result is recorded in the grade folder (not measured).
+- Not in this grade: the scripted harm-control field (the value barreler that measured the harm, and the pot barreler) and any human field. On the repaired code those are not measured.
 
 ## Measurements behind it (read-only, 2026-11-19/20, SQL in `scripts/horse-measure/sql/nlh-vpip-floor-and-danger-baseline.sql`)
 
@@ -36,10 +60,13 @@ Stated assumptions and sample limitations, not unconditioned range measurements:
 - fixed-input before/after replay across 40 seeds with live NLH cash options: on a committed unpaired Ace-high spot where the off line calls or jams off without positive EV, `holdemCommittedNoPairIsPriced: true` flips those negative-EV calls/jams to priced folds and emits the exact `holdem_committed_no_pair_*_priced` receipts;
 - off, unset and non-boolean values are byte-identical with zero receipts; pairs, draws, deep uncommitted stacks, multiway pots, tournaments and Lightning are untouched;
 - closed-form EV arithmetic, deterministic combo enumeration (`fastRandom` untouched), and measured constant citations verified.
+- since 2026-11-22 (`bf38179622d8`): the smooth all-in fold curve anchored on `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_RAISE.all_in_raise` (quadratic below the reference price), the continuation-barrel value of a non-all-in flop or turn call, the wiring inside the `=== true` gate, and the dev grade cards `cash6_holdem_committed_no_pair_is_priced` and `hu_holdem_committed_no_pair_is_priced` in `DEVELOPMENT_LEAGUE_CARDS` (`server/src/benchmark/HorseLeague.ts`, never `LEAGUE_MATCHUPS`).
 
 ## Replay
 
 Machine-read (README.md, "The Replay row"); the run row is written by the scorer and copied unedited.
+
+The run row below is of the code before the 2026-11-22 repair (checkout `5bfaa38d0e0`). The repaired code has not been replayed on real audited decisions (not measured); its grade's Criterion 5 asks for that replay before the lock can be lifted.
 
 - Replay: fixed 0; newlyWrong 0; changed 1; unchanged 2733; unjudged 1; set HVH48-D Hold'em cash vs people 48h; scorer d6b032d3204; source placed verdict-only; arm committed vs off; replayed 2734 of 3891
 
@@ -85,7 +112,8 @@ Card `nlh_committed_no_pair_is_priced_vs_value_barreler` (the harm control: bets
 - Mechanism, scope, receipts, law test, byte-identical off: MET.
 - Value against people: NOT MET (Horse mirror `-0.50 +/- 0.53 bb/100`, `z = -0.95`, not significant; scripted pot barreler `-0.21 +/- 0.70 bb/100`, `z = -0.30`, not significant; replay on HVH48-D changed `1` of `2734` decisions, unjudged; see Verdict).
 - Harm: MEASURED against the value-only harm control (`-0.21 +/- 0.07 bb/100`, `z = -3.02`, both seeds significant). Reported to the coordinator, who locked it off-only as measured harm on 2026-11-21 (list migration 20261121184749).
-- Do not switch on.
+- League grade of the repaired code (2026-11-22, offline, pre-registered): PASS on its not-worse bar (`+0.083 +/- 0.324 bb/100`, `z = +0.257`; see `## Grade (2026-11-22)`). Scripted harm-control re-run and replay of the repaired code: not measured.
+- Do not switch on: it is off-only, and the lock stands until the harm-control re-run and the replay of the repaired code are recorded and the Coordinator clears a switch-list migration.
 
 ## Verdict (2026-11-21)
 
@@ -95,3 +123,18 @@ Evidence NOT MET. The option stays OFF and no switch row is written.
 - Real-hand replay: the row passes the build's bar (`newlyWrong 0 <= fixed 0`) but carries no information on value: `1` changed decision in `2734`, unjudged.
 - Scripted field (2026-11-21): against the pot barreler, where the option acts on about `1` pair in `110`, the two seeds are `-0.74 +/- 1.01` and `+0.33 +/- 0.98` (together `-0.21 +/- 0.70`, `z = -0.30`): not resolved, no significant positive run. Against the value-only harm control both seeds are significantly negative (together `-0.21 +/- 0.07`, `z = -3.02`): measured harm.
 - Missing, exactly (before the harm result): a significant positive league result (`|mean| > 2` standard errors, positive) on a field where the option acts, three such runs for a default-on promotion. The Horse mirror diverged on `20`, `34` and `80` pairs of `6,000`; a card against the person-like bettor field that the fold curve was measured on (`n = 124` raise responses) is the run that can resolve it. A larger audited hold'em cash set would also be needed before the Replay row says anything: 48 hours of play reached the spot twice.
+
+## Verdict update (2026-11-22)
+
+Evidence NOT MET, unchanged. The repaired code's offline league grade is PASS on a not-worse bar (no measured gain, no measured harm in the Horse cash fields it played). What the 2026-11-21 lock rests on, the value-only harm control, has not been re-run on the repaired code, and the repaired code has not been replayed on real audited decisions. Until both are recorded here and the Coordinator clears a switch-list migration, the option stays in `OPTION_SWITCH_OFF_ONLY` and the database refuses `on`.
+
+## Rollback
+
+It is OFF, off-only, with no switch row, so nothing is rolled back today. If it is ever unlocked and switched on with the note `authority: holdemCommittedNoPairIsPriced docs/horse-option-authority.d/holdemCommittedNoPairIsPriced.md sha256 <64 hex>` (this file's sha256 at that time; `HorseOptionSwitch.optionSwitchOnNote`), roll back by switching it off: `node scripts/ops/horse-option-switch.mjs set holdemCommittedNoPairIsPriced off --rollback --reason <text> --authority <ref> --changed-by <actor>` (`fn_ca_horse_option_switch_set('holdemCommittedNoPairIsPriced', 'off', '<actor>', '<reason>')`). Off is byte-identical to the base brain (law test); no data migration.
+
+Rollback triggers (any one, while it is on):
+
+- any `horse_decision_refused_isolated` row;
+- any `phase15_execution_fallback` row;
+- `recoverableRequestErrors` above `0`;
+- new `horse_error_log` rows tied to it (a decision carrying one of its receipts, or an error in `HorseHoldemCommittedPricing.ts` or its `HorseLogic` site).

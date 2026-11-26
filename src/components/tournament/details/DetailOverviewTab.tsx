@@ -1,3 +1,4 @@
+import { useTournamentClockResume } from './useTournamentClockResume';
 import { DIAMOND_UNIT_CENTS } from '../../../../server/src/tournament/tournamentUnit';
 import { tournamentEntryTerms } from './entryTerms';
 import { displayTotalPool } from '../../../utils/tournamentPrizeFunding';
@@ -8,7 +9,7 @@ import {
 } from './useSatelliteAwards';
 import { lateRegEndMs } from '../../lobby/lateRegWindow';
 import type { LobbyTournamentRow } from '../../lobby/lobbyEntries';
-import { tournamentEntryWindowOpen } from '../../../utils/tournamentEntryWindow';
+import { tournamentEntryWindowOpen, tournamentInPlay } from '../../../utils/tournamentEntryWindow';
 import { useTournamentHandForHand } from '../../../hooks/useTournamentHandForHand';
 import {
   readTournamentFormat,
@@ -222,7 +223,7 @@ export default function DetailOverviewTab({
         moves: a running level clock, or a countdown to a start time. ── */
   const [tick, setTick] = useState(0);
   const status = String(tournament?.status || '').toUpperCase();
-  const isRunning = status === 'RUNNING';
+  const isRunning = tournamentInPlay(status);
   const handForHand = useTournamentHandForHand(tournament.id, currentUserId, isRunning);
   const closingStatus = tournamentClosingStatus(status);
   const isCompleted = closingStatus === 'Completed';
@@ -242,36 +243,8 @@ export default function DetailOverviewTab({
     tournamentStartsWhenFull(tournament) && !isRunning && !closingStatus && !isBagged;
   const { maintenanceBreak } = useMaintenanceBreak();
   const eventPaused = isRunning && tournament?.on_break === true;
-  const [observedPause, setObservedPause] = useState<{
-    id: string;
-    index: number;
-    anchor: number | null;
-  } | null>(null);
-  const clockAnchor = Date.parse(tournament?.level_started_at || '');
-  const clockIndex = Number(tournament?.current_level);
-  const pauseForThisEvent = observedPause?.id === tournament?.id ? observedPause : null;
-  const creditedClock = Boolean(
-    pauseForThisEvent &&
-    ((Number.isFinite(clockAnchor) &&
-      (pauseForThisEvent.anchor === null || clockAnchor > pauseForThisEvent.anchor)) ||
-      (Number.isInteger(clockIndex) && clockIndex > pauseForThisEvent.index))
-  );
-  // The engine clears on_break before it persists the resumed level anchor.
-  // Hold an observed pause through that gap; neither deadline expiry nor a
-  // global maintenance release can credit this tournament's clock.
-  const waitingForClock = isRunning && Boolean(pauseForThisEvent) && !creditedClock;
+  const waitingForClock = useTournamentClockResume(tournament, isRunning, eventPaused);
   const clockPaused = eventPaused || waitingForClock;
-  useEffect(() => {
-    if (eventPaused) {
-      setObservedPause({
-        id: tournament.id,
-        index: Number.isInteger(clockIndex) ? clockIndex : -1,
-        anchor: Number.isFinite(clockAnchor) ? clockAnchor : null,
-      });
-    } else if (!isRunning || observedPause?.id !== tournament?.id || creditedClock) {
-      setObservedPause(null);
-    }
-  }, [eventPaused, tournament?.id, clockIndex, clockAnchor, isRunning, creditedClock]);
 
   const isSatellite =
     String(tournament?.variant ?? '').toLowerCase() === 'satellite' ||
@@ -297,8 +270,8 @@ export default function DetailOverviewTab({
 
   const startsWithinADay =
     startAtMs !== null &&
-    startAtMs - Date.now() < 86_400_000 &&
-    startAtMs - Date.now() > -86_400_000;
+    startAtMs - serverNow() < 86_400_000 &&
+    startAtMs - serverNow() > -86_400_000;
 
   useEffect(() => {
     if (closingStatus || isBagged || (startsWhenFull && !isRunning)) return;
@@ -373,7 +346,7 @@ export default function DetailOverviewTab({
     };
     if (!tournament) return fallback;
     try {
-      const ls = tournamentService.getCurrentLevelState(tournament);
+      const ls = tournamentService.getCurrentLevelState(tournament, serverNow());
       const cur = ls.currentLevel as LooseLevel | null;
       const next = ls.nextLevel as LooseLevel | null;
       const durMin = Number(blindLevels?.[ls.levelIndex]?.duration) || 0;
@@ -399,7 +372,7 @@ export default function DetailOverviewTab({
   const secondsToStart = useMemo(() => {
     void tick;
     if (startAtMs === null) return 0;
-    return Math.max(0, Math.floor((startAtMs - Date.now()) / 1000));
+    return Math.max(0, Math.floor((startAtMs - serverNow()) / 1000));
   }, [startAtMs, tick]);
 
   const payoutStructure = useMemo(() => resolvePayoutStructure(tournament) ?? [], [tournament]);

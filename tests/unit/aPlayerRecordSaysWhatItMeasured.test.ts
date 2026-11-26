@@ -237,7 +237,7 @@ describe('the roster', () => {
 });
 
 describe('production roster mode readiness', () => {
-  it('requires the single directory and opens its tools before checking live totals', () => {
+  it('requires the single directory and its directly accessible sort before checking live totals', () => {
     const helper = PRODUCTION_PLAYERS.slice(
       PRODUCTION_PLAYERS.indexOf('async function openMembers('),
       PRODUCTION_PLAYERS.indexOf('async function expectContainedControls(')
@@ -246,15 +246,13 @@ describe('production roster mode readiness', () => {
     const noModeSelector = helper.indexOf(
       `getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0)`
     );
-    const openTools = helper.indexOf('await openRosterTools(page)');
-    expect(PRODUCTION_PLAYERS).toContain("name: 'Sort And Roster Tools', exact: true");
-    expect(PRODUCTION_PLAYERS).toContain(
-      "if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()"
-    );
-    expect(PRODUCTION_PLAYERS).toContain('await openRosterTools(reader.page)');
+    const directSort = helper.indexOf("name: 'Sort Players', exact: true");
     expect(pageReady).toBeGreaterThan(-1);
     expect(noModeSelector).toBeGreaterThan(pageReady);
-    expect(openTools).toBeGreaterThan(noModeSelector);
+    expect(directSort).toBeGreaterThan(noModeSelector);
+    expect(helper).toMatch(
+      /name: 'Sort And Roster Tools', exact: true \}\)\s*\)\.toHaveCount\(0\)/
+    );
     expect(helper).not.toMatch(/(?:localStorage|sessionStorage)\.(?:clear|removeItem)/);
   });
 });

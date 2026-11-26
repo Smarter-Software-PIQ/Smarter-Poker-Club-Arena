@@ -96,12 +96,18 @@ const BRAIN_FILES = [
   'engine/HorseOmahaPricedSites.ts',
   // The Omaha current-nuts raise (2026-11-06) reads its own option where it answers; registered 2026-11-20
   // (EMERG ledger L43).
+  // horseRunItTwiceIsPriced (2026-11-20, ledger-registered 2026-11-22, default off, OPTION_SWITCH_REFUSED):
+  // main-thread RIT switch reads opts.horseRunItTwiceIsPriced === true for ServerTableEngineRunout.horseRitRuns.
+  'engine/HorseRunItTwiceSwitch.ts',
   'engine/HorseOmahaCurrentNuts.ts',
   // Omaha bluff priced against the target (2026-11-19, default off): the outermost wager_rules
   // answer reads its own option and fires its own receipts where it answers.
   'engine/HorseOmahaBluffPricedAgainstTheTarget.ts',
   // R4 (2026-11-21, default off): checked-to flop/turn big-draw bets priced on lifetime HUD response.
   'engine/HorseOmahaBigDrawBetPriced.ts',
+  // Hold'em tournament raise defence (2026-11-24, default off): the wiring reads its three options and fires its
+  // own receipts where it answers.
+  'engine/HorseHoldemTournamentRaiseDefenceWiring.ts',
   // PLO-LEAD-6 (2026-11-24, default off): the out-of-position 3-bet range rule reads its two options and the cap and
   // fires its own receipts in its route.
   'engine/HorseOopReraiseRangeHoldsWiring.ts',
