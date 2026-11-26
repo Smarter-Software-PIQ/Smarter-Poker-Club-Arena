@@ -1,6 +1,6 @@
 # omahaRiverValueBetInPositionIsPriced: Authority For The Live Switch
 
-**Evidence NOT MET: grades in progress (league mirror, exploit probes, audited real-hand replay). Default OFF, not switched on.** This file does not authorize switching the option on.
+**Evidence NOT MET for switch-on. The audited replay bar passes (6 fixed / 2 newly wrong over two audits) and no league card or exploit probe is a significant loss, but the league is neutral (three of four mirror cards negative, none significant) and the probes against opponents who check strong hands lean negative (trapper PLO5 -7.88 +/- 5.83, caller PLO5 -1.27 +/- 0.92 bb/100): the checking range is the population's, not moved by his own river bet rate, so it treats a player who checks everything as capped. Default OFF; ready for shadow, not for on.** This file does not authorize switching the option on.
 
 Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for the audit leak "missed value bet, river, in position, heads-up" (HAND-AUDIT-PLO.md: 7 cases / 245 bb in the first audit; daily audit 2026-11-25T230000Z HARD #5). The option is registered, default off (read `=== true`), switchable live and scopable per game (`horse.omahaGameScope.omahaRiverValueBetInPositionIsPriced`).
 
@@ -9,6 +9,32 @@ Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for th
 PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, heads-up river, the opponent checked to the Horse (`server/src/engine/HorseOmahaRiverOpeningBet.ts`). In the wager_rules node, after omahaRiverCheckedToBetIsMeasured and before the river current-nuts floor: a final CHECK becomes the best of the engine's bet sizes when (a) that bet is a value bet, the Horse beating more than half of the hands that continue, and (b) EV(bet) - EV(check) exceeds the binomial error of his fold rate times d EV / d fold. EV(check) = showdown share x pot x (1 - rake); EV(bet B) = f' x pot x (1 - rake) + (1 - f') x (e_c x (pot + 2B) x (1 - rake) - B); a raise is scored as a call the Horse loses. It changes only a check into a bet, never a raise. Receipt `omaha_river_value_bet_priced`.
 
 His range: the measured strength histogram of a heads-up river checker (`HorseOmahaRiverOpeningRangeTables.json`, cell `checkfirst`, split by whether the turn had a wager), fitted by `scripts/ops/omaha-river-opening-range-fit.mjs` from PLO4/PLO5 cash hand_history Nov 17-24 (hole cards of showdown entries with mucked = false only; a checker who later folded or mucked counts as a weak hand). Card removal is exact: the strength bins are cut on the board's holdings, and each bin's weight is moved by the share of its holdings the Horse's cards and the known dead cards leave him. He folds the weakest share of his range.
+
+## What Was Measured
+
+All offline (no switch row, no database write); scratch folder `plo-lead7-01TLQer8/plo-postflop/` (BUILD.md, every table). Base = the live switch rows of 2026-11-26 05:45Z.
+
+- League mirror (`src/grade.mts mirror`: duplicate deals, ON seats against OFF seats, swapped every pair, Hybrid cash Horses, 6,000 pairs = 12,000 hands a card, seed 20261126; every world learns each seat's public river fold record from its own hands and installs it as the lifetime provider, as live): see the table below.
+- Exploit probes (`src/grade.mts probe`: seat 0 scripted, every Horse ON against every Horse OFF on the same deals, heads-up 100 bb, 6,000 deals, seed 20261127): caller (calls every postflop bet, never bets), folder (folds every river bet unless beaten by under 10% of holdings), balanced (defends the river to the minimum defence with its strongest hands), trapper (checks every river, raises the pot with near-nuts, calls the top third).
+- Audited real decisions (`src/lead7-node-replay.ts`, a copy of scripts/audited-node-option-replay.ts that also installs an as-of public river fold record from public answers of Nov 17-26; seeds 1,7,42; memory off; the audits' tier-A postflop nodes placed by `src/build-job.py`): the verdict-only scorer rows under Replay, and the EV of the arm's action against the off arm's on the audits' own pricing (hand-audit-plo lib/grade.mjs, shown cards only).
+- Real heads-up river states (Nov 23-26, 14,576 nodes, public snapshot and the deciding Horse's own cards).
+- Speed: 1,271 applicable real spots (531 at 200 bb or deeper), decide with both options on p50 2.35 / p95 3.40 / max 4.78 ms; added by the options p95 1.13 / max 1.88 ms; 0 over 50 ms.
+- Flag-off: see the PR (scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full).
+
+| card                       | bb/100 ON - OFF                 |
+| -------------------------- | ------------------------------- |
+| PLO4 heads-up              | +1.39 +/- 1.96                  |
+| PLO5 heads-up              | -2.83 +/- 3.09                  |
+| PLO4 6-max                 | -0.23 +/- 0.37                  |
+| PLO5 6-max                 | -0.83 +/- 0.74                  |
+| probe caller PLO4 / PLO5   | +1.83 +/- 1.33 / -1.27 +/- 0.92 |
+| probe folder PLO4 / PLO5   | +7.06 +/- 4.02 / +5.38 +/- 6.28 |
+| probe balanced PLO4 / PLO5 | -1.18 +/- 3.76 / +3.53 +/- 5.89 |
+| probe trapper PLO4 / PLO5  | -3.31 +/- 3.56 / -7.88 +/- 5.83 |
+
+Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026-11-25 5 changed, 0 fixed / 1 newly wrong, +7.1 bb; 2026-11-20..24 3 changed, 2 fixed / 0 newly wrong, +411 bb (one 1 bb bet into a 418 bb pot against an all-in-sized stack carries 402 of it: the audit's fold-equity model; without it +9.2 bb). Real heads-up river states: 352 of 14,576 checks become bets (2.4%; sizes a quarter pot 148, half 66, three quarters 57, pot 67, smaller 14); the opponent showed down in 313: the Horse held the best hand in 221 (71%), tied 15, was behind 77. Untouched by construction: every call, fold and raise, and every street but the river (the audits' in-position heads-up flop/turn/river calls are unchanged: 0 of them changed).
+
+Next step for this option: move the checking range by his own public river first-to-act bet rate (OPPONENT-HUD unopenedWagerRecord): a player who rarely bets checks his strong hands too.
 
 ## Prior anchor
 
@@ -19,4 +45,6 @@ His range: the measured strength histogram of a heads-up river checker (`HorseOm
 
 ## Replay
 
-- Replay: NOT RUN (grades in progress, 2026-11-26)
+- Replay: fixed 3; newlyWrong 2; changed 5; unchanged 864; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm value vs off; replayed 869 of 869
+- Replay: fixed 3; newlyWrong 0; changed 3; unchanged 2694; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm value vs off; replayed 2697 of 2697
+- Note (2026-11-26): arm value is this option alone; sets are the PLO hand audits' tier-A postflop nodes placed at their node (scratch src/build-job.py); verdict-only; the opponent's public river fold record as of the decision installed for every arm (src/lead7-node-replay.ts --fold-events).

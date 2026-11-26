@@ -488,8 +488,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure arithmetic: the same persona shift the live base takes, on the untrimmed base of that receipt',
       ],
       noteDecisionRuleReceipt: [
-        21,
-        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision',
+        23,
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision (2026-11-26: +2, the river opening value and bluff receipts)',
       ],
     },
     methods: {
