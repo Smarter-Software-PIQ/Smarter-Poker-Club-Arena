@@ -200,9 +200,11 @@ EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe$;
 
-REVOKE ALL ON FUNCTION public.fn_club_card_active_source(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fn_club_card_active_source(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_club_card_active_source(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_club_card_active_source(uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_set_club_card_active_source(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_set_club_card_active_source(uuid, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_kings_club_display_totals() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_kings_club_display_totals() TO authenticated, service_role;
 
 COMMIT;
