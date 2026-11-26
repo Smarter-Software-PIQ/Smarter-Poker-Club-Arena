@@ -48,3 +48,20 @@ export async function expectStatsPanelLayout(panel: Locator) {
     []
   );
 }
+
+export async function expectStatsTabLabelsFit(tabs: Locator) {
+  await expect(tabs.getByRole('tab', { name: 'Performance', exact: true })).toBeVisible();
+  const crowded = await tabs.getByRole('tab').evaluateAll(async (buttons) => {
+    await document.fonts.ready;
+    return buttons.flatMap((button) => {
+      const width = parseFloat(getComputedStyle(button, '::after').borderImageWidth);
+      const frame = button.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(button);
+      const label = range.getBoundingClientRect();
+      const clearance = Math.min(label.left - frame.left, frame.right - label.right);
+      return clearance >= width ? [] : [{ tab: button.textContent, clearance, width }];
+    });
+  });
+  expect(crowded, 'Stats labels must stay inside the chrome edges on each tab').toEqual([]);
+}
