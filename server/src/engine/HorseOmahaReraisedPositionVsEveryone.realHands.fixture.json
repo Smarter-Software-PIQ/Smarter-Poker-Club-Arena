@@ -1,0 +1,775 @@
+{
+  "note": "PLO lead-7 2026-11-26: audited PLO4/PLO5 cash hands (HAND-AUDIT-PLO tier A, best = fold) where a Horse out of position in a multiway pot called a 3-bet priced in position; only the deciding Horse cards, shown at showdown; player ids neutral; opts = production switch rows + runtime v13 at 2026-11-26 05:40Z",
+  "opts": {
+    "styleValueBettorNotManiac": true,
+    "styleBigBetHonesty": true,
+    "styleRaiseRespect": true,
+    "styleTightReRaiserRespect": true,
+    "styleFoldRatePreRepair": true,
+    "styleValueExtraction": true,
+    "styleFoldBluff": true,
+    "horseActionTimeIsPublicOnly": true,
+    "v46ShortDeck": false,
+    "omahaEliteContinuesVsMeasuredWideThreeBettor": true,
+    "omahaOopReraisedPotStrongRange": true,
+    "omahaPreflopReraiseDefencePricedInPosition": true,
+    "omahaReraiseRangeOutOfPosition": false,
+    "omahaReraiseRangeEarlyPosition": true,
+    "omahaReraisedPotFlopContinueNeedsEquityShape": false,
+    "omahaMadeHandDefenseVsValueLeader": true,
+    "omahaBluffCatcherFoldVsValueLeader": false,
+    "omahaRiverMediumBetStrongHandCalls": true,
+    "omahaBigBetIsPotShare": true,
+    "omahaPairedRiverNoThinLeadVsValueLeader": true,
+    "omahaOverpairNoOopBarrelVsValueLeader": true,
+    "omahaPairedTurnNoBarrelWithoutBoatVsValueLeader": true,
+    "omahaPairedBoardFoldRespectsPrice": true,
+    "omahaMathCorePlo5Flop": true,
+    "omahaFlopFacingBetEv": false,
+    "omahaOopReraiseRangeHoldsVsReraise": false,
+    "omahaStabDefenceIsPriced": false,
+    "omahaOpponentLifetimeHud": true,
+    "omahaRiverCurrentNutsCallFloor": true,
+    "omahaTurnBetNeedsRiverPlan": false,
+    "omahaPressureNeedsPostflopAggression": false,
+    "omahaOopTurnCheckAfterFlopCall": false,
+    "omahaBareOverpairOopFlopCheck": true,
+    "omahaNoCallColdFourBetWithoutPremium": true,
+    "omahaUnderpairNoMultiwayFlopContinue": false,
+    "omahaVpipFloorByLimp": true,
+    "vpipFloorLimpOnly": true,
+    "lightningVpipFloorLimpOnly": false,
+    "omahaManiacReRaiseWidthMeasured": true,
+    "omahaCardImpact": true,
+    "omahaFacingBetEv": true,
+    "omahaTurnRiverRaiseNeedsNuts": true,
+    "omahaStreetPlan": false,
+    "omahaBigDrawAggression": true,
+    "omahaNoDrawRaiseOutOfPosition": true,
+    "omahaStrategyInTournaments": true,
+    "omahaBlanketRowsOffInPlo45Cash": true,
+    "omahaStrongHandSlowplayMix": false,
+    "omahaTurnRiverRaiseIsPriced": true,
+    "omahaPricedRaiseNeverMakesNonNutRaise": true,
+    "omahaBluffShareFromBetRate": false,
+    "omahaSmallBetIsPriced": false,
+    "omahaStrongHandValue": true,
+    "omahaValueSizeIsUnreadable": true,
+    "omahaRiverNutBlockerBluffReachable": false,
+    "styleTightPlayerExploit": true,
+    "styleLongShownMemory": true,
+    "holdemProfileCompletenessCap": true,
+    "styleTightMultiSignal": true,
+    "holdemManiacSampleGate": true,
+    "holdemManiacShortHandedReach": true,
+    "holdemGearShiftReach": true,
+    "holdemCallDownExcludesCurrentHand": true,
+    "holdemCallDownNeedsStyleEvidence": true,
+    "omahaEvFoldModelHeadsUp": false,
+    "tournamentUtilityStackScaledMargin": true,
+    "icmBustPaysPlace": true,
+    "holdemRiverFullHouseValue": true,
+    "holdemRiverFullHouseValueIsPriced": true,
+    "cashDefenceTrimColdCalls": true,
+    "huBbDefendsUnreadToPrice": true,
+    "holdemPersonaReRaiseMix": false,
+    "holdemPersonaPostflop": true,
+    "holdemTournamentAllInCallIsPriced": true
+  },
+  "hands": [
+    {
+      "handId": "e2a563a7",
+      "variant": "plo5",
+      "bigBlind": 2,
+      "smallBlind": 1,
+      "buttonSeat": 4,
+      "publicMemoryDomain": {
+        "ante": "big_blind",
+        "speed": "table",
+        "version": 1
+      },
+      "players": [
+        {
+          "seat": 1,
+          "userId": "h1",
+          "isHorse": true
+        },
+        {
+          "seat": 2,
+          "userId": "p2",
+          "isHorse": false
+        },
+        {
+          "seat": 3,
+          "userId": "h3",
+          "isHorse": true
+        },
+        {
+          "seat": 4,
+          "userId": "h4",
+          "isHorse": true
+        },
+        {
+          "seat": 5,
+          "userId": "h5",
+          "isHorse": true
+        },
+        {
+          "seat": 6,
+          "userId": "h6",
+          "isHorse": true
+        }
+      ],
+      "horseHoleCards": {
+        "h6": [
+          {
+            "rank": "K",
+            "suit": "diamonds"
+          },
+          {
+            "rank": "A",
+            "suit": "spades"
+          },
+          {
+            "rank": "T",
+            "suit": "clubs"
+          },
+          {
+            "rank": "2",
+            "suit": "spades"
+          },
+          {
+            "rank": "Q",
+            "suit": "diamonds"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "ord": 1,
+          "dead": false,
+          "seat": 5,
+          "stage": "preflop",
+          "action": "sb",
+          "amount": 1,
+          "origin": "forced",
+          "userId": "h5",
+          "timestamp": 1795314390265
+        },
+        {
+          "ord": 2,
+          "dead": false,
+          "seat": 6,
+          "stage": "preflop",
+          "action": "bb",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h6",
+          "timestamp": 1795314390265
+        },
+        {
+          "ord": 3,
+          "dead": true,
+          "seat": 6,
+          "stage": "preflop",
+          "action": "ante",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h6",
+          "timestamp": 1795314390265
+        },
+        {
+          "ord": 4,
+          "seat": 1,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 2,
+          "origin": "horse_policy",
+          "userId": "h1",
+          "timestamp": 1795314392144
+        },
+        {
+          "ord": 5,
+          "seat": 2,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 11,
+          "origin": "player",
+          "userId": "p2",
+          "timestamp": 1795314397093,
+          "isFullRaise": true
+        },
+        {
+          "ord": 6,
+          "seat": 3,
+          "stage": "preflop",
+          "action": "fold",
+          "amount": 0,
+          "origin": "horse_policy",
+          "userId": "h3",
+          "timestamp": 1795314398866
+        },
+        {
+          "ord": 7,
+          "seat": 4,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 11,
+          "origin": "horse_policy",
+          "userId": "h4",
+          "timestamp": 1795314404429
+        },
+        {
+          "ord": 8,
+          "seat": 5,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 50,
+          "origin": "horse_policy",
+          "userId": "h5",
+          "timestamp": 1795314406224,
+          "isFullRaise": true
+        },
+        {
+          "ord": 9,
+          "seat": 6,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 48,
+          "origin": "horse_policy",
+          "userId": "h6",
+          "timestamp": 1795314410363,
+          "publicNode": {
+            "pot": 78,
+            "ante": 2,
+            "mode": "cash",
+            "asset": "chips",
+            "seats": [
+              [1, 401, 2, 2, 0, 0, 0],
+              [2, 986.85, 11, 11, 0, 0, 0],
+              [3, 790.35, 0, 0, 0, 0, 1],
+              [4, 354.35, 11, 11, 0, 0, 0],
+              [5, 1777.4, 50, 50, 0, 0, 0],
+              [6, 822.9, 2, 4, 2, 0, 0]
+            ],
+            "boards": [""],
+            "status": "captured",
+            "street": "preflop",
+            "toCall": 48,
+            "bombPot": false,
+            "variant": "plo5",
+            "version": 1,
+            "anteType": "big_blind",
+            "bigBlind": 2,
+            "chipUnit": 0.01,
+            "actorSeat": 6,
+            "structure": "pot_limit",
+            "vpipFloor": 40,
+            "boardCount": 1,
+            "currentBet": 50,
+            "dealerSeat": 4,
+            "deductions": {
+              "bbj": {
+                "feeBB": 0.25,
+                "enabled": true,
+                "minPotBB": 10,
+                "minPlayersDealt": 3
+              },
+              "rake": {
+                "cap": 5,
+                "percent": 10,
+                "noFlopNoDrop": true,
+                "playerCountCaps": [
+                  [2, 2.5],
+                  [3, 5],
+                  [4, 5]
+                ]
+              },
+              "rules": "controller-rake-bbj-v1",
+              "status": "captured",
+              "version": 1
+            },
+            "maxRaiseTo": 176,
+            "minRaiseTo": 89,
+            "smallBlind": 1,
+            "allInOrFold": false,
+            "fixedBetSize": null,
+            "legalActions": ["fold", "call", "raise", "all_in"],
+            "wagersCapped": false,
+            "tournamentStage": {
+              "status": "not_applicable",
+              "version": 1
+            },
+            "vpipWindowHands": 30
+          }
+        }
+      ],
+      "ord": 9,
+      "recorded": "call:48",
+      "shownHole": "KdAsTc2sQd"
+    },
+    {
+      "handId": "af1c2328",
+      "variant": "plo5",
+      "bigBlind": 2,
+      "smallBlind": 1,
+      "buttonSeat": 2,
+      "publicMemoryDomain": {
+        "ante": "big_blind",
+        "speed": "table",
+        "version": 1
+      },
+      "players": [
+        {
+          "seat": 1,
+          "userId": "h1",
+          "isHorse": true
+        },
+        {
+          "seat": 2,
+          "userId": "h2",
+          "isHorse": true
+        },
+        {
+          "seat": 3,
+          "userId": "h3",
+          "isHorse": true
+        },
+        {
+          "seat": 4,
+          "userId": "h4",
+          "isHorse": true
+        },
+        {
+          "seat": 5,
+          "userId": "p5",
+          "isHorse": false
+        },
+        {
+          "seat": 6,
+          "userId": "h6",
+          "isHorse": true
+        }
+      ],
+      "horseHoleCards": {
+        "h4": [
+          {
+            "rank": "K",
+            "suit": "hearts"
+          },
+          {
+            "rank": "A",
+            "suit": "hearts"
+          },
+          {
+            "rank": "J",
+            "suit": "clubs"
+          },
+          {
+            "rank": "2",
+            "suit": "diamonds"
+          },
+          {
+            "rank": "K",
+            "suit": "diamonds"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "ord": 1,
+          "dead": false,
+          "seat": 3,
+          "stage": "preflop",
+          "action": "sb",
+          "amount": 1,
+          "origin": "forced",
+          "userId": "h3",
+          "timestamp": 1795368922812
+        },
+        {
+          "ord": 2,
+          "dead": false,
+          "seat": 4,
+          "stage": "preflop",
+          "action": "bb",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h4",
+          "timestamp": 1795368922812
+        },
+        {
+          "ord": 3,
+          "dead": true,
+          "seat": 4,
+          "stage": "preflop",
+          "action": "ante",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h4",
+          "timestamp": 1795368922812
+        },
+        {
+          "ord": 4,
+          "seat": 5,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 9,
+          "origin": "player",
+          "userId": "p5",
+          "timestamp": 1795368931909,
+          "isFullRaise": true
+        },
+        {
+          "ord": 5,
+          "seat": 6,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 9,
+          "origin": "horse_policy",
+          "userId": "h6",
+          "timestamp": 1795368933963
+        },
+        {
+          "ord": 6,
+          "seat": 1,
+          "stage": "preflop",
+          "action": "fold",
+          "amount": 0,
+          "origin": "horse_policy",
+          "userId": "h1",
+          "timestamp": 1795368938521
+        },
+        {
+          "ord": 7,
+          "seat": 2,
+          "stage": "preflop",
+          "action": "fold",
+          "amount": 0,
+          "origin": "horse_policy",
+          "userId": "h2",
+          "timestamp": 1795368939787
+        },
+        {
+          "ord": 8,
+          "seat": 3,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 40,
+          "origin": "horse_policy",
+          "userId": "h3",
+          "timestamp": 1795368941662,
+          "isFullRaise": true
+        },
+        {
+          "ord": 9,
+          "seat": 4,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 38,
+          "origin": "horse_policy",
+          "userId": "h4",
+          "timestamp": 1795368943024,
+          "publicNode": {
+            "pot": 62,
+            "ante": 2,
+            "mode": "cash",
+            "asset": "chips",
+            "seats": [
+              [1, 400, 0, 0, 0, 0, 1],
+              [2, 396.5, 0, 0, 0, 0, 1],
+              [3, 502.5, 40, 40, 0, 0, 0],
+              [4, 594.7, 2, 4, 2, 0, 0],
+              [5, 2206.97, 9, 9, 0, 0, 0],
+              [6, 752.75, 9, 9, 0, 0, 0]
+            ],
+            "boards": [""],
+            "status": "captured",
+            "street": "preflop",
+            "toCall": 38,
+            "bombPot": false,
+            "variant": "plo5",
+            "version": 1,
+            "anteType": "big_blind",
+            "bigBlind": 2,
+            "chipUnit": 0.01,
+            "actorSeat": 4,
+            "structure": "pot_limit",
+            "vpipFloor": 40,
+            "boardCount": 1,
+            "currentBet": 40,
+            "dealerSeat": 2,
+            "deductions": {
+              "bbj": {
+                "feeBB": 0.25,
+                "enabled": true,
+                "minPotBB": 10,
+                "minPlayersDealt": 3
+              },
+              "rake": {
+                "cap": 5,
+                "percent": 10,
+                "noFlopNoDrop": true,
+                "playerCountCaps": [
+                  [2, 2.5],
+                  [3, 5],
+                  [4, 5]
+                ]
+              },
+              "rules": "controller-rake-bbj-v1",
+              "status": "captured",
+              "version": 1
+            },
+            "maxRaiseTo": 140,
+            "minRaiseTo": 71,
+            "smallBlind": 1,
+            "allInOrFold": false,
+            "fixedBetSize": null,
+            "legalActions": ["fold", "call", "raise", "all_in"],
+            "wagersCapped": false,
+            "tournamentStage": {
+              "status": "not_applicable",
+              "version": 1
+            },
+            "vpipWindowHands": 30
+          }
+        }
+      ],
+      "ord": 9,
+      "recorded": "call:38",
+      "shownHole": "KhAhJc2dKd"
+    },
+    {
+      "handId": "10eb782a",
+      "variant": "plo5",
+      "bigBlind": 2,
+      "smallBlind": 1,
+      "buttonSeat": 6,
+      "publicMemoryDomain": {
+        "ante": "big_blind",
+        "speed": "table",
+        "version": 1
+      },
+      "players": [
+        {
+          "seat": 1,
+          "userId": "p1",
+          "isHorse": false
+        },
+        {
+          "seat": 2,
+          "userId": "h2",
+          "isHorse": true
+        },
+        {
+          "seat": 3,
+          "userId": "h3",
+          "isHorse": true
+        },
+        {
+          "seat": 4,
+          "userId": "h4",
+          "isHorse": true
+        },
+        {
+          "seat": 5,
+          "userId": "h5",
+          "isHorse": true
+        },
+        {
+          "seat": 6,
+          "userId": "h6",
+          "isHorse": true
+        }
+      ],
+      "horseHoleCards": {
+        "h2": [
+          {
+            "rank": "6",
+            "suit": "diamonds"
+          },
+          {
+            "rank": "A",
+            "suit": "spades"
+          },
+          {
+            "rank": "K",
+            "suit": "spades"
+          },
+          {
+            "rank": "K",
+            "suit": "diamonds"
+          },
+          {
+            "rank": "2",
+            "suit": "hearts"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "ord": 1,
+          "dead": false,
+          "seat": 1,
+          "stage": "preflop",
+          "action": "sb",
+          "amount": 1,
+          "origin": "forced",
+          "userId": "p1",
+          "timestamp": 1795646838020
+        },
+        {
+          "ord": 2,
+          "dead": false,
+          "seat": 2,
+          "stage": "preflop",
+          "action": "bb",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h2",
+          "timestamp": 1795646838020
+        },
+        {
+          "ord": 3,
+          "dead": true,
+          "seat": 2,
+          "stage": "preflop",
+          "action": "ante",
+          "amount": 2,
+          "origin": "forced",
+          "userId": "h2",
+          "timestamp": 1795646838020
+        },
+        {
+          "ord": 4,
+          "seat": 3,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 8,
+          "origin": "horse_policy",
+          "userId": "h3",
+          "timestamp": 1795646840075,
+          "isFullRaise": true
+        },
+        {
+          "ord": 5,
+          "seat": 4,
+          "stage": "preflop",
+          "action": "fold",
+          "amount": 0,
+          "origin": "horse_policy",
+          "userId": "h4",
+          "timestamp": 1795646847166
+        },
+        {
+          "ord": 6,
+          "seat": 5,
+          "stage": "preflop",
+          "action": "fold",
+          "amount": 0,
+          "origin": "horse_policy",
+          "userId": "h5",
+          "timestamp": 1795646848619
+        },
+        {
+          "ord": 7,
+          "seat": 6,
+          "stage": "preflop",
+          "action": "call",
+          "amount": 8,
+          "origin": "horse_policy",
+          "userId": "h6",
+          "timestamp": 1795646852172
+        },
+        {
+          "ord": 8,
+          "seat": 1,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 36,
+          "origin": "player",
+          "userId": "p1",
+          "timestamp": 1795646854594,
+          "isFullRaise": true
+        },
+        {
+          "ord": 9,
+          "seat": 2,
+          "stage": "preflop",
+          "action": "raise",
+          "amount": 126,
+          "origin": "horse_policy",
+          "userId": "h2",
+          "timestamp": 1795646856767,
+          "publicNode": {
+            "pot": 56,
+            "ante": 2,
+            "mode": "cash",
+            "asset": "chips",
+            "seats": [
+              [1, 444.5, 36, 36, 0, 0, 0],
+              [2, 971.93, 2, 4, 2, 0, 0],
+              [3, 392, 8, 8, 0, 0, 0],
+              [4, 834.8, 0, 0, 0, 0, 1],
+              [5, 805.5, 0, 0, 0, 0, 1],
+              [6, 665.2, 8, 8, 0, 0, 0]
+            ],
+            "boards": [""],
+            "status": "captured",
+            "street": "preflop",
+            "toCall": 34,
+            "bombPot": false,
+            "variant": "plo5",
+            "version": 1,
+            "anteType": "big_blind",
+            "bigBlind": 2,
+            "chipUnit": 0.01,
+            "actorSeat": 2,
+            "structure": "pot_limit",
+            "vpipFloor": 40,
+            "boardCount": 1,
+            "currentBet": 36,
+            "dealerSeat": 6,
+            "deductions": {
+              "bbj": {
+                "feeBB": 0.25,
+                "enabled": true,
+                "minPotBB": 10,
+                "minPlayersDealt": 3
+              },
+              "rake": {
+                "cap": 5,
+                "percent": 10,
+                "noFlopNoDrop": true,
+                "playerCountCaps": [
+                  [2, 2.5],
+                  [3, 5],
+                  [4, 5]
+                ]
+              },
+              "rules": "controller-rake-bbj-v1",
+              "status": "captured",
+              "version": 1
+            },
+            "maxRaiseTo": 126,
+            "minRaiseTo": 64,
+            "smallBlind": 1,
+            "allInOrFold": false,
+            "fixedBetSize": null,
+            "legalActions": ["fold", "call", "raise", "all_in"],
+            "wagersCapped": false,
+            "tournamentStage": {
+              "status": "not_applicable",
+              "version": 1
+            },
+            "vpipWindowHands": 30
+          },
+          "isFullRaise": true
+        }
+      ],
+      "ord": 9,
+      "recorded": "raise:126",
+      "shownHole": "6dAsKsKd2h"
+    }
+  ]
+}

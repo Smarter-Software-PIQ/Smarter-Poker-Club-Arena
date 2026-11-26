@@ -173,6 +173,18 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       description:
         'PLO4/PLO5 And NLH Cash: The Most Of The Out-Of-Position 3-Bet Range That May Fold To A 4-Bet (Never Above The Bluff Break-Even)',
     },
+    {
+      key: 'horse.openerAnswersPriorVersion',
+      kind: 'integer',
+      min: 1,
+      max: 2,
+      compiledDefault: 1,
+      consumer: 'horse_decision',
+      source:
+        'HorseOopReraiseRangeHolds.ts OPENER_ANSWERS_PRIOR_VERSION_DEFAULT (opts.openerAnswersPriorVersion; read only by the two default-off OOP re-raise range options): 1 the fitted table 2026-11-24.v1, 2 the indifference prior',
+      description:
+        "PLO4/PLO5 And NLH Cash: The Prior Of The Opener's Answer To An Out-Of-Position 3-Bet (1 Fitted Table, 2 Indifference Points)",
+    },
     // ---- Horse stack management (HorseCashStackCeiling.ts): not a decision option, read at the hand boundary ----
     {
       key: 'horse.cashStackCeilingBB',

@@ -45,6 +45,7 @@ import {
   type OpponentHudProfile,
 } from './OpponentHudProfile.js';
 import { noteFire } from '../BrainTelemetry.js';
+import { HUD_ANCHOR_K_FLOOR, hudAnchorMode, hudAnchorOf } from '../HorseEquilibriumAnchor.js';
 // the math core reads its opponent records through this packet (lane CORE-EXTEND-5; a function-only cycle)
 import './OmahaMathCoreHudRecords.js';
 // B3 math core turn/river seat-only HUD adapter (function-only cycle; default OFF behind turn/river flags)
@@ -276,9 +277,17 @@ export function hudStat(
   try {
     const pk = installed && installed.family === family ? installed : null;
     const pri = pk?.pri[stat];
-    const k = pri ? Math.min(HUD_K_MAX, Math.max(HUD_K_MIN, pri[1])) : HUD_DEFAULT_K;
-    const pr =
-      typeof prior === 'number' && Number.isFinite(prior)
+    // THE EQUILIBRIUM ANCHOR (2026-11-26, HorseEquilibriumAnchor.ts): while an anchored reader is on, the
+    // read shrinks toward the anchor (never the population row, never a caller's measured cell) with k >= 20.
+    const anchored = hudAnchorMode();
+    const k = anchored
+      ? Math.max(HUD_ANCHOR_K_FLOOR, pri ? Math.min(HUD_K_MAX, pri[1]) : HUD_ANCHOR_K_FLOOR)
+      : pri
+        ? Math.min(HUD_K_MAX, Math.max(HUD_K_MIN, pri[1]))
+        : HUD_DEFAULT_K;
+    const pr = anchored
+      ? hudAnchorOf(stat)
+      : typeof prior === 'number' && Number.isFinite(prior)
         ? Math.min(1, Math.max(0, prior))
         : pri
           ? pri[0]

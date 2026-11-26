@@ -46,7 +46,9 @@ import {
   OMAHA_FAST_PAIR_STRIDE,
   omahaFastBestPre,
   omahaFastCard,
+  omahaFastOneSuit,
   omahaFastPairsInto,
+  omahaFastRankOnly,
   omahaFastTriplesPre,
 } from './HorseOmahaFastScore.js';
 import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
@@ -219,6 +221,15 @@ function flopSamples(
   const pairStride = np * OMAHA_FAST_PAIR_STRIDE;
   const pairs = new Int32Array(P * pairStride);
   const heroPairs = new Int32Array(pairStride);
+  // every rank pair (high, low) in the precomputed pair form, unsuited: rankPair[(hi-2)*39 + (lo-2)*3]
+  const rankPair = new Int32Array(13 * 13 * OMAHA_FAST_PAIR_STRIDE);
+  for (let hi = 0; hi < 13; hi++)
+    for (let lo = 0; lo < 13; lo++) {
+      const w = hi * 39 + lo * 3;
+      rankPair[w] = hi + 2;
+      rankPair[w + 1] = lo + 2;
+      rankPair[w + 2] = -1;
+    }
   omahaFastPairsInto(Int32Array.from(hole.map(omahaFastCard)), 0, n, heroPairs, 0);
   const boardInt = board.map(omahaFastCard);
   const flopTriples = omahaFastTriplesPre(boardInt);
@@ -294,22 +305,25 @@ function flopSamples(
   const fdShare = field.flushDrawByBin && fdSuit ? field.flushDrawByBin : null;
 
   // The ranking pools of the later streets: the pool's own order, skipping holdings that hold a board card.
-  const holds = (p: number, c: number): boolean => {
-    for (let k = 0; k < n; k++) if (cards[p * n + k] === c) return true;
-    return false;
-  };
-  const used = new Uint8Array(m);
+  // the cards in use (the runout's and the holdings drawn so far), as the same two-word bit set as maskLo / maskHi
+  let usedLo = 0;
+  let usedHi = 0;
   const walks = Array.from({ length: 2 + 4 * others }, () => rnd());
   const step = (w: number): number => {
     walks[w] = (walks[w] + WALK_STEPS[w]) % 1;
     return walks[w];
   };
   const free = (p: number): boolean => {
-    for (let k = 0; k < n; k++) if (used[cards[p * n + k]]) return false;
-    return true;
+    return (maskLo[p] & usedLo) === 0 && (maskHi[p] & usedHi) === 0;
   };
   const mark = (p: number, v: number): void => {
-    for (let k = 0; k < n; k++) used[cards[p * n + k]] = v;
+    if (v) {
+      usedLo |= maskLo[p];
+      usedHi |= maskHi[p];
+    } else {
+      usedLo &= ~maskLo[p];
+      usedHi &= ~maskHi[p];
+    }
   };
   const drawFrom = (list: number[], u: number): number => {
     const L = list.length;
@@ -323,32 +337,129 @@ function flopSamples(
   };
   // A holding's turn score is kept for the turn card it was scored on: its river scores add only the six board
   // triples that hold the river card, and the river ranking pool is the turn pool's own holdings.
+  //
+  // EXACT SPEED-UP (lead-7 2026-11-26, anOmahaFlopCallTreeIsUnchanged). A holding's best score is the larger of
+  //  - its best score with every five-card hand scored as if unsuited, which is the largest, over the holding's
+  //    two-card pairs, of a number fixed by the pair's two RANKS and the board's ranks (a table per board rank set,
+  //    each entry scored once: at most 91 pairs x 10 triples per (turn rank, river rank), against ~350 runouts x
+  //    ~100 holdings x 10 pairs x 10 triples), and
+  //  - its best score over the board triples of one suit (a flush needs three board cards of the pair's suit; an
+  //    unsuited hand in those triples scores no more than the first part).
+  // Same score for every holding on every board, so the same samples, the same EV and the same call.
   const turnScore = new Float64Array(P);
   const turnStamp = new Int32Array(P);
   let stamp = 0;
-  let turnTriples = flopTriples;
-  let riverTriples = flopTriples;
+  /** per turn rank / per (turn rank, river rank): each pair-rank's rank-only best (0 = not scored yet) */
+  const turnTable = new Int32Array(13 * 169);
+  const riverTable = new Int32Array(169 * 169);
+  let turnBase = 0;
+  let riverBase = 0;
+  let turnRankTriples = flopTriples;
+  let turnMono = flopTriples;
+  let riverRankTriples = flopTriples;
+  let riverMono = flopTriples;
+  /** the turn table's entry of a pair-rank (row offset w2 into rankPair) */
+  const turnEntry = (i: number, w2: number): number => {
+    let v = turnTable[i];
+    if (v === 0) {
+      v = omahaFastBestPre(rankPair, w2, 1, turnRankTriples);
+      turnTable[i] = v;
+    }
+    return v;
+  };
+  const rankTurnOf = (p: number): number => {
+    let best = 0;
+    const end = p * pairStride + np * OMAHA_FAST_PAIR_STRIDE;
+    for (let w = p * pairStride; w < end; w += OMAHA_FAST_PAIR_STRIDE) {
+      const x = (pairs[w] - 2) * 13 + (pairs[w + 1] - 2);
+      const v = turnEntry(turnBase + x, x * 3);
+      if (v > best) best = v;
+    }
+    return best;
+  };
+  // a river entry is the turn entry and the six triples that hold the river card (the ten triples of the river)
+  const rankRiverOf = (p: number): number => {
+    let best = 0;
+    const end = p * pairStride + np * OMAHA_FAST_PAIR_STRIDE;
+    for (let w = p * pairStride; w < end; w += OMAHA_FAST_PAIR_STRIDE) {
+      const x = (pairs[w] - 2) * 13 + (pairs[w + 1] - 2);
+      let v = riverTable[riverBase + x];
+      if (v === 0) {
+        v = omahaFastBestPre(rankPair, x * 3, 1, riverRankTriples, turnEntry(turnBase + x, x * 3));
+        riverTable[riverBase + x] = v;
+      }
+      if (v > best) best = v;
+    }
+    return best;
+  };
+  // the flush part: only the holding's pairs of the one suit that has three or more board cards
+  const suited = new Uint8Array(P);
+  for (let p = 0; p < P; p++)
+    for (let w = p * pairStride; w < p * pairStride + np * OMAHA_FAST_PAIR_STRIDE; w += 3)
+      if (pairs[w + 2] >= 0) suited[p] |= 1 << pairs[w + 2];
+  const flushOf = (p: number, mono: Int32Array, v: number): number => {
+    const st = mono[3];
+    if ((suited[p] & (1 << st)) === 0) return v;
+    let best = v;
+    const end = p * pairStride + np * OMAHA_FAST_PAIR_STRIDE;
+    for (let w = p * pairStride; w < end; w += OMAHA_FAST_PAIR_STRIDE)
+      if (pairs[w + 2] === st) best = omahaFastBestPre(pairs, w, 1, mono, best);
+    return best;
+  };
   const turnScoreOf = (p: number): number => {
     if (turnStamp[p] !== stamp) {
-      turnScore[p] = omahaFastBestPre(pairs, p * pairStride, np, turnTriples);
+      const v = rankTurnOf(p);
+      turnScore[p] = turnMono.length > 0 ? flushOf(p, turnMono, v) : v;
       turnStamp[p] = stamp;
     }
     return turnScore[p];
   };
-  const riverScoreOf = (p: number): number =>
-    omahaFastBestPre(pairs, p * pairStride, np, riverTriples, turnScoreOf(p));
-  const rankPool = (size: number, skip: number[], scoreOf: (p: number) => number): Float64Array => {
-    const out: number[] = [];
-    for (let p = 0; p < P && out.length < size; p++) {
-      if (skip.some((c) => holds(p, c))) continue;
-      out.push(scoreOf(p));
+  const riverScoreOf = (p: number): number => {
+    const v = rankRiverOf(p);
+    return riverMono.length > 0 ? flushOf(p, riverMono, v) : v;
+  };
+  // each holding's unseen-card indices as a two-word bit set (m <= 49), to skip the holdings that hold a board card
+  const maskLo = new Int32Array(P);
+  const maskHi = new Int32Array(P);
+  for (let p = 0; p < P; p++)
+    for (let k = 0; k < n; k++) {
+      const c = cards[p * n + k];
+      if (c < 31) maskLo[p] |= 1 << c;
+      else maskHi[p] |= 1 << (c - 31);
     }
-    return Float64Array.from(out);
+  const useCard = (c: number, on: boolean): void => {
+    if (c < 31) usedLo = on ? usedLo | (1 << c) : usedLo & ~(1 << c);
+    else usedHi = on ? usedHi | (1 << (c - 31)) : usedHi & ~(1 << (c - 31));
+  };
+  // the pool's scores sorted high to low, so a holding's strength (the share of the pool above it) is a binary search
+  const rankPool = (size: number, skip: number[], scoreOf: (p: number) => number): Float64Array => {
+    let sLo = 0;
+    let sHi = 0;
+    for (const c of skip) {
+      if (c < 31) sLo |= 1 << c;
+      else sHi |= 1 << (c - 31);
+    }
+    const buf = new Float64Array(size);
+    let k = 0;
+    for (let p = 0; p < P && k < size; p++) {
+      if ((maskLo[p] & sLo) !== 0 || (maskHi[p] & sHi) !== 0) continue;
+      buf[k++] = scoreOf(p);
+    }
+    const out = k === size ? buf : buf.slice(0, k);
+    out.sort();
+    out.reverse();
+    return out;
   };
   const strengthIn = (pool: Float64Array, sc: number): number => {
-    let k = 0;
-    for (let i = 0; i < pool.length; i++) if (pool[i] > sc) k++;
-    return pool.length > 0 ? k / pool.length : 1;
+    // pool high to low: k = the number of scores above sc
+    let lo = 0;
+    let hi = pool.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pool[mid] > sc) lo = mid + 1;
+      else hi = mid;
+    }
+    return pool.length > 0 ? lo / pool.length : 1;
   };
 
   // Runouts: every unseen card is a turn card, with R river cards each.
@@ -379,16 +490,26 @@ function flopSamples(
   let behindIn = 0;
   for (let t = 0; t < m; t++) {
     const c1 = circle[t];
-    used[c1] = 1;
+    useCard(c1, true);
     stamp++;
-    turnTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1]]);
+    const turnTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1]]);
+    const turnRank = (unseenInt[c1] >> 2) - 2;
+    turnBase = turnRank * 169;
+    turnRankTriples = omahaFastRankOnly(turnTriples);
+    turnMono = omahaFastOneSuit(turnTriples);
     const poolT = rankPool(OMAHA_FLOP_CALL_TREE_TURN_POOL, [c1], turnScoreOf);
     const heroTurn = omahaFastBestPre(heroPairs, 0, np, turnTriples);
     for (let k = 0; k < R; k++) {
       const c2 = circle[(t + 1 + (Math.floor(((k + start) * half) / R) % half)) % m];
       const r = t * R + k;
-      used[c2] = 1;
-      riverTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1], unseenInt[c2]], true);
+      useCard(c2, true);
+      const riverTriples = omahaFastTriplesPre([...boardInt, unseenInt[c1], unseenInt[c2]], true);
+      const riverRank = (unseenInt[c2] >> 2) - 2;
+      riverBase =
+        169 * (turnRank <= riverRank ? turnRank * 13 + riverRank : riverRank * 13 + turnRank);
+      const riverAll = omahaFastTriplesPre([...boardInt, unseenInt[c1], unseenInt[c2]]);
+      riverRankTriples = omahaFastRankOnly(riverTriples);
+      riverMono = omahaFastOneSuit(riverAll);
       const poolR = rankPool(OMAHA_FLOP_CALL_TREE_RIVER_POOL, [c1, c2], riverScoreOf);
       const hero = omahaFastBestPre(heroPairs, 0, np, riverTriples, heroTurn);
       heroRiver[r] = strengthIn(poolR, hero);
@@ -450,9 +571,9 @@ function flopSamples(
         sBeats[ns] = beats;
         ns++;
       }
-      used[c2] = 0;
+      useCard(c2, false);
     }
-    used[c1] = 0;
+    useCard(c1, false);
   }
   if (!(ns > 0)) return null;
   return {
