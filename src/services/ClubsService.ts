@@ -739,18 +739,10 @@ export async function leaveClub(clubId: string): Promise<void> {
   }
 
   assertCurrent();
-  // 4. If agent, clear downline references (before removing membership)
-  if (['agent', 'super_agent', 'sub_agent'].includes(member.role)) {
-    try {
-      await supabase
-        .from('club_members')
-        .update({ agent_id: null })
-        .eq('club_id', resolvedId)
-        .eq('agent_id', userId);
-    } catch (e: unknown) {
-      console.warn('[ClubsService] leaveClub: agent hierarchy cleanup failed (non-critical):', e);
-    }
-  }
+  // 4. The browser writes no club_members row (20261126191556). The direct
+  //    agent_id cleanup that stood here could never pass the row policy for an
+  //    agent and its error was discarded; membership changes run only through
+  //    the SECURITY DEFINER RPCs below.
 
   // 5. Atomically move the member's club chips into the club treasury
   //    (clubs.chip_treasury — the balance shown as the club "bank") and remove

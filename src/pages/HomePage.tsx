@@ -28,6 +28,7 @@ import { unionRouteRef } from '../utils/unionIdResolver';
    club is resolved, so it inherits the same rule. See InTabLobbyContext.tsx. */
 import { useAppNavigate, useInTabLobby } from '../context/InTabLobbyContext';
 import { COUNT_UNKNOWN } from '../lib/countFigure';
+import { clubCardActiveSource } from '../lib/clubCardActiveSource';
 import { DIAMOND_ARENA_CLUB_ID, SHARK_CLUB_ID } from '../lib/constants';
 import { supabase, getAuthUser } from '../lib/supabase';
 import { ClubsService } from '../services/ClubsService';
@@ -979,7 +980,7 @@ function HomePageInner() {
         const { data: clubRows, error: clubRowsError } = await supabase
           .from('clubs')
           .select(
-            'id, union_id, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
+            'id, union_id, settings, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
           )
           .in('id', clubIds);
         if (clubRowsError) reportError(clubRowsError, 'HomePage.Failed_to_fetch_club_stats');
@@ -1121,11 +1122,22 @@ function HomePageInner() {
            same RPC the union's own card uses) and the card names that union
            over the split, so the figure says whose floor it is. A standalone
            club keeps its own floor. The ACTIVE total is untouched. */
+        /* Dan 2026-11-26: "ONCE A CLUB 'JOINS THE UNION' THERE CLUB DATA SHOULD
+           REPORT WHATS 'LIVE IN THE UNION' AT THAT MOMENT. IT SHOULD NO LONGER
+           DISPLAY THERE CLUB DATA BY DEFAULT. THEY CAN CHANGE IT IN THE CLUB
+           SETTINGS." So a member club's ACTIVE total is the union floor too,
+           unless its settings chose 'club' (clubCardActiveSource, the same rule
+           as public.fn_club_card_active_source). A club that chose its own data
+           keeps its own total AND its own split. */
         const memberClubUnion = new Map<string, string>();
         for (const row of clubRows as any[]) {
           const shown = displayClubs.find((c) => c.id === row.id);
           if (!row.union_id || !shown || shown.entity_type === 'union') continue;
           if (row.id === DIAMOND_ARENA_CLUB_ID || !statsMap[row.id]) continue;
+          if (clubCardActiveSource(row) !== 'union') {
+            statsMap[row.id] = { ...statsMap[row.id], activeSource: 'club' };
+            continue;
+          }
           memberClubUnion.set(row.id, String(row.union_id));
         }
         if (memberClubUnion.size > 0 && isMounted) {
@@ -1159,13 +1171,20 @@ function HomePageInner() {
               // No answer for the union leaves the club's own split in place;
               // an unknown never becomes a zero.
               if (!split) continue;
+              const unionPlaying = floorPlayers.get(unionId) ?? null;
               statsMap[clubId] = {
                 ...statsMap[clubId],
+                /* The ACTIVE total is what is live in the union right now.
+                   No union read, no union total: the club's own figure stays
+                   rather than printing an unknown as a zero. */
+                ...(unionPlaying != null
+                  ? { activePlayers: unionPlaying, activeSource: 'union' as const }
+                  : {}),
                 activeCash: split.cash,
                 activeEvents: split.events,
                 splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
                 // Unknown stays unknown: no union total is printed without its read.
-                floorPlaying: floorPlayers.get(unionId) ?? null,
+                floorPlaying: unionPlaying,
               };
             }
           } catch (e) {

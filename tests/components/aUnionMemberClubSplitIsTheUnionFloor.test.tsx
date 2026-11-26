@@ -66,7 +66,7 @@ describe('a union member club card splits the union floor', () => {
   it('the home page feeds member clubs the union floor RPC', () => {
     const src = readFileSync(resolve(__dirname, '../../src/pages/HomePage.tsx'), 'utf8');
     const block = src.slice(src.indexOf('memberClubUnion'));
-    expect(src).toMatch(/'id, union_id, member_count/);
+    expect(src).toMatch(/'id, union_id, settings, member_count/);
     expect(block).toMatch(/fn_batch_union_realtime_active_counts/);
     expect(block).toMatch(/splitFloorLabel/);
   });

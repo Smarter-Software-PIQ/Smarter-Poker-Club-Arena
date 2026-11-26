@@ -79,6 +79,7 @@ import {
 } from '../utils/clubSettingsRules';
 import { publicOrigin } from '../lib/appBase';
 import { getMyInviteLink } from '../services/ClubInviteService';
+import { storedCardActiveSource, type ClubCardActiveSource } from '../lib/clubCardActiveSource';
 
 const DESCRIPTION_MAX = 500;
 const TAGLINE_MAX = 72;
@@ -112,6 +113,10 @@ export default function ClubSettingsPage() {
   const cashPolicyVersion = useCashRakePolicyVersion();
   const cashPolicyReady = cashPolicyVersion !== null && cashPolicyVersion !== 0;
   const [inUnion, setInUnion] = useState<boolean>(false);
+  /* Dan 2026-11-26: a union member club's card reports what is live in the
+     union by default; this is the club's own choice to show its club data. */
+  const [cardActiveSource, setCardActiveSource] = useState<ClubCardActiveSource>('union');
+  const [savingActiveSource, setSavingActiveSource] = useState(false);
   const [clubNumericId, setClubNumericId] = useState<number | null>(null);
   const [resolvedClubIdentity, setResolvedClubIdentity] = useState<{
     route: string;
@@ -135,6 +140,7 @@ export default function ClubSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const savingActiveSourceRef = useRef(false);
   /**
    * The two rake fields are held as RAW TEXT while the owner types and only
    * parsed/clamped on blur. See the onBlur handlers for why: clamping a
@@ -713,6 +719,48 @@ export default function ClubSettingsPage() {
     };
   }, [clubId, clubUUID]);
 
+  /* The card's ACTIVE source saves on its own, through its own door
+     (fn_set_club_card_active_source), so it never rides along with the
+     identity form and never rewrites any other settings key. */
+  const canSetActiveSource =
+    isOwner ||
+    userRole === 'co_owner' ||
+    userRole === 'admin' ||
+    (userRole as string) === 'manager';
+  const saveCardActiveSource = async (next: ClubCardActiveSource) => {
+    if (!clubUUID || savingActiveSourceRef.current || !canSetActiveSource) return;
+    const previous = cardActiveSource;
+    savingActiveSourceRef.current = true;
+    setSavingActiveSource(true);
+    setCardActiveSource(next);
+    try {
+      const { data, error } = await supabase.rpc('fn_set_club_card_active_source', {
+        p_club_id: clubUUID,
+        p_source: next,
+      });
+      if (error) throw error;
+      const result = data as { ok?: boolean; reason?: string } | null;
+      if (!result?.ok) {
+        throw new Error(
+          result?.reason === 'not_authorized'
+            ? 'Only Club Managers Can Change This Setting'
+            : 'Could Not Save The Club Card Setting'
+        );
+      }
+      masterBus.emit('CLUB_UPDATED', { clubId: clubUUID });
+      toast.success(
+        next === 'club' ? 'Club Card Now Shows Club Data' : 'Club Card Now Shows Union Data'
+      );
+    } catch (error) {
+      setCardActiveSource(previous);
+      reportError(error, 'ClubSettingsPage.saveCardActiveSource');
+      toast.error(error instanceof Error ? error.message : 'Could Not Save The Club Card Setting');
+    } finally {
+      savingActiveSourceRef.current = false;
+      setSavingActiveSource(false);
+    }
+  };
+
   const loadClubSettings = async (
     getIsMounted?: () => boolean,
     opts?: { silent?: boolean; force?: boolean }
@@ -751,7 +799,7 @@ export default function ClubSettingsPage() {
           supabase
             .from('clubs')
             .select(
-              'id, owner_id, club_id, logo_url, name, description, tagline, lobby_message, is_public, requires_approval, default_rake_percent, rake_cap, spins_enabled, union_id'
+              'id, owner_id, club_id, logo_url, name, description, tagline, lobby_message, is_public, requires_approval, default_rake_percent, rake_cap, spins_enabled, union_id, settings'
             )
             .eq(clubCol, clubVal)
             .maybeSingle()
@@ -790,6 +838,13 @@ export default function ClubSettingsPage() {
            overrode, with nothing on screen saying so. `union_id` was already
            in the select; it was simply never read. */
         setInUnion(Boolean(data.union_id));
+        if (!savingActiveSourceRef.current) {
+          setCardActiveSource(
+            storedCardActiveSource((data as { settings?: unknown }).settings) === 'club'
+              ? 'club'
+              : 'union'
+          );
+        }
 
         // A background refresh must never overwrite edits the owner has typed
         // and not saved. Three paths land here without the user asking —
@@ -1763,6 +1818,37 @@ export default function ClubSettingsPage() {
             </button>
           </div>
         </section>
+
+        {/* Club card activity (Dan 2026-11-26). Only a union member club has a
+            choice: union data by default, its own live club data on request. */}
+        {inUnion && (
+          <section className="settings-section">
+            <h3 id="settings-card-activity">Club Card Activity</h3>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">Show Club Data Instead Of Union Data</span>
+                <span className="toggle-desc">
+                  {cardActiveSource === 'club'
+                    ? 'Your Club Card Shows Players Active In Your Club Right Now'
+                    : 'Your Club Card Shows Players Live In The Union Right Now'}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={cardActiveSource === 'club'}
+                aria-label="Show Club Data Instead Of Union Data"
+                className={`toggle-btn ${cardActiveSource === 'club' ? 'on' : ''}`}
+                onClick={() =>
+                  void saveCardActiveSource(cardActiveSource === 'club' ? 'union' : 'club')
+                }
+                disabled={!canSetActiveSource || savingActiveSource || !clubUUID}
+              >
+                {cardActiveSource === 'club' ? 'ON' : 'OFF'}
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* Rake & BBJ Settings */}
         {!inUnion && (

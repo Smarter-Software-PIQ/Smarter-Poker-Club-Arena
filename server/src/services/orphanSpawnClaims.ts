@@ -21,7 +21,14 @@
  *     earlier sweep at least ORPHAN_SPAWN_SWEEP_MS before, by which time any
  *     spawn that was in flight in any process has finished and linked it;
  *   - to be released (not linked), its schedule still exists and is active -
- *     a disabled schedule's claims are left exactly as they are.
+ *     a disabled schedule's claims are left exactly as they are;
+ *   - to be written at all (linked OR released), its schedule's club is
+ *     readable and not retired. A retired club is read-only by law
+ *     (fn_guard_retired_club_mutation answers CLUB_RETIRED, SQLSTATE 55000,
+ *     to every write of its spawn rows), so a write to one of its claims can
+ *     never succeed and is never sent. On 2026-11-26 one Diamond Arena claim
+ *     from 2026-10-07 (retired 2026-11-06) was linked again on every sweep:
+ *     133 refused PATCHes in 24 hours, one every ten minutes, for ever.
  *
  * Then, for each one:
  *
@@ -79,6 +86,11 @@ export type OrphanSweepResult = {
   waiting: number;
   /** Its schedule is gone, disabled or unreadable, so it is not released. */
   inactive: number;
+  /**
+   * Its schedule's club is retired (read-only), or the club could not be read,
+   * so no write is sent: the retired-club guard refuses every one.
+   */
+  readOnly: number;
 };
 
 export async function sweepOrphanSpawnClaims(
@@ -95,6 +107,7 @@ export async function sweepOrphanSpawnClaims(
     failed: 0,
     waiting: 0,
     inactive: 0,
+    readOnly: 0,
   };
   const cutoff = new Date(now.getTime() - ORPHAN_SPAWN_GRACE_MS).toISOString();
   const { data, error } = await db
@@ -118,10 +131,12 @@ export async function sweepOrphanSpawnClaims(
   for (const key of [...seen.keys()]) if (!current.has(key)) seen.delete(key);
   const scheduleIds = [...new Set(claims.map((c) => c.schedule_id).filter(Boolean))] as string[];
   let active: Set<string> | null = null;
+  /** Schedules whose club is retired; null when that could not be read. */
+  let readOnlySchedules: Set<string> | null = new Set();
   if (scheduleIds.length > 0) {
     const { data: rows, error: schedErr } = await db
       .from('tournament_schedules')
-      .select('id, active')
+      .select('id, active, club_id')
       .in('id', scheduleIds);
     if (schedErr) {
       report(
@@ -130,10 +145,11 @@ export async function sweepOrphanSpawnClaims(
         ),
         'ScheduledTournaments.orphan_claim_read_failed'
       );
+      readOnlySchedules = null;
     } else {
-      active = new Set(
-        ((rows ?? []) as { id: string; active: boolean }[]).filter((r) => r.active).map((r) => r.id)
-      );
+      const schedules = (rows ?? []) as { id: string; active: boolean; club_id: string | null }[];
+      active = new Set(schedules.filter((r) => r.active).map((r) => r.id));
+      readOnlySchedules = await retiredClubSchedules(db, schedules, report);
     }
   }
   for (const claim of claims) {
@@ -189,6 +205,13 @@ export async function sweepOrphanSpawnClaims(
       result.ambiguous++;
       continue;
     }
+    // A RETIRED CLUB IS READ-ONLY (2026-11-26): the guard refuses every write
+    // to its spawn rows, so none is sent. An unreadable club is not proof that
+    // a write can land; it waits for the next sweep.
+    if (!readOnlySchedules || readOnlySchedules.has(claim.schedule_id)) {
+      result.readOnly++;
+      continue;
+    }
     const write =
       decision.kind === 'link'
         ? db
@@ -226,4 +249,33 @@ export async function sweepOrphanSpawnClaims(
     }
   }
   return result;
+}
+
+/**
+ * The schedules, among those read, whose club is retired. A schedule with no
+ * club, or whose club row no longer exists, is not read-only to the guard (it
+ * has no retired club to find), so it is not listed. Null when the clubs could
+ * not be read: the caller then sends no write at all.
+ */
+async function retiredClubSchedules(
+  db: Db,
+  schedules: { id: string; club_id: string | null }[],
+  report: (err: Error, source: string) => void
+): Promise<Set<string> | null> {
+  const clubIds = [...new Set(schedules.map((s) => s.club_id).filter(Boolean))] as string[];
+  if (clubIds.length === 0) return new Set();
+  const { data, error } = await db.from('clubs').select('id, lifecycle_status').in('id', clubIds);
+  if (error) {
+    report(
+      new Error(`[ScheduledTournaments] orphan spawn claim club read failed: ${error.message}`),
+      'ScheduledTournaments.orphan_claim_read_failed'
+    );
+    return null;
+  }
+  const retired = new Set(
+    ((data ?? []) as { id: string; lifecycle_status: string | null }[])
+      .filter((c) => c.lifecycle_status === 'retired')
+      .map((c) => c.id)
+  );
+  return new Set(schedules.filter((s) => s.club_id && retired.has(s.club_id)).map((s) => s.id));
 }

@@ -172,7 +172,7 @@ function freezeClocks() {
   };
 }
 
-function seedMemory(B, st, hands, status) {
+export function seedMemory(B, st, hands, status) {
   const M = B.HorseMind;
   if (typeof M?.observe !== 'function') {
     status.unavailable++;
