@@ -86,27 +86,25 @@ test.describe('Reserved Admin - every Club Operations registry route', () => {
       await expectDestination(page, `/${path}`);
 
       if (operation.id === 'data') {
-        // The operator report opens inside the club's daily Data page.
-        await expect(page.getByRole('heading', { name: /^(?:.+ - )?Club Data$/i })).toBeVisible({
+        await expect(page.getByRole('heading', { name: 'Club Data', exact: true })).toBeVisible({
           timeout: 30_000,
         });
-        await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
-        await expect(page).toHaveURL(/\/clubs\/[^/]+\/data\?[^#]*report=open/, {
-          timeout: 30_000,
-        });
+        await expect(
+          page.getByRole('button', { name: 'Open Club Report', exact: true })
+        ).toHaveCount(0);
       }
 
       if (operation.id === 'players') {
-        await page.getByRole('button', { name: 'Sort And Roster Tools' }).click();
+        await expect(page.getByRole('combobox', { name: 'Sort Players' })).toBeVisible();
       } else if (operation.id === 'cashier') {
         await expect(page.locator('[data-cashier-mode="simple"]')).toBeVisible({ timeout: 30_000 });
         await page.getByRole('button', { name: /^Requests, Tickets And Tools/ }).click();
         await expect(page.getByRole('tablist', { name: 'Cashier Actions' })).toBeVisible();
       } else if (operation.id === 'data') {
-        await expect(page.getByRole('button', { name: 'Close Club Report' })).toHaveAttribute(
-          'aria-expanded',
-          'true'
-        );
+        await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+        const calendar = page.getByRole('dialog', { name: 'Select Dates', exact: true });
+        await expect(calendar).toBeVisible();
+        await calendar.getByRole('button', { name: 'Cancel', exact: true }).click();
       }
       await expect(page.getByRole('navigation', { name: 'Club Operations Sections' })).toBeVisible({
         timeout: 20_000,

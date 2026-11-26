@@ -60,11 +60,28 @@ function videoPreviewUrl(url) {
   const trimmed = url.trim();
   return trimmed.includes('#') ? trimmed : `${trimmed}#t=0.001`;
 }
+function extractReplyPrefix(content) {
+  if (typeof content !== 'string') return { replyQuote: null, body: '' };
+  const match = /^\[REPLY:([^\]]+)\]\s*/.exec(content);
+  if (!match) return { replyQuote: null, body: content };
+  return { replyQuote: match[1].trim(), body: content.slice(match[0].length) };
+}
+function stripForwardPrefix(content) {
+  if (typeof content !== 'string') return '';
+  let text = content.trim();
+  while (text.startsWith('[Forwarded] ')) {
+    text = text.slice('[Forwarded] '.length).trim();
+  }
+  return text;
+}
 function safeMedia(content) {
   if (typeof content !== 'string') return null;
-  let text = content.replace(/^\[REPLY:[^\]]*\]\s*/, '').trim();
-  const forwarded = text.startsWith('[Forwarded] ');
-  if (forwarded) text = text.slice('[Forwarded] '.length).trim();
+  let text = extractReplyPrefix(content).body.trim();
+  let forwarded = false;
+  while (text.startsWith('[Forwarded] ')) {
+    forwarded = true;
+    text = text.slice('[Forwarded] '.length).trim();
+  }
   text = text.replace(/^[\p{Extended_Pictographic}\u{FE0F}\u{200D}\s]+/u, '');
   const match =
     /^\[(Image|Video|GIF|Audio)\]\((https:\/\/[^\s)]+)\)(?:\|dur:(\d+(?:\.\d+)?))?/i.exec(text);
@@ -75,6 +92,92 @@ function safeMedia(content) {
     caption: text.slice(match[0].length).trim(),
     forwarded,
   };
+}
+function formatReplyQuote(content, maxLength = 80) {
+  const raw = extractReplyPrefix(String(content || '')).body.trim();
+  if (!raw) return 'Attachment';
+  const media = safeMedia(raw);
+  const labels = { image: 'Photo', video: 'Video', gif: 'GIF', audio: 'Voice Message' };
+  const summary = media
+    ? media.caption
+      ? `${labels[media.kind] || 'Attachment'}: ${media.caption}`
+      : labels[media.kind] || 'Attachment'
+    : stripForwardPrefix(raw);
+  const safe = summary
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!safe) return 'Attachment';
+  return maxLength > 0 && safe.length > maxLength ? safe.slice(0, maxLength).trimEnd() : safe;
+}
+function DockMedia({ media, replyQuote }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [media?.url]);
+  if (!media) return null;
+  const replyEl = replyQuote ? <div className="dock-reply-quote">{replyQuote}</div> : null;
+  const forwardedEl = media.forwarded ? (
+    <div className="dock-media-forwarded">Forwarded</div>
+  ) : null;
+  const captionEl = media.caption ? (
+    <div className="dock-media-caption">{media.caption}</div>
+  ) : null;
+  const hasChrome = Boolean(replyQuote || media.forwarded || media.caption);
+  if (failed) {
+    return (
+      <>
+        {replyEl}
+        {forwardedEl}
+        <a
+          className="dock-media-fallback"
+          href={media.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span aria-hidden="true">📎</span>
+          <span>{media.kind === 'video' ? 'Video' : 'Photo'} · Tap To Open</span>
+        </a>
+        {captionEl}
+      </>
+    );
+  }
+  if (media.kind === 'video') {
+    return (
+      <>
+        {replyEl}
+        {forwardedEl}
+        <div className="dock-media-stage dock-media-stage-video">
+          <video
+            src={videoPreviewUrl(media.url) || media.url}
+            controls
+            playsInline
+            preload="metadata"
+            onError={() => setFailed(true)}
+          />
+        </div>
+        {captionEl}
+      </>
+    );
+  }
+  return (
+    <>
+      {replyEl}
+      {forwardedEl}
+      <div className={`dock-media-stage ${hasChrome ? 'dock-media-stage-framed' : ''}`}>
+        <a href={media.url} target="_blank" rel="noopener noreferrer">
+          <img
+            src={media.url}
+            alt="Message Attachment"
+            loading="lazy"
+            onError={() => setFailed(true)}
+          />
+        </a>
+      </div>
+      {captionEl}
+    </>
+  );
 }
 export default function MessengerChat({
   actorId,
@@ -419,9 +522,7 @@ export default function MessengerChat({
         ? messages.find((message) => message.id === captured.replyToId)
         : null;
     const wireContent = quoted
-      ? `[REPLY:${String(quoted.content || 'Attachment')
-          .replace(/\]/g, '')
-          .slice(0, 80)}] ${content}`
+      ? `[REPLY:${formatReplyQuote(quoted.content || '', 80)}] ${content}`
       : content;
     if (wireContent.length > 2000) {
       setError('Reply Is Too Long. Shorten The Message');
@@ -616,6 +717,7 @@ export default function MessengerChat({
         )}
         {messages.map((message) => {
           const own = message.sender_id === actorId;
+          const { replyQuote, body } = extractReplyPrefix(message.content || '');
           const media =
             !message.is_deleted && message.message_type !== 'invoice' && safeMedia(message.content);
           const visualMedia = Boolean(media && isVisualMediaKind(media.kind));
@@ -636,29 +738,18 @@ export default function MessengerChat({
                   <button type="button" onClick={openFull}>
                     Open Invoice In Messenger
                   </button>
-                ) : media?.kind === 'image' || media?.kind === 'gif' ? (
-                  <>
-                    {media.forwarded && <div className="dock-media-forwarded">Forwarded</div>}
-                    <a href={media.url} target="_blank" rel="noreferrer">
-                      <img src={media.url} alt="Message Attachment" loading="lazy" />
-                    </a>
-                    {media.caption && <div className="dock-media-caption">{media.caption}</div>}
-                  </>
-                ) : media?.kind === 'video' ? (
-                  <>
-                    {media.forwarded && <div className="dock-media-forwarded">Forwarded</div>}
-                    <video
-                      src={videoPreviewUrl(media.url) || media.url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                    />
-                    {media.caption && <div className="dock-media-caption">{media.caption}</div>}
-                  </>
+                ) : visualMedia ? (
+                  <DockMedia media={media} replyQuote={replyQuote} />
                 ) : media?.kind === 'audio' ? (
-                  <audio src={media.url} controls />
+                  <>
+                    {replyQuote && <div className="dock-reply-quote">{replyQuote}</div>}
+                    <audio src={media.url} controls />
+                  </>
                 ) : (
-                  message.content
+                  <>
+                    {replyQuote && <div className="dock-reply-quote">{replyQuote}</div>}
+                    {body}
+                  </>
                 )}
               </div>
               {own && (

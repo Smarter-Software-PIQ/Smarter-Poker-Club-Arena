@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useMasterBusBroadcastChannel } from '../../hooks/useMasterBusBroadcastChannel';
 
 interface RecordProps {
@@ -7,13 +8,15 @@ interface RecordProps {
 }
 
 function StatsLiveRecord({ userId, clubId, onChange }: RecordProps) {
+  const subscribed = useRef(false);
   useMasterBusBroadcastChannel({
     channelName: `member-record:${clubId.toLowerCase()}:${userId.toLowerCase()}`,
     event: 'record_changed',
     onPayload: onChange,
     // A reconnect covers commits missed while this subscription was away.
     onSubscriptionStatus: (status) => {
-      if (status === 'SUBSCRIBED') onChange();
+      if (status === 'SUBSCRIBED' && !subscribed.current) onChange();
+      subscribed.current = status === 'SUBSCRIBED';
     },
   });
   return null;

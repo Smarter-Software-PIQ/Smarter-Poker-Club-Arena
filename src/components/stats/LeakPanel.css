@@ -63,7 +63,7 @@
 }
 
 .leak-item.sev-medium {
-  border-left-color: #f59e0b;
+  border-left-color: #86c9e8;
 }
 
 .leak-item.sev-low {
@@ -95,7 +95,7 @@
 
 .leak-sev.sev-medium {
   background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
+  color: #bddeea;
 }
 
 .leak-sev.sev-low {

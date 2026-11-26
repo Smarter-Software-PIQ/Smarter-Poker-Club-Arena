@@ -1,0 +1,74 @@
+.arena-cashier .cashier-balance-ledger {
+  container: cashier-ledger / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(44px, max-content);
+  padding: 0 5px 3px;
+}
+.arena-cashier .cashier-balance-ledger > [data-wallet-key] {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  gap: 10px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid #304356;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+}
+.arena-cashier .cashier-balance-ledger > button:focus-visible {
+  outline: 2px solid #99e4ff;
+  outline-offset: -2px;
+}
+.arena-cashier .cashier-balance-ledger .dw__row-label {
+  min-width: 0;
+  color: #edf5ff;
+  font:
+    500 15px/1.2 Inter,
+    sans-serif;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+.arena-cashier .cashier-balance-ledger .dw__row-value {
+  color: #edf5ff;
+  font:
+    650 23px/1.12 'Roboto Condensed',
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: 0.008em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-shadow: none;
+  white-space: nowrap;
+}
+.arena-cashier .cashier-balance-ledger [data-wallet-key='player_wallet'] .dw__row-value,
+.arena-cashier .cashier-balance-ledger [data-wallet-key='diamonds'] .cashier-balance-unit {
+  color: #8edcff;
+}
+.arena-cashier .cashier-balance-ledger .cashier-balance-unit {
+  text-transform: none;
+  color: #9eb8d1;
+  font:
+    600 11px/1 'Roboto Condensed',
+    sans-serif;
+  letter-spacing: 0.055em;
+}
+@container cashier-ledger (max-width: 500px) {
+  .arena-cashier .cashier-balance-ledger > [data-wallet-key] {
+    min-height: 44px;
+    gap: 6px;
+  }
+  .arena-cashier .cashier-balance-ledger .dw__row-label {
+    font-size: 14px;
+  }
+  .arena-cashier .cashier-balance-ledger .dw__row-value {
+    font-size: 21px;
+  }
+}
