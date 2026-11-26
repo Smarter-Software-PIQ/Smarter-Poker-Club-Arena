@@ -15,6 +15,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { replayProfiles } from './HorseComplaintReplay.js';
 import { seedHorseTimingRandom } from './horsePublicActionTime.js';
 import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
+import { measureRelativeCost } from '../testing/relativeCost.js';
 import {
   omahaRiverFirstToActBet,
   omahaRiverFirstToActBetRule,
@@ -303,17 +304,22 @@ describe('omahaRiverBetCheckIsHisRecord: the decision', () => {
     }
   });
 
-  it('the read costs nothing measurable beside the rules it feeds (relative cost, no wall-clock bound)', () => {
+  it('the read costs a bounded multiple of the rules it feeds (relative cost, src/testing/relativeCost.ts)', () => {
     HorseMind.setOmahaLifetimeStreetRecordProvider(provider(rec(4000, 0)));
-    const time = (extra: Record<string, unknown>) => {
-      const t0 = performance.now();
-      for (let r = 0; r < 3; r++) for (const s of ALL) decide(s, extra, 1 + r);
-      return performance.now() - t0;
-    };
-    time(RIVER_ON);
-    const off = Math.min(time(RIVER_ON), time(RIVER_ON));
-    const on = Math.min(time(ON), time(ON));
-    // the read is a few multiplications; the rules' model dominates: generous ratio for a loaded runner
-    expect(on).toBeLessThan(off * 2.5 + 50);
+    // on (the two river rules + his check read) against the same decisions with the river rules alone
+    const cost = measureRelativeCost(
+      () => {
+        for (const s of ALL) decide(s, ON, 1);
+      },
+      () => {
+        for (const s of ALL) decide(s, RIVER_ON, 1);
+      },
+      { warmupRounds: 1, rounds: 5 }
+    );
+    console.info(
+      `[omahaRiverBetCheckIsHisRecord] ${ALL.length} decisions: on ${(cost.subjectMs / ALL.length).toFixed(2)} ms, off ${(cost.referenceMs / ALL.length).toFixed(2)} ms per decision, ratio ${cost.ratio.toFixed(2)}`
+    );
+    // the read is two record lookups and a multiplication; the rules' model dominates both sides
+    expect(cost.ratio).toBeLessThan(2);
   });
 });
