@@ -119,6 +119,33 @@ test('the rollout tail proves only a completed turn that started after the queue
   assert.equal(uuidV7Millis(A), null);
 });
 
+test('a turn that started in the same second as the queued message is proved by its UUIDv7 turn id', () => {
+  // 2026-11-20 09:39:18.815Z message; turn 01a1f853-1ce5 started 09:39:18.885Z
+  // and ended with usage_limit_exceeded; started_at reports only 09:39:18.
+  const since = uuidV7Millis('01a1f853-1c9f-79e1-8f4f-1e0f5a1f8c66');
+  const end = (turnId) =>
+    JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'task_complete',
+        turn_id: turnId,
+        started_at: 1795167558,
+        error: { codex_error_info: 'usage_limit_exceeded' },
+      },
+    });
+  assert.equal(
+    lastRecordEndsTurnAfter(`${end('01a1f853-1ce5-7221-aa29-ed5107100ea0')}\n`, since),
+    true
+  );
+  // A turn minted in the same second but before the message is not proof.
+  assert.equal(
+    lastRecordEndsTurnAfter(`${end('01a1f853-1c00-7221-aa29-ed5107100ea0')}\n`, since),
+    false
+  );
+  // A non-time turn id falls back to whole-second started_at, which stays conservative.
+  assert.equal(lastRecordEndsTurnAfter(`${end(A)}\n`, since), false);
+});
+
 test('the probe reads the native queue and rollout read-only and refuses a still-queued message', async () => {
   const home = await mkdtemp(join(process.env.RUNNER_TEMP || tmpdir(), 'native-turn-'));
   try {

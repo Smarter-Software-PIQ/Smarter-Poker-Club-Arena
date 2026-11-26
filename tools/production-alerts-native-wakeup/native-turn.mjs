@@ -24,7 +24,14 @@ export function lastRecordEndsTurnAfter(tail, sinceMillis) {
   } catch {
     return false;
   }
-  const started = Number(record?.payload?.started_at) * 1000;
+  // started_at has whole-second resolution while the queued message id carries
+  // milliseconds: on 2026-11-20 a turn woke 80 ms after its message, within the
+  // same second, so started_at*1000 read as before the message and the halted
+  // operation was retained for days. The turn id is a UUIDv7 minted when the
+  // turn starts; use its milliseconds, and fall back to started_at only when the
+  // turn id carries no time.
+  const started =
+    uuidV7Millis(record?.payload?.turn_id) ?? Number(record?.payload?.started_at) * 1000;
   return (
     record?.type === 'event_msg' &&
     record.payload.type === 'task_complete' &&

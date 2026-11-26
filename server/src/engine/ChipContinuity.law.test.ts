@@ -315,8 +315,11 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     // leaveCashForTournaments - a horse leaving cash the way a person with a
     // tournament in an hour does. (2026-10-23) A fifth: the roster walk-out,
     // a benched horse or one off the PLO roster standing up at hand end.
+    // (2026-11-24) A sixth: the variety drain, a Horse leaving a Horse-only
+    // extra table at hand end so the slot goes to an owed Main 1
+    // (anExtraTableYieldsToAnOwedMain.law.test.ts), never forced.
     // Every one of them is engine.leaveTable.
-    expect((ROTATOR.match(/await engine\.leaveTable\(/g) ?? []).length).toBe(5);
+    expect((ROTATOR.match(/await engine\.leaveTable\(/g) ?? []).length).toBe(6);
     expect(ROTATOR).toContain('private async leaveCashForTournaments(');
   });
 

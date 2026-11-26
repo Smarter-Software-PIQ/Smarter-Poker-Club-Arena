@@ -114,6 +114,7 @@ export default function CashierMyWallets({
             compactLobby
             showAllLobbyWallets
             showBBJ={false}
+            cashierLedger={consoleLayout}
             showArtwork={!consoleLayout}
             onVisibleWalletCountChange={setVisibleWalletCount}
             onBuyDiamonds={() => {

@@ -1,0 +1,3 @@
+# server/src/engine/HoldemV66RaisedOnePairIsPriced.law.test.ts
+
+With `v66BetRaisedOnePairIsPriced` off (absent, false, or any non-boolean truthy value), every decision and telemetry fire is 100% bit-identical to `main` across NLH cash, MTT, Lightning, PLO4, PLO5, PLO6, and PLO8 Hi-Lo. With `v66BetRaisedOnePairIsPriced: true`, single-board 2-card NLH flop/turn bet-then-raised one-pair / bluff-catch hands without real draws are priced strictly by `EV(call) > EV(fold) = 0` against the raiser's narrowed combo-weighted line range (no fixed 0.42 floor, no hardcoded class fold or jam, deterministic without `fastRandom`, independent of `v66BetRaisedOnePair`), while PLO4/5/6, Hi-Lo, river, real draws, two pair, sets, and multiway spots remain untouched.

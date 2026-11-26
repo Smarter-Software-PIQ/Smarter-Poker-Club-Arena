@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, X, Maximize2, Send, ImagePlus, Reply, Smile, ThumbsUp } from './DockIcons';
-import { dockName } from './messengerDock.mjs';
+import { dockFailureText, dockName } from './messengerDock.mjs';
 import { visibleMessageBoundary, isMessageId, CONTINUITY_PREFIX } from './messengerContinuity.mjs';
 import {
   createMessengerSendOperation,
@@ -11,11 +11,17 @@ import {
   messengerOperationMessage,
   acknowledgeMessengerSend,
 } from './messengerSendOperation.mjs';
+import { persistReadWithRetry, readFailureMessage } from './messengerReadRetry.mjs';
+import DockMediaViewer from './DockMediaViewer';
 
 const MESSAGE_ROUTES = {
   'get-messages': '/api/messenger/get-messages',
   'mark-read': '/api/messenger/mark-read',
 };
+const STORAGE_OBJECT =
+  /^(https:\/\/[a-z0-9-]+\.supabase\.co)\/storage\/v1\/object\/public\/([^?#]+)$/i;
+const HEIC_MIME_RE = /^image\/hei[cf]$/i;
+const HEIC_EXT_RE = /\.hei[cf]$/i;
 const UPLOAD_EXT_MIME = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -55,16 +61,200 @@ function resolveUploadMedia(file) {
   if (mimeType.startsWith('video/')) return { kind: 'video', mimeType };
   return null;
 }
+function isSafeMediaUrl(value) {
+  if (typeof value !== 'string') return false;
+  const url = value.trim();
+  if (!url || url.length > 2048 || /[\s<>"'`\\]/.test(url)) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+function encodeMessageMedia({ kind, url, caption } = {}) {
+  const markers = { image: 'Image', video: 'Video', gif: 'GIF', audio: 'Audio' };
+  const marker = markers[kind];
+  if (!marker || !isSafeMediaUrl(url)) return null;
+  const base = `[${marker}](${url.trim()})`;
+  const cleanCaption = typeof caption === 'string' ? caption.replace(/\r\n?/g, '\n').trim() : '';
+  return cleanCaption ? `${base} ${cleanCaption}` : base;
+}
+function mediaThumbnailUrl(url, { kind = 'image', width = 800, quality = 72 } = {}) {
+  if (!isSafeMediaUrl(url)) return null;
+  if (kind !== 'image') return url;
+  const match = STORAGE_OBJECT.exec(url.trim());
+  if (!match) return url;
+  return `${match[1]}/storage/v1/render/image/public/${match[2]}?width=${width}&quality=${quality}`;
+}
+function extractMediaDimensions(meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  const width = Math.round(Number(meta.media_width ?? meta.width));
+  const height = Math.round(Number(meta.media_height ?? meta.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (width < 16 || height < 16 || width > 16384 || height > 16384) return null;
+  const ratio = width / height;
+  if (!Number.isFinite(ratio) || ratio < 0.25 || ratio > 4) return null;
+  return { width, height, aspectRatio: `${width} / ${height}` };
+}
 function videoPreviewUrl(url) {
-  if (typeof url !== 'string' || !/^https:\/\/[^\s<>"'`\\]+$/i.test(url.trim())) return url;
+  if (!isSafeMediaUrl(url)) return url;
   const trimmed = url.trim();
   return trimmed.includes('#') ? trimmed : `${trimmed}#t=0.001`;
 }
+async function prepareDockUploadFile(rawFile) {
+  const resolved = resolveUploadMedia(rawFile);
+  if (!resolved) return null;
+  const isVideo = resolved.kind === 'video';
+  const fileName = rawFile.name || `media_${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`;
+  if (isVideo) {
+    return {
+      file: rawFile,
+      kind: 'video',
+      mimeType: resolved.mimeType,
+      fileName,
+      width: null,
+      height: null,
+    };
+  }
+  const heic = HEIC_MIME_RE.test(resolved.mimeType) || HEIC_EXT_RE.test(fileName);
+  let width = null;
+  let height = null;
+  if (typeof window !== 'undefined' && typeof createImageBitmap === 'function') {
+    let bitmap = null;
+    try {
+      bitmap = await createImageBitmap(rawFile, { imageOrientation: 'from-image' });
+    } catch {
+      try {
+        bitmap = await createImageBitmap(rawFile);
+      } catch {
+        bitmap = null;
+      }
+    }
+    if (bitmap) {
+      try {
+        width = bitmap.width || null;
+        height = bitmap.height || null;
+        if (heic && width > 0 && height > 0) {
+          const longest = Math.max(width, height);
+          const scale = longest > 3000 ? 3000 / longest : 1;
+          const w = Math.max(1, Math.round(width * scale));
+          const h = Math.max(1, Math.round(height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(bitmap, 0, 0, w, h);
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+            canvas.width = 0;
+            canvas.height = 0;
+            if (blob) {
+              const base = fileName.replace(/\.[^.]+$/, '');
+              const converted =
+                typeof File === 'function'
+                  ? new File([blob], `${base}.jpg`, { type: 'image/jpeg' })
+                  : blob;
+              return {
+                file: converted,
+                kind: 'image',
+                mimeType: 'image/jpeg',
+                fileName: `${base}.jpg`,
+                width: w,
+                height: h,
+              };
+            }
+          }
+        }
+      } finally {
+        if (typeof bitmap.close === 'function') bitmap.close();
+      }
+    }
+  }
+  return {
+    file: rawFile,
+    kind: 'image',
+    mimeType: resolved.mimeType,
+    fileName,
+    width: width > 0 ? Math.round(width) : null,
+    height: height > 0 ? Math.round(height) : null,
+  };
+}
+function uploadDockFileWithProgress(file, signedUrl, mimeType, { onProgress, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const createAbort = () => Object.assign(new Error('Upload Cancelled'), { name: 'AbortError' });
+    if (signal?.aborted) {
+      reject(createAbort());
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', handleAbort);
+      fn(value);
+    };
+    const handleAbort = () => {
+      try {
+        xhr.abort();
+      } catch {
+        /* ignore */
+      }
+      finish(reject, createAbort());
+    };
+    const timer = setTimeout(() => {
+      try {
+        xhr.abort();
+      } catch {
+        /* ignore */
+      }
+      finish(reject, new Error('Upload Timed Out'));
+    }, 300000);
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    xhr.open('PUT', signedUrl, true);
+    xhr.setRequestHeader('Content-Type', mimeType);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.max(0, Math.min(99, Math.round((event.loaded / event.total) * 100))));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        finish(resolve, null);
+      } else {
+        finish(reject, new Error('Upload Did Not Complete'));
+      }
+    };
+    xhr.onerror = () => finish(reject, new Error('Upload Did Not Complete'));
+    xhr.onabort = () => finish(reject, createAbort());
+    xhr.send(file);
+  });
+}
+function extractReplyPrefix(content) {
+  if (typeof content !== 'string') return { replyQuote: null, body: '' };
+  const match = /^\[REPLY:([^\]]+)\]\s*/.exec(content);
+  if (!match) return { replyQuote: null, body: content };
+  return { replyQuote: match[1].trim(), body: content.slice(match[0].length) };
+}
+function stripForwardPrefix(content) {
+  if (typeof content !== 'string') return '';
+  let text = content.trim();
+  while (text.startsWith('[Forwarded] ')) {
+    text = text.slice('[Forwarded] '.length).trim();
+  }
+  return text;
+}
 function safeMedia(content) {
   if (typeof content !== 'string') return null;
-  let text = content.replace(/^\[REPLY:[^\]]*\]\s*/, '').trim();
-  const forwarded = text.startsWith('[Forwarded] ');
-  if (forwarded) text = text.slice('[Forwarded] '.length).trim();
+  let text = extractReplyPrefix(content).body.trim();
+  let forwarded = false;
+  while (text.startsWith('[Forwarded] ')) {
+    forwarded = true;
+    text = text.slice('[Forwarded] '.length).trim();
+  }
   text = text.replace(/^[\p{Extended_Pictographic}\u{FE0F}\u{200D}\s]+/u, '');
   const match =
     /^\[(Image|Video|GIF|Audio)\]\((https:\/\/[^\s)]+)\)(?:\|dur:(\d+(?:\.\d+)?))?/i.exec(text);
@@ -75,6 +265,113 @@ function safeMedia(content) {
     caption: text.slice(match[0].length).trim(),
     forwarded,
   };
+}
+function formatReplyQuote(content, maxLength = 80) {
+  const raw = extractReplyPrefix(String(content || '')).body.trim();
+  if (!raw) return 'Attachment';
+  const media = safeMedia(raw);
+  const labels = { image: 'Photo', video: 'Video', gif: 'GIF', audio: 'Voice Message' };
+  const summary = media
+    ? media.caption
+      ? `${labels[media.kind] || 'Attachment'}: ${media.caption}`
+      : labels[media.kind] || 'Attachment'
+    : stripForwardPrefix(raw);
+  const safe = summary
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!safe) return 'Attachment';
+  return maxLength > 0 && safe.length > maxLength ? safe.slice(0, maxLength).trimEnd() : safe;
+}
+function DockMedia({ media, dimensions = null, replyQuote }) {
+  const [failed, setFailed] = useState(false);
+  const [fitted, setFitted] = useState(true);
+  const [viewing, setViewing] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    setFitted(true);
+    setViewing(false);
+  }, [media?.url]);
+  if (!media) return null;
+  const replyEl = replyQuote ? <div className="dock-reply-quote">{replyQuote}</div> : null;
+  const forwardedEl = media.forwarded ? (
+    <div className="dock-media-forwarded">Forwarded</div>
+  ) : null;
+  const captionEl = media.caption ? (
+    <div className="dock-media-caption">{media.caption}</div>
+  ) : null;
+  const hasChrome = Boolean(replyQuote || media.forwarded || media.caption);
+  if (failed) {
+    return (
+      <>
+        {replyEl}
+        {forwardedEl}
+        <a
+          className="dock-media-fallback"
+          href={media.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span aria-hidden="true">📎</span>
+          <span>{media.kind === 'video' ? 'Video' : 'Photo'} · Tap To Open</span>
+        </a>
+        {captionEl}
+      </>
+    );
+  }
+  if (media.kind === 'video') {
+    return (
+      <>
+        {replyEl}
+        {forwardedEl}
+        <div className="dock-media-stage dock-media-stage-video">
+          <video
+            src={videoPreviewUrl(media.url) || media.url}
+            width={dimensions?.width}
+            height={dimensions?.height}
+            style={dimensions?.aspectRatio ? { aspectRatio: dimensions.aspectRatio } : undefined}
+            controls
+            playsInline
+            preload="metadata"
+            onError={() => setFailed(true)}
+          />
+        </div>
+        {captionEl}
+      </>
+    );
+  }
+  const label = media.kind === 'gif' ? 'GIF' : 'Photo Attachment';
+  const src = fitted ? mediaThumbnailUrl(media.url, { kind: media.kind }) || media.url : media.url;
+  return (
+    <>
+      {replyEl}
+      {forwardedEl}
+      <div className={`dock-media-stage ${hasChrome ? 'dock-media-stage-framed' : ''}`}>
+        <img
+          src={src}
+          alt={label}
+          width={dimensions?.width}
+          height={dimensions?.height}
+          style={dimensions?.aspectRatio ? { aspectRatio: dimensions.aspectRatio } : undefined}
+          loading="lazy"
+          decoding="async"
+          onError={() => {
+            if (src !== media.url) setFitted(false);
+            else setFailed(true);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            setViewing(true);
+          }}
+        />
+      </div>
+      {captionEl}
+      {viewing && (
+        <DockMediaViewer url={media.url} label={label} onClose={() => setViewing(false)} />
+      )}
+    </>
+  );
 }
 export default function MessengerChat({
   actorId,
@@ -94,8 +391,13 @@ export default function MessengerChat({
   const [engaged, setEngaged] = useState(false);
   const [older, setOlder] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const [pendingMedia, setPendingMedia] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [newAvailable, setNewAvailable] = useState(false);
   const [emojis, setEmojis] = useState(false);
+  const uploadAbort = useRef(null);
+  const pendingPreviewUrl = useRef(null);
   const mounted = useRef(true);
   const sequence = useRef(0);
   const scroll = useRef(null);
@@ -220,7 +522,7 @@ export default function MessengerChat({
       } catch (failure) {
         if (current() && sequence.current === requestSequence) {
           if ([401, 403, 404].includes(failure.status)) setMessages([]);
-          setError(failure.message);
+          setError(dockFailureText(failure));
         }
       } finally {
         if (current() && sequence.current === requestSequence) setLoading(false);
@@ -324,6 +626,17 @@ export default function MessengerChat({
       void continuity.write(id, 'position');
       mounted.current = false;
       ++sequence.current;
+      if (uploadAbort.current) {
+        try {
+          uploadAbort.current.abort();
+        } catch {
+          /* unmounting */
+        }
+      }
+      if (pendingPreviewUrl.current) {
+        URL.revokeObjectURL(pendingPreviewUrl.current);
+        pendingPreviewUrl.current = null;
+      }
       clearTimeout(refreshTimer);
       clearTimeout(typingTimer.current);
       stop();
@@ -344,10 +657,19 @@ export default function MessengerChat({
     reading.current = true;
     let confirmed = false;
     try {
-      const result = await request('mark-read', {
-        conversationId: id,
-        throughMessageId: boundary.last,
-      });
+      const saved = await persistReadWithRetry(
+        () =>
+          request('mark-read', {
+            conversationId: id,
+            throughMessageId: boundary.last,
+          }),
+        { stillWanted: () => current() && document.visibilityState === 'visible' }
+      );
+      if (!saved.ok) {
+        if (!saved.abandoned && current()) setError(readFailureMessage(saved.error));
+        return;
+      }
+      const result = saved.value;
       if (identity.current !== actorId) return;
       // The acknowledged read still refreshes badges if this panel was
       // minimized while the request was in flight. No unmounted UI write.
@@ -364,7 +686,7 @@ export default function MessengerChat({
         });
       if (current()) onRead();
     } catch (failure) {
-      if (current()) setError(failure.message);
+      if (current()) setError(dockFailureText(failure));
     } finally {
       reading.current = false;
       const latest = visibleMessageBoundary(scroll.current);
@@ -408,10 +730,10 @@ export default function MessengerChat({
         void load();
       }
     } catch (failure) {
-      if (current()) setError(failure.message);
+      if (current()) setError(dockFailureText(failure));
     }
   };
-  const send = (content = draft.text, consume = true) => {
+  const send = (content = draft.text, consume = true, metadata = null) => {
     if (!current() || !content.trim() || content.length > 2000) return;
     const captured = continuity.state(id).draft;
     const quoted =
@@ -419,9 +741,7 @@ export default function MessengerChat({
         ? messages.find((message) => message.id === captured.replyToId)
         : null;
     const wireContent = quoted
-      ? `[REPLY:${String(quoted.content || 'Attachment')
-          .replace(/\]/g, '')
-          .slice(0, 80)}] ${content}`
+      ? `[REPLY:${formatReplyQuote(quoted.content || '', 80)}] ${content}`
       : content;
     if (wireContent.length > 2000) {
       setError('Reply Is Too Long. Shorten The Message');
@@ -439,52 +759,129 @@ export default function MessengerChat({
       actorId,
       conversationId: id,
       content: wireContent,
+      metadata,
     });
     ops.current.set(operation.requestId, operation);
     void attempt(operation, consume ? captured : null);
   };
-  const upload = async (event) => {
-    const media = event.target.files?.[0];
-    event.target.value = '';
+  const clearPendingMedia = () => {
+    if (pendingPreviewUrl.current) {
+      URL.revokeObjectURL(pendingPreviewUrl.current);
+      pendingPreviewUrl.current = null;
+    }
+    setPendingMedia(null);
+  };
+  const stageMedia = (media) => {
     if (!media || !current()) return;
     const resolved = resolveUploadMedia(media);
     if (!resolved || media.size > (resolved.kind === 'video' ? 50 : 10) * 1024 * 1024) {
       setError('Choose An Image Under 10MB Or Video Under 50MB');
       return;
     }
+    if (pendingPreviewUrl.current) {
+      URL.revokeObjectURL(pendingPreviewUrl.current);
+      pendingPreviewUrl.current = null;
+    }
+    const previewUrl = URL.createObjectURL(media);
+    pendingPreviewUrl.current = previewUrl;
+    setError('');
+    setPendingMedia({
+      file: media,
+      kind: resolved.kind,
+      mimeType: resolved.mimeType,
+      name: media.name || (resolved.kind === 'video' ? 'Video' : 'Photo'),
+      previewUrl,
+    });
+    composer.current?.focus();
+  };
+  const sendPendingMedia = async () => {
+    if (!pendingMedia || !current() || uploading) return;
+    const mediaToSend = pendingMedia;
+    const caption = draft.text.trim();
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    uploadAbort.current = controller;
+    clearPendingMedia();
     setUploading(true);
+    setUploadProgress(0);
     try {
+      const prepared = await prepareDockUploadFile(mediaToSend.file);
+      if (!prepared || prepared.file.size > (prepared.kind === 'video' ? 50 : 10) * 1024 * 1024) {
+        throw new Error('Choose An Image Under 10MB Or Video Under 50MB');
+      }
       const response = await services.request('/api/social/upload-url', {
         method: 'POST',
         body: JSON.stringify({
-          fileName:
-            media.name || `media_${Date.now()}.${resolved.kind === 'video' ? 'mp4' : 'jpg'}`,
-          fileSize: media.size,
-          mimeType: resolved.mimeType,
+          fileName: prepared.fileName,
+          fileSize: prepared.file.size,
+          mimeType: prepared.mimeType,
           folder: 'messages',
           prefix: actorId,
         }),
         actorId,
         currentActor: () => identity.current,
+        signal: controller?.signal,
       });
       const result = await response.json();
       if (!response.ok || !result.success || !result.signedUrl || !result.publicUrl)
         throw new Error('Upload Could Not Be Started');
       if (!current()) return;
-      const uploaded = await fetch(result.signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': resolved.mimeType },
-        body: media,
-        signal: AbortSignal.timeout(300000),
+      await uploadDockFileWithProgress(prepared.file, result.signedUrl, prepared.mimeType, {
+        onProgress: (pct) => {
+          if (current()) setUploadProgress(pct);
+        },
+        signal: controller?.signal,
       });
-      if (!uploaded.ok) throw new Error('Upload Did Not Complete');
-      if (current())
-        send(`[${resolved.kind === 'image' ? 'Image' : 'Video'}](${result.publicUrl})`, false);
+      const encoded = encodeMessageMedia({
+        kind: prepared.kind,
+        url: result.publicUrl,
+        caption,
+      });
+      if (!encoded) throw new Error('Upload Produced An Unusable Address');
+      const meta =
+        prepared.width && prepared.height
+          ? { media_width: prepared.width, media_height: prepared.height }
+          : null;
+      if (current()) send(encoded, Boolean(caption), meta);
     } catch (failure) {
-      if (current()) setError(failure.message);
+      if (current() && failure?.name !== 'AbortError') setError(dockFailureText(failure));
     } finally {
-      if (current()) setUploading(false);
+      if (uploadAbort.current === controller) uploadAbort.current = null;
+      if (current()) {
+        setUploading(false);
+        setUploadProgress(null);
+      }
     }
+  };
+  const upload = (event) => {
+    const media = event.target.files?.[0];
+    event.target.value = '';
+    stageMedia(media);
+  };
+  const handlePaste = (event) => {
+    if (uploading) return;
+    const items = Array.from(event.clipboardData?.items || []);
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const pasted = item.getAsFile?.();
+        if (pasted && resolveUploadMedia(pasted)) {
+          event.preventDefault();
+          stageMedia(pasted);
+          return;
+        }
+      }
+    }
+    const pasted = Array.from(event.clipboardData?.files || []).find((f) => resolveUploadMedia(f));
+    if (pasted) {
+      event.preventDefault();
+      stageMedia(pasted);
+    }
+  };
+  const handleSubmit = () => {
+    if (pendingMedia) {
+      void sendPendingMedia();
+      return;
+    }
+    send();
   };
   const openFull = () => {
     onMinimize();
@@ -493,10 +890,27 @@ export default function MessengerChat({
   const name = dockName(conversation);
   return (
     <div
-      className="dock-chat"
+      className={`dock-chat ${dragOver ? 'dock-chat-dragover' : ''}`}
       data-dock-conversation={id}
       onFocusCapture={() => setEngaged(true)}
       onPointerDown={() => setEngaged(true)}
+      onDragOver={(event) => {
+        if (Array.from(event.dataTransfer?.types || []).includes('Files')) {
+          event.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDragOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragOver(false);
+        const dropped = Array.from(event.dataTransfer?.files || []).find((f) =>
+          resolveUploadMedia(f)
+        );
+        if (dropped) stageMedia(dropped);
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.stopPropagation();
@@ -616,6 +1030,7 @@ export default function MessengerChat({
         )}
         {messages.map((message) => {
           const own = message.sender_id === actorId;
+          const { replyQuote, body } = extractReplyPrefix(message.content || '');
           const media =
             !message.is_deleted && message.message_type !== 'invoice' && safeMedia(message.content);
           const visualMedia = Boolean(media && isVisualMediaKind(media.kind));
@@ -636,29 +1051,22 @@ export default function MessengerChat({
                   <button type="button" onClick={openFull}>
                     Open Invoice In Messenger
                   </button>
-                ) : media?.kind === 'image' || media?.kind === 'gif' ? (
-                  <>
-                    {media.forwarded && <div className="dock-media-forwarded">Forwarded</div>}
-                    <a href={media.url} target="_blank" rel="noreferrer">
-                      <img src={media.url} alt="Message Attachment" loading="lazy" />
-                    </a>
-                    {media.caption && <div className="dock-media-caption">{media.caption}</div>}
-                  </>
-                ) : media?.kind === 'video' ? (
-                  <>
-                    {media.forwarded && <div className="dock-media-forwarded">Forwarded</div>}
-                    <video
-                      src={videoPreviewUrl(media.url) || media.url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                    />
-                    {media.caption && <div className="dock-media-caption">{media.caption}</div>}
-                  </>
+                ) : visualMedia ? (
+                  <DockMedia
+                    media={media}
+                    dimensions={extractMediaDimensions(message.media_metadata || message.metadata)}
+                    replyQuote={replyQuote}
+                  />
                 ) : media?.kind === 'audio' ? (
-                  <audio src={media.url} controls />
+                  <>
+                    {replyQuote && <div className="dock-reply-quote">{replyQuote}</div>}
+                    <audio src={media.url} controls />
+                  </>
                 ) : (
-                  message.content
+                  <>
+                    {replyQuote && <div className="dock-reply-quote">{replyQuote}</div>}
+                    {body}
+                  </>
                 )}
               </div>
               {own && (
@@ -757,11 +1165,48 @@ export default function MessengerChat({
           ))}
         </div>
       )}
+      {uploading && (
+        <div className="dock-upload-progress" role="status">
+          <span>{uploadProgress != null ? `Uploading ${uploadProgress}%` : 'Uploading...'}</span>
+          <div className="dock-upload-bar">
+            <div style={{ width: `${Math.max(5, uploadProgress ?? 15)}%` }} />
+          </div>
+          <button
+            type="button"
+            aria-label="Cancel Upload"
+            onClick={() => {
+              try {
+                uploadAbort.current?.abort();
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {pendingMedia && !uploading && (
+        <div className="dock-media-preview" data-attachment-preview>
+          {pendingMedia.kind === 'video' ? (
+            <video src={pendingMedia.previewUrl} muted playsInline preload="metadata" />
+          ) : (
+            <img src={pendingMedia.previewUrl} alt="Attachment Preview" />
+          )}
+          <span>
+            <strong>{pendingMedia.kind === 'video' ? 'Video Ready' : 'Photo Ready'}</strong>
+            <small>{pendingMedia.name}</small>
+          </span>
+          <button type="button" aria-label="Remove Attachment" onClick={clearPendingMedia}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <form
         className="dock-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          send();
+          handleSubmit();
         }}
       >
         <input ref={file} type="file" accept="image/*,video/*" hidden onChange={upload} />
@@ -776,10 +1221,11 @@ export default function MessengerChat({
         <textarea
           ref={composer}
           aria-label={`Message ${name}`}
-          placeholder={uploading ? 'Uploading...' : 'Aa'}
+          placeholder={uploading ? 'Uploading...' : pendingMedia ? 'Add A Caption...' : 'Aa'}
           rows={1}
           maxLength={2000}
           value={draft.text}
+          onPaste={handlePaste}
           onChange={(event) => {
             editDraft(event.target.value);
             if (Date.now() - typingSent.current > 1500) {
@@ -794,7 +1240,7 @@ export default function MessengerChat({
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              send();
+              handleSubmit();
             }
           }}
         />
@@ -806,8 +1252,12 @@ export default function MessengerChat({
         >
           <Smile size={21} />
         </button>
-        {draft.text.trim() ? (
-          <button type="submit" aria-label="Send Message">
+        {draft.text.trim() || pendingMedia ? (
+          <button
+            type="submit"
+            disabled={uploading}
+            aria-label={pendingMedia ? 'Send Attachment' : 'Send Message'}
+          >
             <Send size={21} />
           </button>
         ) : (

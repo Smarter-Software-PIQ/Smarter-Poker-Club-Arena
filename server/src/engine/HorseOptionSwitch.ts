@@ -473,6 +473,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'huLimpDefendsToPrice',
   'committedStackPricedIn',
   'holdemTournamentAllInCallIsPriced',
+  // 2026-11-24 Hold'em tournament raise defence (NLH-TOURNAMENT-SWEEP L1/L2/L4): the fold, call or shove facing a
+  // non-all-in raise priced by EV against the raiser's measured range, three scopes (ships dark)
+  'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
+  'holdemTournamentBlindDefenceIsPriced',
+  'holdemTournamentCommittedRaiseIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -1054,6 +1059,21 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     "Hold'em tournaments: preflop all-in calls (<= 25bb or committed), postflop calls facing a jam",
     'every hold-em tournament all-in call priced by equity vs ranges, dead money and ICM (audit E)',
   ],
+  holdemTournamentHeadsUpBigBlindDefenceIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments, two dealt: the big blind facing the small blind's non-all-in open, <= 25bb",
+    'heads-up big blind fold / call / shove priced by EV against the measured open range, pot odds, realisation and the pay-jump factor (sweep L1)',
+  ],
+  holdemTournamentBlindDefenceIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments, three or more dealt: a blind facing one non-all-in open, nobody else in, <= 25bb",
+    'blind fold / call / shove against a steal priced by EV against the measured open range, squeeze and overcall shares behind (sweep L2)',
+  ],
+  holdemTournamentCommittedRaiseIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments: a non-all-in re-raise after the Horse's own raise (<= 40bb) and any raise that commits the Horse",
+    'fold / call / shove facing a re-raise priced by EV; a committing raise priced exactly as the all-in it is (sweep L4)',
+  ],
   holdemOopReraiseRangeHoldsVsReraise: [
     HOLDEM,
     'NLH cash tables, out of position facing one open (no caller)',
@@ -1236,14 +1256,101 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
     'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   v58MadeHandCellSkip:
     'defect guard (Dan 2026-10-26, #8144: made set/straight/flush+ skips class-mean solver cell); decoupled from v57TournamentAggression, not registered in SQL switch',
+  v69HoleDrawExemption:
+    'defect guard (V69 (2), #8902: only a draw using a hole card exempts turn one-pair shade; a board-only four-flush/four-straight is not hero draw); decoupled from v69TurnCallGaps, not registered in SQL switch',
+  v69V32DrawNoRoom:
+    'sub-rule of off-only opt-in v32FacingDefense (V69 (3), #8902: V32 turn draw pass-through falls through with no room to be paid); decoupled from v69TurnCallGaps, not registered in SQL switch',
+  v87RangeCbet:
+    'decoupled V87 postflop sub-rule (HU IP dry-flop range c-bet); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87LowSprCommit:
+    'decoupled V87 postflop sub-rule (low-SPR flop/turn commit bet/jam); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87TurnTakeaway:
+    'decoupled V87 postflop sub-rule (IP HU turn takeaway vs flop stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87IpCheckbackTrap:
+    'decoupled V87 postflop sub-rule (IP HU dry-flop check-back trap); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87OopStabTrap:
+    'decoupled V87 postflop sub-rule (OOP flop check-trap into stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87MultiwayWetAirCheck:
+    'decoupled V87 postflop sub-rule (multiway wet-flop air check); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87BubblePostflop:
+    'decoupled V87 postflop sub-rule (tournament bubble/ITM postflop pot control & cover pressure); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87RiverBlockBalance:
+    'decoupled V87 postflop sub-rule (OOP river block-bet LAG check, blocker bluff & raised one-pair fold); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87DoubleBoardDeadHalfFold:
+    'decoupled V87 postflop sub-rule (NLH double-board dead-half turn/river fold); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87DeepCashOnePairPotControl:
+    'decoupled V87 postflop sub-rule (150bb+ deep cash bare one-pair river pot control); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87ComboDrawPump:
+    'decoupled V87 postflop sub-rule (12+ out flop combo-draw semi-bluff raise/jam); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87RiverBlockerBluffRaise:
+    'decoupled V87 postflop sub-rule (V64-safe river nut-blocker bluff-raise); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87IpFlopFloat:
+    'decoupled V87 postflop sub-rule (IP flop float vs stabber); split from v87HoldemOverhaul, not registered in SQL switch',
+  v87BullyReadAdjust:
+    'decoupled V87 postflop sub-rule (postflop anti-LAG/bully read modifiers in maniacCallDown, V80 & V53); split from v87HoldemOverhaul, not registered in SQL switch',
+  // 2026-11-21 Horse Switch lane: built dark. Registering it needs a switch-list migration, and those go one at a
+  // time; until one lists it the switch may not carry it (league and tests pass it directly). Remove this line in
+  // the change that adds the list migration.
+  v66BetRaisedOnePairIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
+  v78NoCommittingBluffRaiseIsPriced:
+    "dark priced replacement for blanket v78NoCommittingBluffRaise (Hold'em Strategy / HORSE DECISIONS 2026-11-22, zero SQL migrations; held unregistered until promotion evidence meets bar)",
   multiBoardFreerollIsPriced:
     'dark zero-migration priced replacement for unowned V36 multi-board freeroll bet/raise coin flips (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   multiBoardNonFreerollIsPriced:
     'dark zero-migration priced replacement for unowned V86 multi-board non-freeroll dead-half fold and strong-board open/raise branches (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
   multiBoardBluffTrimIsPriced:
     'dark zero-migration priced replacement for unowned V36 multi-board bluff-trim blanket multiplier (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until live/replay people evidence and switch-list registration',
+  // 2026-11-21 Horse Switch lane: built dark. Registering it needs a switch-list migration, and those go one at a
+  // time through the PLO release lane; until one lists it the switch may not carry it (league and tests pass it
+  // directly). Remove this line in the change that adds the list migration.
+  holdemPersonaPostflopIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-21, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  v87RiverBlockBetTrapIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  holdemRiverBluffIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  holdemFlopTurnBluffIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  holdemRiverBluffMultiwayIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane (Wave 10.1): built dark. Registering it needs a switch-list
+  // migration after grading PASS + VERIFIER-10 confirmation; until one lists it the switch may
+  // not carry it (league and tests pass it directly). Remove this line in the migration PR.
+  holdemTournamentAggressionIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  horseSlowplayIsPriced:
+    "dark zero-migration priced replacement for unowned H4 monster slowplay mix (Hold'em Strategy, 2026-11-22): default OFF, held out of SQL switch until activation evidence and switch-list registration",
+  horseRunItTwiceIsPriced:
+    'dark zero-migration priced replacement for Run-It-Twice fixed thresholds (HORSE DECISIONS lane, UNOWNED-RULES 2026-11-20; ledger-registered 2026-11-22): default OFF, held out of SQL switch until switch-list registration and authority rename',
+  v17ShortDeckIsPriced:
+    'dark zero-migration priced replacement for the unowned V17 Short Deck multiway overlay (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until people evidence and switch-list registration',
+  v17PosIsPriced:
+    'dark zero-migration priced replacement for the unowned V17 players-behind bluff multiplier, single-board NLH flop and turn (HORSE DECISIONS lane, 2026-11-22): default OFF, held out of SQL switch until real-human evidence (people n >= 20) and switch-list registration',
   nashCallVsTightJammerRespect:
     'prototype hold: default-OFF prototype without a switch-list migration during the 4 PM hold; register in a follow-up migration PR',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  holdemRiverLeadRangeIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
+  // 2026-11-22 Horse Switch lane: built dark. Registering it needs a switch-list migration after
+  // grading PASS + VERIFIER-10 confirmation; until one lists it the switch may not carry it
+  // (league and tests pass it directly). Remove this line in the change that adds the list migration.
+  v67RiverBetRaisedOnePairIsPriced:
+    'pending registration: no switch-list migration lists it yet (built dark 2026-11-22, Horse Switch lane)',
 });
 
 /** Name patterns of the refusals, for options that do not exist yet. */

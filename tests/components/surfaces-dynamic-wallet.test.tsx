@@ -264,6 +264,52 @@ describe('the wallet visibility law covers the Backup BBJ reserve too', () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it('lays out only authorized Cashier balances in reading order with exact amounts and units', async () => {
+    fx.inUnion = true;
+    fx.chipByClub[CLUB_A] = -125.25;
+    const onOpenPlayerWallet = vi.fn();
+    const props = {
+      ...base,
+      role: 'owner',
+      clubId: CLUB_A,
+      compactLobby: true,
+      showAllLobbyWallets: true,
+      showBBJ: false,
+      showArtwork: false,
+      cashierLedger: true,
+      onOpenPlayerWallet,
+    };
+    const view = render(<DynamicWallet {...props} />);
+    await flush();
+    expect(keys(view.container)).toEqual([
+      'player_wallet',
+      'club_bank',
+      'agent_wallet',
+      'promo_wallet',
+      'diamonds',
+    ]);
+    const player = view.getByRole('button', { name: 'Open Player Wallet' });
+    expect(player).toHaveAccessibleDescription('-125.25 Chips');
+    expect(text(view.container, 'club_bank')).toBe('777,000.00');
+    expect(text(view.container, 'diamonds')).toBe('8');
+    expect(view.container.querySelector('[data-wallet-key="diamonds"]')).toHaveTextContent(
+      'Diamond Wallet8Diamonds'
+    );
+    fireEvent.click(player);
+    expect(onOpenPlayerWallet).toHaveBeenCalledOnce();
+    view.rerender(<DynamicWallet {...props} role="player" />);
+    await flush();
+    expect(keys(view.container)).toEqual(['player_wallet', 'diamonds']);
+    fx.failClubs.add(CLUB_B);
+    view.rerender(<DynamicWallet {...props} clubId={CLUB_B} role="player" />);
+    await flush();
+    expect(view.getByRole('button', { name: 'Open Player Wallet' })).toHaveAccessibleDescription(
+      'Unavailable'
+    );
+    expect(values(view.container)).toEqual(['-', '-']);
+    expect(view.getByRole('button', { name: 'Retry Loading Wallet Data' })).toBeTruthy();
+  });
+
   it('still shows the reserve to an owner on the lobby glance, where it belongs', async () => {
     funded();
     const view = render(

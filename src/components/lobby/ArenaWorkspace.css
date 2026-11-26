@@ -278,8 +278,7 @@
   padding-right: 2px;
   text-align: left;
 }
-.arena-workspace:has(.ca-page-help) .arena-mast-lettering,
-.arena-trade .arena-mast-lettering {
+.arena-workspace:has(.ca-page-help) .arena-mast-lettering {
   padding-right: 48px;
 }
 .arena-workspace .arena-mast-lettering > span {
@@ -538,10 +537,6 @@
 .arena-workspace .ca-page-bar__metric[data-tone='live'] dd {
   color: #74dfff;
 }
-.arena-roster-tools {
-  margin: 6px 0;
-}
-.arena-roster-tools > summary,
 .arena-workspace details.stats-secondary > summary {
   min-height: 44px;
   box-sizing: border-box;
@@ -872,9 +867,6 @@
   margin-top: 3px;
   padding: 7px;
 }
-.arena-workspace.club-members-page .arena-roster-tools {
-  margin: 0;
-}
 .arena-workspace.club-members-page .members-export {
   margin: 0;
   min-height: 35px;
@@ -939,28 +931,29 @@
   padding: 3px 4px;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  place-items: center;
-  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 43px;
   aspect-ratio: auto;
-  padding: 3px 24px;
+  padding: 0 5px;
   background: none;
   box-shadow: none;
   border: 0;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy {
   position: static;
-  display: grid;
-  justify-items: center;
-  gap: 2px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
-  text-align: center;
+  text-align: left;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong,
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
   position: static;
-  inset: auto;
   clip: auto;
   width: auto;
   height: auto;
@@ -968,82 +961,54 @@
   overflow: visible;
   white-space: normal;
   text-transform: none;
+  text-shadow: none;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong {
-  color: #eff8ff;
+  color: #edf5ff;
   font:
-    800 20px/1.1 'Arial Narrow',
-    Arial,
+    700 22px/1 'Roboto Condensed',
+    'Arial Narrow',
     sans-serif;
+  letter-spacing: -0.025em;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy small {
-  color: #bdd1df;
+  color: #a9c6de;
   font:
-    11px/1.4 Arial,
+    600 12px/1 Inter,
     sans-serif;
   letter-spacing: 0;
 }
 .arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron {
-  right: 6px;
-  left: auto;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-}
-.arena-trade .cashier-my-wallets .dw .dw__rows {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-flow: row;
-  gap: 4px;
-}
-.arena-trade .cashier-my-wallets .dw .dw__row {
-  display: flex;
-  flex-direction: column;
-  min-height: 50px;
-  height: auto;
-  width: auto;
-  aspect-ratio: auto;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  padding: 6px 3px;
-  overflow: visible;
-}
-.arena-trade .cashier-my-wallets .dw [data-wallet-key='player_wallet'] {
-  min-height: 77px;
-}
-.arena-trade .cashier-my-wallets .dw [data-wallet-key='diamonds'] {
-  min-height: 44px;
-  flex-direction: row;
-  padding-inline: 10px;
-}
-.arena-trade .cashier-my-wallets .dw .dw__row-label,
-.arena-trade .cashier-my-wallets .dw .dw__row-value {
   position: static;
-  inset: auto;
-  transform: none;
-  max-width: 100%;
-  height: auto;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 5px 4px 2px;
+  border-width: 0 2px 2px 0;
+  border-color: #74c2ff;
+  transform: rotate(45deg);
+  filter: none;
+}
+.arena-trade .cashier-my-wallets .lobby-wallets-trigger__chevron.is-expanded {
+  margin-block: 5px 0;
+  transform: rotate(225deg);
+}
+.arena-trade .cashier-my-wallets.arena-case::before {
+  border-image-width: 15px;
+}
+@media (max-width: 500px) {
+  .arena-trade .cashier-my-wallets .lobby-wallets-trigger {
+    min-height: 45px;
+  }
+  .arena-trade .cashier-my-wallets .lobby-wallets-trigger__copy strong {
+    font-size: 20px;
+  }
 }
 .arena-trade .arena-ledger-tools > summary {
   min-height: 44px;
   align-content: center;
   color: #a8ccdf;
   font-size: 12px;
-}
-.arena-trade .arena-cashier-tools-link {
-  position: absolute;
-  right: 15px;
-  top: 64px;
-  z-index: 2;
-  min-height: 44px;
-  display: grid;
-  place-items: center;
-  color: #b3e2ff;
-  font:
-    700 11px/1.1 Arial,
-    sans-serif;
-  text-shadow: 0 1px 3px #000;
 }
 /* Every directory surface uses its shell's inner width. Keep content inside the chrome. */
 .arena-workspace.club-members-page {
@@ -1115,7 +1080,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.arena-workspace.club-members-page .members-tools-trigger,
 .arena-workspace.club-members-page .members-history-action {
   width: 100%;
   min-height: 44px;
@@ -1141,14 +1105,34 @@
 .arena-workspace.club-members-page .members-history-action:active {
   filter: brightness(0.86);
 }
-.arena-workspace.club-members-page .members-history-action:focus-visible,
-.arena-workspace.club-members-page .members-tools-trigger:focus-visible {
+.arena-workspace.club-members-page .members-history-action:focus-visible {
   outline: 2px solid #9ae5ff;
   outline-offset: 2px;
 }
+@media (max-width: 720px) {
+  /* The status, table button, role and ID share one phone column. Let each
+     wrap to that track even when only the wider system fonts are available. */
+  .arena-workspace.club-members-page .member-subline > * {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
+    left: 0;
+  }
+}
 @media (max-width: 480px) {
+  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  }
   .arena-workspace.club-members-page .member-simple-balance {
-    max-width: 105px;
+    min-width: 0;
+    max-width: none;
+  }
+  .arena-workspace.club-members-page .member-simple-balance > * {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .arena-workspace.club-members-page .member-simple-balance > span {
     line-height: 1.12;
@@ -1162,8 +1146,43 @@
   .arena-workspace.club-members-page .member-main {
     column-gap: 4px;
   }
+  /* Share the first line with the identity so neither the avatar nor the
+     narrow name track consumes the space needed for a complete signed net. */
+  .arena-workspace.club-members-page .member-row__open:has(.member-simple-balance) {
+    grid-template-columns: auto minmax(0, 1fr) 50% 10px;
+    grid-template-rows: auto auto;
+    align-content: center;
+  }
+  /* Reserve the end of the identity line for the selection target and
+     chevron. The ledger retains the same combined width in the line below. */
+  .arena-workspace.club-members-page
+    .member-row:has(> .member-select)
+    .member-row__open:has(.member-simple-balance) {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, calc(50% - 44px)) 54px;
+    grid-template-rows: minmax(44px, max-content) auto;
+  }
+  .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
+    inset: 2px 2px auto auto;
+  }
+  .arena-workspace.club-members-page .member-row:has(> .member-select) .member-chevron {
+    justify-self: start;
+  }
+  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) {
+    display: contents;
+  }
+  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-identity {
+    grid-area: 1 / 2 / 2 / 4;
+  }
+  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-subline {
+    grid-area: 2 / 1 / 3 / 3;
+    align-self: start;
+  }
   .arena-workspace.club-members-page .member-simple-balance {
-    max-width: 62px;
+    grid-area: 2 / 3 / 3 / 5;
+    row-gap: 1px;
+  }
+  .arena-workspace.club-members-page .member-row__open:has(.member-simple-balance) .member-chevron {
+    grid-area: 1 / 4;
   }
   .arena-workspace.club-members-page .member-alias {
     font-size: 13px;

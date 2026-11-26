@@ -91,15 +91,27 @@ export const RELEASE_SCHEMA_FREEZE_CHICAGO = { from: [23, 45], until: [4, 15] };
  * 16, 19, 22 America/Chicago; server/src/maintenance/maintenanceSchedulePolicy.json),
  * an ordinary migration installed between the Backup DB refresh and the :30
  * preparation cutoff breaks `Backup copy migrations == production installed
- * migrations`. Deferring merges inside [cycleStart - 90m, cycleStart + 10m)
+ * migrations`. Deferring merges inside [cycleStart - 150m, cycleStart + 10m)
  * until cycleStart + 10m (strictly :10 UTC, outside the :50-:03 DDL refusal
  * window) inside this same single bounded dispatcher run eliminates manual
  * cross-chat migration holds without adding any cron, watcher or retry loop.
+ *
+ * 150 minutes since 2026-11-25 (O21 part 2; part 1, the install watch's SQL
+ * helper smarter_private.ca_three_hourly_deferral_clears_at, installed
+ * 20261124162837 first so no healthy file is paged before it may be sent).
+ * At 90 minutes a migration merged 94 to 133 minutes before a cycle installed
+ * after the candidate's Backup copy and cost the cycle (2026-11-22 23:22Z,
+ * 2026-11-23 01:47Z and 02:17Z, 2026-11-24 05:26Z). Now an ordinary file
+ * installs only in [cycleStart + 10m, cycleStart + 30m) (and 04:15-04:30):
+ * cycleStart + 30m is the next cycle's - 150m, so the windows never meet and
+ * a certified copy cannot go stale between cycles. Seven open windows a day,
+ * 135 minutes; worst daytime wait 160 minutes, worst nightly 345 (a merge at
+ * 22:30 Chicago is released at 04:15). Outage installs keep their override.
  * The 04:00 anchor remains covered by the wider RELEASE_SCHEMA_FREEZE_CHICAGO
  * (23:45-04:15 America/Chicago).
  */
 export const THREE_HOURLY_START_HOURS = [1, 4, 7, 10, 13, 16, 19, 22];
-export const THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES = 90;
+export const THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES = 150;
 export const THREE_HOURLY_POST_SEAL_CLEAR_MINUTE = 10;
 /**
  * The one bounded wait the merger may spend outside the nightly release
@@ -107,17 +119,17 @@ export const THREE_HOURLY_POST_SEAL_CLEAR_MINUTE = 10;
  * at any minute of the day: the worst hourly case is a merge at :49 waiting to
  * :04 (15 min). Only a CONCURRENTLY-preamble file merged late in the hour can
  * exceed it, and that is refused out loud. A hold by
- * RELEASE_SCHEMA_FREEZE_CHICAGO (worst: 270 min on daily, 285 min when 01:00
- * three-hourly deferral meets 23:45) has its own bound,
- * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 300 minutes); a daytime
- * non-04:00 three-hourly deferral (worst: 100 min) has
+ * RELEASE_SCHEMA_FREEZE_CHICAGO (worst: 270 min on daily, 345 min when the 01:00
+ * three-hourly deferral opening at 22:30 meets 23:45) has its own bound,
+ * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 360 minutes); a daytime
+ * non-04:00 three-hourly deferral (worst: 160 min) has
  * THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES.
  */
 export const WAIT_BUDGET_MINUTES = 22;
 /** The longer bounded wait allowed for a daytime non-04:00 three-hourly cutover deferral. */
-export const THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES = 115;
+export const THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES = 175;
 /** The longer bounded wait allowed only for a hold by the nightly release schema freeze. */
-export const RELEASE_FREEZE_WAIT_BUDGET_MINUTES = 285;
+export const RELEASE_FREEZE_WAIT_BUDGET_MINUTES = 345;
 /** How far ahead the planner looks for an admitted instant. */
 export const SEARCH_HORIZON_MINUTES = 360;
 
@@ -174,7 +186,7 @@ function isThreeHourlyCycleStart(hourMs) {
 }
 
 /**
- * If `ms` falls inside [cycleStart - 90m, cycleStart + 10m) for any non-04:00
+ * If `ms` falls inside [cycleStart - 150m, cycleStart + 10m) for any non-04:00
  * three-hourly cycle, return details of that cycle deferral window; else null.
  * The 04:00 anchor is already covered by RELEASE_SCHEMA_FREEZE_CHICAGO.
  */
@@ -182,7 +194,11 @@ export function threeHourlyDeferralWindow(ms) {
   const baseHour = Math.floor(ms / 3_600_000) * 3_600_000;
   const deferMs = THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES * 60_000;
   const clearMs = THREE_HOURLY_POST_SEAL_CLEAR_MINUTE * 60_000;
-  for (let offset = 0; offset <= 2; offset++) {
+  // Look as many whole hours ahead as the deferral reaches: the hour holding
+  // cycleStart - 150m starts at cycleStart - 3h. A fixed `offset <= 2` (right
+  // for 90 minutes) silently shortened a 150-minute deferral to 120.
+  const lookAheadHours = Math.ceil(THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES / 60);
+  for (let offset = 0; offset <= lookAheadHours; offset++) {
     const cycleStartMs = baseHour + offset * 3_600_000;
     if (!isThreeHourlyCycleStart(cycleStartMs)) continue;
     const cycleHour = chicagoHour(cycleStartMs);

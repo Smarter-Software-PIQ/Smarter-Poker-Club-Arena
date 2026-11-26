@@ -28,6 +28,28 @@ export async function readHourlyCashAdmissions(): Promise<
   return allowed;
 }
 
+/**
+ * The cap and the counted tables, as the database's feeder opener sums them
+ * (fn_cash_hourly_feeder_admissible): the hour's table_cap and the rows of the
+ * capacity census. Null on any failed or malformed read: the caller then
+ * treats the owed starts as fitting and releases nothing (HorseVarietyFirst).
+ */
+export async function readHourlyCashRoom(): Promise<{ cap: number; counted: number } | null> {
+  try {
+    const [range, census] = await Promise.all([
+      supabase.rpc('fn_cash_hourly_table_range'),
+      supabase.rpc('fn_cash_hourly_table_capacity_census'),
+    ]);
+    if (range.error || census.error) return null;
+    const row = Array.isArray(range.data) ? range.data[0] : range.data;
+    const cap = Number(row?.table_cap);
+    if (!Number.isInteger(cap) || cap < 0 || !Array.isArray(census.data)) return null;
+    return { cap, counted: census.data.length };
+  } catch {
+    return null;
+  }
+}
+
 export type HourlyCashClose =
   | { closed: false; reason: string }
   | { closed: true; departures: SeatCashoutReceipt[] };

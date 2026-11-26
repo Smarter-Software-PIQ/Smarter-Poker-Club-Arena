@@ -474,7 +474,6 @@ it('reconciles private roster changes before TTL while retaining loaded pages an
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Sort And Roster Tools', exact: true }));
   await act(async () => {});
   expect(screen.getByRole('status', { name: 'Roster Operations' })).toHaveTextContent(
     '2 Loaded Of 2'
