@@ -162,6 +162,44 @@ BEGIN
 END;
 $function$;
 
+-- @probe-for: public.fn_set_club_card_active_source
+DO $probe$
+DECLARE
+  v_club uuid;
+  v_owner uuid;
+  v_result jsonb;
+BEGIN
+  SELECT c.id, c.owner_id INTO v_club, v_owner
+    FROM public.clubs c
+   WHERE c.union_id IS NOT NULL AND c.owner_id IS NOT NULL
+   ORDER BY c.club_id
+   LIMIT 1;
+  IF v_club IS NOT NULL THEN
+    PERFORM set_config('request.jwt.claims', jsonb_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+    PERFORM set_config('request.jwt.claim.sub', v_owner::text, true);
+    v_result := public.fn_set_club_card_active_source(v_club, 'club');
+    IF (v_result->>'ok')::boolean IS NOT TRUE OR v_result->>'effective_source' <> 'club' THEN
+      RAISE EXCEPTION 'fn_set_club_card_active_source probe: %', v_result USING ERRCODE = 'P0001', HINT = 'probe-real';
+    END IF;
+    v_result := public.fn_set_club_card_active_source(v_club, 'union');
+    IF v_result->>'effective_source' <> 'union' THEN
+      RAISE EXCEPTION 'fn_set_club_card_active_source probe: %', v_result USING ERRCODE = 'P0001', HINT = 'probe-real';
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_kings_club_display_totals
+DO $probe$
+BEGIN
+  PERFORM public.fn_kings_club_display_totals();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 REVOKE ALL ON FUNCTION public.fn_club_card_active_source(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_club_card_active_source(uuid) TO anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_set_club_card_active_source(uuid, text) FROM PUBLIC, anon;

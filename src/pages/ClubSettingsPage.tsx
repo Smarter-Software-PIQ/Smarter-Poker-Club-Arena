@@ -719,6 +719,48 @@ export default function ClubSettingsPage() {
     };
   }, [clubId, clubUUID]);
 
+  /* The card's ACTIVE source saves on its own, through its own door
+     (fn_set_club_card_active_source), so it never rides along with the
+     identity form and never rewrites any other settings key. */
+  const canSetActiveSource =
+    isOwner ||
+    userRole === 'co_owner' ||
+    userRole === 'admin' ||
+    (userRole as string) === 'manager';
+  const saveCardActiveSource = async (next: ClubCardActiveSource) => {
+    if (!clubUUID || savingActiveSourceRef.current || !canSetActiveSource) return;
+    const previous = cardActiveSource;
+    savingActiveSourceRef.current = true;
+    setSavingActiveSource(true);
+    setCardActiveSource(next);
+    try {
+      const { data, error } = await supabase.rpc('fn_set_club_card_active_source', {
+        p_club_id: clubUUID,
+        p_source: next,
+      });
+      if (error) throw error;
+      const result = data as { ok?: boolean; reason?: string } | null;
+      if (!result?.ok) {
+        throw new Error(
+          result?.reason === 'not_authorized'
+            ? 'Only Club Managers Can Change This Setting'
+            : 'Could Not Save The Club Card Setting'
+        );
+      }
+      masterBus.emit('CLUB_UPDATED', { clubId: clubUUID });
+      toast.success(
+        next === 'club' ? 'Club Card Now Shows Club Data' : 'Club Card Now Shows Union Data'
+      );
+    } catch (error) {
+      setCardActiveSource(previous);
+      reportError(error, 'ClubSettingsPage.saveCardActiveSource');
+      toast.error(error instanceof Error ? error.message : 'Could Not Save The Club Card Setting');
+    } finally {
+      savingActiveSourceRef.current = false;
+      setSavingActiveSource(false);
+    }
+  };
+
   const loadClubSettings = async (
     getIsMounted?: () => boolean,
     opts?: { silent?: boolean; force?: boolean }
@@ -877,48 +919,6 @@ export default function ClubSettingsPage() {
     } finally {
       if (settingsReadVersionRef.current === requestId) loadingRef.current = false;
       if (isCurrent()) setLoading(false);
-    }
-  };
-
-  /* The card's ACTIVE source saves on its own, through its own door
-     (fn_set_club_card_active_source), so it never rides along with the
-     identity form and never rewrites any other settings key. */
-  const canSetActiveSource =
-    isOwner ||
-    userRole === 'co_owner' ||
-    userRole === 'admin' ||
-    (userRole as string) === 'manager';
-  const saveCardActiveSource = async (next: ClubCardActiveSource) => {
-    if (!clubUUID || savingActiveSourceRef.current || !canSetActiveSource) return;
-    const previous = cardActiveSource;
-    savingActiveSourceRef.current = true;
-    setSavingActiveSource(true);
-    setCardActiveSource(next);
-    try {
-      const { data, error } = await supabase.rpc('fn_set_club_card_active_source', {
-        p_club_id: clubUUID,
-        p_source: next,
-      });
-      if (error) throw error;
-      const result = data as { ok?: boolean; reason?: string } | null;
-      if (!result?.ok) {
-        throw new Error(
-          result?.reason === 'not_authorized'
-            ? 'Only Club Managers Can Change This Setting'
-            : 'Could Not Save The Club Card Setting'
-        );
-      }
-      masterBus.emit('CLUB_UPDATED', { clubId: clubUUID });
-      toast.success(
-        next === 'club' ? 'Club Card Now Shows Club Data' : 'Club Card Now Shows Union Data'
-      );
-    } catch (error) {
-      setCardActiveSource(previous);
-      reportError(error, 'ClubSettingsPage.saveCardActiveSource');
-      toast.error(error instanceof Error ? error.message : 'Could Not Save The Club Card Setting');
-    } finally {
-      savingActiveSourceRef.current = false;
-      setSavingActiveSource(false);
     }
   };
 
