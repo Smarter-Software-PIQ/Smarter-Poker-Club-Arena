@@ -10916,6 +10916,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   },
   // PLO lead-7 plo-preflop: a position weight inside the live re-raised-pot priced call (omahaOopReraisedPotStrongRange,
   // on by release), whose omaha_reraised_call_priced_* receipts fire by design
+  // the people-measured facing-bet prior names its own receipts in their descriptions; declared by prefix
+  omahaFacingBetPriorIsPeopleMeasured: { prefixes: ['omaha_people_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),
