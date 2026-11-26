@@ -66,9 +66,11 @@ const ADMITTED: Record<
     receiver: 'post-deploy-e2e',
   },
   // The seal's run-post-deploy-e2e dispatch also refreshes Backup.
+  // O27 (2026-11-26): so does Stage's recorded "Backup after keep-serving"
+  // workflow_dispatch (receiver backup-after-keep-serving, proved by the same step).
   'backup-engine.yml': {
     admitted:
-      "github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'",
+      "(github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')",
     receiver: 'backup-after-seal',
   },
   'gto-v31-qualification.yml': {

@@ -511,6 +511,56 @@ describe('a job-token dispatch is bound to the exact intent its trusted sender r
     ).toThrow();
   });
 
+  it('admits Stage\'s O27 "Backup after keep-serving" workflow_dispatch and nothing forged (2026-11-26)', async () => {
+    // Sent bare with the job token, this run planned and skipped refresh and
+    // certify: it certified nothing. It is now a recorded, proved intent.
+    const w = world({
+      operation: 'backup-after-keep-serving',
+      inputs: { after_cycle: '2026-11-26T01', refresh: true },
+      senderPath: '.github/workflows/stage-engine-release.yml',
+      senderEvent: 'schedule',
+      receiverPath: '.github/workflows/backup-engine.yml',
+      receiverEvent: 'workflow_dispatch',
+      title: 'Backup after keep-serving 2026-11-26T01',
+    });
+    expect(w.sent.path).toBe('actions/workflows/backup-engine.yml/dispatches');
+    expect(w.sent.body).toEqual({
+      ref: 'main',
+      inputs: {
+        after_cycle: '2026-11-26T01',
+        refresh: 'true',
+        intent_run_id: '500',
+        intent_run_attempt: '1',
+        intent_nonce: NONCE,
+      },
+    });
+    const prove = (inputs: Record<string, string>) =>
+      proveIntent({
+        receiverName: 'backup-after-keep-serving',
+        env: receiverEnv('workflow_dispatch'),
+        event: { inputs, repository: { default_branch: 'main' } },
+        api: w.api,
+        readIntent: w.readIntent,
+      });
+    await expect(prove({ ...w.sent.body.inputs, sha: '' })).resolves.toBeTruthy();
+    // A chosen target, another cycle or no refresh is not the recorded intent.
+    await expect(prove({ ...w.sent.body.inputs, sha: ENGINE })).rejects.toThrow(
+      /sha must be empty/
+    );
+    await expect(prove({ ...w.sent.body.inputs, after_cycle: '2026-11-26T04' })).rejects.toThrow();
+    await expect(prove({ ...w.sent.body.inputs, refresh: 'false' })).rejects.toThrow();
+    // Only Stage may send it.
+    expect(() =>
+      writeIntent({
+        operation: 'backup-after-keep-serving',
+        inputs: { after_cycle: '2026-11-26T01', refresh: true },
+        dir: mkdtempSync(join(tmpdir(), 'x-')),
+        env: senderEnv('.github/workflows/ci.yml', 'schedule'),
+        ownRun,
+      })
+    ).toThrow(/may only be sent by/);
+  });
+
   it('a sender outside its workflow or event cannot even write an intent', () => {
     const dir = mkdtempSync(join(tmpdir(), 'x-'));
     dirs.push(dir);

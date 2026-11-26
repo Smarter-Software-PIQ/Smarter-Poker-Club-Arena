@@ -205,8 +205,15 @@ describe('the Stage job', () => {
       (m) => `${m[1]} ${m[2]}`
     );
     expect(writes).toEqual(['POST repos/$REPO/actions/workflows/backup-engine.yml/dispatches']);
+    // 2026-11-26: the body is the recorded intent (scripts/ci/dispatch-intent.mjs),
+    // published on this run attempt before it is sent.
+    expect(run).toContain('--input "$RUNNER_TEMP/backup-after-keep-serving.json"');
     expect(run).toContain(
-      '-f ref=main -f \'inputs[refresh]=true\' -f "inputs[after_cycle]=$RELEASE_DATE"'
+      'node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving'
+    );
+    const names = steps.map((s) => (s as { name?: string }).name ?? '');
+    expect(names.indexOf('Publish the intent on this exact run attempt')).toBeLessThan(
+      names.indexOf('Start exactly the recorded Backup')
     );
     // One wait, bounded by the plan and the job timeout.
     expect(run.match(/sleep "\$wait"/g)).toHaveLength(1);
@@ -357,5 +364,27 @@ describe('the owner note says it plainly, once per cycle', () => {
       expect(n).not.toMatch(/[0-9a-f]{12}/);
       expect(n.length).toBeLessThanOrEqual(500);
     }
+  });
+});
+
+describe('the kept-serving Backup is a proved job-token intent (2026-11-26)', () => {
+  // The O27 dispatch used the job token; backup-engine.yml refuses job-token
+  // dispatches in refresh and certify, so the run certified nothing.
+  const backupDoc = backup;
+  it('Backup admits it only through the intent proof, in refresh and certify', () => {
+    for (const name of ['refresh', 'certify']) {
+      const job = backupDoc.jobs[name];
+      expect(String(job.if)).toContain(
+        "(github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')"
+      );
+      const prove = job.steps[0];
+      expect(prove.name).toBe(
+        'Prove a job-token dispatch is the exact intent its trusted sender recorded'
+      );
+      expect(String(prove.if)).toContain("github.event_name == 'workflow_dispatch'");
+      expect(String(prove.run)).toContain('prove --receiver backup-after-keep-serving');
+    }
+    for (const input of ['intent_run_id', 'intent_run_attempt', 'intent_nonce'])
+      expect(backupDoc.on.workflow_dispatch.inputs[input].default).toBe('');
   });
 });

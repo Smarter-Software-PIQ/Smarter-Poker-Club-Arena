@@ -77,6 +77,18 @@ export const OPERATIONS = Object.freeze({
       gameplay_receipt: { required: false, test: (v) => typeof v === 'string' && v.length <= 32768 },
     },
   },
+  // O27 (2026-11-26): the Stage run that owned a cycle that did not seal starts
+  // one Backup certification of main. Sent with the job token, it was refused
+  // by the Backup's refresh and certify jobs and certified nothing.
+  'backup-after-keep-serving': {
+    sender: '.github/workflows/stage-engine-release.yml',
+    senderEvents: ['schedule', 'workflow_run', 'repository_dispatch', 'workflow_dispatch'],
+    dispatch: { kind: 'workflow_dispatch', workflow: 'backup-engine.yml', ref: 'main' },
+    inputs: {
+      after_cycle: { required: true, test: (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:T\d{2})?$/.test(v) },
+      refresh: { required: true, test: (v) => v === true },
+    },
+  },
   'gto-recheck': {
     sender: '.github/workflows/gto-v31-qualification.yml',
     senderEvents: ['workflow_run'],
@@ -109,6 +121,11 @@ export const RECEIVERS = Object.freeze({
     path: '.github/workflows/backup-engine.yml', event: 'repository_dispatch',
     action: 'run-post-deploy-e2e', operation: 'engine-certification', requires: ['release_run_key'],
     title: (i) => `Backup after seal ${i.release_run_key}`,
+  },
+  'backup-after-keep-serving': {
+    path: '.github/workflows/backup-engine.yml', event: 'workflow_dispatch',
+    operation: 'backup-after-keep-serving', emptyInputs: ['sha'],
+    title: (i) => `Backup after keep-serving ${i.after_cycle}`,
   },
   'gto-recheck': {
     path: '.github/workflows/gto-v31-qualification.yml', event: 'workflow_dispatch',

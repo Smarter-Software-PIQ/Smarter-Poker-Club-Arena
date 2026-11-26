@@ -1083,13 +1083,20 @@ jobs:
           ref: ${{ needs.detect.outputs.protected_sha }}
           sparse-checkout: |
             scripts/release/next-candidate-after-cycle.py
+            scripts/ci/dispatch-intent.mjs
           sparse-checkout-cone-mode: false
       - name: Download the daily selection artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
           path: selection-artifact
-      - name: Wait once for the cycle's installs, then start one Backup if it did not seal
+      # THE JOB TOKEN'S DISPATCH IS AN INTENT (2026-11-26). Sent bare, the
+      # Backup's refresh and certify jobs refused this job-token dispatch (the
+      # job-token rule), so the run planned, skipped both and certified
+      # nothing. It is now recorded first (scripts/ci/dispatch-intent.mjs,
+      # operation backup-after-keep-serving), published on this run attempt,
+      # then sent; the Backup proves it before it reads a secret.
+      - name: Wait once for the cycle's installs, then record one Backup intent if it did not seal
         id: next
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1113,10 +1120,33 @@ jobs:
             exit 0
           fi
           echo "did_not_seal=true" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving \
+            --dir "$RUNNER_TEMP/dispatch-intents" --input "after_cycle=$RELEASE_DATE" --input-json refresh=true \
+            | jq -c '.body' > "$RUNNER_TEMP/backup-after-keep-serving.json"
+          jq -e '.inputs.intent_nonce | test("^[0-9a-f]{32}$")' "$RUNNER_TEMP/backup-after-keep-serving.json" >/dev/null \
+            || { echo "::error::No Backup intent was recorded for cycle $RELEASE_DATE."; exit 1; }
+      - name: Publish the intent on this exact run attempt
+        if: steps.next.outputs.did_not_seal == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-intents-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-intents
+          if-no-files-found: error
+          retention-days: 7
+      - name: Start exactly the recorded Backup
+        if: steps.next.outputs.did_not_seal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          REASON: ${{ steps.next.outputs.reason }}
+        run: |
+          set -euo pipefail
           title="Backup after keep-serving $RELEASE_DATE"
           sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" \
-            -f ref=main -f 'inputs[refresh]=true' -f "inputs[after_cycle]=$RELEASE_DATE" >/dev/null
+            --input "$RUNNER_TEMP/backup-after-keep-serving.json" >/dev/null
           backup_id=''
           for _ in $(seq 1 12); do
             backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=workflow_dispatch&per_page=30" |
@@ -1127,8 +1157,8 @@ jobs:
           done
           [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] \
             || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle may have no election run."; exit 1; }
-          echo "Cycle $RELEASE_DATE did not seal ($reason): Backup run $backup_id certifies main and starts the next election."
-          { echo "### Next Cycle"; echo ""; echo "- $reason: Backup run $backup_id (\`$title\`) certifies main and starts the next election."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "Cycle $RELEASE_DATE did not seal ($REASON): Backup run $backup_id certifies main and starts the next election."
+          { echo "### Next Cycle"; echo ""; echo "- $REASON: Backup run $backup_id (\`$title\`) certifies main and starts the next election."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
       - name: Tell the owner in Messenger that this cycle did not seal
         # One plain line per cycle, idempotent in the database
         # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).

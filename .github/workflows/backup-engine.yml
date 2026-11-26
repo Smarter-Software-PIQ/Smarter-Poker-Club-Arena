@@ -192,6 +192,24 @@ on:
         required: false
         default: ''
         type: string
+      # O27 (2026-11-26): Stage sends that run with the job token, so it cites
+      # the intent it recorded on its own run (scripts/ci/dispatch-intent.mjs,
+      # receiver backup-after-keep-serving); empty for a person.
+      intent_run_id:
+        description: 'Internal: the Stage run whose dispatch-intents artifact binds this run (empty for a person)'
+        required: false
+        default: ''
+        type: string
+      intent_run_attempt:
+        description: 'Internal: that Stage run attempt (empty for a person)'
+        required: false
+        default: ''
+        type: string
+      intent_nonce:
+        description: 'Internal: the one-time intent key (empty for a person)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -712,7 +730,7 @@ jobs:
 
   refresh:
     needs: plan
-    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || ((github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != ''))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     # Whether this run ever held the Backup host. A run that never got its
@@ -725,7 +743,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -742,7 +760,13 @@ jobs:
             if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
-          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          # A sealed receiver's run-post-deploy-e2e, or Stage's O27 "Backup after
+          # keep-serving" workflow_dispatch: each is proved as its own intent.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
+          else
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -1531,7 +1555,7 @@ jobs:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || ((github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != ''))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
@@ -1539,7 +1563,7 @@ jobs:
       CONTROL_SHA: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1556,7 +1580,13 @@ jobs:
             if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
           done
           [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
-          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          # A sealed receiver's run-post-deploy-e2e, or Stage's O27 "Backup after
+          # keep-serving" workflow_dispatch: each is proved as its own intent.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-keep-serving
+          else
+            node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
+          fi
       - name: Mark the certification pending
         id: pending
         # A run that never held the Backup host tests nothing; it must not
