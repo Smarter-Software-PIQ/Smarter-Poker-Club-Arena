@@ -27,7 +27,10 @@
  *   history             (CLAUDE.md 10.86), so it fails loud, not silent.
  *
  * A run whose certificate job was cancelled or skipped is passed over when the
- * previous run is looked for: it certified nothing either way.
+ * previous run is looked for: it certified nothing either way. So is a run a
+ * newer publish superseded (2026-11-25): its certificate job fails on the one
+ * step named SUPERSEDED_STEP before any proof starts, its own verdict job does
+ * not run, and it neither continues nor breaks a streak.
  *
  * It also names the failed steps and the first error line of each failed
  * certificate job, for the alert's description. No timer and no watcher
@@ -55,6 +58,10 @@ export const MAX_PAGES = 3;
 export const MAX_JOB_READS = 30;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
 const PASSED = 'success';
+// The exact step a certificate workflow fails on when a newer publish replaced
+// its revision mid-wait (club-create-certification.yml). Pinned by
+// tests/unit/aProductionCertificateThatKeepsFailingReachesAPerson.test.ts.
+export const SUPERSEDED_STEP = 'A Newer Publish Superseded This Revision';
 
 /** Pure decision, exported for the regression test. previous: 'success' | 'failure' | 'none' | 'unknown'. */
 export function decide({ result, previous }) {
@@ -86,9 +93,15 @@ export function certificateConclusion(jobsPayload, jobName) {
   if (!jobs) return 'unknown';
   const matches = jobs.filter((job) => job && job.name === jobName);
   if (matches.length === 0) return null;
-  const conclusion = matches[matches.length - 1].conclusion;
+  const job = matches[matches.length - 1];
+  const conclusion = job.conclusion;
   if (conclusion === PASSED) return 'success';
-  if (FAILED.has(conclusion)) return 'failure';
+  if (FAILED.has(conclusion)) {
+    const superseded = (Array.isArray(job.steps) ? job.steps : []).some(
+      (step) => step && step.name === SUPERSEDED_STEP && FAILED.has(step.conclusion)
+    );
+    return superseded ? null : 'failure';
+  }
   return null;
 }
 

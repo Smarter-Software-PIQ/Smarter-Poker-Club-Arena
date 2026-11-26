@@ -58,7 +58,9 @@ const CAP = arg('cap');
 // accepted-hand learner keeps it for a live table.
 const RECORD = process.argv.includes('--record');
 const RECORD_OPTION =
-  VARIANT === 'nlh' ? 'holdemOopReraiseRangeReadsOpenerRecord' : 'omahaOopReraiseRangeReadsOpenerRecord';
+  VARIANT === 'nlh'
+    ? 'holdemOopReraiseRangeReadsOpenerRecord'
+    : 'omahaOopReraiseRangeReadsOpenerRecord';
 HorseMind.setLearnsOpenerResponseInSandbox(true);
 const ON = {
   ...PROD,

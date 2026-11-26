@@ -5,7 +5,7 @@ import { clubDataReportFixture } from '../helpers/club-data-report-fixture.mjs';
 const dates = 'dataStart=2026-11-09&dataEnd=2026-11-15';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 for (const entry of [
-  'Open Club Report',
+  'report link',
   'club bookmark',
   'union slug bookmark',
   'union UUID bookmark',
@@ -24,7 +24,7 @@ for (const entry of [
       })
     );
     const path =
-      entry === 'Open Club Report'
+      entry === 'report link'
         ? '/clubs/fixture-union/data'
         : entry === 'club bookmark'
           ? '/clubs/fixture-union/data/advanced'
@@ -32,38 +32,13 @@ for (const entry of [
     await page.goto(`http://club-data.fixture${path}?${dates}#reconciliation`);
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    if (entry === 'Open Club Report') {
-      const openReport = page.getByRole('button', { name: 'Open Club Report', exact: true });
-      await expect(openReport).toBeVisible();
-      await expect(page.getByRole('button', { name: /^(Simple|Advanced)$/ })).toHaveCount(0);
-      for (const width of [375, 1280]) {
-        await page.setViewportSize({ width, height: 850 });
-        const edges = await page.locator('.arena-workspace').evaluate((workspace) => {
-          const shell = workspace.parentElement!.getBoundingClientRect();
-          const mast = workspace.querySelector('.arena-workspace-mast')!.getBoundingClientRect();
-          const cases = [...workspace.querySelectorAll('.arena-case')].map((section) =>
-            section.getBoundingClientRect()
-          );
-          return {
-            available: shell.width,
-            used: workspace.getBoundingClientRect().width,
-            cases: cases.map((r) =>
-              Math.max(Math.abs(r.left - mast.left), Math.abs(r.right - mast.right))
-            ),
-          };
-        });
-        expect(Math.abs(edges.available - edges.used)).toBeLessThanOrEqual(1);
-        expect(edges.cases).toHaveLength(3);
-        for (const error of edges.cases) expect(error).toBeLessThanOrEqual(1);
-      }
-      await openReport.click();
-    }
+    if (entry === 'report link') await page.getByRole('link', { name: 'Game Reports' }).click();
     const report = page.getByRole('region', { name: 'Club Report', exact: true });
     await expect(page).toHaveURL(/\/clubs\/fixture-union\/data\?/);
     const opened = new URL(page.url());
     expect(opened.searchParams.get('report')).toBe('open');
     expect(opened.searchParams.get('dataEnd')).toBe('2026-11-15');
-    expect(opened.hash).toBe(entry === 'Open Club Report' ? '' : '#reconciliation');
+    expect(opened.hash).toBe(entry === 'report link' ? '#club-data-report' : '#reconciliation');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Club Data', exact: true })
     ).toHaveCount(1);
@@ -89,6 +64,55 @@ for (const entry of [
   });
 }
 
+test('daily summary fits small and wide screens with four totals and one calendar', async ({
+  page,
+}) => {
+  const fixture = await clubDataReportFixture();
+  await page.route('**/*', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>',
+    })
+  );
+  await page.goto('http://club-data.fixture/clubs/fixture-union/data');
+  await page.addStyleTag({ content: fixture.css });
+  await page.addScriptTag({ content: fixture.javascript });
+  const window = page.getByRole('group', { name: 'Date Range', exact: true });
+  await expect(window.getByRole('button')).toHaveText(['1 Day', '7 Days', '14 Days', 'Calendar']);
+  const totals = page.locator('dl[aria-label="Club Totals"]');
+  await expect(totals.locator('dt')).toHaveText(['Total Winnings', 'MTT Winnings', 'Fee', 'Games']);
+  await expect(page.getByRole('button', { name: 'Open Club Report' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Club Data' })).toHaveCount(1);
+  await expect(page.locator('section').filter({ has: window })).not.toContainText(
+    /AM|Chicago Time|Pacific Calendar Dates/
+  );
+  for (const width of [320, 375, 1280]) {
+    await page.setViewportSize({ width, height: 850 });
+    const edges = await page.locator('.arena-workspace').evaluate((workspace) => {
+      const shell = workspace.parentElement!.getBoundingClientRect();
+      const mast = workspace.querySelector('.arena-workspace-mast')!.getBoundingClientRect();
+      const cases = [...workspace.querySelectorAll('.arena-case')].map((section) =>
+        section.getBoundingClientRect()
+      );
+      return {
+        available: shell.width,
+        used: workspace.getBoundingClientRect().width,
+        cases: cases.map((r) =>
+          Math.max(Math.abs(r.left - mast.left), Math.abs(r.right - mast.right))
+        ),
+      };
+    });
+    expect(Math.abs(edges.available - edges.used)).toBeLessThanOrEqual(1);
+    expect(edges.cases).toHaveLength(3);
+    for (const error of edges.cases) expect(error).toBeLessThanOrEqual(1);
+  }
+  await window.getByRole('button', { name: 'Calendar' }).click();
+  const picker = page.getByRole('dialog', { name: 'Select Dates' });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Apply Dates' }).click();
+  await expect(picker).toHaveCount(0);
+});
+
 test('filtered Report keeps one question through real navigation and breakdown actions', async ({
   page,
 }) => {
@@ -101,7 +125,7 @@ test('filtered Report keeps one question through real navigation and breakdown a
   );
   await page.addStyleTag({ content: fixture.css });
   await page.addScriptTag({ content: fixture.javascript });
-  await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
+  await page.getByRole('link', { name: 'Game Reports' }).click();
   await expect(page).toHaveURL(/dataGame=OMAHA&dataStakes=HIGH&dataSearch=River/);
   const report = page.getByRole('region', { name: 'Club Report', exact: true });
   await expect(report.getByRole('region', { name: 'Report Dates And Definitions' })).toContainText(
@@ -207,7 +231,7 @@ test('opening the report keeps Today live while dated bookmarks stay pinned at P
     );
     await page.addStyleTag({ content: fixture.css });
     await page.addScriptTag({ content: fixture.javascript });
-    await page.getByRole('button', { name: 'Open Club Report', exact: true }).click();
+    await page.getByRole('link', { name: 'Game Reports' }).click();
     await expect.poll(lastEnds).toEqual(['2026-11-24', '2026-11-24']);
     await page.clock.setFixedTime(new Date('2026-11-25T08:00:01Z'));
     await page.evaluate(() => {
