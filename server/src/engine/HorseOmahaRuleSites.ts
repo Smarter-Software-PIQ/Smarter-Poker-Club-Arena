@@ -549,6 +549,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverBetFoldIsHisRecord: priced(
     "the answer curve the two river bet rules price a heads-up river bet with is the population's with its fold share multiplied by the opponent's own lifetime public fold record at a river's first wager over the population's, shrunk n / (n + k) with the measured k; no record is the population curve exactly (default OFF)"
   ),
+  omahaRiverBetCheckIsHisRecord: priced(
+    "the range the two river bet rules price a heads-up river bet against reads his checks through his own lifetime public unopened turn/river bet share shrunk to PEOPLE's by n / (n + k): a player who never bets unopened has checks that do not cap his range; no record is the model exactly (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
   omahaRiverBetFoldIsPeopleMeasured: priced(
     "the answer curve the two river bet rules price a heads-up river bet with is re-measured on PEOPLE's answers for the Horse's line and the size (shrunk to equilibrium by the measured k); Horse answers never enter (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),

@@ -253,6 +253,14 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       "the river answer curve re-measured on people's answers for the Horse's line and size",
     price: 'the river bet against the check by more than its standard error',
   },
+  omahaRiverBetCheckIsHisRecord: {
+    kind: 'priced',
+    range:
+      "the river checker/caller range with his checks capping it by his own lifetime unopened turn/river bet share shrunk to people's",
+    equity: 'equity of the hand against that range on the river',
+    realization: 'the river answer curve of the two river bet rules, unchanged',
+    price: 'the river bet against the check by more than its standard error',
+  },
   omahaFacingBetRangeIsMeasuredByLine: {
     kind: 'priced',
     range:
