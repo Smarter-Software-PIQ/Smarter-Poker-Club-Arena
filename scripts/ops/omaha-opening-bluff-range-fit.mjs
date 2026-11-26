@@ -4,7 +4,8 @@
  * plo-bluffs, 2026-11-26). Feeds server/src/engine/HorseOmahaOpeningBluffRangeTables.json
  * (HorseOmahaOpeningBluff.ts).
  *
- *   fit --in <dir of pull files> --out <tables.json> --version <label>     (run from server/ with node --import tsx)
+ *   fit --in <dir of pull files> --horses <json [{id}] of profiles.is_horse> --out <tables.json> --version <label>
+ *                                                                          (run from server/ with node --import tsx)
  *
  * The pull files are the SELECT-only extracts of scripts/ops/omaha-facing-bet-range-fit.mjs `pull` (public actions
  * and the hole cards of showdown entries with mucked = false only; never an unshown card).
@@ -28,7 +29,19 @@
  * fold cannot depend on cards he does not see, only on the public action, so the cell is cut into strata by the
  * player's own action on the street (no wager; a first wager of 0.7 pot or less; a bigger wager or a raise), each
  * stratum is corrected on its own shown and lost hands, and the strata are weighted by how often each happens (every
- * outcome counted). Identity-free: every player who was in the role is pooled, nobody is keyed.
+ * outcome counted).
+ *
+ * WHOSE HANDS (review t4, 2026-11-26; OWNER ORDER 12:21 PM Chicago: "the stats need to be used against human players,
+ * not horses"). Two families of cells, never pooled:
+ *   cells       HIS range (the opponent's; HorseOmahaOpeningBluff hisCell): PEOPLE's shown hands only. A player in
+ *               the Horse list (`--horses`, `select id from profiles where is_horse`, read-only) never enters it.
+ *   heroCells   the Horse's OWN range (heroCell, the range-advantage leg): the Horses' own shown hands only. This is
+ *               not a statistic about the opponent; it is what the deciding Horse's range holds in the role, so it is
+ *               measured on the Horses that play it, and it never prices his fold, his range or his answers.
+ * The decision function is the same for every opponent; only the data source of each side is fixed. Within a family
+ * a texture cell shrinks to its line cell and a line cell to its role cell by SHRINK_K; a role cell shrinks by
+ * SHRINK_K to the neutral anchor, a random holding (each bin's share is its width on the strength scale), so a thin
+ * people cell reads close to "no information" rather than borrowing anyone else's play. Nobody is keyed by name.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -44,7 +57,20 @@ const arg = (name, dflt) => {
 export const BIN_EDGES = [0, 0.01, 0.03, 0.07, 0.13, 0.2, 0.35, 0.55, 1];
 export const WEAK_EDGE = 0.2;
 export const SHRINK_K = 30;
-const FORCED = new Set(['sb', 'bb', 'ante', 'post', 'post_sb', 'post_bb', 'blind', 'small_blind', 'big_blind', 'straddle', 'bomb_ante', 'return']);
+const FORCED = new Set([
+  'sb',
+  'bb',
+  'ante',
+  'post',
+  'post_sb',
+  'post_bb',
+  'blind',
+  'small_blind',
+  'big_blind',
+  'straddle',
+  'bomb_ante',
+  'return',
+]);
 const binOf = (p) => {
   for (let b = 0; b < BIN_EDGES.length - 1; b++) if (p < BIN_EDGES[b + 1]) return b;
   return BIN_EDGES.length - 2;
@@ -64,7 +90,9 @@ export const textureOf = (board) => {
 
 async function fit() {
   const { scoreOmahaHiPartial } = await import(resolve('src/engine/HorseEval.ts'));
-  const { PairSet, countHoldingsWithout } = await import(resolve('src/engine/HorseOmahaFacingBetEv.ts'));
+  const { PairSet, countHoldingsWithout } = await import(
+    resolve('src/engine/HorseOmahaFacingBetEv.ts')
+  );
   const { omahaBetReadCard } = await import(resolve('src/engine/HorseOmahaBetRead.ts'));
   const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'];
   const DECK = [];
@@ -92,18 +120,29 @@ async function fit() {
     return 1 - countHoldingsWithout(m, hole.length, bar) / choose(m, hole.length);
   }
   const nb = BIN_EDGES.length - 1;
-  const cells = new Map();
+  const HORSE = new Set(JSON.parse(readFileSync(resolve(arg('horses')), 'utf8')).map((r) => r.id));
+  const families = { people: new Map(), horse: new Map() };
+  let cells = families.people;
   const cell = (k) => {
     let c = cells.get(k);
     if (!c) cells.set(k, (c = { hist: new Array(nb).fill(0), shown: 0, n: 0, lf: 0, strata: {} }));
     return c;
   };
-  let hands = 0, used = 0, from = null, to = null;
+  let hands = 0,
+    used = 0,
+    from = null,
+    to = null;
   const dir = resolve(arg('in'));
   const ORDER = ['preflop', 'flop', 'turn', 'river'];
-  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
+  for (const f of readdirSync(dir)
+    .filter((x) => x.endsWith('.json'))
+    .sort()) {
     let rows;
-    try { rows = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; }
+    try {
+      rows = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    } catch {
+      continue;
+    }
     if (!Array.isArray(rows)) continue;
     for (const h of rows) {
       hands++;
@@ -122,7 +161,13 @@ async function fit() {
         if (FORCED.has(act)) continue;
         const u = a[7] ?? uidOf.get(Number(seat));
         if (!u || !ORDER.includes(stage)) continue;
-        acts.push({ u, stage, act, amt: Number(amt0 ?? 0), pot: a[5] == null ? null : Number(a[5]) });
+        acts.push({
+          u,
+          stage,
+          act,
+          amt: Number(amt0 ?? 0),
+          pot: a[5] == null ? null : Number(a[5]),
+        });
       }
       if (rit) continue;
       const shown = new Map();
@@ -136,10 +181,14 @@ async function fit() {
         if (board.length < nbd) continue;
         const sb = board.slice(0, nbd);
         const si = ORDER.indexOf(st);
-        const foldedBefore = new Set(acts.filter((x) => x.act === 'fold' && ORDER.indexOf(x.stage) < si).map((x) => x.u));
+        const foldedBefore = new Set(
+          acts.filter((x) => x.act === 'fold' && ORDER.indexOf(x.stage) < si).map((x) => x.u)
+        );
         const here = acts.filter((x) => x.stage === st);
         if (!here.length) continue;
-        const live = [...new Set((h.pl ?? []).map((p) => p[1]))].filter((u) => !foldedBefore.has(u));
+        const live = [...new Set((h.pl ?? []).map((p) => p[1]))].filter(
+          (u) => !foldedBefore.has(u)
+        );
         const actors = [...new Set(here.map((x) => x.u))];
         if (actors.length !== 2 || live.length !== 2) continue;
         any = true;
@@ -149,7 +198,8 @@ async function fit() {
         const tex = textureOf(sb);
         const oop = here[0].u;
         const ip = actors.find((u) => u !== oop);
-        const laterFold = (u) => acts.some((x) => x.u === u && x.act === 'fold' && ORDER.indexOf(x.stage) >= si);
+        const laterFold = (u) =>
+          acts.some((x) => x.u === u && x.act === 'fold' && ORDER.indexOf(x.stage) >= si);
         // his own action on this street: the stratum (see SHOWDOWN BIAS)
         const stratumOf = (u) => {
           const w = here.find((x) => x.u === u && W(x.act));
@@ -159,13 +209,18 @@ async function fit() {
           return w.act !== 'bet' || ratio > 0.7 ? 'big' : 'small';
         };
         const record = (role, u) => {
+          cells = HORSE.has(u) ? families.horse : families.people;
           const line = lineOf(u);
           const s = stratumOf(u);
           let p = null;
           const hole = shown.get(u);
           if (hole) p = strength(hole, sb);
           const lost = laterFold(u) || (shown.size > 0 && !shown.has(u));
-          for (const k of [`${v}|${st}|${role}`, `${v}|${st}|${role}|${line}`, `${v}|${st}|${role}|${line}|${tex}`]) {
+          for (const k of [
+            `${v}|${st}|${role}`,
+            `${v}|${st}|${role}|${line}`,
+            `${v}|${st}|${role}|${line}|${tex}`,
+          ]) {
             const c = cell(k);
             const g = (c.strata[s] ??= { hist: new Array(nb).fill(0), shown: 0, n: 0, lf: 0 });
             c.n++;
@@ -202,7 +257,9 @@ async function fit() {
     const base = norm(c.hist);
     if (!base) return null;
     const f = Math.max(0, Math.min(0.9, c.lf / Math.max(1, c.lf + c.shown)));
-    const wn = norm(base.map((x, i) => (BIN_EDGES[i] >= WEAK_EDGE ? x : 0))) ?? base.map((_, i) => (i === nb - 1 ? 1 : 0));
+    const wn =
+      norm(base.map((x, i) => (BIN_EDGES[i] >= WEAK_EDGE ? x : 0))) ??
+      base.map((_, i) => (i === nb - 1 ? 1 : 0));
     return base.map((x, i) => (1 - f) * x + f * wn[i]);
   };
   // each stratum (his own action on the street: no wager, a small first wager, a big wager or a raise) corrected on
@@ -227,34 +284,71 @@ async function fit() {
     if (!own) return parent;
     return own.map((x, i) => (c.shown * x + SHRINK_K * parent[i]) / (c.shown + SHRINK_K));
   };
-  const out = {};
-  for (const v of ['plo4', 'plo5'])
-    for (const st of ['turn', 'river'])
-      for (const role of ['ip', 'oop', 'oopcheck']) {
-        const top = cells.get(`${v}|${st}|${role}`);
-        const root = top ? corrected(top) : null;
-        if (!root) continue;
-        for (const line of ['agg', 'def', 'chk']) {
-          const lc = cells.get(`${v}|${st}|${role}|${line}`);
-          const lh = mix(lc, root);
-          out[`${v}|${st}|${role}|${line}`] = { hist: lh.map(r5), shown: lc?.shown ?? 0, n: lc?.n ?? 0, notShown: lc?.lf ?? 0 };
-          for (const tex of ['paired', 'flush', 'plain']) {
-            const tc = cells.get(`${v}|${st}|${role}|${line}|${tex}`);
-            out[`${v}|${st}|${role}|${line}|${tex}`] = { hist: mix(tc, lh).map(r5), shown: tc?.shown ?? 0, n: tc?.n ?? 0, notShown: tc?.lf ?? 0 };
+  const ANCHOR = BIN_EDGES.slice(1).map((e, i) => e - BIN_EDGES[i]);
+  const build = (fam) => {
+    cells = fam;
+    const out = {};
+    for (const v of ['plo4', 'plo5'])
+      for (const st of ['turn', 'river'])
+        for (const role of ['ip', 'oop', 'oopcheck']) {
+          const top = cells.get(`${v}|${st}|${role}`);
+          if (!top || !corrected(top)) continue;
+          const root = mix(top, ANCHOR);
+          for (const line of ['agg', 'def', 'chk']) {
+            const lc = cells.get(`${v}|${st}|${role}|${line}`);
+            const lh = mix(lc, root);
+            out[`${v}|${st}|${role}|${line}`] = {
+              hist: lh.map(r5),
+              shown: lc?.shown ?? 0,
+              n: lc?.n ?? 0,
+              notShown: lc?.lf ?? 0,
+            };
+            for (const tex of ['paired', 'flush', 'plain']) {
+              const tc = cells.get(`${v}|${st}|${role}|${line}|${tex}`);
+              out[`${v}|${st}|${role}|${line}|${tex}`] = {
+                hist: mix(tc, lh).map(r5),
+                shown: tc?.shown ?? 0,
+                n: tc?.n ?? 0,
+                notShown: tc?.lf ?? 0,
+              };
+            }
           }
         }
-      }
+    return out;
+  };
+  const out = build(families.people);
+  const heroOut = build(families.horse);
   const tables = {
     version: arg('version'),
-    note: 'Measured by scripts/ops/omaha-opening-bluff-range-fit.mjs from PLO4/PLO5 cash hand_history (shown cards only, showdown bias corrected). Strength = share of holdings of his size that beat his hand on the street board now (0 = the nuts). Cell = game|street|role|line|texture.',
+    note: 'Measured by scripts/ops/omaha-opening-bluff-range-fit.mjs from PLO4/PLO5 cash hand_history (shown cards only, showdown bias corrected). Strength = share of holdings of his size that beat his hand on the street board now (0 = the nuts). Cell = game|street|role|line|texture. cells: PEOPLE only (players not in the Horse list): his range. heroCells: the Horses own shown hands: the deciding Horse own range only.',
     source: { from, to, handsRead: hands, handsUsed: used },
     binEdges: BIN_EDGES,
     weakEdge: WEAK_EDGE,
     shrinkK: SHRINK_K,
     cells: out,
+    heroCells: heroOut,
   };
   writeFileSync(resolve(arg('out')), JSON.stringify(tables, null, 1) + '\n');
-  console.log(JSON.stringify({ hands, used, cells: Object.fromEntries(Object.entries(out).filter(([k]) => k.split('|').length === 4).map(([k, c]) => [k, [c.n, c.shown, c.hist.map((x) => x.toFixed(3)).join(' ')]])) }, null, 1));
+  console.log(
+    JSON.stringify(
+      {
+        hands,
+        used,
+        heroCells: Object.fromEntries(
+          Object.entries(heroOut)
+            .filter(([k]) => k.split('|').length === 4)
+            .map(([k, c]) => [k, [c.n, c.shown]])
+        ),
+        cells: Object.fromEntries(
+          Object.entries(out)
+            .filter(([k]) => k.split('|').length === 4)
+            .map(([k, c]) => [k, [c.n, c.shown, c.hist.map((x) => x.toFixed(3)).join(' ')]])
+        ),
+      },
+      null,
+      1
+    )
+  );
 }
 if (cmd === 'fit') await fit();
-else console.log('usage: fit --in <dir> --out <tables.json> --version <label>');
+else console.log('usage: fit --in <dir> --horses <json> --out <tables.json> --version <label>');
