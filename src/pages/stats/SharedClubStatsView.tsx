@@ -186,7 +186,7 @@ export default function SharedClubStatsView(props: Props) {
         >
           <div className="stats-club-command-copy">
             <h2 id="shared-club-title">{clubLabel}</h2>
-            <p>Shared Club Statistics</p>
+            <p>No All-Clubs, Private Financial, Hand, Note, Or Opponent Data Is Exposed.</p>
             <div className="stats-club-selector" role="group" aria-label="Shared Statistics Club">
               {visibleClubs.map((c) => (
                 <button
