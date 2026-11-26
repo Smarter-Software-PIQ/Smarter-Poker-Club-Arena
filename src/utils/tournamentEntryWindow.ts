@@ -60,9 +60,14 @@ export function tournamentEntryClockDeadlineMs(row: TournamentEntryWindowRow): n
   return Number.isFinite(started) ? started + minutes * 60000 : null;
 }
 
+export function tournamentInPlay(status?: string | null): boolean {
+  return ['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'].includes(
+    String(status ?? '').toUpperCase()
+  );
+}
+
 export function tournamentEntryWindowOpen(row: TournamentEntryWindowRow, now: number): boolean {
-  const status = String(row.status ?? '').toUpperCase();
-  if (!['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'].includes(status)) return false;
+  if (!tournamentInPlay(row.status)) return false;
   const window = tournamentEntryWindow(row);
   if (row.add_on_available === true && row.prize_pool_finalized !== true) {
     if (

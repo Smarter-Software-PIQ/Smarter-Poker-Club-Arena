@@ -23,18 +23,6 @@
   gap: 3px;
   flex: none;
 }
-.tournament-details.tournament-details .details-tabs .tab {
-  min-height: 22px;
-  border: 3px double #6785a4;
-  border-radius: 6px;
-  background: #081321;
-  font:
-    700 10px Arial,
-    sans-serif;
-}
-.tournament-details.tournament-details .details-tabs .tab.active {
-  background: #074bb8;
-}
 .tournament-details.tournament-details
   :is(.et-panel, .un-panel, .rw, .blinds-tab__card:has(.blinds-tab__schedule)) {
   box-sizing: border-box;
@@ -292,34 +280,6 @@
   display: inline;
   font-size: 11px;
   margin-left: 4px;
-}
-.tournament-details .rw .rw-payouts[data-projected='true'] {
-  padding: 0;
-  border: 4px solid #466076;
-  border-radius: 6px;
-}
-.tournament-details .rw-payouts[data-projected='true'] .rw-list .rw-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  min-height: 58px;
-  align-items: center;
-  text-align: center;
-  background: #06131f;
-}
-.tournament-details .rw-payouts[data-projected='true'] .rw-row__mid {
-  display: none;
-}
-.tournament-details .rw-payouts[data-projected='true'] .rw-row :is(.rw-rank, .rw-prize) {
-  width: auto;
-  text-align: center;
-  font:
-    700 26px 'Arial Narrow',
-    Arial,
-    sans-serif;
-  color: white;
-}
-.tournament-details .rw-payouts[data-projected='true'] .rw-row--p1 .rw-rank {
-  color: #92dfff;
 }
 .tournament-details.tournament-details .sat-list {
   padding: 0;

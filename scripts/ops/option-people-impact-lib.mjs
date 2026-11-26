@@ -58,6 +58,9 @@ const PLO45 = Object.freeze(['plo4', 'plo5']);
 export const OPTION_SCOPE_TABLE = Object.freeze({
   holdemValueAndCallsArePriced: { variants: ['nlh'], mode: 'cash', hu: false },
   holdemTournamentAllInCallIsPriced: { variants: ['nlh'], mode: 'tournament', hu: false },
+  holdemTournamentHeadsUpBigBlindDefenceIsPriced: { variants: ['nlh'], mode: 'tournament', hu: true },
+  holdemTournamentBlindDefenceIsPriced: { variants: ['nlh'], mode: 'tournament', hu: false },
+  holdemTournamentCommittedRaiseIsPriced: { variants: ['nlh'], mode: 'tournament', hu: false },
   holdemRiverFullHouseValueIsPriced: { variants: ['nlh'], mode: 'all', hu: false },
   huBbDefendsUnreadToPrice: { variants: ['nlh'], mode: 'all', hu: true },
   omahaBlanketRowsOffInPlo45Cash: { variants: PLO45, mode: 'cash', hu: false },

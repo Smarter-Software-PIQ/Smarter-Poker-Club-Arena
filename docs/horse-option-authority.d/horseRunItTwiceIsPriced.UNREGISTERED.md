@@ -1,6 +1,6 @@
 # horseRunItTwiceIsPriced: authority for the live switch
 
-**State: OFF in source (read `=== true` on the main thread), no switch row, main-thread switch hook wired (`HorseRunItTwiceSwitch.ts`, `horseDecision/lane.ts`, `ServerTableEngineRunout.ts`), not yet registered in the option switch (registration rides the switch-list route: `HorseDataLedger.ts`, `HorseOptionSwitch.ts`, generated follow-up migration, and rename to `horseRunItTwiceIsPriced.md`). Evidence NOT MET.** Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md met: mechanism, scope, receipts-designed, tests and off-identity; replay result below; no live evidence.
+**State: OFF in source (read `=== true` on the main thread), no switch row, main-thread switch hook wired (`HorseRunItTwiceSwitch.ts`, `horseDecision/lane.ts`, `ServerTableEngineRunout.ts`), flag and all five `horse_rit_priced_*` receipts registered in `HorseDataLedger.ts` and held in `OPTION_SWITCH_REFUSED` (zero SQL migrations), not yet registered in the SQL option switch (SQL switch registration rides the switch-list route: remove from `OPTION_SWITCH_REFUSED`, generated follow-up migration, and rename to `horseRunItTwiceIsPriced.md`). Evidence NOT MET.** Rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md met: mechanism, scope, receipts-designed, tests and off-identity; replay result below; no live evidence.
 
 Owner orders it rests on (verbatim): 2026-11-20 3:27 PM Chicago, "THERE SHOULD NEVER EVER EVER BY ANY BLANKET RULES. MAKE SURE THEY ARE ALL REMOVED IF THEY SOMEHOW GOT ADDED BACK IN."; 2026-11-17, "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 2026-11-13 11:37 PM Chicago, "HORSE WITH BOTTOM SET SHOULD NOT BE AGREEING TO RUN IT 3 TIMES WITH ONE OUT. AND HORSES SHOULD ONLY BE RUNNING IT MULTIPLE TIMES (SOMETIMES) NOT ALL THE TIME". Built by the HORSE DECISIONS lane (helper UNOWNED-RULES, Claude session_01UxDLnMCzicBiaB19fA18T5); criteria declared before any replay: evidence folder horse-decisions-01UxDLnM/unowned/criteria/horseRunItTwiceIsPriced.CRITERIA.md, sha256 dafe541885c3faa729888c00c513827ac6cbcde56e10f4604e4432aef98f77cf.
 
@@ -20,7 +20,7 @@ Owner orders it rests on (verbatim): 2026-11-20 3:27 PM Chicago, "THERE SHOULD N
 
 People's answers 2026-10-03 .. 2026-11-20 UTC (earlier logs carry no actor): 789 decisions (376 chooser, 413 responder), 48 people, the most frequent person 45% of rows. Pooled multi share: chooser 0.569 (P(3|multi) 0.248), responder 0.383. With the most frequent person excluded: chooser 0.578, responder 0.574. Limitation: the equity is ca_hand_facts.all_in_equity (the hand's public all-in equity), not the exact figure the engine read at the offer.
 
-## Receipts (wired in `ServerTableEngineRunout.horseRitRuns`; registered with the switch-list turn)
+## Receipts (wired in `ServerTableEngineRunout.horseRitRuns`; registered in `HorseDataLedger.ts`)
 
 `horse_rit_priced_once`, `horse_rit_priced_multi`, `horse_rit_priced_three`, `horse_rit_priced_owner_cut`, `horse_rit_priced_equity_unknown`.
 

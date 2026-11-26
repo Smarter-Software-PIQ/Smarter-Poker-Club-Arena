@@ -1,3 +1,4 @@
+import { useTournamentClockResume } from './useTournamentClockResume';
 import { isPlayerLive } from './types';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -52,7 +53,7 @@ import { isPlayerLive } from './types';
  *    `--:--`. There is no code path that can turn "I do not know" into "0:00".
  *
  * 2. NOTHING IS EVER DECREMENTED. The only state the tick touches is
- *    `nowMs = Date.now()`. Every figure on the page is derived from wall-clock
+ *    `nowMs = serverNow()`. Every figure on the page is derived from engine-clock
  *    subtraction during render, so a throttled or suspended background tab
  *    cannot accumulate drift — it can only render one second late, and the
  *    `visibilitychange` resync removes even that.
@@ -65,7 +66,7 @@ import { isPlayerLive } from './types';
  *    bug being fixed here.
  *
  * 4. LEVEL CHANGES ARRIVE ON THE BUS, not only on the next poll.
- *    `BLIND_LEVEL_CHANGE` re-anchors the clock the instant the engine advances,
+ *    `BLIND_LEVEL_CHANGE` announces the next level; the committed row supplies its clock,
  *    and `BREAK_START` / `BREAK_END` (relayed from the server's `t-break-<id>`
  *    channel by tournamentEventBridge) flip the break takeover. The optimistic
  *    value is dropped the moment the tournament row itself carries the new
@@ -83,7 +84,8 @@ import { useMasterBusSubscription } from '../../../hooks/useMasterBusSubscriptio
 import { chips, clockText, type NormalisedBlindLevel, type TournamentTabProps } from './types';
 import { tournamentEntryTerms } from './entryTerms';
 import { tournamentRowUnitCents } from './types';
-import { tournamentEntryWindow } from '../../../utils/tournamentEntryWindow';
+import { serverNow } from '../../../utils/serverClock';
+import { tournamentEntryWindow, tournamentInPlay } from '../../../utils/tournamentEntryWindow';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../../utils/multiDaySchedule';
 import { tournamentStartsWhenFull } from '../../../utils/tournamentPresentation';
 import '../../../styles/tournament-lobby-3d.css';
@@ -161,11 +163,11 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
 
   /* The ONLY ticking state. Everything visible is derived from it by
      subtraction, so there is no counter that can drift or stall. */
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [nowMs, setNowMs] = useState<number>(serverNow);
 
   /* Optimistic level/break, adopted from the bus and discarded the moment the
      tournament row itself reports the change. */
-  const [busLevel, setBusLevel] = useState<{ level: number; anchorMs: number } | null>(null);
+  const [busLevel, setBusLevel] = useState<{ level: number } | null>(null);
   const [busBreak, setBusBreak] = useState<{ endsAtMs: number | null } | null>(null);
 
   /* A finished event has no clock to run. The tick used to be unconditional
@@ -176,8 +178,7 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
      computed after this effect. */
   const rowStatus = String(row.status || '').toUpperCase();
   const startsWhenFull = tournamentStartsWhenFull(tournament);
-  const rowHasStarted =
-    rowStatus === 'RUNNING' || rowStatus === 'LATE_REG' || epoch(row.started_at) !== null;
+  const rowHasStarted = tournamentInPlay(rowStatus) || epoch(row.started_at) !== null;
   const clockIsDead =
     rowStatus === 'COMPLETED' ||
     rowStatus === 'CANCELLED' ||
@@ -188,7 +189,7 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
 
   useEffect(() => {
     if (clockIsDead) return;
-    const tick = () => setNowMs(Date.now());
+    const tick = () => setNowMs(serverNow());
     tick();
     const id = setInterval(tick, 1000);
     // A background tab's interval is throttled; recomputing from wall clock on
@@ -209,8 +210,8 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
 
   /* The row caught up: stop preferring the optimistic values. */
   useEffect(() => {
-    setBusLevel(null);
-  }, [row.current_level, row.level_started_at]);
+    setBusLevel((prev) => (prev && prev.level > Number(row.current_level) + 1 ? prev : null));
+  }, [row.current_level]);
 
   useEffect(() => {
     setBusBreak(null);
@@ -220,11 +221,11 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
     (payload: LevelPayload) => {
       if (!payload || payload.tournamentId !== tournament.id) return;
       const level = Number(payload.level);
-      if (!Number.isFinite(level) || level < 1) return;
-      setBusLevel({ level, anchorMs: Date.now() });
+      if (!Number.isSafeInteger(level) || level <= (Number(row.current_level) || 0) + 1) return;
+      setBusLevel((prev) => (prev && prev.level >= level ? prev : { level }));
       setBusBreak(null);
     },
-    [tournament.id]
+    [tournament.id, row.current_level]
   );
 
   const onBreakStart = useCallback(
@@ -274,8 +275,7 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
      level clock is stored as a remaining duration by the bag, so a derived
      countdown here would read "Level Change Pending" all night. */
   const isBagged = isBaggedStatus(status);
-  const hasStarted =
-    !isFinished && (status === 'RUNNING' || status === 'LATE_REG' || startedMs !== null);
+  const hasStarted = !isFinished && (tournamentInPlay(status) || startedMs !== null);
 
   const levelCount = blindLevels.length;
   /**
@@ -338,7 +338,8 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
 
   /** Where this level's clock started. Null means genuinely unknown. */
   const levelAnchorMs: number | null = (() => {
-    if (busLevel) return busLevel.anchorMs;
+    // A broadcast supplies the new level, but no authoritative start timestamp.
+    if (busLevel && busLevel.level > (Number(row.current_level) || 0) + 1) return null;
     const explicit = epoch(row.level_started_at);
     if (explicit !== null) return explicit;
     if (startedMs === null) return null;
@@ -379,7 +380,14 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
   const rowBreakEndsMs = epoch(row.break_ends_at);
   const structureBreak = Boolean(current?.isBreak);
   const rowOnBreak = Boolean(row.on_break) || (rowBreakEndsMs !== null && rowBreakEndsMs > nowMs);
-  const onBreak = hasStarted && !isBagged && (structureBreak || rowOnBreak || busBreak !== null);
+  const breakAnnounced = rowOnBreak || busBreak !== null;
+  const waitingForResume = useTournamentClockResume(
+    tournament,
+    tournamentInPlay(status),
+    breakAnnounced
+  );
+  const awaitingCredit = waitingForResume && !breakAnnounced;
+  const onBreak = hasStarted && !isBagged && (structureBreak || breakAnnounced || awaitingCredit);
 
   const breakEndsAtMs = busBreak ? busBreak.endsAtMs : rowBreakEndsMs;
   const breakRemainingSec: number | null = structureBreak
@@ -408,7 +416,7 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
       unknown: false,
     };
   })();
-  const finishingHands = onBreak && !structureBreak && breakEndsAtMs === null;
+  const finishingHands = onBreak && !structureBreak && !awaitingCredit && breakEndsAtMs === null;
   // An hourly pause resumes its current level; only a legacy structure break
   // advances to the following row. Preserve exact committed amounts when present.
   const resumeLevel = structureBreak ? next?.level : levelNumber;
@@ -584,13 +592,15 @@ function EventBlindsTab({ tournament, blindLevels, entries }: TournamentTabProps
               {breakRemainingSec === null ? '--:--' : clockText(breakRemainingSec)}
             </span>
             <span className="blinds-tab__clock-key">
-              {finishingHands
-                ? '5 Minutes After All Hands Finish'
-                : breakRemainingSec === null
-                  ? 'Break Length Not Published'
-                  : breakRemainingSec === 0
-                    ? 'Waiting For Play To Resume'
-                    : 'Until Play Resumes'}
+              {awaitingCredit
+                ? 'Waiting For Play To Resume'
+                : finishingHands
+                  ? '5 Minutes After All Hands Finish'
+                  : breakRemainingSec === null
+                    ? 'Break Length Not Published'
+                    : breakRemainingSec === 0
+                      ? 'Waiting For Play To Resume'
+                      : 'Until Play Resumes'}
             </span>
           </div>
           {resumeBlinds && !resumeBlinds.isBreak ? (

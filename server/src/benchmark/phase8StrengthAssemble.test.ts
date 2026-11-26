@@ -228,14 +228,13 @@ describe('phase8-strength-assemble', () => {
       const runtime=guardPolicyDigest(read), qualification=guardQualificationSourceDigest(read);
       const changed=file=>p=>p===file?Buffer.concat([read(p),Buffer.from('changed')]):read(p);
       const selector='server/src/engine/HorseTournamentCatastropheGuardSelection.ts';
-      console.log(JSON.stringify({runtimeFiles:GUARD_RUNTIME_POLICY_SOURCE_FILES, qualificationFiles:GUARD_QUALIFICATION_SOURCE_FILES,
+      process.stdout.write(JSON.stringify({runtimeFiles:GUARD_RUNTIME_POLICY_SOURCE_FILES, qualificationFiles:GUARD_QUALIFICATION_SOURCE_FILES,
         runtime, qualification, consumerRuntimeFiles:HORSE_CATASTROPHE_GUARD_POLICY_SOURCE_FILES.map(p=>'server/'+p), consumerQualificationFiles:HORSE_CATASTROPHE_GUARD_QUALIFICATION_SOURCE_FILES, sharedRuntime:horseCatastropheGuardPolicyDigest(p=>read('server/'+p)),
         runtimeFailures:GUARD_RUNTIME_POLICY_SOURCE_FILES.filter(p=>guardPolicyDigest(changed(p))===runtime||guardQualificationSourceDigest(changed(p))===qualification),
         qualificationFailures:GUARD_QUALIFICATION_SOURCE_FILES.filter(p=>guardQualificationSourceDigest(changed(p))===qualification),
         workflowRuntime:guardPolicyDigest(changed('.github/workflows/horse-phase8-strength-league.yml')),
         workflowQualification:guardQualificationSourceDigest(changed('.github/workflows/horse-phase8-strength-league.yml')),
-        selectorRuntime:guardPolicyDigest(changed(selector)), selectorQualification:guardQualificationSourceDigest(changed(selector))}));
-      process.exit(0);
+        selectorRuntime:guardPolicyDigest(changed(selector)), selectorQualification:guardQualificationSourceDigest(changed(selector))}), () => process.exit(0));
     `,
         ],
         { cwd: process.cwd(), timeout: RUN_TIMEOUT_MS }

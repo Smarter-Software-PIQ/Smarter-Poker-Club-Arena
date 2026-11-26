@@ -60,6 +60,58 @@ import { dismissClubEntryMessage } from './global-setup';
 
 const css = (p: string) => readFileSync(p, 'utf8');
 
+test('Every tournament tab has a complete tappable chrome face', async ({ page }) => {
+  const labels = [
+    'Details',
+    'Satellites',
+    'Blinds',
+    'Ranking',
+    'Entries',
+    'Unions',
+    'Tables',
+    'Rewards',
+  ];
+  const styles = [
+    'src/pages/tournament/TournamentDetails.css',
+    'src/components/lobby/ArenaLobbyConsole.css',
+    'src/components/lobby/MttConsole.css',
+    'src/components/lobby/MttSurfaces.css',
+  ]
+    .map(css)
+    .join('\n');
+  for (const width of [320, 393, 900]) {
+    await page.setViewportSize({ width, height: 740 });
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0}${styles}</style><section class="tournament-details console-lobby">
+      <div class="details-tabs" role="tablist">${labels
+        .map(
+          (label, i) =>
+            `<button class="tab ${i === 0 ? 'active' : ''}" role="tab">${label}</button>`
+        )
+        .join('')}</div></section>`);
+    const tabs = page.getByRole('tab');
+    for (let i = 0; i < labels.length; i++) {
+      const face = await tabs.nth(i).evaluate((tab) => {
+        const rect = tab.getBoundingClientRect();
+        const host = tab.parentElement!.getBoundingClientRect();
+        return {
+          layoutHeight: tab.offsetHeight,
+          paintedHeight: rect.height,
+          fits: rect.left >= host.left && rect.right <= host.right,
+          hittable: [rect.left + 3, rect.right - 3].every(
+            (x) => document.elementFromPoint(x, rect.top + rect.height / 2) === tab
+          ),
+          chrome: getComputedStyle(tab).borderImageSource,
+        };
+      });
+      expect(face.layoutHeight, labels[i]).toBeGreaterThanOrEqual(44);
+      // WebKit reports scaled DOMRects as floats, including 43.999996 for a 44px face.
+      expect(face.paintedHeight + 0.00001, labels[i]).toBeGreaterThanOrEqual(44);
+      expect(face.fits && face.hittable, labels[i]).toBe(true);
+      expect(face.chrome).toContain(i === 0 ? 'chrome-active.webp' : 'chrome-row.webp');
+    }
+  }
+});
+
 test('Tournament Price Stays Centered Between Unequal Header Controls', async ({ page }) => {
   for (const width of [320, 393, 768]) {
     await page.setViewportSize({ width, height: 844 });
@@ -1107,7 +1159,7 @@ test.describe('mobile lobby chrome', () => {
     expect(empty.text.trim()).toBe('');
   });
 
-  test('Cashier keeps its count centered under the live Wallet Balances title at mobile and desktop widths', async ({
+  test('Cashier aligns its ledger title and count on one line inside the chrome at mobile and desktop widths', async ({
     page,
   }) => {
     await page.setContent(lobby({ countText: '4 Balances', publishControlsHeight: false }));
@@ -1117,7 +1169,7 @@ test.describe('mobile lobby chrome', () => {
       card.classList.add('arena-case');
       card.querySelector('strong')!.textContent = 'Wallet Balances';
       const cashier = document.createElement('main');
-      cashier.className = 'arena-workspace arena-trade';
+      cashier.className = 'arena-workspace arena-cashier arena-trade';
       cashier.append(card);
       document.body.replaceChildren(cashier);
     });
@@ -1141,20 +1193,27 @@ test.describe('mobile lobby chrome', () => {
         const title = textBox('strong'),
           count = textBox('small');
         return {
-          titleOffset: Math.abs(title.left + title.width / 2 - frame.left - frame.width / 2),
-          countOffset: Math.abs(count.left + count.width / 2 - title.left - title.width / 2),
+          titleInset: title.left - frame.left,
+          titleEnd: title.right,
+          countStart: count.left,
+          caretGap:
+            button.querySelector('.lobby-wallets-trigger__chevron')!.getBoundingClientRect().left -
+            count.right,
+          verticalOverlap: Math.min(title.bottom, count.bottom) - Math.max(title.top, count.top),
           clipped:
             count.left < frame.left ||
             count.right > frame.right ||
             count.top < frame.top ||
             count.bottom > frame.bottom,
-          under: count.top >= title.bottom,
           background: getComputedStyle(button).backgroundImage,
         };
       });
-      expect(g.titleOffset).toBeLessThan(1);
-      expect(g.countOffset).toBeLessThan(1);
-      expect(g.under).toBe(true);
+      expect(g.titleInset).toBeGreaterThanOrEqual(0);
+      expect(g.titleInset).toBeLessThan(10);
+      expect(g.titleEnd).toBeLessThan(g.countStart);
+      expect(g.caretGap).toBeGreaterThanOrEqual(2);
+      expect(g.caretGap).toBeLessThan(24);
+      expect(g.verticalOverlap).toBeGreaterThan(0);
       expect(g.clipped).toBe(false);
       expect(g.background).toBe('none');
     }
