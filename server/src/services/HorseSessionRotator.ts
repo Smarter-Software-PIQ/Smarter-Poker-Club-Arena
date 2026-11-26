@@ -1492,7 +1492,7 @@ export class HorseSessionRotator {
     /* AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24). The fleet names at
        most one Horse-only extra table (HorseVarietyFirst.varietyDrainTable)
        while a game with no table is owed a start the cap cannot fit. It seats
-       nobody there; here its Horses go home, ONE per cycle, through the same
+       nobody there; here its Horses go home through the same
        ordinary door as the end of a shift: engine.leaveTable (cashed out at
        the end of the hand), never while a stay clock or owed hands in profit
        hold the seat, never the hand after a big pot. Never a Horse still holding
@@ -1501,7 +1501,19 @@ export class HorseSessionRotator {
        stops it at once: this pass walks nobody out from beside a person. A
        table the cluster tick is already breaking is not walked out of (owner
        2026-11-07, HorseUnionCashPlan.horseCashPlanTablesAwaitingBreak): the
-       break moves its Horses, in order, like people. */
+       break moves its Horses, in order, like people.
+
+       EVERY HORSE THAT CAN GO, GOES IN THE SAME CYCLE (2026-11-25). A leave is
+       cashed out by the leave_pending sweep in prepareNextHand, on the path to
+       the next deal, so every departure lengthens the gap before the next hand
+       (production, cash fold hands: p95 6.8 s with a departure, 4.8 s without).
+       One Horse per cycle made a released table pay that five or six times in
+       a row, and the Backup's hand-gap judge refused a build whose five slowest
+       hands were all on the released feeder (Backup 45753629342, 692e3a49).
+       Standing up every Horse not in the hand at once puts their leaves in one
+       sweep; the ones in the hand follow next cycle, the table is then empty
+       and deals no further hand, so a released table costs at most one or two
+       slow gaps and empties in about three minutes instead of nine to fifteen. */
     const drainTableId = varietyDrainingTable(Date.now());
     if (drainTableId) {
       const drainSeats = byTable.get(drainTableId) ?? [];
@@ -1510,9 +1522,9 @@ export class HorseSessionRotator {
         drainSeats.length > 0 &&
         (drainSeats[0] as any)?.tables?.lifecycle !== 'breaking' &&
         drainSeats.every((x) => horseIds.has(String(x.user_id ?? '')));
-      const goer =
+      const goers =
         horsesOnly && engine
-          ? drainSeats.find((x) => {
+          ? drainSeats.filter((x) => {
               const uid = String(x.user_id ?? '');
               return (
                 !HorseSessionRotator.isLeaving(x) &&
@@ -1523,8 +1535,9 @@ export class HorseSessionRotator {
                 engine.liveInHand?.(uid) !== true
               );
             })
-          : undefined;
-      if (goer && engine) {
+          : [];
+      for (const goer of goers) {
+        if (!engine) break;
         const uid = String(goer.user_id);
         try {
           const result = await engine.leaveTable(uid);

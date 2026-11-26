@@ -8,6 +8,14 @@ Criteria declared before build or replay: `CRITERIA-V78-COMMITTING-BLUFF-RAISE-P
 
 Unowned blanket 40%-of-stack bluff-raise veto `v78NoCommittingBluffRaise` (`server/src/engine/HorseLogic.ts` `v78CommitsWithoutJam`, `added >= 0.4 * player.stack`, ~238 live fires/day, currently held in `holdemBlanketRulesOffList`) across all 7 NLH-reachable bluff-raise / semi-bluff-raise sites in `HorseLogic.ts`.
 
+## Scope: the blanket rule's own spot, like for like (r3, 2026-11-23)
+
+With the option ON, `HorseLogic.v78CommitsWithoutJam` legalizes the candidate exactly as the blanket rule does. Only when the result is the blanket rule's spot, a non-all-in `raise` whose added chips are `>= 0.4 x player.stack`, does `priceCommittingBluffRaise` decide (allow: not vetoed, veto: vetoed) and record its receipt. Everywhere else (a legal jam, a raise adding `< 40%` of the stack, a non-raise legalization) it returns `false`, what the blanket rule returns there, with no priced receipt. Up to r2 the priced branch also priced jams and small raises, so switching it on would have vetoed spots the blanket rule never touched; r3 removes that.
+
+**ON with `v78NoCommittingBluffRaise: false`:** the priced verdict still governs the spot (the blanket rule would have allowed everything), the same way `v17ShortDeckIsPriced` overrides `v17ShortDeck: false`. Law-tested.
+
+The replay rows below are r2 (pre-scope-fix) numbers; the r3 re-run is recorded in "r3 replay" further down.
+
 ## How each decision is priced
 
 Implemented in pure module `server/src/engine/HorseV78CommittingBluffRaisePriced.ts` (`priceCommittingBluffRaise`), wired into `HorseLogic.v78CommitsWithoutJam` behind strict `opts.v78NoCommittingBluffRaiseIsPriced === true` in single-board 2-card NLH (`!vi.isOmaha && !vi.isShortDeck && !vi.isFixedLimit && !vi.isPotLimit && vi.holeCount === 2 && !gs.bombPot && !multiBoard36`):
@@ -22,7 +30,7 @@ Implemented in pure module `server/src/engine/HorseV78CommittingBluffRaisePriced
 ## Receipts & Tests
 
 - **Receipts (`HorseDataLedger.ts`):** `v78_committing_bluff_raise_priced_allowed`, `v78_committing_bluff_raise_priced_vetoed` (zero in production while default OFF / `OPTION_SWITCH_REFUSED`).
-- **Law & Unit Tests:** `server/src/engine/AV78CommittingBluffRaiseIsPriced.law.test.ts` (registered in `docs/laws.d/server-src-engine-AV78CommittingBluffRaiseIsPriced.md`, 15/15 PASS), `HorseReferenceDecisionSources.test.ts`, `TheHudProviderChangesNoDecision.law.test.ts`, `everyUpgradeHasALiveSwitch.law.test.ts`, `everySwitchListNameIsRegistered.law.test.ts`, `aSwitchListIsNeverStale.law.test.ts`, `EveryHorseOptionRecordsItsReplay.law.test.ts`.
+- **Law & Unit Tests:** `server/src/engine/AV78CommittingBluffRaiseIsPriced.law.test.ts` (registered in `docs/laws.d/server-src-engine-AV78CommittingBluffRaiseIsPriced.md`, 19/19 PASS at r3), `HorseReferenceDecisionSources.test.ts`, `TheHudProviderChangesNoDecision.law.test.ts`, `everyUpgradeHasALiveSwitch.law.test.ts`, `everySwitchListNameIsRegistered.law.test.ts`, `aSwitchListIsNeverStale.law.test.ts`, `EveryHorseOptionRecordsItsReplay.law.test.ts`.
 
 ## Replay
 
@@ -44,6 +52,10 @@ Run on `59d700196f6f` + v2 `v78NoCommittingBluffRaiseIsPriced`, `EQUITY_GOVERNOR
 | HVH48-E Tourney (People excl. top) |            681 |        80.76% |       0 |     0 |           0 |        0 | 0 / 0 / 0               | 1 / 7                          | n=0                           |
 
 All 3 changed decisions are Horse-vs-Horse and more passive (a raise or all-in became a call). v1 on the same sets (first-bet flop/turn priors, unconditioned called equity): changed 8, fixed 0, newly wrong 5, people-only `-0.908 +/- 0.097 bb` at `n = 2`.
+
+### r3 replay (scope = the blanket rule's own spot, 2026-11-24)
+
+Criteria `CRITERIA-V78-PRICED-SCOPE-R3.md` (sha256 `0e1beb2f0de4a9d28214d51c0bd451fbcd7ca2b5089f11d9271b91379838fac1`, posted 2026-11-24T06:03:53Z before the run). Same HVH48 D + E sets, memory, switch snapshot, seeds and de-dup rule as v2, on `52b100661f22`: 8,090 decisions, 0 changed (v2: 3), 0 illegal / 0 refused / 0 errors, newly wrong 0 in every slice, people-only changed `n = 0`. In every slice the priced receipts equal the OFF arm's blanket-rule receipts count for count (D 3 blanket vs 0 allow / 3 veto; E 21 vs 0 / 21), so the priced branch now fires exactly where the blanket rule fires; v2's 3 changed decisions came from jams and small raises it priced outside that spot. Real-card grade not computed (0 changed; the grader's card file is no longer on disk). Evidence NOT MET; stays OFF.
 
 ### Why Evidence NOT MET
 

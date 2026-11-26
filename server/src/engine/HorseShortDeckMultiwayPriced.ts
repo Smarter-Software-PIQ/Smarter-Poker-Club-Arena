@@ -11,7 +11,11 @@
  *   `e_c = e ^ (1 + kappa * g)`, `g = f / (1 - f)`.
  * With `kappa` measured for both decks by the same method, the Short Deck hand at raw equity `e` is
  * worth `e ^ rho` in NLH terms, `rho = (1 + kappa_SD * g) / (1 + kappa_NLH * g)`, and the bars move by
- *   `delta = e - e ^ rho`   (> 0 tightens, < 0 loosens).
+ *   `delta = e - e ^ rho`   (> 0 tightens, < 0 loosens, 0 neutral).
+ * Measured Short Deck continuation sharpness is LOWER than NLH on the flop and turn, so with the
+ * pinned kappas the shift never tightens there (it loosens for 0 < e < 1); on the river no difference
+ * was measured, so the shift is 0. The fixed overlay it replaces always tightened. Receipts in
+ * HorseLogic follow the sign: tighter (> 0), looser (< 0), neutral (exactly 0), unpriceable.
  * `g` is the mean over live opponents of `f_i / (1 - f_i)`; `f_i` is that opponent's fold-to-a-bet
  * probability on this street: the measured Short Deck pool prior, Empirical-Bayes shrunk with the
  * opponent's own fold-to-bet record. An opponent who cannot respond (all-in, no chips behind) has `f = 0`.

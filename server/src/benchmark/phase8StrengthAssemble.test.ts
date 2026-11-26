@@ -10,7 +10,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpus, loadavg, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -37,7 +37,25 @@ import { memoryReader, testSelection } from '../engine/HorseQualifiedAuthority.t
 
 const exec = promisify(execFile);
 const HEAD = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-const RUN_TIMEOUT_MS = 60_000;
+/**
+ * How long a case may run, judged by the machine it runs on (the rule of scripts/ci/load-aware-test-timeout.mjs,
+ * which the root vitest config applies; server tests cannot import that root module, so it is restated here).
+ * On 2026-11-24 a push was refused when two cases of this file timed out at load 25 on the shared Mac, about
+ * 100 s each against the 60 s stated here, with no assertion failing. Hosted CI (its own VM) keeps 60 s exactly;
+ * anywhere else the limit is multiplied by 2.5 x load per core, never below 1x and never above 4x, so an idle
+ * machine still fails a hang fast. It times the case and the assembler run it starts; no assertion changes.
+ */
+export function phase8RunTimeoutMs(
+  baseMs: number,
+  env: Record<string, string | undefined> = process.env,
+  load: number = Math.max(loadavg()[0], loadavg()[1]),
+  cores: number = cpus().length
+): number {
+  if (env.GITHUB_ACTIONS === 'true') return baseMs;
+  const perCore = cores > 0 && Number.isFinite(load) && load > 0 ? load / cores : 0;
+  return Math.round(baseMs * Math.min(4, Math.max(1, 2.5 * perCore)));
+}
+const RUN_TIMEOUT_MS = phase8RunTimeoutMs(60_000);
 const write = (file: string, value: unknown) => {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
@@ -208,6 +226,14 @@ const hostFile = (file: string) =>
   file.includes('/') ? path.join(runsDir, file) : path.join(runsDir, file.slice(0, -5), file);
 
 describe('phase8-strength-assemble', () => {
+  it('keeps its stated case limit on hosted CI and stretches it only with load elsewhere', () => {
+    expect(phase8RunTimeoutMs(60_000, { GITHUB_ACTIONS: 'true' }, 80, 28)).toBe(60_000);
+    expect(phase8RunTimeoutMs(60_000, {}, 2, 28)).toBe(60_000);
+    expect(phase8RunTimeoutMs(60_000, {}, 25, 28)).toBe(Math.round(60_000 * 2.5 * (25 / 28)));
+    expect(phase8RunTimeoutMs(60_000, {}, 200, 28)).toBe(240_000);
+    expect(phase8RunTimeoutMs(60_000, {}, Number.NaN, 28)).toBe(60_000);
+  });
+
   it(
     'separately binds every runtime and qualification source, excluding plain selection metadata',
     async () => {

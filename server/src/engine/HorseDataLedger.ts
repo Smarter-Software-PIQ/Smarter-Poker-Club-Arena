@@ -2761,7 +2761,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'horseSlowplayIsPriced',
-    'HORSE DECISIONS lane 2026-11-22 (H4 monster slowplay mix priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket wetness < 0.5 && fastRandom() < params.slowplayFreq coin flip with deterministic EV pricing (HorseSlowplayPriced.priceMonsterSlowplay) using holdemEmpiricalPriors fold / betWhenCheckedTo shrinkage, continuous board-wetness free-card equity erosion, and heroBubbleFactor. Draws no random number. OFF / Omaha / Fixed-Limit: byte-identical.',
+    'HORSE DECISIONS lane 2026-11-22 (H4 monster slowplay mix priced replacement; owner 2026-11-17/2026-11-20: zero blanket random coin flips). Dark, default OFF (read === true), OPTION_SWITCH_REFUSED (zero SQL migrations). In non-Omaha / non-Fixed-Limit flop/turn monster spots (1-2 live opponents, no scare, not vulnerable, not turnSetPound), replaces the blanket wetness < 0.5 && fastRandom() < params.slowplayFreq coin flip with deterministic EV pricing (HorseSlowplayPriced.priceMonsterSlowplay, r2c 2026-11-24) using holdemEmpiricalPriors fold / betWhenCheckedTo shrinkage, a measured stab size (mean pot fraction of the first bet into a checked-to position, production NLH), the called equity conditioned on the continuing range (measured NLH continuation sharpness, per-opponent mean), no free-card cost (board wetness is not priced), a stab charged only by opponents who act after the Horse on this street, and heroBubbleFactor. Draws no random number. OFF / Omaha / Fixed-Limit: byte-identical.',
     "Hold'em Strategy"
   ),
   flag(
@@ -9960,13 +9960,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'horse_slowplay_priced_checked',
     'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
-    'H4 monster slowplay priced verdict chose check (EV(check) > EV(bet)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    'H4 monster slowplay priced verdict chose check (EV(check) > EV(bet)) using empirical fold/stab priors, the measured stab size, the conditioned called equity, a stab only by opponents acting after the Horse, and bubble factor',
     "Hold'em Strategy"
   ),
   receipt(
     'horse_slowplay_priced_bet',
     'HorseLogic not-facing-a-bet monster flop/turn (horseSlowplayIsPriced)',
-    'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, continuous free-card erosion, and bubble factor',
+    'H4 monster slowplay priced verdict chose value bet (EV(bet) >= EV(check)) using empirical fold/stab priors, the measured stab size, the conditioned called equity, a stab only by opponents acting after the Horse, and bubble factor',
     "Hold'em Strategy"
   ),
   receipt(
@@ -10008,7 +10008,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'v17_short_deck_priced_looser',
     'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
-    'Short Deck priced shift lowered or kept the multiway bars (delta <= 0): the continuing range costs this hand less in a 36-card deck than in NLH terms (river: no measured difference, delta 0)',
+    'Short Deck priced shift lowered the multiway bars (delta < 0): the continuing range costs this hand less in a 36-card deck than in NLH terms (measured on flop and turn)',
+    'V17'
+  ),
+  receipt(
+    'v17_short_deck_priced_neutral',
+    'HorseLogic decidePostflop Short Deck multiway shift (v17ShortDeckIsPriced)',
+    'Short Deck priced shift left the multiway bars unchanged (delta 0): the river, where no sharpness difference was measured, every opponent all-in (all fold probabilities 0), or equity at 0 or 1',
     'V17'
   ),
   receipt(

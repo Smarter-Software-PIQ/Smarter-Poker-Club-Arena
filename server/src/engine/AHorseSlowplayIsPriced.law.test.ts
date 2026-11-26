@@ -2,7 +2,8 @@
  * LAW: H4 MONSTER SLOWPLAY MIX IS PRICED DETERMINISTICALLY WHEN `horseSlowplayIsPriced` IS ON,
  * AND BYTE-IDENTICAL WHEN OFF OR OUTSIDE NON-OMAHA / NON-FIXED-LIMIT SCOPE (2026-11-22).
  *
- * Criteria: CRITERIA-H4-SLOWPLAY-PRICED.md (HORSE DECISIONS lane).
+ * Criteria: CRITERIA-H4-SLOWPLAY-PRICED.md (HORSE DECISIONS lane); r2 (measured inputs):
+ * CRITERIA-H4-SLOWPLAY-PRICED-R2.md.
  *
  * Invariants proven here:
  *   1. OFF / unset / false is 100% byte-identical to origin/main, including exact `fastRandom()`
@@ -15,10 +16,13 @@
  *      monotonicity:
  *        - higher opponent fold-to-bet rate `F` favors check (raises `evCheck - evBet`);
  *        - higher opponent `betWhenCheckedTo` rate `B` favors check (raises `evCheck - evBet`);
- *        - drier board (lower `wetness`) reduces `freeCardPenalty` and favors check; higher
- *          `wetness` favors bet continuously across `0.5` with no hard cliff;
- *        - multiway (`oppCount = 2`) multiplies fold probabilities (`F_1 * F_2`) and increases
- *          `freeCardPenalty`, favoring bet;
+ *        - r2: no free-card constant (board wetness is not priced; the check branch uses the raw
+ *          equity), the called branch uses the equity against the continuing range
+ *          `e ^ (1 + kappa * F / (1 - F))` with the measured NLH `kappa` (non-increasing in `F`), and
+ *          the stab size is the measured per-street mean pot fraction, pinned with its provenance;
+ *        - multiway (`oppCount = 2`) multiplies fold probabilities (`F_1 * F_2`);
+ *        - r2b: in position (last to act, no bet faced) a check closes the street, so the stab
+ *          probability is 0 and `EV(check) = e * P` exactly; out of position is unchanged from r2;
  *        - tournament `heroBubbleFactor > 1` scales the `(1 - e) * wager` loss side while
  *          `bf = 1` reduces identically to `e * (P + 2 * w) - w`.
  *   4. End-to-end `HorseLogic.decide` with `horseSlowplayIsPriced: true` is deterministic across
@@ -43,14 +47,18 @@ import {
   OPTION_SWITCH_REFUSED,
   optionSwitchRefusal,
 } from './HorseOptionSwitch.js';
+import { NLH_REFERENCE_CONTINUATION_SHARPNESS } from './HorseShortDeckMultiwayPriced.js';
 import {
   classifyHoldemFlopTexture,
-  freeCardPenalty,
   priceMonsterSlowplay,
   riskAdjustedCallUtility,
+  slowplayCalledEquity,
+  SLOWPLAY_MEASURED_STAB_POT_FRAC,
+  SLOWPLAY_PRICED_PROVENANCE,
   type PriceMonsterSlowplayInput,
   type SlowplayOpponentInput,
 } from './HorseSlowplayPriced.js';
+import { conditionEquityAgainstRaiseCallRange } from './holdemEmpiricalPriors.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 
 const REPO = fileURLToPath(new URL('../../..', import.meta.url));
@@ -104,6 +112,8 @@ function monsterFlopState(opts: {
   pot?: number;
   stack?: number;
   street?: 'flop' | 'turn';
+  /** r2b: hero out of position (the opponent has the button and acts after the hero postflop). */
+  heroOop?: boolean;
 }) {
   const variant = opts.variant ?? 'nlh';
   const heroId = 'horse-h4-hero';
@@ -131,22 +141,33 @@ function monsterFlopState(opts: {
     minRaise: 2,
     bigBlind: 2,
     smallBlind: 1,
-    dealerSeat: 2,
+    dealerSeat: opts.heroOop ? 1 : 2,
     gameVariant: variant,
     format: 'cash',
     communityCards: cards(boardStr),
     players: [opp, hero],
-    actionHistory: [
-      { stage: 'preflop', seat: 2, userId: heroId, action: 'raise', amount: 6 },
-      { stage: 'preflop', seat: 1, userId: oppId, action: 'call', amount: 6 },
-      { stage: 'flop', seat: 1, userId: oppId, action: 'check', amount: 0 },
-      ...(street === 'turn'
-        ? [
-            { stage: 'flop', seat: 2, userId: heroId, action: 'check', amount: 0 },
-            { stage: 'turn', seat: 1, userId: oppId, action: 'check', amount: 0 },
-          ]
-        : []),
-    ],
+    actionHistory: opts.heroOop
+      ? [
+          { stage: 'preflop', seat: 1, userId: oppId, action: 'raise', amount: 6 },
+          { stage: 'preflop', seat: 2, userId: heroId, action: 'call', amount: 6 },
+          ...(street === 'turn'
+            ? [
+                { stage: 'flop', seat: 2, userId: heroId, action: 'check', amount: 0 },
+                { stage: 'flop', seat: 1, userId: oppId, action: 'check', amount: 0 },
+              ]
+            : []),
+        ]
+      : [
+          { stage: 'preflop', seat: 2, userId: heroId, action: 'raise', amount: 6 },
+          { stage: 'preflop', seat: 1, userId: oppId, action: 'call', amount: 6 },
+          { stage: 'flop', seat: 1, userId: oppId, action: 'check', amount: 0 },
+          ...(street === 'turn'
+            ? [
+                { stage: 'flop', seat: 2, userId: heroId, action: 'check', amount: 0 },
+                { stage: 'turn', seat: 1, userId: oppId, action: 'check', amount: 0 },
+              ]
+            : []),
+        ],
   };
   return { hero, opp, oppId, gs };
 }
@@ -183,7 +204,8 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
       oppCount: 1,
       wetness: 0.12,
       street: 'flop',
-      inPosition: true,
+      // Out of position: an opponent still acts after a check, so a stab can come (r2b).
+      inPosition: false,
       spr: 4,
       flopTexture: 'unpaired_nonmono',
       heroBubbleFactor: 1,
@@ -255,24 +277,189 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
       expect(stabber.action).toBe('check');
     });
 
-    it('wetness continuously increases freeCardPenalty and favors betting with no cliff at 0.5', () => {
-      const w49 = freeCardPenalty(0.49, 1, 'flop');
-      const w51 = freeCardPenalty(0.51, 1, 'flop');
-      expect(w51).toBeGreaterThan(w49);
-      expect(w51 - w49).toBeLessThan(0.005);
+    it('pins its measured inputs with provenance: stab size per street and the NLH continuation sharpness', () => {
+      expect(SLOWPLAY_MEASURED_STAB_POT_FRAC).toEqual({ flop: 0.5009, turn: 0.6185 });
+      expect(Object.isFrozen(SLOWPLAY_MEASURED_STAB_POT_FRAC)).toBe(true);
+      expect(Object.isFrozen(SLOWPLAY_PRICED_PROVENANCE)).toBe(true);
+      expect(SLOWPLAY_PRICED_PROVENANCE.criteria).toContain(
+        '3178e72583229b197c3add048da6fbc7c8302cf12b8e3e7a9f224c4fe9fafe71'
+      );
+      expect(SLOWPLAY_PRICED_PROVENANCE.stabSize).toContain("game_variant = 'nlh'");
+      expect(SLOWPLAY_PRICED_PROVENANCE.stabSize).toContain('statistic = mean');
+      expect(SLOWPLAY_PRICED_PROVENANCE.stabSizeQuery).toContain(
+        'dbbaa97bf5f8363b53c50d9da9433524f081eb9b8737a3101e8509ab9d1c04f0'
+      );
+      expect(SLOWPLAY_PRICED_PROVENANCE.stabSizeSample).toContain('mean 0.5009');
+      expect(SLOWPLAY_PRICED_PROVENANCE.stabSizeSample).toContain('mean 0.6185');
+      expect(NLH_REFERENCE_CONTINUATION_SHARPNESS.flop).toBe(0.3151);
+      expect(NLH_REFERENCE_CONTINUATION_SHARPNESS.turn).toBe(0.4068);
+
+      for (const street of ['flop', 'turn'] as const) {
+        const r = priceMonsterSlowplay({ ...baseInput, street, pot: 100, effectiveStack: 400 });
+        expect(r.stabSize).toBeCloseTo(SLOWPLAY_MEASURED_STAB_POT_FRAC[street] * 100, 10);
+        // capped by the effective stack
+        const capped = priceMonsterSlowplay({ ...baseInput, street, pot: 100, effectiveStack: 20 });
+        expect(capped.stabSize).toBe(20);
+      }
+    });
+
+    it('carries no free-card constant: wetness is not priced and the check branch uses the raw equity', () => {
+      const raw = readFileSync(join(REPO, 'server/src/engine/HorseSlowplayPriced.ts'), 'utf8');
+      const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      expect(code).not.toMatch(/freeCardPenalty|freeCardEquity|SLOWPLAY_STAB_POT_FRAC\b/);
+      expect(code).not.toMatch(/\b0\.55\b/);
 
       const opp: SlowplayOpponentInput = {
         hudOpp: { eff: { 'f.fb.bg.hu': [40, 34], 'f.betCk': [40, 28] } },
       };
       const dry = priceMonsterSlowplay({ ...baseInput, wetness: 0.1, opponents: [opp] });
       const wet = priceMonsterSlowplay({ ...baseInput, wetness: 0.85, opponents: [opp] });
-      expect(dry.freeCardEquity).toBeGreaterThan(wet.freeCardEquity);
-      expect(dry.evCheck - dry.evBet).toBeGreaterThan(wet.evCheck - wet.evBet);
-      expect(dry.action).toBe('check');
-      expect(wet.action).toBe('bet');
+      const none = priceMonsterSlowplay({ ...baseInput, wetness: undefined, opponents: [opp] });
+      expect(wet).toEqual(dry);
+      expect(none).toEqual(dry);
+      expect(dry.checkEquity).toBe(baseInput.equity);
+      // EV(check) = B * U(e, P, s, 1) + (1 - B) * e * P with the raw equity
+      expect(dry.evCheck).toBeCloseTo(
+        dry.stabProb * riskAdjustedCallUtility(0.92, 100, dry.stabSize, 1) +
+          (1 - dry.stabProb) * 0.92 * 100,
+        10
+      );
     });
 
-    it('multiway multiplies fold probabilities and increases free-card penalty, favoring bet', () => {
+    it('conditions the called equity on the continuing range: e^(1 + kappa * meanG), measured kappa, non-increasing in meanG', () => {
+      for (const street of ['flop', 'turn'] as const) {
+        expect(slowplayCalledEquity(0.9, 0, street)).toBe(0.9);
+        let prev = 1;
+        for (const f of [0, 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 0.95]) {
+          const g = f / (1 - f);
+          const ec = slowplayCalledEquity(0.9, g, street);
+          expect(ec).toBeLessThanOrEqual(prev);
+          expect(ec).toBeLessThanOrEqual(0.9);
+          expect(ec).toBeCloseTo(
+            Math.pow(0.9, 1 + NLH_REFERENCE_CONTINUATION_SHARPNESS[street] * g),
+            12
+          );
+          expect(ec).toBeCloseTo(
+            conditionEquityAgainstRaiseCallRange(0.9, f, {
+              sharpness: NLH_REFERENCE_CONTINUATION_SHARPNESS[street],
+            }),
+            12
+          );
+          prev = ec;
+        }
+      }
+      const opp = (folds: number): SlowplayOpponentInput => ({
+        hudOpp: { eff: { 'f.fb.bg.hu': [40, folds], 'f.betCk': [40, 20] } },
+      });
+      const lowF = priceMonsterSlowplay({ ...baseInput, opponents: [opp(8)] });
+      const highF = priceMonsterSlowplay({ ...baseInput, opponents: [opp(34)] });
+      expect(highF.foldProb).toBeGreaterThan(lowF.foldProb);
+      expect(highF.calledEquity).toBeLessThan(lowF.calledEquity);
+      expect(lowF.calledEquity).toBeLessThan(baseInput.equity);
+      // heads-up: meanG = F / (1 - F)
+      expect(highF.calledEquity).toBeCloseTo(
+        slowplayCalledEquity(0.92, highF.foldProb / (1 - highF.foldProb), 'flop'),
+        12
+      );
+      // EV(bet) = F * P + (1 - F) * U(e_c, P, b, 1)
+      expect(highF.evBet).toBeCloseTo(
+        highF.foldProb * 100 +
+          (1 - highF.foldProb) * riskAdjustedCallUtility(highF.calledEquity, 100, 80, 1),
+        10
+      );
+    });
+
+    it('r2c: a stab is charged only by opponents who act after the Horse (canStab); none -> stabProb 0 and EV(check) = e * P', () => {
+      const stabber = (betCk: number, canStab?: boolean): SlowplayOpponentInput => ({
+        hudOpp: {
+          eff: { 'f.fb.bg.hu': [40, 30], 'f.fb.bg.mw': [40, 30], 'f.betCk': [40, betCk] },
+        },
+        ...(canStab === undefined ? {} : { canStab }),
+      });
+      for (const street of ['flop', 'turn'] as const) {
+        for (const bf of [1, 2.2]) {
+          // Horse last to act: nobody can stab, whatever the position flag says
+          for (const inPosition of [true, false]) {
+            for (const opps of [[stabber(34, false)], [stabber(34, false), stabber(30, false)]]) {
+              const last = priceMonsterSlowplay({
+                ...baseInput,
+                street,
+                inPosition,
+                heroBubbleFactor: bf,
+                oppCount: opps.length,
+                opponents: opps,
+              });
+              expect(last.stabProb).toBe(0);
+              expect(last.evCheck).toBe(baseInput.equity * baseInput.pot);
+              expect(last.action).toBe(last.evCheck > last.evBet ? 'check' : 'bet');
+            }
+          }
+          // Opp1 checked -> Horse -> Opp2: only Opp2 is charged
+          const mid = priceMonsterSlowplay({
+            ...baseInput,
+            street,
+            heroBubbleFactor: bf,
+            oppCount: 2,
+            opponents: [stabber(36, false), stabber(6, true)],
+          });
+          const opp2Only = priceMonsterSlowplay({
+            ...baseInput,
+            street,
+            heroBubbleFactor: bf,
+            oppCount: 2,
+            opponents: [stabber(6, true), stabber(36, false)],
+          });
+          const both = priceMonsterSlowplay({
+            ...baseInput,
+            street,
+            heroBubbleFactor: bf,
+            oppCount: 2,
+            opponents: [stabber(36, true), stabber(6, true)],
+          });
+          const hu2 = priceMonsterSlowplay({
+            ...baseInput,
+            street,
+            heroBubbleFactor: bf,
+            opponents: [stabber(6, true)],
+          });
+          expect(mid.stabProb).toBeCloseTo(hu2.stabProb, 12);
+          expect(opp2Only.stabProb).toBeCloseTo(hu2.stabProb, 12);
+          expect(both.stabProb).toBeGreaterThan(mid.stabProb);
+          // fold side is unchanged by who can stab
+          expect(mid.foldProb).toBeCloseTo(both.foldProb, 12);
+          expect(mid.calledEquity).toBeCloseTo(both.calledEquity, 12);
+        }
+      }
+      // in position no longer silences the stab by itself: an opponent still to act is charged
+      const ipWithStabber = priceMonsterSlowplay({
+        ...baseInput,
+        inPosition: true,
+        opponents: [stabber(34, true)],
+      });
+      expect(ipWithStabber.stabProb).toBeGreaterThan(0);
+    });
+
+    it('r2b/r2c: out of position heads-up is unchanged from r2 (pinned r2 numbers on the OOP fixture)', () => {
+      const stabber = priceMonsterSlowplay({
+        ...baseInput,
+        opponents: [{ hudOpp: { eff: { 'f.fb.bg.hu': [40, 34], 'f.betCk': [40, 34] } } }],
+      });
+      const passive = priceMonsterSlowplay({
+        ...baseInput,
+        opponents: [{ hudOpp: { eff: { 'f.fb.bg.hu': [40, 34], 'f.betCk': [40, 4] } } }],
+      });
+      // Values produced by r2 (fd9e542d4cd8) on this exact fixture before the r2b change.
+      expect(stabber.stabProb).toBeCloseTo(0.7028650355169692, 12);
+      expect(stabber.evCheck).toBeCloseTo(121.5734680883978, 9);
+      expect(stabber.evBet).toBeCloseTo(110.60346858473153, 9);
+      expect(stabber.action).toBe('check');
+      expect(passive.stabProb).toBeCloseTo(0.16715074980268352, 12);
+      expect(passive.evCheck).toBeCloseTo(99.03296808839778, 9);
+      expect(passive.evBet).toBeCloseTo(110.60346858473153, 9);
+      expect(passive.action).toBe('bet');
+    });
+
+    it('multiway: fold probabilities multiply over the field; the called equity uses the per-opponent mean g (as kappa was measured)', () => {
       const opp: SlowplayOpponentInput = {
         hudOpp: {
           eff: { 'f.fb.bg.hu': [40, 32], 'f.fb.bg.mw': [40, 32], 'f.betCk': [40, 24] },
@@ -280,10 +467,31 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
       };
       const hu = priceMonsterSlowplay({ ...baseInput, oppCount: 1, opponents: [opp] });
       const mw = priceMonsterSlowplay({ ...baseInput, oppCount: 2, opponents: [opp, opp] });
-      expect(mw.foldProb).toBeCloseTo(hu.foldProb * hu.foldProb, 6);
-      expect(mw.freeCardEquity).toBeLessThan(hu.freeCardEquity);
-      expect(mw.evBet - mw.evCheck).toBeGreaterThan(hu.evBet - hu.evCheck);
-      expect(mw.action).toBe('bet');
+      const fi = hu.foldProb;
+      expect(mw.foldProb).toBeCloseTo(fi * fi, 6);
+      // two identical opponents: meanG = g_i, so the called equity equals the heads-up one
+      expect(mw.calledEquity).toBeCloseTo(hu.calledEquity, 10);
+      // the field version (g = F / (1 - F), F = fi^2) would under-condition: it is NOT used
+      const fieldG = (fi * fi) / (1 - fi * fi);
+      expect(mw.calledEquity).toBeLessThan(slowplayCalledEquity(0.92, fieldG, 'flop'));
+      expect(mw.stabProb).toBeGreaterThan(hu.stabProb);
+      // different opponents: mean of the per-opponent odds
+      const loose: SlowplayOpponentInput = {
+        hudOpp: { eff: { 'f.fb.bg.hu': [40, 8], 'f.fb.bg.mw': [40, 8], 'f.betCk': [40, 24] } },
+      };
+      const huLoose = priceMonsterSlowplay({ ...baseInput, oppCount: 1, opponents: [loose] });
+      const mixed = priceMonsterSlowplay({ ...baseInput, oppCount: 2, opponents: [opp, loose] });
+      const gA = hu.foldProb / (1 - hu.foldProb);
+      const gB = huLoose.foldProb / (1 - huLoose.foldProb);
+      expect(mixed.calledEquity).toBeCloseTo(slowplayCalledEquity(0.92, (gA + gB) / 2, 'flop'), 10);
+      // an all-in seat enters with g = 0
+      const withAllIn = priceMonsterSlowplay({
+        ...baseInput,
+        oppCount: 2,
+        opponents: [opp, { canRespond: false }],
+      });
+      expect(withAllIn.foldProb).toBe(0);
+      expect(withAllIn.calledEquity).toBeCloseTo(slowplayCalledEquity(0.92, gA / 2, 'flop'), 10);
     });
 
     it('bubble factor scales the losing branch and shifts borderline risk spots toward pot control', () => {
@@ -419,12 +627,14 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
         horseSlowplayIsPriced: true,
       };
 
+      // r2b: the priced slowplay check needs a player still to act after the check (out of position).
       const trapSpot = monsterFlopState({
         variant: 'nlh',
         street: 'turn',
         heroHole: '7h7c',
         board: 'Ks7d2c9h',
         oppId: oppTrapId,
+        heroOop: true,
       });
       for (const seed of [1, 7, 42, 99]) {
         seedFastRandom(seed);
@@ -463,6 +673,89 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
         expect(fires['horse_slowplay_priced_checked']).toBeUndefined();
       }
     });
+  });
+
+  it('r2c end-to-end: who can stab is read from seat order, not from the street-IQ position read', () => {
+    const trapId = '10000000-0000-4000-8000-0000000000c1';
+    const passiveId = '10000000-0000-4000-8000-0000000000c2';
+    const profile = (user_id: string, foldToBet: number, betCheckedTo: number) => ({
+      user_id,
+      variant: 'nlh' as const,
+      mode: 'cash' as const,
+      size: 'hu' as const,
+      observed_hands: 80,
+      initialized: true,
+      counters: {
+        ...freshExploitCounters(),
+        hands: 80,
+        vpip: 40,
+        pfr: 20,
+        foldToBetOpp: 60,
+        foldToBet,
+        betCheckedToOpp: 60,
+        betCheckedTo,
+      },
+    });
+    HorseMind.importDurableOpponentProfiles([profile(trapId, 55, 54), profile(passiveId, 55, 2)]);
+    const opts = (streetIQ: boolean): HorseDecideOpts => ({
+      telemetry: true,
+      observeMind: false,
+      v38Ev: false,
+      v29GtoFlop: false,
+      v30GtoTurnRiver: false,
+      streetIQ,
+      horseSlowplayIsPriced: true,
+    });
+    // Heads-up, the Horse on the button acts last on the turn after the stabber checked: nobody
+    // can stab its check, with the street-IQ read on or off (off, the position read is false).
+    const last = monsterFlopState({
+      variant: 'nlh',
+      street: 'turn',
+      heroHole: '7h7c',
+      board: 'Ks7d2c9h',
+      oppId: trapId,
+    });
+    for (const streetIQ of [true, false]) {
+      for (const seed of [1, 7, 42]) {
+        seedFastRandom(seed);
+        const dec = HorseLogic.decide(
+          last.hero,
+          last.gs as never,
+          'balanced',
+          undefined,
+          opts(streetIQ)
+        );
+        const fires = firesMap();
+        expect(fires['horse_slowplay_priced_bet']).toBe(1);
+        expect(fires['horse_slowplay_priced_checked']).toBeUndefined();
+        expect(dec.action).not.toBe('check');
+      }
+    }
+    // Out of position against the same stabber (it acts after the Horse): the stab is charged and
+    // the priced check wins, with the street-IQ read on or off.
+    const first = monsterFlopState({
+      variant: 'nlh',
+      street: 'turn',
+      heroHole: '7h7c',
+      board: 'Ks7d2c9h',
+      oppId: trapId,
+      heroOop: true,
+    });
+    for (const streetIQ of [true, false]) {
+      for (const seed of [1, 7, 42]) {
+        seedFastRandom(seed);
+        const dec = HorseLogic.decide(
+          first.hero,
+          first.gs as never,
+          'balanced',
+          undefined,
+          opts(streetIQ)
+        );
+        const fires = firesMap();
+        expect(fires['horse_slowplay_priced_checked']).toBe(1);
+        expect(dec.action).toBe('check');
+      }
+    }
   });
 
   describe('3-way all-in opponent handling (audit Finding #6)', () => {

@@ -81,6 +81,7 @@ function seat(
 const PRICED = [
   'v17_short_deck_priced_tighter',
   'v17_short_deck_priced_looser',
+  'v17_short_deck_priced_neutral',
   'v17_short_deck_priced_unpriceable',
 ] as const;
 
@@ -354,6 +355,28 @@ describe('LAW: v17ShortDeckIsPriced (priced Short Deck multiway shift)', () => {
           expect(priced).toBeGreaterThan(0);
           expect(fires['v17_short_deck_priced_unpriceable']).toBeUndefined();
           if (street === 'river') expect(fires['v17_short_deck_priced_tighter']).toBeUndefined();
+        }
+      }
+    });
+
+    it('classifies the shift by its sign: river (zero, no measured difference) is neutral, a typical flop or turn equity is looser, never tighter', () => {
+      for (const street of ['flop', 'turn', 'river'] as const) {
+        for (const facing of [false, true]) {
+          const { hero, gs } = spot({ street, facing });
+          seedFastRandom(17);
+          HorseLogic.decide(hero, gs as never, 'balanced', undefined, {
+            ...ISOLATE,
+            v17ShortDeckIsPriced: true,
+          });
+          const fires = firesMap();
+          expect(fires['v17_short_deck_priced_tighter']).toBeUndefined();
+          if (street === 'river') {
+            expect(fires['v17_short_deck_priced_neutral']).toBeGreaterThan(0);
+            expect(fires['v17_short_deck_priced_looser']).toBeUndefined();
+          } else {
+            expect(fires['v17_short_deck_priced_looser']).toBeGreaterThan(0);
+            expect(fires['v17_short_deck_priced_neutral']).toBeUndefined();
+          }
         }
       }
     });
