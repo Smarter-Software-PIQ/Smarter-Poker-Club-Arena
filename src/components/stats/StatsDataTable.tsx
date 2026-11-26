@@ -20,10 +20,13 @@ export default function StatsDataTable<Row>({ caption, columns, rows, rowKey }: 
     <details className="stats-data-table">
       <summary>Show Data Table</summary>
       <div className="stats-data-table__scroll" tabIndex={0} aria-label={`${caption} Table`}>
-        <table>
+        <table
+          className={columns.length > 4 ? 'stats-data-table__extended' : undefined}
+          role="table"
+        >
           <caption>{caption}</caption>
           <thead>
-            <tr>
+            <tr role="row">
               {columns.map((column) => (
                 <th scope="col" key={column.key}>
                   {column.label}
@@ -33,14 +36,21 @@ export default function StatsDataTable<Row>({ caption, columns, rows, rowKey }: 
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={rowKey(row, index)}>
+              <tr key={rowKey(row, index)} role="row">
                 {columns.map((column, columnIndex) =>
                   columnIndex === 0 ? (
                     <th scope="row" key={column.key}>
                       {column.render(row)}
                     </th>
                   ) : (
-                    <td key={column.key}>{column.render(row)}</td>
+                    <td key={column.key}>
+                      {columnIndex >= 4 && (
+                        <span className="stats-data-table__extra-label" aria-hidden="true">
+                          {column.label}
+                        </span>
+                      )}
+                      {column.render(row)}
+                    </td>
                   )
                 )}
               </tr>
