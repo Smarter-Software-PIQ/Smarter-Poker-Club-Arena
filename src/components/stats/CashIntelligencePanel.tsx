@@ -1,4 +1,4 @@
-import { SpadeConsole } from '../console/SpadeConsole';
+import StatsSection from './StatsSection';
 import type { CashOpportunityCount, CashOpportunityStats } from '../../services/StatsFactsService';
 import { binomialConfidence } from '../../pages/stats/binomialConfidence';
 import { titleCase } from '../../utils/titleCase';
@@ -97,14 +97,11 @@ export default function CashIntelligencePanel({
 }: Props) {
   const state = loading ? 'Loading' : error ? 'Unavailable' : data ? 'Exact Facts' : 'Not Measured';
   return (
-    <SpadeConsole
-      family="spade"
-      crest="spade"
+    <StatsSection
       eyebrow="Cash Decisions"
       title="Cash Intelligence"
       subtitle="Opportunity-Based Rates From Accepted Hands"
-      pill={state}
-      foot="foot"
+      status={state}
       className="cash-intel-console"
       aria-label="Cash Intelligence"
     >
@@ -205,6 +202,6 @@ export default function CashIntelligencePanel({
           </>
         )}
       </div>
-    </SpadeConsole>
+    </StatsSection>
   );
 }

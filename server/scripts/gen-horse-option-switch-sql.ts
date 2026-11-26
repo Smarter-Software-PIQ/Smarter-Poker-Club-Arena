@@ -1,82 +1,57 @@
 /**
- * Writes the database name lists of the Horse option switch from the engine registry (HorseOptionSwitch.ts, which is
- * derived from HORSE_DATA_LEDGER). Every list sits between a pair of marker comments:
- *   -- registry:style-options:begin / -- registry:style-options:end   the seven style options
- *   -- registry:plain-options:begin / -- registry:plain-options:end   every other registered option
- *   -- registry:off-only-options:begin / -- registry:off-only-options:end   those of them that are off-only
+ * Writes the migration that registers Horse options in the database whitelist of the option switch, from the engine
+ * registry (HorseOptionSwitch.ts, which is derived from HORSE_DATA_LEDGER).
  *
- * The database whitelist is the NEWEST migration that carries those markers (HorseOptionSwitchMigrationLists.ts).
- * Migration 20261114072215 wrote the first lists and is installed, so it is never rewritten: a change to the
- * registry (an option added to or removed from the ledger, or moved to off-only) ships as a NEW follow-up migration.
+ * The whitelist is the rows of public.ca_horse_option_whitelist (HorseOptionSwitchMigrationLists.ts). A pull request
+ * that adds an option to the ledger, or moves one to OPTION_SWITCH_OFF_ONLY, ships ONE small migration holding one
+ * fn_ca_horse_option_register call per option. Such migrations commute: nothing is regenerated when another pull
+ * request merges first.
  *
- * Run from server/:
- *   npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>
- *       write supabase/migrations/<that name>.sql re-asserting the lists, and set the lists of the PostgreSQL proof
- *       script (scripts/ci/test-horse-option-switch-evidence-postgres.sh); refuses an existing file, a version that
- *       is not later than the newest list migration, and a registry that already equals the newest lists
+ * From the repository root, reserve the version (never pick one by hand):
+ *   node scripts/new-migration.mjs "horse option register <what>"
+ * then, from server/:
+ *   npx tsx scripts/gen-horse-option-switch-sql.ts --register <the file it printed, or its name> [option ...]
+ *       write into that file the register calls the registry needs and the whitelist lacks (all of them, or only
+ *       the named options). Refuses a file that main holds, a file holding any SQL statement that is not a register
+ *       migration of its own, and a registry that needs none.
+ *   npx tsx scripts/gen-horse-option-switch-sql.ts --register <the file> --allow-shadow [option ...]
+ *       also write the fn_ca_horse_option_allow_shadow calls for options whose registry shadow level is WIDER than
+ *       the whitelist's, and print the lines to add by hand to OPTION_SWITCH_APPROVED_UNLOCKS (the law fails without
+ *       them). Without the flag a wider level is reported and nothing is written for it.
  *   npx tsx scripts/gen-horse-option-switch-sql.ts --check
- *       exit 1 when the newest list migration or the proof script lists differ from the registry; writes nothing
- *   npx tsx scripts/gen-horse-option-switch-sql.ts
- *       rewrite the newest list migration in place, ONLY when it is your own follow-up that main does not hold yet
- *       (after merging main), setting its follows line to the list migration now before it; refused for
- *       20261114072215, for any other file and for any file on origin/main
+ *       exit 1 when the whitelist of the migrations on disk differs from the registry; writes nothing
  *
- * everyUpgradeHasALiveSwitch.law.test.ts fails when the newest list migration differs from the registry and names
- * the --follow-up command. aSwitchListIsNeverStale.law.test.ts fails when a list migration does not follow the one
- * before it, or a branch adds a list migration older than main's newest one.
+ * A registration only adds a name, adds an off-only hold or narrows a shadow level (none < on_shadow < shadow).
+ * It never writes an un-lock or a removal: those are explicit calls in their own migration, listed by hand in
+ * OPTION_SWITCH_APPROVED_UNLOCKS. everyUpgradeHasALiveSwitch.law.test.ts makes the same comparison as --check.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  OPTION_SWITCH_OFF_ONLY_NAMES,
-  OPTION_SWITCH_PLAIN_NAMES,
-} from '../src/engine/HorseOptionSwitch.js';
-import {
-  OPTION_SWITCH_BASE_MIGRATION,
-  OPTION_SWITCH_CHAIN_ANCHOR,
-  OPTION_SWITCH_LIST_MARKER,
   OPTION_SWITCH_MIGRATIONS_DIR,
-  OPTION_SWITCH_PROOF_SCRIPT,
-  newestOptionSwitchListMigration,
-  optionSwitchFollowUpRefusal,
-  optionSwitchFollowUpSql,
-  optionSwitchListDrift,
-  optionSwitchRewriteRefusal,
-  proofScriptWithRegistryLists,
-  sqlNameList,
-  withFollowsLine,
-  withRegistryLists,
+  type OptionSwitchMigrationFile,
+  optionSwitchAllowShadowCallsNeeded,
+  optionSwitchRegisterCallsNeeded,
+  optionSwitchRegisterMigrationRefusal,
+  optionSwitchRegisterNameRefusal,
+  optionSwitchRegisterSql,
+  optionSwitchWhitelistDrift,
+  optionSwitchWhitelistFromMigrations,
 } from '../src/engine/HorseOptionSwitchMigrationLists.js';
-import { STYLE_SWITCH_OPTIONS } from '../src/engine/HorseStyleSwitch.js';
-
-/** Kept for readers of the former export: the first list migration. */
-export const OPTION_SWITCH_MIGRATION = OPTION_SWITCH_BASE_MIGRATION;
-export { sqlNameList, withRegistryLists };
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
-/** The newest list migration of this checkout, repository-relative. */
-export function newestListMigrationOnDisk(repo: string = REPO): string {
+/** Every migration of this checkout that can bear on the whitelist (a list marker or a whitelist name). */
+export function optionSwitchMigrationsOnDisk(repo: string = REPO): OptionSwitchMigrationFile[] {
   const dir = join(repo, OPTION_SWITCH_MIGRATIONS_DIR);
-  return newestOptionSwitchListMigration(
-    readdirSync(dir)
-      .filter((name) => name.endsWith('.sql'))
-      .map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') }))
-  );
-}
-
-/** The list migration immediately before `path` by version, repository-relative, or null. */
-function previousListMigrationOnDisk(path: string, repo: string = REPO): string | null {
-  const dir = join(repo, OPTION_SWITCH_MIGRATIONS_DIR);
-  const target = path.replace(/^.*\//, '');
-  const earlier = readdirSync(dir)
-    .filter((name) => name.endsWith('.sql') && name < target)
-    .filter((name) => readFileSync(join(dir, name), 'utf8').includes(OPTION_SWITCH_LIST_MARKER))
-    .sort();
-  const previous = earlier[earlier.length - 1];
-  return previous ? `${OPTION_SWITCH_MIGRATIONS_DIR}/${previous}` : null;
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') }))
+    .filter(
+      (f) => f.text.includes('registry:plain-options') || f.text.includes('ca_horse_option_')
+    );
 }
 
 /** True when origin/main holds `path`. Fails closed: if git cannot answer, the file is treated as on main. */
@@ -85,27 +60,12 @@ function onMain(path: string): boolean {
     const out = execFileSync(
       'git',
       ['-C', REPO, 'ls-tree', '--name-only', 'origin/main', '--', path],
-      {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     return out.trim() !== '';
   } catch {
     return true;
   }
-}
-
-function counts(): string {
-  return `(${STYLE_SWITCH_OPTIONS.length} style, ${OPTION_SWITCH_PLAIN_NAMES.length} other options, ${OPTION_SWITCH_OFF_ONLY_NAMES.length} of them off-only)`;
-}
-
-function writeProofScriptLists(): boolean {
-  const path = join(REPO, OPTION_SWITCH_PROOF_SCRIPT);
-  const before = readFileSync(path, 'utf8');
-  const after = proofScriptWithRegistryLists(before);
-  if (after !== before) writeFileSync(path, after);
-  return after !== before;
 }
 
 function fail(message: string): never {
@@ -115,54 +75,71 @@ function fail(message: string): never {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const args = process.argv.slice(2);
-  const newest = newestListMigrationOnDisk();
-  const newestSql = readFileSync(join(REPO, newest), 'utf8');
-  if (args.includes('--check')) {
-    const drift = optionSwitchListDrift(newest, newestSql);
+  if (args[0] === '--check' && args.length === 1) {
+    const { whitelist } = optionSwitchWhitelistFromMigrations(optionSwitchMigrationsOnDisk());
+    const drift = optionSwitchWhitelistDrift(whitelist);
     if (drift) fail(drift);
-    const script = readFileSync(join(REPO, OPTION_SWITCH_PROOF_SCRIPT), 'utf8');
-    if (proofScriptWithRegistryLists(script) !== script)
-      fail(
-        `the option lists of ${OPTION_SWITCH_PROOF_SCRIPT} differ from the registry: run the --follow-up command, or this script without arguments for your own unmerged follow-up`
-      );
     console.log(
-      `the option switch lists of ${newest} and the proof script equal the registry ${counts()}`
+      `the option switch whitelist of the migrations equals the registry (${whitelist.size} options)`
     );
-  } else if (args[0] === '--follow-up') {
-    const name = args[1] ?? '';
-    const refusal = optionSwitchFollowUpRefusal(name, newest);
+  } else if (args[0] === '--register' && args[1]) {
+    const name = basename(args[1]).replace(/\.sql$/, '');
+    const allowShadow = args.slice(2).includes('--allow-shadow');
+    const only = new Set(args.slice(2).filter((arg) => arg !== '--allow-shadow'));
+    const refusal = optionSwitchRegisterNameRefusal(name);
     if (refusal) fail(refusal);
     const target = `${OPTION_SWITCH_MIGRATIONS_DIR}/${name}.sql`;
-    if (existsSync(join(REPO, target))) fail(`${target} exists already`);
-    if (!optionSwitchListDrift(newest, newestSql))
-      fail(`the lists of ${newest} already equal the registry ${counts()}: no follow-up is needed`);
-    // the follows line names the list migration this one was generated after (aSwitchListIsNeverStale.law.test.ts)
-    writeFileSync(join(REPO, target), optionSwitchFollowUpSql(name, newest));
-    const script = writeProofScriptLists();
+    if (onMain(target))
+      fail(`${target} is on main (installed or about to be): reserve a new migration`);
+    const path = join(REPO, target);
+    const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    // what the file may hold: nothing, the scripts/new-migration.mjs template, or this tool's earlier output
+    const statements = before
+      .replace(/--[^\n]*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const own =
+      optionSwitchRegisterMigrationRefusal({ name: `${name}.sql`, text: before }) === null;
+    if (
+      statements !== '' &&
+      statements !== 'BEGIN; COMMIT;' &&
+      !(own && /fn_ca_horse_option_(?:register|allow_shadow)/.test(statements))
+    )
+      fail(`${target} holds SQL that is not a register migration: register into a file of its own`);
+    // the whitelist WITHOUT this file, so a second run rewrites the same calls
+    const others = optionSwitchMigrationsOnDisk().filter((f) => f.name !== `${name}.sql`);
+    const { whitelist } = optionSwitchWhitelistFromMigrations(others);
+    const needed = [
+      ...optionSwitchRegisterCallsNeeded(whitelist, name),
+      ...(allowShadow ? optionSwitchAllowShadowCallsNeeded(whitelist, name) : []),
+    ];
+    for (const option of only)
+      if (!needed.some((call) => call.option === option))
+        fail(
+          `${option} needs no register call: it is not in the registry, or the whitelist holds it already`
+        );
+    const calls = only.size ? needed.filter((call) => only.has(call.option)) : needed;
+    if (calls.length === 0)
+      fail('the whitelist of the migrations already equals the registry: nothing to register');
+    const after = optionSwitchRegisterSql(name, calls);
+    if (after !== before) writeFileSync(path, after);
     console.log(
-      `wrote ${target} ${counts()}${script ? `; updated the lists of ${OPTION_SWITCH_PROOF_SCRIPT}` : ''}`
+      `${after === before ? 'unchanged' : 'wrote'} ${target}: ${calls.length} register call(s)`
     );
-  } else if (args.length === 0) {
-    const refusal = optionSwitchRewriteRefusal(newest, newest, onMain(newest));
-    if (refusal) fail(refusal);
-    // your own unmerged follow-up, regenerated after merging main: it now follows main's newest list migration
-    const previous = previousListMigrationOnDisk(newest);
-    const relisted = withRegistryLists(newestSql);
-    const after =
-      previous && newest.replace(/^.*\//, '') > `${OPTION_SWITCH_CHAIN_ANCHOR}.sql`
-        ? withFollowsLine(relisted, previous)
-        : relisted;
-    if (after !== newestSql) writeFileSync(join(REPO, newest), after);
-    const script = writeProofScriptLists();
-    console.log(
-      after === newestSql && !script
-        ? 'unchanged'
-        : `rewrote ${newest}${script ? ' and the proof script lists' : ''}`,
-      counts()
+    const widened = calls.filter((call) => call.fn === 'allow_shadow');
+    if (widened.length)
+      console.log(
+        `add to OPTION_SWITCH_APPROVED_UNLOCKS (HorseOptionSwitchMigrationLists.ts):\n` +
+          widened.map((call) => `  '${name}:allow_shadow:${call.option}',`).join('\n')
+      );
+    const drift = optionSwitchWhitelistDrift(
+      optionSwitchWhitelistFromMigrations(optionSwitchMigrationsOnDisk()).whitelist
     );
+    if (drift) fail(`still differs after this file: ${drift}`);
   } else {
     fail(
-      'usage: gen-horse-option-switch-sql.ts [--check | --follow-up <YYYYMMDDHHMMSS>_<snake_name>]'
+      'usage: gen-horse-option-switch-sql.ts --check | --register <YYYYMMDDHHMMSS>_<snake_name> [--allow-shadow] [option ...]\n' +
+        '(--follow-up is gone: the whitelist is rows now, a pull request registers only its own options)'
     );
   }
 }

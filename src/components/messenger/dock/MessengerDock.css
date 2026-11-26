@@ -371,12 +371,22 @@
   overflow: hidden;
   white-space: normal;
 }
-.dock-media-bubble > a {
+.dock-media-stage {
+  display: block;
+}
+.dock-media-stage-framed {
+  background: #f0f2f5;
+}
+.dock-media-stage-video {
+  background: #000;
+}
+.dock-media-stage > a {
   display: block;
 }
 .dock-media-bubble img,
 .dock-media-bubble video {
   display: block;
+  margin: 0 auto;
   width: auto;
   height: auto;
   max-width: 100%;
@@ -386,6 +396,42 @@
 }
 .dock-media-bubble video {
   background: #000;
+}
+.dock-media-fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #050505;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dock-reply-quote {
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid #0084ff;
+  border-radius: 0 6px 6px 0;
+  background: rgba(0, 132, 255, 0.08);
+  color: #65676b;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-own .dock-message-bubble:not(.dock-media-bubble) .dock-reply-quote {
+  border-left-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+.dock-media-bubble .dock-reply-quote {
+  margin-bottom: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #e4e6eb;
+  background: #f0f2f5;
+  color: #65676b;
 }
 .dock-media-forwarded {
   padding: 5px 10px;
@@ -572,6 +618,20 @@
   .dock-media-forwarded {
     background: #242526;
     border-bottom-color: #3e4042;
+  }
+  .dock-media-stage-framed,
+  .dock-media-bubble .dock-reply-quote {
+    background: #1c1e21;
+    border-bottom-color: #3e4042;
+    color: #b0b3b8;
+  }
+  .dock-media-fallback {
+    background: #242526;
+    color: #e4e6eb;
+  }
+  .dock-reply-quote {
+    background: rgba(255, 255, 255, 0.08);
+    color: #b0b3b8;
   }
   .dock-media-caption {
     background: #3a3b3c;

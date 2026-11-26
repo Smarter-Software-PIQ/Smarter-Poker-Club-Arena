@@ -1,0 +1,3 @@
+# tests/the-stale-certification-inventory-pages-past-kept-identities.law.test.ts
+
+Migration `*_the_stale_certification_inventory_pages_past_kept_identities.sql` (2026-11-25): `fn_ca_stale_certification_accounts_after(timestamptz, timestamptz, uuid)` reads the stale certification inventory strictly after a `(created_at, id)` position with the first reader's predicate and page size, is `service_role`-only, replaces nothing, and proves at install that walking every page visits the whole listing once. Identities the stale sweep keeps for good (owners and players of record of retired fixtures) can no longer fill the only page and hide newer stale identities (the failures of 2026-10-31 and 2026-11-14).

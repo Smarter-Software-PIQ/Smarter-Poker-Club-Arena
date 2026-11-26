@@ -34,6 +34,12 @@ describe('Stats transaction invalidations', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     options.onSubscriptionStatus('SUBSCRIBED');
     expect(onChange).toHaveBeenCalledTimes(2);
+    options.onSubscriptionStatus('SUBSCRIBED');
+    options.onSubscriptionStatus('SUBSCRIBED');
+    expect(onChange).toHaveBeenCalledTimes(2);
+    options.onSubscriptionStatus('CHANNEL_ERROR');
+    options.onSubscriptionStatus('SUBSCRIBED');
+    expect(onChange).toHaveBeenCalledTimes(3);
   });
 
   it('does not subscribe for an unverified identity or disabled owner view', () => {

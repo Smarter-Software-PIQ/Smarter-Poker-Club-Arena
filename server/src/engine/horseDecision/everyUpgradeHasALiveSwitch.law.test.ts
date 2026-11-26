@@ -34,10 +34,11 @@
  * off only at the registry, the parser, the decision options and the database (states function, table CHECK, setter),
  * and `on` for every other option needs the option's OWN citation (authority: <option> <file> sha256 <64 hex>).
  *
- * WHEN THIS LAW FAILS ON THE DATABASE LISTS: the database whitelist is the NEWEST migration carrying the registry
- * markers (HorseOptionSwitchMigrationLists.ts). Migration 20261114072215 is installed and never edited; run
- * `npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>` in server/
- * (a new migration re-asserting the lists; it also sets the lists of the PostgreSQL proof script).
+ * WHEN THIS LAW FAILS ON THE DATABASE WHITELIST: the whitelist is the rows of public.ca_horse_option_whitelist, that
+ * is the frozen lists of the last full-list migration plus every fn_ca_horse_option_register call of every migration
+ * (HorseOptionSwitchMigrationLists.ts). Reserve a migration with `node scripts/new-migration.mjs "horse option
+ * register <what>"` and fill it with `npx tsx scripts/gen-horse-option-switch-sql.ts --register <that file>` in
+ * server/: it holds only your own options, and never needs regenerating because another pull request merged.
  *
  * The decisions are real: HorseDecisionWorkerRuntime DECIDE_FAST through runtime.receive with the real
  * HorseLogic.decide underneath (the harness of styleSwitchRuntime.law.test.ts). The database half is read from the
@@ -88,11 +89,20 @@ import {
   type OptionSwitchStates,
 } from '../HorseOptionSwitch.js';
 import {
+  OPTION_SWITCH_APPROVED_UNLOCKS,
   OPTION_SWITCH_BASE_MIGRATION,
+  OPTION_SWITCH_LAST_LIST_MIGRATION,
+  OPTION_SWITCH_LIST_MARKER,
   OPTION_SWITCH_MIGRATIONS_DIR,
-  newestOptionSwitchListMigration,
-  optionSwitchListDrift,
-  optionSwitchListDriftMessage,
+  OPTION_SWITCH_REGISTER_COMMAND,
+  OPTION_SWITCH_WHITELIST_MIGRATION,
+  optionSwitchListMigrationsRefusal,
+  optionSwitchListsFingerprint,
+  optionSwitchListsOf,
+  optionSwitchRegisterMigrationRefusal,
+  optionSwitchRowStates,
+  optionSwitchWhitelistDrift,
+  optionSwitchWhitelistFromMigrations,
 } from '../HorseOptionSwitchMigrationLists.js';
 import { computeHorseUpgradeActivationManifest } from '../HorseUpgradeActivationManifest.js';
 import { createStyleSwitchWorkerInbox, readSwitchThrough } from './styleSwitchDelivery.js';
@@ -105,13 +115,25 @@ const read = (path: string) => readFileSync(join(REPO, path), 'utf8');
 const MIGRATION_PATH = OPTION_SWITCH_BASE_MIGRATION;
 /** The migration without its comments: what the database executes. */
 const SQL = read(MIGRATION_PATH).replace(/--[^\n]*/g, '');
-/** The database whitelist: the newest migration carrying the registry markers (the base, or its latest follow-up). */
-const LIST_MIGRATION_PATH = newestOptionSwitchListMigration(
-  readdirSync(join(REPO, OPTION_SWITCH_MIGRATIONS_DIR))
-    .filter((name) => name.endsWith('.sql'))
-    .map((name) => ({ name, text: read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${name}`) }))
-);
-const LIST_SQL = read(LIST_MIGRATION_PATH).replace(/--[^\n]*/g, '');
+/** Every migration that can bear on the whitelist: a full-list migration, or one naming a whitelist object. */
+const WHITELIST_FILES = readdirSync(join(REPO, OPTION_SWITCH_MIGRATIONS_DIR))
+  .filter((name) => name.endsWith('.sql'))
+  .map((name) => ({ name, text: read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${name}`) }))
+  .filter((f) => f.text.includes(OPTION_SWITCH_LIST_MARKER) || f.text.includes('ca_horse_option_'));
+/**
+ * The database whitelist: the rows public.ca_horse_option_whitelist holds after every migration is installed (the
+ * frozen lists of the last full-list migration, then every register call; HorseOptionSwitchMigrationLists.ts).
+ */
+const whitelistOfMain = (() => {
+  let memo: ReturnType<typeof optionSwitchWhitelistFromMigrations> | undefined;
+  return () => (memo ??= optionSwitchWhitelistFromMigrations(WHITELIST_FILES));
+})();
+const whitelistNames = (
+  pick: (row: { kind: string; lockedBy: readonly string[]; shadow: string }) => boolean
+) => [...whitelistOfMain().whitelist].filter(([, row]) => pick(row)).map(([name]) => name);
+/** The migration that turned the lists into rows, without its comments. */
+const WHITELIST_MIGRATION_PATH = `${OPTION_SWITCH_MIGRATIONS_DIR}/${OPTION_SWITCH_WHITELIST_MIGRATION}`;
+const LIST_SQL = read(WHITELIST_MIGRATION_PATH).replace(/--[^\n]*/g, '');
 /** TypeScript without comments: what runs. */
 const strip = (text: string) =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s;{}(),])\/\/[^\n]*/g, '$1');
@@ -132,7 +154,7 @@ const fn = (name: string) => {
   if (!found) throw new Error(`the migration does not create ${name}`);
   return found;
 };
-/** The functions of the list migration (the base, or the newest follow-up that re-asserts the lists). */
+/** The functions of the whitelist migration. */
 const LIST_FUNCTIONS = [
   ...LIST_SQL.matchAll(
     /CREATE (OR REPLACE )?FUNCTION public\.(\w+)\(([^)]*)\)([\s\S]*?)AS \$function\$([\s\S]*?)\$function\$;/g
@@ -140,7 +162,7 @@ const LIST_FUNCTIONS = [
 ].map((m) => ({ replaced: !!m[1], name: m[2]!, args: m[3]!, header: m[4]!, body: m[5]! }));
 const listFn = (name: string) => {
   const found = LIST_FUNCTIONS.find((f) => f.name === name);
-  if (!found) throw new Error(`${LIST_MIGRATION_PATH} does not create ${name}`);
+  if (!found) throw new Error(`${WHITELIST_MIGRATION_PATH} does not create ${name}`);
   return found;
 };
 
@@ -181,15 +203,11 @@ const PREFLOP_HOLD_NAMES = [
   'vs3BetShortStack',
   'fixedLimitPricedPreflop',
 ];
-const GENERATOR = optionSwitchListDriftMessage(LIST_MIGRATION_PATH);
+const GENERATOR = `the option switch whitelist differs from the registry: ${OPTION_SWITCH_REGISTER_COMMAND}`;
 const noteFor = (option: string) =>
   optionSwitchOnNote(option, OPTION_SWITCH_ON_AUTHORITY_FILE, OPTION_SWITCH_ON_AUTHORITY_SHA256);
-/** One CHECK constraint of the list migration, by name, up to its closing semicolon. */
-const constraint = (name: string) => {
-  const found = new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(LIST_SQL);
-  if (!found) throw new Error(`${LIST_MIGRATION_PATH} does not add ${name}`);
-  return found[1]!;
-};
+/** The row trigger of the switch table: the two state rules the CHECK constraints held, for every writer. */
+const rowRules = () => listFn('fn_ca_horse_option_switch_row_fits').body;
 
 const v2 = (options: Record<string, unknown>, style: Record<string, unknown> = {}) => ({
   version: 2,
@@ -314,53 +332,89 @@ async function baseline() {
 
 describe('condition 8: the database whitelist is the engine registry', () => {
   it('the table accepts exactly the registered options', () => {
-    expect(
-      sorted(quoted(constraint('ca_horse_style_switch_option_is_registered'))),
-      GENERATOR
-    ).toEqual(sorted(OPTION_SWITCH_NAMES));
+    expect(optionSwitchWhitelistDrift(whitelistOfMain().whitelist), GENERATOR).toBeNull();
+    expect(sorted([...whitelistOfMain().whitelist.keys()]), GENERATOR).toEqual(
+      sorted(OPTION_SWITCH_NAMES)
+    );
+    // any writer: the switch table refers to the whitelist by a foreign key under the name the CHECK had, and the
+    // row trigger refuses a row whose option has no whitelist row
+    expect(LIST_SQL).toMatch(
+      /ADD CONSTRAINT ca_horse_style_switch_option_is_registered\s+FOREIGN KEY \(option\) REFERENCES public\.ca_horse_option_whitelist \(option\)\s+ON UPDATE RESTRICT ON DELETE RESTRICT;/
+    );
+    expect(rowRules()).toMatch(
+      /FROM public\.ca_horse_option_whitelist w\s+WHERE w\.option = NEW\.option;\s+IF NOT FOUND THEN\s+RAISE EXCEPTION [^;]*CONSTRAINT = 'ca_horse_style_switch_option_is_registered';/
+    );
+    expect(LIST_SQL).toMatch(
+      /CREATE TRIGGER ca_horse_style_switch_row_fits\s+AFTER INSERT OR UPDATE ON public\.ca_horse_style_switch\s+FOR EACH ROW EXECUTE FUNCTION public\.fn_ca_horse_option_switch_row_fits\(\);/
+    );
   });
 
-  it('canary only for the seven style options, shadow for them and the shadow options, on_shadow only for the on_shadow options, and on never for an off-only option', () => {
-    const check = constraint('ca_horse_style_switch_state_fits_option');
-    const parts =
-      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR \(state = 'on_shadow' AND option IN \(([^)]*)\)\)\s*OR \(state <> 'on_shadow' AND option IN \(([^)]*)\)\)\s*$/.exec(
-        check
-      );
-    expect(parts, GENERATOR).not.toBeNull();
-    expect(sorted(quoted(parts![1]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
-    expect(sorted(quoted(parts![2]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
-    expect(sorted(quoted(parts![3]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_ON_SHADOW_NAMES));
-    expect(sorted(quoted(parts![4]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
-    // on_shadow never for an off-only name or a style option; every shadow option takes it
-    for (const name of OPTION_SWITCH_ON_SHADOW_NAMES) {
-      expect(OPTION_SWITCH_OFF_ONLY_NAMES, name).not.toContain(name);
-      expect(STYLE_SWITCH_OPTIONS as readonly string[], name).not.toContain(name);
-    }
+  it('canary only for the seven style options, shadow at level shadow, on_shadow at level on_shadow or shadow, and nothing but off for an off-only option', () => {
+    expect(sorted(whitelistNames((row) => row.kind === 'style'))).toEqual(
+      sorted(STYLE_SWITCH_OPTIONS)
+    );
+    expect(sorted(whitelistNames((row) => row.lockedBy.length > 0)), GENERATOR).toEqual(
+      sorted(OPTION_SWITCH_OFF_ONLY_NAMES)
+    );
+    // the shadow level of a row that is not held is the registry's: shadow, on_shadow (every shadow option takes
+    // it) or none; an off-only or style row has none
+    expect(
+      sorted(whitelistNames((row) => row.lockedBy.length === 0 && row.shadow === 'shadow')),
+      GENERATOR
+    ).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
+    expect(
+      sorted(whitelistNames((row) => row.lockedBy.length === 0 && row.shadow !== 'none')),
+      GENERATOR
+    ).toEqual(sorted(OPTION_SWITCH_ON_SHADOW_NAMES));
+    expect(
+      whitelistNames(
+        (row) => row.shadow !== 'none' && (row.kind === 'style' || row.lockedBy.length > 0)
+      )
+    ).toEqual([]);
     for (const name of OPTION_SWITCH_SHADOW_NAMES)
       expect(OPTION_SWITCH_ON_SHADOW_NAMES, name).toContain(name);
-    // never for an off-only name, never for a style option (its shadow is its own arm)
-    for (const name of OPTION_SWITCH_SHADOW_NAMES) {
-      expect(OPTION_SWITCH_OFF_ONLY_NAMES, name).not.toContain(name);
-      expect(STYLE_SWITCH_OPTIONS as readonly string[], name).not.toContain(name);
-    }
+    const rules = rowRules();
+    // a style option takes every state but on_shadow (its shadow is its own arm); for any other, off always, and
+    // while it is not off-only: on, on_shadow at level on_shadow or shadow, shadow at level shadow. Never canary.
+    const style = rules.search(
+      /IF v_kind = 'style' THEN\s+IF NEW\.state = 'on_shadow' THEN\s+RAISE EXCEPTION [^;]*CONSTRAINT = 'ca_horse_style_switch_state_fits_option';\s+END IF;\s+RETURN NULL;\s+END IF;/
+    );
+    const fits = rules.search(
+      /IF NOT coalesce\(\s+NEW\.state = 'off'\s+OR \(NOT v_off_only\s+AND \(NEW\.state = 'on'\s+OR \(NEW\.state = 'on_shadow' AND v_shadow IN \('on_shadow', 'shadow'\)\)\s+OR \(NEW\.state = 'shadow' AND v_shadow = 'shadow'\)\)\), false\) THEN\s+RAISE EXCEPTION [^;]*CONSTRAINT = 'ca_horse_style_switch_state_fits_option';/
+    );
+    expect(style).toBeGreaterThan(0);
+    expect(fits).toBeGreaterThan(style);
+    expect(rules).not.toContain("'canary'");
+    // the level is one of three, and a style option has none
+    expect(LIST_SQL).toMatch(
+      /shadow\s+text NOT NULL DEFAULT 'none' CHECK \(shadow IN \('none', 'on_shadow', 'shadow'\)\)/
+    );
+    expect(LIST_SQL).toMatch(
+      /CONSTRAINT ca_horse_option_whitelist_a_style_option_has_its_own_shadow_arm\s+CHECK \(kind <> 'style' OR shadow = 'none'\)/
+    );
+    // off-only is the row's holders, and nothing else decides it
+    expect(LIST_SQL).toMatch(
+      /off_only\s+boolean GENERATED ALWAYS AS \(cardinality\(locked_by\) > 0\) STORED/
+    );
   });
 
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
-    const body = listFn('fn_ca_horse_option_switch_states').body;
-    const arms = [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map(
-      (m) => ({ names: sorted(quoted(m[1]!)), states: statesIn(m[2]!) })
+    const states = listFn('fn_ca_horse_option_switch_states');
+    expect(states.replaced).toBe(true);
+    expect(states.args).toBe('p_option text');
+    expect(states.header).toMatch(/RETURNS text\[\]\s+LANGUAGE sql\s+STABLE\s+SECURITY DEFINER/);
+    // one row or none: an unregistered name finds no row, and a scalar SQL function then answers NULL
+    expect(states.body.replace(/\s+/g, ' ').trim()).toBe(
+      "SELECT CASE WHEN w.kind = 'style' THEN ARRAY['off', 'shadow', 'canary', 'on'] " +
+        "WHEN w.off_only THEN ARRAY['off'] " +
+        "WHEN w.shadow = 'shadow' THEN ARRAY['off', 'shadow', 'on_shadow', 'on'] " +
+        "WHEN w.shadow = 'on_shadow' THEN ARRAY['off', 'on_shadow', 'on'] ELSE ARRAY['off', 'on'] END " +
+        'FROM public.ca_horse_option_whitelist w WHERE w.option = p_option;'
     );
-    // the off-only arm comes before the plain arm, so an off-only option answers off alone; the shadow arm before the
-    // on_shadow arm, so a shadow option answers all four of its states
-    expect(arms, GENERATOR).toEqual([
-      { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
-      { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
-      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on_shadow', 'on'] },
-      { names: sorted(OPTION_SWITCH_ON_SHADOW_NAMES), states: ['off', 'on_shadow', 'on'] },
-      { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
-    ]);
-    const answer = (name: string) => arms.find((a) => a.names.includes(name))?.states;
-    expect(body).toMatch(/ELSE NULL\s*END/);
+    const answer = (name: string) => {
+      const row = whitelistOfMain().whitelist.get(name);
+      return row ? [...optionSwitchRowStates(row)] : undefined;
+    };
     for (const entry of OPTION_SWITCH_REGISTRY)
       expect(answer(entry.name), entry.name).toEqual([...entry.states]);
     // one attempt, no retry: the ALTERs wait at most three seconds for the table
@@ -368,54 +422,184 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     expect(LIST_SQL).toMatch(/^\s*BEGIN;\s*SET LOCAL lock_timeout = '3s';/);
   });
 
-  it('the whitelist is the newest migration carrying the registry markers; a follow-up re-asserts the lists and nothing else', () => {
-    // the generator's own check agrees with this law
-    expect(
-      optionSwitchListDrift(LIST_MIGRATION_PATH, read(LIST_MIGRATION_PATH)),
-      GENERATOR
-    ).toBeNull();
-    if (LIST_MIGRATION_PATH === MIGRATION_PATH) return;
-    // a follow-up: one transaction; every existing row is checked before anything changes; the three constraints are
-    // dropped and re-added (idempotent); the states function is replaced; nothing else is created, granted or written
+  it('the whitelist is rows: the frozen lists plus the register calls; no full list is re-asserted and no hold is lifted in passing', () => {
+    // no full-list follow-up joins the frozen ones: installed after the whitelist it would overwrite the rows
+    expect(optionSwitchListMigrationsRefusal(WHITELIST_FILES)).toBeNull();
+    expect(read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${OPTION_SWITCH_LAST_LIST_MIGRATION}`)).toContain(
+      OPTION_SWITCH_LIST_MARKER
+    );
+    // every other migration that names a whitelist writer or the table is a register migration: one transaction,
+    // the lock timeout, its own calls and nothing else
+    for (const file of WHITELIST_FILES)
+      if (file.name !== OPTION_SWITCH_WHITELIST_MIGRATION)
+        expect(optionSwitchRegisterMigrationRefusal(file), file.name).toBeNull();
+    // an un-lock or a removal is its own call, and approved by name
+    expect(sorted(whitelistOfMain().explicit)).toEqual(sorted(OPTION_SWITCH_APPROVED_UNLOCKS));
+
+    // the whitelist migration: one transaction, and NO LIST of its own (the seed is read from the installed CHECK
+    // and the installed states function, which must agree), so it never goes stale against another pull request
     expect(LIST_SQL.trim()).toMatch(/^BEGIN;[\s\S]*COMMIT;$/);
-    const check = LIST_SQL.indexOf('$existing_rows_fit$');
-    expect(check).toBeGreaterThan(0);
-    expect(check).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
+    const raw = read(WHITELIST_MIGRATION_PATH);
+    expect(raw).not.toContain(OPTION_SWITCH_LIST_MARKER);
+    const named = new Set(quoted(LIST_SQL));
+    expect(OPTION_SWITCH_NAMES.filter((name) => named.has(name))).toEqual([]);
+    const seed = /DO \$seed\$([\s\S]*?)\$seed\$;/.exec(LIST_SQL)![1]!;
+    expect(seed).toMatch(/pg_get_constraintdef\(c\.oid\)/);
+    expect(seed).toMatch(/c\.conname = 'ca_horse_style_switch_option_is_registered'/);
+    expect(seed).toMatch(
+      /IF v_names IS NULL OR v_names IS DISTINCT FROM v_fn_names THEN\s+RAISE EXCEPTION/
+    );
+    expect(seed).toMatch(/v_states := public\.fn_ca_horse_option_switch_states\(v_name\);/);
+    // and it installs only over exactly the frozen lists this law counts from, so the rows and the law agree from
+    // the first row. When another full-list follow-up reaches main first, move OPTION_SWITCH_LAST_LIST_MIGRATION,
+    // its count, the file name in the proof script and this line of the (not yet installed) whitelist migration.
+    const frozen = optionSwitchListsOf(
+      read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${OPTION_SWITCH_LAST_LIST_MIGRATION}`)
+    );
+    expect(seed).toContain(
+      `v_lists    constant text := '${optionSwitchListsFingerprint(frozen)}';`
+    );
+    expect(seed).toMatch(/IF v_found IS DISTINCT FROM v_lists THEN\s+RAISE EXCEPTION/);
+    expect(raw).toContain(
+      `is not the one of ${OPTION_SWITCH_LAST_LIST_MIGRATION.replace(/\.sql$/, '')} (lists %)`
+    );
+    // the seed runs before the states function it reads is replaced
+    expect(LIST_SQL.indexOf('$seed$')).toBeLessThan(
+      LIST_SQL.indexOf('CREATE OR REPLACE FUNCTION public.fn_ca_horse_option_switch_states')
+    );
+    // the three literal-list CHECKs go in the statement that adds the key
     for (const name of [
       'ca_horse_style_switch_option_is_registered',
       'ca_horse_style_switch_on_cites_authority',
       'ca_horse_style_switch_state_fits_option',
     ])
-      expect(LIST_SQL, name).toContain(
-        `DROP CONSTRAINT IF EXISTS ${name},\n  ADD CONSTRAINT ${name} CHECK (`
-      );
+      expect(LIST_SQL, name).toContain(`DROP CONSTRAINT IF EXISTS ${name},`);
+    // it redefines the states function and nothing else of the switch: the setters, the readers, the evidence
+    // record and the serving-registry guard (#11391) keep the bodies their own migrations gave them
     expect(LIST_FUNCTIONS.map((f) => [f.name, f.replaced])).toEqual([
       ['fn_ca_horse_option_switch_states', true],
+      ['fn_ca_horse_option_switch_row_fits', true],
+      ['fn_ca_horse_option_whitelist_guard', true],
+      ['fn_ca_horse_option_register', true],
+      ['fn_ca_horse_option_allow_shadow', true],
+      ['fn_ca_horse_option_unlock', true],
+      ['fn_ca_horse_option_unregister', true],
     ]);
-    // 2026-11-18: a follow-up naming shadow options refuses to install before the switch functions tell the style
-    // options by canary (*_the_horse_option_switch_tells_style_options_by_name.sql), before it changes anything
-    if (OPTION_SWITCH_SHADOW_NAMES.length > 0) {
-      const guard = LIST_SQL.indexOf(
-        'install *_the_horse_option_switch_tells_style_options_by_name.sql first'
-      );
-      expect(guard, GENERATOR).toBeGreaterThan(0);
-      expect(guard).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
-    }
-    // 2026-11-19: a follow-up naming on_shadow options refuses to install before the set function and the registry
-    // publish know on_shadow (*_the_horse_option_switch_on_shadow_keeps_every_rule_of_on.sql)
-    if (OPTION_SWITCH_ON_SHADOW_NAMES.length > 0) {
-      const guard = LIST_SQL.indexOf(
-        'install *_the_horse_option_switch_on_shadow_keeps_every_rule_of_on.sql first'
-      );
-      expect(guard, GENERATOR).toBeGreaterThan(0);
-      expect(guard).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
-    }
-    expect(LIST_SQL).not.toMatch(
-      /CREATE\s+TABLE|ADD\s+COLUMN|CREATE\s+(UNIQUE\s+)?INDEX|CREATE\s+TRIGGER|INSERT\s+INTO|UPDATE\s+public|DELETE\s+FROM/i
-    );
+    for (const f of LIST_FUNCTIONS)
+      expect(f.header, f.name).toContain('SET search_path = pg_catalog, public');
+    // the only grants: the states function to its one grantee, as before, and the rows readable by service_role
     expect(
-      [...LIST_SQL.matchAll(/GRANT\s+[^;]*?\sTO\s+([^;]*);/g)].map((m) => m[1]!.trim())
-    ).toEqual(['service_role']);
+      [...LIST_SQL.matchAll(/GRANT\s+([^;]*?)\sTO\s+([^;]*);/g)].map((m) => [
+        m[1]!.trim(),
+        m[2]!.trim(),
+      ])
+    ).toEqual([
+      ['EXECUTE ON FUNCTION public.fn_ca_horse_option_switch_states(text)', 'service_role'],
+      ['SELECT ON TABLE public.ca_horse_option_whitelist', 'service_role'],
+    ]);
+    for (const writer of [
+      'fn_ca_horse_option_register(text, text, boolean, text, text)',
+      'fn_ca_horse_option_allow_shadow(text, text, text)',
+      'fn_ca_horse_option_unlock(text, text[], text)',
+      'fn_ca_horse_option_unregister(text, text)',
+    ])
+      expect(LIST_SQL, writer).toContain(
+        `REVOKE ALL ON FUNCTION public.${writer} FROM PUBLIC, anon, authenticated, service_role;`
+      );
+    // it writes no switch row: outside the probe, which always unwinds, nothing writes the switch table
+    const probe = LIST_SQL.indexOf('DO $probe$');
+    expect(probe).toBeGreaterThan(0);
+    expect(LIST_SQL.slice(0, probe)).not.toMatch(
+      /(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE)\s+public\.ca_horse_style_switch\b/
+    );
+    expect(LIST_SQL.slice(probe)).toMatch(
+      /RAISE EXCEPTION 'probe-unwind';\s*EXCEPTION WHEN raise_exception THEN\s+IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;\s+END \$probe\$;\s+COMMIT;\s*$/
+    );
+  });
+
+  it('off-only is monotonic: registering only adds a hold, and lifting one names every holder', () => {
+    const register = listFn('fn_ca_horse_option_register').body;
+    // the only UPDATE of the holders in register is a union with the caller, or the holders as they are
+    expect(
+      [...register.matchAll(/SET locked_by = ([\s\S]*?),\s+shadow = /g)].map((m) =>
+        m[1]!.replace(/\s+/g, ' ').trim()
+      )
+    ).toEqual([
+      'CASE WHEN v_hold THEN ARRAY(SELECT x FROM unnest(w.locked_by || p_migration) AS x GROUP BY x ORDER BY x COLLATE "C") ELSE w.locked_by END',
+    ]);
+    // and the only UPDATE of the shadow level in register is a NARROWER one (the lower of the two)
+    expect(register).toMatch(
+      /v_narrow := array_position\(v_levels, p_shadow\) < array_position\(v_levels, v_row\.shadow\);/
+    );
+    expect([...register.matchAll(/\n\s+shadow = ([^\n]*)/g)].map((m) => m[1]!.trim())).toEqual([
+      'CASE WHEN v_narrow THEN p_shadow ELSE w.shadow END,',
+    ]);
+    expect(register).not.toMatch(
+      /DELETE FROM|ca_horse_option\.unlock|ca_horse_option\.unregister|ca_horse_option\.allow_shadow/
+    );
+    // it refuses to add a row nothing reads (an old full-list follow-up installed over the whitelist)
+    expect(register).toMatch(/p\.prosrc LIKE '%public\.ca_horse_option_whitelist%'/);
+    const guard = listFn('fn_ca_horse_option_whitelist_guard').body;
+    expect(guard).toMatch(
+      /IF NOT \(NEW\.locked_by @> OLD\.locked_by\)\s+AND current_setting\('ca_horse_option\.unlock', true\) IS DISTINCT FROM OLD\.option THEN\s+RAISE EXCEPTION/
+    );
+    expect(guard).toMatch(
+      /IF TG_OP = 'DELETE' THEN\s+IF current_setting\('ca_horse_option\.unregister', true\) IS DISTINCT FROM OLD\.option THEN\s+RAISE EXCEPTION/
+    );
+    expect(guard).toMatch(/IF TG_OP = 'TRUNCATE' THEN\s+RAISE EXCEPTION/);
+    // no hold under a switch row that is not off; no narrower level under a row in a state it would lose
+    expect(guard).toMatch(/s\.option = NEW\.option AND s\.state <> 'off'\) THEN\s+RAISE EXCEPTION/);
+    expect(guard).toMatch(
+      /\(s\.state = 'shadow' AND NEW\.shadow <> 'shadow'\)\s+OR \(s\.state = 'on_shadow' AND NEW\.shadow = 'none'\)\)\) THEN\s+RAISE EXCEPTION/
+    );
+    // a wider level only inside fn_ca_horse_option_allow_shadow
+    expect(guard).toMatch(
+      /IF array_position\(ARRAY\['none', 'on_shadow', 'shadow'\], NEW\.shadow\) > array_position\(ARRAY\['none', 'on_shadow', 'shadow'\], OLD\.shadow\)\s+AND current_setting\('ca_horse_option\.allow_shadow', true\) IS DISTINCT FROM OLD\.option THEN\s+RAISE EXCEPTION/
+    );
+    expect(LIST_SQL).toMatch(
+      /CREATE TRIGGER ca_horse_option_whitelist_guard\s+BEFORE UPDATE OR DELETE ON public\.ca_horse_option_whitelist\s+FOR EACH ROW EXECUTE FUNCTION public\.fn_ca_horse_option_whitelist_guard\(\);/
+    );
+    expect(LIST_SQL).toMatch(
+      /CREATE TRIGGER ca_horse_option_whitelist_guard_truncate\s+BEFORE TRUNCATE ON public\.ca_horse_option_whitelist/
+    );
+    // the two settings that let a hold go or a row leave are set in exactly one function each
+    const setters = (setting: string) =>
+      LIST_FUNCTIONS.filter((f) => f.body.includes(`set_config('${setting}', p_option, true)`)).map(
+        (f) => f.name
+      );
+    expect(setters('ca_horse_option.unlock')).toEqual(['fn_ca_horse_option_unlock']);
+    expect(setters('ca_horse_option.unregister')).toEqual(['fn_ca_horse_option_unregister']);
+    expect(setters('ca_horse_option.allow_shadow')).toEqual(['fn_ca_horse_option_allow_shadow']);
+    const allow = listFn('fn_ca_horse_option_allow_shadow').body;
+    // never for a style or a held option, never narrower, and all of that before the setting is made
+    for (const refusal of [
+      "IF v_row.kind = 'style' THEN",
+      'IF cardinality(v_row.locked_by) > 0 THEN',
+      'IF array_position(v_levels, p_shadow) < array_position(v_levels, v_row.shadow) THEN',
+    ]) {
+      expect(allow.indexOf(refusal), refusal).toBeGreaterThan(0);
+      expect(allow.indexOf(refusal), refusal).toBeLessThan(allow.indexOf('set_config('));
+    }
+    const unlock = listFn('fn_ca_horse_option_unlock').body;
+    expect(unlock).toMatch(/IF v_held <> v_lifts THEN\s+RAISE EXCEPTION/);
+    expect(unlock.indexOf('IF v_held <> v_lifts THEN')).toBeLessThan(unlock.indexOf('set_config('));
+    const unregister = listFn('fn_ca_horse_option_unregister').body;
+    expect(unregister).toMatch(/IF cardinality\(v_held\) > 0 THEN\s+RAISE EXCEPTION/);
+    expect(unregister.indexOf('IF cardinality(v_held) > 0 THEN')).toBeLessThan(
+      unregister.indexOf('set_config(')
+    );
+  });
+
+  it('the schema manifest names the whitelist table and the functions the whitelist migration adds', () => {
+    const manifest = JSON.parse(read('scripts/ci/schema-manifest.d/horse-option-whitelist.json'));
+    expect(manifest.tables).toEqual(['ca_horse_option_whitelist']);
+    expect(sorted(manifest.functions)).toEqual(
+      sorted(
+        LIST_FUNCTIONS.map((f) => f.name).filter(
+          (name) => name !== 'fn_ca_horse_option_switch_states'
+        )
+      )
+    );
   });
 
   it('the schema manifest names exactly the functions the migration adds, and the migration adds no table or column', () => {
@@ -967,13 +1151,14 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(() => optionSwitchOnNote('x y', 'f.md', 'a'.repeat(64))).toThrow();
     expect(() => optionSwitchOnNote('v16Ratio', 'f.md', 'a'.repeat(63))).toThrow();
     expect(() => optionSwitchOnNote('v16Ratio', 'two words.md', 'a'.repeat(64))).toThrow();
-    const table = constraint('ca_horse_style_switch_on_cites_authority');
-    expect(table).toMatch(
-      /^\s*state NOT IN \('on', 'on_shadow'\)\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: ' \|\| option \|\| ' %' AND note ~ 'sha256 \[0-9a-f\]\{64\}'\)\s*$/
+    // the table, any writer: the row trigger lets a style option through, then asks every other 'on' for the
+    // option's own citation (the rule the CHECK ca_horse_style_switch_on_cites_authority held, under its name)
+    const rules = rowRules();
+    const cites = rules.search(
+      /IF NEW\.state IN \('on', 'on_shadow'\)\s+AND NOT coalesce\(NEW\.note LIKE 'authority: ' \|\| NEW\.option \|\| ' %' AND NEW\.note ~ 'sha256 \[0-9a-f\]\{64\}', false\) THEN\s+RAISE EXCEPTION [^;]*CONSTRAINT = 'ca_horse_style_switch_on_cites_authority';/
     );
-    expect(sorted(quoted(/OR option IN \(([^)]*)\)/.exec(table)![1]!))).toEqual(
-      sorted(STYLE_SWITCH_OPTIONS)
-    );
+    expect(cites).toBeGreaterThan(rules.search(/IF v_kind = 'style' THEN[\s\S]*?RETURN NULL;/));
+    expect(rules.search(/IF v_kind = 'style' THEN[\s\S]*?RETURN NULL;/)).toBeGreaterThan(0);
     expect(SQL).not.toMatch(/on_needs_evidence|promotion evidence|length\(note\) >= 24/);
     const body = fn('fn_ca_horse_option_switch_set').body;
     const guard = body.search(
@@ -1013,17 +1198,32 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       expect(found, name).not.toBeNull();
       return found![1]!.split(/\s+/);
     };
-    expect(sorted(list('style'))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
-    expect(sorted(list('plain')), 'update the plain list of the proof script').toEqual(
-      sorted(OPTION_SWITCH_PLAIN_NAMES)
+    // the script carries no option list of its own to drift: it proves the switch as installed over the frozen
+    // lists of the last full-list migration, then installs the whitelist migration, requires the seeded rows to be
+    // exactly those lists, and proves every row of the table (the registered ones included) from any writer
+    for (const variable of ['style', 'plain', 'offonly', 'shadow', 'onshadow'])
+      expect(script, variable).not.toMatch(new RegExp(`^${variable}='`, 'm'));
+    expect(script).toContain(
+      `list_migration="$repo/supabase/migrations/${OPTION_SWITCH_LAST_LIST_MIGRATION}"`
     );
+    expect(script).toContain(`$repo/supabase/migrations/${OPTION_SWITCH_WHITELIST_MIGRATION}}"`);
+    for (const line of [
+      'the seeded whitelist: the other options are the installed ones',
+      'the seeded whitelist: the off-only options are the installed ones, each held by the seed',
+      'the seeded whitelist: the options at shadow level shadow are the installed shadow options',
+      'the seeded whitelist: the options at shadow level on_shadow or shadow are the installed on_shadow options',
+      'two registrations of one name keep the LOWER shadow level',
+      'a plain UPDATE does not widen a shadow level',
+      'a level is not narrowed under a switch row in a state it would lose',
+      'over an older full list the whitelist migration refuses to install',
+      'give the same whitelist in either install order',
+      'a stale register (off-only false) did not lift the hold another migration put on v7',
+      'an un-lock that does not name every holder lifts nothing',
+      'keeps its rules from any writer and at the setter; an unregistered one is refused',
+      'the setters, the readers, the evidence record and the serving-registry guard are not redefined, and keep their grants',
+    ])
+      expect(script, line).toContain(line);
     for (const name of REFUSED_NAMES) expect(list('refused'), name).toContain(name);
-    expect(sorted(list('offonly')), 'update the offonly list of the proof script').toEqual(
-      sorted(OPTION_SWITCH_OFF_ONLY_NAMES)
-    );
-    expect(sorted(list('onshadow')), 'update the onshadow list of the proof script').toEqual(
-      sorted(OPTION_SWITCH_ON_SHADOW_NAMES)
-    );
     expect(script).toContain(
       `authority_tail='${OPTION_SWITCH_ON_AUTHORITY_FILE} sha256 ${OPTION_SWITCH_ON_AUTHORITY_SHA256}'`
     );
@@ -1171,7 +1371,7 @@ describe('the refused options are refused on both sides', () => {
   });
 
   it('the database whitelist names none of them, and set and clear refuse a name that is not registered', () => {
-    const whitelisted = new Set(quoted(LIST_SQL.slice(0, LIST_SQL.indexOf('$readback$'))));
+    const whitelisted = new Set(whitelistOfMain().whitelist.keys());
     for (const name of OPTION_SWITCH_NAMES) expect(whitelisted.has(name), name).toBe(true);
     for (const name of REFUSED_NAMES) expect(whitelisted.has(name), name).toBe(false);
     for (const name of ['fn_ca_horse_option_switch_set', 'fn_ca_horse_option_switch_clear']) {

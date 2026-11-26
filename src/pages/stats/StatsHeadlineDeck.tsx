@@ -16,7 +16,6 @@ interface Props {
   privacyPresentationMode: boolean;
   category: StatCategory;
   hasData: boolean;
-  selectedClubId: string | null;
   servingCache: boolean;
 }
 
@@ -60,7 +59,6 @@ export default function StatsHeadlineDeck(props: Props) {
     privacyPresentationMode,
     category,
     hasData,
-    selectedClubId,
     servingCache,
   } = props;
   return (
@@ -250,17 +248,6 @@ export default function StatsHeadlineDeck(props: Props) {
               Exact Settlement Rows Exist For These Hands Yet.
             </div>
           )}
-        {hasData && selectedClubId && statsContract.quality.club_breakdown_starts_at && (
-          <div className="stats-notice">
-            This Club Ledger Begins{' '}
-            {new Date(statsContract.quality.club_breakdown_starts_at).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-            . Older All-Clubs Rollup Hands Cannot Be Assigned To One Club.
-          </div>
-        )}
         {hasData &&
           !statsContract.quality.live_tail_included &&
           statsContract.coverage.rollup_covered_through && (

@@ -182,11 +182,7 @@ interface Row {
 function rows(container: HTMLElement): Row[] {
   return [...container.querySelectorAll('.stat-row')].map((row) => {
     const labelEl = row.querySelector('.row-label') as HTMLElement;
-    const label = [...labelEl.childNodes]
-      .filter((n) => n.nodeType === 3)
-      .map((n) => n.textContent ?? '')
-      .join('')
-      .trim();
+    const label = labelEl.querySelector('.stat-label-text')?.textContent?.trim() ?? '';
     return {
       label,
       tag: labelEl.querySelector('.hero-stat-sub')?.textContent ?? null,

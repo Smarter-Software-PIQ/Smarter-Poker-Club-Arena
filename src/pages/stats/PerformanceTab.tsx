@@ -127,7 +127,7 @@ export default function PerformanceTab({
               overall.total_hands,
               (v) => `${(v * 100).toFixed(1)}%`
             )}
-            color="#8b5cf6"
+            color="#55b4ed"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(overall.pfr, overall.total_hands)}
           />
@@ -142,7 +142,7 @@ export default function PerformanceTab({
                   ? NOT_YET_MEASURED
                   : `${(overall.three_bet_percent * 100).toFixed(1)}%`
             }
-            color="#f59e0b"
+            color="#86c9e8"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               exactThreeBet && threeBetMeasured
@@ -186,7 +186,7 @@ export default function PerformanceTab({
                   ? NOT_YET_MEASURED
                   : `${(overall.cbet_flop * 100).toFixed(1)}%`
             }
-            color="#8b5cf6"
+            color="#55b4ed"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               exactCbet && cbetMeasured
@@ -203,7 +203,7 @@ export default function PerformanceTab({
                 ? NOT_YET_MEASURED
                 : `${(overall.wtsd * 100).toFixed(1)}%`
             }
-            color="#6366f1"
+            color="#99bde6"
             scope={SCOPE_CASH}
             evidence={formatRateEvidence(
               overall.wtsd,
@@ -221,7 +221,7 @@ export default function PerformanceTab({
                     v.toFixed(1)
                   )
             }
-            color="#f59e0b"
+            color="#86c9e8"
             scope={SCOPE_CASH}
             evidence={formatSampleEvidence(
               metricAvailability?.aggression_factor_denominator,
@@ -257,7 +257,7 @@ export default function PerformanceTab({
           <StatRow
             label="BB/100"
             value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
-            color="#4169E1"
+            color="#80baff"
             scope={SCOPE_CASH}
             evidence={formatSampleEvidence(overall.cash_hands, 'Cash Hand')}
           />
