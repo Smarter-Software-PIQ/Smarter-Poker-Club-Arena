@@ -31,11 +31,19 @@ BEGIN
           AND upper(cancelled.tournament_type)='SPIN'
           AND u.original_draw_id IS NULL)))$new$);
  IF updated=shadow THEN RAISE EXCEPTION 'spin_cancellation_shadow_anchor_missing'; END IF;
+ IF strpos(updated,'net_guarantee_promo')=0
+ OR strpos(updated,'guarantee_promo_excess_return')=0 THEN
+   RAISE EXCEPTION 'spin_cancellation_reporting_promo_contract_missing';
+ END IF;
  EXECUTE updated;
  updated := replace(conservation,
  $old$l.kind IN ('contribution','jackpot_draw')$old$,
  $new$l.kind IN ('contribution','jackpot_draw','contribution_reversal','draw_reversal')$new$);
  IF updated=conservation THEN RAISE EXCEPTION 'spin_cancellation_conservation_anchor_missing'; END IF;
+ IF strpos(updated,'net_guarantee_promo')=0
+ OR strpos(updated,'guarantee_promo_excess_return')=0 THEN
+   RAISE EXCEPTION 'spin_cancellation_reporting_promo_contract_missing';
+ END IF;
  EXECUTE updated;
 END $migration$;
 -- Read-only execution against an already cancelled incident event. The

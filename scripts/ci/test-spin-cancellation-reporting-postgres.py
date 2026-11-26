@@ -40,12 +40,15 @@ try:
  for n,prize,draw in ((30,20,-20),(31,100,-100),(32,100,-99)):
   tid=event(n);q(f"INSERT INTO tournaments(id,variant,tournament_type) VALUES('{tid}','spin','SPIN'); INSERT INTO wallet_transactions VALUES('{tid}','debit','tournament_buyin',30,NULL),('{tid}','credit','prize',{prize},NULL); INSERT INTO rake_records VALUES('{tid}',true,3,30,'fn_spin_book_entry','{{}}'); INSERT INTO spin_reserve_ledger VALUES('{tid}','contribution',27),('{tid}','jackpot_draw',{draw}),('{tid}','seed_return',-999);")
  tid=event(40);q(f"INSERT INTO clubs VALUES('{event(400)}','diamonds',true,NULL); INSERT INTO tournaments(id,club_id) VALUES('{tid}','{event(400)}');")
+ # A net guarantee promo and its excess return still fund the paid prize.
+ tid=event(50);q(f"INSERT INTO tournaments(id,variant,tournament_type) VALUES('{tid}','regular','MTT'); INSERT INTO wallet_transactions VALUES('{tid}','debit','tournament_buyin',100,NULL),('{tid}','credit','prize',112,NULL); INSERT INTO rake_records VALUES('{tid}',true,8,100,'registration','{{}}'); INSERT INTO tournament_rake_settlements VALUES('{tid}',8,now()); INSERT INTO chip_ledger(tournament_id,category,amount,from_type,from_entity_id,to_type,to_entity_id,metadata) VALUES('{tid}','promo_send',25,'union_wallet',NULL,'prize_liability','{tid}',jsonb_build_object('kind','net_guarantee_promo','prize_part',25,'bounty_part',0)),('{tid}','reversal',5,'prize_liability','{tid}','union_wallet',NULL,jsonb_build_object('kind','guarantee_promo_excess_return'));")
+ promo=result(50);assert promo=={'prize':0,'fee':0,'delta':0},('net guarantee promo and excess return',promo)
  q("UPDATE tournaments SET name=id::text,status='CANCELLED',ended_at=now()-interval '1 hour',buy_in_amount=100 WHERE variant IS DISTINCT FROM 'spin';")
  batch_sql="SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM fn_tournament_conservation_deltas(now()-interval '2 hours',now()) x;"
  batch_before=q(batch_sql)
- assert len(json.loads(batch_before))==4,'batch excludes Spins'
+ assert len(json.loads(batch_before))==5,'batch excludes Spins'
  assert q("SELECT count(*) FROM fn_tournament_conservation_deltas(now()-interval '2 hours',now()) x WHERE x.delta IS DISTINCT FROM fn_tournament_conservation_delta(x.id);")=='0'
- before={n:result(n) for n in (20,21,22,30,31,32,40)}
+ before={n:result(n) for n in (20,21,22,30,31,32,40,50)}
  q("CREATE ROLE reporting_reader; REVOKE ALL ON FUNCTION fn_ca_tournament_escrow_chips(uuid),fn_tournament_conservation_delta(uuid) FROM PUBLIC; GRANT EXECUTE ON FUNCTION fn_ca_tournament_escrow_chips(uuid),fn_tournament_conservation_delta(uuid) TO reporting_reader;")
  catalog=q("SELECT json_agg(json_build_array(oid,proowner,prosecdef,provolatile,proconfig,proacl) ORDER BY oid) FROM pg_proc WHERE oid IN ('fn_ca_tournament_escrow_chips(uuid)'::regprocedure,'fn_tournament_conservation_delta(uuid)'::regprocedure);")
  q(MIG.read_text().replace('COMMIT;',"DO $$BEGIN RAISE EXCEPTION 'rollback_fixture';END$$;COMMIT;"),'rollback_fixture')
