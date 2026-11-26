@@ -1,0 +1,284 @@
+#!/usr/bin/env node
+/**
+ * A MIGRATION MERGES ONLY INSIDE ITS INSTALL WINDOW (2026-11-26, Antigravity Coordinator).
+ *
+ * The merge dispatcher holds an ordinary migration merged inside an engine
+ * cycle hold or the nightly release schema freeze, and the applier refuses a
+ * hand install there (release-freeze-admission.mjs). Holding is not enough:
+ * the merge itself puts an uninstalled migration on main, and every Backup
+ * candidate built from main after it "lacks an installed migration" until the
+ * dispatcher's next window. On 2026-11-25 #12035 merged at 22:54 Chicago, the
+ * freeze kept it uninstalled to 04:15, backup-engine.yml refused every later
+ * commit and the 01:00 cycle kept serving. Nothing stopped the merge except the
+ * merger's memory.
+ *
+ * The merge is now held to the same windows the applier admits, as the required
+ * commit status "Migration merge window" on every open pull request into main:
+ *   - no ordinary migration added or changed (a daily-maintenance window file
+ *     installs in the 04:00 break by design): success, always;
+ *   - an ordinary migration, and releaseFreezeAdmission admits now AND three
+ *     minutes from now (a merge in flight still lands inside): success;
+ *   - the label "migration-outage-override" plus a body line
+ *     "Outage override: <at least 20 characters naming the outage>": success,
+ *     the justification is printed in the status;
+ *   - anything else: failure, naming when the next window opens.
+ * The status flips with the clock, so it is kept by schedule: a keeper run at
+ * :10 every hour sweeps every minute while a window is open or about to open
+ * and closes it when it ends; a sweep at :40 closes anything a lost keeper left
+ * open; every push, label or edit re-sweeps that pull request. A status this
+ * cannot compute (a file it cannot read) is failure: it fails closed.
+ *
+ * One rule: the windows are releaseFreezeAdmission's, never a second copy.
+ */
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import {
+  declaredCutoverCadence,
+  releaseFreezeAdmission,
+  RELEASE_FREEZE_OVERRIDE_MIN_LENGTH,
+} from './release-freeze-admission.mjs';
+import { windowDeclaration } from './maintenance-window-migrations.mjs';
+
+export const MERGE_WINDOW_CONTEXT = 'Migration merge window';
+export const MERGE_WINDOW_OVERRIDE_LABEL = 'migration-outage-override';
+export const MERGE_IN_FLIGHT_MARGIN_MINUTES = 3;
+export const KEEPER_HORIZON_MINUTES = 25;
+export const KEEPER_MAX_MINUTES = 40;
+const MIGRATION_PATH = /^supabase\/migrations\/[^/]+\.sql$/;
+const OVERRIDE_LINE = /^\s*Outage override:\s*(.+?)\s*$/im;
+const MINUTE = 60_000;
+
+const chicago = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+export const chicagoTime = (ms) => `${chicago.format(new Date(ms))} CST`;
+
+/** True when an ordinary migration may merge at nowMs (the applier admits now and through the in-flight margin). */
+export function mergeWindowOpen(nowMs, cadence) {
+  const admits = (ms) => releaseFreezeAdmission({ nowMs: ms, cadence }).admit === true;
+  return admits(nowMs) && admits(nowMs + MERGE_IN_FLIGHT_MARGIN_MINUTES * MINUTE);
+}
+
+/** The first whole minute at or after nowMs when the merge window is open, within a day; null if none. */
+export function nextMergeWindow(nowMs, cadence) {
+  const start = Math.ceil(nowMs / MINUTE) * MINUTE;
+  for (let t = start; t <= start + 24 * 60 * MINUTE; t += MINUTE) {
+    if (mergeWindowOpen(t, cadence)) return t;
+  }
+  return null;
+}
+
+/** The last minute of the window open at nowMs (the status must be failure from the minute after). */
+export function mergeWindowCloses(nowMs, cadence) {
+  let t = Math.floor(nowMs / MINUTE) * MINUTE;
+  while (mergeWindowOpen(t + MINUTE, cadence)) t += MINUTE;
+  return t + MINUTE;
+}
+
+/** The written outage justification, when the label and a long enough body line are both present. */
+export function outageOverride(labels, body) {
+  if (!Array.isArray(labels) || !labels.includes(MERGE_WINDOW_OVERRIDE_LABEL)) return null;
+  const why = String(body ?? '').match(OVERRIDE_LINE)?.[1]?.trim() ?? '';
+  return why.length >= RELEASE_FREEZE_OVERRIDE_MIN_LENGTH ? why : null;
+}
+
+/**
+ * The ordinary migrations among a pull request's files. `files` are
+ * { path, changeType, sql } where sql is the head's text (undefined when it
+ * could not be read). A file that cannot be read or classified counts as
+ * ordinary: unknown is held.
+ */
+export function ordinaryMigrations(files) {
+  return (files ?? [])
+    .filter((f) => MIGRATION_PATH.test(f.path) && f.changeType !== 'DELETED')
+    .filter((f) => {
+      if (typeof f.sql !== 'string') return true;
+      try {
+        return windowDeclaration(f.sql) !== 'daily-maintenance';
+      } catch {
+        return true;
+      }
+    })
+    .map((f) => f.path);
+}
+
+/** The status for one pull request at nowMs: { state: 'success'|'failure', description } (description <= 140 chars). */
+export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body }) {
+  if (!Number.isFinite(nowMs)) throw new Error('nowMs must be a finite epoch millisecond');
+  const cut = (s) => (s.length <= 140 ? s : `${s.slice(0, 137)}...`);
+  if (baseRef !== 'main') return { state: 'success', description: 'Not a pull request into main' };
+  const ordinary = ordinaryMigrations(files);
+  if (ordinary.length === 0) return { state: 'success', description: 'No ordinary migration in this pull request' };
+  if (mergeWindowOpen(nowMs, cadence)) {
+    const closes = mergeWindowCloses(nowMs, cadence);
+    return { state: 'success', description: cut(`Install window open: merge before ${chicagoTime(closes)}`) };
+  }
+  const why = outageOverride(labels, body);
+  if (why) return { state: 'success', description: cut(`Outage override: ${why}`) };
+  const next = nextMergeWindow(nowMs, cadence);
+  return {
+    state: 'failure',
+    description: cut(
+      `Migrations merge only 10-30 min after each engine cycle and 4:15-4:30 AM, never in the freeze` +
+        (next === null ? '' : `; next ${chicagoTime(next)}`)
+    ),
+  };
+}
+
+// -- GitHub runner ------------------------------------------------------------
+function gh(args, input) {
+  return execFileSync('gh', args, {
+    encoding: 'utf8',
+    input,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+const PR_QUERY = `query($owner:String!,$name:String!,$after:String,$number:Int!,$one:Boolean!){
+  repository(owner:$owner,name:$name){
+    single: pullRequest(number:$number) @include(if:$one){ ...pr }
+    pullRequests(states:OPEN,first:40,after:$after) @skip(if:$one){
+      pageInfo{hasNextPage endCursor}
+      nodes{ ...pr }
+    }
+  }
+}
+fragment pr on PullRequest{
+  number state headRefOid baseRefName body
+  labels(first:30){nodes{name}}
+  files(first:100){totalCount nodes{path changeType}}
+  commits(last:1){nodes{commit{status{contexts{context state description}}}}}
+}`;
+
+function readPullRequests(repo, number) {
+  const [owner, name] = repo.split('/');
+  const out = [];
+  let after = null;
+  for (;;) {
+    const args = ['api', 'graphql', '-f', `query=${PR_QUERY}`, '-F', `owner=${owner}`, '-F', `name=${name}`];
+    args.push('-F', `number=${number ?? 0}`, '-F', `one=${number ? 'true' : 'false'}`);
+    if (after) args.push('-F', `after=${after}`);
+    const data = JSON.parse(gh(args)).data.repository;
+    if (number) {
+      if (data.single && data.single.state === 'OPEN') out.push(data.single);
+      return out;
+    }
+    out.push(...data.pullRequests.nodes);
+    if (!data.pullRequests.pageInfo.hasNextPage) return out;
+    after = data.pullRequests.pageInfo.endCursor;
+  }
+}
+
+function allFiles(repo, pr) {
+  if (pr.files.totalCount <= pr.files.nodes.length) return pr.files.nodes;
+  const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr.number}/files?per_page=100`]));
+  const map = { added: 'ADDED', removed: 'DELETED', modified: 'MODIFIED', renamed: 'RENAMED', copied: 'COPIED', changed: 'CHANGED' };
+  return rows.flat().map((f) => ({ path: f.filename, changeType: map[f.status] ?? 'CHANGED' }));
+}
+
+const textCache = new Map();
+function headText(repo, sha, path) {
+  const key = `${sha}:${path}`;
+  if (!textCache.has(key)) {
+    let text;
+    try {
+      text = gh(['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}?ref=${sha}`]);
+    } catch {
+      text = undefined; // unreadable counts as ordinary: held
+    }
+    textCache.set(key, text);
+  }
+  return textCache.get(key);
+}
+
+function currentStatus(pr) {
+  const contexts = pr.commits?.nodes?.[0]?.commit?.status?.contexts ?? [];
+  return contexts.find((c) => c.context === MERGE_WINDOW_CONTEXT) ?? null;
+}
+
+/** Sweeps every open pull request (or one); writes a status only where it changed. Returns the verdicts. */
+export function sweep({ repo, number = null, nowMs = Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
+  const results = [];
+  for (const pr of readPullRequests(repo, number)) {
+    let verdict;
+    try {
+      const files = allFiles(repo, pr).map((f) =>
+        MIGRATION_PATH.test(f.path) && f.changeType !== 'DELETED'
+          ? { ...f, sql: headText(repo, pr.headRefOid, f.path) }
+          : f
+      );
+      verdict = mergeWindowVerdict({
+        nowMs,
+        cadence,
+        baseRef: pr.baseRefName,
+        files,
+        labels: pr.labels.nodes.map((l) => l.name),
+        body: pr.body,
+      });
+    } catch (error) {
+      verdict = { state: 'failure', description: `Merge window could not be computed: ${String(error?.message ?? error).slice(0, 90)}` };
+    }
+    const now = currentStatus(pr);
+    const changed = !now || now.state.toLowerCase() !== verdict.state || now.description !== verdict.description;
+    if (changed) {
+      const args = ['api', '-X', 'POST', `repos/${repo}/statuses/${pr.headRefOid}`, '-f', `state=${verdict.state}`, '-f', `context=${MERGE_WINDOW_CONTEXT}`, '-f', `description=${verdict.description}`];
+      if (targetUrl) args.push('-f', `target_url=${targetUrl}`);
+      gh(args);
+    }
+    log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
+    results.push({ number: pr.number, ...verdict, changed });
+  }
+  return results;
+}
+
+/** Keeper: sweeps every minute while a window is open or opens within the horizon, then a closing sweep. */
+export async function keep({ repo, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+  const started = now();
+  const next = nextMergeWindow(started, cadence);
+  if (next === null || next - started > KEEPER_HORIZON_MINUTES * MINUTE) {
+    log(`No merge window opens within ${KEEPER_HORIZON_MINUTES} minutes; one sweep.`);
+    return sweep({ repo, nowMs: started, cadence, targetUrl, log });
+  }
+  const closes = mergeWindowCloses(Math.max(next, started), cadence);
+  log(`Merge window ${chicagoTime(next)} to ${chicagoTime(closes)}; keeping it.`);
+  for (;;) {
+    const t = now();
+    sweep({ repo, nowMs: t, cadence, targetUrl, log });
+    if (t >= closes || t - started > KEEPER_MAX_MINUTES * MINUTE) break;
+    const wait = Math.min(MINUTE - (t % MINUTE) + 2_000, Math.max(closes - t, 1_000));
+    await sleep(wait);
+  }
+  log('Window closed; closing sweep done.');
+  return true;
+}
+
+async function main(argv) {
+  const [mode, ...rest] = argv;
+  const repo = process.env.GITHUB_REPOSITORY;
+  if (!repo) throw new Error('GITHUB_REPOSITORY is required');
+  const targetUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    : undefined;
+  if (mode === 'sweep') {
+    const i = rest.indexOf('--pr');
+    const number = i >= 0 ? Number(rest[i + 1]) : null;
+    if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
+    sweep({ repo, number, targetUrl });
+    return;
+  }
+  if (mode === 'keep') {
+    await keep({ repo, targetUrl });
+    return;
+  }
+  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep');
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(`[migration-merge-window] ${error?.stack ?? error}`);
+    process.exit(1);
+  });
+}
