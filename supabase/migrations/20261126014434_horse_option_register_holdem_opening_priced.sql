@@ -1,4 +1,5 @@
 -- 20261126014434_horse_option_register_holdem_opening_priced.sql
+-- @live-proof: (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('holdemOpeningValueBetIsPriced', 'holdemOpeningBluffIsPriced')) = 2
 --
 -- HORSE OPTION SWITCH: 2 OPTIONS REGISTERED
 --
