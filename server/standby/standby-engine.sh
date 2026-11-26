@@ -1053,6 +1053,20 @@ print(json.dumps(detail, sort_keys=True))
 PY_REHEARSAL
 }
 
+# The engine still running after a failed swap is the one that hung: on
+# 2026-11-26 the serving build adopted the break and never thawed, and nothing
+# showed why. Its maintenance, leadership and thaw lines (and any fatal line)
+# from the last hour go to the job log, with long tokens masked.
+rehearsal_engine_log() {
+  local logs
+  logs=$(docker logs --since 60m "$CONTAINER" 2>&1) || return 1
+  printf '%s\n' "$logs" \
+    | grep -i -E 'maintenance|thaw|freeze|frozen|break|leader|standby|adopt|claim|FATAL|Uncaught|unhandledRejection' \
+    | sed -E 's/(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]{40,})/<masked>/g' \
+    | tail -n 80 | sed 's/^/rehearsal engine: /'
+  return 0
+}
+
 # A copy a failed rehearsal ran on may still be inside that trial's break.
 # Marking it unvalidated makes the workflow's copy stamp read as never
 # restored (so the next run restores it) and makes assert_valid_copy refuse
@@ -1138,6 +1152,7 @@ cmd_certify() {
         rm -f "$swap_out"
         if [ "$rehearsal_failure" != null ]; then
           log "certify $sha: rehearsal failure detail $rehearsal_failure"
+          rehearsal_engine_log >&2 || log "certify $sha: the rehearsal engine's log could not be read"
           mark_copy_spent "$sha" "$rehearsal_failure" || record 'copy_could_not_be_marked_spent'
         fi
       else
