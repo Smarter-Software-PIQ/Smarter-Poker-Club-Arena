@@ -1331,15 +1331,31 @@ describe('PlayerStatsPage mounts', () => {
       indexed_complete: true,
     };
     rpcPayload.quality = { ...(rpcPayload.quality as object), exact_cash_hands: 1 };
-    render(<PlayerStatsPage />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Analysis' }, { timeout: 6000 }));
+    // Use the real lazy panels. Their first-time Vite transformations are independent
+    // of the event debounce and must resolve before this interaction is timed.
+    await Promise.all([
+      import('../../src/pages/stats/AnalysisTab'),
+      import('../../src/pages/stats/HandsTab'),
+      import('../../src/components/stats/HoleCardHeatmap'),
+    ]);
+    const { container } = render(<PlayerStatsPage />);
+    const analysisTab = await screen.findByText(
+      'Analysis',
+      { selector: '[role="tab"]' },
+      { timeout: 6000 }
+    );
+    fireEvent.click(analysisTab);
     const reads = () =>
       rpcMock.mock.calls.filter(([name]) => name === 'ca_player_hands_separated').length;
     // The RPC fires before the lazy Analysis panel and its hand contract have painted.
-    await screen.findByText('No Cash Hands Recorded Yet. Tournament Chips Are Not Ranked Here.');
+    await screen.findByText(
+      'No Cash Hands Recorded Yet. Tournament Chips Are Not Ranked Here.',
+      undefined,
+      { timeout: 6000 }
+    );
     expect(reads()).toBe(1);
-    const link = { name: /Open Hand From/i };
-    expect(screen.queryByRole('link', link)).toBeNull();
+    const linkSelector = '#stats-panel-analysis a[aria-label^="Open Hand From"]';
+    expect(container.querySelector(linkSelector)).toBeNull();
     notableHandsPayload.hands = [
       {
         id: '11111111-1111-4111-8111-111111111111',
@@ -1359,7 +1375,7 @@ describe('PlayerStatsPage mounts', () => {
     ];
     // Advance only the coalescing window. Await the real destination and its selected mode.
     const sendActivity = async (count: number) => {
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       try {
         await act(async () => {
           for (let i = 0; i < count; i++) livePulse.onChange();
@@ -1371,20 +1387,27 @@ describe('PlayerStatsPage mounts', () => {
     };
     await sendActivity(1);
     expect(reads()).toBe(2);
-    expect(await screen.findByRole('link', link)).toHaveAttribute(
-      'href',
-      expect.stringContaining('11111111-1111-4111-8111-111111111111')
+    await waitFor(() =>
+      expect(container.querySelector(linkSelector)).toHaveAttribute(
+        'href',
+        expect.stringContaining('11111111-1111-4111-8111-111111111111')
+      )
     );
-    expect(reads()).toBe(2);
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Hands' }));
-    await screen.findByText(/No Hold.em Hands Recorded Yet For This Filter/i);
+    fireEvent.click(screen.getByText('Hands', { selector: '[role="tab"]' }));
     const grid = vi.mocked(StatsFactsService.getHandGrid);
+    await waitFor(() => expect(grid.mock.calls.length).toBeGreaterThan(0), { timeout: 6000 });
+    const handsPanel = container.querySelector('[role="tabpanel"]');
+    expect(handsPanel).toHaveAttribute('id', 'stats-panel-hands');
+    await waitFor(
+      () => expect(handsPanel).toHaveTextContent(/No Hold.em Hands Recorded Yet For This Filter/i),
+      { timeout: 6000 }
+    );
+
     const before = grid.mock.calls.length;
     await sendActivity(2);
     expect(grid).toHaveBeenCalledTimes(before + 1);
     expect(reads()).toBe(2);
-  }, 12000);
+  });
 
   it('shows unavailable and no evidence link for a wrong-scope notable-hands success', async () => {
     rpcPayload = {
