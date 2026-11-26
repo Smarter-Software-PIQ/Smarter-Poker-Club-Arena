@@ -857,7 +857,104 @@ try:
  fs_sizes=run('fs-record-sizes',"SELECT pg_column_size("+jsonb_literal(fs_worst)+")||':'||length("+jsonb_literal(fs_worst)+"::text)||':'||pg_column_size(flop_shown)||':'||length(flop_shown::text)||':'||pg_column_size(street_counters_price)||':'||length(street_counters_price::text)||':'||pg_column_size('{\"foldToRaise\":{\"flop\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"turn\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"river\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345}}}'::jsonb) FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND variant='plo4' AND mode='cash';")
  assert all(int(x)<1500 for x in fs_sizes.split(':')),fs_sizes
  assert run('fs-record-bytes',"SELECT pg_column_size(flop_shown)<1400 AND length(flop_shown::text)<700 FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND variant='plo4' AND mode='cash';")=='t'
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; flop-shown record: SQL hand class equal to the engine on pinned and 700 dealt hands, SQL increments equal to the engine reducer on pinned vectors and 260 random hands with amounts, showdown lists and winners, the integer add rule exactly equal through 160 hands, refused without the public showdown columns, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand and hand_history.players never read, cash and tournament apart, both install orders converge, rerun idempotence and saved read; fold-to-raise price record: SQL increments equal to the engine reducer on pinned vectors and 260 random logs with amounts and pot sizes to 1e-12, the add rule through 120 hands, exact values through the accepted receipt, a hand without such a raise leaves it unchanged, saved read; learner hardening (20261119213206): the one-pass add rule equal to the per-number one on damaged inputs and every vector, measured per-hand cost before and after, Omaha family only through the accepted receipt, shown only with mucked=false written out, no float8 overflow from a stored number, both install orders converge, rerun idempotence; no production installation','fs2Timing':fs2_timing},indent=2))
+ # 2026-11-24 how an opener answers a 3-bet of his own open (20261124195144): the same learner, forward only, no
+ # back-fill; public actions only; nlh, plo4 and plo5 only. Engine twin: HorseOpenerAnswersThreeBet.
+ ormig=(ROOT/'supabase/migrations/20261124195144_exact_profile_keeps_how_an_opener_answers_a_3_bet.sql').read_text()
+ or_proof=next(line.removeprefix('-- @live-proof: ') for line in ormig.splitlines() if line.startswith('-- @live-proof: '))
+ OR_NODES=['inPosition','outOfPosition']; OR_FIELDS=['opp','fold','call','raise']
+ def or_row(rec):
+  # exactly the two cells, each exactly its four fields
+  assert sorted(rec)==sorted(OR_NODES) and all(sorted(rec[n])==sorted(OR_FIELDS) for n in OR_NODES),rec
+  return [rec[n][f] for n in OR_NODES for f in OR_FIELDS]
+ def or_record(digits): return {n:{f:int(digits[4*i+j]) for j,f in enumerate(OR_FIELDS)} for i,n in enumerate(OR_NODES)}
+ def or_decode(log):
+  out=[]
+  for token in log.split(' '):
+   if not token: continue
+   uid,stage,action,origin,full,dead=token.split(',')
+   act={'stage':stage,'action':action}
+   if uid!='-':act['userId']=uid
+   if origin!='-':act['origin']=origin
+   if full!='-':act['isFullRaise']=full=='1'
+   if dead!='-':act['dead']=dead=='1'
+   out.append(act)
+  return out
+ or_of=lambda uid,variant='plo4',mode='cash': "SELECT coalesce(opener_response::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND variant='"+variant+"' AND mode='"+mode+"';"
+ psql[-1]='postgres'
+ assert run('or-proof-before','SELECT '+or_proof)=='f'
+ or_before=run('or-before',"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text||coalesce(reraise_response::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")
+ run('or-install',ormig)
+ assert run('or-proof','SELECT '+or_proof)=='t'
+ assert run('or-no-backfill',"SELECT count(*) FROM horse_exact_profiles WHERE opener_response IS NOT NULL;")=='0'
+ assert run('or-rows-untouched',"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text||coalesce(reraise_response::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")==or_before
+ assert run('or-private',"SELECT bool_or(has_function_privilege(r,f,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY['fn_horse_opener_response_increments(jsonb)','fn_horse_opener_response_add(jsonb,jsonb)']) f;")=='f'
+ or_def=run('or-definition',trigger_def)
+ run('or-repeat',ormig)
+ assert run('or-repeat-definition',trigger_def)==or_def
+ or_inc=or_def.split('opener_response_inc:=')[1].split(';')[0]
+ assert 'showdown' not in or_inc and 'hole_cards' not in or_inc and 'h.actions' in or_inc,or_inc
+ or_vectors=json.loads((ROOT/'scripts/ci/fixtures/horse-opener-response-vectors.json').read_text())
+ def or_sql(got): return {uid:or_row(rec) for uid,rec in got.items()}
+ for i,v in enumerate(or_vectors['named']):
+  got=json.loads(run('or-vector-'+str(i),"SELECT fn_horse_opener_response_increments("+jsonb_literal(v['actions'])+")::text;"))
+  assert or_sql(got)==v['expected'],(v['name'],got,v['expected'])
+ or_cases=or_vectors['random']
+ or_values=",".join("("+str(k)+","+jsonb_literal(or_decode(v['log']))+")" for k,v in enumerate(or_cases))
+ or_out=run('or-random',"SELECT string_agg(fn_horse_opener_response_increments(a)::text,E'\\n' ORDER BY k) FROM (VALUES "+or_values+") v(k,a);").split('\n')
+ assert len(or_out)==len(or_cases)>=200
+ or_live=0
+ for k,v in enumerate(or_cases):
+  got=or_sql(json.loads(or_out[k])); or_live+=bool(got)
+  assert got==v['expected'],(k,v['log'],got,v['expected'])
+ assert or_live>=20,or_live
+ # The add rule against the engine's, through a chain of 120 hands, to 1e-12.
+ or_chain='NULL::jsonb'; or_checkpoints={c['after']:c['row'] for c in or_vectors['chain']['checkpoints']}
+ for k,digits in enumerate(or_vectors['chain']['steps'],1):
+  or_chain="fn_horse_opener_response_add("+or_chain+","+jsonb_literal(or_record(digits))+")"
+  if k in or_checkpoints:
+   raw=run('or-add-'+str(k),"SELECT coalesce("+or_chain+"::text,'null');"); got=json.loads(raw); or_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=or_checkpoints[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert all(abs(x-y)<1e-12 for x,y in zip(or_row(got),want)) and len(want)==8,(k,got,want)
+ assert len(or_checkpoints)>=12
+ assert run('or-add-null-delta',"SELECT fn_horse_opener_response_add(NULL,NULL) IS NULL AND fn_horse_opener_response_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
+ # A damaged stored record never raises inside the accepted hand: a field that is not a number (or is beyond 1e12)
+ # counts as 0.
+ or_damaged=json.loads(run('or-add-damaged',"SELECT fn_horse_opener_response_add('{\"inPosition\":{\"opp\":\"x\",\"fold\":[1],\"call\":1e400},\"outOfPosition\":7}'::jsonb,"+jsonb_literal(or_record('10100000'))+")::text;"))
+ assert or_row(or_damaged)==[1,0,1,0,0,0,0,0],or_damaged
+ assert run('or-increments-not-array',"SELECT fn_horse_opener_response_increments('{}'::jsonb)::text||fn_horse_opener_response_increments(NULL)::text||fn_horse_opener_response_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb)::text;")=='{}{}{}'
+ # Learning through the protected accepted receipt: the blinds from the posts, nlh/plo4/plo5 only.
+ orA='00000000-0000-4000-8000-0000000000d1'; orB='00000000-0000-4000-8000-0000000000d2'; orC='00000000-0000-4000-8000-0000000000d3'
+ pf=lambda uid,action,origin='player': {'userId':uid,'stage':'preflop','action':action,'origin':origin}
+ or_hand=lambda answer: [pf(orC,'sb','forced'),pf(orB,'bb','forced'),pf(orA,'raise'),pf(orC,'fold'),pf(orB,'raise'),pf(orA,answer)]
+ def or_accept(n,hand,variant='plo4',tournament=None):
+  row={'table_id':'00000000-0000-4000-8000-000000000001','hand_number':1000000+n,'game_variant':variant,'horse_exploit_dealt_count':3,'players':[],'actions':hand,'public_memory_domain':domain}
+  if tournament is not None:row['tournament_id']=tournament
+  return run('or-accept-'+str(n),"BEGIN; SELECT fn_ca_insert_hand_with_awards('"+json.dumps(row).replace("'","''")+"'::jsonb);INSERT INTO hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number,id,repeat('a',64),'{}' FROM hand_history WHERE hand_number="+str(1000000+n)+"; COMMIT;")
+ or_plan=[or_hand('call'),or_hand('fold'),or_hand('raise'),[pf(orA,'raise'),pf(orB,'call')]]
+ for k,hand in enumerate(or_plan):
+  prior=run('or-prior-'+str(k),or_of(orA))
+  or_accept(600+k,hand)
+  want=run('or-want-'+str(k),"SELECT coalesce(fn_horse_opener_response_add("+("NULL" if prior in ('null','') else "'"+prior+"'")+"::jsonb,fn_horse_opener_response_increments("+jsonb_literal(hand)+")->'"+orA+"')::text,'null');")
+  assert run('or-learned-'+str(k),or_of(orA))==want,(k,want)
+ or_learned=json.loads(run('or-learned-state',or_of(orA))); sd=0.5**(1/30)
+ # Three 3-bets faced in position (call, fold, 4-bet); the fourth hand gave no opportunity and aged nothing.
+ ip=or_learned['inPosition']
+ assert abs(ip['opp']-(sd*sd+sd+1))<1e-12 and abs(ip['call']-sd*sd)<1e-12 and abs(ip['fold']-sd)<1e-12 and ip['raise']==1,or_learned
+ assert or_learned['outOfPosition']=={'opp':0,'fold':0,'call':0,'raise':0},or_learned
+ assert run('or-threebettor-none',or_of(orB))=='null'
+ # Tournament evidence stays in the tournament row; a game outside nlh/plo4/plo5 learns nothing; nlh and plo5 learn.
+ or_text=run('or-text',or_of(orA))
+ or_accept(610,or_plan[0],tournament='00000000-0000-4000-8000-0000000000f4')
+ assert run('or-tournament-row',"SELECT opener_response->'inPosition'->>'opp' FROM horse_exact_profiles WHERE user_id='"+orA+"' AND mode='tournament';")=='1'
+ assert run('or-cash-untouched-by-tournament',or_of(orA))==or_text
+ for k,v in enumerate(['nlh','plo5','plo6','flh']):
+  or_accept(620+k,or_plan[0],variant=v)
+  got=run('or-variant-'+v,or_of(orA,variant=v))
+  assert (got=='null')==(v in ('plo6','flh')),(v,got)
+ assert run('or-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))::text FROM horse_exact_profiles WHERE user_id='"+orA+"' AND variant='plo4' AND mode='cash';")=='27'
+ assert run('or-read',"SET ROLE service_role; SELECT opener_response::text FROM fn_horse_exact_profiles_read(ARRAY['"+orA+"'],'plo4','cash','short','table','none');")==or_text
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; flop-shown record: SQL hand class equal to the engine on pinned and 700 dealt hands, SQL increments equal to the engine reducer on pinned vectors and 260 random hands with amounts, showdown lists and winners, the integer add rule exactly equal through 160 hands, refused without the public showdown columns, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand and hand_history.players never read, cash and tournament apart, both install orders converge, rerun idempotence and saved read; fold-to-raise price record: SQL increments equal to the engine reducer on pinned vectors and 260 random logs with amounts and pot sizes to 1e-12, the add rule through 120 hands, exact values through the accepted receipt, a hand without such a raise leaves it unchanged, saved read; learner hardening (20261119213206): the one-pass add rule equal to the per-number one on damaged inputs and every vector, measured per-hand cost before and after, Omaha family only through the accepted receipt, shown only with mucked=false written out, no float8 overflow from a stored number, both install orders converge, rerun idempotence; opener response record (20261124195144): SQL increments equal to the engine reducer on pinned vectors and 260 random public action logs with blind posts and dead blinds, the 30-opportunity half-life to 1e-12 through 120 hands, forward-only learning with no back-fill, exact cell values through the accepted receipt, position from the posts, nlh/plo4/plo5 only, cash and tournament apart, no hole card or showdown read, rerun idempotence and saved read; no production installation','fs2Timing':fs2_timing},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])

@@ -102,6 +102,18 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     proof:
       'holdemValueAndCallsArePriced (default OFF): postflop only, heads-up NLH cash; returns the decision it was given unless the option is on and the spot is priced',
   },
+  {
+    owner: 'holdemOpeningPriced',
+    kind: 'postflop',
+    proof:
+      'holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (default OFF): postflop only, heads-up NLH cash, not facing a wager; returns the decision it was given unless an option is on and a bet prices above the check (HorseHoldemOpeningIsPriced.law.test.ts)',
+  },
+  {
+    owner: 'holdemTournamentBluffPriced',
+    kind: 'postflop',
+    proof:
+      'holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default OFF): postflop only, heads-up NLH tournaments, not facing a wager; returns the decision it was given unless an option is on and a bluff prices above the check (HorseHoldemTournamentLateIsPriced.law.test.ts)',
+  },
   { owner: 'maniacCallDown', kind: 'post_route', proof: 'maniacCallDown' },
   { owner: 'maniacShortStackJam', kind: 'post_route', proof: 'acts on a raise only' },
   { owner: 'fixedLimitRiverStrongHandLead', kind: 'postflop', proof: 'river only' },

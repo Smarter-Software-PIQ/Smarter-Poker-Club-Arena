@@ -23,10 +23,24 @@ import {
   holdemDangerBoardBettorEquity,
 } from './HorseHoldemCommittedPricing.js';
 import {
+  HOLDEM_OPENING_BET_SHARE_ANCHOR,
+  HOLDEM_OPENING_FOLD_ANCHOR,
+  holdemOpeningBest,
+  holdemOpeningBetShare,
+  holdemOpeningFoldReference,
+  holdemOpeningPrice,
+  holdemRangeAdvantage,
+} from './HorseHoldemOpeningIsPriced.js';
+import {
+  holdemTournamentBestBluff,
+  holdemTournamentWagerParts,
+} from './HorseHoldemTournamentLateIsPriced.js';
+import {
   priceCommittingBluffRaise,
   type CommittingBluffRaiseOpponent,
 } from './HorseV78CommittingBluffRaisePriced.js';
 import {
+  HOLDEM_PRICED_REALIZATION_OOP,
   holdemEquityOfShare,
   holdemFillEquities,
   holdemHandIsMade,
@@ -191,6 +205,14 @@ import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaTurnStabSpot } from './HorseOmahaTurnStabDefence.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import {
+  omahaPricedFacingAnyOn,
+  omahaPricedFacingVerdict,
+  type OmahaPricedFacingVerdict,
+} from './HorseOmahaFacingBetPriced.js';
+import { omahaFlopCallTreeRule } from './HorseOmahaFlopCallTree.js';
+import { omahaMultiwayValueBetRule } from './HorseOmahaMultiwayValueBet.js';
+import { omahaMeasuredLineOf } from './HorseOmahaMeasuredBettorRange.js';
+import {
   classCapFloorKeepsTheCall,
   classCapRespectingEquity,
   OMAHA_CLASS_CAP_FLOOR_MIN_SAMPLES,
@@ -226,6 +248,7 @@ import {
   omahaBetReadModeOf,
   omahaBetReadSpeedOf,
   omahaBetReadOf,
+  omahaBetReadOwnCellOf,
   OMAHA_BET_READ_TURN_REALIZATION,
   type OmahaBetRead,
 } from './HorseOmahaBetRead.js';
@@ -2884,6 +2907,63 @@ export function payJumpBubbleFactor(
   return effective > 1 ? effective : null;
 }
 
+/**
+ * THE PAYOUT PRICE OF A POSTFLOP WAGER (plo-lead7 tourney-postflop 2026-11-26; read only by the default-off
+ * holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced). 'chips' where no pay jump is live (the
+ * same liveness payJumpBubbleFactor reads: in the money, hand for hand on or expected, near the bubble, or within
+ * max(paid + 1, 1.15 x paid) of the money), with two or fewer left (heads-up plays chip EV, V23), or where no place
+ * is paid; otherwise a function giving the Horse's effective bubble factor for risking `riskChips`
+ * (payJumpBubbleFactor; 1 where it prices no premium), or 'unknown' where a pay jump is live and the trusted
+ * context cannot price it (no trusted context at all, a satellite, a PKO, a mystery bounty, or no stacks, payouts or
+ * identity): unknown is not "no pay jump", and the caller stands down.
+ */
+/**
+ * The largest field (stacks carried in the tournament context) on which holdemTournamentRiverBluffIsPriced /
+ * holdemTournamentTurnBluffIsPriced read the bubble factor on a live pay jump: a compute bound, not a poker
+ * threshold. Cold, two ICM equities cost about 0.3 ms at 10 left, 1 ms at 30, 3 ms at 90 and 6.5 ms at 200 (lane
+ * bench, IcmModel.bubbleFactor); on a 200-left bubble the decision with the option on took p95 14.5 / max 30.5 ms
+ * against the 10 / 25 ms stage bar. Above it, on a live pay jump, the options stand down (not within the pay-jump
+ * zone of a large field); away from a pay jump they price chips at any field size.
+ */
+export const HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX = 60;
+
+export function postflopWagerPayoutPrice(
+  gs: HorseGameStateV2,
+  stackBB: number,
+  heroUserId?: string
+): 'chips' | 'unknown' | ((riskChips: number) => number) {
+  if (!isTournamentMode(gs)) return 'chips';
+  const t = trustedTournamentContext(gs);
+  if (!t) return 'unknown';
+  const left = t.playersLeft ?? 0;
+  const paid = t.spotsPaid ?? 0;
+  if (!(left > 0)) return 'unknown';
+  if (left <= 2 || !(paid > 0)) return 'chips';
+  const payJumpLive =
+    t.inMoney === true ||
+    left <= paid ||
+    t.handForHand === true ||
+    t.handForHandExpected === true ||
+    t.nearBubble === true ||
+    left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
+  if (!payJumpLive) return 'chips';
+  if (t.satellite === true || t.isPko === true || t.isMysteryBounty === true) return 'unknown';
+  // the inputs heroBubbleFactor needs, checked without computing an ICM equity (the read happens only if called)
+  if (
+    !Array.isArray(t.stacks) ||
+    t.stacks.length < 2 ||
+    !Array.isArray(t.payoutPct) ||
+    t.payoutPct.length < 1 ||
+    !(gs.bigBlind > 0) ||
+    realIcmInputs(gs, t, stackBB, heroUserId) === null
+  )
+    return 'unknown';
+  return (riskChips: number) => {
+    const bf = payJumpBubbleFactor(gs, stackBB, heroUserId, Math.max(1, riskChips));
+    return bf !== null && bf > 1 ? bf : 1;
+  };
+}
+
 function icmRisk(
   gs: HorseGameStateV2,
   stackBB: number,
@@ -4373,6 +4453,45 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_facing_bet_ev. */
   omahaFacingBetEv?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (F1, plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4). PLO4/PLO5 cash, turn and
+   * river, inside omahaFacingBetEv (it acts only where that verdict decides): the bettor's range is his MEASURED
+   * strength histogram by street, line, size and pot type (HorseOmahaMeasuredBettorRange, tables fitted from shown
+   * hands by scripts/ops/omaha-facing-bet-range-fit.mjs), his own shown record shrunk toward it, priced exactly
+   * against the Horse's hand (HorseOmahaFacingBetPriced). The 0.8 / 0.9 per-street narrowing and the fixed 13-19%
+   * river bluff share are not used. With no record the existing public read factor moves the table, as today.
+   * Never PLO6, a tournament, hi-lo, a bomb pot or more than one board. Default OFF (read `=== true`). */
+  omahaFacingBetRangeIsMeasuredByLine?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (F2). PLO4/PLO5 cash, every street where a facing-bet verdict of this family
+   * decides (omahaFacingBetEv, omahaFlopRealizationIsPriced): the call is made at EV >= the estimate's own error
+   * (0 for an exact count, the sampling error for a sample) instead of EV > 2% of the final pot. Exact
+   * indifference calls. Default OFF (read `=== true`). */
+  omahaFacingBetIndifferenceCalls?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (F3). PLO4/PLO5 cash flop facing a bet or a raise (table and Lightning): the call
+   * is priced as the two-street tree (HorseOmahaFlopDefenceTree.omahaFlopDefenceTreeEv, reused as it is) on the
+   * bettor's measured flop range and the field dealt on the same runouts (HorseOmahaFlopCallTree), his later bet
+   * rates measured and identity-free; no realization factor and no fitted multiplier. It decides the flop whether
+   * omahaFlopFacingBetEv is on or off. Default OFF (read `=== true`). */
+  omahaFlopRealizationIsPriced?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (F6). With omahaFacingBetRangeIsMeasuredByLine or omahaFlopRealizationIsPriced
+   * on: a bettor with no shown record of the cell is priced with a weak share no lower than the cell's
+   * minimum-defence share (the Horse's whole range folds no more than s / (1 + s) + 5 points to a bet of size s);
+   * a record is never bounded. Default OFF (read `=== true`). */
+  omahaFacingBetMinimumDefencePrior?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
+   * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
+   * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
+   * rate and his call is added to the pot. Heads-up spots are untouched. Default OFF (read `=== true`). */
+  omahaFacingBetFieldIsJoint?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (multiway M2). Inside omahaFacingBetFieldIsJoint and omahaFlopRealizationIsPriced's
+   * field: the field holds flush draws at the measured share of callers by strength, and the share of the Horse's
+   * wins over the bettor lost to a better same-category hand of the field is measured into the price. An input to
+   * the price, never a rule. Default OFF (read `=== true`). */
+  omahaMultiwayCallNeedsNutShare?: boolean;
+  /** PLO-OWNER lead-6 2026-11-24 (multiway M3). PLO4/PLO5 cash, flop/turn/river, nothing to call, two to four live
+   * opponents, the chain's final check: the best of a third, a half and three quarters of the pot replaces the
+   * check where its EV against the field's measured fold and calling ranges beats the check's by 2% of the pot
+   * (HorseOmahaMultiwayValueBet). Identity-free. Default OFF (read `=== true`). */
+  omahaMultiwayValueBetIsPriced?: boolean;
   /** PLO Strategy lane 2026-11-17 (owner: Phase 2 texture-based equity realization;
    *  the bet's size must not decide): opt-in (`=== true`), inside omahaFacingBetEv
    *  only, PLO4/PLO5. A non-final TURN call's realization factor is read from the
@@ -4766,6 +4885,11 @@ export interface HorseDecideOpts {
    * folded against a 61% break-even). The rejected 3-bet calls only where the brain's own call bar for the spot admits
    * the call and it is priced at or above 0. Never a tournament, Short Deck or Lightning. Default OFF. */
   holdemOopReraiseRangeHoldsVsReraise?: boolean;
+  /** 2026-11-24 PLO-LEAD-6 (default OFF): with omahaOopReraiseRangeHoldsVsReraise / holdemOopReraiseRangeHoldsVsReraise
+   *  on, the planned-fold guard binds in proportion to this opener's own 4-bet record (HorseOpenerAnswersThreeBet,
+   *  horse_exact_profiles.opener_response, anchored to a 0.10 baseline) and his call : 4-bet split is his own. */
+  omahaOopReraiseRangeReadsOpenerRecord?: boolean;
+  holdemOopReraiseRangeReadsOpenerRecord?: boolean;
   /** horse.reraiseFoldShareCap (runtime setting, default 0.45): the most of the out-of-position 3-bet range the two
    *  options above let fold to a 4-bet; never above the 4-bettor's pure-bluff break-even for the size. */
   reraiseFoldShareCap?: number;
@@ -6168,6 +6292,30 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** plo-lead7 2026-11-25 (real-hand audit NLH cash: missed turn value bets, thin flop value, turn bets sized too
+   * small): opt-in (`=== true`), default OFF. NLH cash (table and Lightning), heads-up, not facing a wager: the
+   * brain's check becomes a value bet at the legal priced size of highest EV when the hands that call lose chips to
+   * it on balance and the bet prices above the check; a turn value bet is resized to that size when it prices
+   * higher (HorseHoldemOpeningIsPriced). His fold from his own record, shrunk to the equilibrium anchor. Off:
+   * byte-identical. */
+  holdemOpeningValueBetIsPriced?: boolean;
+  /** plo-lead7 2026-11-25 (real-hand audit NLH cash: missed river and turn bluffs): opt-in (`=== true`), default
+   * OFF. NLH cash (table and Lightning), heads-up, turn and river, not facing a wager: the brain's check becomes a
+   * bluff at the legal priced size of highest EV only when the bluff prices above the check AND the Horse's cards
+   * remove more of his calling part than of his folding part (blockers) or the Horse's line range outscores his
+   * (range advantage) (HorseHoldemOpeningIsPriced). Off: byte-identical. */
+  holdemOpeningBluffIsPriced?: boolean;
+  /** plo-lead7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people: missed river bluffs, the
+   * top tournament leak after the flop): opt-in (`=== true`), default OFF. NLH tournaments (MTT, SNG, Spin,
+   * heads-up), one board, heads-up in the pot, river, not facing a wager: the brain's check becomes a bluff at the
+   * legal size of highest payout-risk-weighted EV (the shove where the effective stack makes it the size) only when
+   * it prices above the check AND blockers or the range advantage are the Horse's (HorseHoldemTournamentLateIsPriced).
+   * Losses weighted by the Horse's bubble factor where a pay jump is live; stands down where one is live and the
+   * context cannot price it. Off: byte-identical. */
+  holdemTournamentRiverBluffIsPriced?: boolean;
+  /** plo-lead7 tourney-postflop 2026-11-26: the same as holdemTournamentRiverBluffIsPriced on the turn (equity
+   * realization out of position as the opening side's). Opt-in (`=== true`), default OFF. Off: byte-identical. */
+  holdemTournamentTurnBluffIsPriced?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
@@ -13310,7 +13458,16 @@ function omahaOwnerRuledFinal(
   // omahaMultiwayCheckedToBetIsPriced (default off): priced here, after every rule that can bet a check (the
   // strong-hand value bet, the draw rules, the slowplay mix), so it only ever turns the chain's final check into a
   // bet and never resizes a bet a later rule chose; the owner-ruled checks below still stand over its bet.
-  const decision = omahaMultiwayCheckedToBetRule(given, player, gs, opts);
+  const checkedToRuled = omahaMultiwayCheckedToBetRule(given, player, gs, opts);
+  // omahaMultiwayValueBetIsPriced (default off): the same place, a final multiway check priced against the bet;
+  // a bet an owner-ruled check below checks is checked again there.
+  const decision =
+    opts.omahaMultiwayValueBetIsPriced === true
+      ? omahaMultiwayValueBetRule(checkedToRuled, player, gs, {
+          telemetry: telemetryOn(opts),
+          rake: rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        })
+      : checkedToRuled;
   const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
   if (faced !== null) return faced;
   const flopFaced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
@@ -14320,6 +14477,22 @@ function omahaFacingBetEvRule(
   // omahaFlopFacingBetEv on, and reads the bettor.
   const valueShareMeasured = opts.omahaFacingBetValueShareIsMeasured === true;
   const flopVerdictOn = opts.omahaFlopFacingBetEv === true || valueShareMeasured;
+  // omahaFlopRealizationIsPriced (default off): the flop tree on measured ranges decides where it prices; where it
+  // does not (null), the flop is decided as with the option off.
+  if (opts.omahaFlopRealizationIsPriced === true && gs.stage === 'flop') {
+    const priced = omahaFlopCallTreeRule(decision, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+      rake: isTournamentMode(gs)
+        ? 0
+        : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
+      minDefence: opts.omahaFacingBetMinimumDefencePrior === true,
+      indifference: opts.omahaFacingBetIndifferenceCalls === true,
+      nutShare: opts.omahaMultiwayCallNeedsNutShare === true,
+    });
+    if (priced !== null) return priced;
+  }
   if ((flopVerdictOn || opts.omahaFlopDefenceIsPriced === true) && gs.stage === 'flop')
     return omahaFlopFacingBetEvRule(decision, player, gs, {
       mind: opts.mind !== false,
@@ -14369,6 +14542,19 @@ function omahaFacingBetEvRule(
       );
       if (ev.measured?.read) noteFire('omaha_facing_bet_value_share_measured');
       if (ev.measured?.ranged) noteFire('omaha_facing_bet_measured_range_priced');
+      // the corrected price (omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint) decided
+      if (ev.priced) {
+        const how = ev.priced.priced;
+        if (how === 'joint' && evCall) noteFire('omaha_priced_facing_bet_joint_call');
+        else if (how === 'joint') noteFire('omaha_priced_facing_bet_joint_fold');
+        else if (how === 'range' && evCall) noteFire('omaha_priced_facing_bet_range_call');
+        else if (how === 'range') noteFire('omaha_priced_facing_bet_range_fold');
+        else if (evCall) noteFire('omaha_priced_facing_bet_margin_call');
+        else noteFire('omaha_priced_facing_bet_margin_fold');
+        if (ev.priced.source === 'record') noteFire('omaha_priced_facing_bet_record_read');
+        if (ev.priced.bounded) noteFire('omaha_priced_facing_bet_min_defence_bounded');
+        if (ev.pricedChanged) noteFire('omaha_priced_facing_bet_changed');
+      }
     }
     if (evCall === legacyCall) return decision;
     if (tele) noteFire('omaha_facing_bet_ev_changed');
@@ -14396,6 +14582,10 @@ type OmahaFacingBetEvAnswer = {
   /** omahaFacingBetValueShareIsMeasured only: a street record of the bettor was read (read) and the verdict
    *  was priced on his line-conditioned measured range (ranged) */
   measured?: { read: boolean; ranged: boolean; factor: number };
+  /** omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint: the corrected price that decided, and
+   *  whether its call differs from today's verdict */
+  priced?: OmahaPricedFacingVerdict;
+  pricedChanged?: boolean;
 };
 
 /** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
@@ -14438,6 +14628,8 @@ let omahaFacingBetEvCountMemo: {
   /** omahaStabDefenceIsPriced */
   stabDefence: boolean;
   valueShareMeasured: boolean;
+  /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
+  pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -14644,6 +14836,21 @@ function omahaFacingBetEvCount(
     opts.omahaFacingBetValueShareIsMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaFacingBetRangeIsMeasuredByLine and its siblings (default off): PLO4/PLO5 cash only.
+  const pricedOpts = {
+    range: opts.omahaFacingBetRangeIsMeasuredByLine === true,
+    indifference: opts.omahaFacingBetIndifferenceCalls === true,
+    minDefence: opts.omahaFacingBetMinimumDefencePrior === true,
+    jointField: opts.omahaFacingBetFieldIsJoint === true,
+    nutShare: opts.omahaMultiwayCallNeedsNutShare === true,
+  };
+  const pricedOn =
+    omahaPricedFacingAnyOn(pricedOpts) &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  const pricedKey = pricedOn
+    ? `${+pricedOpts.range}${+pricedOpts.indifference}${+pricedOpts.minDefence}${+pricedOpts.jointField}${+pricedOpts.nutShare}`
+    : '';
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -14663,7 +14870,8 @@ function omahaFacingBetEvCount(
     memo.betRead === betReadOn &&
     memo.betReadModeSplit === betReadModeSplit &&
     memo.stabDefence === stabDefence &&
-    memo.valueShareMeasured === valueShareMeasured
+    memo.valueShareMeasured === valueShareMeasured &&
+    memo.pricedKey === pricedKey
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -14940,7 +15148,61 @@ function omahaFacingBetEvCount(
       );
       if (ranged) verdict = withoutBluffCatch(ranged);
     }
-    if (verdict) {
+    // omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint (default off): the corrected price
+    // (HorseOmahaFacingBetPriced) replaces the verdict's call, EV and margin where it prices the spot.
+    let priced: OmahaPricedFacingVerdict | null = null;
+    if (verdict && pricedOn) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        const variant = String(gs.gameVariant ?? '').toLowerCase();
+        const line = omahaMeasuredLineOf(
+          gs.actionHistory,
+          spot.street,
+          spot.bettorSeat,
+          spot.isRaise
+        );
+        priced = omahaPricedFacingVerdict(
+          {
+            variant,
+            spot,
+            base: verdict,
+            hole: player.cards ?? [],
+            board: gs.communityCards ?? [],
+            dead: player.knownDeadCards ?? [],
+            line,
+            record:
+              mind && bettor && !spot.isRaise
+                ? omahaBetReadOwnCellOf(
+                    bettor.user_id,
+                    variant,
+                    spot.street,
+                    spot.potFrac,
+                    line === 'agg'
+                  )
+                : null,
+            readFactor: spot.priorBluff > 0 ? verdict.bluffShare / spot.priorBluff : 1,
+            rake: omahaFacingBetDeduction(player, gs, opts),
+          },
+          pricedOpts
+        );
+      } catch {
+        priced = null;
+      }
+    }
+    if (verdict && priced) {
+      const baseCall = verdict.call;
+      verdict = {
+        ...verdict,
+        call: priced.call,
+        ev: priced.ev,
+        margin: priced.margin,
+        pWin: priced.pWin,
+        pTie: priced.pTie,
+      };
+      answer = measured
+        ? { spot, verdict, measured, priced, pricedChanged: priced.call !== baseCall }
+        : { spot, verdict, priced, pricedChanged: priced.call !== baseCall };
+    } else if (verdict) {
       answer = measured ? { spot, verdict, measured } : { spot, verdict };
       // Receipt: the continuous inputs changed the verdict the stepped tables and the label cap give.
       omahaPricedNoteFacingInputs(opts, verdict.call, () => {
@@ -14967,6 +15229,7 @@ function omahaFacingBetEvCount(
     betReadModeSplit,
     stabDefence,
     valueShareMeasured,
+    pricedKey,
     answer,
   };
   return answer;
@@ -15449,6 +15712,8 @@ function omahaStreetPlanCallVeto(
     telemetry: false,
     omahaFacingBetEv: false,
     omahaFacingBetValueShareIsMeasured: false,
+    omahaFlopRealizationIsPriced: false,
+    omahaMultiwayValueBetIsPriced: false,
   };
   const board = gs.communityCards ?? [];
   const num = (v: unknown): number => (Number.isFinite(v) ? Number(v) : 0);
@@ -18553,6 +18818,15 @@ export class HorseLogic {
         // holdemValueAndCallsArePriced (default off): the reference's postflop decision priced by EV.
         if (opts.holdemValueAndCallsArePriced === true)
           decision = this.holdemPricedReference(decision, player, gs, vi, opts);
+        // holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (default off): the opening side priced.
+        if (opts.holdemOpeningValueBetIsPriced === true || opts.holdemOpeningBluffIsPriced === true)
+          decision = this.holdemOpeningPriced(decision, player, gs, vi, opts);
+        // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
+        if (
+          opts.holdemTournamentRiverBluffIsPriced === true ||
+          opts.holdemTournamentTurnBluffIsPriced === true
+        )
+          decision = this.holdemTournamentBluffPriced(decision, player, gs, vi, opts);
         // barrelContinuationOutlook receipt: a river decision read the turn
         // outlook but an earlier river owner decided before the V7 continuation.
         if (barrelOutlookRiverPending) {
@@ -34362,6 +34636,162 @@ export class HorseLogic {
   }
 
   /**
+   * The line range of `subject` as `observer` reads it (HorseHoldemValueAndCallsArePriced.holdemLineRange): his
+   * preflop band, re-weighted street by street by his public actions (a street of checks: the posterior's move; a
+   * wager: his strongest b(1 - beta) and weakest b * beta; a call: his strongest (1 - f)). `observerCards` are the
+   * dead cards removed from his combinations (the observer's own hole cards, or none). Extracted unchanged from
+   * holdemPricedReference so holdemLateOpeningIsPriced reads the same line model; public actions only.
+   */
+  private static holdemPricedLineRead(
+    subject: SeatPlayer,
+    observer: SeatPlayer,
+    observerCards: readonly Card[],
+    gs: HorseGameStateV2,
+    foldAtReference: number,
+    betWhenCheckedTo: number
+  ) {
+    const board = gs.communityCards ?? [];
+    const street = gs.stage as 'flop' | 'turn' | 'river';
+    const history = gs.actionHistory ?? [];
+    const preflop = history.filter((x) => x.stage === 'preflop');
+    let band: [number, number] | null = null;
+    try {
+      band = HorseMind.bandFor(
+        subject.user_id,
+        preflop,
+        gs.bigBlind,
+        true,
+        null,
+        undefined,
+        HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+      );
+    } catch {
+      band = null;
+    }
+    const posteriorOf = (h: typeof history, stage: 'flop' | 'turn' | 'river' = street) =>
+      computeActionLinePosterior({
+        villainUserId: subject.user_id,
+        villainSeat: subject.seat,
+        heroSeat: observer.seat,
+        stage,
+        board,
+        pot: gs.pot,
+        bigBlind: gs.bigBlind,
+        actionHistory: h as never,
+        multiwayCount: 2,
+      });
+    const withLine = posteriorOf(history);
+    // His line street by street. A street of checks only: the posterior's move over it. A wager: he keeps
+    // the strongest b(1 - beta) of his range and the weakest b * beta (b his measured bet share when checked
+    // to, beta the posterior's bluff share for his line through that street; a raise half of each). A call:
+    // he keeps the strongest (1 - f), f his fold at the price he was laid, never more than his weak part.
+    const streets = ['flop', 'turn', 'river'] as const;
+    const isOpp = (x: (typeof history)[number]) =>
+      x.userId === subject.user_id || (x.userId === undefined && x.seat === subject.seat);
+    // Initial dead money (blinds, antes, straddles) absent from voluntary-only actionHistory (#11556):
+    // gs.pot already equals initialPot + sum(voluntary added), so subtracting voluntary added recovers
+    // the exact starting pot in both voluntary-only and forced-post histories.
+    let totalHistoryAdded = 0;
+    {
+      let stScan = 'preflop';
+      let commScan = new Map<string, number>();
+      for (const x of history) {
+        const st = x.stage ?? 'preflop';
+        if (st !== stScan) {
+          stScan = st;
+          commScan = new Map();
+        }
+        const key = x.userId ?? `s${x.seat}`;
+        const prev = commScan.get(key) ?? 0;
+        const amt = Math.max(0, Number(x.amount ?? 0));
+        const total =
+          x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+        totalHistoryAdded += Math.max(0, total - prev);
+        commScan.set(key, total);
+      }
+    }
+    const line: HoldemLineStreet[] = [];
+    const appliedCheckStreets = new Set<string>();
+    const pushCheckStreetIfOnlyChecks = (stName: string) => {
+      const k = streets.indexOf(stName as never);
+      if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+      appliedCheckStreets.add(stName);
+      const mine = history.filter((y) => y.stage === stName && isOpp(y));
+      if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+      const upTo = (end: number) =>
+        history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+      line.push({
+        board: board.slice(0, k + 3),
+        likelihood: holdemLineLikelihood(
+          posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+          posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+        ),
+      });
+    };
+    let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
+    let streetOf = 'preflop';
+    let committed = new Map<string, number>();
+    let facingTo = 0;
+    let oppNarrowedPostflop = false;
+    for (const x of history) {
+      const st = x.stage ?? 'preflop';
+      if (st !== streetOf) {
+        pushCheckStreetIfOnlyChecks(streetOf);
+        streetOf = st;
+        committed = new Map();
+        facingTo = 0;
+      }
+      const key = x.userId ?? `s${x.seat}`;
+      const prev = committed.get(key) ?? 0;
+      const amt = Math.max(0, Number(x.amount ?? 0));
+      const wager = x.action === 'raise' || x.action === 'all_in' || x.action === 'bet';
+      const total =
+        x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+      const added = Math.max(0, total - prev);
+      const k = streets.indexOf(st as never);
+      if (k >= 0 && k + 3 <= board.length && isOpp(x)) {
+        const sb = board.slice(0, k + 3);
+        if (x.action === 'call' || (x.action === 'all_in' && total <= facingTo + 1e-9)) {
+          const sub = holdemLineRange(observerCards, board, band, line);
+          const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
+          line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+          oppNarrowedPostflop = true;
+        } else if (wager && total > facingTo + 1e-9) {
+          // beta: on the river the share that leaves a call of his wager indifferent, call / (potAfter + call)
+          // (equals s / (pot + 2s) for a first-in bet, and (total - facingTo) / (pot + added + total - facingTo)
+          // for a raise); on the flop and turn the posterior's bluff share for his line through that wager.
+          // Once villain already narrowed his range on a prior postflop street, use his continuation share
+          // (1 - foldAtReference) rather than compounding betWhenCheckedTo^k across barrels.
+          const upTo = history.slice(0, history.indexOf(x) + 1);
+          const callToFace = Math.max(0, total - facingTo);
+          const beta =
+            st === 'river'
+              ? callToFace / Math.max(1e-9, runningPot + added + callToFace)
+              : posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+          const betShare = oppNarrowedPostflop
+            ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+            : betWhenCheckedTo;
+          const half = facingTo > 0 ? 0.5 : 1;
+          line.push({
+            board: sb,
+            keep: {
+              top: betShare * (1 - beta) * half,
+              bottom: betShare * beta * half,
+            },
+          });
+          oppNarrowedPostflop = true;
+        }
+      }
+      if (total > facingTo) facingTo = total;
+      committed.set(key, total);
+      runningPot += added;
+    }
+    pushCheckStreetIfOnlyChecks(streetOf);
+    const range = holdemLineRange(observerCards, board, band, line);
+    return { range, withLine, band, line };
+  }
+
+  /**
    * holdemPersonaPostflopIsPriced (V2 empirical priors, default off): whether one of the four V87 spots takes
    * its action, by EV (HorseHoldemPersonaPostflopIsPriced + the measured NLH empirical prior module). `amount` is the site's wager
    * at the midpoint of its own size mix, as the site would hand it to legalize (bet: the chips bet; check_raise:
@@ -34785,6 +35215,343 @@ export class HorseLogic {
       return out;
     } catch {
       if (tele) noteFire('holdem_priced_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (plo-lead7 tourney-postflop 2026-11-26,
+   * both default off, read `=== true`): NLH tournaments (MTT, SNG, Spin, heads-up; not All-In-Or-Fold), one board,
+   * heads-up in the pot, NOT facing a wager, the brain checked. The check becomes a bluff (river or turn, each its
+   * own option) when a bet prices above the check with its losses weighted by the Horse's bubble factor where a pay
+   * jump is live (postflopWagerPayoutPrice), the hand has no value size at all (his calling part beats it at every
+   * size), AND the Horse's cards remove more of his calling part than of his folding part or the Horse's line range
+   * outscores his (HorseHoldemTournamentLateIsPriced). The sizes are the cash opening side's legal targets, capped at
+   * the effective stack (a short stack has only the shove and the sizes under it). His fold comes from his own record,
+   * shrunk to the equilibrium anchor. A pay jump the context cannot price stands the option down. Anything else keeps
+   * the decision. Draws nothing from fastRandom.
+   */
+  private static holdemTournamentBluffPriced(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const street = gs.stage;
+    if (street === 'river') {
+      if (opts.holdemTournamentRiverBluffIsPriced !== true) return decision;
+    } else if (street === 'turn') {
+      if (opts.holdemTournamentTurnBluffIsPriced !== true) return decision;
+    } else return decision;
+    if (decision.action !== 'check') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      !isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2 ||
+      !(gs.bigBlind > 0)
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0];
+    const tele = telemetryOn(opts);
+    try {
+      const board = gs.communityCards ?? [];
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), heroIn, villainIn);
+      if (currentBet > heroIn + 1e-9) return decision;
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const villainStack = Math.max(0, Number(opp.stack ?? 0));
+      if (!(heroStack > 0) || !(villainStack > 0)) return decision;
+      const canWager = !Array.isArray(gs.legalActions)
+        ? true
+        : gs.legalActions.some((x) => x === 'raise' || x === 'bet' || x === 'all_in');
+      if (!canWager) return decision;
+      const payout = postflopWagerPayoutPrice(gs, heroStack / gs.bigBlind, player.user_id);
+      // a live pay jump on a field larger than HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX stands the option down: the two
+      // ICM equities of the bubble factor cost 2-5 ms each cold there (IcmModel), past the decision budget
+      if (
+        payout === 'unknown' ||
+        (payout !== 'chips' &&
+          (gs.tournament?.stacks?.length ?? 0) > HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX)
+      ) {
+        if (tele) noteFire('holdem_tourney_bluff_payout_unpriced');
+        return decision;
+      }
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const counters =
+        opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+      const riverOpps = counters?.riverCallOpp ?? 0;
+      const foldRef =
+        street === 'river' && riverOpps > 0
+          ? holdemOpeningFoldReference(riverOpps - (counters?.riverCall ?? 0), riverOpps)
+          : holdemOpeningFoldReference(counters?.foldToBet ?? 0, counters?.foldToBetOpp ?? 0);
+      const betShare = holdemOpeningBetShare(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0
+      );
+      const { range } = this.holdemPricedLineRead(opp, player, player.cards, gs, foldRef, betShare);
+      const { range: base } = this.holdemPricedLineRead(opp, player, [], gs, foldRef, betShare);
+      if (range.total <= 0 || base.total <= 0) {
+        if (tele) noteFire('holdem_tourney_bluff_unpriced');
+        return decision;
+      }
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const order = (seat: number) => {
+        const d = (seat - Number(gs.dealerSeat ?? 0) + 100) % 100;
+        return d === 0 ? 100 : d;
+      };
+      const inPosition = order(player.seat) > order(opp.seat);
+      const r = street === 'river' || inPosition ? 1 : HOLDEM_PRICED_REALIZATION_OOP;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const spot = {
+        street: street as 'turn' | 'river',
+        pot,
+        currentBet,
+        heroIn,
+        villainIn,
+        heroStack,
+        villainStack,
+        inPosition,
+        villainToAct: false,
+        foldAtReference: foldRef,
+        betWhenCheckedTo: betShare,
+        bluffShare: 0,
+        heroMade: true,
+      };
+      const legal = new Map<number, HorseDecision>();
+      for (const target of holdemPricedWagerTargets(spot)) {
+        const d = this.legalize({ action: 'bet', amount: target, thinkTime: 0 }, player, gs, vi);
+        const to =
+          d.action === 'raise' || d.action === 'bet'
+            ? Number(d.amount)
+            : d.action === 'all_in'
+              ? heroIn + heroStack
+              : NaN;
+        if (Number.isFinite(to) && to > heroIn && !legal.has(to)) legal.set(to, d);
+      }
+      const late = { pot, heroIn, villainIn, heroStack, villainStack, r };
+      const priced = holdemOpeningPrice(
+        { ...late, foldRef },
+        range,
+        base,
+        [...legal.keys()].sort((x, y) => x - y)
+      );
+      // a hand with a value size is not a bluff (left to the brain)
+      if (holdemOpeningBest(priced.bets, true)) return decision;
+      // one bubble-factor read per decision, at the largest risk a bluff candidate takes (a factor read per size cost
+      // up to 29 ms cold on a 600-left field; the factor at the largest risk weights every smaller size's losses at
+      // least as much as its own, so the read is the conservative one)
+      let bf = 1;
+      if (payout !== 'chips') {
+        let risk = 0;
+        for (const b of priced.bets)
+          if (!b.value) risk = Math.max(risk, holdemTournamentWagerParts(late, b.to).matched);
+        bf = risk > 0 ? payout(risk) : 1;
+      }
+      const best = holdemTournamentBestBluff(late, priced.bets, () => bf);
+      if (!best || !(best.ev > priced.check + 1e-9)) return decision;
+      let edge = best.bet.fold > best.bet.foldBase + 1e-9;
+      if (!edge) {
+        const { range: mine } = this.holdemPricedLineRead(
+          player,
+          opp,
+          [],
+          gs,
+          HOLDEM_OPENING_FOLD_ANCHOR,
+          HOLDEM_OPENING_BET_SHARE_ANCHOR
+        );
+        edge = mine.total > 0 && holdemRangeAdvantage(mine, base, board) > 0.5;
+      }
+      if (!edge) {
+        if (tele) noteFire('holdem_tourney_bluff_no_edge');
+        return decision;
+      }
+      if (tele)
+        noteFire(
+          street === 'river' ? 'holdem_tourney_river_bluff_bet' : 'holdem_tourney_turn_bluff_bet'
+        );
+      const thinkTime = decision.thinkTime ?? 0;
+      return { ...(legal.get(best.bet.to) as HorseDecision), thinkTime };
+    } catch {
+      if (tele) noteFire('holdem_tourney_bluff_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (plo-lead7 2026-11-25, both default off, read
+   * `=== true`): NLH cash (table and Lightning), one board, heads-up, NOT facing a wager. The brain's check becomes a
+   * bet when the bet prices above the check (HorseHoldemOpeningIsPriced): a value bet (flop, turn, river) when the
+   * hands that call at the chosen size lose chips to it on balance; a bluff (turn, river) only when it also prices
+   * above the check AND the Horse's cards remove more of his calling part than of his folding part or the Horse's
+   * line range outscores his. A turn value bet the brain made is resized to the priced size when that prices higher.
+   * His fold comes from his own record first, shrunk to the equilibrium anchor (fold = the bettor's break-even);
+   * never the Horse population. Anything else keeps the decision. Draws nothing from fastRandom.
+   */
+  private static holdemOpeningPriced(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const valueOn = opts.holdemOpeningValueBetIsPriced === true;
+    const bluffOn = opts.holdemOpeningBluffIsPriced === true;
+    if (!valueOn && !bluffOn) return decision;
+    const street = gs.stage;
+    if (street !== 'flop' && street !== 'turn' && street !== 'river') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    const a = decision.action;
+    const resizeTurn = valueOn && street === 'turn' && a === 'bet';
+    if (a !== 'check' && !resizeTurn) return decision;
+    if (a === 'check' && !valueOn && street === 'flop') return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0];
+    const tele = telemetryOn(opts);
+    try {
+      const board = gs.communityCards ?? [];
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), heroIn, villainIn);
+      if (currentBet > heroIn + 1e-9) return decision;
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const villainStack = Math.max(0, Number(opp.stack ?? 0));
+      if (!(heroStack > 0) || !(villainStack > 0)) return decision;
+      const canWager = !Array.isArray(gs.legalActions)
+        ? true
+        : gs.legalActions.some((x) => x === 'raise' || x === 'bet' || x === 'all_in');
+      if (!canWager) return decision;
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const counters =
+        opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+      // his own fold record first (the river response record on the river), shrunk to the equilibrium anchor
+      const riverOpps = counters?.riverCallOpp ?? 0;
+      const foldRef =
+        street === 'river' && riverOpps > 0
+          ? holdemOpeningFoldReference(riverOpps - (counters?.riverCall ?? 0), riverOpps)
+          : holdemOpeningFoldReference(counters?.foldToBet ?? 0, counters?.foldToBetOpp ?? 0);
+      const betShare = holdemOpeningBetShare(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0
+      );
+      const { range } = this.holdemPricedLineRead(opp, player, player.cards, gs, foldRef, betShare);
+      const { range: base } = this.holdemPricedLineRead(opp, player, [], gs, foldRef, betShare);
+      if (range.total <= 0 || base.total <= 0) {
+        if (tele) noteFire('holdem_opening_priced_unpriced');
+        return decision;
+      }
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const order = (seat: number) => {
+        const d = (seat - Number(gs.dealerSeat ?? 0) + 100) % 100;
+        return d === 0 ? 100 : d;
+      };
+      const inPosition = order(player.seat) > order(opp.seat);
+      const r = street === 'river' || inPosition ? 1 : HOLDEM_PRICED_REALIZATION_OOP;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const spot = {
+        street: street as 'flop' | 'turn' | 'river',
+        pot,
+        currentBet,
+        heroIn,
+        villainIn,
+        heroStack,
+        villainStack,
+        inPosition,
+        villainToAct: false,
+        foldAtReference: foldRef,
+        betWhenCheckedTo: betShare,
+        bluffShare: 0,
+        heroMade: true,
+      };
+      const legal = new Map<number, HorseDecision>();
+      const targets = holdemPricedWagerTargets(spot);
+      if (resizeTurn && Number.isFinite(Number(decision.amount)))
+        targets.push(Number(decision.amount));
+      for (const target of targets) {
+        const d = this.legalize({ action: 'bet', amount: target, thinkTime: 0 }, player, gs, vi);
+        const to =
+          d.action === 'raise' || d.action === 'bet'
+            ? Number(d.amount)
+            : d.action === 'all_in'
+              ? heroIn + heroStack
+              : NaN;
+        if (Number.isFinite(to) && to > heroIn && !legal.has(to)) legal.set(to, d);
+      }
+      const priced = holdemOpeningPrice(
+        { pot, heroIn, villainIn, heroStack, villainStack, foldRef, r },
+        range,
+        base,
+        [...legal.keys()].sort((x, y) => x - y)
+      );
+      const thinkTime = decision.thinkTime ?? 0;
+      const value = holdemOpeningBest(priced.bets, true);
+      if (resizeTurn) {
+        const mine = priced.bets.find((b) => Math.abs(b.to - Number(decision.amount)) <= 1e-9);
+        if (value && mine && mine.value && value.ev > mine.ev + 1e-9 && value.to !== mine.to) {
+          if (tele) noteFire('holdem_opening_value_resized');
+          return { ...(legal.get(value.to) as HorseDecision), thinkTime };
+        }
+        return decision;
+      }
+      if (valueOn && value && value.ev > priced.check + 1e-9) {
+        if (tele) noteFire('holdem_opening_value_bet');
+        return { ...(legal.get(value.to) as HorseDecision), thinkTime };
+      }
+      // a bluff is a hand with no value size at all (a hand that has one is the value option's, bet or not)
+      if (bluffOn && street !== 'flop' && !value) {
+        const bluff = holdemOpeningBest(priced.bets, false);
+        if (bluff && bluff.ev > priced.check + 1e-9) {
+          let edge = bluff.fold > bluff.foldBase + 1e-9;
+          if (!edge) {
+            const { range: mine } = this.holdemPricedLineRead(
+              player,
+              opp,
+              [],
+              gs,
+              HOLDEM_OPENING_FOLD_ANCHOR,
+              HOLDEM_OPENING_BET_SHARE_ANCHOR
+            );
+            edge = mine.total > 0 && holdemRangeAdvantage(mine, base, board) > 0.5;
+          }
+          if (edge) {
+            if (tele) noteFire('holdem_opening_bluff_bet');
+            return { ...(legal.get(bluff.to) as HorseDecision), thinkTime };
+          }
+          if (tele) noteFire('holdem_opening_bluff_no_edge');
+        }
+      }
+      return decision;
+    } catch {
+      if (tele) noteFire('holdem_opening_priced_unpriced');
       return decision;
     }
   }

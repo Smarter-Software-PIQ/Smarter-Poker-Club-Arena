@@ -1312,6 +1312,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'omahaOopReraiseRangeReadsOpenerRecord',
+    "PLO-LEAD-6 2026-11-24 (league probes of #11917: priced with the population's call : 4-bet split, the out-of-position 3-bet rule lost against openers who never 4-bet light). With omahaOopReraiseRangeHoldsVsReraise on, PLO4/PLO5 cash (horse.omahaGameScope.<option>): the rule reads this opener's own record of answering a 3-bet in position (horse_exact_profiles.opener_response, HorseOpenerAnswersThreeBet; public actions only). His 4-bet share is (his 4-bets + 6 x 0.10) / (his answers + 6): baseline 0.10, population weight 0, own record mass 6. The rest of what does not fold is a call. The planned-fold guard and the price bind with weight w = min(1, 4-bet share / 0.10): a 3-bet the rule rejected stands at the seeded frequency 1 - w (keep unit: hash of id, pot and own cards), recorded on the receipt (openerRecord, reason opener_record_planned_fold / opener_record_price). No record: w = 1, the verdict of the rule without this option. Default off (read === true). Off: byte-identical.",
+    'V94'
+  ),
+  flag(
+    'holdemOopReraiseRangeReadsOpenerRecord',
+    'PLO-LEAD-6 2026-11-24. The same reading as omahaOopReraiseRangeReadsOpenerRecord for holdemOopReraiseRangeHoldsVsReraise on NLH cash tables (heads-up league probes: without it the rule cost 25 bb/100 against an opener who never 4-bets light and 21 against one who calls every 3-bet; with it neither is a significant loss and the always-4-bet opener is still beaten by 69-109 bb/100). Default off (read === true). Off: byte-identical.',
+    "Hold'em Strategy"
+  ),
+  flag(
     'reraiseFoldShareCap',
     'Runtime setting horse.reraiseFoldShareCap (default 0.45): the most of the out-of-position 3-bet range the two OOP re-raise range options let fold to a 4-bet (planned blocker folds kept at the frequency that holds it); never above the pure-bluff break-even of the 4-bet size; a parameter, not a switch',
     'V94'
@@ -1319,6 +1329,41 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaFourBetFoldPricedCall',
     "EMERG lane PREFLOP-UNCONTESTED 2026-11-20 (LIVEGRADE-7 duty 5: persons win the hands that end preflop; the channel is re-raises the Horses fold to; Horse folds facing a 4-bet after their own raise, heads-up, gave up EV(call) +346 +/- 50 bb without the most frequent re-raiser, n 26): in PLO4/PLO5 cash a final preflop fold after hero's own raise, facing a 4-bet or more heads-up, becomes the legal call only when omahaReraisedCallPriced (the engine's own priced call, its inputs) is positive. Changes only a fold. Default OFF.",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetRangeIsMeasuredByLine',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetEv on the turn and river, the bettor's range is his measured strength histogram by street, line, size and pot type (fitted from shown hands), his own shown record shrunk toward it, priced exactly against the hand; no per-street narrowing and no fixed bluff share (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaMeasuredBettorRange.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetIndifferenceCalls',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. the facing-bet verdicts call at EV >= the estimate's own error (0 for an exact count, the sampling error for a sample) instead of EV > 2% of the final pot (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaFlopCallTree.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFlopRealizationIsPriced',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. the flop call facing a bet or a raise is the two-street tree on the bettor's measured flop range and the field dealt on the same runouts, his later bet rates measured; no realization factor or fitted multiplier (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFlopCallTree.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetMinimumDefencePrior',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaMeasuredBettorRange.ts",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetFieldIsJoint',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayCallNeedsNutShare',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside the joint field price, the field holds flush draws at the measured share of callers and a better same-category hand of the field is priced into the call (an input to the price, never a rule; default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayValueBetIsPriced',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a final multiway check with nothing to call becomes the best of three bet sizes where its EV against the field's measured fold and calling ranges beats the check's by 2% of the pot (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaMultiwayValueBet.ts",
     'V94'
   ),
   flag(
@@ -2758,6 +2803,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemOpeningValueBetIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (real-hand audit, NLH cash against people, 2026-11-24/25: missed turn value bets 106 bb in 390 hands, missed flop value, turn bets sized too small). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, not facing a wager: the brain's check becomes a value bet at the legal priced size of highest EV when the hands that call at that size lose chips to it on balance (equity against his calling part above one half) and the bet prices above the check; a turn value bet is resized to that size when it prices higher (HorseHoldemOpeningIsPriced). His fold to a bet: his own record (river response record on the river, else his fold to a bet), shrunk with 20 pseudo-opportunities to the equilibrium anchor where his fold equals the bettor's break-even price; never the Horse population. Who folds: the weakest share of his public line range read without the Horse's cards. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemOpeningBluffIsPriced',
+    "PLO-OWNER lead-7 2026-11-25 (real-hand audit, NLH cash against people: missed river bluffs 114 bb in 390 hands, the top leak; missed turn bluffs 55 bb; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn and river, not facing a wager: the brain's check becomes a bluff at the legal priced size of highest EV only when it prices above the check AND either the Horse's cards remove more of his calling part than of his folding part (his fold given the Horse's hand above his fold without it) or the Horse's public line range outscores his on this board (HorseHoldemOpeningIsPriced). His fold from his own record shrunk to the equilibrium anchor (no record: a pure bluff breaks even, so only blockers make it pay). Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -2915,6 +2970,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'holdemTournamentCommittedRaiseIsPriced',
     "NLH-TOURNAMENT-SWEEP 2026-11-24 (read-only; plo-lead6-01BNteGX). Default off (read === true). Two-card no-limit hold'em tournament, preflop, one non-all-in raise faced in a heads-up pot (nobody else called), the call not all in, not All-In-Or-Fold (HorseHoldemTournamentRaiseDefenceWiring). The answer is the fold, the call or the shove with the highest expected value (HorseHoldemTournamentRaiseDefence.priceRaiseDefence): equity from the fixed 169 x 169 class table (HorseHoldemPreflopClassEquity.data, exact card removal by combo count, no sampling) against the raiser's range for his seat, depth and raise order from the measured priors (HorseHoldemTournamentRaiseDefencePriors.data, fitted from hand_history frequencies; scaled by his own engaged read), pot odds, realisation by SPR, position and equity for the call, his measured fold to a shove for the shove, measured squeeze / overcall shares behind, and the pay-jump bubble factor where one is live (chip EV otherwise). A call that leaves the Horse committed (behind <= 0.25 x pot after calling, or the raise >= 80% of its chips) is priced as the all-in it is. Ties within 0.01bb: fold, call, shove in that order; no random draw. The Phase 7 arbiter and Phase 8 may not change the answer. THIS OPTION: a re-raise faced after the Horse's own raise this hand, effective <= 40bb, and any raise that commits the Horse at any depth where the two blind options do not own the spot (sweep L4: 56-62% folds to a non-all-in 3-bet, 78% to a 4-bet, 76% to a raise to just under all in).",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentRiverBluffIsPriced',
+    "PLO-OWNER lead-7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people 2026-11-20..26: missed river bluffs the top tournament leak after the flop; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em tournaments (MTT, SNG, Spin, heads-up; not All-In-Or-Fold), one board, heads-up in the pot, river, not facing a wager: the brain's check becomes a bluff at the legal size of highest EV (the cash opening side's targets capped at the effective stack, the shove where the stack makes it the size) only when it prices above the check with its losses weighted by the Horse's bubble factor where a pay jump is live (HorseLogic.postflopWagerPayoutPrice / payJumpBubbleFactor, the Phase 7 IcmModel factor) AND the Horse's cards remove more of his calling part than of his folding part or the Horse's line range outscores his (HorseHoldemTournamentLateIsPriced). A hand with a value size is left to the brain. Where a pay jump is live and the context cannot price it (no trusted stacks, payouts or identity, a satellite, a PKO, a mystery bounty), or on a live pay jump of a field larger than 60 (a compute bound: the ICM read costs 2-5 ms per equity there), it stands down. His fold from his own record shrunk to the equilibrium anchor. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentTurnBluffIsPriced',
+    "PLO-OWNER lead-7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people: missed turn bluffs the second tournament leak after the flop). Default off (read === true). The same as holdemTournamentRiverBluffIsPriced on the turn: heads-up in the pot, not facing a wager, the check becomes a blocker or range-advantage bluff only when it prices above the check (equity realization out of position as the cash opening side's), losses weighted by the pay-jump bubble factor; stands down where a live pay jump cannot be priced. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
   ),
   flag(
@@ -6043,6 +6108,102 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_four_bet_fold_priced_call',
     'HorseLogic wager_rules (omahaFourBetFoldPricedCallRule, omahaFourBetFoldPricedCall)',
     "a PLO4/PLO5 cash preflop decision after hero's own raise, facing a 4-bet or more heads-up, in which the final fold became the legal call because the priced call of a re-raise was positive",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_range_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "a PLO4/PLO5 cash turn or river facing-bet decision priced on the bettor's measured range (omahaFacingBetRangeIsMeasuredByLine) that calls",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_range_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_joint_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'a PLO4/PLO5 cash multiway turn or river facing-bet decision priced with the field dealt on the same cards (omahaFacingBetFieldIsJoint) that calls',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_joint_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_margin_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "today's facing-bet EV decided at the indifference margin alone (omahaFacingBetIndifferenceCalls) and calls",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_margin_fold',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price read the bettor's own shown record of the cell",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_min_defence_bounded',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price raised a no-record prior to the cell's minimum-defence share (omahaFacingBetMinimumDefencePrior)",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_bet_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
+    "the corrected facing-bet price's call or fold differs from today's facing-bet verdict",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_call',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    'a PLO4/PLO5 cash flop facing-bet decision priced as the two-street tree on measured ranges (omahaFlopRealizationIsPriced) that calls',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_fold',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    'the same, and it folds',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_changed',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree's call or fold differs from the decision it was given",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_record_read',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree read the bettor's own shown record of the cell",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_call_tree_min_defence_bounded',
+    'HorseOmahaFlopCallTree (omahaFlopRealizationIsPriced)',
+    "the flop tree raised a no-record prior to the cell's minimum-defence share (omahaFacingBetMinimumDefencePrior)",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_value_bet_priced_bet',
+    'HorseOmahaMultiwayValueBet (omahaMultiwayValueBetIsPriced)',
+    'a PLO4/PLO5 cash final multiway check became the priced bet (omahaMultiwayValueBetIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_value_bet_check_kept',
+    'HorseOmahaMultiwayValueBet (omahaMultiwayValueBetIsPriced)',
+    'the multiway value bet was priced and the check is worth at least as much: the check stands',
     'V94'
   ),
   receipt(
@@ -9356,6 +9517,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'TourneyAllInPriced'
   ),
   receipt(
+    'holdem_tourney_river_bluff_bet',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a river check heads-up (NLH tournament, not facing a wager) became a priced bluff: blockers or range advantage, EV above the check with losses weighted by the pay-jump bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_turn_bluff_bet',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a turn check heads-up (NLH tournament, not facing a wager) became a priced bluff: blockers or range advantage, EV above the check with losses weighted by the pay-jump bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_no_edge',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    "a tournament bluff priced above the check but neither blockers nor the range advantage were the Horse's: the check was kept",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_payout_unpriced',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a pay jump is live and the tournament context cannot price it (no trusted stacks, payouts or identity, a satellite, a PKO or a mystery bounty) or the field is larger than HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX (60, a compute bound on the ICM read): the tournament bluff option stood down',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_unpriced',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'the tournament bluff option could not build his line range or threw: the decision was kept',
+    "Hold'em Strategy"
+  ),
+  receipt(
     'holdem_tournament_raise_defence_hu_bb_priced_seen',
     'HorseHoldemTournamentRaiseDefenceWiring (holdemTournament*DefenceIsPriced / holdemTournamentCommittedRaiseIsPriced)',
     "default-off holdemTournamentHeadsUpBigBlindDefenceIsPriced: a heads-up big blind facing the small blind's non-all-in open was answered by the priced fold, call or shove; occurrence counter, named *_seen",
@@ -10088,6 +10279,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decidePostflop value raise (holdemValueAndCallsArePriced)',
     "a no-limit hold'em value raise facing a wager in scope: the random gate (0.55 x aggression + checkRaiseFreq) is not drawn; the call is returned for the priced reference to compare with every legal raise",
     'V94'
+  ),
+  receipt(
+    'holdem_opening_value_bet',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'not facing a wager heads-up (NLH cash), a check became a value bet: the hands that call at the priced size lose chips to it and it prices above the check',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_value_resized',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'a turn value bet heads-up (NLH cash) was resized to the legal priced size of highest EV',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_bluff_bet',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    "not facing a wager heads-up (NLH cash), turn or river, a check became a bluff: it prices above the check and the Horse's cards block his calling part or its range outscores his",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_bluff_no_edge',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    "a bluff priced above the check but neither blockers nor the range advantage were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_opening_priced_unpriced',
+    'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
+    'the opening side could not be priced (no range): the decision stands',
+    "Hold'em Strategy"
   ),
   receipt(
     'holdem_priced_raise',

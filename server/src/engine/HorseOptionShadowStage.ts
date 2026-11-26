@@ -134,9 +134,44 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['preflop']),
   }),
+  // PLO-LEAD-6 2026-11-24: the same spot, reading the opener's own record
+  omahaOopReraiseRangeReadsOpenerRecord: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['preflop']),
+  }),
   omahaStabDefenceIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
+  }),
+  // PLO-OWNER lead-6 2026-11-24: each acts only on the postflop streets listed (the facing-bet verdicts and the
+  // multiway value bet), so none is re-decided preflop or on another street.
+  omahaFacingBetRangeIsMeasuredByLine: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaFacingBetIndifferenceCalls: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaFlopRealizationIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
+  omahaFacingBetMinimumDefencePrior: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaFacingBetFieldIsJoint: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaMultiwayCallNeedsNutShare: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaMultiwayValueBetIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
   }),
   omahaRiverBetFoldIsHisRecord: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -183,8 +218,18 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   holdemTournamentHeadsUpBigBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
   holdemTournamentBlindDefenceIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
   holdemTournamentCommittedRaiseIsPriced: holdemStage(['nlh_tournament'], ['preflop']),
+  // plo-lead7 tourney-postflop 2026-11-26: the tournament bluff after the flop, heads-up in the pot, not facing a wager
+  holdemTournamentRiverBluffIsPriced: holdemStage(['nlh_tournament'], ['river']),
+  holdemTournamentTurnBluffIsPriced: holdemStage(['nlh_tournament'], ['turn']),
   // NLH cash preflop facing a single open (the V85/V87 defence path reads it at cash tables, Lightning included)
   cashDefenceTrimColdCalls: holdemStage(['nlh_cash', 'nlh_lightning'], ['preflop']),
+  // plo-lead7 2026-11-25: the opening side of NLH cash, heads-up, not facing a wager (value: every postflop street;
+  // bluff: turn and river)
+  holdemOpeningValueBetIsPriced: holdemStage(
+    ['nlh_cash', 'nlh_lightning'],
+    ['flop', 'turn', 'river']
+  ),
+  holdemOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
 });
 
 /**

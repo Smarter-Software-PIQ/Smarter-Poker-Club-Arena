@@ -62,9 +62,11 @@
  * Pure: no state, no telemetry, no draw from the brain's random stream.
  */
 import type { Card } from '../types.js';
-import { omahaPreflopPercentile } from './HorseEval.js';
 import { reRaiseLineWidth } from './HorseOpponentExploit.js';
-import { omahaReraisedEquity } from './HorseOmahaReraisedPot.js';
+import {
+  omahaReraisedEquity,
+  omahaReraisedEquityInPercentileBand,
+} from './HorseOmahaReraisedPot.js';
 
 export const OMAHA_PREFLOP_DEFENCE_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -373,13 +375,10 @@ export function omahaPreflopDefenceEquity(
   width: number
 ): number | null {
   const lo = 1 - clamp(width, 0.02, 1);
-  return omahaReraisedEquity(
-    hole,
-    [],
-    dead,
-    lo <= 1e-9 ? () => true : (h) => omahaPreflopPercentile([...h], false) >= lo,
-    PREFLOP_DEFENCE_EQUITY_SAMPLES
-  );
+  // a range narrower than all hands: the same equity bit for bit on card ids (percentile in [lo, 1]; 2026-11-26)
+  return lo <= 1e-9
+    ? omahaReraisedEquity(hole, [], dead, () => true, PREFLOP_DEFENCE_EQUITY_SAMPLES)
+    : omahaReraisedEquityInPercentileBand(hole, dead, lo, 1, PREFLOP_DEFENCE_EQUITY_SAMPLES);
 }
 
 /**

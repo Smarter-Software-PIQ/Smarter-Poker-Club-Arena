@@ -355,6 +355,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  // 2026-11-25 plo-lead7: the opening side of NLH cash priced (value bets; blocker or range-advantage bluffs) (ship dark)
+  'holdemOpeningValueBetIsPriced',
+  'holdemOpeningBluffIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -385,6 +388,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
   'holdemOopReraiseRangeHoldsVsReraise',
+  // 2026-11-24 PLO-LEAD-6: the two rules above read the opener's own record of answering a 3-bet (ships dark)
+  'omahaOopReraiseRangeReadsOpenerRecord',
+  'holdemOopReraiseRangeReadsOpenerRecord',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
@@ -409,6 +415,15 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-21 EMERG lane STAB-DEFENCE-5: the two river bet rules price the opponent's own lifetime public river
   // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetFoldIsHisRecord',
+  // 2026-11-24 PLO-OWNER lead-6 (plo-overfold F1-F3, F6; multiway M1-M3): the corrected PLO4/PLO5 cash facing-bet
+  // price on measured ranges and the priced multiway value bet (ship dark)
+  'omahaFacingBetRangeIsMeasuredByLine',
+  'omahaFacingBetIndifferenceCalls',
+  'omahaFlopRealizationIsPriced',
+  'omahaFacingBetMinimumDefencePrior',
+  'omahaFacingBetFieldIsJoint',
+  'omahaMultiwayCallNeedsNutShare',
+  'omahaMultiwayValueBetIsPriced',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)
@@ -479,6 +494,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
   'holdemTournamentBlindDefenceIsPriced',
   'holdemTournamentCommittedRaiseIsPriced',
+  // 2026-11-26 plo-lead7 tourney-postflop: the tournament bluff after the flop priced (river; turn), blocker or
+  // range-advantage, losses weighted by the pay-jump bubble factor (ships dark)
+  'holdemTournamentRiverBluffIsPriced',
+  'holdemTournamentTurnBluffIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -1075,15 +1094,40 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     "Hold'em tournaments: a non-all-in re-raise after the Horse's own raise (<= 40bb) and any raise that commits the Horse",
     'fold / call / shove facing a re-raise priced by EV; a committing raise priced exactly as the all-in it is (sweep L4)',
   ],
+  holdemTournamentRiverBluffIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments (MTT, SNG, Spin, heads-up), heads-up in the pot, river, not facing a wager",
+    "a check becomes a bluff only when it prices above the check (losses weighted by the pay-jump bubble factor) and blockers or the range advantage are the Horse's",
+  ],
+  holdemTournamentTurnBluffIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments (MTT, SNG, Spin, heads-up), heads-up in the pot, turn, not facing a wager",
+    "a check becomes a bluff only when it prices above the check (losses weighted by the pay-jump bubble factor) and blockers or the range advantage are the Horse's",
+  ],
   holdemOopReraiseRangeHoldsVsReraise: [
     HOLDEM,
     'NLH cash tables, out of position facing one open (no caller)',
     "an out-of-position 3-bet stands only when priced at or above the call the brain's call bar admits and the Horse's own 4-bet answer is not a planned fold",
   ],
+  holdemOopReraiseRangeReadsOpenerRecord: [
+    HOLDEM,
+    'NLH cash tables, out of position facing one open (no caller), with holdemOopReraiseRangeHoldsVsReraise on',
+    "the out-of-position 3-bet rule binds in proportion to this opener's own 4-bet record (0.10 baseline); rejected 3-bets stand at the seeded frequency 1 - w",
+  ],
   holdemValueAndCallsArePriced: [
     HOLDEM,
     'NLH cash (table and Lightning), heads-up postflop',
     "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemOpeningValueBetIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, flop/turn/river, not facing a wager',
+    'a check becomes a value bet when the hands that call lose chips to it and it prices above the check; turn value bets resized',
+  ],
+  holdemOpeningBluffIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, turn/river, not facing a wager',
+    "a check becomes a bluff only when it prices above the check and blockers or the range advantage are the Horse's",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

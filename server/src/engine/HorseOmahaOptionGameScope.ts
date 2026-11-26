@@ -114,6 +114,14 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaFlopBetIsPricedOnHisResponse',
   // EMERG lane STAB-DEFENCE 2026-11-20: PLO4/PLO5 cash, default OFF
   'omahaStabDefenceIsPriced',
+  // PLO-OWNER lead-6 2026-11-24: PLO4/PLO5 cash, default OFF
+  'omahaFacingBetRangeIsMeasuredByLine',
+  'omahaFacingBetIndifferenceCalls',
+  'omahaFlopRealizationIsPriced',
+  'omahaFacingBetMinimumDefencePrior',
+  'omahaFacingBetFieldIsJoint',
+  'omahaMultiwayCallNeedsNutShare',
+  'omahaMultiwayValueBetIsPriced',
   'omahaStrongHandCheckIsPriced',
   // EMERG lane STAB-DEFENCE-5 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaRiverBetFoldIsHisRecord',
@@ -202,6 +210,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaBigDrawBetIsPricedOnHisResponse',
   // PLO-LEAD-6 2026-11-24: PLO4/PLO5 cash, default OFF
   'omahaOopReraiseRangeHoldsVsReraise',
+  // PLO-LEAD-6 2026-11-24: PLO4/PLO5 cash, default OFF (reads the opener's own record)
+  'omahaOopReraiseRangeReadsOpenerRecord',
 ]);
 
 const SCOPABLE: ReadonlySet<string> = new Set(OMAHA_OPTION_GAME_SCOPE_OPTIONS);

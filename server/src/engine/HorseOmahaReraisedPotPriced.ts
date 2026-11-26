@@ -41,7 +41,7 @@
  */
 import type { Card } from '../types.js';
 import { omahaPreflopPercentile } from './HorseEval.js';
-import { omahaReraisedEquityAgainst } from './HorseOmahaReraisedPot.js';
+import { omahaReraisedEquityAgainstPercentileFloors } from './HorseOmahaReraisedPot.js';
 import { reRaiseLineWidth } from './HorseOpponentExploit.js';
 
 export const OMAHA_RERAISED_POT_PRICED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -194,9 +194,14 @@ export function reraisedPotRealization(
   return clamp(r, c.min, c.max);
 }
 
+/** The percentile floor of the top `width` of holdings (reraisedPotRangeOf; at or under 1e-9: every holding). */
+export function reraisedPotFloorOf(width: number): number {
+  return 1 - clamp(width, 0.02, 1);
+}
+
 /** Range predicate: the top `width` of holdings by the engine's preflop percentile. */
 export function reraisedPotRangeOf(width: number): (h: readonly Card[]) => boolean {
-  const lo = 1 - clamp(width, 0.02, 1);
+  const lo = reraisedPotFloorOf(width);
   return lo <= 1e-9 ? () => true : (h) => omahaPreflopPercentile([...h], false) >= lo;
 }
 
@@ -240,10 +245,12 @@ export function reraisedPotVerdict(
   const won = new Array<number>(nScen).fill(0);
   let got = 0;
   const fixedCount = 1 + ins.length;
-  const eq0 = omahaReraisedEquityAgainst(
+  // omahaReraisedEquityAgainst(hole, dead, field ranges (reraisedPotRangeOf), ...), the same numbers and onSample
+  // scores bit for bit, on card ids (2026-11-26)
+  const eq0 = omahaReraisedEquityAgainstPercentileFloors(
     hole,
     dead,
-    field.map((o) => reraisedPotRangeOf(o.width)),
+    field.map((o) => reraisedPotFloorOf(o.width)),
     RERAISED_POT_PRICED_SAMPLES,
     (mine, opp) => {
       got++;
@@ -319,10 +326,10 @@ export function reraisedPotVerdict(
     let allFold = clamp(raiser.foldToReraise, 0, 0.98);
     for (const o of [...ins, ...behindAll]) allFold *= clamp(o.foldToReraise, 0, 1);
     const width2 = clamp(raiser.width * (1 - clamp(raiser.foldToReraise, 0, 0.95)), 0.02, 1);
-    const eq2 = omahaReraisedEquityAgainst(
+    const eq2 = omahaReraisedEquityAgainstPercentileFloors(
       hole,
       dead,
-      [reraisedPotRangeOf(width2)],
+      [reraisedPotFloorOf(width2)],
       RERAISED_POT_PRICED_SAMPLES
     );
     if (eq2 !== null) {

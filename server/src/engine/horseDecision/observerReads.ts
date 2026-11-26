@@ -11,6 +11,12 @@ import {
   type StreetReadCounters,
 } from '../HorseOmahaStreetRead.js';
 import {
+  copyOpenerResponse,
+  openerResponseCarriedFor,
+  validOpenerResponse,
+  type OpenerResponseCounters,
+} from '../HorseOpenerAnswersThreeBet.js';
+import {
   copyReraiseResponse,
   reraiseResponseCarriedFor,
   validReraiseResponse,
@@ -735,6 +741,18 @@ export class HorseObserverReads {
             opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
             copyStreetPrice(row.street_counters_price)
           );
+    // HOW AN OPENER ANSWERS A 3-BET (2026-11-24). Each pooled exact row of an nlh, plo4 or plo5 game that carries a
+    // well-formed record (horse_exact_profiles.opener_response) brings a detached copy of it into the decision's own
+    // state, beside its counters: the same row the pooled read already chose by availability. Donor rows never carry
+    // one. Read only by default-OFF options (HorseMind.openerResponseOf).
+    const pooledOpenerResponse = new Map<string, OpenerResponseCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (openerResponseCarriedFor(row.variant) && validOpenerResponse(row.opener_response))
+          pooledOpenerResponse.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyOpenerResponse(row.opener_response)
+          );
     // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
     // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
     // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
@@ -764,6 +782,7 @@ export class HorseObserverReads {
                   ...(pooledReraiseResponse.size ? { pooledReraiseResponse } : {}),
                   ...(pooledFlopShown.size ? { pooledFlopShown } : {}),
                   ...(pooledStreetPrice.size ? { pooledStreetPrice } : {}),
+                  ...(pooledOpenerResponse.size ? { pooledOpenerResponse } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),
