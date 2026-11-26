@@ -195,6 +195,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'v65TurnShadeCapOverride',
         'v68AirShadeScaleOverride',
         'reraiseFoldShareCap',
+        'openerAnswersPriorVersion',
         'styleShadow',
         'styleCarryOverWeight',
         'horsePlayStyleForce',
@@ -391,6 +392,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-24 PLO-LEAD-6: the two rules above read the opener's own record of answering a 3-bet (ships dark)
   'omahaOopReraiseRangeReadsOpenerRecord',
   'holdemOopReraiseRangeReadsOpenerRecord',
+  // 2026-11-26 PLO lead-7 plo-preflop (audit: 13 of 27 fold-best OOP multiway 3-bet calls priced in position): the
+  // re-raised-pot call's position is held against every live player still to see the flop (ships dark)
+  'omahaReraisedPositionVsEveryoneToAct',
   // 2026-11-20 EMERG lane OFFENCE-BUILD: the river first-to-act heads-up bet priced on the measured response (ships dark)
   'omahaRiverFirstToActBetIsPriced',
   // 2026-11-21 EMERG lane CBET-DEFENCE: the raise of the Horse's own flop c-bet ranged on the measured raise share (ships dark)
@@ -424,6 +428,17 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
+  // 2026-11-26 PLO-OWNER lead-7 lane plo-postflop: the heads-up river check priced on his measured range, exact card
+  // removal and his fold record from equilibrium: value in position, and bluffs that need both price and blockers
+  // (ship dark)
+  'omahaRiverValueBetInPositionIsPriced',
+  'omahaRiverBluffIsPricedOnBlockers',
+  // 2026-11-26 PLO-OWNER lead-7 (lead decision on job 5): a river full house on a trips board that quads or a
+  // straight flush can beat may call, never raise (ships dark)
+  'omahaRiverTripsBoardBoatIsNotNutClass',
+  // 2026-11-26 PLO-OWNER lead-7 lane plo-postflop: the heads-up flop raise priced at its sizes beside the call and
+  // the fold on the bettor's measured range (ships dark)
+  'omahaFlopRaiseIsPriced',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)

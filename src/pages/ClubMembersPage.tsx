@@ -1655,12 +1655,13 @@ export default function ClubMembersPage() {
             : undefined
         }
         id="members-page-title"
+        steps={SIMPLE_TOUR}
       />
       <PageBar
         titleAs={false}
         className="members-page-bar"
         title="Player Management"
-        summary="Find Any Member, Read Their Live Club Status, And Open The Controls Behind Their Seat."
+        showHelp={false}
         status={summaryStatusMessage ?? undefined}
         statusTone={
           summaryFreshness === 'failed'
@@ -1675,7 +1676,6 @@ export default function ClubMembersPage() {
           { label: 'At Tables', value: stat(summary.counts.seated) },
           { label: 'Agents', value: stat(summary.counts.agents) },
         ]}
-        steps={SIMPLE_TOUR}
       />
       <section
         className="members-console"

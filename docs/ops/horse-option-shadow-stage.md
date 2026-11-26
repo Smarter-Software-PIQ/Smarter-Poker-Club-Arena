@@ -54,8 +54,9 @@ In a hold'em game that inline re-decision also runs under the stage's latency br
 worker before it stops. Stage it to take it off the live path entirely.
 
 Open branches of the Hold'em lane add their own line this way (tournament raise defence, late-street chooser, 3-bet
-range), and add the option's acted receipt prefixes to `ACTED_RECEIPTS` in
-`scripts/ops/horse-option-shadow-watch-lib.mjs` (or pass `--acted-prefix` to the watcher).
+range). The watcher knows each option's acted receipts from the option's own ledger entries (since 2026-11-26, see
+`docs/ops/horse-option-shadow-watch.md`): register the option's receipts in `HorseDataLedger.ts` with a consumer that
+names the option, then run `npx tsx scripts/gen-horse-option-acted-receipts.ts` from `server/`.
 
 ## What a trial records
 
@@ -88,7 +89,9 @@ range), and add the option's acted receipt prefixes to `ACTED_RECEIPTS` in
    and guards, acted leaks (must be 0), errors, re-decision latency over 100 ms, person hands reached, and one line
    `VERDICT=CLEAN|DIRTY` (exit 0 / 1; 2 when it cannot run). DIRTY when: no re-decision yet, an acted leak, the
    breaker tripped, a re-decision failed or could not be encoded, an error in `horse_error_log`, 1% or more of
-   re-decisions over 100 ms, or no acted receipt is known for the option (pass `--acted-prefix`).
+   re-decisions over 100 ms. The acted receipts come from the ledger; an option off by release default that takes
+   shadow without one fails the build (`everyShadowOptionKnowsItsActedReceipts.law.test.ts`), so the watch never
+   meets an "unchecked" option.
 
 3. End it: `set <option> off` (or clear the row) through the same CLI.
 

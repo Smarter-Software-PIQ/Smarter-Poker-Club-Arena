@@ -508,6 +508,12 @@ describe('the workflow adds chances, not authority', () => {
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'cutover-log-keep-serving',
       'cutover-outcome-record',
+      // O32 (2026-11-26): every Stage run looks back once and says so when a
+      // cycle had no owner; the note job holds the only secret and runs only
+      // then. Reporting only; pinned by
+      // tests/every-cycle-has-an-owner-or-says-so.law.test.ts.
+      'cycle-look-back',
+      'cycle-without-outcome-note',
       'detect',
       // O27 (2026-11-25): a cycle that did not seal starts the next one;
       // pinned by tests/a-cycle-that-did-not-seal-starts-the-next-one.law.test.ts.
@@ -1652,9 +1658,13 @@ describe('the owner says what the cycle will find while there is still time (O25
       'schedule',
     ]);
     expect(stage.on.schedule.length).toBe(2);
-    // Seven: O27 (next-candidate-after-cycle) waits once after the selection,
-    // never in the admission; CR1 (cutover-outcome-record) only records.
-    expect(Object.keys(stage.jobs).length).toBe(7);
+    // Nine: O27 (next-candidate-after-cycle) waits once after the selection,
+    // never in the admission; CR1 (cutover-outcome-record) only records; O32
+    // (cycle-look-back and its owner note) only reports, never waits, and
+    // neither is needed by detect, selection or signal.
+    expect(Object.keys(stage.jobs).length).toBe(9);
+    for (const job of ['detect', 'selection', 'signal', 'window-migrations'])
+      expect([stage.jobs[job].needs ?? []].flat().join(' ')).not.toContain('cycle-');
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });
@@ -1718,7 +1728,7 @@ describe('the post-seal Backup completion is an election trigger too (O25 additi
     }
   });
 
-  it('admits no other Backup completion: not a non-seal dispatch, a replay, a failure, another branch or repository', () => {
+  it('admits no other Backup completion: not a non-seal dispatch, a replay, a cancelled or skipped run, another branch or repository', () => {
     const refused: Record<string, unknown>[] = [
       { event: 'repository_dispatch', display_title: 'Backup Engine (Clone, Stage, Certify)' },
       { event: 'repository_dispatch', display_title: '' },
@@ -1728,13 +1738,20 @@ describe('the post-seal Backup completion is an election trigger too (O25 additi
       { event: 'workflow_dispatch', display_title: 'Backup after seal 1-1' },
       { event: 'schedule', display_title: 'Backup after seal 1-1' },
       { ...seal, run_attempt: 2 },
-      { ...seal, conclusion: 'failure' },
       { ...seal, conclusion: 'cancelled' },
+      { ...seal, conclusion: 'skipped' },
+      { ...seal, conclusion: 'action_required' },
+      { ...seal, conclusion: null },
       { ...seal, head_branch: 'other' },
       { ...seal, head_repository: { full_name: 'fork/repo' } },
       { ...seal, path: '.github/workflows/other.yml' },
       { run_attempt: 2 },
-      { conclusion: 'failure' },
+      { conclusion: 'cancelled' },
+      { conclusion: 'skipped' },
+      { conclusion: 'failure', run_attempt: 2 },
+      { conclusion: 'failure', head_branch: 'other' },
+      { conclusion: 'failure', event: 'schedule' },
+      { conclusion: 'failure', event: 'workflow_dispatch' },
     ];
     for (const run of refused) {
       expect(evaluate(stage['run-name'], completion(run)), JSON.stringify(run)).toBe(outside);
@@ -1755,6 +1772,119 @@ describe('the post-seal Backup completion is an election trigger too (O25 additi
       )
     ).toBe('Original operator daily preparation');
   });
+
+  // O32 (2026-11-26). The election needs an event, not a certificate: nothing
+  // after the admission reads the Backup that woke the run. Until this change
+  // a failed Backup's completion was refused by title, and on 2026-11-26 the
+  // two failed push Backups were the only events inside the 10:00 Chicago
+  // cycle's window, so the cycle had no owner.
+  it('admits a first-attempt Backup on main that failed or timed out exactly like one that succeeded (O32)', () => {
+    for (const conclusion of ['failure', 'timed_out'])
+      for (const run of [{}, seal]) {
+        const ctx = completion({ ...run, conclusion });
+        expect(evaluate(stage['run-name'], ctx), conclusion).toBe(reservation);
+        expect(evaluate(stage.jobs.detect.if, ctx), conclusion).toBe(true);
+      }
+    // Nothing downstream reads the Backup that woke the run: the workflow
+    // names github.event.workflow_run only in its run name and detect.if.
+    const uses = stageText.split('\n').filter((line) => line.includes('github.event.workflow_run'));
+    expect(uses.length).toBe(2);
+    expect(uses[0].startsWith('run-name: ')).toBe(true);
+    expect(uses[1].trimStart().startsWith('if: ')).toBe(true);
+  });
+
+  it('2026-11-26: the failed push Backup completion at 14:49:01Z owns the 10:00 Chicago cycle, once (O32)', () => {
+    const real = JSON.parse(
+      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+    );
+    const policy = { ...real, frequency: 'three-hourly' };
+    const health = JSON.stringify({
+      liveness: 'ok',
+      maintenance: {
+        schedule: { frequency: 'three-hourly', startHours: [1, 4, 7, 10, 13, 16, 19, 22] },
+      },
+    });
+    const done = (id: number, event: string, title: string, created: string, updated: string) => ({
+      id,
+      event,
+      display_title: title,
+      created_at: created,
+      updated_at: updated,
+      run_attempt: 1,
+      status: 'completed',
+      conclusion: 'success',
+    });
+    // Stage runs 45842790604, 45846574486 and 45850278483 as they are titled
+    // now: the first two woke on failed push Backups (45827343954 and
+    // 45827378798), the third on a failed scheduled Backup (45845308550),
+    // which is still outside the election.
+    const first = {
+      ...done(45842790604, 'workflow_run', reservation, '2026-11-26T14:49:01Z', ''),
+      status: 'in_progress',
+      conclusion: null,
+      updated_at: '2026-11-26T14:49:05Z',
+    };
+    const second = done(
+      45846574486,
+      'workflow_run',
+      reservation,
+      '2026-11-26T15:11:30Z',
+      '2026-11-26T15:11:55Z'
+    );
+    const third = done(
+      45850278483,
+      'workflow_run',
+      outside,
+      '2026-11-26T15:33:31Z',
+      '2026-11-26T15:33:41Z'
+    );
+    const owns = admit({
+      event: 'workflow_run',
+      policy,
+      health,
+      runId: first.id,
+      createdAt: first.created_at,
+      runs: [first],
+    });
+    expect(owns.outputs.daily_preparation, owns.stdout).toBe('true');
+    expect(owns.outputs.daily_preparation_date).toBe('2026-11-26T10');
+    expect(owns.outputs.cutoff_epoch).toBe(epoch('2026-11-26T15:30:00Z'));
+    // Two would-be owners never both claim: the second completion and the
+    // 16:20Z push defer to it by name, and the 15:33Z one never competes.
+    const later = admit({
+      event: 'workflow_run',
+      policy,
+      health,
+      runId: second.id,
+      createdAt: second.created_at,
+      runs: [first, second],
+    });
+    expect(later.outputs.daily_preparation).toBe('false');
+    expect(later.outputs.allowed).toBe('false');
+    expect(later.stdout).toContain('belongs to earlier run 45842790604');
+    // An unreadable reservation read never claims.
+    const unreadable = admit({
+      event: 'workflow_run',
+      policy,
+      health,
+      runId: first.id,
+      createdAt: first.created_at,
+      listFails: true,
+    });
+    expect(unreadable.outputs.daily_preparation).toBe('unknown');
+    expect(unreadable.outputs.allowed).toBe('false');
+    // As titled on the day (all three "outside election"), a push inside the
+    // window would have owned it; there was none, and no run was eligible.
+    const asItWas = admit({
+      event: 'push',
+      policy,
+      health,
+      runId: 45850000000,
+      createdAt: '2026-11-26T15:20:00Z',
+      runs: [first, second, third].map((r) => ({ ...r, display_title: outside })),
+    });
+    expect(asItWas.outputs.daily_preparation).toBe('true');
+  }, 300_000);
 
   it('inside the window it reserves, outside it does nothing, and the election counts it as it claims', () => {
     const real = JSON.parse(

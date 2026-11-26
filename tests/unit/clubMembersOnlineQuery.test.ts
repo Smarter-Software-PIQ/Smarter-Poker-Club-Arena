@@ -185,7 +185,7 @@ describe('Players tab #smarterCasinoRealism presentation', () => {
     expect(PAGE).not.toContain('Club Players');
     expect(PAGE).toContain('<PageBar');
     expect(PAGE).toContain("label: 'Total Members'");
-    expect(PAGE).toContain('Find Any Member, Read Their Live Club Status');
+    expect(PAGE).toMatch(/<ArenaWorkspaceHeader\s+area="members"/);
   });
 
   it('does not put a blur compositor on every roster row', () => {

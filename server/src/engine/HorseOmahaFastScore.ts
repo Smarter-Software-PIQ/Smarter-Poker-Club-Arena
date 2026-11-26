@@ -330,3 +330,27 @@ export function omahaFastBestPre(
   }
   return best;
 }
+
+/** Precomputed triples with every suit flag cleared: each five-card hand scored as if unsuited (ranks only). */
+export function omahaFastRankOnly(triples: Int32Array): Int32Array {
+  const out = Int32Array.from(triples);
+  for (let k = 3; k < out.length; k += OMAHA_FAST_TRIPLE_STRIDE) out[k] = -1;
+  return out;
+}
+
+/** Only the precomputed triples of one suit (the triples a flush can use). */
+export function omahaFastOneSuit(triples: Int32Array): Int32Array {
+  let c = 0;
+  for (let k = 3; k < triples.length; k += OMAHA_FAST_TRIPLE_STRIDE) if (triples[k] >= 0) c++;
+  const out = new Int32Array(c * OMAHA_FAST_TRIPLE_STRIDE);
+  let w = 0;
+  for (let k = 0; k < triples.length; k += OMAHA_FAST_TRIPLE_STRIDE)
+    if (triples[k + 3] >= 0) {
+      out[w] = triples[k];
+      out[w + 1] = triples[k + 1];
+      out[w + 2] = triples[k + 2];
+      out[w + 3] = triples[k + 3];
+      w += OMAHA_FAST_TRIPLE_STRIDE;
+    }
+  return out;
+}

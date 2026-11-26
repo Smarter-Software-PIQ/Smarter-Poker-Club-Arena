@@ -91,6 +91,13 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // (tests/the-evening-plan-only-reads.law.test.ts).
   ['evening-release-plan.yml', '7 1 * * *'],
   ['evening-release-plan.yml', '7 2 * * *'],
+  // Owner order 2026-11-26 11:33 Chicago (build the install-window merge guard):
+  // the required status 'Migration merge window' flips with the clock, so a
+  // keeper at :10 holds each 10-30-minute window open and closes it, and a
+  // sweep at :40 closes anything a delayed keeper left open. Statuses only:
+  // it never initiates, advances, retries or certifies a release.
+  ['migration-merge-window.yml', '10 * * * *'],
+  ['migration-merge-window.yml', '40 * * * *'],
 ];
 
 /** Blank YAML `#` comments, quote-aware so a trailing note keeps its value. */
@@ -163,8 +170,8 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(19);
-    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(14);
+    expect(TIMERS).toHaveLength(21);
+    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(15);
   });
 
   it('schema-manifest-refresh keeps the two that three other laws bound it to', () => {

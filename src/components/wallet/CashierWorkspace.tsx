@@ -46,6 +46,7 @@ export function CashierWorkspace({
     >
       <PageBar
         titleAs={hasVisibleTitle ? false : 'h1'}
+        showHelp={!hasVisibleTitle}
         title={title}
         summary={summary}
         status={status}
