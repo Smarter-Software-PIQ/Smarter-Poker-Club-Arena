@@ -6,7 +6,9 @@ import {
   category,
   eval5,
   holdingPool,
+  boatsAbove,
   isNutsExact,
+  nutClass,
   omaha,
   parseCard,
   rangeEquity,
@@ -16,6 +18,7 @@ import { auditSql } from '../../scripts/ops/horse-hand-audit-omaha-lib/sql.mjs';
 import { parseHand, shownCards } from '../../scripts/ops/horse-hand-audit-omaha-lib/hand.mjs';
 import { nodeFoldCost } from '../../scripts/ops/horse-hand-audit-omaha-lib/rangetier.mjs';
 import { mistakeClass } from '../../scripts/ops/horse-hand-audit-omaha-lib/grade.mjs';
+import { omahaNutClassNow } from '../../server/src/engine/HorseOmahaMadeHandDefense';
 import { aggregate } from '../../scripts/ops/horse-hand-audit-omaha-lib/aggregate.mjs';
 import {
   EXIT_FAILED,
@@ -233,5 +236,218 @@ describe('exit codes', () => {
         1
       )
     ).toBe(EXIT_OK);
+  });
+});
+
+describe('owner rule "a hand that is not nut class never raises the turn or river": the audit asks the engine\'s question', () => {
+  // Hand shapes only. The Horse's own cards are the ones the hand showed where they matter to the shape (T-T on
+  // 8-T-8-3); the side cards are fillers that play no part, and no opponent card is in any fixture (the opponent
+  // is recorded as not shown).
+  const card = (x: string) => ({
+    rank: x.slice(0, -1),
+    suit: { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }[x.slice(-1) as 's'],
+  });
+  const H = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  const P = 'bbbbbbbb-0000-4000-8000-00000000000b';
+
+  it('tens full on 8-T-8-3 is nut class though quad eights are possible (hand 0bf48e08); an under-full is not', () => {
+    const board = C('8c Td 8d 3s');
+    const topBoat = C('Th Ts 2c 5h 9h');
+    expect(isNutsExact(topBoat, board)).toBe(false);
+    expect(boatsAbove(topBoat, board)).toBe(0);
+    expect(nutClass(topBoat, board)).toBe('effective');
+    // threes full of eights: T-T and T-8 make a bigger full house
+    expect(boatsAbove(C('3h 3c 2c 5h 9h'), board)).toBeGreaterThan(0);
+    expect(nutClass(C('3h 3c 2c 5h 9h'), board)).toBeNull();
+    // quad eights: the exact nuts
+    expect(nutClass(C('8h 8s 2c 5h'), board)).toBe('nuts');
+  });
+  it('the nut flush and the nut straight are nut class only on the boards the engine names', () => {
+    // nut flush, unpaired board, a straight flush possible: not the exact nuts, still nut class
+    expect(isNutsExact(C('Ah Kh 2c 3d'), C('9h 8h 7h 2s'))).toBe(false);
+    expect(nutClass(C('Ah Kh 2c 3d'), C('9h 8h 7h 2s'))).toBe('effective');
+    // nut flush on a paired board: a full house is possible, not nut class
+    expect(nutClass(C('Ah Kh 2c 3d'), C('9h 8h 7h 9s'))).toBeNull();
+    // second-nut flush
+    expect(nutClass(C('Kh Qh 2c 3d'), C('9h 8h 4h 2s'))).toBeNull();
+    // nut straight with a flush possible / with no flush possible
+    expect(nutClass(C('Jc Td 2c 3d'), C('9h 8h 7h 2s'))).toBeNull();
+    expect(nutClass(C('Jc Td 2c 3d'), C('9h 8s 7d 2s'))).toBe('nuts');
+    // a set is not nut class once a straight is possible
+    expect(nutClass(C('9c 9d 2c 3d'), C('9h 8s 7d 2s'))).toBeNull();
+  });
+  it('agrees with the engine (omahaNutClassNow) on 400 seeded turn and river holdings of four and five cards', () => {
+    const r = rng(20261126);
+    const names = (cs: number[]) =>
+      cs.map((c) => ({
+        rank: '23456789TJQKA'[c >> 2],
+        suit: ['clubs', 'diamonds', 'hearts', 'spades'][c & 3],
+      }));
+    let n = 0;
+    let effective = 0;
+    for (let i = 0; i < 400; i++) {
+      const deck = Array.from({ length: 52 }, (_, k) => k);
+      for (let k = 51; k > 0; k--) {
+        const j = Math.floor(r() * (k + 1));
+        [deck[k], deck[j]] = [deck[j]!, deck[k]!];
+      }
+      // half the boards are forced to be paired or three of a suit, where the classes differ from the exact nuts
+      if (i % 2 === 0) deck[1] = ((deck[0]! >> 2) << 2) | ((deck[0]! + 1) & 3);
+      const uniq = [...new Set(deck)];
+      const nb = i % 4 < 2 ? 4 : 5;
+      const nh = i % 3 === 0 ? 5 : 4;
+      const board = uniq.slice(0, nb);
+      const hole = uniq.slice(nb, nb + nh);
+      const engine = omahaNutClassNow(
+        { cards: names(hole) } as never,
+        {
+          stage: nb === 4 ? 'turn' : 'river',
+          gameVariant: nh === 5 ? 'plo5' : 'plo4',
+          communityCards: names(board),
+        } as never
+      );
+      const mine = nutClass(hole, board);
+      expect(mine !== null, `${hole} on ${board}`).toBe(engine);
+      n++;
+      if (mine === 'effective') effective++;
+    }
+    expect(n).toBe(400);
+    expect(effective).toBeGreaterThan(0);
+  });
+
+  const turnRaise = (holeCards: string[]) => ({
+    id: '0bf48e08-0000-4000-8000-000000000001',
+    created_at: '2026-11-25 22:34:34.000000+00',
+    gv: 'plo5',
+    bb: '1.00',
+    btn: '1',
+    build: 'd07cd7d7feec',
+    hh: true,
+    rake: '0',
+    bbj: '0',
+    pot: '65.00',
+    tid: 't1',
+    cc: ['8clubs', 'Tdiamonds', '8diamonds', '3spades', '2hearts'],
+    cc2: null,
+    rit: null,
+    bomb: false,
+    pl: [
+      [1, P, 67.5, 'ShapePerson', false],
+      [2, H, 132.5, 'ShapeHorse', true],
+    ],
+    ac: [
+      [1, 'preflop', 'sb', 0.5, 'forced', false, null, null, P],
+      [2, 'preflop', 'bb', 1, 'forced', false, null, null, H],
+      [1, 'preflop', 'raise', 3, 'human', null, null, null, P],
+      [2, 'preflop', 'call', 2, 'horse_policy', null, null, null, H],
+      [2, 'flop', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'flop', 'bet', 5.5, 'human', null, null, null, P],
+      [2, 'flop', 'call', 5.5, 'horse_policy', null, null, null, H],
+      [2, 'turn', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'turn', 'bet', 7, 'human', null, null, null, P],
+      [2, 'turn', 'raise', 24, 'horse_policy', null, null, null, H],
+      [1, 'turn', 'call', 17, 'human', null, null, null, P],
+      [2, 'river', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'river', 'check', 0, 'human', null, null, null, P],
+    ],
+    w: [{ userId: H, amount: 65, potIndex: 0 }],
+    pots: [{ amount: 65, eligible: [H, P] }],
+    sd: [
+      [1, P, true],
+      [2, H, false],
+    ],
+    hc: { [H]: holeCards.map(card) },
+  });
+  const raiseRow = (row: unknown) =>
+    buildAudit([row], { tables, opts: FAST }).decisions.find(
+      (d: { street: string; act_taken?: string; tier: string }) =>
+        d.street === 'turn' && d.tier === 'A' && d.act_taken === 'raise'
+    );
+
+  it('the turn check-raise with tens full on 8-T-8-3 is no breach; it is counted apart as nut class, not the exact nuts', () => {
+    const out = buildAudit([turnRaise(['Th', 'Ts', '2c', '5h', '9h'])], { tables, opts: FAST });
+    const d = raiseRow(turnRaise(['Th', 'Ts', '2c', '5h', '9h']));
+    expect(d).toBeTruthy();
+    expect(d.nuts).toBe(false);
+    expect(d.nut_class).toBe('effective');
+    expect(d.breach).toBe('');
+    expect(d.note).toBe('nut-class raise turn/river, not the exact nuts');
+    expect(d.mtype).not.toBe('raised a non-nut hand on turn/river');
+    expect(out.summary.breaches).toEqual([]);
+    expect(out.summary.notes).toMatchObject([
+      { note: 'nut-class raise turn/river, not the exact nuts', n: 1, vsPerson: 1 },
+    ]);
+  });
+  it('the same raise with an under-full is still the breach, and lists every hand', () => {
+    const row = turnRaise(['3h', '3c', '2c', '5h', '9h']);
+    const d = raiseRow(row);
+    expect(d.nut_class).toBe('');
+    expect(d.breach).toBe('non-nut raise turn/river');
+    const out = buildAudit([row], { tables, opts: FAST });
+    expect(out.summary.breaches).toMatchObject([
+      { breach: 'non-nut raise turn/river', n: 1, hands: ['0bf48e08-0000-4000-8000-000000000001'] },
+    ]);
+  });
+
+  /** Hand 9fb142d2 shape: the person moves all in on the flop; the Horse covers and answers all in; the rest returns. */
+  const allInOverAllIn = (personStack: number) => {
+    const horseIn = Math.min(500, personStack);
+    return {
+      id: '9fb142d2-0000-4000-8000-000000000002',
+      created_at: '2026-11-25 20:00:00.000000+00',
+      gv: 'plo4',
+      bb: '1.00',
+      btn: '2',
+      build: 'd07cd7d7feec',
+      hh: true,
+      rake: '0',
+      bbj: '0',
+      pot: String(2 * horseIn),
+      tid: 't1',
+      cc: ['Kdiamonds', '9spades', '4clubs', '2hearts', '7diamonds'],
+      cc2: null,
+      rit: null,
+      bomb: false,
+      pl: [
+        [1, P, personStack - horseIn, 'ShapePerson', false],
+        [2, H, 500 + horseIn, 'ShapeHorse', true],
+      ],
+      ac: [
+        [2, 'preflop', 'sb', 0.5, 'forced', false, null, null, H],
+        [1, 'preflop', 'bb', 1, 'forced', false, null, null, P],
+        [2, 'preflop', 'raise', 3, 'horse_policy', null, null, null, H],
+        [1, 'preflop', 'call', 2, 'human', null, null, null, P],
+        [1, 'flop', personStack <= 500 ? 'all_in' : 'bet', 181, 'human', null, null, null, P],
+        [2, 'flop', 'all_in', 497, 'horse_policy', null, null, null, H],
+        ...(personStack <= 500
+          ? [[2, 'flop', 'return', 497 - (personStack - 3), 'system', null, null, null, H]]
+          : [[1, 'flop', 'call', 316, 'human', null, null, null, P]]),
+      ],
+      w: [{ userId: H, amount: 2 * horseIn, potIndex: 0 }],
+      pots: [{ amount: 2 * horseIn, eligible: [H, P] }],
+      sd: [
+        [1, P, true],
+        [2, H, false],
+      ],
+      hc: { [H]: ['Kh', 'Ks', '5c', '6d'].map(card) },
+    };
+  };
+  const flopAnswer = (row: unknown) =>
+    buildAudit([row], { tables, opts: FAST }).decisions.find(
+      (d: { street: string; tier: string; origin: string }) =>
+        d.street === 'flop' && d.tier === 'A' && d.origin === 'horse_policy'
+    );
+  it('an all-in over a sole opponent who is already all in is graded as the call it is (hand 9fb142d2)', () => {
+    const d = flopAnswer(allInOverAllIn(184));
+    expect(d).toBeTruthy();
+    expect(d.act_taken).toBe('call');
+    expect(d.taken).toBe('call');
+    expect(d.mtype).not.toBe('raise without price');
+    expect(d.breach).toBe('');
+  });
+  it('the same all-in over an opponent with chips behind is still a raise', () => {
+    const d = flopAnswer(allInOverAllIn(1000));
+    expect(d.act_taken).toBe('raise');
+    expect(d.taken).toBe('raise(taken)');
   });
 });

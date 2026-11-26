@@ -211,6 +211,21 @@ export function aggregate({ hands, decisions, nodes, splitAt = null }) {
     vsPerson: rs.filter((r) => r.opp_person === 'y').length,
     costBb: sum(rs, (r) => r.cost_bb),
     examples: rs.slice(0, 8).map((r) => r.hand_id),
+    // every hand, so the daily audit can tell a hand an earlier overlapping run already listed
+    hands: [...new Set(rs.map((r) => r.hand_id))],
+  }));
+  // graded apart, not breaches: e.g. a turn/river raise with a nut-class hand that is not the exact nuts
+  out.notes = [
+    ...grp(
+      A.filter((r) => r.note),
+      (r) => r.note
+    ),
+  ].map(([k, rs]) => ({
+    note: k,
+    n: rs.length,
+    vsPerson: rs.filter((r) => r.opp_person === 'y').length,
+    costBb: sum(rs, (r) => r.cost_bb),
+    examples: rs.slice(0, 8).map((r) => r.hand_id),
   }));
   // results
   const res = (hs) => {

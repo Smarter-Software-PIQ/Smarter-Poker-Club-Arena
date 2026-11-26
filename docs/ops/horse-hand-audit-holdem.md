@@ -20,12 +20,22 @@ node scripts/ops/horse-hand-audit-holdem.mjs --save-json raw.json ; ... --from-j
 ```
 
 Flags: `--since/--until` (default the last 24 hours), `--mode cash|tournament|all`, `--people-only` (default) or
-`--all` (Horse-only tables too), `--split-at` (compare after against before; default: against the same length of time
-immediately before `--since`), `--json`, `--csv <dir>` (decisions.csv, hands.csv), `--from-json`, `--save-json`.
+`--all` (Horse-only tables too), `--split-at` (compare after against before; default: against the earlier windows
+pooled), `--compare-windows <n>` (how many earlier windows of the same length to pool, default 3, at most 28 days read
+in all), `--json`, `--csv <dir>` (decisions.csv, hands.csv), `--from-json`, `--save-json`.
 
-Exit codes: 0 clean; 1 a leak node is measurably worse than in the comparison window (same node, at least 30 spots
-each side, two-proportion z of at least 2 in the leaking direction); 2 fewer than 50 person-hands in the range;
+Exit codes: 0 clean; 1 a leak node is measurably worse than before; 2 fewer than 50 person-hands in the range;
 64 wrong argument; 70 failed read.
+
+"Measurably worse" (`compareWindows`, changed 2026-11-26 after a false alarm): the same node, at least 30 spots now
+and at least 30 in the earlier windows **pooled** (three windows of the same length by default, never the single
+window before: one low day is not a baseline), and a two-proportion z in the leaking direction above a bar
+**corrected for the number of nodes compared in the run** (`horse-audit-multiple-tests.mjs`: the one-sided tail of
+z 2 divided by the number of comparisons; 47 nodes need z 3.30). Each flagged row prints its z, the bar, and every
+earlier window's own rate. The earlier windows are only counted, not graded, and the price model is still measured
+on the audited window and the one before it, so reading more history changes no grade. An all-in-or-fold event's
+nodes are kept apart from regular tournaments (`tournament all-in-or-fold | ...`): the small blind facing a jam
+folds 84% there against 63% in regular events, so a day with more of it is not a change.
 
 ## Security and the shown-cards rule
 

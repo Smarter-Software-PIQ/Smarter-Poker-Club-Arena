@@ -30,12 +30,20 @@ node scripts/ops/horse-daily-audit.mjs --plan [--until <ISO>]     # boundaries a
 ## The Summary
 
 One page: the range; every split and its reason; a table of every tool with its exit code and what it means; then
-**Regressions** (the NLH audit's nodes worse than the window before, the PLO audit's HARD leaks that got worse, the
+**Regressions** (the NLH audit's nodes worse than the earlier windows pooled, the PLO audit's HARD leaks that got worse, the
 exploit report's gate line, people measurably better after a split), **Owner-Rule Breaches** (the PLO audit's graded
 breaches: a non-nut raise on the turn or river, a draw raised out of position; with examples) and **Top Leaks** (the
 NLH audit's ranked leaks, the PLO audit's HARD leaks versus people, the exploit report's top realised-cost findings).
 
-Exit: 0 clean; 1 a regression or an owner-rule breach; 64 a usage error; 70 a read or a tool failed (the summary is
+**Repeats.** Two runs whose ranges overlap read the same hands twice. The run before is `--previous <run folder>`,
+else the newest earlier dated folder under `--out-root`. A breach hand it already listed (its JSON or its PLO
+`decisions.csv`) is marked `repeat (already reported <folder>)`; so is a regression finding it already listed (same
+NLH node, same PLO leak, same exploit cell and split) when its range overlaps this one. Without an overlap the same
+node flagging again is a second measurement and is reported in full. Repeats are shown, and do not count toward
+exit 1. A turn or river raise with a nut-class hand that is not the exact nuts is listed as "counted apart, not a
+breach".
+
+Exit: 0 clean; 1 a regression or an owner-rule breach that is not a repeat; 64 a usage error; 70 a read or a tool failed (the summary is
 still written and names the tool; read its `.err`).
 
 ## Safety
