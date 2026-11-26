@@ -171,8 +171,14 @@ export default function HandHistoryPage() {
   /* The page knows which ROOM it is in, not which club row, so it asks by
      asset and the service names the one open club behind it. */
   const arenaAssetScope = arenaScoped ? ('diamonds' as const) : null;
-  const hasStatsDrilldown = Object.keys(statsDrilldown).some((key) => key !== 'gameMode');
   const cameFromStats = searchParams.get('source') === 'stats';
+  const requestedAsset = searchParams.get('statsAsset');
+  const hasStatsDrilldown =
+    Object.keys(statsDrilldown).some((key) => key !== 'gameMode') ||
+    (cameFromStats &&
+      (Boolean(statsDrilldown.gameMode) ||
+        requestedAsset === 'chips' ||
+        requestedAsset === 'diamonds'));
   const cameFromPaHome = searchParams.get('source') === 'personal-assistant-loop';
   const cameFromPersonalAssistant =
     searchParams.get('source') === 'personal-assistant' ||
@@ -184,7 +190,7 @@ export default function HandHistoryPage() {
      dispute carry; RLS decides whether the viewer may read it. */
   const linkedHandId = searchParams.get('hand');
   const useStatsEvidence = cameFromStats && hasStatsDrilldown && !linkedHandId;
-  const statsAssetScope = searchParams.get('statsAsset') === 'diamonds' ? 'diamonds' : 'chips';
+  const statsAssetScope = requestedAsset === 'diamonds' ? 'diamonds' : 'chips';
   const toast = useToast();
   const isMounted = useIsMounted();
 
