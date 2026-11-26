@@ -128,6 +128,16 @@ export default function PlayerStatisticsPage() {
   const userId = routeUserId || undefined;
 
   const navigate = useNavigate();
+  const returnFromStatistics = () => {
+    if (window.history.state?.idx > 0 || !clubId || !userId) {
+      navigate(-1);
+      return;
+    }
+    const query = searchParams.toString();
+    const record = `/clubs/${encodeURIComponent(clubId)}/members/${encodeURIComponent(userId)}`;
+    navigate(query ? `${record}?${query}` : record, { replace: true });
+  };
+
   const toast = useToast();
   const { user } = useAuthUser();
   const isMountedRef = useIsMounted();
@@ -439,7 +449,12 @@ export default function PlayerStatisticsPage() {
         className="ps-page-bar"
       >
         <ClubDataReturnLink />
-        <button type="button" className="ps-back" onClick={() => navigate(-1)} aria-label="Go Back">
+        <button
+          type="button"
+          className="ps-back"
+          onClick={returnFromStatistics}
+          aria-label="Go Back"
+        >
           ‹
         </button>
       </PageBar>

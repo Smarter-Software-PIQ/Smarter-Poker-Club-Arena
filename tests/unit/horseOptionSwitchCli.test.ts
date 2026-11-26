@@ -31,7 +31,7 @@ import {
   parseSupabaseQueryJson,
   sqlLiteral,
 } from '../../scripts/ops/horse-option-switch-lib.mjs';
-import { runCli } from '../../scripts/ops/horse-option-switch.mjs';
+import { readWhitelistStates, runCli } from '../../scripts/ops/horse-option-switch.mjs';
 
 const VALID_SHA = 'a'.repeat(64);
 const SERVING_SHA = '1a0a6047e1acb1a037cd43b36d9907a00103c5e4';
@@ -143,6 +143,61 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       const unrecorded = evaluatePreflight(basePreflightInput({ evidenceRecorded: false }));
       expect(unrecorded.ok).toBe(false);
       expect(unrecorded.failures.map((f) => f.code)).toContain('EVIDENCE_NOT_RECORDED');
+    });
+
+    // 2026-11-26: since list-once (20261125234502) the database keeps its own option whitelist, apart from the
+    // serving engine's registry. A preflight that read only the engine passed for a state the database then
+    // refused at write time, after the pre-notice and the VERIFIER-10 confirmation.
+    it('refuses a state the database whitelist does not give the option, and an option it does not register', () => {
+      const notRegistered = evaluatePreflight(basePreflightInput({ whitelistStates: null }));
+      expect(notRegistered.ok).toBe(false);
+      expect(notRegistered.failures.map((f: { code: string }) => f.code)).toContain(
+        'OPTION_NOT_WHITELISTED'
+      );
+
+      const offOnly = evaluatePreflight(basePreflightInput({ whitelistStates: ['off'] }));
+      expect(offOnly.ok).toBe(false);
+      expect(offOnly.failures.map((f: { code: string }) => f.code)).toContain(
+        'STATE_NOT_IN_WHITELIST'
+      );
+
+      const fits = evaluatePreflight(
+        basePreflightInput({ whitelistStates: ['off', 'shadow', 'on_shadow', 'on'] })
+      );
+      const codes = [...fits.failures, ...fits.warnings].map((f: { code: string }) => f.code);
+      expect(codes).not.toContain('OPTION_NOT_WHITELISTED');
+      expect(codes).not.toContain('STATE_NOT_IN_WHITELIST');
+      expect(codes).not.toContain('WHITELIST_NOT_READ');
+
+      const unread = evaluatePreflight(basePreflightInput({ whitelistStates: undefined }));
+      expect(unread.failures.map((f: { code: string }) => f.code)).not.toContain(
+        'STATE_NOT_IN_WHITELIST'
+      );
+      expect(unread.warnings.map((f: { code: string }) => f.code)).toContain('WHITELIST_NOT_READ');
+    });
+
+    it('reads the whitelist states as the database CLI returns them, and fails open only to "not read"', () => {
+      const sqlSeen: string[] = [];
+      const q = (rows: unknown) => (sql: string) => {
+        sqlSeen.push(sql);
+        return rows as Record<string, unknown>[];
+      };
+      expect(readWhitelistStates(q([{ states: '{off,shadow,on_shadow,on}' }]), 'v16Hu')).toEqual([
+        'off',
+        'shadow',
+        'on_shadow',
+        'on',
+      ]);
+      expect(readWhitelistStates(q([{ states: ['off'] }]), 'v16Hu')).toEqual(['off']);
+      expect(readWhitelistStates(q([{ states: '{}' }]), 'v16Hu')).toEqual([]);
+      expect(readWhitelistStates(q([{ states: null }]), 'v16Hu')).toBeNull();
+      expect(readWhitelistStates(q([]), 'v16Hu')).toBeUndefined();
+      expect(
+        readWhitelistStates(() => {
+          throw new Error('function public.fn_ca_horse_option_switch_states(text) does not exist');
+        }, 'v16Hu')
+      ).toBeUndefined();
+      expect(sqlSeen[0]).toBe("SELECT public.fn_ca_horse_option_switch_states('v16Hu') AS states;");
     });
 
     it('refuses on / on_shadow unless the cited authority file states "Evidence MET"', () => {
@@ -878,6 +933,9 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
         }
         if (sql.includes('fn_ca_horse_option_registry_refusal')) {
           return [{ refusal: overrides.refusal ?? null }];
+        }
+        if (sql.includes('fn_ca_horse_option_switch_states')) {
+          return [{ states: overrides.whitelistStates ?? '{off,shadow,on_shadow,on}' }];
         }
         if (sql.includes('fn_platform_frozen()')) {
           return [{ platform_frozen: false, has_break_table: true, has_windows_table: false }];

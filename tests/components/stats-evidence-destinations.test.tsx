@@ -149,7 +149,7 @@ describe('Stats evidence destinations', () => {
   });
 
   it('loads trophy evidence on demand and exposes exact hand destinations', async () => {
-    vi.mocked(StatsEvidenceService.list).mockResolvedValue({
+    const firstPage = {
       hands: [
         {
           hand_id: 'hand-9',
@@ -186,11 +186,12 @@ describe('Stats evidence destinations', () => {
           noted: false,
         } as never,
       ],
-      has_more: false,
-      next_cursor: null,
+      has_more: true,
+      next_cursor: { hand_id: 'hand-9', played_at: '2026-10-03T10:00:00Z' },
       scope: null,
       generated_at: '',
-    });
+    };
+    vi.mocked(StatsEvidenceService.list).mockResolvedValue(firstPage);
 
     renderWithRoutes(
       <TrophyRoom
@@ -223,6 +224,27 @@ describe('Stats evidence destinations', () => {
       'href',
       '/hand-history?hand=hand-9&source=stats&statsClub=club-7'
     );
+    vi.mocked(StatsEvidenceService.list).mockResolvedValueOnce({
+      ...firstPage,
+      hands: [],
+      has_more: false,
+      next_cursor: null,
+      error: 'unavailable',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load More Evidence' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Evidence Could Not Be Loaded');
+    expect(screen.getByRole('link', { name: /AA/i })).toBeInTheDocument();
+    vi.mocked(StatsEvidenceService.list).mockResolvedValueOnce({
+      ...firstPage,
+      hands: [],
+      has_more: false,
+      next_cursor: null,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load More Evidence' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Load More Evidence' })).toBeNull()
+    );
+    expect(vi.mocked(StatsEvidenceService.list).mock.lastCall?.[4]).toEqual(firstPage.next_cursor);
     expect(screen.getAllByText('Individual Trophy Evidence Unavailable').length).toBeGreaterThan(0);
   });
 

@@ -1,15 +1,37 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useClubDataFilters } from '../../src/hooks/useClubDataFilters';
 import ClubDataReportGuide from '../../src/components/club/ClubDataReportGuide';
 import ClubDataReturnLink from '../../src/components/club/ClubDataReturnLink';
+import ClubDataSimplePage from '../../src/pages/club/ClubDataSimplePage';
 import { clubDataWindow } from '../../src/lib/clubDataDay';
 
 vi.mock('../../src/hooks/usePlayerPreference', async () => {
   const { useState } = await import('react');
   return { usePlayerPreference: (_key: string, value: unknown) => useState(value) };
 });
+vi.mock('../../src/hooks/useAuthUser', () => ({
+  useAuthUser: () => ({ user: { id: 'club-owner' }, isHydrating: false }),
+}));
+vi.mock('../../src/pages/club/ClubDataPage', () => ({
+  default: () => <p>Report Ledger</p>,
+}));
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    rpc: async () => ({
+      data: {
+        scope: 'club',
+        summary: { games: 0, total_winnings: 0, mtt_winnings: 0, fee: 0 },
+        rows: [],
+      },
+      error: null,
+    }),
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+    }),
+  },
+}));
 afterEach(cleanup);
 function Question() {
   const f = useClubDataFilters('test');
@@ -31,6 +53,30 @@ function Question() {
   );
 }
 describe('the report question survives navigation', () => {
+  it('moves from the Game Reports link to its expanded region and returns focus on close', async () => {
+    const club = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
+    render(
+      <MemoryRouter initialEntries={[`/clubs/${club}/data?dataGame=OMAHA&dataStakes=HIGH`]}>
+        <Routes>
+          <Route
+            path="/clubs/:clubId/data"
+            element={<ClubDataSimplePage authorizedScope="club" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+    const link = await screen.findByRole('link', { name: 'Game Reports' });
+    link.focus();
+    fireEvent.click(link);
+    const report = await screen.findByRole('region', { name: 'Club Report' });
+    await waitFor(() => expect(report).toHaveFocus());
+    await screen.findByText('Report Ledger');
+    fireEvent.click(screen.getByRole('button', { name: 'Close Club Report' }));
+    expect(screen.queryByRole('region', { name: 'Club Report' })).not.toBeInTheDocument();
+    const returned = screen.getByRole('link', { name: 'Game Reports' });
+    expect(returned).toHaveFocus();
+    expect(returned.getAttribute('href')).toContain('dataGame=OMAHA&dataStakes=HIGH');
+  });
   it('honors explicit filters, changes them atomically and restores Back', () => {
     render(
       <MemoryRouter

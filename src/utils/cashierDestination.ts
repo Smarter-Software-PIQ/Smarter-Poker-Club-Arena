@@ -7,12 +7,6 @@
  */
 
 /** Keep the selected tool when switching clubs; a table context belongs to its original club. */
-export function cashierDestination(pathname: string, search = ''): string {
-  if (/\/cashier\/statements\/?$/.test(pathname)) return 'cashier/statements';
-  if (
-    /\/cashier-classic\/?$/.test(pathname) ||
-    new URLSearchParams(search).get('walletTools') === 'open'
-  )
-    return 'wallet-operations';
-  return 'cashier';
+export function cashierDestination(pathname: string): string {
+  return /\/cashier\/statements\/?$/.test(pathname) ? 'cashier/statements' : 'cashier';
 }

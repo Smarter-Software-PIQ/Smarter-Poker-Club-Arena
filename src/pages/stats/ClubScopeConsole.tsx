@@ -2,13 +2,12 @@ import { lazy, Suspense } from 'react';
 import { CHIP_STATS } from '../../services/statsScope';
 import { titleCase } from '../../utils/titleCase';
 import {
-  CLUB_SORTS,
   type ClubComparisonRow,
   type ClubComparisonSort,
   type StatsClubOption,
 } from './playerStatsPageModel';
 
-const ClubComparisonTable = lazy(() => import('./ClubComparisonTable'));
+const ClubComparisonPanel = lazy(() => import('./ClubComparisonTable'));
 
 interface Props {
   gameMode?: 'cash' | 'tournament';
@@ -105,7 +104,7 @@ export default function ClubScopeConsole(props: Props) {
                 <button
                   type="button"
                   aria-expanded={comparisonOpen}
-                  aria-controls="stats-club-comparison"
+                  aria-controls={comparisonOpen ? 'stats-club-comparison' : undefined}
                   onClick={() => {
                     const next = !comparisonOpen;
                     setComparisonOpen(next);
@@ -120,65 +119,24 @@ export default function ClubScopeConsole(props: Props) {
       )}
 
       {comparisonOpen && (
-        <section
-          className="stats-club-comparison"
-          id="stats-club-comparison"
-          aria-labelledby="stats-club-comparison-title"
+        <Suspense
+          fallback={
+            <div id="stats-club-comparison" className="stats-section-loading" role="status">
+              Loading Club Ledgers...
+            </div>
+          }
         >
-          <div className="stats-club-comparison-head">
-            <div>
-              <span className="stats-section-kicker">One Read // Every Authorized Club</span>
-              <h2 id="stats-club-comparison-title">Club Comparison</h2>
-            </div>
-            <div className="stats-club-sort" role="group" aria-label="Sort Club Comparison">
-              {CLUB_SORTS.filter((sort) =>
-                tournament
-                  ? !['profit', 'bb100', 'rake'].includes(sort.key)
-                  : sort.key !== 'tournaments'
-              ).map((sort) => (
-                <button
-                  type="button"
-                  key={sort.key}
-                  aria-pressed={comparisonSort === sort.key}
-                  className={comparisonSort === sort.key ? 'active' : ''}
-                  onClick={() => changeComparisonSort(sort.key)}
-                >
-                  {sort.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {comparisonLoading && (
-            <div className="stats-section-loading">Loading Club Ledgers...</div>
-          )}
-          {comparisonError && (
-            <div className="stats-notice stats-notice-warn" role="alert">
-              Club Comparison Could Not Be Loaded.{' '}
-              <button type="button" className="hand-retry" onClick={onRetryComparison}>
-                Try Again
-              </button>
-            </div>
-          )}
-          {!comparisonLoading && !comparisonError && sortedComparisonRows.length > 0 && (
-            <Suspense
-              fallback={
-                <div className="stats-section-loading" role="status">
-                  Loading Club Ledgers...
-                </div>
-              }
-            >
-              <ClubComparisonTable
-                rows={sortedComparisonRows}
-                tournament={tournament}
-                changeClub={changeClub}
-              />
-            </Suspense>
-          )}
-          <p className="stats-club-comparison-footnote">
-            Club Hours Are Unavailable Because The Per-Club Facts Contract Does Not Retain Session
-            Duration. Club History Begins At The First Preserved Club Fact.
-          </p>
-        </section>
+          <ClubComparisonPanel
+            tournament={tournament}
+            changeClub={changeClub}
+            onRetryComparison={onRetryComparison}
+            comparisonSort={comparisonSort}
+            changeComparisonSort={changeComparisonSort}
+            comparisonLoading={comparisonLoading}
+            comparisonError={comparisonError}
+            sortedComparisonRows={sortedComparisonRows}
+          />
+        </Suspense>
       )}
     </>
   );

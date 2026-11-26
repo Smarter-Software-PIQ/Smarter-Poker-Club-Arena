@@ -127,6 +127,36 @@ beforeEach(() => {
 });
 
 describe('UnionWalletModal', () => {
+  it.each([
+    ['chips', 'union', true],
+    ['chips', 'club', false],
+    ['chips', null, false],
+    ['rake', 'union', false],
+  ] as const)(
+    'opens mint only for an authorized union bank (%s, %s)',
+    async (walletKey, allowed, shown) => {
+      const onMint = vi.fn();
+      const previous = rpc.getMockImplementation()!;
+      rpc.mockImplementation((name: string, args?: unknown) =>
+        name === 'fn_cashier_mint_scope'
+          ? Promise.resolve({ data: allowed, error: null })
+          : previous(name, args)
+      );
+      render(<UnionWalletModal {...base} walletKey={walletKey} onMint={onMint} />);
+      if (walletKey === 'chips')
+        await waitFor(() =>
+          expect(rpc).toHaveBeenCalledWith('fn_cashier_mint_scope', { p_club_id: UNION_ID })
+        );
+      if (shown) {
+        const mint = await screen.findByRole('button', { name: 'Mint', exact: true });
+        fireEvent.click(mint);
+        expect(onMint).toHaveBeenCalledOnce();
+      } else {
+        expect(screen.queryByRole('button', { name: 'Mint', exact: true })).toBeNull();
+        expect(onMint).not.toHaveBeenCalled();
+      }
+    }
+  );
   it('prints the chip wallet to cents while transaction amounts retain their ledger format', async () => {
     render(<UnionWalletModal {...base} balance={1000} />);
     expect(await screen.findByText('1,000.00 Chips')).toBeTruthy();

@@ -169,6 +169,7 @@ vi.mock('../../src/utils/clubIdResolver', async (importOriginal) => ({
 }));
 
 import { supabase } from '../../src/lib/supabase';
+import * as cashierJournal from '../../src/services/CashierResilience';
 import { engineChannelClient } from '../../src/services/EngineStateClient';
 import * as GameServerAPI from '../../src/services/GameServerAPI';
 import { UnionService } from '../../src/services/UnionService';
@@ -2197,7 +2198,7 @@ it('withholds both personal cashout entries from an admin after the club role re
   mountCashier();
   await synchronized();
   const actions = screen.getByRole('group', { name: 'Wallet Actions' });
-  expect(within(actions).getByRole('button', { name: 'Send' })).toBeVisible();
+  expect(within(actions).queryByRole('button', { name: 'Send' })).toBeNull();
   expect(within(actions).queryByRole('button', { name: 'Cash-Out' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Request Cash Out' })).toBeNull();
 });
@@ -2797,5 +2798,146 @@ describe('Tickets tab names a promo funded ticket', () => {
     expect(state.rpcCalls.filter((call) => call.name === 'fn_cancel_tournament_ticket')).toEqual([
       { name: 'fn_cancel_tournament_ticket', args: { p_ticket_id: id } },
     ]);
+  });
+});
+
+describe('Cashier request and ticket decisions', () => {
+  const target = 'a0000000-0000-4000-8000-000000000001';
+
+  async function decision(action: 'Approve' | 'Decline' | 'Cancel' | 'Redeem') {
+    state.pendingHead = 1;
+    state.chipRequests = [
+      {
+        id: target,
+        requester_id: action === 'Cancel' ? USER_ID : PLAYER_IDS[0],
+        approver_id: action === 'Cancel' ? PLAYER_IDS[0] : USER_ID,
+        amount: 20,
+        note: null,
+        status: 'pending',
+        created_at: '2026-10-09T00:00:00Z',
+      },
+    ];
+    state.tickets = [
+      {
+        id: target,
+        holder_id: USER_ID,
+        issued_by: PLAYER_IDS[0],
+        value: 20,
+        status: 'issued',
+        redemption_mode: 'wallet_chips',
+        note: null,
+        created_at: '2026-10-09T00:00:00Z',
+      },
+    ];
+    mountCashier();
+    await synchronized();
+    fireEvent.click(
+      screen.getByRole('tab', { name: action === 'Redeem' ? /Tickets/ : /Chip Requests/ })
+    );
+    return screen.findByRole('button', { name: action, exact: true });
+  }
+
+  it.each(['Decline', 'Cancel', 'Redeem'] as const)(
+    'sends the exact %s decision once and waits for its receipt',
+    async (action) => {
+      const button = await decision(action);
+      const rpc = vi.mocked(supabase.rpc);
+      const method =
+        action === 'Redeem' ? 'fn_redeem_tournament_ticket' : 'fn_respond_chip_request';
+      const original = rpc.getMockImplementation()!;
+      const response = deferred<{ data: { success: boolean }; error: null }>();
+      rpc.mockImplementation(((name: string, args?: unknown) =>
+        name === method ? response.promise : original(name, args as never)) as never);
+      fireEvent.click(button);
+      fireEvent.click(button);
+      expect(rpc.mock.calls.filter(([name]) => name === method)).toEqual([
+        [
+          method,
+          action === 'Redeem'
+            ? { p_ticket_id: target }
+            : { p_request_id: target, p_action: action.toLowerCase() },
+        ],
+      ]);
+      expect(toastMocks.success).not.toHaveBeenCalled();
+      await act(async () => response.resolve({ data: { success: true }, error: null }));
+      expect(toastMocks.success).toHaveBeenCalledWith(
+        action === 'Redeem'
+          ? 'Redeemed A Ticket Worth 20 Chips'
+          : action === 'Decline'
+            ? 'Request Declined'
+            : 'Request Cancelled'
+      );
+    }
+  );
+
+  it.each(['Approve', 'Redeem'] as const)(
+    'refuses a malformed %s receipt without announcing movement',
+    async (action) => {
+      const button = await decision(action);
+      const rpc = vi.mocked(supabase.rpc),
+        original = rpc.getMockImplementation()!;
+      const method =
+        action === 'Redeem' ? 'fn_redeem_tournament_ticket' : 'fn_respond_chip_request';
+      rpc.mockImplementation(((name: string, args?: unknown) =>
+        name === method
+          ? Promise.resolve({ data: { success: 'false' }, error: null })
+          : original(name, args as never)) as never);
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(toastMocks.error).toHaveBeenCalledWith(
+          expect.stringMatching(/Outcome Needs Verification/)
+        )
+      );
+      expect(toastMocks.success).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['Approve', 'Redeem'] as const)(
+    'keeps a late %s receipt out of the new club',
+    async (action) => {
+      const button = await decision(action);
+      const rpc = vi.mocked(supabase.rpc),
+        original = rpc.getMockImplementation()!;
+      const method =
+        action === 'Redeem' ? 'fn_redeem_tournament_ticket' : 'fn_respond_chip_request';
+      const response = deferred<{ data: { success: boolean }; error: null }>();
+      rpc.mockImplementation(((name: string, args?: unknown) =>
+        name === method ? response.promise : original(name, args as never)) as never);
+      fireEvent.click(button);
+      fireEvent.click(screen.getByRole('button', { name: 'Switch Fixture Club' }));
+      await act(async () => response.resolve({ data: { success: true }, error: null }));
+      expect(toastMocks.success).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not submit a chip request after switching clubs during its reservation', async () => {
+    const rpc = vi.mocked(supabase.rpc);
+    const gate = deferred<void>();
+    const reservation = vi
+      .spyOn(cashierJournal, 'reserveCashierChipRequestOperation')
+      .mockImplementation(async (intent, createOperationId) => {
+        await gate.promise;
+        return {
+          ...intent,
+          note: null,
+          version: 1,
+          intentHash: 'f'.repeat(64),
+          operationId: createOperationId(),
+          createdAt: Date.now(),
+        };
+      });
+    mountCashier();
+    await synchronized();
+    fireEvent.click(screen.getByRole('tab', { name: /Chip Requests/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Request Chips From Your Agent' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chips Requested' }), {
+      target: { value: '20' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send Request' }));
+    await waitFor(() => expect(reservation).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', { name: 'Switch Fixture Club' }));
+    await act(async () => gate.resolve());
+    reservation.mockRestore();
+    expect(rpc.mock.calls.filter(([name]) => name === 'fn_request_chips')).toEqual([]);
   });
 });

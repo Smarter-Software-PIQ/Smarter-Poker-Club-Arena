@@ -56,9 +56,31 @@ export const NINE_SEAT_PHONE_RAIL_BUST = 1.7;
  * and painted 176.6-189.2px; 375x852, 393x852 and 430x852 (>= 1189) reach 191. */
 export const SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX = 1120;
 
+/** A full-ring portrait is a fixed share of the felt: NINE_SEAT_PHONE_RAIL_BUST
+ * times a chair slot that is 0.158 of the felt's width (`--seat-avatar-full`,
+ * SeatSlot.css). The nine-seat phone felt is `min(88%, height budget * 0.725)`
+ * wide (TablePage.css), so it is 528 layout px wide only where the page is tall
+ * enough to give it 728 layout px of height. On a shorter page the whole felt
+ * is narrower and every chair, card and portrait on it is smaller by the same
+ * share. Nothing shrank the portrait: the rail bust is still 1.7 and no chair
+ * carries a limit of its own.
+ *
+ * The 140px floor was measured on the 320x568 phone (1065 layout px tall, felt
+ * 521px). The reconnect witness of the live proof runs on Playwright's
+ * iPhone 13 profile, whose viewport is 390x664 with the browser bars showing:
+ * 1021 layout px tall. Measured on production 2026-11-24 to 11-26 (runs
+ * 45370915465, 45404132008, 45565107595, 45717008924, 45740747646): every
+ * full-ring opponent painted 132.1px there, against 140.0 at 1065 and 141.8 at
+ * 1188, 1300 and 1363. So, exactly as for the watched six-max table above, a
+ * page shorter than this takes the height-bound floor below: still absolute,
+ * and the 320x568 phone and every taller one keep 140. */
+export const NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX = 1060;
+
 export const PHONE_AVATAR_MIN_HEIGHT_PX = {
   sixSeat: 175,
   sixSeatSpectator: 191,
   nineSeatOpponent: 140,
+  /** Only below NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX. Measured, never guessed. */
+  nineSeatOpponentHeightBound: 132,
   nineSeatHero: 187,
 } as const;

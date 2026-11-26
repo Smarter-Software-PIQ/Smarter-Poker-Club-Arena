@@ -1,10 +1,26 @@
 import { expect, type Page } from '@playwright/test';
 import { readMobileTableLayout, waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
-import { PHONE_AVATAR_MIN_HEIGHT_PX } from '../../../src/components/table/mobileAvatarSize';
+import {
+  NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX,
+  NINE_SEAT_PHONE_RAIL_BUST,
+  PHONE_AVATAR_MIN_HEIGHT_PX,
+} from '../../../src/components/table/mobileAvatarSize';
 
 export const FIXED_MOBILE_ARTWORK_CASES = [
   { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '', shortPhone: true },
   { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '', shortPhone: true },
+  // 2026-11-26: a page too short to give the full-ring felt its whole width.
+  // The fixture carries less page chrome than production, so 932 layout px
+  // here binds the felt as a 1021 layout px production page does (the
+  // iPhone 13 profile with its browser bars showing).
+  {
+    seats: '9',
+    spectator: 'true',
+    cards: '2',
+    occupiedSeats: '',
+    shortPhone: true,
+    layoutHeight: 932,
+  },
   { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
   { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
   { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
@@ -28,41 +44,48 @@ export async function checkFixedMobileArtwork(
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   const shortPhone = 'shortPhone' in settings;
-  await page.setViewportSize({ width: 600, height: shortPhone ? 1065 : 1298 });
+  const shortHeight = 'layoutHeight' in settings ? settings.layoutHeight : 1065;
+  await page.setViewportSize({ width: 600, height: shortPhone ? shortHeight : 1298 });
   // Dan 2026-11-18: nothing about a portrait's size is kept on the device, so
   // there is no record to clear: a fresh session and a returning one draw the
   // same size (tests/mobile-avatars-never-ratchet-smaller.law.test.ts).
   await page.reload();
-  await page.evaluate((settings) => {
-    for (const style of document.querySelectorAll('style'))
-      style.textContent = (style.textContent || '')
-        .replace(
-          /env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g,
-          'shortPhone' in settings ? '0px' : '72px'
-        )
-        .replace(
-          /env\(\s*safe-area-inset-bottom\s*(?:,[^()]*)?\)/g,
-          'shortPhone' in settings ? '0px' : '52px'
+  await page.evaluate(
+    ({ settings, shortHeight }) => {
+      for (const style of document.querySelectorAll('style'))
+        style.textContent = (style.textContent || '')
+          .replace(
+            /env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g,
+            'shortPhone' in settings ? '0px' : '72px'
+          )
+          .replace(
+            /env\(\s*safe-area-inset-bottom\s*(?:,[^()]*)?\)/g,
+            'shortPhone' in settings ? '0px' : '52px'
+          );
+      if ('shortPhone' in settings)
+        document.documentElement.style.setProperty(
+          '--sp-table-stable-viewport-h',
+          `${shortHeight}px`
         );
-    if ('shortPhone' in settings)
-      document.documentElement.style.setProperty('--sp-table-stable-viewport-h', '1065px');
-    Object.assign(document.documentElement.dataset, {
-      cards: '2',
-      tournament: 'false',
-      spectator: 'true',
-      dealer: '2',
-      activeSeat: '3',
-      action: 'preflop',
-      actionPills: 'none',
-      actionCaption: '',
-      waitlist: 'true',
-      folded: '1,6',
-      // Mount the requested game directly. A warm-up nine-seat Hold'em mount
-      // can persist a second game type before the first fixture transition.
-      ...settings,
-      villainCards: settings.cards,
-    });
-  }, settings);
+      Object.assign(document.documentElement.dataset, {
+        cards: '2',
+        tournament: 'false',
+        spectator: 'true',
+        dealer: '2',
+        activeSeat: '3',
+        action: 'preflop',
+        actionPills: 'none',
+        actionCaption: '',
+        waitlist: 'true',
+        folded: '1,6',
+        // Mount the requested game directly. A warm-up nine-seat Hold'em mount
+        // can persist a second game type before the first fixture transition.
+        ...settings,
+        villainCards: settings.cards,
+      });
+    },
+    { settings, shortHeight }
+  );
   await page.addScriptTag({ content: bundle });
   await page.waitForFunction(
     () =>
@@ -160,6 +183,44 @@ export async function checkFixedMobileArtwork(
     await settle();
     await waitForMobileAvatarGrowth(page);
     await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
+    if ('layoutHeight' in settings) {
+      // The felt is height-bound here and the portraits are the same share of
+      // it as on a tall phone: the approved rail bust, no chair limited, and
+      // the measured floor for this page height, never the tall phone's.
+      expect(settings.layoutHeight).toBeLessThan(NINE_SEAT_PHONE_MIN_LAYOUT_HEIGHT_PX);
+      const bound = await page.evaluate(() => {
+        const scaler = document.querySelector<HTMLElement>('.table-scaler')!;
+        const wrappers = Array.from(document.querySelectorAll<HTMLElement>('.seat-wrapper'));
+        return {
+          felt: scaler.offsetWidth,
+          widthBound: scaler.parentElement!.clientWidth * 0.88,
+          busts: wrappers.map((w) => getComputedStyle(w).getPropertyValue('--sp-bust-scale')),
+          limited: wrappers.filter((w) => w.style.getPropertyValue('--sp-seat-rail-bust')).length,
+          heights: Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '.seat:not(.seat--empty):not(.seat--hero) .seat__avatar--bust .seat__avatar-img'
+            )
+          ).map((image) => image.getBoundingClientRect().height),
+        };
+      });
+      expect(bound.felt, 'the felt is height-bound on this page').toBeLessThan(
+        bound.widthBound - 8
+      );
+      expect(new Set(bound.busts), 'every chair keeps the approved rail bust').toEqual(
+        new Set([String(NINE_SEAT_PHONE_RAIL_BUST)])
+      );
+      expect(bound.limited, 'no chair carries a limit of its own').toBe(0);
+      expect(bound.heights.length).toBeGreaterThan(0);
+      for (const height of bound.heights) {
+        expect(height, 'the height-bound floor is absolute').toBeGreaterThanOrEqual(
+          PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponentHeightBound
+        );
+        expect(
+          height / bound.felt,
+          'a full-ring portrait is the same share of the felt at every page height'
+        ).toBeGreaterThanOrEqual(PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent / 528);
+      }
+    }
     const withoutCaptions = await read();
     if (settings.seats === '9' && settings.spectator === 'true' && shortPhone) {
       // Keep the wagers mounted while the main-pot artwork arrives later.
@@ -267,7 +328,12 @@ export async function checkFixedMobileArtwork(
       // Exercise the production screenshot sequence without the fixture's
       // animation-finishing settle helper between resize and proof.
       for (const width of [604, 600]) {
-        await page.setViewportSize({ width, height: 1298 });
+        // The height-bound case keeps its own page height: its floor belongs
+        // to that height, and the felt's budget is pinned to it above.
+        await page.setViewportSize({
+          width,
+          height: 'layoutHeight' in settings ? settings.layoutHeight : 1298,
+        });
         await page.evaluate(
           () =>
             new Promise<void>((resolve) =>
@@ -643,7 +709,9 @@ export async function checkFixedMobileArtwork(
     // base alone is already above 1x, so a relative check passed every shrink.
     const floor =
       settings.seats === '9'
-        ? PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent
+        ? 'layoutHeight' in settings
+          ? PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponentHeightBound
+          : PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent
         : settings.spectator === 'true'
           ? PHONE_AVATAR_MIN_HEIGHT_PX.sixSeatSpectator
           : PHONE_AVATAR_MIN_HEIGHT_PX.sixSeat;

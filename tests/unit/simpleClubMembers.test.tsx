@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Profiler } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -80,6 +80,8 @@ vi.mock('../../src/lib/rosterWorkspace', async (importOriginal) => {
     },
   };
 });
+import * as rosterLive from '../../src/hooks/useRosterLiveOrder';
+import { PlayerSearchService } from '../../src/services/PlayerSearchService';
 import ClubMembersPage, {
   MemberRow,
   liveRosterRefreshPolicy,
@@ -354,6 +356,167 @@ it('shows authorized period fees and player wallet, and opens the existing manag
   );
   fireEvent.click(screen.getByRole('button', { name: /Open KingFish45/ }));
   expect(screen.getByText('Player Management Record')).toBeInTheDocument();
+});
+
+it.each(['Watch River At Table, Test Table', 'Watch At Table, Test Table'])(
+  'keeps the selected destination when leaving the directory while %s is pending',
+  async (button) => {
+    const seat = {
+      user_id: 'player-1',
+      table_id: 'test-table',
+      tournament_id: null,
+      username: 'river',
+      alias: 'River',
+      name: 'Test Table',
+      stakes: '1/2',
+      is_tournament: false,
+      avatar_url: null,
+    };
+    const live = vi.spyOn(rosterLive, 'useClubLiveSeats').mockReturnValue({
+      known: true,
+      byUser: new Map([[seat.user_id, [seat]]]),
+      seats: [seat],
+    });
+    let deliver!: () => void;
+    const access = vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deliver = () =>
+            resolve({ found: true, table_id: seat.table_id, can_watch: true, action: 'watch' });
+        })
+    );
+    try {
+      f.page.mockResolvedValue({
+        items: [{ ...seat, role: 'player', can_view_financials: false }],
+        filtered_total: 1,
+        has_more: false,
+      });
+      function Path() {
+        return <output>{useLocation().pathname}</output>;
+      }
+      render(
+        <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
+          <Link to="/elsewhere">Leave Directory</Link>
+          <Routes>
+            <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
+            <Route path="*" element={<Path />} />
+          </Routes>
+        </MemoryRouter>
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+      fireEvent.click(screen.getByRole('button', { name: button, exact: true }));
+      expect(access).toHaveBeenCalledWith(seat.table_id, seat.user_id);
+      fireEvent.click(screen.getByRole('link', { name: 'Leave Directory' }));
+      await act(async () => deliver());
+      expect(screen.getByRole('status')).toHaveTextContent('/elsewhere');
+    } finally {
+      access.mockRestore();
+      live.mockRestore();
+    }
+  }
+);
+
+it('uses each available roster filter/sort and financial display option for the chosen member', async () => {
+  const member = {
+    user_id: 'player-options',
+    alias: 'Options',
+    role: 'agent',
+    can_view_financials: true,
+    player_wallet: 41,
+    agent_wallet: 65,
+    downline_total: 3,
+    last_login: '2026-01-05T12:00:00Z',
+  };
+  f.summary.mockResolvedValue({
+    viewer_role: 'agent',
+    capabilities: { can_view_financials: true },
+    counts: { total: 1, online: 0, seated: 0, agents: 1, admins: 0 },
+  });
+  f.page.mockResolvedValue({
+    items: [member],
+    filtered_total: 1,
+    next_cursor: null,
+    has_more: false,
+  });
+  const feesByPeriod: Record<string, number> = { today: 11, week: 22, month: 33, overall: 44 };
+  f.period.mockImplementation(
+    async (_club, _ids, period) =>
+      new Map([[member.user_id, { fees: feesByPeriod[period], net: 1 }]])
+  );
+  render(
+    <MemoryRouter initialEntries={['/clubs/shark-club/members']}>
+      <Routes>
+        <Route path="/clubs/:clubId/members" element={<ClubMembersPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+  const settle = () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+  await settle();
+  const filter = screen.getByRole('combobox', { name: 'Filter Players' });
+  const sort = screen.getByRole('combobox', { name: 'Sort Players' });
+  for (const choice of [
+    'mine',
+    'seated',
+    'online',
+    'agents',
+    'admins',
+    'inactive_30',
+    'inactive_60',
+    'inactive_90',
+    'high_fees',
+  ]) {
+    fireEvent.change(filter, { target: { value: choice } });
+    await settle();
+    expect(f.page.mock.calls.at(-1)?.[1].filter).toBe(choice);
+  }
+  fireEvent.click(screen.getByRole('button', { name: /Clear Filter/ }));
+  await settle();
+  expect(f.page.mock.calls.at(-1)?.[1].filter).toBe('all');
+  for (const choice of [
+    'newest',
+    'oldest',
+    'hierarchy',
+    'name',
+    'downlines',
+    'wallet',
+    'fees',
+    'activity',
+  ]) {
+    fireEvent.change(sort, { target: { value: choice } });
+    await settle();
+    expect(f.page.mock.calls.at(-1)?.[1].sort).toBe(choice);
+  }
+  fireEvent.click(screen.getByText('Columns', { selector: 'summary' }));
+  for (const [label, value] of [
+    ['Fees', 'Fees This Week'],
+    ['Downlines', 'Downlines 3'],
+    ['Wallets', 'Agent Wallet 65.00'],
+    ['Activity', /Seen /],
+  ] as const) {
+    const choice = screen.getByRole('checkbox', { name: label, exact: true }) as HTMLInputElement;
+    if (!choice.checked) fireEvent.click(choice);
+    expect(screen.getByText(value)).toBeInTheDocument();
+    fireEvent.click(choice);
+    expect(screen.queryByText(value)).not.toBeInTheDocument();
+  }
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Fees', exact: true }));
+  const periods = screen.getByRole('combobox', { name: 'Win And Loss Period' });
+  for (const [period, label, amount] of [
+    ['today', 'Fees Today', '11.00'],
+    ['month', 'Fees This Month', '33.00'],
+    ['overall', 'Fees Overall', '44.00'],
+    ['week', 'Fees This Week', '22.00'],
+  ]) {
+    fireEvent.change(periods, { target: { value: period } });
+    await settle();
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText(amount)).toBeInTheDocument();
+  }
 });
 
 it('keeps roster query reads usable without a refresh control', async () => {

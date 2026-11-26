@@ -26,12 +26,10 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * true and engaging statement regardless. They are never called bots.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useStatsFactRead } from '../../hooks/useStatsFactRead';
 import { useNavigate } from 'react-router-dom';
-import StatsFactsService, {
-  type NemesisPayload,
-  type OpponentFlow,
-} from '../../services/StatsFactsService';
+import StatsFactsService, { type OpponentFlow } from '../../services/StatsFactsService';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
 import './NemesisPanel.css';
 import { sizedStorageUrl } from '../../utils/avatarGenerator';
@@ -118,31 +116,12 @@ export default function NemesisPanel({
   clubId = null,
 }: Props) {
   const navigate = useNavigate();
-  const [data, setData] = useState<NemesisPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [readError, setReadError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = usePlayerPreference('nemesis.showFullList', false, 'global');
-  useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    StatsFactsService.getNemesis(userId, scope, { days }, clubId)
-      .then((payload) => {
-        if (cancelled) return;
-        setData(payload);
-        setReadError(payload.error ?? null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, days, attempt, scope, clubId]);
+  const read = useCallback(
+    () => (userId ? StatsFactsService.getNemesis(userId, scope, { days }, clubId) : null),
+    [userId, scope, days, clubId]
+  );
+  const { data, loading, error: readError, retry } = useStatsFactRead(read);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -180,7 +159,7 @@ export default function NemesisPanel({
         <h3 className="nemesis-title">Rivals</h3>
         <p className="nemesis-empty-text">
           Your Rivals Could Not Be Loaded Right Now.{' '}
-          <button type="button" className="hand-retry" onClick={() => setAttempt((n) => n + 1)}>
+          <button type="button" className="hand-retry" onClick={retry}>
             Try Again
           </button>
         </p>

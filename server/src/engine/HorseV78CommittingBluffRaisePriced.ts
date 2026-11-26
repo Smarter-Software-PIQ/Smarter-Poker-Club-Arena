@@ -19,6 +19,12 @@
  *       `evRaise        = f * pot + callProb * calledUtility + r3 * reraiseUtility`
  *     (exact `priceHoldemRaiseEv` chip EV at `bf === 1`; avoids Jensen's inequality error of `u(E[X])`).
  *
+ * Scope (r3, 2026-11-23): HorseLogic calls this ONLY in the blanket rule's own spot, a legalized
+ * non-all-in raise adding >= 40% of the remaining stack. A legal jam or a smaller raise never reaches
+ * this module and keeps the blanket rule's answer (not vetoed). Inside the spot the verdict governs
+ * even when `v78NoCommittingBluffRaise` is false (as `v17ShortDeckIsPriced` overrides
+ * `v17ShortDeck: false`). The module itself still prices any legalized action it is given.
+ *
  * Allows the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise (and fails closed to veto
  * on any unpriceable input). Zero `fastRandom()` draw, zero opponent hole cards, zero direct
  * import of `opponentHud/` (preserving `TheHudProviderChangesNoDecision.law.test.ts`).
