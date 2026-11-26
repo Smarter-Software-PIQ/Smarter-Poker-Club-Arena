@@ -598,6 +598,10 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     'scope',
     'decides where a rule applies, never the action'
   ),
+  omahaReraisedPositionVsEveryoneToAct: exempt(
+    'input',
+    'the position term of the priced call of a re-raise (who acts after hero on later streets); an input of a priced comparison, not a rule site'
+  ),
   omahaReraisedPotDiscipline: blanket(
     ['omahaNoCategoricalRules'],
     'preflop re-raised pot folds by class; removal: priced preflop re-raise defence'

@@ -139,6 +139,11 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['preflop']),
   }),
+  // PLO lead-7 2026-11-26: the position term of the priced call of a re-raise, preflop only
+  omahaReraisedPositionVsEveryoneToAct: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['preflop']),
+  }),
   omahaStabDefenceIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),

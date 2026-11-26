@@ -296,6 +296,7 @@ import {
 } from './HorseOmahaTournamentScope.js';
 import {
   omahaNoCategoricalRulesHolds,
+  omahaNoCategoricalRulesInScope,
   withoutOmahaCategoricalRules,
 } from './HorseOmahaNoCategoricalRules.js';
 import {
@@ -1091,6 +1092,7 @@ import {
   omahaReraiseByPositionSpot,
   omahaReraisedFlopContinueCell,
   omahaReraisedPositionOf,
+  omahaReraisedPendingContinue,
   RERAISE_RATE_FALLBACK,
   type OmahaReraisedCallPricing,
 } from './HorseOmahaOopReraisedPot.js';
@@ -4312,6 +4314,17 @@ export interface HorseDecideOpts {
    * no charge and no position. Tournaments unchanged. Default OFF (opt-in,
    * read `=== true`). */
   omahaReraisedPositionInLightning?: boolean;
+  /** PLO lead-7 2026-11-26 (lane plo-preflop; audit HAND-AUDIT-PLO: 13 of 27 audited fold-best out-of-position
+   * multiway calls of a 3-bet were priced IN POSITION). omahaReraisedCallPricingOf reads the realization's position
+   * as ipVsRaiser: hero acts after the re-raiser and nothing else, so a big blind behind a small-blind 3-bet with the
+   * opener still to act was priced with the in-position realization although the opener, if he continues, acts after
+   * him on every later street. With this on (PLO4/PLO5 cash tables only: omahaNoCategoricalRulesInScope, not
+   * Lightning, not tournaments) and hero in position against the re-raiser, the priced call's realization is weighted
+   * by the chance he plays the flop out of position: 1 for a player already in for the price who acts after him, else
+   * one minus the chance that every player still to act after him folds, each player's chance to continue being his
+   * own fold-to-3-bet record against an anchored prior (omahaReraisedPendingContinue). Nobody after him: unchanged.
+   * Default OFF (opt-in, read `=== true`). */
+  omahaReraisedPositionVsEveryoneToAct?: boolean;
   /** Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the
    * biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and
    * called his re-raises without aces 22 times; 18 of the 21 4-bets replay as
@@ -11165,6 +11178,41 @@ export function omahaReraisedCallPricingOf(
       ? mine > postflopOrder(raiser.seat, gs.dealerSeat) &&
         !live.some((p) => inFor(p) && !p.is_all_in && postflopOrder(p.seat, gs.dealerSeat) > mine)
       : position.ipVsRaiser;
+    // omahaReraisedPositionVsEveryoneToAct (default off, PLO4/PLO5 cash tables): hero in position against the
+    // re-raiser still plays the flop out of position when a player who acts after him on later streets is in it:
+    // certain for a player already in for the price, his measured chance to continue for one still to act.
+    let oopWeight: number | undefined;
+    if (
+      !priorReading &&
+      position.ipVsRaiser &&
+      opts.omahaReraisedPositionVsEveryoneToAct === true &&
+      omahaNoCategoricalRulesInScope(player, gs) &&
+      (variant === 'plo4' || variant === 'plo5')
+    ) {
+      let allOut = 1;
+      for (const p of live) {
+        if (p.is_all_in || postflopOrder(p.seat, gs.dealerSeat) <= mine) continue;
+        if (inFor(p)) {
+          allOut = 0;
+          break;
+        }
+        let measured: { fold: number; opportunities: number } | null = null;
+        if (opts.mind !== false) {
+          try {
+            const c = HorseMind.currentExploitCounters(p.user_id);
+            const n = c ? Number(c.foldTo3BetOpp) : 0;
+            const f = c ? Number(c.foldTo3Bet) : 0;
+            if (Number.isFinite(n) && n > 0 && Number.isFinite(f))
+              measured = { fold: f / n, opportunities: n };
+          } catch {
+            measured = null;
+          }
+        }
+        allOut *= 1 - omahaReraisedPendingContinue(variant, raisedBefore.has(p.seat), measured);
+      }
+      // nobody acts after him on later streets: in position, the pricing is the one without the option
+      if (allOut < 1) oopWeight = 1 - allOut;
+    }
     // Other players. Tournaments and Lightning: as before (in for the price, or
     // a raiser of this hand still to act; each 0.35 on heads-up equity). Cash:
     // the players who have called the price; with a band for each the equity
@@ -11204,6 +11252,7 @@ export function omahaReraisedCallPricingOf(
       rateSource,
       inPosition,
       ...(priorReading ? {} : { position }),
+      ...(oopWeight !== undefined ? { oopWeight } : {}),
       othersIn,
       ...(othersInBands ? { othersInBands } : {}),
       ...(headsUpDiluted > 0 ? { headsUpDiluted } : {}),
