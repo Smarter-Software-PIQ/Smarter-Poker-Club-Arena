@@ -147,9 +147,23 @@ const PREFLOP_PRICED: OmahaPricedBasis = {
   price: 'the call or re-raise against the pot after deduction',
 };
 
+const RERAISED_POT_PRICED: OmahaPricedBasis = {
+  kind: 'priced',
+  range:
+    "the re-raiser's top share from his own decayed re-raise record against the anchored prior (self-play baseline, reduced population weight); every caller and every player still to act from the self-play measured multiples, the players behind as probable continuers (self-play answer rates)",
+  equity:
+    'seeded joint sampled equity of the exact hand against one holding per player in the field (omahaReraisedEquityAgainst), each subset of continuing players priced on the same samples',
+  realization:
+    'measured in league self-play by role, position against the whole flop field, players at the flop, stack-to-pot ratio and equity (HorseOmahaReraisedPotPriced.RERAISED_POT_REALIZATION)',
+  price:
+    "EV(call) against 0 and, for a proposed re-raise, EV(re-raise) from the re-raiser's own fold-to-re-raise record against the anchored prior, after the table's rake",
+};
+
 /** every option of OMAHA_OPTION_CLASSES (HorseOmahaRuleSites.ts), by its pricing basis */
 export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Object.freeze({
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
+  omahaReraisedPotCallIsPriced: RERAISED_POT_PRICED,
+  omahaReraisedPotReraiseIsPriced: RERAISED_POT_PRICED,
   omahaOopReraiseRangeHoldsVsReraise: {
     kind: 'priced',
     range:
@@ -804,6 +818,18 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_stab_defence_priced: FACING_BET_EV,
   omaha_strong_hand_check_priced: CARD_IMPACT,
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
+  omaha_reraised_pot_priced_call_kept: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_call_folded: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_call_reraised: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_fold_called: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_fold_kept: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_reraise_kept: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_reraise_called: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_reraise_folded: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_failed: exempt(
+    'input',
+    'receipt that the re-raised-pot price threw; the standing decision is returned unchanged'
+  ),
   omaha_river_trips_board_boat_called: {
     kind: 'priced',
     range:

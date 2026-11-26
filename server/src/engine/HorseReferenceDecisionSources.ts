@@ -151,6 +151,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the lifetime public opponent profile: statistic registry, public hand record and recall keys read by the accessor; public fields only',
     'src/engine/HorseOmahaRiverCurrentNutsCallFloor.ts':
       'the default-off river current-nuts call floor (EMERG lane RANGE-MODEL-2 2026-11-20, omahaRiverCurrentNutsCallFloor): in PLO4/PLO5 cash on the river facing a wager, a final fold with the exact current nuts becomes the legal call where a full chop with every live opponent still returns the call; the outermost answer of the wager_rules node; pure',
+    'src/engine/HorseOmahaReraisedPotPricedRule.ts':
+      'the default-off re-raised-pot price rule (PLO lead-6 2026-11-24, omahaReraisedPotCallIsPriced and omahaReraisedPotReraiseIsPriced): in PLO4/PLO5 cash preflop facing a 3-bet or more, reads the field and the anchored opponent reads and replaces the standing call, fold or re-raise by the priced one; inert with both options off',
+    'src/engine/HorseOmahaReraisedPotPriced.ts':
+      "the same rule's pure price: joint seeded equity against the whole field, self-play realization by role, position, players and depth, EV(call) and EV(re-raise); no I/O, no random stream",
     'src/engine/HorseOopReraiseRangeHoldsWiring.ts':
       "the default-off out-of-position 3-bet range rule wiring (PLO-LEAD-6 2026-11-24, omahaOopReraiseRangeHoldsVsReraise and holdemOopReraiseRangeHoldsVsReraise): routes an out-of-position decision facing one open, asks the Horse's own answer to the 4-bet on the public frame, applies the priced call or fold in wager_rules; inert with both options off",
     'src/engine/HorseOopReraiseRangeHolds.ts':

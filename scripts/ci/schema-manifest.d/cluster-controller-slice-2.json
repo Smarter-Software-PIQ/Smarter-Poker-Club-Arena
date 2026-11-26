@@ -5,7 +5,6 @@
     "fn_cash_cluster_open_table",
     "fn_cash_seat_moves_pending",
     "fn_cash_seat_move_execute",
-    "fn_cash_cluster_tick",
     "fn_cash_clusters_to_tick"
   ],
   "columns": {

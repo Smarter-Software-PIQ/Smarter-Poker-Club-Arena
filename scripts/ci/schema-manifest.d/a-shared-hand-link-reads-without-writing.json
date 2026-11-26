@@ -1,0 +1,4 @@
+{
+  "_owner": "20261126054024_a_shared_hand_link_reads_without_writing.sql (issue #9828): the anon shared-hand reader stops writing; views are counted by their own signed-in door.",
+  "functions": ["fn_ca_shared_hand_count_view"]
+}

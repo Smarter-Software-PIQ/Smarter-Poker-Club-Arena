@@ -6,8 +6,7 @@
     "fn_cash_cluster_census",
     "fn_cash_game_lobby",
     "fn_cash_seat_change_request",
-    "fn_cash_seat_change_plan",
-    "fn_cash_clusters_tick_all"
+    "fn_cash_seat_change_plan"
   ],
   "columns": {
     "lightning_pool_session": [

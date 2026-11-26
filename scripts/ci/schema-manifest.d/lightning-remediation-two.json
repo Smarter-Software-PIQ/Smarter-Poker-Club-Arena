@@ -22,8 +22,6 @@
     "fn_cash_cluster_commit_lightning",
     "fn_cash_cluster_begin_pending_on",
     "fn_cash_cluster_open_table",
-    "fn_cash_cluster_tick",
-    "fn_cash_clusters_tick_all",
     "fn_cash_cluster_reap_stuck_conversions",
     "fn_cash_cluster_epoch_follows_its_game"
   ],
