@@ -216,7 +216,7 @@ export default function PositionalRadar({ positions, minHands = 30 }: Props) {
   // that a radar is a line segment and misleads more than it shows.
   if (total < 3) {
     return (
-      <div className="pos-radar-card pos-radar-empty">
+      <div className="stats-workbench-surface pos-radar-card pos-radar-empty">
         <h3 className="pos-radar-title">Positional Shape</h3>
         <p className="pos-radar-empty-text">
           Play Hands From At Least Three Different Positions And Your Positional Shape Will Appear
@@ -233,7 +233,7 @@ export default function PositionalRadar({ positions, minHands = 30 }: Props) {
   const activeRow = focused !== null ? rows[focused] : null;
 
   return (
-    <div className="pos-radar-card">
+    <div className="stats-workbench-surface pos-radar-card">
       <div className="pos-radar-head">
         <div>
           <h3 className="pos-radar-title">Positional Shape</h3>

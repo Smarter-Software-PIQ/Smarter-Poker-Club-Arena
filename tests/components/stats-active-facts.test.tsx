@@ -77,3 +77,16 @@ it('keeps filters usable when a selection has no hands and restores the grid aft
   fireEvent.change(screen.getByLabelText('Position'), { target: { value: '' } });
   expect(await screen.findByRole('gridcell', { name: /AA, 31 Hands/i })).toBeInTheDocument();
 });
+
+it('keeps a selected hand pinned while another cell is hovered and returns focus on close', async () => {
+  const { container } = render(view(0));
+  const aces = await screen.findByRole('gridcell', { name: /AA, 31 Hands/i });
+  fireEvent.click(aces);
+  const details = await screen.findByRole('region', { name: 'AA Hand Evidence' });
+  fireEvent.mouseEnter(screen.getByRole('gridcell', { name: /^AKo,/i }));
+  expect(container.querySelector('.heatmap-readout')).toHaveTextContent('AA');
+  expect(aces).toHaveAttribute('aria-selected', 'true');
+  fireEvent.keyDown(details, { key: 'Escape' });
+  expect(aces).toHaveFocus();
+  expect(screen.queryByRole('region', { name: 'AA Hand Evidence' })).toBeNull();
+});
