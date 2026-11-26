@@ -424,6 +424,14 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
+  // 2026-11-26 PLO-OWNER lead-7 lane plo-postflop: the heads-up river check priced on his measured range, exact card
+  // removal and his fold record from equilibrium: value in position, and bluffs that need both price and blockers
+  // (ship dark)
+  'omahaRiverValueBetInPositionIsPriced',
+  'omahaRiverBluffIsPricedOnBlockers',
+  // 2026-11-26 PLO-OWNER lead-7 (lead decision on job 5): a river full house on a trips board that quads or a
+  // straight flush can beat may call, never raise (ships dark)
+  'omahaRiverTripsBoardBoatIsNotNutClass',
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES: priced big-bet size + continuous pot-share/HUD range replacing #18 (ships dark)
   'omahaBigBetSizeIsPriced',
   // 2026-11-21 PLO-OWNER lane REPLACEMENTS-5: R4 checked-to flop/turn big-draw bets priced on lifetime HUD (ships dark)

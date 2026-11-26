@@ -122,6 +122,8 @@ import {
 } from './HorseOmahaFourBetFoldPricedCall.js';
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
+import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
+import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import {
   omahaRiverBetFoldRecordCurve,
   type OmahaRiverBetAnswerPoint,
@@ -3926,6 +3928,26 @@ export interface HorseDecideOpts {
    * bets after a check, no opponent kind (HorseOmahaRiverCheckedToBet.ts). It changes only a check into a bet.
    */
   omahaRiverCheckedToBetIsMeasured?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up, the
+   * opponent checked to the Horse: a final check becomes the best-priced bet when it is a value bet against the hands
+   * that call it (his measured checking range, exact card removal, fold rate from equilibrium moved by his own record)
+   * and beats the check by more than his fold rate's error (HorseOmahaRiverOpeningBet.ts). Only a check into a bet.
+   */
+  omahaRiverValueBetInPositionIsPriced?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up,
+   * nothing to call (he checked, or nobody has acted): a final check with no value bet becomes the best-priced bluff
+   * only when it is worth more than the check on his card-removed fold rate AND the Horse's cards remove more of his
+   * continuing hands than of his folding ones (HorseOmahaRiverOpeningBet.ts). Only a check into a bet.
+   */
+  omahaRiverBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river facing a
+   * wager: a raise with a full house on a trips board that quads or a straight flush can beat (exact count, the
+   * Horse's own cards removed) becomes the call (HorseOmahaTripsBoardBoat.ts). It changes only such a raise.
+   */
+  omahaRiverTripsBoardBoatIsNotNutClass?: boolean;
   /**
    * EMERG lane STAB-DEFENCE-5 2026-11-21 (default off, read `=== true`): the two river bet rules above price the
    * opponent's answer with the population curve moved by his own lifetime PUBLIC fold record at a river's first
@@ -20311,20 +20333,77 @@ export class HorseLogic {
           checkedTo2.decision
         );
       }
-      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+      // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverValueBetInPositionIsPriced /
+      // omahaRiverBluffIsPricedOnBlockers, default off): the heads-up river check priced against his measured range,
+      // exact card removal and his fold record moved from equilibrium (HorseOmahaRiverOpeningBet.ts). It changes only
+      // a check into a bet.
+      const openingOn = {
+        value: opts.omahaRiverValueBetInPositionIsPriced === true,
+        bluff: opts.omahaRiverBluffIsPricedOnBlockers === true,
+      };
+      const opening = omahaRiverOpeningBetRule(
         checkedTo2.decision,
+        player,
+        gs,
+        openingOn,
+        openingOn.value || openingOn.bluff ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi),
+        (opponent) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            1
+          ),
+        (opponent) =>
+          HorseMind.omahaStabDefenceRecordOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            1
+          )
+      );
+      if (opening.changed && tele) {
+        if (opening.kind === 'value') {
+          noteFire('omaha_river_value_bet_priced');
+          noteDecisionRuleReceipt(
+            'omaha_river_value_bet_priced',
+            checkedTo2.decision,
+            opening.decision
+          );
+        } else {
+          noteFire('omaha_river_bluff_priced');
+          noteDecisionRuleReceipt(
+            'omaha_river_bluff_priced',
+            checkedTo2.decision,
+            opening.decision
+          );
+        }
+      }
+      // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
+      // full house on a trips board that quads or a straight flush can beat may call, never raise
+      // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
+      const tripsBoat = omahaTripsBoardBoatRule(
+        opening.decision,
+        player,
+        gs,
+        opts.omahaRiverTripsBoardBoatIsNotNutClass === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (tripsBoat !== opening.decision && tele) {
+        noteFire('omaha_river_trips_board_boat_called');
+        noteDecisionRuleReceipt('omaha_river_trips_board_boat_called', opening.decision, tripsBoat);
+      }
+      const nutsFloored = omahaRiverCurrentNutsCallFloorRule(
+        tripsBoat,
         player,
         gs,
         opts.omahaRiverCurrentNutsCallFloor === true,
         (d) => this.legalize(d, player, gs, vi)
       );
-      if (nutsFloored !== checkedTo2.decision && tele) {
+      if (nutsFloored !== tripsBoat && tele) {
         noteFire('omaha_river_current_nuts_call_floor');
-        noteDecisionRuleReceipt(
-          'omaha_river_current_nuts_call_floor',
-          checkedTo2.decision,
-          nutsFloored
-        );
+        noteDecisionRuleReceipt('omaha_river_current_nuts_call_floor', tripsBoat, nutsFloored);
       }
       // EMERG lane STAB-DEFENCE-2 2026-11-20 (omahaStrongHandCheckIsPriced, default off): PLO4/PLO5 cash turn and
       // river, heads-up, the Horse acts first: a final value bet is priced beside the check on the opponent's stab
@@ -20335,7 +20414,7 @@ export class HorseLogic {
         nutsFloored,
         player,
         gs,
-        strongCheckOn && !firstToAct.changed && !checkedTo2.changed,
+        strongCheckOn && !firstToAct.changed && !checkedTo2.changed && !opening.changed,
         strongCheckOn ? omahaPricedDeps(player, gs).rake : 0,
         (opponent, street) =>
           HorseMind.omahaStabDefenceRecordOf(

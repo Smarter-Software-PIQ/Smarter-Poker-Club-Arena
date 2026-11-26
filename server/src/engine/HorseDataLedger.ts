@@ -1392,6 +1392,39 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverTripsBoardBoatIsNotNutClass',
+    "PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (lead decision on job 5). PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, the river, facing a wager; default off (read === true). Where the rule chain raises with a full house (not quads) on a board holding three cards of one rank and some holding of the unseen cards beats it (exact count with the Horse's own cards and the known dead cards removed: holding the case card, or the straight-flush card, keeps the raise), the raise becomes the legal call: it may call, never raise. Evidence: every Horse river raise Nov 12-26 with a nut-class full house: paired boards +8,376 bb over 253 raises, trips boards -1,998 bb over 32 raises with 11 of 21 showdowns lost, all to quads or a straight flush. No identity. HorseOmahaTripsBoardBoat.ts",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_trips_board_boat_called',
+    'HorseLogic wager_rules (omahaTripsBoardBoatRule, omahaRiverTripsBoardBoatIsNotNutClass)',
+    'a PLO4/PLO5 cash river decision facing a wager in which a raise with a full house on a trips board that quads or a straight flush can beat became the call',
+    'V94'
+  ),
+  flag(
+    'omahaRiverValueBetInPositionIsPriced',
+    "PLO-OWNER lead-7 lane plo-postflop 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up river, the opponent checked to the Horse; default off (read === true). The final check becomes the best of the engine's bet sizes when that bet is a value bet (the Horse beats more than half of the hands that continue) and beats the check by more than the binomial error of his fold rate times d EV / d fold. His range is the measured strength histogram of a heads-up river checker (HorseOmahaRiverOpeningRangeTables.json, fit from shown hands only with the showdown bias corrected, split by whether the turn had a wager); card removal is exact (bins cut on the deck-less-board holdings, conditional counts with the Horse's cards and the known dead cards removed); he folds the weakest share of his range, the equilibrium B / (P + B) moved by his own lifetime public river fold record (OPPONENT-HUD x.foldToBet small and big) by m = (F + k g) / (E + k g), k = 75.9. No identity, no hand class, no size rule; never a raise. HorseOmahaRiverOpeningBet.ts",
+    'V94'
+  ),
+  flag(
+    'omahaRiverBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-7 lane plo-postflop 2026-11-26. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, heads-up river with nothing to call (he checked, or nobody has acted); default off (read === true). A final check with no value bet becomes the best-priced bluff only when BOTH the bet beats the check by more than the binomial error of his fold rate times d EV / d fold, his fold share read on his range with the Horse's own cards removed (math), AND that card-removed fold share is above his fold share without them (blockers: the Horse's cards take more of his continuing hands than of his folding ones). Same range tables, card removal and fold prior (equilibrium moved by his own record) as omahaRiverValueBetInPositionIsPriced; first to act the check is valued at the showdown share (an upper bound, so a bluff is never favoured by it). No identity, no hand class, no size rule; never a raise. HorseOmahaRiverOpeningBet.ts",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_value_bet_priced',
+    'HorseLogic wager_rules (omahaRiverOpeningBetRule, omahaRiverValueBetInPositionIsPriced)',
+    'a PLO4/PLO5 cash river decision, heads-up, after the opponent checked, in which the final check became the value bet priced on his measured checking range with exact card removal and his fold record moved from equilibrium',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_bluff_priced',
+    'HorseLogic wager_rules (omahaRiverOpeningBetRule, omahaRiverBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash river decision, heads-up, nothing to call, in which the final check became a bluff priced on his card-removed fold rate where the Horse cards remove more of his continuing hands than of his folding hands',
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'

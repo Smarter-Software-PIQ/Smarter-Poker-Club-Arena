@@ -296,6 +296,42 @@
       "path": "/Volumes/SmarterWork/agent-work/extreme-capacity/horse-switch-013U37bWhV/grade-runs/v87-trap-priced/",
       "status": "found",
       "verifiedOn": "2026-11-25"
+    },
+    {
+      "doc": "omahaRiverValueBetInPositionIsPriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/grade.mts",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
+    },
+    {
+      "doc": "omahaRiverValueBetInPositionIsPriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/lead7-node-replay.ts",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
+    },
+    {
+      "doc": "omahaRiverValueBetInPositionIsPriced.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
+    },
+    {
+      "doc": "omahaRiverBluffIsPricedOnBlockers.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/grade.mts",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
+    },
+    {
+      "doc": "omahaRiverBluffIsPricedOnBlockers.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/lead7-node-replay.ts",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
+    },
+    {
+      "doc": "omahaRiverBluffIsPricedOnBlockers.md",
+      "path": "/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py",
+      "status": "found",
+      "verifiedOn": "2026-11-26"
     }
   ]
 }
