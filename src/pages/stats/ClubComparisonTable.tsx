@@ -16,7 +16,7 @@ interface Props {
 function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
   return (
     <div className="stats-club-table-wrap">
-      <table className="stats-club-table">
+      <table className="stats-club-table stats-club-ledger" role="table">
         <thead>
           <tr>
             <th scope="col">Club</th>
@@ -39,29 +39,35 @@ function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
                   {titleCase(row.club.name)}
                 </button>
               </th>
-              <td>{row.hands.toLocaleString()}</td>
+              <td data-label="Hands">{row.hands.toLocaleString()}</td>
               {!tournament && (
                 <>
-                  <td className={row.profit >= 0 ? 'positive' : 'negative'}>
+                  <td data-label="Profit" className={row.profit >= 0 ? 'positive' : 'negative'}>
                     {row.profit >= 0 ? '+' : ''}
                     {compactChips(row.profit)}
                   </td>
-                  <td>{row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}</td>
+                  <td data-label="BB/100">{row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}</td>
                 </>
               )}
-              <td>{row.hands ? `${(row.vpip * 100).toFixed(1)}%` : NOT_YET_MEASURED}</td>
-              <td>{row.hands ? `${(row.pfr * 100).toFixed(1)}%` : NOT_YET_MEASURED}</td>
-              <td>{row.hours === null ? 'Unavailable' : row.hours.toFixed(1)}</td>
-              {!tournament && <td>{compactChips(row.rake)}</td>}
+              <td data-label="VPIP">
+                {row.hands ? `${(row.vpip * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+              </td>
+              <td data-label="PFR">
+                {row.hands ? `${(row.pfr * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+              </td>
+              <td data-label="Hours">
+                {row.hours === null ? 'Unavailable' : row.hours.toFixed(1)}
+              </td>
+              {!tournament && <td data-label="Rake">{compactChips(row.rake)}</td>}
               {tournament && (
-                <td>
+                <td data-label="Tournament Results">
                   {row.tournamentEntries.toLocaleString()} Entries //{' '}
                   {row.tournamentCashes.toLocaleString()} Cashes //{' '}
                   {row.tournamentWins.toLocaleString()} Wins //{' '}
                   {compactChips(row.tournamentWinnings)} Won
                 </td>
               )}
-              <td>
+              <td data-label="Last Play">
                 {row.lastPlayedAt
                   ? new Date(row.lastPlayedAt).toLocaleDateString('en-US', {
                       month: 'short',

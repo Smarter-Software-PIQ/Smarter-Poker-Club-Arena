@@ -339,6 +339,11 @@ describe('PlayerStatsPage mounts', () => {
     expect(
       await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
     ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Tutorial' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByRole('heading', { name: 'Tournament Window' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Help' }));
     expect(screen.queryByRole('tab', { name: 'Analysis', exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Overview', exact: true })).not.toBeInTheDocument();
     expect(rpcMock).toHaveBeenCalledWith(
@@ -1330,7 +1335,9 @@ describe('PlayerStatsPage mounts', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Analysis' }, { timeout: 6000 }));
     const reads = () =>
       rpcMock.mock.calls.filter(([name]) => name === 'ca_player_hands_separated').length;
-    await waitFor(() => expect(reads()).toBe(1));
+    // The RPC fires before the lazy Analysis panel and its hand contract have painted.
+    await screen.findByText('No Cash Hands Recorded Yet. Tournament Chips Are Not Ranked Here.');
+    expect(reads()).toBe(1);
     const link = { name: /Open Hand From/i };
     expect(screen.queryByRole('link', link)).toBeNull();
     notableHandsPayload.hands = [
@@ -1350,8 +1357,21 @@ describe('PlayerStatsPage mounts', () => {
         hole_cards: ['Ah', 'Ad'],
       },
     ];
-    act(() => livePulse.onChange());
-    expect(await screen.findByRole('link', link, { timeout: 5000 })).toHaveAttribute(
+    // Advance only the coalescing window. Await the real destination and its selected mode.
+    const sendActivity = async (count: number) => {
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          for (let i = 0; i < count; i++) livePulse.onChange();
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    await sendActivity(1);
+    expect(reads()).toBe(2);
+    expect(await screen.findByRole('link', link)).toHaveAttribute(
       'href',
       expect.stringContaining('11111111-1111-4111-8111-111111111111')
     );
@@ -1361,11 +1381,8 @@ describe('PlayerStatsPage mounts', () => {
     await screen.findByText(/No Hold.em Hands Recorded Yet For This Filter/i);
     const grid = vi.mocked(StatsFactsService.getHandGrid);
     const before = grid.mock.calls.length;
-    act(() => {
-      livePulse.onChange();
-      livePulse.onChange();
-    });
-    await waitFor(() => expect(grid).toHaveBeenCalledTimes(before + 1), { timeout: 4000 });
+    await sendActivity(2);
+    expect(grid).toHaveBeenCalledTimes(before + 1);
     expect(reads()).toBe(2);
   }, 12000);
 

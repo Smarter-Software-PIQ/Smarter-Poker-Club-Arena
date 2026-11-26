@@ -76,6 +76,7 @@ import { useStatsRefreshInputs } from './stats/useStatsRefreshInputs';
 import { useStatsPulse } from '../hooks/useStatsPulse';
 import StatsLiveRecords from './stats/StatsLiveRecords';
 import { resolvedTimeZone } from '../lib/localTime';
+import { statsEvidenceWindow } from '../lib/handHistoryDrilldown';
 import { useSwipeTabs } from '../hooks/useSwipeTabs';
 import './PlayerStatsPage.css';
 import './stats/StatsWorkbench.css';
@@ -101,6 +102,7 @@ import { buildStatsIntelligenceBrief } from '../components/stats/statsIntelligen
 import { capture } from '../lib/analytics';
 import {
   buildStatsCashEvidencePath,
+  rememberStatsEvidenceOrigin,
   restoreStatsEvidenceScroll,
 } from '../lib/statsEvidenceNavigation';
 // The shared-profile branch is not part of the owner's overview route.
@@ -642,25 +644,30 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   ]);
   const openCashEvidence = useCallback(
     (metric: CashEvidenceMetric) => {
-      let from: string | null = null;
-      let to: string | null = null;
-      if (windowDays) {
-        const end = new Date();
-        const start = new Date(end);
-        start.setDate(start.getDate() - windowDays + 1);
-        from = start.toISOString().slice(0, 10);
-        to = end.toISOString().slice(0, 10);
-      }
+      rememberStatsEvidenceOrigin(location, window.scrollY);
       navigate(
         buildStatsCashEvidencePath(metric, {
           clubId: selectedClubId,
           asset: statsScope,
-          from,
-          to,
+          ...statsEvidenceWindow(
+            windowDays,
+            statsTimezone,
+            full?.contract.generated_at,
+            cashOpportunityStats?.coverage.from
+          ),
         })
       );
     },
-    [navigate, selectedClubId, statsScope, windowDays]
+    [
+      location,
+      navigate,
+      selectedClubId,
+      statsScope,
+      windowDays,
+      statsTimezone,
+      full?.contract.generated_at,
+      cashOpportunityStats?.coverage.from,
+    ]
   );
   const canSeeRake = (agentRoles?.length ?? 0) > 0;
   const TABS = useMemo<StatCategory[]>(() => {
@@ -804,16 +811,22 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       if (filters.position) params.set('position', filters.position);
       if (filters.bigBlind) params.set('bigBlind', String(filters.bigBlind));
       if (selectedClubId) params.set('statsClub', selectedClubId);
-      if (windowDays) {
-        const to = new Date();
-        const from = new Date(to);
-        from.setDate(from.getDate() - windowDays + 1);
-        params.set('from', from.toISOString().slice(0, 10));
-        params.set('to', to.toISOString().slice(0, 10));
-      }
+      const bounds = statsEvidenceWindow(windowDays, statsTimezone, full?.contract.generated_at);
+      if (bounds.from) params.set('from', bounds.from);
+      if (bounds.to) params.set('to', bounds.to);
+      rememberStatsEvidenceOrigin(location, window.scrollY);
       navigate(`/hand-history?${params.toString()}`);
     },
-    [navigate, windowDays, selectedClubId, gameMode, statsScope]
+    [
+      location,
+      navigate,
+      windowDays,
+      selectedClubId,
+      gameMode,
+      statsScope,
+      statsTimezone,
+      full?.contract.generated_at,
+    ]
   );
   const openLeakFinder = useCallback(() => {
     const formatQuery =
