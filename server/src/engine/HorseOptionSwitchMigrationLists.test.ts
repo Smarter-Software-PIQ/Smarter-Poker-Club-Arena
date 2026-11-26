@@ -156,6 +156,11 @@ describe('a Horse option registers itself in the database whitelist', () => {
         `SELECT public.fn_ca_horse_option_register('newOptionTwo', 'plain', true, 'none', '${A}'); COMMIT;`
     );
     expect(sql.split('\n').length).toBeLessThan(40);
+    // it creates no object, so it states its live proof (tests/a-merged-migration-must-be-live.law.test.ts)
+    expect(sql).toContain(
+      "\n-- @live-proof: ((SELECT count(*) FROM public.ca_horse_option_whitelist WHERE option IN ('newOptionOne', 'newOptionTwo')) = 2" +
+        " AND (SELECT count(*) FROM public.ca_horse_option_whitelist WHERE off_only AND option IN ('newOptionTwo')) = 1)\n"
+    );
     expect(optionSwitchWhitelistCalls({ name: `${A}.sql`, text: sql })).toEqual(calls);
     expect(optionSwitchRegisterMigrationRefusal({ name: `${A}.sql`, text: sql })).toBeNull();
     // it carries no list, so it is not one of the frozen full-list migrations

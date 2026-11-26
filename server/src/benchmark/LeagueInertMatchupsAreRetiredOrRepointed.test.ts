@@ -140,6 +140,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-22 (HORSE DECISIONS lane): HorseLeague deals single-board hands only (boardCount: 1),
         // while multiBoardBluffTrimIsPriced acts strictly on multiBoard36 hands (nBoards36 >= 2).
         'multiboard_bluff_trim_is_priced',
+        // 2026-11-22 (HORSE DECISIONS lane): HorseLeague never runs ServerTableEngineRunout RIT offers,
+        // while horseRunItTwiceIsPriced acts strictly on main-thread all-in RIT choices.
+        'horse_run_it_twice_is_priced',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

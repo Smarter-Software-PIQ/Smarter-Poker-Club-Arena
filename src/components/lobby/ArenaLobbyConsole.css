@@ -482,12 +482,6 @@
   font: bold clamp(42px, 13vw, 73px)/1 Arial;
   text-shadow: 0 0 5px #265aff;
 }
-.tournament-details .dov-hero__main:has(.dov-hero__clockcol) {
-  display: block;
-}
-.tournament-details .dov-hero__blinds {
-  display: none;
-}
 .tournament-details .dov-hero__note {
   font-size: 10px;
 }
