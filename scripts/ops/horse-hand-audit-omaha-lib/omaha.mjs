@@ -295,6 +295,102 @@ export function isNutsExact(hole, board) {
         if (eval5(deck[i], deck[j], board[t[0]], board[t[1]], board[t[2]]) > v) return false;
   return true;
 }
+/**
+ * Bigger full houses an opponent's two cards could make over the hero's full house (0 when the hero holds no full
+ * house, or quads / a straight flush). A port of the engine's omahaBoatsAbove (server/src/engine/HorseEval.ts): every
+ * two-RANK holding still physically available against every three-card board subset; quads are NOT counted (the
+ * engine's decision on record: a top full house beaten only by quads stays nut class).
+ */
+export function boatsAbove(hole, board) {
+  if (!hole || hole.length < 2 || !board || board.length < 3) return 0;
+  const strength = (ranks) => {
+    const n = new Map();
+    for (const r of ranks) n.set(r, (n.get(r) || 0) + 1);
+    let four = 0,
+      three = 0,
+      two = 0,
+      kicker = 0;
+    for (const [r, k] of n) {
+      if (k === 4) four = r;
+      else if (k === 3) three = Math.max(three, r);
+      else if (k === 2) two = Math.max(two, r);
+      else kicker = Math.max(kicker, r);
+    }
+    if (four) return 2_000_000 + four * 100 + kicker;
+    if (three && two) return 1_000_000 + three * 100 + two;
+    return 0;
+  };
+  const R = (c) => (c >> 2) + 2;
+  const br = board.map(R);
+  const bt = TRIPLES[board.length].map((t) => [br[t[0]], br[t[1]], br[t[2]]]);
+  const best = (a, b) => {
+    let top = 0;
+    for (const t of bt) top = Math.max(top, strength([a, b, ...t]));
+    return top;
+  };
+  const hr = hole.map(R);
+  let hero = 0;
+  for (let i = 0; i < hr.length; i++)
+    for (let j = i + 1; j < hr.length; j++) hero = Math.max(hero, best(hr[i], hr[j]));
+  if (hero < 1_000_000 || hero >= 2_000_000) return 0;
+  const seen = new Map();
+  for (const r of hr.concat(br)) seen.set(r, (seen.get(r) || 0) + 1);
+  const live = (r) => 4 - (seen.get(r) || 0);
+  let boats = 0;
+  for (let a = 2; a <= 14; a++)
+    for (let b = a; b <= 14; b++) {
+      if (a === b ? live(a) < 2 : live(a) < 1 || live(b) < 1) continue;
+      const opp = best(a, b);
+      if (opp > hero && opp < 2_000_000) boats++;
+    }
+  return boats;
+}
+/**
+ * The engine's nut class on a flop, turn or river board (omahaNutClassNow, HorseOmahaMadeHandDefense.ts, and
+ * omahaRiverRaiseLicense, HorseOmahaRiverNutRaise.ts), so the audit's owner-rule check "a hand that is not nut
+ * class never raises the turn or river" asks the engine's own question:
+ *   'nuts'      - the exact nuts (isNutsExact), or
+ *   'effective' - a full house or better no bigger full house beats (quads over it do not count); the nut flush
+ *                 on an unpaired board; the nut straight on an unpaired board with no possible flush;
+ *   null        - neither.
+ * The engine also removes the Horse's known dead cards (cards folded face up) from the exact-nuts count; the audit
+ * has none, so it can only be stricter there, never looser.
+ */
+export function nutClass(hole, board) {
+  if (!board || board.length < 3) return null;
+  if (isNutsExact(hole, board)) return 'nuts';
+  const sc = omaha(hole, board);
+  const cat = category(sc);
+  const paired = new Set(board.map((c) => c >> 2)).size < board.length;
+  if (cat >= 6) return boatsAbove(hole, board) === 0 ? 'effective' : null;
+  const suitN = [0, 0, 0, 0];
+  for (const c of board) suitN[c & 3]++;
+  if (cat === 5) {
+    if (paired) return null;
+    for (let suit = 0; suit < 4; suit++) {
+      if (suitN[suit] < 3) continue;
+      const mine = hole.filter((c) => (c & 3) === suit).map((c) => c >> 2);
+      if (mine.length < 2) continue;
+      const top = Math.max(...mine);
+      const seen = new Set([...board.filter((c) => (c & 3) === suit).map((c) => c >> 2), ...mine]);
+      for (let r = top + 1; r <= 12; r++) if (!seen.has(r)) return null;
+      return 'effective';
+    }
+    return null;
+  }
+  if (cat === 4) {
+    if (paired || suitN.some((n) => n >= 3)) return null;
+    const heroTop = (sc & (SH - 1)) + 2; // 5 (the wheel) .. 14
+    const ranks = new Set(board.map((c) => (c >> 2) + 2));
+    for (let top = 14; top >= 5; top--) {
+      let on = 0;
+      for (let k = 0; k < 5; k++) if (ranks.has(top - k === 1 ? 14 : top - k)) on++;
+      if (on >= 3) return top <= heroTop ? 'effective' : null;
+    }
+    return 'effective';
+  }
+  return null;
+}
 /** cards that improve the hand to a straight or better on the next card (outs), for "draw" typing */
 export function outsToStraightPlus(hole, board) {
   if (board.length >= 5) return 0;

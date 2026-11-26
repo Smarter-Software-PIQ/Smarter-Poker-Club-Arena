@@ -54,6 +54,15 @@ Exit codes: **0** ok; **1** a HARD leak versus people (mistake type x street) is
   below fold or call) or are an in-position river check of a hand with at least 50% equity when called. **OPPORTUNITY**
   gaps (bets and raises not made) are an upper bound of the one-street model and are never added to chips lost.
 - Hindsight equity against the opponents' actual shown hands is reported alongside, labelled hindsight.
+- Owner-rule check "non-nut raise turn/river" (changed 2026-11-26): the test is the engine's own nut class
+  (`nutClass` in `omaha.mjs`, a port of `omahaNutClassNow` / `omahaRiverRaiseLicense`, held to the engine by a test on
+  400 seeded holdings): the exact nuts, or a full house or better no bigger full house beats (quads over it do not
+  count), the nut flush on an unpaired board, the nut straight on an unpaired board with no possible flush. A raise
+  with a nut-class hand that is not the exact nuts is counted apart ("Counted apart, not breaches"; `note`,
+  `nut_class` in decisions.csv), not as a breach. Before, the audit asked for the exact nuts and so reported every top
+  full house on a paired board the engine raises by decision.
+- A raise or all-in over opponents who are all already all in is graded as a call: nobody can put in another chip and
+  the rest comes back (it was priced as a raise against a caller).
 
 ## Tier B: range (cards not shown)
 
