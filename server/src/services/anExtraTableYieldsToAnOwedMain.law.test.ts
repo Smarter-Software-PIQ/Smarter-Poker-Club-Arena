@@ -192,6 +192,19 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(gate).toBeGreaterThan(-1);
     expect(decide).toBeGreaterThan(gate);
   });
+  it('the engine answers liveInHand the way leaveTable reads a live seat, and the drain asks it', () => {
+    const base = read('../engine/ServerTableEngineBase.ts');
+    const at = base.indexOf('public liveInHand(userId: string): boolean {');
+    expect(at).toBeGreaterThan(-1);
+    const body = base.slice(at, base.indexOf('\n  }\n', at));
+    expect(body).toContain('this.handController?.getState()');
+    expect(body).toContain('!self.is_folded');
+    const rotator = read('./HorseSessionRotator.ts');
+    const drain = rotator.slice(rotator.indexOf('const drainTableId = varietyDrainingTable('));
+    expect(drain.slice(0, drain.indexOf('engine.leaveTable(uid)'))).toContain(
+      'engine.liveInHand?.(uid) !== true'
+    );
+  });
   it('a surplus table is neither walked into nor answered by a seat call (the existing doors)', () => {
     expect(fleet).toContain('if (surplusTableIds.has(table.id)) {');
     expect(fleet).toContain('if (surplusTableIds.has(String(offer.table_id))) continue;');
@@ -314,7 +327,11 @@ describe("the released table's Horses go home through the ordinary door", () => 
     vi.restoreAllMocks();
   });
 
-  const run = async (db: ReturnType<typeof floor>, owed: Record<string, number> = {}) => {
+  const run = async (
+    db: ReturnType<typeof floor>,
+    owed: Record<string, number> = {},
+    live: ReadonlySet<string> = new Set()
+  ) => {
     fakeDb(db);
     const leaves: Array<{ tableId: string; userId: string }> = [];
     const engine = (tableId: string): RotatorEngine => ({
@@ -323,6 +340,7 @@ describe("the released table's Horses go home through the ordinary door", () => 
         return { success: true };
       },
       hitRunHandsOwed: (userId: string) => owed[userId] ?? 0,
+      liveInHand: (userId: string) => live.has(userId),
       sitOut: () => ({ success: true }),
     });
     const rot = new HorseSessionRotator(engine) as any;
@@ -355,6 +373,19 @@ describe("the released table's Horses go home through the ordinary door", () => 
     const owed = Object.fromEntries(HORSES.slice(12, 17).map((h) => [h, 3]));
     const atF = (await run(floor(), owed)).filter((l) => l.tableId === F);
     expect(atF).toEqual([{ tableId: F, userId: HORSES[17] }]);
+  });
+
+  it('a Horse still holding cards in the hand being played is never folded out: one that has folded goes', async () => {
+    publishVarietyDrain(F, Date.now());
+    const live = new Set(HORSES.slice(12, 17));
+    const atF = (await run(floor(), {}, live)).filter((l) => l.tableId === F);
+    expect(atF).toEqual([{ tableId: F, userId: HORSES[17] }]);
+  });
+
+  it('every Horse at the released table is in the hand: nobody leaves this cycle', async () => {
+    publishVarietyDrain(F, Date.now());
+    const live = new Set(HORSES.slice(12, 18));
+    expect((await run(floor(), {}, live)).filter((l) => l.tableId === F)).toEqual([]);
   });
 
   it('a person at the table stops the release at once', async () => {
