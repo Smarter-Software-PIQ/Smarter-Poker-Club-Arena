@@ -8,6 +8,11 @@
 # any commit carrying it (backup-engine.yml O7), so every engine commit merged
 # after it waits for the next window (2026-11-25: 1 PM to 10 PM Chicago).
 #
+# A RELEASE-CONTROL CHANGE (a non-test CONTROL_INPUTS path of
+# scripts/ci/read-engine-prequalification.py) takes the same window: merged
+# later it makes every certified candidate unselectable with no time left for
+# a new certificate (2026-11-26 01:00 Chicago: #12038 after c951436a6ead).
+#
 # This check is red outside the window, with the next window named in Chicago
 # time, and green inside it (a five-minute margin so a merge made right after a
 # green answer still installs at once). A pull request with no ordinary
@@ -54,6 +59,7 @@ jobs:
             scripts/ci/maintenance-window-migrations.mjs
             scripts/ci/migration-concurrent-preamble.mjs
             scripts/ci/owner-window-migration.mjs
+            scripts/ci/read-engine-prequalification.py
             server/src/maintenance/maintenanceSchedulePolicy.json
           sparse-checkout-cone-mode: false
       - name: Check out the proposed migration files (data only)
@@ -81,6 +87,20 @@ jobs:
           base=$(git -C proposed merge-base "$BASE" "$HEAD")
           git -C proposed diff --name-status --no-renames "$base" "$HEAD" -- supabase/migrations \
             | awk -F'\t' '$1 == "A" {print "added\t" $2} $1 == "M" {print "modified\t" $2}' > files.txt
+          # Release-control paths the change touches: the non-test CONTROL_INPUTS
+          # of the default branch's prequalification reader. A change there
+          # makes every older certified candidate unselectable, so it takes the
+          # same window. Unreadable is not "none": the check fails.
+          git -C proposed diff --name-only "$base" "$HEAD" > changed.txt
+          python3 -B - changed.txt > control.txt <<'PY'
+          import runpy, sys
+          m = runpy.run_path('scripts/ci/read-engine-prequalification.py')
+          inputs = m['CONTROL_INPUTS']
+          for path in open(sys.argv[1]).read().split():
+              hit = any(path == e or path.startswith(e.rstrip('/') + '/') for e in inputs)
+              if hit and not m['_is_pure_test_control_path'](path) and not m['_is_non_release_server_script_path'](path):
+                  print(path)
+          PY
           # The serving engine's live schedule (as the dispatcher reads it),
           # else the repository policy; unreadable is three-hourly, the
           # stricter rule.
@@ -90,7 +110,7 @@ jobs:
           [ -n "$freq" ] || freq=three-hourly
           echo "schedule: $freq"
           set +e
-          node scripts/ci/migration-merge-window.mjs check files.txt proposed/supabase/migrations --schedule "$freq" > verdict.txt
+          node scripts/ci/migration-merge-window.mjs check files.txt proposed/supabase/migrations --schedule "$freq" --control control.txt > verdict.txt
           rc=$?
           set -e
           cat verdict.txt

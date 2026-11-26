@@ -187,6 +187,7 @@ def parse_control_spec(prequal_text):
         'CONTROL_INPUTS',
         'CONTROL_INPUT_TEST_EXCLUDED_DIRS',
         'PURE_TEST_FILE_SUFFIXES',
+        'DOCUMENTATION_FILE_SUFFIXES',
         'NON_RELEASE_SERVER_SCRIPT_PREFIXES',
         'NON_RELEASE_SERVER_SCRIPT_EXACT',
     }
@@ -200,11 +201,13 @@ def parse_control_spec(prequal_text):
         raise ValueError('CONTROL_INPUTS not found or invalid')
     excluded_dirs = found.get('CONTROL_INPUT_TEST_EXCLUDED_DIRS', ())
     suffixes = found.get('PURE_TEST_FILE_SUFFIXES', ())
+    docs = found.get('DOCUMENTATION_FILE_SUFFIXES', ())
     non_release_prefixes = found.get('NON_RELEASE_SERVER_SCRIPT_PREFIXES', ())
     non_release_exact = found.get('NON_RELEASE_SERVER_SCRIPT_EXACT', ())
     for name, val in (
         ('CONTROL_INPUT_TEST_EXCLUDED_DIRS', excluded_dirs),
         ('PURE_TEST_FILE_SUFFIXES', suffixes),
+        ('DOCUMENTATION_FILE_SUFFIXES', docs),
         ('NON_RELEASE_SERVER_SCRIPT_PREFIXES', non_release_prefixes),
         ('NON_RELEASE_SERVER_SCRIPT_EXACT', non_release_exact),
     ):
@@ -214,6 +217,7 @@ def parse_control_spec(prequal_text):
         'inputs': tuple(inputs),
         'excluded_dirs': tuple(excluded_dirs),
         'suffixes': tuple(suffixes),
+        'docs': tuple(docs),
         'non_release_prefixes': tuple(non_release_prefixes),
         'non_release_exact': frozenset(non_release_exact),
     }
@@ -225,6 +229,8 @@ def _is_pure_test_control_path(path, control_spec):
         return False
     name = path.rsplit('/', 1)[-1]
     if any(name.endswith(suffix) and len(name) > len(suffix) for suffix in control_spec['suffixes']):
+        return True
+    if any(name.lower().endswith(suffix) and len(name) > len(suffix) for suffix in control_spec.get('docs', ())):
         return True
     if name.startswith('test_') and name.endswith('.py') and len(name) > len('test_.py'):
         return True

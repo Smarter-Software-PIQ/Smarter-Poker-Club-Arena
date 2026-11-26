@@ -18,6 +18,17 @@
  * never block a certificate; a pull request with no ordinary migration is
  * always open. It reads no clock but the one it is given and writes nothing.
  *
+ * A RELEASE-CONTROL CHANGE TAKES THE SAME WINDOW (2026-11-26). On 2026-11-26
+ * the 01:00 Chicago cycle kept serving although c951436a6ead was certified:
+ * #12038 changed backup-engine.yml and stage-engine-release.yml after it, so
+ * its CONTROL_INPUTS (scripts/ci/read-engine-prequalification.py) differed
+ * from main's and prequalification refused it ("qualification inputs differ
+ * from selected control"). An older commit can never re-qualify against new
+ * controls: the check compares the two trees. A control change merged in
+ * [S+10, S+25) is itself certified by its own Backup push run before the next
+ * selection, so the cycle is never orphaned. The workflow passes the changed
+ * non-test CONTROL_INPUTS paths (--control <file>).
+ *
  *   node scripts/ci/migration-merge-window.mjs check <files> <sql-dir> [now-ms] [--schedule <freq>]
  *     <files>: one "<status>\t<path>" per line (merged-migration-dispatch.mjs
  *     parseFileList format); <sql-dir>: where the pull request's migration
@@ -86,13 +97,33 @@ export function mergeWindow(now, count, preamble, schedule) {
 }
 
 /** The verdict and the plain lines the check prints, for one pull request. */
-export function verdictFor(fileListText, readSql, now, schedule) {
+export function verdictFor(fileListText, readSql, now, schedule, controlPaths = []) {
   const { added, modified } = changedPaths(parseFileList(fileListText));
   const plan = planDispatch(added, readSql, now, modified, schedule);
+  const controls = [...new Set(controlPaths.filter(Boolean))].sort();
   const count = plan.dispatch.length;
-  const w = mergeWindow(now, count, plan.preamble, schedule);
+  // A control-only change takes the window of one ordinary file.
+  const w = mergeWindow(now, count + (count === 0 && controls.length ? 1 : 0), plan.preamble, schedule);
   const lines = [];
-  if (count === 0) {
+  if (controls.length) {
+    const shown = controls.slice(0, 3).join(', ') + (controls.length > 3 ? `, +${controls.length - 3} more` : '');
+    if (w.open) {
+      lines.push(
+        `OPEN: release-control change (${shown}); merged before ${w.closesAt === null ? 'the window closes' : chicagoLabel(w.closesAt)}, its own Backup run certifies it before the next selection.`
+      );
+    } else {
+      const next =
+        w.opensAt === null
+          ? `no window within ${MERGE_SEARCH_HOURS} hours`
+          : `the next merge window is ${chicagoLabel(w.opensAt)} to ${w.nextClosesAt === null ? 'unknown' : chicagoLabel(w.nextClosesAt)} (America/Chicago)`;
+      lines.push(
+        `CLOSED: release-control change (${shown}); merged now it would make every certified candidate unselectable (its CONTROL_INPUTS would differ from main's) with too little time for a new certificate before the selection; ${next}.`
+      );
+    }
+  }
+  if (count === 0 && controls.length) {
+    // the control lines above say it all
+  } else if (count === 0) {
     lines.push(
       plan.windowQueued.length
         ? `No ordinary migration: ${plan.windowQueued.join(', ')} install in the 04:00 break and never block a Backup certificate.`
@@ -109,9 +140,9 @@ export function verdictFor(fileListText, readSql, now, schedule) {
         : `the next merge window is ${chicagoLabel(w.opensAt)} to ${w.nextClosesAt === null ? 'unknown' : chicagoLabel(w.nextClosesAt)} (America/Chicago)`;
     lines.push(
       `CLOSED: merged now, ${count} ordinary migration(s) (${plan.dispatch.join(', ')}) would sit uninstalled on main and every later engine commit would be uncertifiable until the next install window; ${next}.`,
-      'Re-run this check inside that window (push, re-run, or toggle a label), then merge at once.'
     );
   }
+  if (!w.open) lines.push('Re-run this check inside that window (push, re-run, or toggle a label), then merge at once.');
   if (plan.malformed.length) {
     lines.push(`Unreadable install-window declarations: ${plan.malformed.map((m) => m.name).join(', ')}.`);
   }
@@ -121,9 +152,11 @@ export function verdictFor(fileListText, readSql, now, schedule) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const raw = process.argv.slice(2);
   let schedule = null;
+  let controlFile = null;
   const pos = [];
   for (let i = 0; i < raw.length; i++) {
     if (raw[i] === '--schedule') schedule = raw[++i] ?? null;
+    else if (raw[i] === '--control') controlFile = raw[++i] ?? null;
     else pos.push(raw[i]);
   }
   const [cmd, files, dir, nowArg] = pos;
@@ -135,7 +168,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const p = join(dir, name);
     return existsSync(p) ? readFileSync(p, 'utf8') : null;
   };
-  const v = verdictFor(readFileSync(files, 'utf8'), readSql, nowArg ? Number(nowArg) : Date.now(), schedule);
+  const controls = controlFile ? readFileSync(controlFile, 'utf8').split('\n').map((x) => x.trim()).filter(Boolean) : [];
+  const v = verdictFor(readFileSync(files, 'utf8'), readSql, nowArg ? Number(nowArg) : Date.now(), schedule, controls);
   for (const line of v.lines) console.log(line);
   process.exit(v.open ? 0 : 1);
 }

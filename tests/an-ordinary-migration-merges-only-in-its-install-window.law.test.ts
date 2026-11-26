@@ -120,6 +120,80 @@ describe('the check the pull request shows', () => {
     );
   });
 
+  function checkControl(paths: string[], nowIso: string) {
+    const dir = mkdtempSync(join(tmpdir(), 'merge-window-control-'));
+    scratch.push(dir);
+    mkdirSync(join(dir, 'migrations'));
+    writeFileSync(join(dir, 'files.txt'), '');
+    writeFileSync(join(dir, 'control.txt'), paths.join('\n') + '\n');
+    return spawnSync(
+      'node',
+      [
+        'scripts/ci/migration-merge-window.mjs',
+        'check',
+        join(dir, 'files.txt'),
+        join(dir, 'migrations'),
+        String(at(nowIso)),
+        '--schedule',
+        'three-hourly',
+        '--control',
+        join(dir, 'control.txt'),
+      ],
+      { cwd: ROOT, encoding: 'utf8' }
+    );
+  }
+
+  it('a release-control change takes the same window (2026-11-26: #12038 orphaned c951436a6ead)', () => {
+    // #12038 merged at 04:51Z (22:51 CST), after the 22:00 window closed.
+    const late = checkControl(
+      ['.github/workflows/backup-engine.yml', '.github/workflows/stage-engine-release.yml'],
+      '2026-11-26T04:51:00Z'
+    );
+    expect(late.status).toBe(1);
+    expect(late.stdout).toContain(
+      'CLOSED: release-control change (.github/workflows/backup-engine.yml, .github/workflows/stage-engine-release.yml)'
+    );
+    expect(late.stdout).toContain('the next merge window is 04:15 CST to 04:25 CST');
+    const inWindow = checkControl(['scripts/ci/select-daily-engine.py'], '2026-11-26T01:12:00Z');
+    expect(inWindow.status, inWindow.stdout + inWindow.stderr).toBe(0);
+    expect(inWindow.stdout).toContain(
+      'OPEN: release-control change (scripts/ci/select-daily-engine.py)'
+    );
+  });
+
+  it("the workflow derives release-control paths from the default branch's CONTROL_INPUTS, tests and research scripts excluded", () => {
+    const wfText = readFileSync(
+      join(ROOT, '.github/workflows/an-ordinary-migration-merges-only-in-its-install-window.yml'),
+      'utf8'
+    );
+    const step = parse(wfText).jobs.window.steps.at(-1).run as string;
+    const py = step.slice(step.indexOf("<<'PY'") + 7, step.indexOf('\nPY\n'));
+    const dir = mkdtempSync(join(tmpdir(), 'merge-window-py-'));
+    scratch.push(dir);
+    writeFileSync(
+      join(dir, 'changed.txt'),
+      [
+        '.github/workflows/backup-engine.yml',
+        'docs/ops/cutover-fix-verification-and-hardening.md',
+        'server/scripts/engine-release-seal.py',
+        'server/scripts/engine-release-seal.test.py',
+        'server/scripts/horse-league.ts',
+        'server/src/engine/ServerTableEngineBase.ts',
+      ].join('\n')
+    );
+    const r = spawnSync('python3', ['-B', '-', join(dir, 'changed.txt')], {
+      cwd: ROOT,
+      input: py,
+      encoding: 'utf8',
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.trim().split('\n')).toEqual([
+      '.github/workflows/backup-engine.yml',
+      'server/scripts/engine-release-seal.py',
+    ]);
+    expect(step).toContain('--control control.txt');
+  });
+
   it('a daily-maintenance window file never blocks, and no migration at all is green', () => {
     const windowFile = check(
       { '20261126000800_window.sql': '-- @install-window: daily-maintenance\nselect 1;\n' },

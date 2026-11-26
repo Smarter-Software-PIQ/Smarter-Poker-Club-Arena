@@ -366,6 +366,9 @@ class ControlInputs(unittest.TestCase):
                     "server/scripts/qux.test.js",
                     "server/scripts/qux.test.cjs",
                     "server/scripts/test_public215_helper.py",
+                    # 2026-11-26: documentation is not a release control.
+                    "server/scripts/qualification/retained-original-checkpoint/README.md",
+                    "server/src/maintenance/NOTES.MD",
                 )
                 for revision in ("v1\n", "v2\n"):
                     commit_sha = commit_files({path: revision for path in pure_tests}, f"pure tests {revision.strip()}")

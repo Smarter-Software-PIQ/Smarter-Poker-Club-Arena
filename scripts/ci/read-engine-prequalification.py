@@ -46,6 +46,11 @@ PURE_TEST_FILE_SUFFIXES = (
     ".test.js",
     ".test.cjs",
 )
+# DOCUMENTATION IS NOT A RELEASE CONTROL (2026-11-26). A Markdown file inside a
+# directory input (server/scripts/qualification/.../README.md today) changes
+# no release behaviour, yet it changed the projection and so made every older
+# certified candidate unselectable. Explicit file inputs are never documents.
+DOCUMENTATION_FILE_SUFFIXES = (".md",)
 NON_RELEASE_SERVER_SCRIPT_PREFIXES = (
     "server/scripts/opponent-hud-",
     "server/scripts/horse-",
@@ -97,6 +102,8 @@ def _is_pure_test_control_path(path):
         return False
     name = path.rsplit("/", 1)[-1]
     if any(name.endswith(suffix) and len(name) > len(suffix) for suffix in PURE_TEST_FILE_SUFFIXES):
+        return True
+    if any(name.lower().endswith(suffix) and len(name) > len(suffix) for suffix in DOCUMENTATION_FILE_SUFFIXES):
         return True
     if name.startswith("test_") and name.endswith(".py") and len(name) > len("test_.py"):
         return True
