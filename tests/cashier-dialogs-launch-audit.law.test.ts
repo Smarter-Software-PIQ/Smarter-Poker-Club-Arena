@@ -345,15 +345,16 @@ describe('S-04 / S-07: the dialogs trust neither a note nor a table read', () =>
 
   it('the mint pre-flight reads the club through fn_club_money_panel and fails closed', () => {
     const src = read(MINT);
-    expect(src).toContain("await supabase.rpc('fn_club_money_panel', {");
+    expect(src).toContain("supabase.rpc('fn_club_money_panel', {");
     expect(src).not.toContain(".from('clubs')");
     expect(src).not.toContain(".from('union_admins')");
     expect(src).toContain(
       "setTarget({ state: 'denied', label: 'Mint Rights Could Not Be Checked' });"
     );
     expect(src).toContain('if (panel.authorized !== true) {');
-    expect(src).toContain("const mayMint = panel.scope === 'union';");
-    expect(src).toContain("if (panel.scope !== 'club') {");
+    expect(src).toContain("permittedScope === 'union'");
+    expect(src).toContain('unionId === uuidResolved');
+    expect(src).toContain("permittedScope !== 'club'");
     // The RPC is still the authority: nothing here changed what it is told.
     expect(src).toContain("await supabase.rpc('fn_mint_chips_from_diamonds', {");
   });

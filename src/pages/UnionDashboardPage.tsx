@@ -27,6 +27,7 @@ import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { fmt, formatWalletChips, timeAgo } from '../utils/format';
 import { jackpotChips } from '../utils/jackpotExact';
 import { UNION_DASHBOARD_CLUB_COLUMNS, clubWithMoneyPanel } from '../services/unionDashboardClubs';
+import ChipMintModal from '../components/wallet/ChipMintModal';
 import UnionWalletModal, { type UnionWalletKey } from '../components/union/UnionWalletModal';
 import UnionTreasuryDetailModal, {
   type TreasuryDetailMode,
@@ -243,6 +244,7 @@ export default function UnionDashboardPage() {
    * Dan 2026-08-22: clicking any union wallet opens it with a send-to-member
    * flow. Before this, the four wallet tiles were static divs.
    */
+  const [openMintFor, setOpenMintFor] = useState<string | null>(null);
   const [walletModal, setWalletModal] = useState<{
     key: UnionWalletKey;
     label: string;
@@ -446,6 +448,7 @@ export default function UnionDashboardPage() {
     setLeaveReqs([]);
     setRakebackHistory([]);
     setWalletModal(null);
+    setOpenMintFor(null);
     setTreasuryModal(null);
   }, [routeUnionId, unionRef, user?.id]);
 
@@ -3336,11 +3339,21 @@ export default function UnionDashboardPage() {
         </div>
       </div>
 
-      {walletModal && unionId && (
+      {openMintFor && authorizedUnionId === openMintFor && (
+        <ChipMintModal
+          isOpen
+          scope="union"
+          clubId={authorizedUnionId}
+          onClose={() => setOpenMintFor(null)}
+          onMinted={() => void loadDashboard(authorizedUnionId)}
+        />
+      )}
+      {walletModal && authorizedUnionId && !openMintFor && (
         <UnionWalletModal
           isOpen
           onClose={() => setWalletModal(null)}
-          unionId={unionId}
+          unionId={authorizedUnionId}
+          onMint={walletModal.key === 'chips' ? () => setOpenMintFor(authorizedUnionId) : undefined}
           walletKey={walletModal.key}
           walletLabel={walletModal.label}
           balance={walletModal.balance}

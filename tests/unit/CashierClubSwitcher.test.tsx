@@ -69,8 +69,8 @@ describe('CashierClubSwitcher destination', () => {
   });
 
   it('cashierDestination maps each cashier surface to itself', () => {
-    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic`)).toBe('wallet-operations');
-    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic/`)).toBe('wallet-operations');
+    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic`)).toBe('cashier');
+    expect(cashierDestination(`/clubs/${CLUB_A}/cashier-classic/`)).toBe('cashier');
     expect(cashierDestination(`/clubs/${CLUB_A}/cashier/statements`)).toBe('cashier/statements');
     expect(cashierDestination(`/clubs/${CLUB_A}/cashier`)).toBe('cashier');
     expect(cashierDestination('/cashier')).toBe('cashier');
@@ -87,12 +87,10 @@ describe('CashierClubSwitcher destination', () => {
     expect(exportsOtherThanDefault).toHaveLength(0);
   });
 
-  it('keeps the viewer on the classic cashier when switching from it', async () => {
+  it('returns the viewer to the club cashier when switching from a legacy link', async () => {
     start(`/clubs/${CLUB_A}/cashier-classic`);
     await pickWhaleClub();
-    expect(screen.getByTestId('where')).toHaveTextContent(
-      `/clubs/${CLUB_B}/cashier?walletTools=open`
-    );
+    expect(screen.getByTestId('where')).toHaveTextContent(`/clubs/${CLUB_B}/cashier`);
   });
 
   it('keeps the viewer on the statements page when switching from it', async () => {

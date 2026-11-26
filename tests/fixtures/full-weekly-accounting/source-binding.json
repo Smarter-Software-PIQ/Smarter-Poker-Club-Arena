@@ -387,7 +387,7 @@
     "tests/components/cashier-cashout-generations.test.tsx": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc",
     "tests/components/cashout-own-event-acknowledgment.test.tsx": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a",
     "tests/unit/FinancialAlertServiceRead.test.ts": "2e9f47a08edbc96afb48d026dbec4fdf55b12a07bcb1f8cbc924af3b13ff4934",
-    "tests/unit/discardedErrorReadRatchet.test.ts": "79deae1f4f7751b8544ba0fa28e0e72e851a6759f90d423a367620fc3beae912",
+    "tests/unit/discardedErrorReadRatchet.test.ts": "c2879ad46b403b3caab99ea2e5bae10373291e624426483805cdf7f596a4696d",
     "tests/fixtures/correction-writer-authority/README.md": "9ac3f0c9954e25e93d357df32611e4cc08dd40d6b7a81df68537481a27c1a4b2",
     "tests/fixtures/correction-writer-authority/accepted-authority-supplement.sql": "af0366d687755efc1bd8c5b7534d7b3e0059c14f8dabcbe05e68121f3aa40fae",
     "tests/fixtures/correction-writer-authority/authority-regression.sql": "0786d373254eb6cd874577b8eb2cab16d82ec46c492d29d59288ed483a3ea939",
@@ -8831,5 +8831,17 @@
     ],
     "financialRecertification": false,
     "executionPerformed": false
+  },
+  "bankScopedMintErrorReads20261126": {
+    "reason": "The new permission RPC replaces the unbound union read, and the remaining club read handles its error. The reviewed test diff tightens WalletService from two discarded errors to zero.",
+    "changes": [
+      {
+        "path": "tests/unit/discardedErrorReadRatchet.test.ts",
+        "kind": "sha256",
+        "previous": "79deae1f4f7751b8544ba0fa28e0e72e851a6759f90d423a367620fc3beae912",
+        "current": "c2879ad46b403b3caab99ea2e5bae10373291e624426483805cdf7f596a4696d"
+      }
+    ],
+    "financialRecertification": false
   }
 }

@@ -22,6 +22,7 @@ import {
   lazy,
   Suspense,
 } from 'react';
+import { StatsPersonalRevision } from '../hooks/useStatsFactRead';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { tabTransition, instant } from '../components/stats/statsMotion';
 import { statsGameMode, type StatsGameMode } from '../services/statsGameMode';
@@ -1057,12 +1058,14 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       statsTimezone,
     ]
   );
+  const loadedHandsQuery = useRef<string | null>(null);
   // Notable hands. Loaded only when the Analysis tab is actually open — the
   // 'biggest' modes score the whole analysis window, so this is not free.
   useEffect(() => {
     if (gameMode !== 'cash' || !targetUserId || !isOwnProfile || category !== 'analysis') return;
     let alive = true;
-    setHandsLoading(true);
+    const query = JSON.stringify([targetUserId, selectedClubId, statsScope, handMode]);
+    setHandsLoading(loadedHandsQuery.current !== query);
     setHandsError(false);
     Promise.all([
       supabase
@@ -1102,6 +1105,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
             setHandsError(true);
             setHands([]);
           } else {
+            loadedHandsQuery.current = query;
             setHands(verifiedHands);
           }
         }
@@ -1123,7 +1127,17 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     // range change fired an identical, expensive query whose result could not
     // differ. The list is all-time and the empty state now says so.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetUserId, isOwnProfile, category, handMode, handsReload, statsScope, selectedClubId]);
+  }, [
+    targetUserId,
+    isOwnProfile,
+    gameMode,
+    category,
+    handMode,
+    handsReload,
+    statsScope,
+    selectedClubId,
+    liveRevision,
+  ]);
   /**
    * Keep the selected pill visible. The strip scrolls now (see the CSS), and
    * both the swipe gesture and the Arrow keys can move `category` to a tab that
@@ -1620,7 +1634,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       </button>
     </div>
   );
-  return (
+  const dashboard = (
     <div
       className={`stats-page arena-workspace${privacyPresentationMode ? ' stats-page--presentation' : ''}`}
     >
@@ -1964,5 +1978,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         </section>
       )}
     </div>
+  );
+  return (
+    <StatsPersonalRevision.Provider value={liveRevision}>
+      {dashboard}
+    </StatsPersonalRevision.Provider>
   );
 }

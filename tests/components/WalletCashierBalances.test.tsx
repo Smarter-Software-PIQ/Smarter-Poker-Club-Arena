@@ -19,7 +19,9 @@ vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../../src/core/MasterBus', () => ({ masterBus: { emit: vi.fn() } }));
+vi.mock('../../src/core/MasterBus', () => ({
+  masterBus: { emit: vi.fn(), subscribe: vi.fn(() => () => {}) },
+}));
 vi.mock('../../src/components/wallet/ChipMintModal', () => ({ default: () => null }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -53,6 +55,7 @@ vi.mock('../../src/lib/supabase', () => ({
        is recorded as a read of the 'clubs' money so the filter assertions below
        still cover it. */
     rpc: (name: string, args: Record<string, unknown>) => {
+      if (name === 'fn_cashier_mint_scope') return Promise.resolve({ data: null, error: null });
       if (name !== 'fn_club_money_panel') {
         fixture.rpc(name, args);
         return Promise.resolve({

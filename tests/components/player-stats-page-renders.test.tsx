@@ -157,7 +157,9 @@ vi.mock('react-router-dom', () => ({
   // JSX (automatic runtime) rather than React.createElement: a vi.mock factory
   // is hoisted above the imports, so referencing an imported React binding
   // inside it would blow up before initialisation.
-  Link: ({ to, children }: { to: string; children?: unknown }) => <a href={to}>{children}</a>,
+  Link: ({ to, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props} />
+  ),
 }));
 
 vi.mock('../../src/services/ClubsService', () => ({
@@ -1311,6 +1313,58 @@ describe('PlayerStatsPage mounts', () => {
     ).toBeNull();
     expect(normalizeHands({ ...envelope, hands: [] }, request)).toEqual([]);
   });
+
+  it('updates the open notable-hand list after personal activity without reselecting its mode', async () => {
+    rpcPayload.overall = { ...EMPTY_OVERALL, total_hands: 1, cash_hands: 1, hands_lost: 1 };
+    rpcPayload.lifetime = {
+      hands: 1,
+      first_hand_at: null,
+      last_hand_at: null,
+      indexed_complete: true,
+    };
+    rpcPayload.quality = { ...(rpcPayload.quality as object), exact_cash_hands: 1 };
+    render(<PlayerStatsPage />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Analysis' }, { timeout: 6000 }));
+    const reads = () =>
+      rpcMock.mock.calls.filter(([name]) => name === 'ca_player_hands_separated').length;
+    await waitFor(() => expect(reads()).toBe(1));
+    const link = { name: /Open Hand From/i };
+    expect(screen.queryByRole('link', link)).toBeNull();
+    notableHandsPayload.hands = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        played_at: '2026-08-31T11:30:00Z',
+        variant: 'NLH',
+        big_blind: 2,
+        is_tournament: false,
+        position: 'BTN',
+        pot_size: 120.5,
+        won: 120.5,
+        profit: 80.5,
+        is_winner: true,
+        players: 6,
+        board: ['As', 'Kh', '2d'],
+        hole_cards: ['Ah', 'Ad'],
+      },
+    ];
+    act(() => livePulse.onChange());
+    expect(await screen.findByRole('link', link, { timeout: 5000 })).toHaveAttribute(
+      'href',
+      expect.stringContaining('11111111-1111-4111-8111-111111111111')
+    );
+    expect(reads()).toBe(2);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hands' }));
+    await screen.findByText(/No Hold.em Hands Recorded Yet For This Filter/i);
+    const grid = vi.mocked(StatsFactsService.getHandGrid);
+    const before = grid.mock.calls.length;
+    act(() => {
+      livePulse.onChange();
+      livePulse.onChange();
+    });
+    await waitFor(() => expect(grid).toHaveBeenCalledTimes(before + 1), { timeout: 4000 });
+    expect(reads()).toBe(2);
+  }, 12000);
 
   it('shows unavailable and no evidence link for a wrong-scope notable-hands success', async () => {
     rpcPayload = {
