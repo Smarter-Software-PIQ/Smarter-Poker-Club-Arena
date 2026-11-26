@@ -169,6 +169,50 @@ export function matchedByOwnBytes(file, sql, appliedMd5ByVersion) {
   return createHash('md5').update(String(sql)).digest('hex') === applied;
 }
 
+/**
+ * A HELD MIGRATION IS IN FLIGHT FROM ITS MERGE, NOT FROM ITS STAMP (2026-11-25).
+ *
+ * --min-age-hours used to read a file's age from its version stamp alone. The
+ * merged-migration dispatcher now holds an ordinary file up to 160 minutes in
+ * daytime and 345 minutes across the nightly freeze before it may send it
+ * (O21, 150-minute pre-cutover deferral). A file whose pull request sat for a
+ * day carries a day-old stamp, so for those hours every pull request went red
+ * on "Installed and merged migrations agree" for a migration that was exactly
+ * where the dispatcher had put it (20261124171043, merged 2026-11-26 02:56Z,
+ * held to 04:10Z).
+ *
+ * The age is now measured from the later of the stamp and the commit that
+ * added the file to the checked-out branch (`git log --diff-filter=A`, the
+ * squash merge on main). A history that cannot answer (shallow past the merge,
+ * no git) returns null and the stamp alone decides, exactly as before.
+ */
+export function mergedAt(file, { cwd = ROOT, spawn = execFileSync } = {}) {
+  try {
+    const out = String(
+      spawn(
+        'git',
+        ['log', '-1', '--diff-filter=A', '--format=%ct', '--', `supabase/migrations/${file}`],
+        {
+          cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 20_000,
+        }
+      )
+    ).trim();
+    return /^\d+$/.test(out) ? Number(out) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The instant a not-yet-live file's grace counts from: its stamp or its merge, whichever is later. */
+export function inFlightSince(file, merged = mergedAt(file)) {
+  const stamp = stampedAt(file);
+  if (stamp === null) return merged;
+  return merged !== null && merged > stamp ? merged : stamp;
+}
+
 export function stampedAt(file) {
   const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/.exec(String(file));
   if (!m) return null;
@@ -884,7 +928,8 @@ function main() {
         windowQueued.push(m);
         continue;
       }
-      if (MIN_AGE_HOURS > 0 && at !== null && Date.now() - at < MIN_AGE_HOURS * 3600000) {
+      const since = MIN_AGE_HOURS > 0 ? inFlightSince(m.file) : at;
+      if (MIN_AGE_HOURS > 0 && since !== null && Date.now() - since < MIN_AGE_HOURS * 3600000) {
         inFlight.push({ ...m, gone, bad });
         continue;
       }
@@ -925,7 +970,7 @@ function main() {
 
   for (const m of inFlight) {
     console.log(
-      `[migrations-are-live] in flight (younger than ${MIN_AGE_HOURS}h, not failed yet): ${m.file}`
+      `[migrations-are-live] in flight (merged or stamped under ${MIN_AGE_HOURS}h ago, not failed yet): ${m.file}`
     );
   }
 
