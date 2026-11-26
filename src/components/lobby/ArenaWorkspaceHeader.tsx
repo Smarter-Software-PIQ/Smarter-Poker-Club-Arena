@@ -31,7 +31,18 @@ interface Props {
 
 function WorkspaceEmblem({ area }: Pick<Props, 'area'>) {
   const base = import.meta.env.BASE_URL;
-  if (area === 'members' || area === 'record') {
+  if (area === 'record') {
+    return (
+      <span className="arena-mast-credential">
+        <img
+          src={base + 'assets/club-buttons/wallets/emblems/wallet-emblem-player-v1.webp'}
+          alt=""
+        />
+        <i />
+      </span>
+    );
+  }
+  if (area === 'members') {
     return (
       <span className="arena-mast-portrait-pair">
         <img
