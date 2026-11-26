@@ -69,6 +69,48 @@ describe('the records PR is computed from the live rows', () => {
     expect(same.stateFileChanged).toBe(false);
   });
 
+  // 2026-11-26: with main's snapshot already at the live audit max, `records --dry-run` still answered
+  // "would be rewritten", because the snapshot stamps the time of each read. It could never say "matches",
+  // and `records` would have opened a PR that changed one timestamp.
+  it('the same rows read at a later time are no change; a changed row, audit max or hand-edited file is', () => {
+    const committed = formatSwitchStateSnapshot(snapshot);
+    const later = snapshotFromRows(LIVE_ROWS, '2026-11-26T00:10:00Z');
+    expect(later.asOfUtc).not.toBe(snapshot.asOfUtc);
+    const same = buildRecordsChange({ snapshot: later, docs: {}, currentStateText: committed });
+    expect(same.stateFileChanged).toBe(false);
+    expect(same.stateFileText).toBe(committed);
+
+    const flipped = snapshotFromRows(
+      LIVE_ROWS.map((r, i) =>
+        i === 0 ? { ...r, state: 'off', audit_id: 196, audit_max: 196 } : { ...r, audit_max: 196 }
+      ),
+      '2026-11-26T00:10:00Z'
+    );
+    expect(
+      buildRecordsChange({ snapshot: flipped, docs: {}, currentStateText: committed })
+        .stateFileChanged
+    ).toBe(true);
+    const newerAudit = snapshotFromRows(
+      LIVE_ROWS.map((r) => ({ ...r, audit_max: 199 })),
+      '2026-11-26T00:10:00Z'
+    );
+    expect(
+      buildRecordsChange({ snapshot: newerAudit, docs: {}, currentStateText: committed })
+        .stateFileChanged
+    ).toBe(true);
+    // A file that is not what the tool writes (hand-edited, reordered or cut short) is rewritten.
+    for (const text of [
+      '',
+      '{',
+      committed.replace(/\n$/, ''),
+      committed.replace('  "rows"', '"rows"'),
+    ]) {
+      const change = buildRecordsChange({ snapshot: later, docs: {}, currentStateText: text });
+      expect(change.stateFileChanged).toBe(true);
+      expect(change.stateFileText).toBe(formatSwitchStateSnapshot(later));
+    }
+  });
+
   it('"default OFF in source" is judged as off, so a live on row is drift (the 2026-11-24 case)', () => {
     expect(parseAuthorityDocState(TRIM_DOC)?.state).toBe('off');
     expect(
