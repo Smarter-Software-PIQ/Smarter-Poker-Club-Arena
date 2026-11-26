@@ -813,6 +813,29 @@ export function finalTableMttWithStacksContext(seats: number, stackBB: number): 
   };
 }
 
+/**
+ * 2026-11-26 (tourney-postflop): a Sit & Go on the bubble: `seats` left, one fewer paid (65 / 35 at three left), with
+ * the stack list and seat identities the live feed sends, so the pay-jump bubble factor is priced (heroBubbleFactor).
+ */
+function sngBubbleWithStacksContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = sixMaxSngContext(seats, stackBB);
+  const start = stackBB * BB;
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      spotsPaid: seats - 1,
+      payoutPct: [65, 35, 0, 0, 0, 0].slice(0, seats - 1),
+      entrants: 6,
+      nearBubble: true,
+      stacks: Array.from({ length: seats }, () => start),
+      stackByUser: Object.fromEntries(
+        Array.from({ length: seats }, (_, s) => [`league-${s + 1}`, start])
+      ),
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -5153,6 +5176,36 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOpeningBluffIsPriced: true },
     b: {},
   },
+  // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option
+  // alone, in the format it moves most (six-max MTT far from the money, 30bb) and on the three-left Sit & Go bubble
+  // (bubble factor priced from the stacks); a switches it on, b is today's brain. Graded by the lane's own mirror,
+  // probes and replay (docs/horse-option-authority.d).
+  ...(['holdemTournamentRiverBluffIsPriced', 'holdemTournamentTurnBluffIsPriced'] as const).flatMap(
+    (opt) => [
+      {
+        name: `mtt6_${opt === 'holdemTournamentRiverBluffIsPriced' ? 'river' : 'turn'}_bluff_is_priced_30bb`,
+        seats: 6,
+        stackBB: 30,
+        context: bigBlindAnteMttContext(6, 30),
+        pairs: 6000,
+        hybridBaseline: true,
+        moodClock: 'deal_seed' as const,
+        a: { [opt]: true },
+        b: {},
+      },
+      {
+        name: `sng3_bubble_${opt === 'holdemTournamentRiverBluffIsPriced' ? 'river' : 'turn'}_bluff_is_priced_20bb`,
+        seats: 3,
+        stackBB: 20,
+        context: sngBubbleWithStacksContext(3, 20),
+        pairs: 6000,
+        hybridBaseline: true,
+        moodClock: 'deal_seed' as const,
+        a: { [opt]: true },
+        b: {},
+      },
+    ]
+  ),
   // 2026-11-24 PLO-LEAD-6 (default OFF): the same rules reading the opener's own record of answering a 3-bet
   // (omaha/holdemOopReraiseRangeReadsOpenerRecord); a switches both on, b is today's brain. Declared, not run.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

@@ -494,6 +494,10 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemTournamentHeadsUpBigBlindDefenceIsPriced',
   'holdemTournamentBlindDefenceIsPriced',
   'holdemTournamentCommittedRaiseIsPriced',
+  // 2026-11-26 plo-lead7 tourney-postflop: the tournament bluff after the flop priced (river; turn), blocker or
+  // range-advantage, losses weighted by the pay-jump bubble factor (ships dark)
+  'holdemTournamentRiverBluffIsPriced',
+  'holdemTournamentTurnBluffIsPriced',
   'nashPushFoldIcm',
   'facingOpenFullRingZone',
   'vs3BetShortStack',
@@ -1089,6 +1093,16 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     "Hold'em tournaments: a non-all-in re-raise after the Horse's own raise (<= 40bb) and any raise that commits the Horse",
     'fold / call / shove facing a re-raise priced by EV; a committing raise priced exactly as the all-in it is (sweep L4)',
+  ],
+  holdemTournamentRiverBluffIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments (MTT, SNG, Spin, heads-up), heads-up in the pot, river, not facing a wager",
+    "a check becomes a bluff only when it prices above the check (losses weighted by the pay-jump bubble factor) and blockers or the range advantage are the Horse's",
+  ],
+  holdemTournamentTurnBluffIsPriced: [
+    HOLDEM,
+    "Hold'em tournaments (MTT, SNG, Spin, heads-up), heads-up in the pot, turn, not facing a wager",
+    "a check becomes a bluff only when it prices above the check (losses weighted by the pay-jump bubble factor) and blockers or the range advantage are the Horse's",
   ],
   holdemOopReraiseRangeHoldsVsReraise: [
     HOLDEM,

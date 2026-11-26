@@ -2973,6 +2973,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemTournamentRiverBluffIsPriced',
+    "PLO-OWNER lead-7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people 2026-11-20..26: missed river bluffs the top tournament leak after the flop; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em tournaments (MTT, SNG, Spin, heads-up; not All-In-Or-Fold), one board, heads-up in the pot, river, not facing a wager: the brain's check becomes a bluff at the legal size of highest EV (the cash opening side's targets capped at the effective stack, the shove where the stack makes it the size) only when it prices above the check with its losses weighted by the Horse's bubble factor where a pay jump is live (HorseLogic.postflopWagerPayoutPrice / payJumpBubbleFactor, the Phase 7 IcmModel factor) AND the Horse's cards remove more of his calling part than of his folding part or the Horse's line range outscores his (HorseHoldemTournamentLateIsPriced). A hand with a value size is left to the brain. Where a pay jump is live and the context cannot price it (no trusted stacks, payouts or identity, a satellite, a PKO, a mystery bounty), or on a live pay jump of a field larger than 60 (a compute bound: the ICM read costs 2-5 ms per equity there), it stands down. His fold from his own record shrunk to the equilibrium anchor. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTournamentTurnBluffIsPriced',
+    "PLO-OWNER lead-7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people: missed turn bluffs the second tournament leak after the flop). Default off (read === true). The same as holdemTournamentRiverBluffIsPriced on the turn: heads-up in the pot, not facing a wager, the check becomes a blocker or range-advantage bluff only when it prices above the check (equity realization out of position as the cash opening side's), losses weighted by the pay-jump bubble factor; stands down where a live pay jump cannot be priced. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'nashPushFoldIcm',
     "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; nashPushFoldIcm on implies the paid-bust valuation of icmBustPaysPlace for the decision (HorseLogic.decide, Hand Analysis D1), so the short stack never reads the cap of 5 from a zero-valued bust; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -9505,6 +9515,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (holdemTournamentAllInCallIsPriced)',
     "default-off holdemTournamentAllInCallIsPriced: a postflop call facing an all-in (a jam), with the call closing the action, became a fold: the engine's own equity was more than 5 points below the price; occurrence counter, named *_seen",
     'TourneyAllInPriced'
+  ),
+  receipt(
+    'holdem_tourney_river_bluff_bet',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a river check heads-up (NLH tournament, not facing a wager) became a priced bluff: blockers or range advantage, EV above the check with losses weighted by the pay-jump bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_turn_bluff_bet',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a turn check heads-up (NLH tournament, not facing a wager) became a priced bluff: blockers or range advantage, EV above the check with losses weighted by the pay-jump bubble factor',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_no_edge',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    "a tournament bluff priced above the check but neither blockers nor the range advantage were the Horse's: the check was kept",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_payout_unpriced',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'a pay jump is live and the tournament context cannot price it (no trusted stacks, payouts or identity, a satellite, a PKO or a mystery bounty) or the field is larger than HOLDEM_TOURNAMENT_BLUFF_ICM_FIELD_MAX (60, a compute bound on the ICM read): the tournament bluff option stood down',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_tourney_bluff_unpriced',
+    'HorseLogic.holdemTournamentBluffPriced (holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced)',
+    'the tournament bluff option could not build his line range or threw: the decision was kept',
+    "Hold'em Strategy"
   ),
   receipt(
     'holdem_tournament_raise_defence_hu_bb_priced_seen',
