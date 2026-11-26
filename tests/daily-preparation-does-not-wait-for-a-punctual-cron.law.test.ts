@@ -1652,9 +1652,9 @@ describe('the owner says what the cycle will find while there is still time (O25
       'schedule',
     ]);
     expect(stage.on.schedule.length).toBe(2);
-    // Six since O27 (next-candidate-after-cycle), which waits once after the
-    // selection, never in the admission.
-    expect(Object.keys(stage.jobs).length).toBe(6);
+    // Seven: O27 (next-candidate-after-cycle) waits once after the selection,
+    // never in the admission; CR1 (cutover-outcome-record) only records.
+    expect(Object.keys(stage.jobs).length).toBe(7);
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });
