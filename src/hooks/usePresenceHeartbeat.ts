@@ -30,7 +30,9 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     // One report per run of failures, not one every two minutes while offline.
     let failing = false;
     let beatInFlight = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
+    /* Held in a box so a terminal refusal inside beat() can stop the interval
+       that is created after the first beat. */
+    const interval: { id?: ReturnType<typeof setInterval> } = {};
 
     const beat = () => {
       if (stopped || tabHidden()) return;
@@ -47,7 +49,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
           // so this mount stops beating (src/lib/presenceHeartbeat.ts).
           if (isTerminalPresenceRefusal(e)) {
             stopped = true;
-            if (timer !== undefined) clearInterval(timer);
+            if (interval.id !== undefined) clearInterval(interval.id);
             return;
           }
           if (!failing) reportError(e, 'presenceHeartbeat.beat');
@@ -64,7 +66,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     };
 
     beat();
-    timer = setInterval(beat, PRESENCE_HEARTBEAT_MS);
+    interval.id = setInterval(beat, PRESENCE_HEARTBEAT_MS);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onVisibility);
     window.addEventListener(NATIVE_RESUME_EVENT, onVisibility);
@@ -72,7 +74,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     window.addEventListener(NATIVE_PAUSE_EVENT, onLeave);
     return () => {
       stopped = true;
-      if (timer !== undefined) clearInterval(timer);
+      if (interval.id !== undefined) clearInterval(interval.id);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onVisibility);
       window.removeEventListener(NATIVE_RESUME_EVENT, onVisibility);
