@@ -1,0 +1,46 @@
+name: Client lint never gets worse
+
+# The client (src/) had no lint in CI: eslint ran only on staged files at
+# commit time, which a hook-less commit skips. On 2026-11-26 `eslint src/`
+# reported 0 errors and 1,089 warnings (541 react-refresh, 362
+# react-hooks/exhaustive-deps, 186 unused variables). This holds both: any
+# error fails, and the warning count may only fall. When a change brings it
+# down, lower MAX_WARNINGS to the new count in the same pull request;
+# tests/client-lint-never-gets-worse.law.test.ts refuses raising it.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'eslint.config.*'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/client-lint-ratchet.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-lint-ratchet-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Client lint has no errors and no new warnings
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MAX_WARNINGS: '1089'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Lint the client
+        run: npx eslint src/ --max-warnings "$MAX_WARNINGS"
