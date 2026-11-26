@@ -28,8 +28,11 @@ const kind = (a: string) => (a === 'all_in' || a === 'raise' ? 'bet' : a);
 
 describe('LAW: the river opening options on real audited nodes', () => {
   const nodes = RIVER_OPENING_FIXTURE.nodes;
+  // coverage is counted from the AUDIT and the bluff grade, never from the value option's own decisions: a range
+  // re-fit (people-only, 2026-11-26) that makes the value option check more must not read as lost coverage
   it('the fixture holds value bets, bluffs and kept checks', () => {
-    expect(nodes.filter((n) => n.expect.value !== 'check').length).toBeGreaterThanOrEqual(6);
+    const auditBets = nodes.filter((n) => /bet|raise|all/i.test(String(n.audit.best ?? ''))).length;
+    expect(auditBets).toBeGreaterThanOrEqual(25);
     expect(nodes.filter((n) => n.expect.bluff !== 'check').length).toBeGreaterThanOrEqual(15);
     expect(
       nodes.filter((n) => n.expect.value === 'check' && n.expect.bluff === 'check').length
@@ -56,6 +59,18 @@ describe('LAW: the river opening options on real audited nodes', () => {
       expect(kind(riverOpeningDecide(n, {}).action), `${n.hand} off`).toBe('check');
       expect(kind(riverOpeningDecide(n, V).action), `${n.hand} value`).toBe(kind(n.expect.value));
     }
+  }, 120_000);
+  it("the value option on the people-only range: every value bet is the audit's bet, none newly wrong", () => {
+    const g = grade(V);
+    console.info(
+      `[river value, people range] bets ${g.bets}, audit bet ${g.fixed}, newly wrong ${g.wrong}`
+    );
+    // graded on accuracy, not volume: the people-only range (thin cells shrunk to a random holding) bets fewer
+    // value hands than the pooled Horse+person range did (6 -> 4); 492c593d and ac3272e1 are audit bets it now
+    // checks, counted here as misses, not as wrong bets
+    expect(g.bets).toBeGreaterThanOrEqual(4);
+    expect(g.wrong).toBe(0);
+    expect(g.fixed).toBe(g.bets);
   }, 120_000);
   it("the blocker bluff on people's measured fold: most bets are the audit's bet, few are newly wrong", () => {
     const g = grade(B);
