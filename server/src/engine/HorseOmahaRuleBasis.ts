@@ -237,6 +237,26 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
       'measured bet answer curve moved by his lifetime public fold record and check stab frequency/size shrunk n/(n+k)',
     price: 'the value bet beside the check, mixed by comparison standard error (held dark)',
   },
+  omahaRiverValueBetInPositionIsPriced: {
+    kind: 'priced',
+    range: 'the measured strength histogram of a heads-up river checker, exact card removal',
+    equity:
+      'exact share of the hand against the hands that continue (the strongest share of his range)',
+    realization:
+      'his fold share: equilibrium B / (P + B) moved by his own lifetime public river fold record',
+    price:
+      'each engine bet size against the showdown value of the check, by more than his fold rate error',
+  },
+  omahaRiverBluffIsPricedOnBlockers: {
+    kind: 'priced',
+    range:
+      'the measured heads-up river range (after his check, or in position before acting), exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his fold share with the Horse cards removed: equilibrium B / (P + B) moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, and only where the Horse cards raise his fold share',
+  },
   omahaRiverCheckedToBetIsMeasured: {
     kind: 'priced',
     range: 'the checker range after his river check (card-impact range, no opponent kind)',
@@ -775,6 +795,23 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_stab_defence_priced: FACING_BET_EV,
   omaha_strong_hand_check_priced: CARD_IMPACT,
   omaha_four_bet_fold_priced_call: PREFLOP_PRICED,
+  omaha_river_value_bet_priced: {
+    kind: 'priced',
+    range: 'the measured strength histogram of a heads-up river checker, exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization: 'his fold share: equilibrium moved by his own lifetime public river fold record',
+    price:
+      'the value bet against the showdown value of the check, by more than his fold rate error',
+  },
+  omaha_river_bluff_priced: {
+    kind: 'priced',
+    range: 'the measured heads-up river range, exact card removal',
+    equity: 'exact share of the hand against the hands that continue',
+    realization:
+      'his card-removed fold share: equilibrium moved by his own lifetime public river fold record',
+    price:
+      'the bluff against the check by more than his fold rate error, with a positive blocker effect',
+  },
   omaha_river_checked_to_bet_measured: {
     kind: 'priced',
     range: 'the checker range after his river check (card-impact range, no opponent kind)',

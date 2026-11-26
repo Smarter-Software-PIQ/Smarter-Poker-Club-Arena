@@ -139,6 +139,15 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
   }),
+  // PLO-OWNER lead-7 2026-11-26: each acts only on a heads-up river check (nothing to call)
+  omahaRiverValueBetInPositionIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaRiverBluffIsPricedOnBlockers: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
   omahaCbetRaiseIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop']),

@@ -3407,7 +3407,67 @@ export const HOLDEM_TOURNAMENT_AGGRESSION_PRICED_CARDS: readonly LeagueMatchup[]
  * nightly card may not seat, or when it is a development candidate card graded by
  * name only.
  */
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-postflop: the live PLO4/PLO5 option rows of 2026-11-26 05:45Z as decide options
+ * (the omaha* rows on, and horseActionTimeIsPublicOnly), the b arm of the river opening cards below.
+ */
+export const OMAHA_LIVE_OPTIONS_20261126: HorseDecideOpts = Object.freeze({
+  horseActionTimeIsPublicOnly: true,
+  omahaBareOverpairOopFlopCheck: true,
+  omahaBigBetIsPotShare: true,
+  omahaBigDrawAggression: true,
+  omahaBlanketRowsOffInPlo45Cash: true,
+  omahaCardImpact: true,
+  omahaEliteContinuesVsMeasuredWideThreeBettor: true,
+  omahaFacingBetEv: true,
+  omahaMadeHandDefenseVsValueLeader: true,
+  omahaManiacReRaiseWidthMeasured: true,
+  omahaMathCorePlo5Flop: true,
+  omahaNoCallColdFourBetWithoutPremium: true,
+  omahaNoDrawRaiseOutOfPosition: true,
+  omahaOopReraisedPotStrongRange: true,
+  omahaOpponentLifetimeHud: true,
+  omahaOverpairNoOopBarrelVsValueLeader: true,
+  omahaPairedBoardFoldRespectsPrice: true,
+  omahaPairedRiverNoThinLeadVsValueLeader: true,
+  omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true,
+  omahaPreflopReraiseDefencePricedInPosition: true,
+  omahaPricedRaiseNeverMakesNonNutRaise: true,
+  omahaReraiseRangeEarlyPosition: true,
+  omahaRiverCurrentNutsCallFloor: true,
+  omahaRiverMediumBetStrongHandCalls: true,
+  omahaStrategyInTournaments: true,
+  omahaStrongHandValue: true,
+  omahaTurnRiverRaiseIsPriced: true,
+  omahaTurnRiverRaiseNeedsNuts: true,
+  omahaValueSizeIsUnreadable: true,
+  omahaVpipFloorByLimp: true,
+} as HorseDecideOpts);
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-postflop grade cards (development: dealt by name only, never nightly): the
+ * heads-up river opening bet (omahaRiverValueBetInPositionIsPriced, omahaRiverBluffIsPricedOnBlockers), each alone,
+ * heads-up and 6-max: b is the live set of 2026-11-26, a adds the option. Same seeds both sides (duplicate pairs).
+ */
+const PLO_RIVER_OPENING_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  ['value', { omahaRiverValueBetInPositionIsPriced: true }],
+  ['bluff', { omahaRiverBluffIsPricedOnBlockers: true }],
+];
+const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_RIVER_OPENING_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6] as const).map((seats) => ({
+        name: `${variant}_omaha_river_opening_${part}_${seats === 2 ? 'hu' : '6max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+        b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+      }))
+    )
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  ...PLO_RIVER_OPENING_GRADE_CARDS,
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   // 2026-11-21 Horse Switch lane (holdemPersonaPostflopIsPriced V2 empirical priors, default OFF, dark):
