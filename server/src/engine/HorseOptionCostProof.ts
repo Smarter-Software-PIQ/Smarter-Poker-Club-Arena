@@ -37,6 +37,33 @@ import { createHash } from 'node:crypto';
 export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze({
   // #12034 (2026-11-26): the id samplers behind its three equities, and the applicable decision on against off
   omahaOopReraiseRangeHoldsVsReraise: 'engine/anOopReraiseRangePriceIsFast.law.test.ts',
+  // the opener's own record read inside that rule (and its Hold'em twin): the parent with the read against the parent
+  omahaOopReraiseRangeReadsOpenerRecord: 'engine/anOpenerRecordReadIsFast.law.test.ts',
+  holdemOopReraiseRangeReadsOpenerRecord: 'engine/anOpenerRecordReadIsFast.law.test.ts',
+  // the PLO flop call tree (rank-pair score tables, 2026-11-26)
+  omahaFlopRealizationIsPriced: 'engine/anOmahaFlopCallTreeIsFast.law.test.ts',
+  // the corrected PLO facing-bet price: heads-up (F1, F2, F6) and with a field (M1, M2)
+  omahaFacingBetRangeIsMeasuredByLine: 'engine/anOmahaFacingBetPriceIsFast.law.test.ts',
+  omahaFacingBetIndifferenceCalls: 'engine/anOmahaFacingBetPriceIsFast.law.test.ts',
+  omahaFacingBetMinimumDefencePrior: 'engine/anOmahaFacingBetPriceIsFast.law.test.ts',
+  omahaFacingBetFieldIsJoint: 'engine/anOmahaFacingBetPriceIsFast.law.test.ts',
+  omahaMultiwayCallNeedsNutShare: 'engine/anOmahaFacingBetPriceIsFast.law.test.ts',
+  // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)
+  omahaMultiwayValueBetIsPriced: 'engine/anOmahaMultiwayValueBetIsFast.law.test.ts',
+  // the PLO re-raised pot price (id samplers, #12081)
+  omahaReraisedPotCallIsPriced: 'engine/anOmahaReraisedPotPriceIsFast.law.test.ts',
+  omahaReraisedPotReraiseIsPriced: 'engine/anOmahaReraisedPotPriceIsFast.law.test.ts',
+  omahaReraisedPositionVsEveryoneToAct: 'engine/HorseOmahaReraisedPositionVsEveryone.law.test.ts',
+  omahaFlopRaiseIsPriced: 'engine/anOmahaFlopRaiseIsPricedIsFast.law.test.ts',
+  // the PLO river opening bet (value in position, bluff on blockers) and the trips-board full house
+  omahaRiverValueBetInPositionIsPriced: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
+  omahaRiverBluffIsPricedOnBlockers: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
+  omahaRiverTripsBoardBoatIsNotNutClass: 'engine/anOmahaTripsBoardBoatIsFast.law.test.ts',
+  // Hold'em: the opening side (cash, heads-up) and the tournament bluff
+  holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
+  holdemOpeningBluffIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
+  holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
+  holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
 });
 
 /** Option -> why it cannot add a decision cost worth a law. */

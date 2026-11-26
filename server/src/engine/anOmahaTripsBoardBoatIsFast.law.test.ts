@@ -1,5 +1,6 @@
 /**
- * LAW: THE TRIPS-BOARD FULL HOUSE TEST IS CHEAP (PLO-OWNER lead-7 2026-11-26). Its exact count (one pass over the
+ * LAW: THE TRIPS-BOARD FULL HOUSE TEST IS CHEAP (PLO-OWNER lead-7 2026-11-26). It is everything the option
+ * omahaRiverTripsBoardBoatIsNotNutClass (default OFF) adds to a decision. Its exact count (one pass over the
  * board's pair scores and a few holding counts) on the fixture's real river raises costs at most RATIO times the
  * engine's own river hand score of the same raises repeated 80 times (src/testing/relativeCost.ts; measured well under).
  */
