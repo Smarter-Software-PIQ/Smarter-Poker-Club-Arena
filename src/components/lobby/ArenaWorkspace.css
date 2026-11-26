@@ -1027,9 +1027,6 @@
   box-shadow: none;
   text-align: left;
 }
-.arena-cashier .cashier-balance-ledger > button:hover {
-  background-color: rgb(116 194 255 / 7%);
-}
 .arena-cashier .cashier-balance-ledger > button:focus-visible {
   outline: 2px solid #99e4ff;
   outline-offset: -2px;

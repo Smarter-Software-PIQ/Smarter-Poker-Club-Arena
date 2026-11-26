@@ -1107,7 +1107,7 @@ test.describe('mobile lobby chrome', () => {
     expect(empty.text.trim()).toBe('');
   });
 
-  test('Cashier keeps its count centered under the live Wallet Balances title at mobile and desktop widths', async ({
+  test('Cashier aligns its ledger title and count on one line inside the chrome at mobile and desktop widths', async ({
     page,
   }) => {
     await page.setContent(lobby({ countText: '4 Balances', publishControlsHeight: false }));
@@ -1117,7 +1117,7 @@ test.describe('mobile lobby chrome', () => {
       card.classList.add('arena-case');
       card.querySelector('strong')!.textContent = 'Wallet Balances';
       const cashier = document.createElement('main');
-      cashier.className = 'arena-workspace arena-trade';
+      cashier.className = 'arena-workspace arena-cashier arena-trade';
       cashier.append(card);
       document.body.replaceChildren(cashier);
     });
@@ -1141,20 +1141,27 @@ test.describe('mobile lobby chrome', () => {
         const title = textBox('strong'),
           count = textBox('small');
         return {
-          titleOffset: Math.abs(title.left + title.width / 2 - frame.left - frame.width / 2),
-          countOffset: Math.abs(count.left + count.width / 2 - title.left - title.width / 2),
+          titleInset: title.left - frame.left,
+          titleEnd: title.right,
+          countStart: count.left,
+          caretGap:
+            button.querySelector('.lobby-wallets-trigger__chevron')!.getBoundingClientRect().left -
+            count.right,
+          verticalOverlap: Math.min(title.bottom, count.bottom) - Math.max(title.top, count.top),
           clipped:
             count.left < frame.left ||
             count.right > frame.right ||
             count.top < frame.top ||
             count.bottom > frame.bottom,
-          under: count.top >= title.bottom,
           background: getComputedStyle(button).backgroundImage,
         };
       });
-      expect(g.titleOffset).toBeLessThan(1);
-      expect(g.countOffset).toBeLessThan(1);
-      expect(g.under).toBe(true);
+      expect(g.titleInset).toBeGreaterThanOrEqual(0);
+      expect(g.titleInset).toBeLessThan(10);
+      expect(g.titleEnd).toBeLessThan(g.countStart);
+      expect(g.caretGap).toBeGreaterThanOrEqual(2);
+      expect(g.caretGap).toBeLessThan(24);
+      expect(g.verticalOverlap).toBeGreaterThan(0);
       expect(g.clipped).toBe(false);
       expect(g.background).toBe('none');
     }
