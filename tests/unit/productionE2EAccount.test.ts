@@ -2913,3 +2913,119 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
     ).rejects.toThrow('Refusing to retire rabbit-hunt certification club');
   });
 });
+
+describe('a stale player of record of a retired certification club is kept, not failed (2026-11-26)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const NOW = Date.parse('2026-11-26T00:30:00.000Z');
+  const HU_CLUB = '8791a0ab-48e1-4320-ad33-ebc61f17b5df';
+  const HU_EVENT = 'eecb2521-030f-43d1-9db2-56d66319caff';
+  const player = (n: number) => ({
+    id: `00000000-0000-4000-8000-00000000020${n}`,
+    email: `ca-customization-cert-postdeploy-179277923823${n}-stale@example.invalid`,
+    created_at: '2026-11-24T23:07:47.000Z',
+  });
+
+  /**
+   * Production on 2026-11-26: the two heads-up rematch players of a retired
+   * certification club own no club, hold one finished entry each, and the
+   * account door refuses them because a tournament_players row is history.
+   */
+  function world({
+    clubStatus = 'retired',
+    eventStatus = 'COMPLETED',
+    openSeats = [] as unknown[],
+    chipBalance = 0,
+    unreadable = false,
+  } = {}) {
+    const players = [player(1), player(2)];
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input));
+      if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json(players);
+      if (url.includes('/rest/v1/clubs?') && url.includes('owner_id=eq.')) return Response.json([]);
+      if (url.includes('/rpc/cleanup_reserved_certification_account')) {
+        calls.push(`account ${JSON.parse(String(init?.body)).p_user_id}`);
+        return Response.json(
+          { code: '55000', message: 'CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY' },
+          { status: 500 }
+        );
+      }
+      if (url.includes('/rest/v1/tournament_players?')) {
+        if (unreadable) return new Response('rate limited', { status: 429 });
+        return Response.json([{ tournament_id: HU_EVENT }]);
+      }
+      if (url.includes('/rest/v1/club_members?'))
+        return Response.json([
+          {
+            club_id: HU_CLUB,
+            role: 'player',
+            agent_id: null,
+            parent_agent_id: null,
+            chip_balance: chipBalance,
+            promo_balance: 0,
+            held_chips: 0,
+            locked_chips: 0,
+            credit_used: 0,
+            credit_limit: 0,
+          },
+        ]);
+      if (url.includes('/rest/v1/table_seats?')) return Response.json(openSeats);
+      if (url.includes('/rest/v1/tournaments?id=in.'))
+        return Response.json([{ id: HU_EVENT, status: eventStatus, club_id: HU_CLUB }]);
+      if (url.includes('/rest/v1/clubs?id=in.'))
+        return Response.json([{ id: HU_CLUB, lifecycle_status: clubStatus }]);
+      if (url.includes('/auth/v1/admin/users/')) return new Response(null, { status: 404 });
+      return new Response('unexpected request ' + url, { status: 500 });
+    });
+    return { fetchImpl, calls, players };
+  }
+
+  const run = (fetchImpl: unknown) =>
+    cleanupStaleProductionE2EAccounts({
+      environment: environment(mkdtempSync(join(tmpdir(), 'production-e2e-player-of-record-'))),
+      fetchImpl: fetchImpl as typeof fetch,
+      now: NOW,
+      wait: vi.fn().mockResolvedValue(undefined),
+    });
+
+  it('keeps both players of record and does not fail the run', async () => {
+    const model = world();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await expect(run(model.fetchImpl)).resolves.toBe(0);
+    const text = log.mock.calls.flat().join('\n');
+    for (const p of model.players) {
+      expect(model.calls).toContain(`account ${p.id}`);
+      expect(text).toContain(
+        `kept stale identity ${p.id} as a player of record of retired fixture(s) ${HU_CLUB}`
+      );
+    }
+  });
+
+  it('still fails the run while the player holds an open seat', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await expect(run(world({ openSeats: [{ id: 'seat' }] }).fetchImpl)).rejects.toThrow(
+      'CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY'
+    );
+  });
+
+  it('still fails the run while the event is unfinished, the club is live, or a balance is held', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    for (const live of [
+      world({ eventStatus: 'RUNNING' }),
+      world({ clubStatus: 'active' }),
+      world({ chipBalance: 5 }),
+    ]) {
+      await expect(run(live.fetchImpl)).rejects.toThrow(
+        'Stale recovery left 2 of 2 stale account(s) unrecovered'
+      );
+    }
+  });
+
+  it('treats unreadable residue as a failure, never as kept', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await expect(run(world({ unreadable: true }).fetchImpl)).rejects.toThrow(
+      'CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY'
+    );
+  });
+});

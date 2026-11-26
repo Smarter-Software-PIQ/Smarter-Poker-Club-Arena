@@ -1001,6 +1001,81 @@ export async function prepareProductionE2ELightningMembership({
   return member;
 }
 
+/**
+ * A STALE PLAYER OF RECORD IS KEPT, NOT FAILED (2026-11-26, Production Alerts
+ * incident `club-create-cert-stale-player-of-record`, store rows 448801 and the
+ * 32 repeats behind it). A heads-up rematch certification run that died left
+ * two reserved player identities whose only residue is the finished event they
+ * played in a certification club that is now retired. The account door refuses
+ * them for ever (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY: a
+ * tournament_players row is immutable history), and before this every Club
+ * Create Certification from 2026-11-25 03:38 UTC failed on them.
+ *
+ * Returns the retired club ids that hold the identity's history when, and only
+ * when, ALL of its residue is terminal: every tournament_players row is in a
+ * COMPLETED or CANCELLED event of a retired club, every membership is a zero
+ * balance player row of a retired club (or a zero balance row of a shared
+ * certification club), and no seat is open. Anything live, unreadable or
+ * unrecognized returns null, so the refusal stays a failure.
+ */
+const SHARED_CERTIFICATION_CLUB_IDS = new Set([
+  'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+  'fade0000-0000-0000-0000-000000000001',
+]);
+const MEMBERSHIP_BALANCE_FIELDS = [
+  'chip_balance',
+  'promo_balance',
+  'held_chips',
+  'locked_chips',
+  'credit_used',
+  'credit_limit',
+];
+export async function retiredHistoryHolderClubs(configuration, userId, fetchImpl = fetch) {
+  if (!/^[0-9a-f-]{36}$/.test(String(userId || ''))) return null;
+  const read = (path) => serviceRequest(configuration, path, {}, fetchImpl);
+  const id = encodeURIComponent(userId);
+  try {
+    const entries = await read(`/rest/v1/tournament_players?user_id=eq.${id}&select=tournament_id`);
+    const memberships = await read(
+      `/rest/v1/club_members?user_id=eq.${id}&select=club_id,role,agent_id,parent_agent_id,${MEMBERSHIP_BALANCE_FIELDS.join(',')}`
+    );
+    const openSeats = await read(`/rest/v1/table_seats?user_id=eq.${id}&left_at=is.null&select=id`);
+    if (!Array.isArray(entries) || !Array.isArray(memberships) || !Array.isArray(openSeats))
+      return null;
+    if (!entries.length || openSeats.length) return null;
+    const eventIds = [...new Set(entries.map((e) => String(e.tournament_id || '')))];
+    if (eventIds.some((e) => !/^[0-9a-f-]{36}$/.test(e))) return null;
+    const events = await read(
+      `/rest/v1/tournaments?id=in.(${eventIds.join(',')})&select=id,status,club_id`
+    );
+    if (!Array.isArray(events) || events.length !== eventIds.length) return null;
+    if (events.some((e) => !['COMPLETED', 'CANCELLED'].includes(String(e.status).toUpperCase())))
+      return null;
+    const clubIds = [
+      ...new Set([
+        ...events.map((e) => String(e.club_id || '')),
+        ...memberships.map((m) => String(m.club_id || '')),
+      ]),
+    ].filter((c) => !SHARED_CERTIFICATION_CLUB_IDS.has(c));
+    if (clubIds.some((c) => !/^[0-9a-f-]{36}$/.test(c))) return null;
+    const clubs = clubIds.length
+      ? await read(`/rest/v1/clubs?id=in.(${clubIds.join(',')})&select=id,lifecycle_status`)
+      : [];
+    if (!Array.isArray(clubs) || clubs.length !== clubIds.length) return null;
+    if (clubs.some((c) => c.lifecycle_status !== 'retired')) return null;
+    for (const m of memberships) {
+      if (MEMBERSHIP_BALANCE_FIELDS.some((f) => Number(m[f] ?? 0) !== 0)) return null;
+      if (m.agent_id != null || m.parent_agent_id != null) return null;
+      if (!SHARED_CERTIFICATION_CLUB_IDS.has(String(m.club_id)) && m.role !== 'player') return null;
+    }
+    const holders = [...new Set(events.map((e) => String(e.club_id)))];
+    return holders.length ? holders : null;
+  } catch {
+    // Could not tell: the refusal stands as a failure (CLAUDE.md 10.86).
+    return null;
+  }
+}
+
 export async function cleanupStaleProductionE2EAccounts({
   environment = process.env,
   fetchImpl = fetch,
@@ -1097,13 +1172,34 @@ export async function cleanupStaleProductionE2EAccounts({
           );
           continue;
         }
-        await cleanupProductionE2EAccount({
-          environment,
-          fetchImpl,
-          wait,
-          record: account,
-          databaseClientFactory,
-        });
+        try {
+          await cleanupProductionE2EAccount({
+            environment,
+            fetchImpl,
+            wait,
+            record: account,
+            databaseClientFactory,
+          });
+        } catch (error) {
+          const refusal =
+            error?.code === '55000' &&
+            String(error?.body?.message || error?.message || '').includes(
+              'CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY'
+            );
+          const holderClubs = refusal
+            ? await retiredHistoryHolderClubs(configuration, account.id, fetchImpl)
+            : null;
+          if (!holderClubs) throw error;
+          // Only finished history in retired certification clubs is left. The
+          // door is right to keep it; the run is wrong to fail on it.
+          keptOwners.push(account.id);
+          console.log(
+            `[production-e2e-account] kept stale identity ${account.id} as a player of record of ` +
+              `retired fixture(s) ${holderClubs.join(', ')}: its finished entries are immutable ` +
+              'history and are never deleted.'
+          );
+          continue;
+        }
         recovered += 1;
       } catch (error) {
         failures.push(error);
