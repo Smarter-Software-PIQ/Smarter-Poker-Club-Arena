@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "sourceProject": "kuklfnapbkmacvwxktbh",
+  "schemaFile": "pokeriq-20261126.sql",
+  "bytes": 35532918,
+  "allSchemas": true,
+  "dataIncluded": false,
+  "sameExportedSnapshot": true,
+  "captureCompletedAt": "2026-11-26T22:02:27.559843+00:00",
+  "captureTimingSource": "Private completion receipt filesystem timestamp",
+  "sourceRevisionArena": "60c5d39b7d8b282460a359f20754cf8345a663c5",
+  "sourceRevisionHub": "3d9f880d53f23a9a2a3634cf76c1b134cddbd596",
+  "auditedSourceRevision": "60c5d39b7d8b282460a359f20754cf8345a663c5",
+  "laterMigrationsExcluded": true,
+  "qualificationScope": "observed shared schema captured read-only at fixed source cutoffs; no migration replay",
+  "extensions": [
+    {
+      "name": "dblink",
+      "owner": "supabase_admin",
+      "schema": "extensions",
+      "version": "1.2"
+    },
+    {
+      "name": "http",
+      "owner": "supabase_admin",
+      "schema": "extensions",
+      "version": "1.6"
+    },
+    {
+      "name": "pg_cron",
+      "owner": "supabase_admin",
+      "schema": "pg_catalog",
+      "version": "1.6.4"
+    },
+    {
+      "name": "pg_stat_statements",
+      "owner": "postgres",
+      "schema": "extensions",
+      "version": "1.11"
+    },
+    {
+      "name": "pg_trgm",
+      "owner": "supabase_admin",
+      "schema": "public",
+      "version": "1.6"
+    },
+    {
+      "name": "pgcrypto",
+      "owner": "postgres",
+      "schema": "extensions",
+      "version": "1.3"
+    },
+    {
+      "name": "pgstattuple",
+      "owner": "supabase_admin",
+      "schema": "extensions",
+      "version": "1.5"
+    },
+    {
+      "name": "plpgsql",
+      "owner": "supabase_admin",
+      "schema": "pg_catalog",
+      "version": "1.0"
+    },
+    {
+      "name": "plpgsql_check",
+      "owner": "supabase_admin",
+      "schema": "public",
+      "version": "2.7"
+    },
+    {
+      "name": "postgis",
+      "owner": "supabase_admin",
+      "schema": "extensions",
+      "version": "3.3.7"
+    },
+    {
+      "name": "supabase_vault",
+      "owner": "supabase_admin",
+      "schema": "vault",
+      "version": "0.3.1"
+    },
+    {
+      "name": "uuid-ossp",
+      "owner": "postgres",
+      "schema": "extensions",
+      "version": "1.1"
+    },
+    {
+      "name": "vector",
+      "owner": "supabase_admin",
+      "schema": "public",
+      "version": "0.8.0"
+    }
+  ],
+  "catalogSemanticSHA256": "9272fc0c57455ff4a9cf6be31cd061822d13c6e0bd0069be9cab65665a2a943e",
+  "catalogQuerySHA256": "6a1d73840cb2c8ebf51c61c770c3be923f0089f07b6bb7c8aa3d0c231a24dcd6",
+  "schemaSHA256": "c94f1ac53f1658e5937363507c5d9c588ac41e02c58f0014f7bad62699d9878b",
+  "catalogSHA256": "fcb5f11760020e85782b67653b8a2caa777725912e78e36935ac30410fae7647",
+  "sourceHistorySHA256": "7a6c349d0adc394a17ea4a8b20489b3d16f1e26ffaa798c7bc956e04e95792e6",
+  "platformContractSHA256": "5535a04a7d1eb4fe156b01c933fb0016868a7aaa770a854350eb4d6f175ff155",
+  "extensionRuntimeSHA256": "a8c5aabcac7abeda9589f2f252cfa6eae8cb329226787220aedfb22d7dea926e",
+  "roleContractSHA256": "98e4fa42001d8010ed6c2952e9ccec5f6ebf6823afc5ca3f185943127cf30b40",
+  "historicalLedgerReconciliationSHA256": "36c8a800ba10bcb4d2c0098f62c1fdfc8ce22a30241e0a58c2976aa604aa4717",
+  "forwardSchemaSHA256": "0db02d990e6c2d3123b5adaa4c5b2385abe4574d0de51dbf38c8f55bf6d2b1b7",
+  "rawCapturedCatalogSHA256": "5a08aeea7b173c43b64f14e388dfe793da8893d2a421bf1ab2e82a1e21efe088",
+  "catalogRepresentation": "JSON formatting only; parsed catalog equals the original same-snapshot capture."
+}
