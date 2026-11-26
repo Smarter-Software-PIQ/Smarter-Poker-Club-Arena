@@ -1025,7 +1025,10 @@ function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
   return [head.join(','), ...lines].join('\n');
 }
 
-export default function ClubDataPage({ inline = false }: { inline?: boolean } = {}) {
+export default function ClubDataPage({
+  inline = false,
+  onClose,
+}: { inline?: boolean; onClose?: () => void } = {}) {
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1102,8 +1105,16 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
     async () => false
   );
   const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
-  const { game, setGame, stakes, setStakes, searchInput, setSearchInput, clearFilters } =
-    useClubDataFilters(inline ? 'club/ClubDataSimplePage' : 'club/ClubDataPage');
+  const {
+    game,
+    setGame,
+    effectiveStakes: stakes,
+    stakesApply,
+    setStakes,
+    searchInput,
+    setSearchInput,
+    clearFilters,
+  } = useClubDataFilters(inline ? 'club/ClubDataSimplePage' : 'club/ClubDataPage');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
     'club/ClubDataPage:gameSort',
     'recent'
@@ -1163,9 +1174,10 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
     if (inline) params.set('report', 'open');
     else params.set('view', 'advanced');
     setSearchParams(params, { replace: true });
-    requestAnimationFrame(() =>
-      document.getElementById('club-data-tab-games')?.scrollIntoView({ block: 'start' })
-    );
+    requestAnimationFrame(() => {
+      const target = next === 'games' ? gamesTabRef.current : playersTabRef.current;
+      target?.focus();
+    });
   };
   /** Read by the poll/visibility handlers, which must not re-register per tab. */
   const tabRef = useRef<'games' | 'players'>('games');
@@ -3299,7 +3311,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
   const delta = snapshot?.previous_coverage?.complete === false ? undefined : snapshot?.delta;
   const prevRange = snapshot?.previous_range;
 
-  const onTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     let next: 'games' | 'players' | null = null;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'Home') {
       next = 'games';
@@ -3312,7 +3324,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
     requestAnimationFrame(() => {
       (next === 'games' ? gamesTabRef : playersTabRef).current?.focus();
     });
-  }, []);
+  };
 
   // "Vs Prev 14 Days" under a headline number. Null pct means the prior window was
   // zero, and nothing is a percentage of nothing - so nothing is shown.
@@ -3797,9 +3809,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
                     setShowInvoiceDetail(true);
                     setShowInvoiceHistory(true);
                     requestAnimationFrame(() =>
-                      document
-                        .getElementById('club-data-statement-title')
-                        ?.scrollIntoView({ block: 'start' })
+                      document.getElementById('club-data-statement')?.focus()
                     );
                   }
                 : undefined
@@ -3823,6 +3833,8 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
             eyebrow={unionOwesClub ? 'Union Owes You' : 'Weekly Square-Up'}
             title="Union Statement"
             titleId="club-data-statement-title"
+            id="club-data-statement"
+            tabIndex={-1}
             pill={invoicePill}
             pillInk={invoicePillInk}
             crest="flat"
@@ -4099,7 +4111,7 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
             <button
               type="button"
               className={`${styles.word} sc-ink--muted`}
-              onClick={() => navigate(-1)}
+              onClick={onClose ?? (() => navigate(-1))}
               aria-label="Go Back"
             >
               Back
@@ -4302,19 +4314,21 @@ export default function ClubDataPage({ inline = false }: { inline?: boolean } = 
               ))}
             </div>
 
-            <div className={styles.words} role="group" aria-label="Stakes">
-              {STAKES_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  aria-pressed={stakes === f.id}
-                  className={`${styles.word} ${stakes === f.id ? 'sc-ink--white' : 'sc-ink--muted'}`}
-                  onClick={() => setStakes((cur) => (cur === f.id ? 'ALL' : f.id))}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+            {stakesApply && (
+              <div className={styles.words} role="group" aria-label="Stakes">
+                {STAKES_FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    aria-pressed={stakes === f.id}
+                    className={`${styles.word} ${stakes === f.id ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                    onClick={() => setStakes((cur) => (cur === f.id ? 'ALL' : f.id))}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div
               hidden={!reportToolsOpen}

@@ -24,6 +24,9 @@
 # Exit codes: git's own code when fetch or push fail (141 included);
 #             2 refused before pushing (shared clone, main, detached HEAD);
 #             3 push reported success but the remote ref is not HEAD;
+#             4 refused before pushing: the clone push lock (or the PLO core
+#               gate) stayed busy past AGENT_PUSH_LOCK_WAIT_SECONDS, or could
+#               not be evaluated (see "EVERY PUSH HOLDS THE CLONE PUSH LOCK");
 #             129/130/143 stopped by SIGHUP (or its parent going away; see
 #             the detached-launch rule below), SIGINT or SIGTERM: the tree it
 #             started is terminated and nothing further is pushed. A stop
@@ -287,7 +290,17 @@ trap 'request_stop "received SIGHUP" 129' HUP
 trap 'request_stop "received SIGINT" 130' INT
 trap 'request_stop "received SIGTERM" 143' TERM
 trap 'request_stop "its parent process went away" 129' USR1
-trap 'stop_watcher; [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE" "$STATE_FILE.tree" "$STATE_FILE.tree.new"; if [ -n "${HQ_TICKET:-}" ]; then hq_release; fi' EXIT
+# Drop what this run took of the clone push lock (see "EVERY PUSH HOLDS THE
+# CLONE PUSH LOCK" below). `release --pid` removes only a lock whose recorded
+# holder is this shell's pid: a lock the calling wrapper holds stays held.
+PUSH_LOCK_JS="$SCRIPT_DIR/ops/push-lock.mjs"
+PUSH_LOCK_TAKEN=
+release_push_lock() {
+  [ -n "$PUSH_LOCK_TAKEN" ] || return 0
+  PUSH_LOCK_TAKEN=
+  node "$PUSH_LOCK_JS" release --pid "$MAIN_PID" </dev/null >&2 || say "WARNING: could not release the clone push lock for pid $MAIN_PID; the next acquire takes it over once this pid is gone."
+}
+trap 'stop_watcher; release_push_lock; [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE" "$STATE_FILE.tree" "$STATE_FILE.tree.new"; if [ -n "${HQ_TICKET:-}" ]; then hq_release; fi' EXIT
 
 if [ "$WATCH_PARENT" = 1 ] && [ "$ORIG_PPID" -le 1 ]; then
   say "STOPPED: its parent process went away before it started (launched in the background without nohup or AGENT_PUSH_DETACHED=1); nothing was pushed."
@@ -605,10 +618,63 @@ elif [ "$(uname -s)" = Darwin ]; then
   done
 fi
 
+# EVERY PUSH HOLDS THE CLONE PUSH LOCK (2026-11-26). The one push lock
+# (scripts/ops/push-lock.mjs, in the shared clone's git common directory, see
+# docs/ops/single-drive-loss.md) only worked for the lanes whose private
+# wrapper took it: the other wrappers took only the SSD1 shepherd.lock, and a
+# push launched without a wrapper took nothing. So two pre-push gates could
+# run at once on the shared Mac, and with SSD1 gone nothing was held at all.
+# This one entry point now holds the lock for the length of git push:
+#   - held for this push already (the wrapper that called this helper holds
+#     it with its own pid, an ancestor of this shell, or it is pushing this
+#     exact branch and commit): not taken again, and never waited for;
+#   - free: taken with this shell's pid and released as soon as git push
+#     returns, and by the EXIT trap on every other way out;
+#   - held by another push: waited for (bounded poll, one log line a minute),
+#     never stolen. After AGENT_PUSH_LOCK_WAIT_SECONDS (default 3600) nothing
+#     is pushed (exit 4).
+# On the Mac it also asks the repository copy of core-gate-running.py whether
+# the PLO core gate is running; an unreadable inbox counts as running.
+# Only a push to GitHub takes it: the lock serialises lane pushes into the one
+# repository, and a push to a local fixture remote (the tests' bare repos)
+# must not contend with live lanes for the Mac's lock.
+push_remote_url=$(git config --get "remote.$REMOTE.pushurl" 2>/dev/null || git config --get "remote.$REMOTE.url" 2>/dev/null || true)
+case "$push_remote_url" in
+  *github.com[:/]*)
+    if [ ! -f "$PUSH_LOCK_JS" ]; then
+      say "REFUSED: $PUSH_LOCK_JS is missing, so the clone push lock cannot be taken; nothing was pushed. Merge origin/main into this branch."
+      exit 4
+    fi
+    gate_args=()
+    if [ "$(uname -s)" = Darwin ]; then
+      if [ ! -f "$SCRIPT_DIR/ops/core-gate-running.py" ]; then
+        say "REFUSED: scripts/ops/core-gate-running.py is missing, so the PLO core gate cannot be confirmed clear; nothing was pushed. Merge origin/main into this branch."
+        exit 4
+      fi
+      gate_args=(--gate-script "$SCRIPT_DIR/ops/core-gate-running.py")
+    fi
+    say "taking the clone push lock for $BRANCH ($HEAD_SHA)"
+    # Set first: whatever the step manages to take before a stop is released.
+    PUSH_LOCK_TAKEN=1
+    owned node "$PUSH_LOCK_JS" wait-acquire \
+      --owner "agent-push.sh push of $BRANCH $HEAD_SHA" --pid "$MAIN_PID" \
+      --branch "$BRANCH" --head "$HEAD_SHA" \
+      --wait-seconds "${AGENT_PUSH_LOCK_WAIT_SECONDS:-3600}" \
+      ${gate_args[@]+"${gate_args[@]}"}
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      release_push_lock
+      say "REFUSED: the clone push lock was not held for this push (push-lock.mjs exit $rc); nothing was pushed."
+      exit 4
+    fi
+    ;;
+esac
+
 say "pushing $BRANCH ($HEAD_SHA) to $REMOTE; the pre-push hook can take minutes"
 PHASE=push
 owned "${REMOTE_GIT[@]}" push -u "$REMOTE" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 rc=$?
+release_push_lock
 PHASE=verify
 if [ "$rc" -ne 0 ]; then
   if [ "$rc" -eq 141 ]; then

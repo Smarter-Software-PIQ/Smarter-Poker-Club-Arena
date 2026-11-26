@@ -74,22 +74,13 @@ import {
  * wallet bookmark redirects here and preserves its table context.
  */
 
-import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import CashoutRequestModal from '../components/wallet/CashoutRequestModal';
 import AgentCashoutPanel from '../components/agent/AgentCashoutPanel';
 import { useClubPendingCashouts } from '../hooks/useClubPendingCashouts';
-import {
-  Suspense,
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useCallback,
-  useRef,
-} from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { roleLabel, roleRank, type ClubRole } from '../types/clubRoles';
-import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
@@ -610,11 +601,22 @@ function historyTotalNumber(value: unknown): number {
 
 // Retire dialogs and read/write refs immediately when the account or route changes.
 // Pending durable requests keep their original account, club and request identity.
-const WalletOperations = lazyWithRetry(() => import('./CashierPage'));
 export default function CashierTradePage() {
   const { clubId } = useParams<{ clubId: string }>();
   const { user } = useAuthUser();
   const key = useCashoutScopeKey(user?.id, clubId || '');
+  const location = useLocation();
+  const query = new URLSearchParams(location.search);
+  if (query.has('walletTools')) {
+    query.delete('walletTools');
+    return (
+      <Navigate
+        replace
+        to={{ pathname: location.pathname, search: query.toString(), hash: location.hash }}
+        state={location.state}
+      />
+    );
+  }
   return <CashierTradeWorkspace key={key} />;
 }
 
@@ -622,28 +624,7 @@ function CashierTradeWorkspace() {
   const { clubId: clubParam } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const walletPanel = useRef<HTMLElement>(null);
-  const walletToolsOpen = new URLSearchParams(location.search).get('walletTools') === 'open';
-  const setWalletToolsOpen = (open: boolean) => {
-    const next = new URLSearchParams(location.search);
-    if (open) next.set('walletTools', 'open');
-    else next.delete('walletTools');
-    navigate(
-      { pathname: location.pathname, search: next.toString(), hash: location.hash },
-      {
-        state: location.state,
-      }
-    );
-  };
-  const openSend = () => {
-    if (!walletToolsOpen) {
-      setWalletToolsOpen(true);
-      return;
-    }
-    const sendTab = walletPanel.current?.querySelector<HTMLButtonElement>('#cashier-tab-send');
-    sendTab?.click();
-    sendTab?.focus();
-  };
+  const tableId = new URLSearchParams(location.search).get('table');
   const { user, isHydrating } = useAuthUser();
   const toast = useToast();
 
@@ -661,8 +642,6 @@ function CashierTradeWorkspace() {
 
   const [myRole, setMyRole] = useState<string>('player');
   const [roleResolved, setRoleResolved] = useState(false);
-  const walletOperationsRegionId =
-    roleResolved && clubUuid && walletToolsOpen ? 'cashier-wallet-operations' : undefined;
   const initialTabResolvedRef = useRef(false);
   const [myBalance, setMyBalance] = useState(0);
   /**
@@ -992,6 +971,14 @@ function CashierTradeWorkspace() {
   const transferView = useRef({ key: transferViewKey });
   if (transferView.current.key !== transferViewKey) transferView.current = { key: transferViewKey };
   const isMounted = useRef(true);
+  const captureCashierActionView = () => {
+    const view = transferView.current;
+    const authority = transferAuthorityEpoch.current;
+    return () =>
+      isMounted.current &&
+      transferView.current === view &&
+      transferAuthorityEpoch.current === authority;
+  };
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -2267,6 +2254,7 @@ function CashierTradeWorkspace() {
     }
     if (!requireOnline()) return;
     if (ticketActingRef.current) return;
+    const current = captureCashierActionView();
     ticketActingRef.current = true;
     setTicketActingId(row.id);
     try {
@@ -2274,9 +2262,12 @@ function CashierTradeWorkspace() {
         action === 'redeem' ? 'fn_redeem_tournament_ticket' : 'fn_cancel_tournament_ticket',
         { p_ticket_id: row.id }
       );
+      if (!current()) return;
       if (error) throw error;
       const res = data as { success?: boolean; error?: string; refund_wallet?: string } | null;
-      if (!res?.success) throw new Error(res?.error || 'The Ticket Could Not Be Updated');
+      if (!res || typeof res.success !== 'boolean')
+        throw new Error('Ticket Outcome Needs Verification');
+      if (!res.success) throw new Error(res.error || 'The Ticket Could Not Be Updated');
       toast?.success?.(
         action === 'redeem'
           ? `Redeemed A Ticket Worth ${fmt(row.value)} Chips`
@@ -2290,7 +2281,7 @@ function CashierTradeWorkspace() {
       void loadTickets();
     } catch (e) {
       reportError(e, 'CashierTradePage.actOnTicket');
-      toast?.error?.((e as Error).message || 'The Ticket Could Not Be Updated');
+      if (current()) toast?.error?.((e as Error).message || 'The Ticket Could Not Be Updated');
     } finally {
       ticketActingRef.current = false;
       if (isMounted.current) setTicketActingId(null);
@@ -2312,6 +2303,7 @@ function CashierTradeWorkspace() {
     // busy state, so a double-tap fired two RPCs and the second's refusal
     // surfaced as a sanitised toast - or was dropped entirely.
     if (respondingRef.current) return;
+    const current = captureCashierActionView();
     respondingRef.current = true;
     setRespondingId(id);
     try {
@@ -2319,9 +2311,12 @@ function CashierTradeWorkspace() {
         p_request_id: id,
         p_action: action,
       });
+      if (!current()) return;
       if (error) throw error;
       const res = data as { success?: boolean; error?: string } | null;
-      if (!res?.success) throw new Error(res?.error || 'Refused');
+      if (!res || typeof res.success !== 'boolean')
+        throw new Error('Request Outcome Needs Verification');
+      if (!res.success) throw new Error(res.error || 'Refused');
       toast?.success?.(
         action === 'approve'
           ? 'Request Approved'
@@ -2336,7 +2331,7 @@ function CashierTradeWorkspace() {
       loadRequests();
     } catch (e) {
       reportError(e, 'CashierTradePage.respondToRequest');
-      toast?.error?.((e as Error).message || 'Could Not Answer That Request');
+      if (current()) toast?.error?.((e as Error).message || 'Could Not Answer That Request');
     } finally {
       respondingRef.current = false;
       if (isMounted.current) setRespondingId(null);
@@ -2361,6 +2356,7 @@ function CashierTradeWorkspace() {
       return;
     }
     if (askingRef.current) return;
+    const current = captureCashierActionView();
     askingRef.current = true;
     setAsking(true);
     try {
@@ -2369,6 +2365,7 @@ function CashierTradeWorkspace() {
         { userId: user.id, clubId: clubUuid, amount: v, note: canonicalNote },
         newOpId
       );
+      if (!current()) return;
       if (!recovery) {
         toast?.error?.('Cashier Safety Storage Is Unavailable');
         return;
@@ -2380,6 +2377,7 @@ function CashierTradeWorkspace() {
         p_note: canonicalNote,
         p_op_id: requestOpIdRef.current,
       });
+      if (!current()) return;
       if (error) throw error;
       const res = data as { success?: boolean; error?: string } | null;
       if (!res || typeof res.success !== 'boolean') {
@@ -2399,7 +2397,7 @@ function CashierTradeWorkspace() {
       loadRequests();
     } catch (e) {
       reportError(e, 'CashierTradePage.askForChips');
-      toast?.error?.((e as Error).message || 'Could Not Send That Request');
+      if (current()) toast?.error?.((e as Error).message || 'Could Not Send That Request');
     } finally {
       askingRef.current = false;
       if (isMounted.current) setAsking(false);
@@ -3788,6 +3786,13 @@ function CashierTradeWorkspace() {
      approver's agent wallet. No notification is involved: the request's
      message goes to the player's own agent only. */
   const pendingCashouts = useClubPendingCashouts(clubUuid, roleResolved && managementClaims);
+  const cashoutQueueStatus = pendingCashouts.unavailable
+    ? 'Queue Unavailable'
+    : !pendingCashouts.loaded
+      ? 'Loading'
+      : pendingCashouts.requests.length
+        ? `${pendingCashouts.requests.length.toLocaleString()} Pending`
+        : 'None Pending';
   const [showCashoutQueue, setShowCashoutQueue] = useState(false);
   // Staff may reclaim from eligible members; every agent may reclaim their own
   // personal chips without an original send or a ten-minute deadline.
@@ -4529,19 +4534,11 @@ function CashierTradeWorkspace() {
             {managementClaims && roleResolved && (
               <button
                 type="button"
-                className={`${styles.cashoutQueueButton} ${pendingCashouts.requests.length > 0 ? styles.cashoutQueueLive : ''}`}
-                aria-label={`Cash Out Requests. ${pendingCashouts.requests.length.toLocaleString()} Pending`}
-                aria-describedby="cashier-cashout-queue-count"
+                className={`${styles.cashoutQueueButton} ${!pendingCashouts.unavailable && pendingCashouts.requests.length > 0 ? styles.cashoutQueueLive : ''}`}
                 onClick={() => setShowCashoutQueue(true)}
               >
                 <span className={styles.cashoutLabel}>Cash Out Requests</span>
-                <span id="cashier-cashout-queue-count" className={styles.cashoutQueueCount}>
-                  {!pendingCashouts.loaded
-                    ? 'Loading'
-                    : pendingCashouts.requests.length > 0
-                      ? `${pendingCashouts.requests.length.toLocaleString()} Pending`
-                      : 'None Pending'}
-                </span>
+                <span className={styles.cashoutQueueCount}>{cashoutQueueStatus}</span>
               </button>
             )}
             <div
@@ -4585,23 +4582,6 @@ function CashierTradeWorkspace() {
 
           {roleResolved && (
             <div className="arena-switch" role="group" aria-label="Wallet Actions">
-              {canHoldAgentWallet(myRole) && (
-                <button type="button" aria-controls={walletOperationsRegionId} onClick={openSend}>
-                  Send
-                </button>
-              )}
-              {myRole !== 'player' && (
-                <button
-                  type="button"
-                  aria-pressed={!walletToolsOpen && tab === 'trade'}
-                  onClick={() => {
-                    if (walletToolsOpen) setWalletToolsOpen(false);
-                    setTab('trade');
-                  }}
-                >
-                  Distribute
-                </button>
-              )}
               {holdsPlayerWallet(myRole) && (
                 <button type="button" onClick={() => setShowCashoutRequest(true)}>
                   Cash-Out
@@ -4609,9 +4589,8 @@ function CashierTradeWorkspace() {
               )}
               <button
                 type="button"
-                aria-pressed={!walletToolsOpen && tab === 'record'}
+                aria-pressed={tab === 'record'}
                 onClick={() => {
-                  if (walletToolsOpen) setWalletToolsOpen(false);
                   setTab('record');
                 }}
               >
@@ -4631,31 +4610,51 @@ function CashierTradeWorkspace() {
               ? ` (${(pendingCount + heldTicketCount).toLocaleString()})`
               : ''}
           </button>
-          {roleResolved && clubUuid && (cashierToolsOpen || walletToolsOpen) && (
-            <div className={styles.walletTools}>
-              <button
-                type="button"
-                className={styles.toolsTrigger}
-                aria-expanded={walletToolsOpen}
-                aria-controls={walletOperationsRegionId}
-                onClick={() => setWalletToolsOpen(!walletToolsOpen)}
-              >
-                Wallet Operations
-              </button>
-              {walletToolsOpen && (
-                <section
-                  ref={walletPanel}
-                  id={walletOperationsRegionId}
-                  className="arena-case"
-                  aria-label="Wallet Operations"
-                >
-                  <Suspense fallback={<p role="status">Loading Wallet Operations</p>}>
-                    <WalletOperations embeddedClubId={clubUuid} />
-                  </Suspense>
-                </section>
-              )}
-            </div>
-          )}
+          {roleResolved &&
+            clubUuid &&
+            cashierToolsOpen &&
+            (isClubStaffRole(myRole) || isAgentRole(myRole) || tableId) && (
+              <div className={styles.walletTools}>
+                {(isClubStaffRole(myRole) || isAgentRole(myRole)) && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.footerBtn}
+                      onClick={() => navigate(`/clubs/${clubUuid}/disputes`)}
+                    >
+                      Disputes
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.footerBtn}
+                      onClick={() => navigate(`/clubs/${clubUuid}/financials`)}
+                    >
+                      Financials
+                    </button>
+                  </>
+                )}
+                {tableId && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.footerBtn}
+                      onClick={() => navigate(`/table/${encodeURIComponent(tableId)}`)}
+                    >
+                      Go To Table To Buy In
+                    </button>
+                    {holdsPlayerWallet(myRole) && (
+                      <button
+                        type="button"
+                        className={styles.footerBtn}
+                        onClick={() => navigate(`/table/${encodeURIComponent(tableId)}`)}
+                      >
+                        Go To Table To Cash Out
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           {/* Entity picker */}
           {pickerOpen && (
             <div
@@ -4721,8 +4720,9 @@ function CashierTradeWorkspace() {
                         } else if (m.clubUuid !== clubUuid) {
                           navigate({
                             pathname: `/clubs/${m.clubCode ?? m.clubUuid}/cashier`,
-                            search: walletToolsOpen ? 'walletTools=open' : '',
                           });
+                        } else {
+                          entityButtonRef.current?.focus();
                         }
                       }}
                     >
@@ -4772,7 +4772,7 @@ function CashierTradeWorkspace() {
                       : (index - 1 + buttons.length) % buttons.length;
               const next = visibleTabs[nextIndex]?.[0];
               if (!next) return;
-              if (walletToolsOpen) setWalletToolsOpen(false);
+
               setTab(next);
               buttons[nextIndex]?.focus();
             }}
@@ -4782,12 +4782,11 @@ function CashierTradeWorkspace() {
                 key={key}
                 id={`cashier-tab-${key}`}
                 role="tab"
-                className={`${styles.tab} ${!walletToolsOpen && tab === key ? styles.tabActive : ''}`}
-                aria-selected={!walletToolsOpen && tab === key}
-                aria-controls={!walletToolsOpen && tab === key ? `cashier-panel-${key}` : undefined}
+                className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`}
+                aria-selected={tab === key}
+                aria-controls={tab === key ? `cashier-panel-${key}` : undefined}
                 tabIndex={tab === key ? 0 : -1}
                 onClick={() => {
-                  if (walletToolsOpen) setWalletToolsOpen(false);
                   setTab(key);
                 }}
               >
@@ -4887,7 +4886,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {!walletToolsOpen && tab === 'trade' && (
+          {tab === 'trade' && (
             <section
               id="cashier-panel-trade"
               className={`arena-case ${styles.sectionShell}`}
@@ -4968,7 +4967,7 @@ function CashierTradeWorkspace() {
                         className={styles.plusBtn}
                         disabled={!isOnline}
                         aria-label="Open The Club Bank Cashier"
-                        title="Club Bank Cashier - Fund Agent Wallets, Ledger, Chip Mint"
+                        title="Club Bank Cashier - Fund Agent Wallets And View The Ledger"
                         onClick={() => setActiveCashier('club_bank')}
                       >
                         Fund
@@ -5403,7 +5402,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {!walletToolsOpen && tab === 'record' && (
+          {tab === 'record' && (
             <section
               id="cashier-panel-record"
               className={`arena-case ${styles.sectionShell} ${styles.historyPanel}`}
@@ -5851,7 +5850,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {!walletToolsOpen && tab === 'leaderboard' && (
+          {tab === 'leaderboard' && (
             <section
               id="cashier-panel-leaderboard"
               className={`arena-case ${styles.sectionShell}`}
@@ -5923,7 +5922,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {!walletToolsOpen && tab === 'request' && (
+          {tab === 'request' && (
             <section
               id="cashier-panel-request"
               className={`arena-case ${styles.sectionShell}`}
@@ -6015,7 +6014,7 @@ function CashierTradeWorkspace() {
             </section>
           )}
 
-          {!walletToolsOpen && tab === 'tickets' && (
+          {tab === 'tickets' && (
             <section
               id="cashier-panel-tickets"
               className={`arena-case ${styles.sectionShell}`}

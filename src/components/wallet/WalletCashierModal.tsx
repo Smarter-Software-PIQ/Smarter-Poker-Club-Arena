@@ -136,6 +136,7 @@ import { cashierRecipientBlock } from '../../lib/cashierRoster';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import ChipMintModal from './ChipMintModal';
+import { useCashierMintScope } from '../../hooks/useCashierMintScope';
 import './WalletCashierModal.css';
 import { CashierFrameBalance } from './CashierFrameBalance';
 import transferStyles from '../../pages/CashierTradePage.module.css';
@@ -515,9 +516,15 @@ export default function WalletCashierModal({
   // promo and agent wallet cashiers admit the people who HOLD those wallets.
   // cashierModes.ts is the pinned law; the server re-checks either way.
   const allowed = canUseCashier(walletType, viewerRole);
-  const mayMint =
-    walletType === 'club_bank' && canMintInClubBank(viewerRole, { standalone: inUnion === false });
+  const standaloneCandidate =
+    isOpen &&
+    walletType === 'club_bank' &&
+    canMintInClubBank(viewerRole, { standalone: inUnion === false });
+  const mayMint = useCashierMintScope(standaloneCandidate ? clubUuid : null, user?.id) === 'club';
 
+  useEffect(() => {
+    if (!mayMint) setShowMint(false);
+  }, [mayMint]);
   const tabs = cashierTabs(walletType);
   // Every send honors the selected wallet. Eligibility is explained on each
   // roster row; the transaction validates it again before moving chips.
@@ -2701,7 +2708,7 @@ export default function WalletCashierModal({
           the mint's: its own focus trap holds Tab, and this cashier's trap is
           suspended (useFocusTrap above). */}
       <ChipMintModal
-        isOpen={showMint}
+        isOpen={showMint && mayMint}
         onClose={() => setShowMint(false)}
         clubId={clubUuid || clubId}
         onMinted={refresh}

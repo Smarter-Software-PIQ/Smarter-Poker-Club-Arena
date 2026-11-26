@@ -23,7 +23,8 @@
  * below the threshold this shows "Style Forming" and a hands-to-go count.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { StatsPersonalRevision } from '../../hooks/useStatsFactRead';
 import { motion, useReducedMotion } from 'framer-motion';
 import { playerStyleFromStats, STYLE_MIN_HANDS } from './playerStyleFromStats';
 import { staggerContainer, fadeUp } from './statsMotion';
@@ -297,15 +298,6 @@ export default function TrophyRoom({
 }: Props) {
   const reduceMotion = useReducedMotion();
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
-  const [evidenceHands, setEvidenceHands] = useState<StatsEvidenceHand[]>([]);
-  const [evidenceCursor, setEvidenceCursor] = useState<StatsEvidenceCursor | null>(null);
-  const [evidenceHasMore, setEvidenceHasMore] = useState(false);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const [evidenceError, setEvidenceError] = useState(false);
-  const evidenceScopeKey = `${userId ?? 'none'}:${scope}:${clubId ?? 'all'}:${evidenceFor ?? 'closed'}`;
-  const evidenceScopeKeyRef = useRef(evidenceScopeKey);
-  evidenceScopeKeyRef.current = evidenceScopeKey;
-
   // Shared with the share card on PlayerStatsPage, so the two surfaces can
   // never disagree about a player's style. Returns null below STYLE_MIN_HANDS.
   const style = useMemo(
@@ -328,47 +320,6 @@ export default function TrophyRoom({
     .filter((m) => !m.unlocked)
     .sort((a, b) => b.progress - a.progress)
     .slice(0, 3);
-
-  useEffect(() => {
-    if (!evidenceFor || !userId) return;
-    const query = evidenceQueryFor(evidenceFor);
-    if (!query) return;
-    let cancelled = false;
-    setEvidenceHands([]);
-    setEvidenceCursor(null);
-    setEvidenceHasMore(false);
-    setEvidenceError(false);
-    setEvidenceLoading(true);
-    void StatsEvidenceService.list(userId, scope, clubId, query).then((page) => {
-      if (cancelled) return;
-      setEvidenceHands(page.hands);
-      setEvidenceCursor(page.next_cursor);
-      setEvidenceHasMore(page.has_more);
-      setEvidenceError(Boolean(page.error));
-      setEvidenceLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [evidenceFor, userId, scope, clubId]);
-
-  const loadMoreEvidence = async () => {
-    if (!evidenceFor || !userId || !evidenceCursor || evidenceLoading) return;
-    const query = evidenceQueryFor(evidenceFor);
-    if (!query) return;
-    const requestScopeKey = evidenceScopeKey;
-    setEvidenceLoading(true);
-    const page = await StatsEvidenceService.list(userId, scope, clubId, query, evidenceCursor);
-    if (evidenceScopeKeyRef.current !== requestScopeKey) return;
-    setEvidenceHands((current) => {
-      const seen = new Set(current.map((hand) => hand.hand_id));
-      return [...current, ...page.hands.filter((hand) => !seen.has(hand.hand_id))];
-    });
-    setEvidenceCursor(page.next_cursor);
-    setEvidenceHasMore(page.has_more);
-    setEvidenceError(Boolean(page.error));
-    setEvidenceLoading(false);
-  };
 
   if (!overall || (overall.total_hands === 0 && lifetimeHands === 0)) {
     return (
@@ -505,46 +456,15 @@ export default function TrophyRoom({
                   Individual Trophy Evidence Unavailable
                 </span>
               )}
-              {evidenceFor === m.id && (
-                <div className="trophy-evidence" role="region" aria-label={`${m.name} Evidence`}>
-                  {evidenceLoading && evidenceHands.length === 0 && (
-                    <span>Loading Evidence...</span>
-                  )}
-                  {evidenceError && evidenceHands.length === 0 && (
-                    <span role="alert">Evidence Could Not Be Loaded.</span>
-                  )}
-                  {!evidenceLoading && !evidenceError && evidenceHands.length === 0 && (
-                    <span>No Matching Hand Evidence Yet.</span>
-                  )}
-                  {evidenceHands.map((hand) => (
-                    <StatsEvidenceLink
-                      key={hand.hand_id}
-                      className="trophy-evidence-row"
-                      to={buildStatsHandEvidencePath(hand.hand_id, clubId)}
-                    >
-                      <span>{new Date(hand.played_at).toLocaleDateString()}</span>
-                      <span>
-                        {hand.hand_class
-                          ? titleCase(hand.hand_class)
-                          : enumToTitleCase(hand.game_variant)}
-                      </span>
-                      <span>
-                        {hand.net >= 0 ? '+' : ''}
-                        {compactChips(hand.net)}
-                      </span>
-                    </StatsEvidenceLink>
-                  ))}
-                  {evidenceHasMore && evidenceCursor && (
-                    <button
-                      type="button"
-                      className="stats-evidence-action"
-                      disabled={evidenceLoading}
-                      onClick={() => void loadMoreEvidence()}
-                    >
-                      {evidenceLoading ? 'Loading More...' : 'Load More Evidence'}
-                    </button>
-                  )}
-                </div>
+              {evidenceFor === m.id && userId && (
+                <TrophyEvidence
+                  key={JSON.stringify([userId, scope, clubId])}
+                  userId={userId}
+                  scope={scope}
+                  clubId={clubId}
+                  milestoneId={m.id}
+                  name={m.name}
+                />
               )}
               {!m.unlocked && (
                 <div className="trophy-progress">
@@ -567,6 +487,133 @@ export default function TrophyRoom({
           Claimed.
         </p>
       </div>
+    </div>
+  );
+}
+
+function TrophyEvidence({
+  userId,
+  clubId,
+  scope,
+  milestoneId,
+  name,
+}: {
+  userId: string;
+  clubId: StatsClubId;
+  scope: StatsScope;
+  milestoneId: string;
+  name: string;
+}) {
+  const query = useMemo(() => evidenceQueryFor(milestoneId), [milestoneId]);
+  const revision = useContext(StatsPersonalRevision);
+  const [retry, setRetry] = useState(0);
+  const pagesLoaded = useRef(1);
+  const generation = useRef(0);
+  const [evidenceHands, setEvidenceHands] = useState<StatsEvidenceHand[]>([]);
+  const [evidenceCursor, setEvidenceCursor] = useState<StatsEvidenceCursor | null>(null);
+  const [evidenceHasMore, setEvidenceHasMore] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(true);
+  const [evidenceError, setEvidenceError] = useState<'refresh' | 'more' | null>(null);
+
+  useEffect(() => {
+    const request = ++generation.current;
+    async function refresh() {
+      if (!query) return;
+      setEvidenceLoading(true);
+      setEvidenceError(null);
+      const hands = new Map<string, StatsEvidenceHand>();
+      let page = await StatsEvidenceService.list(userId, scope, clubId, query);
+      for (let n = 1; ; n++) {
+        if (request !== generation.current) return;
+        if (page.error) {
+          setEvidenceError('refresh');
+          break;
+        }
+        for (const hand of page.hands) hands.set(hand.hand_id, hand);
+        if (n >= pagesLoaded.current || !page.has_more || !page.next_cursor) {
+          pagesLoaded.current = n;
+          setEvidenceHands([...hands.values()]);
+          setEvidenceHasMore(page.has_more);
+          setEvidenceCursor(page.next_cursor);
+          break;
+        }
+        page = await StatsEvidenceService.list(userId, scope, clubId, query, page.next_cursor);
+      }
+      setEvidenceLoading(false);
+    }
+    void refresh();
+    return () => {
+      generation.current++;
+    };
+  }, [userId, scope, clubId, query, revision, retry]);
+
+  async function loadMoreEvidence() {
+    if (!query || !evidenceCursor || evidenceLoading) return;
+    const request = generation.current;
+    setEvidenceLoading(true);
+    const page = await StatsEvidenceService.list(userId, scope, clubId, query, evidenceCursor);
+    if (request !== generation.current) return;
+    setEvidenceLoading(false);
+    if (page.error) {
+      setEvidenceError('more');
+      return;
+    }
+    setEvidenceError(null);
+    pagesLoaded.current++;
+    setEvidenceHands((current) => {
+      const known = new Set(current.map((hand) => hand.hand_id));
+      return [...current, ...page.hands.filter((hand) => !known.has(hand.hand_id))];
+    });
+    setEvidenceCursor(page.next_cursor);
+    setEvidenceHasMore(page.has_more);
+  }
+
+  return (
+    <div className="trophy-evidence" role="region" aria-label={`${name} Evidence`}>
+      {evidenceLoading && evidenceHands.length === 0 && <span>Loading Evidence...</span>}
+      {evidenceError && (
+        <span role="alert">
+          Evidence Could Not Be Loaded.{' '}
+          {evidenceError === 'refresh' && (
+            <button
+              type="button"
+              className="stats-evidence-action"
+              onClick={() => setRetry((value) => value + 1)}
+            >
+              Try Again
+            </button>
+          )}
+        </span>
+      )}
+      {!evidenceLoading && !evidenceError && evidenceHands.length === 0 && (
+        <span>No Matching Hand Evidence Yet.</span>
+      )}
+      {evidenceHands.map((hand) => (
+        <StatsEvidenceLink
+          key={hand.hand_id}
+          className="trophy-evidence-row"
+          to={buildStatsHandEvidencePath(hand.hand_id, clubId)}
+        >
+          <span>{new Date(hand.played_at).toLocaleDateString()}</span>
+          <span>
+            {hand.hand_class ? titleCase(hand.hand_class) : enumToTitleCase(hand.game_variant)}
+          </span>
+          <span>
+            {hand.net >= 0 ? '+' : ''}
+            {compactChips(hand.net)}
+          </span>
+        </StatsEvidenceLink>
+      ))}
+      {evidenceHasMore && evidenceCursor && (
+        <button
+          type="button"
+          className="stats-evidence-action"
+          disabled={evidenceLoading}
+          onClick={() => void loadMoreEvidence()}
+        >
+          {evidenceLoading ? 'Loading More...' : 'Load More Evidence'}
+        </button>
+      )}
     </div>
   );
 }

@@ -147,10 +147,18 @@ done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
 # every registration whose drive is not mounted, and a dry run prunes nothing
 # (it used to prune for real). `|| true`: a refused prune is reported by the
 # helper and must not fail a run whose removals above already succeeded.
-if [ "$DRY_RUN" = "1" ]; then
-  node "$REPO_ROOT/scripts/ops/safe-worktree-prune.mjs" --repo "$REPO_ROOT" --dry-run || true
+#
+# 2026-11-26: the helper is the one beside this script, never
+# "$REPO_ROOT/scripts/ops/...": the janitor runs this file (from origin/main)
+# against clones that have no such helper or an old checkout of it. Missing
+# helper: nothing is pruned, and it says so.
+SAFE_PRUNE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ops/safe-worktree-prune.mjs"
+if [ ! -f "$SAFE_PRUNE" ]; then
+  echo "PRUNE REFUSED: $SAFE_PRUNE is missing; registrations left untouched (fail closed)"
+elif [ "$DRY_RUN" = "1" ]; then
+  node "$SAFE_PRUNE" --repo "$REPO_ROOT" --dry-run || true
 else
-  node "$REPO_ROOT/scripts/ops/safe-worktree-prune.mjs" --repo "$REPO_ROOT" || true
+  node "$SAFE_PRUNE" --repo "$REPO_ROOT" || true
 fi
 echo "---"
 echo "idle>${IDLE_HOURS}h+pushed+clean: ${REMOVED} pruned$( [ "$DRY_RUN" = "1" ] && echo ' (dry run)') | kept: ${KEPT_ACTIVE} active, ${KEPT_DIRTY} dirty, ${KEPT_UNPUSHED} unpushed"

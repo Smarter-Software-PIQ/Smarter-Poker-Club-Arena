@@ -6,6 +6,8 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const HARNESS_SCHEMA_VERSION = 'holdem-grade-harness/v1';
 
@@ -51,18 +53,31 @@ export function resolveLockDir({
   return candidates[0];
 }
 
+/**
+ * The repository copy of core-gate-running.py (2026-11-26). It used to be read from the SSD1 lock folder, so
+ * with SSD1 gone the script was simply missing; it now ships with every checkout. It still reads the SSD2
+ * inbox, and anything but exit 1 (clear) stays fail-closed below.
+ */
+export const REPO_CORE_GATE_SCRIPT = (() => {
+  const url = new URL('./core-gate-running.py', import.meta.url);
+  // A test environment that serves modules over http keeps the repository-relative path.
+  return url.protocol === 'file:'
+    ? fileURLToPath(url)
+    : resolve(process.cwd(), decodeURIComponent(url.pathname).replace(/^\/+/, ''));
+})();
+
 export function resolveDefaultLockPaths(options = {}) {
   const lockDir = resolveLockDir(options);
   return {
     lockDir,
     shepherdLock: `${lockDir}/shepherd.lock`,
-    coreGateScript: `${lockDir}/core-gate-running.py`,
+    coreGateScript: REPO_CORE_GATE_SCRIPT,
   };
 }
 
 export const DEFAULT_LOCK_DIR = resolveLockDir();
 export const DEFAULT_SHEPHERD_LOCK = `${DEFAULT_LOCK_DIR}/shepherd.lock`;
-export const DEFAULT_CORE_GATE_SCRIPT = `${DEFAULT_LOCK_DIR}/core-gate-running.py`;
+export const DEFAULT_CORE_GATE_SCRIPT = REPO_CORE_GATE_SCRIPT;
 
 export const LEAGUE_CARD_MAX_SEED = 0xffffffff;
 export const LEAGUE_CARD_MAX_PAIRS = 65536;

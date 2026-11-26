@@ -176,3 +176,39 @@ export function formatInboxPost({ from, to, subject, body, nowIso }) {
   }
   return text;
 }
+
+/**
+ * The pid recorded in an owner line, whoever wrote it: the helper writes "pid=<n>" and so do some old
+ * wrappers. Null when the line names none (the hd-* wrappers write no pid). Used only to recognise a
+ * holder as this push's own wrapper, never to judge a lock stale (that stays lockIsReclaimable's rule).
+ */
+export function lockHolderPid(ownerText) {
+  const m = /(?:^|\s)pid=(\d+)(?:\s|$)/.exec(String(ownerText ?? '').split('\n')[0]);
+  return m ? Number(m[1]) : null;
+}
+
+/** True when `holder` is `pid` itself or one of its ancestors. `parentOf(pid)` -> parent pid or null. */
+export function isSelfOrAncestor(holder, pid, parentOf, maxDepth = 64) {
+  if (!Number.isInteger(holder) || holder <= 1 || !Number.isInteger(pid) || pid <= 1) return false;
+  let p = pid;
+  for (let depth = 0; depth < maxDepth && Number.isInteger(p) && p > 1; depth += 1) {
+    if (p === holder) return true;
+    p = parentOf(p);
+  }
+  return false;
+}
+
+/**
+ * RE-ENTRANCY (2026-11-26). Is the lock described by `ownerText` already held on behalf of this push?
+ * Yes when its holder pid is the caller (`pid`) or one of the caller's ancestors (the wrapper that ran
+ * scripts/agent-push.sh), or when the holder is pushing exactly this branch at exactly this commit: the
+ * hd-* wrappers write "<lane> push of <branch> <sha> <time>" with no pid, and a holder pushing this very
+ * commit is this push's own wrapper. Anything else is somebody else's push, and is waited for.
+ */
+export function heldForThisPush(ownerText, { pid, parentOf, branch, head }) {
+  if (ownerText === null || ownerText === undefined) return false;
+  if (isSelfOrAncestor(lockHolderPid(ownerText), pid, parentOf)) return true;
+  if (!branch || !head) return false;
+  const line = String(ownerText).split('\n')[0];
+  return ` ${line} `.includes(` push of ${branch} ${head} `);
+}

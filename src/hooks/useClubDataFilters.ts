@@ -27,8 +27,13 @@ export function useClubDataFilters(prefix: string) {
     next.set('dataSearch', nextSearch);
     setParams(next, { replace: true });
   };
+  // Cash blind tiers do not apply to tournaments. Keep the cash choice for
+  // switching back, while every report reader receives its effective filter.
+  const stakesApply = game !== 'MTT' && game !== 'SNG';
   return {
     game,
+    stakesApply,
+    effectiveStakes: stakesApply ? stake : ('ALL' as const),
     stakes: stake,
     searchInput,
     setGame: (action: SetStateAction<ClubDataGame>) => {

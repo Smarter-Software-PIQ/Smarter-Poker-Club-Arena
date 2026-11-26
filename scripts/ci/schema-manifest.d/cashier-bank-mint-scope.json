@@ -1,0 +1,4 @@
+{
+  "_owner": "Club Arena cashier. Migration 20261126030501 declares this reader for protected-main installation.",
+  "functions": ["fn_cashier_mint_scope"]
+}

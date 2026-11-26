@@ -387,17 +387,103 @@ describe('ClubDataPage', () => {
       },
     };
     const prior = rpcMock.getMockImplementation()!;
-    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
-      fn === 'ca_club_data_snapshot_v2'
-        ? Promise.resolve({ data: report, error: null })
-        : prior(fn, args)
-    );
+    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') return Promise.resolve({ data: report, error: null });
+      if (fn === 'ca_club_union_invoices')
+        return Promise.resolve({
+          data: [
+            latestInvoice,
+            { ...latestInvoice, invoice_id: 'prior', issued_at: '2026-08-20T00:00:00Z' },
+          ],
+          error: null,
+        });
+      return prior(fn, args);
+    });
     render(<ClubDataPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
     expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
     expect(screen.getByText('42.25')).toBeInTheDocument();
     expect(screen.getByText('Posted Totals Verified')).toBeInTheDocument();
     expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
+    for (const [control, destination] of [
+      ['View Player Totals', 'Players'],
+      ['View Contributing Games', 'Games'],
+    ]) {
+      fireEvent.click(screen.getByRole('button', { name: control }));
+      const tab = screen.getByRole('tab', { name: destination });
+      await waitFor(() => expect(tab).toHaveFocus());
+      expect(tab).toHaveAttribute('aria-selected', 'true');
+    }
+    fireEvent.click(screen.getByText('Closing And Source Evidence'));
+    fireEvent.click(screen.getByRole('button', { name: 'View Issued Invoices' }));
+    await waitFor(() => expect(document.getElementById('club-data-statement')).toHaveFocus());
+    expect(document.getElementById('club-data-invoice-history')).toBeVisible();
+    expect(document.getElementById('club-data-invoice-detail')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Earlier Statements' }));
+    expect(document.getElementById('club-data-invoice-history')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Statement' }));
+    expect(document.getElementById('club-data-invoice-detail')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'View Statement' }));
+    expect(document.getElementById('club-data-invoice-detail')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Earlier Statements (1)' }));
+    expect(document.getElementById('club-data-invoice-history')).toBeVisible();
+  });
+  it('retains the cash stakes choice while reading tournament reports without cash restrictions', async () => {
+    routeState.search = new URLSearchParams(
+      'report=open&dataTab=games&dataGame=OMAHA&dataStakes=HIGH'
+    );
+    const prior = rpcMock.getMockImplementation()!;
+    rpcMock.mockImplementation((fn: string, args: Record<string, unknown> = {}) => {
+      if (fn !== 'ca_club_data_snapshot_v2') return prior(fn, args);
+      const name =
+        args.p_game === 'MTT'
+          ? 'Nightly Event'
+          : args.p_game === 'SNG'
+            ? 'Sit And Go Event'
+            : 'Omaha Table';
+      const base = args.p_stakes === 'HIGH' && args.p_game !== 'OMAHA' ? zeroSnapshot : snapshot;
+      return Promise.resolve({
+        data: {
+          ...base,
+          filters: { game: args.p_game, stakes: args.p_stakes, search: null },
+          rows: base.rows.map((row) => ({ ...row, name })),
+        },
+        error: null,
+      });
+    });
+    render(<ClubDataPage inline />);
+    await screen.findByText('Omaha Table');
+    for (const [button, game, name] of [
+      ['MTT', 'MTT', 'Nightly Event'],
+      ['Sit & Go', 'SNG', 'Sit And Go Event'],
+      ['Omaha', 'OMAHA', 'Omaha Table'],
+    ]) {
+      fireEvent.click(
+        within(screen.getByRole('group', { name: 'Game Type' })).getByRole('button', {
+          name: button,
+        })
+      );
+      await waitFor(() =>
+        expect(rpcMock).toHaveBeenCalledWith(
+          'ca_club_data_snapshot_v2',
+          expect.objectContaining({
+            p_game: game,
+            p_stakes: game === 'OMAHA' ? 'HIGH' : 'ALL',
+          })
+        )
+      );
+      await screen.findByText(name);
+      expect(Boolean(screen.queryByRole('group', { name: 'Stakes' }))).toBe(game === 'OMAHA');
+    }
+    expect(screen.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true');
+  });
+  it('returns to the containing Data page from a bookmarked inline report', async () => {
+    routeState.search = new URLSearchParams('report=open&dataTab=games');
+    const close = vi.fn();
+    render(<ClubDataPage inline onClose={close} />);
+    await screen.findByText('Shark Table One');
+    fireEvent.click(screen.getByRole('button', { name: 'Go Back', exact: true }));
+    expect(close).toHaveBeenCalledOnce();
   });
   it('uses the club host instead of an individual creator or identifier', async () => {
     const unnamedCreator = {
@@ -1318,6 +1404,9 @@ describe('ClubDataPage', () => {
   it('supports arrow-key tab navigation with a roving tab stop', async () => {
     render(<ClubDataPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Report Tools', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '7 Days' }));
+    const expectedQuery = new URLSearchParams(routeState.search);
+    expect(expectedQuery.get('dataDays')).toBe('7');
     const gamesTab = screen.getByRole('tab', { name: 'Games' });
     const playersTab = screen.getByRole('tab', { name: 'Players' });
 
@@ -1328,6 +1417,8 @@ describe('ClubDataPage', () => {
     await waitFor(() => expect(playersTab).toHaveAttribute('aria-selected', 'true'));
     expect(playersTab).toHaveAttribute('tabindex', '0');
     await waitFor(() => expect(playersTab).toHaveFocus());
+    expectedQuery.set('dataTab', 'players');
+    expect(routeState.search.toString()).toBe(expectedQuery.toString());
   });
 
   it('refreshes the game ledger and union statement together', async () => {

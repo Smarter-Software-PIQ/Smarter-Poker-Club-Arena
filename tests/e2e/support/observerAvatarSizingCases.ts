@@ -34,14 +34,17 @@ export function registerObserverAvatarSizingCases(
       topRail
         ? `every top chair stands on the rail: ${topRail.seats}-max ${topRail.spectator === 'true' ? 'spectator' : 'seated'}${topRail.tournament === 'true' ? ' tournament' : ''} at ${topRail.width}x${topRail.height}`
         : mobileArtwork
-          ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}${'tournament' in mobileArtwork ? ' tournament' : ''}`
+          ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}${'layoutHeight' in mobileArtwork ? ' height-bound felt' : ''}${'tournament' in mobileArtwork ? ' tournament' : ''}`
           : `spectators match avatar artwork and retain fixed chairs at ${width}px${emptyBottom ? ' with an empty bottom chair' : ''}`,
       async ({ page, browser }, testInfo) => {
         test.setTimeout(60_000);
         const shortPhone = mobileArtwork && 'shortPhone' in mobileArtwork;
         if (shortPhone)
           page = await browser.newPage({
-            viewport: { width: 600, height: 1065 },
+            viewport: {
+              width: 600,
+              height: 'layoutHeight' in mobileArtwork ? mobileArtwork.layoutHeight : 1065,
+            },
             screen: { width: 320, height: 568 },
           });
         const root = process.cwd();

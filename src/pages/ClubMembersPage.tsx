@@ -1440,23 +1440,32 @@ export default function ClubMembersPage() {
     });
   }, []);
 
-  const watchBusyRef = useRef(false);
+  const watchScope = exportScopeRef.current;
+  const pendingWatch = useRef<typeof watchScope | null>(null);
+  useEffect(
+    () => () => {
+      pendingWatch.current = null;
+    },
+    [watchScope]
+  );
   const watchTable = useCallback(
     async (table: LiveSeat, member: { userId: string; name: string }) => {
-      if (watchBusyRef.current) return;
-      watchBusyRef.current = true;
+      if (pendingWatch.current === watchScope) return;
+      pendingWatch.current = watchScope;
+      const isCurrent = () =>
+        pendingWatch.current === watchScope && exportScopeRef.current === watchScope;
       try {
-        const outcome = await watchMemberTable(navigate, table, member);
+        const outcome = await watchMemberTable(navigate, table, member, isCurrent);
         if (outcome.status === 'left') {
           toast.error(WATCH_LEFT_MESSAGE);
           if (resolvedClubId) recheckClubLiveSeats(resolvedClubId);
         } else if (outcome.status === 'refused') toast.error(outcome.message);
         else if (outcome.status === 'error') toast.error(WATCH_ERROR_MESSAGE);
       } finally {
-        watchBusyRef.current = false;
+        if (isCurrent()) pendingWatch.current = null;
       }
     },
-    [navigate, resolvedClubId, toast]
+    [navigate, resolvedClubId, toast, watchScope]
   );
 
   const openMember = useCallback(
@@ -1679,7 +1688,7 @@ export default function ClubMembersPage() {
             <span className="members-result-count" aria-live="polite">
               {loading && !hasVerifiedDirectory
                 ? 'Loading...'
-                : `${filteredTotal.toLocaleString()} Results`}
+                : `${filteredTotal.toLocaleString()} ${filteredTotal === 1 ? 'Result' : 'Results'}`}
             </span>
           </div>
         }
