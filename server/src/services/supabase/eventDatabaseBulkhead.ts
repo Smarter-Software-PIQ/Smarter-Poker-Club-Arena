@@ -424,31 +424,39 @@ export class EventDatabaseBulkhead {
 
   /**
    * Hand free slots to parked calls. Within an event, in arrival order. Across
-   * events, one each in turn, and an event that was just served goes to the
-   * back: when the all-events total is what binds, no event can take two
-   * slots while another waits for one.
+   * events, always favor the eligible waiting event holding the fewest
+   * in-flight slots (breaking ties by round-robin waiting order, and rotating
+   * the served event to the back): when the all-events total is saturated by
+   * one or two large tournaments holding 20-24 slots, a smaller tournament
+   * parked at inFlight=0 gets the very next freed slot instead of starving
+   * behind the saturated events' earlier-parked queues (incident 1e532243).
    */
   private pump(): void {
-    let progressed = true;
-    while (progressed && this.waiting.size > 0 && this.totalInFlight < this.maxAllEvents) {
-      progressed = false;
+    while (this.waiting.size > 0 && this.totalInFlight < this.maxAllEvents) {
+      let bestKey: string | null = null;
+      let bestState: EventState | null = null;
+      let bestInFlight = Infinity;
       for (const key of [...this.waiting]) {
-        if (this.totalInFlight >= this.maxAllEvents) return;
         const state = this.events.get(key);
         if (!state || state.queue.length === 0) {
           this.waiting.delete(key);
           continue;
         }
         if (state.inFlight + state.cooling >= state.limit) continue;
-        const waiter = state.queue.shift()!;
-        if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
-        state.inFlight++;
-        this.totalInFlight++;
-        this.waiting.delete(key);
-        if (state.queue.length > 0) this.waiting.add(key);
-        progressed = true;
-        waiter.resolve(waiter.permit);
+        if (state.inFlight < bestInFlight) {
+          bestInFlight = state.inFlight;
+          bestKey = key;
+          bestState = state;
+        }
       }
+      if (!bestKey || !bestState) return;
+      const waiter = bestState.queue.shift()!;
+      if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
+      bestState.inFlight++;
+      this.totalInFlight++;
+      this.waiting.delete(bestKey);
+      if (bestState.queue.length > 0) this.waiting.add(bestKey);
+      waiter.resolve(waiter.permit);
     }
   }
 
