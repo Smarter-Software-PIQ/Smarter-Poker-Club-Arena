@@ -15,7 +15,8 @@
  * completion as the next election trigger.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
@@ -171,12 +172,35 @@ describe('the Stage job', () => {
     expect(job.if).not.toContain('always()');
   });
 
-  it('can dispatch a workflow and nothing else: no environment, no secret, no issue or status write', () => {
+  it('dispatches one workflow and sends one note, nothing else; the key lives only in the note step', () => {
     expect(job.permissions).toEqual({ actions: 'write', contents: 'read' });
-    expect(job.environment).toBeUndefined();
-    expect(JSON.stringify(job)).not.toMatch(/secrets\./);
+    expect(job.environment).toBe('ci-main');
     expect(job['continue-on-error']).toBeUndefined();
-    const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
+    type Step = {
+      id?: string;
+      run?: string;
+      env?: Record<string, string>;
+      if?: string;
+      'continue-on-error'?: boolean;
+    };
+    const steps = job.steps as Step[];
+    const withSecrets = steps.filter((s) => /secrets\./.test(JSON.stringify(s)));
+    expect(withSecrets).toHaveLength(1);
+    const noteStep = withSecrets[0];
+    const env = noteStep.env ?? {};
+    expect(
+      Object.keys(env)
+        .filter((k) => /secrets\./.test(env[k]))
+        .sort()
+    ).toEqual(['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL']);
+    expect(noteStep.if).toBe("steps.next.outputs.did_not_seal == 'true'");
+    expect(noteStep['continue-on-error']).toBe(true);
+    expect(noteStep.run).toContain('"$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal"');
+    expect(noteStep.run?.match(/curl /g)).toHaveLength(1);
+    const next = steps.find((s) => s.id === 'next');
+    expect(JSON.stringify(next)).not.toMatch(/secrets\./);
+    expect(next?.run).toContain('echo "did_not_seal=true" >> "$GITHUB_OUTPUT"');
+    const run = steps.map((s) => s.run ?? '').join('\n');
     const writes = [...run.matchAll(/gh api --method (\w+) "([^"]+)"/g)].map(
       (m) => `${m[1]} ${m[2]}`
     );
@@ -274,5 +298,91 @@ describe('the Backup it starts is the next election trigger', () => {
       "startsWith(github.event.workflow_run.display_title, 'Backup after keep-serving ')"
     );
     expect(stageText.match(/'Backup after keep-serving '/g)).toHaveLength(2);
+  });
+});
+
+describe('the owner note says it plainly, once per cycle', () => {
+  const sel = (o: object) => {
+    const f = join(tmpdir(), `sel-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(f, JSON.stringify(o));
+    return f;
+  };
+  const noteFor = (cycle: string, selected: string, selection: object) =>
+    py('note', '--cycle', cycle, '--selected', selected, '--selection', sel(selection)).out.note ??
+    '';
+  const NO_EVIDENCE = 'No newer protected candidate has complete current evidence by the cutoff.';
+
+  it('names the cycle and the next one in Chicago time and gives one plain reason', () => {
+    expect(noteFor('2026-11-25T22', 'false', { reason: NO_EVIDENCE, deferredCandidates: [] })).toBe(
+      'Engine cutover at 10:00 PM CST did not happen: no new build passed its test in time. The current engine keeps running, and the next build is being tested for the 1:00 AM CST cutover.'
+    );
+    expect(
+      noteFor('2026-11-25T07', 'false', {
+        reason: 'x',
+        deferredCandidates: [
+          { sha: 'a', reason: 'serving rollback rehearsal unavailable' },
+          { sha: 'b', reason: 'Backup copy lacks installed migration 20261125171024' },
+        ],
+      })
+    ).toContain('did not happen: a database update landed after the new build was tested.');
+    expect(
+      noteFor('2026-11-25T13', 'false', {
+        reason: 'x',
+        deferredCandidates: [{ sha: 'a', reason: 'serving rollback rehearsal unavailable' }],
+      })
+    ).toContain('the newest build had been tested against an older engine');
+    expect(noteFor('2026-11-25', 'true', {})).toBe(
+      'Engine cutover at 4:00 AM CST did not happen: the new build was chosen but the swap did not complete. The current engine keeps running, and the next build is being tested for the 7:00 AM CST cutover.'
+    );
+    expect(noteFor('2026-11-25T16', 'false', { reason: 'something new' })).toContain(
+      'no new build was ready'
+    );
+  });
+
+  it('says nothing when the cycle had nothing new to ship', () => {
+    expect(noteFor('2026-11-25T16', 'false', { reason: 'current', deferredCandidates: [] })).toBe(
+      ''
+    );
+  });
+
+  it('is plain copy: no em dash, no SHA, within the database limit', () => {
+    for (const n of [
+      noteFor('2026-11-25T22', 'false', { reason: NO_EVIDENCE }),
+      noteFor('2026-11-25', 'true', {}),
+    ]) {
+      expect(n.length).toBeGreaterThan(0);
+      expect(n).not.toContain('—');
+      expect(n).not.toMatch(/[0-9a-f]{12}/);
+      expect(n.length).toBeLessThanOrEqual(500);
+    }
+  });
+
+  it('the database sends it once per cycle, as the platform sender, to service_role only', () => {
+    const sql = readFileSync(
+      join(
+        root,
+        'supabase/migrations/20261126031810_an_owner_note_when_a_cutover_cycle_does_not_seal.sql'
+      ),
+      'utf8'
+    );
+    expect(sql).toContain('cycle      text PRIMARY KEY');
+    expect(sql).toContain('ON CONFLICT (cycle) DO NOTHING;');
+    expect(sql).toMatch(
+      /IF NOT FOUND THEN\s+RETURN jsonb_build_object\('sent', false, 'reason', 'already noted'/
+    );
+    expect(sql).toContain(
+      'SELECT * INTO STRICT s FROM smarter_private.reliability_settings WHERE id FOR UPDATE;'
+    );
+    expect(sql).toContain('v_conv := smarter_private.reliability_owner_conversation();');
+    expect(sql).toContain('VALUES (v_conv, s.system_sender_id, v_note');
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_ca_note_cycle_did_not_seal(text, text) TO service_role;'
+    );
+    expect(sql).not.toMatch(/push_outbox/);
+    expect(sql.match(/^BEGIN;$/gm)).toHaveLength(1);
+    expect(sql.match(/^COMMIT;$/gm)).toHaveLength(1);
   });
 });

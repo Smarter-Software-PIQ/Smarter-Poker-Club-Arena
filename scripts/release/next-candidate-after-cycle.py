@@ -25,8 +25,12 @@ This script only decides. It never dispatches anything itself.
           not ahead within MAX_WAIT_MINUTES and not just past)
   decide  --selected true|false --selection-serving SHA --live-serving SHA|unknown
           prints dispatch=true|false and reason=<text>
+  note    --cycle C --selected true|false --selection daily-selection.json
+          prints note=<one plain line for the owner's Messenger>, or nothing
+          when the cycle had nothing new to ship
 """
 import argparse
+import json
 import re
 import sys
 import time
@@ -81,6 +85,37 @@ def decide(selected: bool, selection_serving: str, live_serving: str) -> tuple[b
     return True, f'kept serving {live_serving[:12]}'
 
 
+def cycle_label(epoch: int) -> str:
+    local = datetime.fromtimestamp(epoch, CHICAGO)
+    return local.strftime('%I:%M %p %Z').lstrip('0')
+
+
+# Plain reasons, most specific first. Matched against the selection's deferred
+# candidates and its reason (scripts/ci/select-daily-engine.py wording).
+PLAIN_REASONS = (
+    ('lacks installed migration', 'a database update landed after the new build was tested'),
+    ('installed or changed after certification', 'a database update landed after the new build was tested'),
+    ('rollback rehearsal unavailable', 'the newest build had been tested against an older engine'),
+    ('no newer protected candidate has complete current evidence', 'no new build passed its test in time'),
+)
+
+
+def note(cycle: str, selected: bool, selection: dict) -> str:
+    start = cycle_start(cycle)
+    when, nxt = cycle_label(start), cycle_label(start + 3 * 3600)
+    deferred = selection.get('deferredCandidates') or []
+    reason = str(selection.get('reason') or '')
+    if selected:
+        why = 'the new build was chosen but the swap did not complete'
+    else:
+        if reason == 'current' and not deferred:
+            return ''
+        text = ' '.join([str(d.get('reason') or '') for d in deferred if isinstance(d, dict)] + [reason]).lower()
+        why = next((plain for needle, plain in PLAIN_REASONS if needle in text), 'no new build was ready')
+    return (f'Engine cutover at {when} did not happen: {why}. The current engine keeps running, '
+            f'and the next build is being tested for the {nxt} cutover.')
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
@@ -91,12 +126,25 @@ def main() -> int:
     d.add_argument('--selected', choices=['true', 'false'], required=True)
     d.add_argument('--selection-serving', default='')
     d.add_argument('--live-serving', default='')
+    n = sub.add_parser('note')
+    n.add_argument('--cycle', required=True)
+    n.add_argument('--selected', choices=['true', 'false'], required=True)
+    n.add_argument('--selection', required=True)
     args = parser.parse_args()
     try:
         if args.command == 'plan':
             wait, target = plan(args.cycle, args.now if args.now is not None else int(time.time()))
             print(f'wait={wait}')
             print(f'target={target}')
+        elif args.command == 'note':
+            try:
+                with open(args.selection, encoding='utf-8') as source:
+                    selection = json.load(source)
+            except (OSError, json.JSONDecodeError):
+                selection = {}
+            text = note(args.cycle, args.selected == 'true', selection if isinstance(selection, dict) else {})
+            if text:
+                print(f'note={text}')
         else:
             dispatch, reason = decide(args.selected == 'true', args.selection_serving, args.live_serving)
             print(f'dispatch={"true" if dispatch else "false"}')

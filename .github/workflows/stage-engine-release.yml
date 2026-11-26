@@ -1054,6 +1054,8 @@ jobs:
     needs: [detect, selection]
     runs-on: ubuntu-latest
     timeout-minutes: 80
+    # ci-main holds the service-role key the Messenger note uses (last step).
+    environment: ci-main
     permissions:
       actions: write
       contents: read
@@ -1070,6 +1072,7 @@ jobs:
           name: ${{ format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
           path: selection-artifact
       - name: Wait once for the cycle's installs, then start one Backup if it did not seal
+        id: next
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -1091,6 +1094,7 @@ jobs:
             echo "Cycle $RELEASE_DATE: no Backup started ($reason)."
             exit 0
           fi
+          echo "did_not_seal=true" >> "$GITHUB_OUTPUT"
           title="Backup after keep-serving $RELEASE_DATE"
           sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" \
@@ -1107,6 +1111,28 @@ jobs:
             || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle may have no election run."; exit 1; }
           echo "Cycle $RELEASE_DATE did not seal ($reason): Backup run $backup_id certifies main and starts the next election."
           { echo "### Next Cycle"; echo ""; echo "- $reason: Backup run $backup_id (\`$title\`) certifies main and starts the next election."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      - name: Tell the owner in Messenger that this cycle did not seal
+        # One plain line per cycle, idempotent in the database
+        # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).
+        # No note when the cycle had nothing new to ship. Its failure never
+        # undoes or blocks the Backup started above.
+        if: steps.next.outputs.did_not_seal == 'true'
+        continue-on-error: true
+        env:
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          SELECTED: ${{ needs.selection.outputs.send == 'true' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          note=$(python3 -B scripts/release/next-candidate-after-cycle.py note --cycle "$RELEASE_DATE" \
+            --selected "$SELECTED" --selection selection-artifact/daily-selection.json | sed -n 's/^note=//p')
+          [ -n "$note" ] || { echo "Cycle $RELEASE_DATE had nothing new to ship; no note."; exit 0; }
+          jq -n --arg cycle "$RELEASE_DATE" --arg note "$note" '{p_cycle: $cycle, p_note: $note}' > note.json
+          curl -fsS --max-time 20 -X POST "$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' --data @note.json
+          echo
 
   signal:
     name: Dispatch The Exact Main SHA

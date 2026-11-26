@@ -36,6 +36,20 @@ tell" and starts nothing (CLAUDE.md 10.86). The job can dispatch that one workfl
 nothing else, never selects, offers or advances a release, and fails out loud if the run
 it dispatched does not appear.
 
+## The Owner Is Told, Once, In Plain Words
+
+Only the 04:30 `EngineCutoverMissed` page ever reached the owner; the other seven daily
+cycles reached nobody. When the job decides a cycle did not seal, a last step sends one
+Messenger line through `public.fn_ca_note_cycle_did_not_seal` (migration
+`20261126031810`), for example: "Engine cutover at 10:00 PM CST did not happen: no new
+build passed its test in time. The current engine keeps running, and the next build is
+being tested for the 1:00 AM CST cutover." It is keyed by the cycle, so a replay sends
+nothing; it goes in the reliability controller's existing owner conversation from its
+existing platform sender; no push and no SMS. A cycle with nothing new to ship sends no
+note. The note step holds the only secret in the job and cannot block the Backup above
+it. Proven on PostgreSQL 16: first call sends, replay sends nothing, one conversation,
+bad cycle or note refused, EXECUTE for `service_role` only.
+
 ## Hardening
 
 - `tests/a-cycle-that-did-not-seal-starts-the-next-one.law.test.ts`: the target for
