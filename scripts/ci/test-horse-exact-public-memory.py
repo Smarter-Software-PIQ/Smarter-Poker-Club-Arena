@@ -857,7 +857,102 @@ try:
  fs_sizes=run('fs-record-sizes',"SELECT pg_column_size("+jsonb_literal(fs_worst)+")||':'||length("+jsonb_literal(fs_worst)+"::text)||':'||pg_column_size(flop_shown)||':'||length(flop_shown::text)||':'||pg_column_size(street_counters_price)||':'||length(street_counters_price::text)||':'||pg_column_size('{\"foldToRaise\":{\"flop\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"turn\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"river\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345}}}'::jsonb) FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND variant='plo4' AND mode='cash';")
  assert all(int(x)<1500 for x in fs_sizes.split(':')),fs_sizes
  assert run('fs-record-bytes',"SELECT pg_column_size(flop_shown)<1400 AND length(flop_shown::text)<700 FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND variant='plo4' AND mode='cash';")=='t'
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; flop-shown record: SQL hand class equal to the engine on pinned and 700 dealt hands, SQL increments equal to the engine reducer on pinned vectors and 260 random hands with amounts, showdown lists and winners, the integer add rule exactly equal through 160 hands, refused without the public showdown columns, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand and hand_history.players never read, cash and tournament apart, both install orders converge, rerun idempotence and saved read; fold-to-raise price record: SQL increments equal to the engine reducer on pinned vectors and 260 random logs with amounts and pot sizes to 1e-12, the add rule through 120 hands, exact values through the accepted receipt, a hand without such a raise leaves it unchanged, saved read; learner hardening (20261119213206): the one-pass add rule equal to the per-number one on damaged inputs and every vector, measured per-hand cost before and after, Omaha family only through the accepted receipt, shown only with mucked=false written out, no float8 overflow from a stored number, both install orders converge, rerun idempotence; no production installation','fs2Timing':fs2_timing},indent=2))
+
+ # 2026-11-25 his postflop raises and the shown result of his called bets (20261126021624): the same learner,
+ # forward only, no back-fill; the public action log and the public showdown list only; nlh only. Engine twin:
+ # HorsePostflopBetRecord.
+ pbmig=(ROOT/'supabase/migrations/20261126021624_exact_profile_keeps_his_postflop_raises_and_shown_bets.sql').read_text()
+ pb_proof=next(line.removeprefix('-- @live-proof: ') for line in pbmig.splitlines() if line.startswith('-- @live-proof: '))
+ PB_RS=['flop','turn','river']; PB_SS=['flop','turn','river']; PB_BS=['small','medium','large','overbet']
+ def pb_row(rec):
+  assert sorted(rec)==['raiseToBet','shownBet'],rec
+  out=[]
+  for st in PB_RS: assert sorted(rec['raiseToBet'][st])==['opp','raise']; out+=[rec['raiseToBet'][st]['opp'],rec['raiseToBet'][st]['raise']]
+  for st in PB_SS:
+   for b in PB_BS: c=rec['shownBet'][st][b]; assert sorted(c)==['air','called','shown']; out+=[c['called'],c['shown'],c['air']]
+  return out
+ def pb_record(r):
+  o={'raiseToBet':{},'shownBet':{'flop':{},'turn':{},'river':{}}}; i=0
+  for st in PB_RS: o['raiseToBet'][st]={'opp':r[i],'raise':r[i+1]}; i+=2
+  for st in PB_SS:
+   for b in PB_BS: o['shownBet'][st][b]={'called':r[i],'shown':r[i+1],'air':r[i+2]}; i+=3
+  return o
+ pb_of=lambda uid,variant='nlh',mode='cash': "SELECT coalesce(postflop_bets::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND variant='"+variant+"' AND mode='"+mode+"';"
+ psql[-1]='postgres'
+ assert run('pb-proof-before','SELECT '+pb_proof)=='f'
+ pb_before=run('pb-before',"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text,'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")
+ run('pb-install',pbmig)
+ assert run('pb-proof','SELECT '+pb_proof)=='t'
+ assert run('pb-no-backfill',"SELECT count(*) FROM horse_exact_profiles WHERE postflop_bets IS NOT NULL;")=='0'
+ assert run('pb-rows-untouched',"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text,'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")==pb_before
+ assert run('pb-private',"SELECT bool_or(has_function_privilege(r,f,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY['fn_horse_postflop_bets_empty()','fn_horse_postflop_bets_increments(jsonb,jsonb)','fn_horse_postflop_bets_add(jsonb,jsonb)']) f;")=='f'
+ pb_def=run('pb-definition',trigger_def)
+ run('pb-repeat',pbmig)
+ assert run('pb-repeat-definition',trigger_def)==pb_def
+ pb_inc=pb_def.split('postflop_bets_inc:=')[1].split(';')[0]
+ assert 'hole_cards' not in pb_inc and 'h.actions' in pb_inc and 'h.showdown' in pb_inc,pb_inc
+ pb_vectors=json.loads((ROOT/'scripts/ci/fixtures/horse-postflop-bets-vectors.json').read_text())
+ pb_all=pb_vectors['named']+pb_vectors['random']
+ pb_values=",".join("("+str(k)+","+jsonb_literal(v['actions'])+","+(jsonb_literal(v['showdown']) if v['showdown'] is not None else 'NULL::jsonb')+")" for k,v in enumerate(pb_all))
+ pb_out=run('pb-vectors',"SELECT string_agg(fn_horse_postflop_bets_increments(a,s)::text,E'\\n' ORDER BY k) FROM (VALUES "+pb_values+") v(k,a,s);").split('\n')
+ assert len(pb_out)==len(pb_all)>=300
+ pb_live=0
+ for k,v in enumerate(pb_all):
+  got={uid:pb_row(rec) for uid,rec in json.loads(pb_out[k]).items()}; pb_live+=bool(got)
+  assert got==v['expected'],(k,got,v['expected'])
+ assert pb_live>=100,pb_live
+ # The add rule against the engine's, through a chain of 120 hands, to 1e-12.
+ pb_chain='NULL::jsonb'; pb_cps={c['after']:c['row'] for c in pb_vectors['chain']['checkpoints']}
+ for k,step in enumerate(pb_vectors['chain']['steps'],1):
+  pb_chain="fn_horse_postflop_bets_add("+pb_chain+","+jsonb_literal(pb_record(step))+")"
+  if k in pb_cps:
+   got=json.loads(run('pb-add-'+str(k),"SELECT coalesce("+pb_chain+"::text,'null');")); pb_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=pb_cps[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert len(want)==42 and all(abs(x-y)<1e-12 for x,y in zip(pb_row(got),want)),(k,got,want)
+ assert len(pb_cps)>=12
+ assert run('pb-add-null-delta',"SELECT fn_horse_postflop_bets_add(NULL,NULL) IS NULL AND fn_horse_postflop_bets_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
+ pb_one=[0]*42; pb_one[2]=1; pb_one[3]=1
+ pb_damaged=json.loads(run('pb-add-damaged',"SELECT fn_horse_postflop_bets_add('{\"raiseToBet\":{\"turn\":{\"opp\":\"x\",\"raise\":1e400}},\"shownBet\":7}'::jsonb,"+jsonb_literal(pb_record(pb_one))+")::text;"))
+ assert pb_row(pb_damaged)==pb_one,pb_damaged
+ assert run('pb-increments-not-array',"SELECT fn_horse_postflop_bets_increments('{}'::jsonb,NULL)::text||fn_horse_postflop_bets_increments(NULL,NULL)::text||fn_horse_postflop_bets_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb,'[]'::jsonb)::text;")=='{}{}{}'
+ # Learning through the protected accepted receipt: nlh only; a mucked hand is never classified.
+ pbA='00000000-0000-4000-8000-0000000000e1'; pbB='00000000-0000-4000-8000-0000000000e2'
+ pb_hand=lambda river_answer: [{'userId':pbA,'stage':'preflop','action':'sb','amount':1,'origin':'forced'},{'userId':pbB,'stage':'preflop','action':'bb','amount':2,'origin':'forced'},
+  {'userId':pbA,'stage':'preflop','action':'call','amount':1,'origin':'player'},{'userId':pbB,'stage':'preflop','action':'check','origin':'player'},
+  {'userId':pbB,'stage':'river','action':'bet','amount':3,'origin':'player'},{'userId':pbA,'stage':'river','action':river_answer,'amount':(3 if river_answer=='call' else 9),'origin':'player'}]
+ def pb_accept(n,hand,showdown,variant='nlh',tournament=None):
+  row={'table_id':'00000000-0000-4000-8000-000000000001','hand_number':1000000+n,'game_variant':variant,'horse_exploit_dealt_count':2,'players':[],'actions':hand,'public_memory_domain':domain,'showdown':showdown}
+  if tournament is not None:row['tournament_id']=tournament
+  return run('pb-accept-'+str(n),"BEGIN; SELECT fn_ca_insert_hand_with_awards('"+json.dumps(row).replace("'","''")+"'::jsonb);INSERT INTO hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number,id,repeat('a',64),'{}' FROM hand_history WHERE hand_number="+str(1000000+n)+"; COMMIT;")
+ sd_air=[{'user_id':pbB,'mucked':False,'hand_name':'High Card'},{'user_id':pbA,'mucked':False,'hand_name':'Pair'}]
+ sd_muck=[{'user_id':pbA,'mucked':False,'hand_name':'Pair'},{'user_id':pbB,'mucked':True}]
+ pb_plan=[(pb_hand('call'),sd_air),(pb_hand('call'),sd_muck),(pb_hand('raise'),None)]
+ for k,(hand,sdl) in enumerate(pb_plan):
+  prior=run('pb-prior-'+str(k),pb_of(pbB))
+  pb_accept(700+k,hand,sdl)
+  want=run('pb-want-'+str(k),"SELECT coalesce(fn_horse_postflop_bets_add("+("NULL" if prior in ('null','') else "'"+prior+"'")+"::jsonb,fn_horse_postflop_bets_increments("+jsonb_literal(hand)+","+(jsonb_literal(sdl) if sdl is not None else 'NULL')+")->'"+pbB+"')::text,'null');")
+  assert run('pb-learned-'+str(k),pb_of(pbB))==want,(k,want)
+ pbB_rec=json.loads(run('pb-learned-B',pb_of(pbB))); sd=0.5**(1/30)
+ rl=pbB_rec['shownBet']['river']['large']
+ # two called river bets (3 into 4: large): the first shown as air, the second mucked (never read); the raised third
+ # was not called, and B had no raise opportunity
+ assert abs(rl['called']-(sd+1))<1e-12 and abs(rl['shown']-sd)<1e-12 and abs(rl['air']-sd)<1e-12,pbB_rec
+ assert pbB_rec['raiseToBet']['river']=={'opp':0,'raise':0},pbB_rec
+ pbA_rec=json.loads(run('pb-learned-A',pb_of(pbA)))
+ ra=pbA_rec['raiseToBet']['river']
+ assert abs(ra['opp']-(sd*sd+sd+1))<1e-12 and ra['raise']==1,pbA_rec
+ pb_text=run('pb-text',pb_of(pbB))
+ pb_accept(710,pb_plan[0][0],sd_air,tournament='00000000-0000-4000-8000-0000000000f5')
+ assert run('pb-tournament-row',"SELECT postflop_bets->'shownBet'->'river'->'large'->>'called' FROM horse_exact_profiles WHERE user_id='"+pbB+"' AND mode='tournament';")=='1'
+ assert run('pb-cash-untouched-by-tournament',pb_of(pbB))==pb_text
+ for k,v in enumerate(['plo4','flh']):
+  pb_accept(720+k,pb_plan[0][0],sd_air,variant=v)
+  assert run('pb-variant-'+v,pb_of(pbB,variant=v))=='null',v
+ assert run('pb-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))::text FROM horse_exact_profiles WHERE user_id='"+pbB+"' AND variant='nlh' AND mode='cash';")=='27'
+ assert run('pb-read',"SET ROLE service_role; SELECT postflop_bets::text FROM fn_horse_exact_profiles_read(ARRAY['"+pbB+"'],'nlh','cash','hu','table','none');")==pb_text
+ run('pb-reset-role','RESET ROLE;')
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; flop-shown record: SQL hand class equal to the engine on pinned and 700 dealt hands, SQL increments equal to the engine reducer on pinned vectors and 260 random hands with amounts, showdown lists and winners, the integer add rule exactly equal through 160 hands, refused without the public showdown columns, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand and hand_history.players never read, cash and tournament apart, both install orders converge, rerun idempotence and saved read; fold-to-raise price record: SQL increments equal to the engine reducer on pinned vectors and 260 random logs with amounts and pot sizes to 1e-12, the add rule through 120 hands, exact values through the accepted receipt, a hand without such a raise leaves it unchanged, saved read; learner hardening (20261119213206): the one-pass add rule equal to the per-number one on damaged inputs and every vector, measured per-hand cost before and after, Omaha family only through the accepted receipt, shown only with mucked=false written out, no float8 overflow from a stored number, both install orders converge, rerun idempotence; postflop bet record (20261126021624): SQL increments equal to the engine reducer on pinned vectors and 300 random public logs with amounts and showdown lists, the 30-opportunity half-life to 1e-12 through 120 hands, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand never classified, nlh only, cash and tournament apart, no hole card read, rerun idempotence and saved read; no production installation','fs2Timing':fs2_timing},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])

@@ -109,7 +109,8 @@ describe('P12.2 Phase 12 policy digest', () => {
     // OpponentHudProfile; option omahaOpponentLifetimeHud).
     // 86 since 2026-11-22: OpponentHud wires the math-core HUD adapters (OmahaMathCoreHudRecords,
     // OmahaMathCoreTurnRiverHud; #11720/#11725), bringing the already-hashed OmahaMathCore files into closure.
-    expect(closure).toHaveLength(86);
+    // 87 since 2026-11-25: HorseMind carries his postflop bet record (HorsePostflopBetRecord).
+    expect(closure).toHaveLength(87);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');

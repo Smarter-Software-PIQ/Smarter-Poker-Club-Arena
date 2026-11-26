@@ -40,6 +40,13 @@ import { omahaReadByStreetNow, type OmahaReadByStreetMeans } from './HorseOmahaR
 import { copyReraiseResponse, type ReraiseResponseCounters } from './HorseOmahaReraiseResponse.js';
 import { copyFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
 import {
+  addPostflopBetEvidence,
+  copyPostflopBets,
+  postflopBetHandIncrements,
+  postflopBetsCarriedFor,
+  type PostflopBetCounters,
+} from './HorsePostflopBetRecord.js';
+import {
   foldToRaisePrice,
   copyStreetPrice,
   type StreetPriceCounters,
@@ -1013,6 +1020,12 @@ export interface HorseMindSandbox {
    *  the default-off omahaSampledRaiseIsPricedAtEverySize on (HorseOmahaReadByStreetRule). Absent when the read
    *  carried none. */
   pooledStreetPrice?: Map<string, StreetPriceCounters>;
+  /** HOW HE ANSWERS A POSTFLOP BET AND WHAT HIS CALLED BETS SHOWED (2026-11-25, HorsePostflopBetRecord): for each
+   *  pooled EXACT row in `exploit` of an nlh game that carries a well-formed record (horse_exact_profiles
+   *  .postflop_bets), a detached copy of it. Travels with the decision's own state and its read frame (v22). Answered
+   *  by HorseMind.postflopBetsOf; read only by default-OFF options. Absent when the read carried none. A benchmark
+   *  sandbox with HorseMind.setLearnsPostflopBetsInSandbox on also adds each completed hand to it. */
+  pooledPostflopBets?: Map<string, PostflopBetCounters>;
 }
 
 /** What HorseMind.omahaStreetReadOf answers for one opponent: his carried counters and, per street, the label a
@@ -1634,6 +1647,10 @@ export class HorseMind {
   private static pooledFlopShown: Map<string, FlopShownCounters> | null = null;
   /** The sandbox's fold-to-raise price records (HorseMindSandbox.pooledStreetPrice) while one is installed. */
   private static pooledStreetPrice: Map<string, StreetPriceCounters> | null = null;
+  /** The sandbox's postflop bet records (HorseMindSandbox.pooledPostflopBets) while one is installed. */
+  private static pooledPostflopBets: Map<string, PostflopBetCounters> | null = null;
+  /** Benchmark only (default off): a sandbox learns the postflop bet record from its own completed hands. */
+  private static learnsPostflopBetsInSandbox = false;
   private static decisionVariant: string | null = null;
   /** The betting structure of the decision in flight, as the game state
    *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
@@ -3337,6 +3354,33 @@ export class HorseMind {
    * stays unknown. Public information only. Pure: no fires, no writes, no random draws. NOTHING CALLS IT YET: this
    * is the read made available to decisions; no decision is changed by it.
    */
+  /**
+   * HOW HE ANSWERS A POSTFLOP BET AND WHAT HIS CALLED BETS SHOWED (2026-11-25, HorsePostflopBetRecord): the record the
+   * decision in flight carries for one opponent (a detached copy of horse_exact_profiles.postflop_bets as the pooled
+   * public row brought it, HorseMindSandbox.pooledPostflopBets), for an nlh decision. Null otherwise and when the
+   * decision carried no record for him. Public information only. Pure: no fires, no writes, no random draws.
+   */
+  static postflopBetsOf(userId: string): PostflopBetCounters | null {
+    const scope = this.decisionScope;
+    if (!scope) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant || !postflopBetsCarriedFor(variant)) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledPostflopBets?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    return row ? copyPostflopBets(row) : null;
+  }
+
+  /**
+   * BENCHMARK ONLY (default off; no production caller): while on, a sandbox installed by runInSandbox keeps a postflop
+   * bet map and adds each completed nlh hand to it (observeHandComplete), exactly as the accepted-hand learner adds it
+   * to the durable row. Lets a league grade a reader of the record without a database. Never touches live state.
+   */
+  static setLearnsPostflopBetsInSandbox(on: boolean): void {
+    this.learnsPostflopBetsInSandbox = on === true;
+  }
+
   static omahaFlopShownOf(userId: string): FlopShownCounters | null {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('omaha:')) return null;
@@ -4392,6 +4436,10 @@ export class HorseMind {
             const rowStreetPrice = row ? this.pooledStreetPrice?.get(key) : undefined;
             if (rowStreetPrice)
               (view.pooledStreetPrice ??= new Map()).set(key, copyStreetPrice(rowStreetPrice));
+            // And the same postflop bet record (exact rows only; donors never carry one).
+            const rowBets = row ? this.pooledPostflopBets?.get(key) : undefined;
+            if (rowBets)
+              (view.pooledPostflopBets ??= new Map()).set(key, copyPostflopBets(rowBets));
             // And the same completeness cap (exact row).
             if (row && this.pooledProfileIncomplete?.has(key))
               (view.pooledProfileIncomplete ??= new Map()).set(key, true);
@@ -4495,6 +4543,7 @@ export class HorseMind {
       pooledReraiseResponse: this.pooledReraiseResponse,
       pooledFlopShown: this.pooledFlopShown,
       pooledStreetPrice: this.pooledStreetPrice,
+      pooledPostflopBets: this.pooledPostflopBets,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
@@ -4505,6 +4554,9 @@ export class HorseMind {
     this.pooledReraiseResponse = sandbox.pooledReraiseResponse ?? null;
     this.pooledFlopShown = sandbox.pooledFlopShown ?? null;
     this.pooledStreetPrice = sandbox.pooledStreetPrice ?? null;
+    if (this.learnsPostflopBetsInSandbox && !sandbox.pooledPostflopBets)
+      sandbox.pooledPostflopBets = new Map();
+    this.pooledPostflopBets = sandbox.pooledPostflopBets ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -4570,6 +4622,7 @@ export class HorseMind {
       this.pooledReraiseResponse = live.pooledReraiseResponse;
       this.pooledFlopShown = live.pooledFlopShown;
       this.pooledStreetPrice = live.pooledStreetPrice;
+      this.pooledPostflopBets = live.pooledPostflopBets;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
@@ -6249,6 +6302,31 @@ export class HorseMind {
    * settlement path; idempotent per handKey. Best-effort by contract — a
    * malformed history must never throw into settlement.
    */
+  private static learnPostflopBetsInSandbox(
+    actions: ReadonlyArray<{
+      userId?: string;
+      action: string;
+      origin?: string;
+      stage: string;
+      amount?: number;
+      isFullRaise?: boolean;
+    }>,
+    showdown: Array<{ user_id: string; mucked: boolean; hand_name?: string }> | null | undefined,
+    scope: ReadScope,
+    variantName: string | undefined,
+    mode: MemoryMode | undefined
+  ): void {
+    const variant = memoryVariant(variantName);
+    const map = this.pooledPostflopBets;
+    if (!variant || !postflopBetsCarriedFor(variant) || !map || !mode) return;
+    const size = scope.split(':')[1] as MemorySize;
+    for (const [id, inc] of postflopBetHandIncrements(actions, showdown)) {
+      const key = opponentMemoryKey(id, variant, mode, size);
+      const next = addPostflopBetEvidence(map.get(key), inc);
+      if (next) map.set(key, next);
+    }
+  }
+
   static observeHandComplete(
     handKey: string,
     actions:
@@ -6292,6 +6370,20 @@ export class HorseMind {
       if (this.handFlags.has(flag)) return;
       this.handFlags.add(flag);
       evictOldest(this.handFlags, MAX_HAND_FLAGS);
+      // Benchmark only (setLearnsPostflopBetsInSandbox): the sandbox's postflop bet record learns this hand.
+      if (
+        this.learnsPostflopBetsInSandbox &&
+        this.sandboxDepth > 0 &&
+        this.pooledPostflopBets &&
+        scope
+      )
+        this.learnPostflopBetsInSandbox(
+          actions,
+          showdown,
+          scope,
+          riverCallContext?.variant,
+          styleMode
+        );
 
       const bb = bigBlind > 0 ? bigBlind : 1;
       // FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (switch above).

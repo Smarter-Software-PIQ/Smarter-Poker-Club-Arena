@@ -23,10 +23,24 @@ import {
   holdemDangerBoardBettorEquity,
 } from './HorseHoldemCommittedPricing.js';
 import {
+  HOLDEM_OPENING_BET_SHARE_ANCHOR,
+  HOLDEM_OPENING_FOLD_ANCHOR,
+  HOLDEM_OPENING_RAISE_ANCHOR,
+  HOLDEM_OPENING_RAISE_FACTOR,
+  HOLDEM_OPENING_RECORD_PSEUDO,
+  holdemOpeningBest,
+  holdemOpeningBetShare,
+  holdemOpeningFoldReference,
+  holdemOpeningPrice,
+  holdemRangeAdvantage,
+} from './HorseHoldemOpeningIsPriced.js';
+import { postflopSizeBucket, raiseToBetShare, shownBetAir } from './HorsePostflopBetRecord.js';
+import {
   priceCommittingBluffRaise,
   type CommittingBluffRaiseOpponent,
 } from './HorseV78CommittingBluffRaisePriced.js';
 import {
+  HOLDEM_PRICED_REALIZATION_OOP,
   holdemEquityOfShare,
   holdemFillEquities,
   holdemHandIsMade,
@@ -6151,6 +6165,29 @@ export interface HorseDecideOpts {
    * Horse's call or check-raise. Bluff raises and hands without a made hand that bet keep the brain's line;
    * more than one opponent keeps the decision. Off: byte-identical. */
   holdemValueAndCallsArePriced?: boolean;
+  /** plo-lead7 2026-11-25 (real-hand audit NLH cash: missed turn value bets, thin flop value, turn bets sized too
+   * small): opt-in (`=== true`), default OFF. NLH cash (table and Lightning), heads-up, not facing a wager: the
+   * brain's check becomes a value bet at the legal priced size of highest EV when the hands that call lose chips to
+   * it on balance and the bet prices above the check; a turn value bet is resized to that size when it prices
+   * higher (HorseHoldemOpeningIsPriced). His fold from his own record, shrunk to the equilibrium anchor. Off:
+   * byte-identical. */
+  holdemOpeningValueBetIsPriced?: boolean;
+  /** plo-lead7 2026-11-25 (real-hand audit NLH cash: missed river and turn bluffs): opt-in (`=== true`), default
+   * OFF. NLH cash (table and Lightning), heads-up, turn and river, not facing a wager: the brain's check becomes a
+   * bluff at the legal priced size of highest EV only when the bluff prices above the check AND the Horse's cards
+   * remove more of his calling part than of his folding part (blockers) or the Horse's line range outscores his
+   * (range advantage) (HorseHoldemOpeningIsPriced). Off: byte-identical. */
+  holdemOpeningBluffIsPriced?: boolean;
+  /** plo-lead7 2026-11-25: opt-in (`=== true`), default OFF. NLH cash, heads-up, river, facing his bet: a fold becomes
+   * a call only when his own record of called, shown river bets at this size shows bluffs above the balanced share
+   * s / (1 + 2s) (shrunk to it) and the call prices above zero against his bet read with that share. No record: the
+   * decision stands. Off: byte-identical. */
+  holdemRiverCallVsMeasuredBluffIsPriced?: boolean;
+  /** plo-lead7 2026-11-25: opt-in (`=== true`), default OFF. NLH cash, multiway flop, facing a small first bet, the Horse
+   * closing the action: a fold becomes a call only when the bettor's own record of called, shown flop bets of that size
+   * shows bluffs above balanced (shrunk to it) and the call prices above zero against the bettor and every caller. No
+   * record: the decision stands. Off: byte-identical. */
+  holdemMultiwayFlopSmallBetCallIsPriced?: boolean;
   /** Hold'em Strategy 2026-11-20 (priced rebuild of Antigravity 633eec005d5 / 6496e1610f0 "ace-high jamming gate"):
    * opt-in (`=== true`), default OFF, unevaluated. NLH cash, one board, heads-up, committed, no pair and no real
    * hole draw facing a bet: fold, call or jam by EV against the bettor's range calibrated to the engine's
@@ -18497,6 +18534,15 @@ export class HorseLogic {
         // holdemValueAndCallsArePriced (default off): the reference's postflop decision priced by EV.
         if (opts.holdemValueAndCallsArePriced === true)
           decision = this.holdemPricedReference(decision, player, gs, vi, opts);
+        // holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (default off): the opening side priced.
+        if (opts.holdemOpeningValueBetIsPriced === true || opts.holdemOpeningBluffIsPriced === true)
+          decision = this.holdemOpeningPriced(decision, player, gs, vi, opts);
+        // holdemRiverCallVsMeasuredBluffIsPriced (default off): a river fold against a measured over-bluffer.
+        if (opts.holdemRiverCallVsMeasuredBluffIsPriced === true)
+          decision = this.holdemRiverCallVsMeasuredBluff(decision, player, gs, vi, opts);
+        // holdemMultiwayFlopSmallBetCallIsPriced (default off): a multiway flop fold to a small bet by a measured bluffer.
+        if (opts.holdemMultiwayFlopSmallBetCallIsPriced === true)
+          decision = this.holdemMultiwayFlopSmallBetCall(decision, player, gs, vi, opts);
         // barrelContinuationOutlook receipt: a river decision read the turn
         // outlook but an earlier river owner decided before the V7 continuation.
         if (barrelOutlookRiverPending) {
@@ -34305,6 +34351,167 @@ export class HorseLogic {
   }
 
   /**
+   * The line range of `subject` as `observer` reads it (HorseHoldemValueAndCallsArePriced.holdemLineRange): his
+   * preflop band, re-weighted street by street by his public actions (a street of checks: the posterior's move; a
+   * wager: his strongest b(1 - beta) and weakest b * beta; a call: his strongest (1 - f)). `observerCards` are the
+   * dead cards removed from his combinations (the observer's own hole cards, or none). Extracted unchanged from
+   * holdemPricedReference so holdemLateOpeningIsPriced reads the same line model; public actions only.
+   */
+  private static holdemPricedLineRead(
+    subject: SeatPlayer,
+    observer: SeatPlayer,
+    observerCards: readonly Card[],
+    gs: HorseGameStateV2,
+    foldAtReference: number,
+    betWhenCheckedTo: number,
+    /** holdemRiverCallVsMeasuredBluffIsPriced / holdemMultiwayFlopSmallBetCallIsPriced: the bluff share of his wager on
+     *  the CURRENT street from his own shown record (undefined: the line model's own share, as before) */
+    currentBetaOverride?: number
+  ) {
+    const board = gs.communityCards ?? [];
+    const street = gs.stage as 'flop' | 'turn' | 'river';
+    const history = gs.actionHistory ?? [];
+    const preflop = history.filter((x) => x.stage === 'preflop');
+    let band: [number, number] | null = null;
+    try {
+      band = HorseMind.bandFor(
+        subject.user_id,
+        preflop,
+        gs.bigBlind,
+        true,
+        null,
+        undefined,
+        HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+      );
+    } catch {
+      band = null;
+    }
+    const posteriorOf = (h: typeof history, stage: 'flop' | 'turn' | 'river' = street) =>
+      computeActionLinePosterior({
+        villainUserId: subject.user_id,
+        villainSeat: subject.seat,
+        heroSeat: observer.seat,
+        stage,
+        board,
+        pot: gs.pot,
+        bigBlind: gs.bigBlind,
+        actionHistory: h as never,
+        multiwayCount: 2,
+      });
+    const withLine = posteriorOf(history);
+    // His line street by street. A street of checks only: the posterior's move over it. A wager: he keeps
+    // the strongest b(1 - beta) of his range and the weakest b * beta (b his measured bet share when checked
+    // to, beta the posterior's bluff share for his line through that street; a raise half of each). A call:
+    // he keeps the strongest (1 - f), f his fold at the price he was laid, never more than his weak part.
+    const streets = ['flop', 'turn', 'river'] as const;
+    const isOpp = (x: (typeof history)[number]) =>
+      x.userId === subject.user_id || (x.userId === undefined && x.seat === subject.seat);
+    // Initial dead money (blinds, antes, straddles) absent from voluntary-only actionHistory (#11556):
+    // gs.pot already equals initialPot + sum(voluntary added), so subtracting voluntary added recovers
+    // the exact starting pot in both voluntary-only and forced-post histories.
+    let totalHistoryAdded = 0;
+    {
+      let stScan = 'preflop';
+      let commScan = new Map<string, number>();
+      for (const x of history) {
+        const st = x.stage ?? 'preflop';
+        if (st !== stScan) {
+          stScan = st;
+          commScan = new Map();
+        }
+        const key = x.userId ?? `s${x.seat}`;
+        const prev = commScan.get(key) ?? 0;
+        const amt = Math.max(0, Number(x.amount ?? 0));
+        const total =
+          x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+        totalHistoryAdded += Math.max(0, total - prev);
+        commScan.set(key, total);
+      }
+    }
+    const line: HoldemLineStreet[] = [];
+    const appliedCheckStreets = new Set<string>();
+    const pushCheckStreetIfOnlyChecks = (stName: string) => {
+      const k = streets.indexOf(stName as never);
+      if (k < 0 || k + 3 > board.length || appliedCheckStreets.has(stName)) return;
+      appliedCheckStreets.add(stName);
+      const mine = history.filter((y) => y.stage === stName && isOpp(y));
+      if (mine.length === 0 || mine.some((y) => y.action !== 'check')) return;
+      const upTo = (end: number) =>
+        history.filter((y) => y.stage === 'preflop' || streets.indexOf(y.stage as never) < end);
+      line.push({
+        board: board.slice(0, k + 3),
+        likelihood: holdemLineLikelihood(
+          posteriorOf(upTo(k + 1), stName as 'flop' | 'turn' | 'river'),
+          posteriorOf(upTo(k), stName as 'flop' | 'turn' | 'river')
+        ),
+      });
+    };
+    let runningPot = Math.max(0, Number(gs.pot ?? 0) - totalHistoryAdded);
+    let streetOf = 'preflop';
+    let committed = new Map<string, number>();
+    let facingTo = 0;
+    let oppNarrowedPostflop = false;
+    for (const x of history) {
+      const st = x.stage ?? 'preflop';
+      if (st !== streetOf) {
+        pushCheckStreetIfOnlyChecks(streetOf);
+        streetOf = st;
+        committed = new Map();
+        facingTo = 0;
+      }
+      const key = x.userId ?? `s${x.seat}`;
+      const prev = committed.get(key) ?? 0;
+      const amt = Math.max(0, Number(x.amount ?? 0));
+      const wager = x.action === 'raise' || x.action === 'all_in' || x.action === 'bet';
+      const total =
+        x.action === 'raise' || x.action === 'all_in' ? Math.max(prev, amt) : prev + amt;
+      const added = Math.max(0, total - prev);
+      const k = streets.indexOf(st as never);
+      if (k >= 0 && k + 3 <= board.length && isOpp(x)) {
+        const sb = board.slice(0, k + 3);
+        if (x.action === 'call' || (x.action === 'all_in' && total <= facingTo + 1e-9)) {
+          const sub = holdemLineRange(observerCards, board, band, line);
+          const f = Math.min(holdemPricedFold(foldAtReference, added, runningPot), sub.weakShare);
+          line.push({ board: sb, keep: { top: 1 - f, bottom: 0 } });
+          oppNarrowedPostflop = true;
+        } else if (wager && total > facingTo + 1e-9) {
+          // beta: on the river the share that leaves a call of his wager indifferent, call / (potAfter + call)
+          // (equals s / (pot + 2s) for a first-in bet, and (total - facingTo) / (pot + added + total - facingTo)
+          // for a raise); on the flop and turn the posterior's bluff share for his line through that wager.
+          // Once villain already narrowed his range on a prior postflop street, use his continuation share
+          // (1 - foldAtReference) rather than compounding betWhenCheckedTo^k across barrels.
+          const upTo = history.slice(0, history.indexOf(x) + 1);
+          const callToFace = Math.max(0, total - facingTo);
+          const beta =
+            currentBetaOverride !== undefined && st === street
+              ? currentBetaOverride
+              : st === 'river'
+                ? callToFace / Math.max(1e-9, runningPot + added + callToFace)
+                : posteriorOf(upTo, st as 'flop' | 'turn' | 'river').bluffShareEstimate;
+          const betShare = oppNarrowedPostflop
+            ? Math.max(betWhenCheckedTo, 1 - foldAtReference)
+            : betWhenCheckedTo;
+          const half = facingTo > 0 ? 0.5 : 1;
+          line.push({
+            board: sb,
+            keep: {
+              top: betShare * (1 - beta) * half,
+              bottom: betShare * beta * half,
+            },
+          });
+          oppNarrowedPostflop = true;
+        }
+      }
+      if (total > facingTo) facingTo = total;
+      committed.set(key, total);
+      runningPot += added;
+    }
+    pushCheckStreetIfOnlyChecks(streetOf);
+    const range = holdemLineRange(observerCards, board, band, line);
+    return { range, withLine, band, line };
+  }
+
+  /**
    * holdemPersonaPostflopIsPriced (V2 empirical priors, default off): whether one of the four V87 spots takes
    * its action, by EV (HorseHoldemPersonaPostflopIsPriced + the measured NLH empirical prior module). `amount` is the site's wager
    * at the midpoint of its own size mix, as the site would hand it to legalize (bet: the chips bet; check_raise:
@@ -34728,6 +34935,407 @@ export class HorseLogic {
       return out;
     } catch {
       if (tele) noteFire('holdem_priced_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (plo-lead7 2026-11-25, both default off, read
+   * `=== true`): NLH cash (table and Lightning), one board, heads-up, NOT facing a wager. The brain's check becomes a
+   * bet when the bet prices above the check (HorseHoldemOpeningIsPriced): a value bet (flop, turn, river) when the
+   * hands that call at the chosen size lose chips to it on balance; a bluff (turn, river) only when it also prices
+   * above the check AND the Horse's cards remove more of his calling part than of his folding part or the Horse's
+   * line range outscores his. A turn value bet the brain made is resized to the priced size when that prices higher.
+   * His fold comes from his own record first, shrunk to the equilibrium anchor (fold = the bettor's break-even);
+   * never the Horse population. Anything else keeps the decision. Draws nothing from fastRandom.
+   */
+  private static holdemOpeningPriced(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const valueOn = opts.holdemOpeningValueBetIsPriced === true;
+    const bluffOn = opts.holdemOpeningBluffIsPriced === true;
+    if (!valueOn && !bluffOn) return decision;
+    const street = gs.stage;
+    if (street !== 'flop' && street !== 'turn' && street !== 'river') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    const a = decision.action;
+    const resizeTurn = valueOn && street === 'turn' && a === 'bet';
+    if (a !== 'check' && !resizeTurn) return decision;
+    if (a === 'check' && !valueOn && street === 'flop') return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0];
+    const tele = telemetryOn(opts);
+    try {
+      const board = gs.communityCards ?? [];
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), heroIn, villainIn);
+      if (currentBet > heroIn + 1e-9) return decision;
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const villainStack = Math.max(0, Number(opp.stack ?? 0));
+      if (!(heroStack > 0) || !(villainStack > 0)) return decision;
+      const canWager = !Array.isArray(gs.legalActions)
+        ? true
+        : gs.legalActions.some((x) => x === 'raise' || x === 'bet' || x === 'all_in');
+      if (!canWager) return decision;
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const counters =
+        opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+      // his own fold record first (the river response record on the river), shrunk to the equilibrium anchor
+      const riverOpps = counters?.riverCallOpp ?? 0;
+      const foldRef =
+        street === 'river' && riverOpps > 0
+          ? holdemOpeningFoldReference(riverOpps - (counters?.riverCall ?? 0), riverOpps)
+          : holdemOpeningFoldReference(counters?.foldToBet ?? 0, counters?.foldToBetOpp ?? 0);
+      const betShare = holdemOpeningBetShare(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0
+      );
+      const { range } = this.holdemPricedLineRead(opp, player, player.cards, gs, foldRef, betShare);
+      const { range: base } = this.holdemPricedLineRead(opp, player, [], gs, foldRef, betShare);
+      if (range.total <= 0 || base.total <= 0) {
+        if (tele) noteFire('holdem_opening_priced_unpriced');
+        return decision;
+      }
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const order = (seat: number) => {
+        const d = (seat - Number(gs.dealerSeat ?? 0) + 100) % 100;
+        return d === 0 ? 100 : d;
+      };
+      const inPosition = order(player.seat) > order(opp.seat);
+      const r = street === 'river' || inPosition ? 1 : HOLDEM_PRICED_REALIZATION_OOP;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const spot = {
+        street: street as 'flop' | 'turn' | 'river',
+        pot,
+        currentBet,
+        heroIn,
+        villainIn,
+        heroStack,
+        villainStack,
+        inPosition,
+        villainToAct: false,
+        foldAtReference: foldRef,
+        betWhenCheckedTo: betShare,
+        bluffShare: 0,
+        heroMade: true,
+      };
+      const legal = new Map<number, HorseDecision>();
+      const targets = holdemPricedWagerTargets(spot);
+      if (resizeTurn && Number.isFinite(Number(decision.amount)))
+        targets.push(Number(decision.amount));
+      for (const target of targets) {
+        const d = this.legalize({ action: 'bet', amount: target, thinkTime: 0 }, player, gs, vi);
+        const to =
+          d.action === 'raise' || d.action === 'bet'
+            ? Number(d.amount)
+            : d.action === 'all_in'
+              ? heroIn + heroStack
+              : NaN;
+        if (Number.isFinite(to) && to > heroIn && !legal.has(to)) legal.set(to, d);
+      }
+      const priced = holdemOpeningPrice(
+        { pot, heroIn, villainIn, heroStack, villainStack, foldRef, r },
+        range,
+        base,
+        [...legal.keys()].sort((x, y) => x - y)
+      );
+      const thinkTime = decision.thinkTime ?? 0;
+      // The value side prices his raise of the bet too (his own record of raising a postflop bet, shrunk to the
+      // equilibrium anchor; HorsePostflopBetRecord); the bluff side is priced as before.
+      const record = opts.mind !== false ? HorseMind.postflopBetsOf(opp.user_id) : null;
+      const raiseShare = raiseToBetShare(
+        record,
+        street as 'flop' | 'turn' | 'river',
+        HOLDEM_OPENING_RAISE_ANCHOR[street as 'flop' | 'turn' | 'river']
+      ).share;
+      const pricedValue = valueOn
+        ? holdemOpeningPrice(
+            { pot, heroIn, villainIn, heroStack, villainStack, foldRef, r },
+            range,
+            base,
+            [...legal.keys()].sort((x, y) => x - y),
+            { share: raiseShare, factor: HOLDEM_OPENING_RAISE_FACTOR }
+          )
+        : priced;
+      const value = holdemOpeningBest(pricedValue.bets, true);
+      if (resizeTurn) {
+        const mine = pricedValue.bets.find((b) => Math.abs(b.to - Number(decision.amount)) <= 1e-9);
+        if (value && mine && mine.value && value.ev > mine.ev + 1e-9 && value.to !== mine.to) {
+          if (tele) noteFire('holdem_opening_value_resized');
+          return { ...(legal.get(value.to) as HorseDecision), thinkTime };
+        }
+        return decision;
+      }
+      if (valueOn && value && value.ev > pricedValue.check + 1e-9) {
+        if (tele) noteFire('holdem_opening_value_bet');
+        return { ...(legal.get(value.to) as HorseDecision), thinkTime };
+      }
+      // a bluff is a hand with no value size at all (a hand that has one is the value option's, bet or not)
+      if (bluffOn && street !== 'flop' && !holdemOpeningBest(priced.bets, true)) {
+        const bluff = holdemOpeningBest(priced.bets, false);
+        if (bluff && bluff.ev > priced.check + 1e-9) {
+          let edge = bluff.fold > bluff.foldBase + 1e-9;
+          if (!edge) {
+            const { range: mine } = this.holdemPricedLineRead(
+              player,
+              opp,
+              [],
+              gs,
+              HOLDEM_OPENING_FOLD_ANCHOR,
+              HOLDEM_OPENING_BET_SHARE_ANCHOR
+            );
+            edge = mine.total > 0 && holdemRangeAdvantage(mine, base, board) > 0.5;
+          }
+          if (edge) {
+            if (tele) noteFire('holdem_opening_bluff_bet');
+            return { ...(legal.get(bluff.to) as HorseDecision), thinkTime };
+          }
+          if (tele) noteFire('holdem_opening_bluff_no_edge');
+        }
+      }
+      return decision;
+    } catch {
+      if (tele) noteFire('holdem_opening_priced_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemRiverCallVsMeasuredBluffIsPriced (plo-lead7 2026-11-25, default off, read `=== true`): NLH cash (table and
+   * Lightning), one board, heads-up, the river, facing his bet (the Horse has not wagered on the river): the brain's
+   * fold becomes a call only when HIS OWN record of called, shown river bets at this size (HorsePostflopBetRecord
+   * shownBet: air of shown, only cards shown at showdown) puts his bluff share above the balanced share s / (1 + 2s)
+   * for the size, shrunk to that balanced share with 20 pseudo-observations, and the call prices above zero against his
+   * river bet read with that bluff share. No record (or a record at or under balanced): the decision stands, exactly as
+   * today. Never a raise; never a call turned into a fold. Draws nothing from fastRandom.
+   */
+  private static holdemRiverCallVsMeasuredBluff(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    if (opts.holdemRiverCallVsMeasuredBluffIsPriced !== true) return decision;
+    if (decision.action !== 'fold' || gs.stage !== 'river') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2 ||
+      opts.mind === false
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0];
+    const tele = telemetryOn(opts);
+    try {
+      const history = gs.actionHistory ?? [];
+      const river = history.filter((x) => x.stage === 'river');
+      const isMe = (x: (typeof history)[number]) =>
+        x.userId === player.user_id || (x.userId === undefined && x.seat === player.seat);
+      if (
+        river.some(
+          (x) => isMe(x) && (x.action === 'bet' || x.action === 'raise' || x.action === 'all_in')
+        )
+      )
+        return decision;
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), heroIn);
+      const toCall = Math.min(currentBet - heroIn, Math.max(0, Number(player.stack ?? 0)));
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const potBefore = pot - (currentBet - 0) - heroIn; // pot before his wager (his wager is in the pot)
+      if (!(toCall > 0) || !(potBefore > 0)) return decision;
+      const s = currentBet / potBefore;
+      const bucket = postflopSizeBucket(currentBet, potBefore);
+      const balanced = s / (1 + 2 * s);
+      const rec = shownBetAir(HorseMind.postflopBetsOf(opp.user_id), 'river', bucket);
+      if (!rec) return decision;
+      const k = HOLDEM_OPENING_RECORD_PSEUDO;
+      const beta = (rec.shown * rec.air + k * balanced) / (rec.shown + k);
+      if (!(beta > balanced + 1e-9)) {
+        if (tele) noteFire('holdem_river_call_vs_measured_bluff_not_above');
+        return decision;
+      }
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const counters = HorseMind.getExploitCounters(opp.user_id, scope);
+      const foldRef = holdemOpeningFoldReference(
+        counters?.foldToBet ?? 0,
+        counters?.foldToBetOpp ?? 0
+      );
+      const betShare = holdemOpeningBetShare(
+        counters?.betCheckedTo ?? 0,
+        counters?.betCheckedToOpp ?? 0
+      );
+      const { range } = this.holdemPricedLineRead(
+        opp,
+        player,
+        player.cards,
+        gs,
+        foldRef,
+        betShare,
+        beta
+      );
+      if (range.total <= 0) return decision;
+      const board = gs.communityCards ?? [];
+      holdemFillEquities(range, player.cards, board, holdemPricedSeed(player.cards, board, gs.pot));
+      const eq = holdemEquityOfShare(range, 1).equity;
+      const ev = eq * (pot + toCall) - toCall;
+      if (!(ev > 0)) {
+        if (tele) noteFire('holdem_river_call_vs_measured_bluff_kept_fold');
+        return decision;
+      }
+      if (tele) noteFire('holdem_river_call_vs_measured_bluff_called');
+      const thinkTime = decision.thinkTime ?? 0;
+      return this.legalize({ action: 'call', amount: toCall, thinkTime }, player, gs, vi);
+    } catch {
+      return decision;
+    }
+  }
+
+  /**
+   * holdemMultiwayFlopSmallBetCallIsPriced (plo-lead7 2026-11-25, default off, read `=== true`): NLH cash (table and
+   * Lightning), one board, the FLOP, multiway (two or more live opponents), facing a small first bet (under half the
+   * pot), the Horse closing the action (every other live player has already called it): the brain's fold becomes a
+   * call only when THE BETTOR'S OWN record of called, shown flop bets of that size (HorsePostflopBetRecord shownBet,
+   * only cards shown at showdown) puts his bluff share above the balanced share s / (1 + 2s), shrunk to it with 20
+   * pseudo-observations, and the call prices above zero: equity against his bet read with that share times equity
+   * against each caller's line range (independence), realized at the out-of-position factor unless the Horse acts last.
+   * No record: the decision stands, exactly as today. Draws nothing from fastRandom.
+   */
+  private static holdemMultiwayFlopSmallBetCall(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    if (opts.holdemMultiwayFlopSmallBetCallIsPriced !== true) return decision;
+    if (decision.action !== 'fold' || gs.stage !== 'flop') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2 ||
+      opts.mind === false
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length < 2) return decision;
+    const tele = telemetryOn(opts);
+    try {
+      const history = gs.actionHistory ?? [];
+      const flop = history.filter((x) => x.stage === 'flop');
+      const wagers = flop.filter(
+        (x) => x.action === 'bet' || x.action === 'raise' || x.action === 'all_in'
+      );
+      if (wagers.length !== 1) return decision; // one first bet, no raise
+      const w = wagers[0];
+      const bettor = live.find(
+        (p) => p.user_id === w.userId || (w.userId === undefined && p.seat === w.seat)
+      );
+      if (!bettor) return decision;
+      const after = flop.slice(flop.indexOf(w) + 1);
+      const others = live.filter((p) => p !== bettor);
+      const isP = (p: SeatPlayer, x: (typeof history)[number]) =>
+        x.userId === p.user_id || (x.userId === undefined && x.seat === p.seat);
+      if (!others.every((p) => after.some((x) => isP(p, x) && x.action === 'call')))
+        return decision;
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), heroIn);
+      const toCall = Math.min(currentBet - heroIn, Math.max(0, Number(player.stack ?? 0)));
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const potBefore = pot - currentBet * (1 + others.length) - heroIn;
+      if (!(toCall > 0) || !(potBefore > 0)) return decision;
+      const bucket = postflopSizeBucket(currentBet, potBefore);
+      if (bucket !== 'small') return decision;
+      const sz = currentBet / potBefore;
+      const balanced = sz / (1 + 2 * sz);
+      const rec = shownBetAir(HorseMind.postflopBetsOf(bettor.user_id), 'flop', bucket);
+      if (!rec) return decision;
+      const beta =
+        (rec.shown * rec.air + HOLDEM_OPENING_RECORD_PSEUDO * balanced) /
+        (rec.shown + HOLDEM_OPENING_RECORD_PSEUDO);
+      if (!(beta > balanced + 1e-9)) {
+        if (tele) noteFire('holdem_mw_flop_small_bet_not_above');
+        return decision;
+      }
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const board = gs.communityCards ?? [];
+      const seed = holdemPricedSeed(player.cards, board, gs.pot);
+      const eqVs = (p: SeatPlayer, b?: number): number => {
+        const c = HorseMind.getExploitCounters(p.user_id, scope);
+        const { range } = this.holdemPricedLineRead(
+          p,
+          player,
+          player.cards,
+          gs,
+          holdemOpeningFoldReference(c?.foldToBet ?? 0, c?.foldToBetOpp ?? 0),
+          holdemOpeningBetShare(c?.betCheckedTo ?? 0, c?.betCheckedToOpp ?? 0),
+          b
+        );
+        if (range.total <= 0) return NaN;
+        holdemFillEquities(range, player.cards, board, seed);
+        return holdemEquityOfShare(range, 1).equity;
+      };
+      let eq = eqVs(bettor, beta);
+      for (const p of others) eq *= eqVs(p);
+      if (!Number.isFinite(eq)) return decision;
+      const order = (seat: number) => {
+        const d = (seat - Number(gs.dealerSeat ?? 0) + 100) % 100;
+        return d === 0 ? 100 : d;
+      };
+      const last = live.every((p) => order(player.seat) > order(p.seat));
+      const r = last ? 1 : HOLDEM_PRICED_REALIZATION_OOP;
+      const ev = r * eq * (pot + toCall) - toCall;
+      if (!(ev > 0)) {
+        if (tele) noteFire('holdem_mw_flop_small_bet_kept_fold');
+        return decision;
+      }
+      if (tele) noteFire('holdem_mw_flop_small_bet_called');
+      const thinkTime = decision.thinkTime ?? 0;
+      return this.legalize({ action: 'call', amount: toCall, thinkTime }, player, gs, vi);
+    } catch {
       return decision;
     }
   }

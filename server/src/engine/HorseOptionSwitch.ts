@@ -355,6 +355,12 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'holdemValueAndCallsArePriced',
   'holdemCommittedNoPairIsPriced',
   'holdemDangerBoardEquityIsPriced',
+  // 2026-11-25 plo-lead7: the opening side of NLH cash priced (value bets; blocker or range-advantage bluffs) (ship dark)
+  'holdemOpeningValueBetIsPriced',
+  'holdemOpeningBluffIsPriced',
+  // 2026-11-25 plo-lead7: calls priced on the bettor's own shown-bluff record (ship dark)
+  'holdemRiverCallVsMeasuredBluffIsPriced',
+  'holdemMultiwayFlopSmallBetCallIsPriced',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1080,6 +1086,26 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up postflop',
     "heads-up postflop value raises, made-hand bets/checks and calls priced against the bettor's line range (audit D)",
+  ],
+  holdemOpeningValueBetIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, flop/turn/river, not facing a wager',
+    'a check becomes a value bet when the hands that call lose chips to it and it prices above the check; turn value bets resized',
+  ],
+  holdemRiverCallVsMeasuredBluffIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, river, facing his bet',
+    'a fold becomes a call only when his own shown record of called river bets at the size is bluff-heavy beyond balanced',
+  ],
+  holdemMultiwayFlopSmallBetCallIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), multiway flop, small first bet, the Horse closing the action',
+    'a fold becomes a call only when the bettor shows bluffs beyond balanced and the call prices against every caller',
+  ],
+  holdemOpeningBluffIsPriced: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, turn/river, not facing a wager',
+    "a check becomes a bluff only when it prices above the check and blockers or the range advantage are the Horse's",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

@@ -11,6 +11,12 @@ import {
   type StreetReadCounters,
 } from '../HorseOmahaStreetRead.js';
 import {
+  copyPostflopBets,
+  postflopBetsCarriedFor,
+  validPostflopBets,
+  type PostflopBetCounters,
+} from '../HorsePostflopBetRecord.js';
+import {
   copyReraiseResponse,
   reraiseResponseCarriedFor,
   validReraiseResponse,
@@ -735,6 +741,18 @@ export class HorseObserverReads {
             opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
             copyStreetPrice(row.street_counters_price)
           );
+    // HOW HE ANSWERS A POSTFLOP BET AND WHAT HIS CALLED BETS SHOWED (2026-11-25). Each pooled exact row of an nlh game
+    // that carries a well-formed record (horse_exact_profiles.postflop_bets) brings a detached copy of it into the
+    // decision's own state, beside its counters. Donor rows never carry one. Read only by default-OFF options
+    // (HorseMind.postflopBetsOf).
+    const pooledPostflopBets = new Map<string, PostflopBetCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (postflopBetsCarriedFor(row.variant) && validPostflopBets(row.postflop_bets))
+          pooledPostflopBets.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyPostflopBets(row.postflop_bets)
+          );
     // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
     // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
     // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
@@ -764,6 +782,7 @@ export class HorseObserverReads {
                   ...(pooledReraiseResponse.size ? { pooledReraiseResponse } : {}),
                   ...(pooledFlopShown.size ? { pooledFlopShown } : {}),
                   ...(pooledStreetPrice.size ? { pooledStreetPrice } : {}),
+                  ...(pooledPostflopBets.size ? { pooledPostflopBets } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),

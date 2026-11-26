@@ -9,6 +9,7 @@ import {
   copyShownRiver,
   copyFlopShownRecord,
   copyReraiseResponseRecord,
+  copyPostflopBetsRecord,
   copyStreetCounters,
   copyStreetPriceRecord,
   durableProfileCounters,
@@ -152,6 +153,8 @@ export class PooledPublicProfiles {
           ...copyFlopShownRecord(p),
           // And the price behind his fold-to-raise cells (2026-11-19; a malformed one is dropped).
           ...copyStreetPriceRecord(p),
+          // And how he answers a postflop bet and what his called bets showed (2026-11-25; a malformed one is dropped).
+          ...copyPostflopBetsRecord(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -286,6 +289,8 @@ export class PooledPublicProfiles {
           ...copyFlopShownRecord(p),
           // And the price behind his fold-to-raise cells (2026-11-19; a malformed one is dropped).
           ...copyStreetPriceRecord(p),
+          // And how he answers a postflop bet and what his called bets showed (2026-11-25; a malformed one is dropped).
+          ...copyPostflopBetsRecord(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,
