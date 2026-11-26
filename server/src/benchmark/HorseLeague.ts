@@ -4574,6 +4574,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemOopReraiseRangeHoldsVsReraise: true },
     b: {},
   },
+  // 2026-11-25 plo-lead7 (default OFF): the Hold'em opening side priced, each option alone; a switches it on, b is
+  // today's brain. Graded by the lane's own mirror and probes (docs/horse-option-authority.d).
+  {
+    name: 'nlh_holdem_opening_value_bet_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOpeningValueBetIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh_holdem_opening_bluff_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemOpeningBluffIsPriced: true },
+    b: {},
+  },
   // 2026-11-20 EMERG lane PREFLOP-UNCONTESTED (default OFF, PLO4/PLO5 cash): omahaFourBetFoldPricedCall (a final
   // preflop fold after the Horse's own raise, facing a 4-bet or more heads-up, becomes the call where the priced call of
   // a re-raise is positive); a switches it on, b is today's brain.
