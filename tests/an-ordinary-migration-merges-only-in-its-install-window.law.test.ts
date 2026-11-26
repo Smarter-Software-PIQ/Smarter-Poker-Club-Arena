@@ -172,5 +172,9 @@ describe('the workflow', () => {
       'node scripts/ci/migration-merge-window.mjs check files.txt proposed/supabase/migrations'
     );
     expect(decide).not.toContain('node proposed/');
+    // The pull request that introduces the check passes before main has the script.
+    expect(decide.indexOf('[ ! -f scripts/ci/migration-merge-window.mjs ]')).toBeLessThan(
+      decide.indexOf('node scripts/ci/migration-merge-window.mjs check')
+    );
   });
 });

@@ -69,6 +69,12 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
+          # The pull request that introduces this check runs before the default
+          # branch has its script: nothing to judge yet, so it passes and says so.
+          if [ ! -f scripts/ci/migration-merge-window.mjs ]; then
+            echo "The merge-window guard is not on the default branch yet; nothing to check."
+            exit 0
+          fi
           # The files the change adds or modifies under supabase/migrations,
           # against the merge base (the dispatcher's own list format).
           base=$(git -C proposed merge-base "$BASE" "$HEAD")
