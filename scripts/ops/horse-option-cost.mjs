@@ -485,7 +485,7 @@ function report(args) {
   console.error(`options ${rows.length}, over the bar ${over.length}: ${over.join(', ')}`);
 }
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname;
+const isMain = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0];
