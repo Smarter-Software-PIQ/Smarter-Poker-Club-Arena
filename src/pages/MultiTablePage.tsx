@@ -82,6 +82,7 @@ import { tableSizingOwnsNumberRow } from '../hooks/useTableKeyboard';
 import { formatGameTitle } from '../utils/formatGameTitle';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
+import { isUUID } from '../utils/clubIdResolver';
 import { gameCode, gameCodeFromName, isTournamentGameCode } from '../utils/gameCode';
 import { readTournamentTabInfo, tournamentTabBuyInLabel } from '../lib/tournamentTabLabel';
 import { reportError } from '../utils/errorReporter';
@@ -4050,10 +4051,14 @@ export default function MultiTablePage() {
    * table's club is now only a candidate; commitHomeClub decides.
    */
   useEffect(() => {
+    /* tables.id is a uuid. A tab opened from a route segment that is not one
+       (`/table/demo`, `/table/nonexistent-table-id`) has no club to find, and
+       one such id in the list was Postgres 22P02 for the whole `in (...)`
+       read, so no tab's club resolved (2026-11-26). */
     const unresolved = tables
       .filter((t) => isTableTab(t))
       .map((t) => t.id)
-      .filter((id) => !clubLookupCacheRef.current.has(id));
+      .filter((id) => isUUID(id) && !clubLookupCacheRef.current.has(id));
     if (unresolved.length === 0) return;
 
     let cancelled = false;

@@ -209,8 +209,8 @@ describe('the operations workspace reads the club', () => {
     expect(screen.queryByText('18 Waiting')).toBeNull();
   });
 
-  it('withholds the money tiles from a staff member without finance access', async () => {
-    access = makeAccess({ canViewFinance: false, canControlClub: false, clubRole: 'agent' });
+  it('withholds the money tiles when the reading carries none', async () => {
+    access = makeAccess({ canViewFinance: false });
     const staffOnly = payload();
     delete (staffOnly.kpis as Record<string, unknown>).rake_today;
     delete (staffOnly.kpis as Record<string, unknown>).club_bank;
@@ -220,6 +220,21 @@ describe('the operations workspace reads the club', () => {
     await waitFor(() => expect(screen.getByText('Hands Today')).toBeTruthy());
     expect(screen.queryByText('Club Bank')).toBeNull();
     expect(screen.queryByText('Cash Rake Today')).toBeNull();
+  });
+
+  /* 2026-11-26: ca_club_operations_overview admits owner, co_owner, admin and
+     platform staff only. An agent's page asked anyway on every mount and
+     poll, 454 refusals in a day. The page now asks only under the RPC's own
+     rule and says the reading is restricted, without a round trip. */
+  it('does not ask for a reading the role cannot have, and says so', async () => {
+    access = makeAccess({ canViewFinance: false, canControlClub: false, clubRole: 'agent' });
+    rpcMock.mockResolvedValue({ data: payload(), error: null });
+    mount();
+    await waitFor(() =>
+      expect(screen.getByText('Live Readings Restricted For This Role')).toBeTruthy()
+    );
+    expect(rpcMock).not.toHaveBeenCalledWith('ca_club_operations_overview', expect.anything());
+    expect(screen.queryByText('Hands Today')).toBeNull();
   });
 
   it('lists what is waiting and links each line to the tool that owns it', async () => {

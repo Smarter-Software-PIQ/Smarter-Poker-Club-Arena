@@ -15,6 +15,7 @@
  * Everything here fails CLOSED — see src/lib/gameCreationAccess.
  */
 import { supabase } from '../lib/supabase';
+import { isUUID } from '../utils/clubIdResolver';
 import {
   parseGameCreationAccess,
   GAME_CREATION_DENIED,
@@ -26,7 +27,9 @@ export async function fetchGameCreationAccess(
   clubUuid: string | null | undefined,
   signal?: AbortSignal
 ): Promise<GameCreationAccess> {
-  if (!clubUuid) return { allowed: false, unionId: null, reason: 'unknown_club' };
+  /* p_club_id is a uuid argument. A route segment that never resolved
+     (`/clubs/demo`) is an unknown club here, not a 22P02 at the database. */
+  if (!clubUuid || !isUUID(clubUuid)) return { allowed: false, unionId: null, reason: 'unknown_club' };
   try {
     const request = supabase.rpc('fn_game_creation_access', { p_club_id: clubUuid });
     const { data, error } = await (signal ? request.abortSignal(signal) : request);

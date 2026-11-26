@@ -81,6 +81,11 @@ export interface BugReport {
  * deterministic primary key, so the second occurrence updates the first row
  * instead of adding one. `demo` and `nonexistent-table-id` differ only in that
  * stripped literal, so they collapse to a single row rather than two.
+ *
+ * 2026-11-26: the fold now lives in memory for the tab and server side in
+ * client_error_events. A browser no longer writes fingerprinted rows to this
+ * table at all, because the upsert the fold needs is refused to every player
+ * role by the table's policies (see report()).
  */
 const UUID_LITERAL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?/g;
@@ -471,9 +476,22 @@ class HorseBugReporterService {
     if (entry && due) entry.lastReportedAt = Date.now();
     const isRepeat = Boolean(entry && entry.occurrences > 1);
 
-    // Persist critical/high/medium to Supabase (fire and forget)
-    if (worthPersisting && due && !isAutomatedSession()) {
-      this.persistToSupabase(report, Boolean(dedupe)).catch((e) =>
+    // Persist critical/high/medium to Supabase (fire and forget).
+    /* A FINGERPRINTED REPORT IS NOT WRITTEN FROM A BROWSER (2026-11-26).
+       The fold it needs is "the second sighting updates the first row", an
+       INSERT ... ON CONFLICT, and since 20260908021100 a player's role may
+       only INSERT into horse_bug_reports: every ON CONFLICT, DO NOTHING
+       included, also has to pass the admin-only SELECT policy, so Postgres
+       refused every one with "new row violates row-level security policy"
+       and no fingerprinted row has landed for a player since. These reports
+       come from the console.error intercept, and what reaches that console
+       already reaches the first-party sink: reportError and window.onerror
+       write client_error_events through fn_report_client_errors, the one door
+       a browser may write, which folds repeats into `occurrences` server
+       side. Distinct events (a specific hand, a specific pot) keep their
+       plain INSERT, which the policy allows. */
+    if (worthPersisting && due && !dedupe && !isAutomatedSession()) {
+      this.persistToSupabase(report).catch((e) =>
         reportError(e, 'HorseBugReporter.Failed_to_persist')
       );
     }
@@ -680,20 +698,10 @@ class HorseBugReporterService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Persist a bug report to Supabase.
-   *
-   * A fingerprinted report UPSERTS on its deterministic primary key, so the
-   * second occurrence refreshes the open row instead of adding one. It also
-   * REOPENS a row an operator had resolved, deliberately: a bug that is
-   * happening again is not resolved, and last_seen_at says when it came back.
-   *
-   * `created_at` is deliberately absent from the upserted row. PostgREST
-   * builds DO UPDATE from the columns in the payload, so leaving it out keeps
-   * the column's own default for the first sighting and leaves it untouched
-   * on every refresh: created_at means "first seen", which is what an operator
-   * reading this table needs it to mean.
+   * Persist a distinct bug report to Supabase: one plain INSERT, the only
+   * write the table's policies give a player (never an upsert; see report()).
    */
-  private async persistToSupabase(report: BugReport, deduped = false): Promise<void> {
+  private async persistToSupabase(report: BugReport): Promise<void> {
     try {
       const row = {
         id: report.id,
@@ -710,11 +718,7 @@ class HorseBugReporterService {
         stack_trace: report.stackTrace || null,
         resolved: false,
       };
-      if (deduped) {
-        await supabase.from('horse_bug_reports').upsert(row, { onConflict: 'id' });
-      } else {
-        await supabase.from('horse_bug_reports').insert({ ...row, created_at: report.timestamp });
-      }
+      await supabase.from('horse_bug_reports').insert({ ...row, created_at: report.timestamp });
     } catch (err) {
       /* THE ORIGINAL console.error, NOT THE PATCHED ONE. startCapturing
          replaces console.error with the hook that calls this method; a plain

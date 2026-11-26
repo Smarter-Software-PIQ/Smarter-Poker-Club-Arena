@@ -7,6 +7,7 @@
  */
 import { useEffect } from 'react';
 import {
+  isTerminalPresenceRefusal,
   PRESENCE_HEARTBEAT_MS,
   resumePresence,
   sendPresence,
@@ -29,6 +30,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     // One report per run of failures, not one every two minutes while offline.
     let failing = false;
     let beatInFlight = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
 
     const beat = () => {
       if (stopped || tabHidden()) return;
@@ -41,6 +43,13 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
         },
         (e) => {
           beatInFlight = false;
+          // A closed account or a revoked session: no later beat can land,
+          // so this mount stops beating (src/lib/presenceHeartbeat.ts).
+          if (isTerminalPresenceRefusal(e)) {
+            stopped = true;
+            if (timer !== undefined) clearInterval(timer);
+            return;
+          }
           if (!failing) reportError(e, 'presenceHeartbeat.beat');
           failing = true;
         }
@@ -55,7 +64,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     };
 
     beat();
-    const timer = setInterval(beat, PRESENCE_HEARTBEAT_MS);
+    timer = setInterval(beat, PRESENCE_HEARTBEAT_MS);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onVisibility);
     window.addEventListener(NATIVE_RESUME_EVENT, onVisibility);
@@ -63,7 +72,7 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     window.addEventListener(NATIVE_PAUSE_EVENT, onLeave);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer !== undefined) clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onVisibility);
       window.removeEventListener(NATIVE_RESUME_EVENT, onVisibility);

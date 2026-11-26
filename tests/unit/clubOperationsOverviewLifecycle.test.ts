@@ -160,7 +160,9 @@ describe('Club Operations Reading Lifecycle', () => {
     const second = renderHook(() => useClubOperationsOverview('club'));
     await waitFor(() => expect(second.result.current.denied).toBe(true));
     expect(second.result.current.overview).toBeNull();
-    expect(mocks.rpc).toHaveBeenCalledTimes(3);
+    // 2026-11-26: the refusal is remembered for the scope, so the second
+    // mount answers from it instead of asking the database to refuse again.
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
     second.unmount();
   });
   it('clears cached permissions and immediately reads again after a role change', async () => {
@@ -235,5 +237,48 @@ describe('club overview outcome belongs to its mounted reader', () => {
       current.resolve({ data: null, error: new TypeError('Failed to fetch') });
     });
     expect(mocks.report).not.toHaveBeenCalled();
+  });
+});
+
+describe('A Refused Overview Is Not Asked Again (2026-11-26)', () => {
+  beforeEach(() => {
+    resetClubOperationsOverviewCache();
+    mocks.rpc.mockReset();
+    mocks.report.mockReset();
+    useUserStore.setState({ user: { id: 'agent' } as never });
+  });
+
+  it('a refusal stops the poll, the refresh and the bus nudges until the role changes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.rpc.mockResolvedValue({
+        data: null,
+        error: { code: '42501', message: 'not authorized for this club' },
+      });
+      const hook = renderHook(() => useClubOperationsOverview('club'));
+      await waitFor(() => expect(hook.result.current.denied).toBe(true));
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+
+      // Ten minutes of polling, a manual refresh and a bus nudge: no new read.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+      });
+      act(() => hook.result.current.refresh());
+      emit('CLUB_UPDATED');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(hook.result.current.denied).toBe(true);
+
+      // A role change is the one thing that can change the answer.
+      mocks.rpc.mockResolvedValue({ data: payload(7), error: null });
+      emit('MEMBER_ROLE_CHANGED');
+      await waitFor(() => expect(hook.result.current.overview?.kpis.club_bank).toBe(7));
+      expect(mocks.rpc).toHaveBeenCalledTimes(2);
+      hook.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
