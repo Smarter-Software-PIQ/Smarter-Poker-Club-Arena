@@ -3639,6 +3639,10 @@ jobs:
             --socket-root "$RUNNER_TEMP/cancellation-socket" \
             --pg-bin /usr/lib/postgresql/17/bin
 
+      - name: Spin cancellation reporting reads signed fee and reserve reversals
+        if: matrix.shard == 4
+        run: python3 -B scripts/ci/test-spin-cancellation-reporting-postgres.py --scratch "$RUNNER_TEMP"
+
       - name: Undrawn Spin cancellation returns exact gross entries atomically
         if: matrix.shard == 4
         run: |

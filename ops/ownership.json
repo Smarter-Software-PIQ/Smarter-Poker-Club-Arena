@@ -214,7 +214,10 @@
         "server/src/tournament/**",
         "scripts/tournament-schedules/**",
         "docs/tournament-schedules/**",
-        "ops/tournament-monitor/**"
+        "ops/tournament-monitor/**",
+        "scripts/ci/test-spin-cancellation-reporting-postgres.py",
+        "scripts/ci/fixtures/spin-cancellation-reporting/**",
+        "tests/unit/spinCancellationReporting.test.ts"
       ],
       "functions": [
         "fn_ca_tournament_*",
