@@ -493,3 +493,19 @@ describe('the records worktree goes where agents may write, and its commit runs 
     expect(src).not.toMatch(/\|\|\s*tmpdir\(\)/);
   });
 });
+
+// 2026-11-26: the records tree borrowed node_modules from the operator's checkout by symbolic link. npm writes
+// through a link, so one `npm ci` in that tree (the remedy the pre-push hook prints) empties the source for every
+// tree that shares it, which is how the shared clone's copy went empty on 2026-11-24.
+describe('the records tree installs its own packages and links none', () => {
+  it('the module never links node_modules and installs through its injectable installer', () => {
+    const src = readFileSync(
+      resolve(__dirname, '../../scripts/ops/horse-option-switch-records.mjs'),
+      'utf8'
+    );
+    expect(src).not.toMatch(/symlinkSync/);
+    expect(src).not.toMatch(/ln -s/);
+    expect(src).toMatch(/installTreeDeps\(tree\)/);
+    expect(src).toMatch(/'ci', '--ignore-scripts', '--no-audit', '--no-fund'/);
+  });
+});

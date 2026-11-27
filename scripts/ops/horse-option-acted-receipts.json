@@ -1243,6 +1243,13 @@
         "omahaFlopRealizationIsPriced"
       ]
     },
+    "omahaFacingBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_people_prior_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",
