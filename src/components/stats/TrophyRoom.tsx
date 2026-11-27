@@ -219,7 +219,7 @@ function buildMilestones(o: OverallLike, t: TournLike | null, lifetimeHands: num
     progress: crusherQualified ? (o.bb_per_100 > 0 ? 1 : 0) : clamp01(hands / 5000),
     unlocked: crusherQualified && o.bb_per_100 > 0,
     detail: crusherQualified
-      ? `${o.bb_per_100.toFixed(1)} bb/100 over your last ${o.cash_hands.toLocaleString()} cash hands`
+      ? `${o.bb_per_100.toFixed(1)} BB/100 Hands over your last ${o.cash_hands.toLocaleString()} cash hands`
       : `${hands.toLocaleString()} / 5,000 qualifying hands`,
   });
 

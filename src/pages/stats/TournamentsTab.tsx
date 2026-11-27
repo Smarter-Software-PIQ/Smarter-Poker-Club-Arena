@@ -8,6 +8,7 @@
  * conditions that gate the tab (`showTab`, `hasData`, `isOwnProfile`) stay in
  * the page, where `printing` can override them for the dossier.
  */
+import './StatsReadouts.css';
 import { StatRow } from './StatRow';
 import { ratioOrUnmeasured } from './format';
 import { num, type FullStats, type OverallStats, type TournamentSummary } from './types';
@@ -20,32 +21,20 @@ import { chipCents } from '../../utils/cashierAmount';
 
 export interface TournamentsTabProps {
   tourn: TournamentSummary;
-  overall: OverallStats;
+  /** Kept for callers; the hand count lives in Playing Statistics above. */
+  overall?: OverallStats;
   full: FullStats | null;
   financialPanel?: ReactNode;
 }
 
-export default function TournamentsTab({
-  tourn,
-  overall,
-  full,
-  financialPanel,
-}: TournamentsTabProps) {
+export default function TournamentsTab({ tourn, full, financialPanel }: TournamentsTabProps) {
   return (
-    <div className="stats-workbench tournament-stats">
+    <div className="stats-workbench stats-readouts tournament-stats">
       <section className="stats-workbench-surface" aria-label="Tournament Results">
         <div className="stats-section-header">
-          <h3>Tournament Results</h3>
+          <h3>Results</h3>
         </div>
-        <div className="stats-notice" role="status">
-          Results Cover Finalized Events In This Window. Playing Statistics Use Recorded Tournament
-          Hands.
-        </div>
-        <div className="stats-notice" role="status">
-          Accounting Coverage: Reconstructed From Tournament Records. Registration, Rebuy, Add-On,
-          Refund, Ticket, Prize, And Bounty Ledgers Are Not Yet Reconciled Into This Readout.
-        </div>
-        <div className="stats-grid">
+        <div className="stats-rate-grid">
           <StatRow label="Entries" value={tourn.entries.toLocaleString()} color="#00d4ff" />
           <StatRow label="Cashes" value={tourn.cashes.toLocaleString()} color="#22c55e" />
           {/* STATS CONTRACT TRUTH (2026-09-20). ITM is cashes over ENTRIES and
@@ -73,7 +62,7 @@ export default function TournamentsTab({
             color="#06b6d4"
           />
           <StatRow
-            label="Recorded Prize And Bounty Amounts"
+            label="Prizes And Bounties"
             value={compactChips(tourn.total_winnings)}
             color="#10b981"
           />
@@ -92,12 +81,6 @@ export default function TournamentsTab({
             )}
             // An unmeasured return has no sign, so it gets no win or loss colour.
             color={tourn.total_buyins > 0 ? (tourn.roi >= 0 ? '#22c55e' : '#ef4444') : '#94a3b8'}
-            evidence="Reconstructed From Tournament Records"
-          />
-          <StatRow
-            label="Tournament Hands"
-            value={overall.tourney_hands.toLocaleString()}
-            color="#55b4ed"
           />
         </div>
       </section>

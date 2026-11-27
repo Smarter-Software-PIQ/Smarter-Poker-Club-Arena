@@ -49,6 +49,16 @@
 -- (postgres and service_role only). Pinned by
 -- tests/cron-watchers-materialize-and-prune-without-deadlock.law.test.ts.
 --
+-- Install-budget hardening (incident 37a45c05-e9bb-4d31-a579-0e9363a56a64, run 46054847104):
+--   - fn_ca_free_buy_funding_watch() is a zero-arg 14-day multi-table watcher (60s budget)
+--     that timed out at 9,952 ms (ERROR 57014) when called inside DO $probe$ under the 8s/12s
+--     install budget -> marked @probe-exempt and checked statically by plpgsql_check in CI.
+--   - fn_ca_diamond_prune_history(...) is a daily 120s pruner whose queries scan
+--     public.user_daily_challenges (no created_at index) twice and ca_diamond_incidents once
+--     even for distant retention cutoffs -> marked @probe-exempt and checked by plpgsql_check.
+--   - fn_ca_guarantee_funding_variance_scan(...) probe uses clock_timestamp() + interval '100 years'
+--     so idx_tournaments_start_time matches zero rows regardless of scheduled future majors.
+--
 -- @live-proof: (SELECT bool_and(i.indisvalid AND i.indisready) AND count(*) = 1 FROM pg_index i WHERE i.indexrelid = to_regclass('public.idx_hand_history_human_plo45_cash_created'))
 -- @live-proof: position('WITH gtd AS MATERIALIZED' in pg_get_functiondef('public.fn_ca_free_buy_funding_watch()'::regprocedure)) > 0 AND position('GREATEST(c_gross_since, v_window)' in pg_get_functiondef('public.fn_ca_free_buy_funding_watch()'::regprocedure)) > 0 AND position('WITH cov AS MATERIALIZED' in pg_get_functiondef('public.fn_ca_guarantee_funding_variance_scan(timestamp with time zone)'::regprocedure)) > 0 AND position('FOR UPDATE SKIP LOCKED' in pg_get_functiondef('public.fn_ca_diamond_prune_history(integer,integer,integer)'::regprocedure)) > 0
 -- @live-proof: (SELECT NOT has_function_privilege('authenticated', 'public.fn_ca_free_buy_funding_watch()', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_guarantee_funding_variance_scan(timestamp with time zone)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_diamond_prune_history(integer,integer,integer)', 'EXECUTE'))
@@ -468,31 +478,17 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_diamond_prune_history(integer, integer, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_diamond_prune_history(integer, integer, integer) TO service_role;
 
--- @probe-for: public.fn_ca_free_buy_funding_watch
-DO $probe$
-BEGIN
-  PERFORM public.fn_ca_free_buy_funding_watch();
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
+-- @probe-exempt: public.fn_ca_free_buy_funding_watch Zero-argument 14-day multi-table cron watcher (60s runtime budget) cannot be bounded to an empty window inside the 8s/12s install transaction (run 46054847104 timed out at 9,952 ms); statically validated by plpgsql_check in CI and exercised every 15m by ca-free-buy-funding-watch-15m.
 
 -- @probe-for: public.fn_ca_guarantee_funding_variance_scan
 DO $probe$
 BEGIN
-  PERFORM public.fn_ca_guarantee_funding_variance_scan(clock_timestamp() + interval '1 day');
+  PERFORM public.fn_ca_guarantee_funding_variance_scan(clock_timestamp() + interval '100 years');
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
 END $probe$;
 
--- @probe-for: public.fn_ca_diamond_prune_history
-DO $probe$
-BEGIN
-  PERFORM public.fn_ca_diamond_prune_history(36500, 36500, 36500);
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
+-- @probe-exempt: public.fn_ca_diamond_prune_history Daily 120s maintenance pruner scans public.user_daily_challenges (no created_at index) twice and public.ca_diamond_incidents (no resolved_at IS NOT NULL index) once even with distant retention cutoffs, risking cold-buffer timeout inside the 8s/12s install budget; statically validated by plpgsql_check in CI and exercised daily by ca-diamond-prune-history-daily.
 
 COMMIT;

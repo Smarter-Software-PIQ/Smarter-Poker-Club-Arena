@@ -1,6 +1,7 @@
 /**
  * A MIGRATION THAT CANNOT FINISH INSIDE THE INSTALL BUDGET DOES NOT MERGE
- * (2026-11-07; hardened 2026-11-19 and 2026-11-26 after incident 37a45c05).
+ * (2026-11-07; hardened 2026-11-19, 2026-11-26 after incident 37a45c05, and
+ * 2026-11-27 after PR #12217 / run 46054847104).
  *
  * apply-recorded-migration.mjs runs an ordinary migration under
  * transaction_timeout = TRANSACTION_BUDGET_SECONDS + 4 (12 s). Migrations that
@@ -26,6 +27,12 @@
  *               v_spin_reserve_health inside DO $post$ with a 5,000 ms
  *               clock_timestamp() assertion and SET LOCAL statement_timeout =
  *               '20s'; cold cache took 6,229 ms and refused the install.
+ *   2026-11-27  20261127172908 (#12217, run 46054847104) defined zero-arg
+ *               public.fn_ca_free_buy_funding_watch() with SET statement_timeout
+ *               TO '60s', then executed PERFORM public.fn_ca_free_buy_funding_watch()
+ *               inside DO $probe$ under SET LOCAL statement_timeout = '8s'.
+ *               Killed by ERROR 57014 at 9,952 ms, leaving a merged migration
+ *               uninstalled on main and blocking cutover candidates above it.
  *
  * This is the merge-time question the applier also asks, so the two cannot
  * disagree (the same arrangement as migration-transaction-shape.mjs). It is a
@@ -64,6 +71,7 @@ export const HOT_QUERY_TABLES = Object.freeze([
   'bbj_contributions',
   'rake_records',
   'chip_ledger',
+  'hand_history',
   'hand_histories',
   'spin_reserve_ledger',
 ]);
@@ -83,6 +91,36 @@ const GRANDFATHERED_WALL_CLOCK_AND_VIEW_PROOFS = new Set([
   '20261119120000_a_roster_edge_reads_only_its_own_rake.sql',
   '20261119174500_lightning_wait_is_judged_against_the_pool_that_could_end_it.sql',
   '20261126195422_the_spin_reserve_gauge_reads_each_table_once.sql',
+]);
+
+/**
+ * Frozen historical exceptions already merged to main before the 2026-11-27
+ * unbounded watcher / high-timeout install-call guard existed. Closed set:
+ * never add a new filename here. Using a closed set instead of a future
+ * version cutoff ensures open PRs with older reserved timestamps are still
+ * caught before merge.
+ */
+const GRANDFATHERED_UNBOUNDED_WATCHER_PROBES = new Set([
+  '20261109151859_net_guarantee_promo_conservation_and_settled_tournament_aler.sql',
+  '20261109212210_freebuy_rebuy_cutoff_and_rebuild_storm_resolution.sql',
+  '20261110000927_freebuy_watch_jsonb_array_length_and_audit_resolution.sql',
+  '20261110021359_tourney_self_healing_and_freebuy_guard_hardening.sql',
+  '20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql',
+  '20261119171234_the_drill_chooses_its_club_and_weekly_failures_are_heard.sql',
+  '20261119173000_a_recovered_job_stops_paging_on_its_old_failures.sql',
+  '20261119180500_sustained_hand_delay_alerts_and_cadence_grading.sql',
+  '20261119180800_harden_rake_lock_timeout_cron_watch_and_drill.sql',
+  '20261119183127_the_drill_skips_protected_clubs_proven_jobs_clear.sql',
+  '20261119234116_the_3_am_check_says_whether_the_4_am_cutover_will_ship.sql',
+  '20261120000047_player_felt_latency_is_recorded_hourly.sql',
+  '20261120001649_cron_watch_reads_proof_and_drill_skips_delete_triggers.sql',
+  '20261120034809_a_hand_delay_pages_through_the_owner_page_route.sql',
+  '20261120222900_harden_drill_trigger_body_and_watch_pass_proof.sql',
+  '20261121000757_the_hand_delay_alert_names_where_the_delay_comes_from.sql',
+  '20261121175912_horse_option_shadow_scoreboard_in_the_daily_digest.sql',
+  '20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql',
+  '20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql',
+  '20261125163000_orphaned_checks_scope_and_sms_registry_scrub.sql',
 ]);
 
 const baseName = (file) => String(file).split('/').pop();
@@ -423,6 +461,7 @@ export function migrationCostRisks(file, sql) {
   const reasons = [];
   const base = baseName(file);
   const grandfatheredProof = GRANDFATHERED_WALL_CLOCK_AND_VIEW_PROOFS.has(base);
+  const grandfatheredWatcherProbe = GRANDFATHERED_UNBOUNDED_WATCHER_PROBES.has(base);
 
   for (const hit of ledgerPrefixScans(stripComments(sql))) {
     reasons.push(
@@ -440,12 +479,22 @@ export function migrationCostRisks(file, sql) {
       );
     }
   }
+  const cataloguedOverBudget = new Set();
   for (const [fn, why] of overBudgetCalls(sql)) {
+    if (grandfatheredWatcherProbe && fn === 'public.fn_ca_free_buy_funding_watch') {
+      continue;
+    }
+    cataloguedOverBudget.add(fn);
     reasons.push(
       `${file}: calls ${fn}(...) at install time (a probe, a DO block or a top-level statement), and ${why} - ` +
         'at or past the ~12 s install budget, so the applier is killed by transaction/statement timeout. Prove the changed ' +
         'statement directly and name the function with -- @probe-exempt (scripts/ci/migration-function-probes.mjs).'
     );
+  }
+  if (!grandfatheredWatcherProbe) {
+    for (const hit of unboundedInstallTimeFunctionCalls(file, sql, cataloguedOverBudget)) {
+      reasons.push(`${file}: ${hit}`);
+    }
   }
   if (!grandfatheredProof) {
     for (const [rel, why] of overBudgetRelationReads(sql)) {
@@ -480,7 +529,7 @@ export function migrationCostRisks(file, sql) {
 }
 
 /**
- * FUNCTIONS MEASURED AT OR OVER THE INSTALL BUDGET (2026-11-19, 2026-11-26).
+ * FUNCTIONS MEASURED AT OR OVER THE INSTALL BUDGET (2026-11-19, 2026-11-26, 2026-11-27).
  *
  * Calling any of these at install time (a probe, a DO block, or a top-level
  * statement) risks killing the ordinary 12 s install transaction on cold
@@ -507,6 +556,8 @@ export const OVER_BUDGET_FUNCTIONS = Object.freeze({
     'it calls public.fn_bbj_reconcile across all BBJ pools (~18 s+ on production)',
   'public.fn_bbj_promo_bank_check':
     'production measured 5.3-25 s across 6M+ bbj_contributions rows (20261022062934)',
+  'public.fn_ca_free_buy_funding_watch':
+    'production timed out at 9,952 ms (ERROR 57014) inside DO $probe$ on 2026-11-27 (run 46054847104, PR #12217); zero-arg 14-day multi-table cron watcher',
 });
 
 /**
@@ -525,6 +576,7 @@ export const OVER_BUDGET_RELATIONS = Object.freeze({
 const WIDE_SCAN_TABLES = Object.freeze([
   'rake_records',
   'bbj_contributions',
+  'hand_history',
   'hand_histories',
 ]);
 
@@ -940,6 +992,303 @@ export function correlatedHotTableSubqueries(file, sql) {
         `defines ${def.kind} ${def.name} with a correlated scalar aggregate subquery over hot table ${primaryTable} (correlating on outer alias ${outerRefs.join(', ')}) - ` +
           're-scanning a multi-million-row table per outer row blows the install/runtime budget (incident 37a45c05 / #12129). ' +
           'Pre-aggregate in a single-pass GROUP BY CTE or LEFT JOIN and verify the plan with `node scripts/ci/explain-migration-queries.mjs`.'
+      );
+    }
+  }
+  return findings;
+}
+
+const WATCHER_SWEEP_NAME_RE =
+  /(?:^|_)(?:watch|watcher|scan|scanner|sweep|sweeper|prune|pruner|reconcile|reconciler|digest|backfill)(?:$|_)/i;
+
+const LIVE_CLOCK_EXPR_RE =
+  /\b(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|\b(?:current_timestamp|current_date)\b/i;
+
+const FUTURE_CLOCK_SHIFT_RE =
+  /\b(?:(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|current_timestamp|current_date)\s*\+/i;
+
+/** Read balanced `(...)` starting at `openIdx` (skipping single-quoted strings). */
+function readBalancedParens(text, openIdx) {
+  let depth = 0;
+  let i = openIdx;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "'") {
+      i += 1;
+      while (i < text.length) {
+        if (text[i] === "'") {
+          if (text[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return { inner: text.slice(openIdx + 1, i), after: i + 1 };
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/** Split comma-separated SQL call arguments at parenthesis depth 0. */
+function splitTopLevelArgs(argStr) {
+  const parts = [];
+  let depth = 0;
+  let cur = '';
+  let i = 0;
+  while (i < argStr.length) {
+    const ch = argStr[i];
+    if (ch === "'") {
+      cur += ch;
+      i += 1;
+      while (i < argStr.length) {
+        cur += argStr[i];
+        if (argStr[i] === "'") {
+          if (argStr[i + 1] === "'") {
+            cur += argStr[i + 1];
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '(' || ch === '[') depth += 1;
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+    i += 1;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+/**
+ * Strip the body literal of a CREATE FUNCTION/PROCEDURE statement so only DDL
+ * configuration clauses (`SET statement_timeout TO ...`) are inspected.
+ */
+function routineHeaderAndTrailer(stmt) {
+  const dollarAs = /\bas\s+(\$[A-Za-z_0-9]*\$)/i.exec(stmt);
+  if (dollarAs) {
+    const tag = dollarAs[1];
+    const bodyStart = dollarAs.index + dollarAs[0].length;
+    const bodyEnd = stmt.indexOf(tag, bodyStart);
+    if (bodyEnd >= 0) {
+      return `${stmt.slice(0, dollarAs.index)} ${stmt.slice(bodyEnd + tag.length)}`;
+    }
+  }
+  const singleAs = /\bas\s+'/i.exec(stmt);
+  if (singleAs) {
+    let j = singleAs.index + singleAs[0].length;
+    while (j < stmt.length) {
+      if (stmt[j] === "'") {
+        if (stmt[j + 1] === "'") {
+          j += 2;
+          continue;
+        }
+        return `${stmt.slice(0, singleAs.index)} ${stmt.slice(j + 1)}`;
+      }
+      j += 1;
+    }
+  }
+  const atomicAt = stmt.search(/\bbegin\s+atomic\b/i);
+  return atomicAt >= 0 ? stmt.slice(0, atomicAt) : stmt;
+}
+
+/**
+ * Collect functions/procedures defined or altered in `sql` whose own DDL
+ * configuration sets `statement_timeout` above `budgetMs` (or disables it with 0).
+ */
+function routineDeclaredTimeouts(sql, budgetMs) {
+  const text = stripComments(sql);
+  const found = new Map();
+  const record = (schema, name, attrs) => {
+    const re = /\bset\s+statement_timeout\s*(?:=|\bto\b)\s*('(?:[^']|'')*'|[^\s;]+)/gi;
+    let m;
+    while ((m = re.exec(attrs))) {
+      const raw = m[1].trim();
+      const unquoted = raw.startsWith("'") && raw.endsWith("'") ? raw.slice(1, -1) : raw;
+      if (/^default$/i.test(unquoted.trim())) continue;
+      const ms = parseDurationMs(unquoted);
+      if (Number.isFinite(ms) && (ms === 0 || ms > budgetMs)) {
+        const key = `${(schema || 'public').toLowerCase()}.${name.toLowerCase()}`;
+        const prev = found.get(key);
+        if (!prev || ms === 0 || (prev.ms !== 0 && ms > prev.ms)) {
+          found.set(key, { raw: `'${unquoted}'`, ms });
+        }
+      }
+    }
+  };
+
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "'") {
+      i += 1;
+      while (i < text.length) {
+        if (text[i] === "'") {
+          if (text[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (text[i] === '$') {
+      const m = /^\$[A-Za-z_0-9]*\$/.exec(text.slice(i));
+      if (m) {
+        const close = text.indexOf(m[0], i + m[0].length);
+        if (close >= 0) {
+          i = close + m[0].length;
+          continue;
+        }
+      }
+    }
+    if (/[A-Za-z_]/.test(text[i]) && (i === 0 || !/[A-Za-z_0-9$."]/.test(text[i - 1]))) {
+      const rest = text.slice(i);
+      const createMatch =
+        /^create\s+(?:or\s+replace\s+)?(?:function|procedure)\s+(?:("?)([a-z_][a-z0-9_]*)\1\s*\.\s*)?("?)([a-z_][a-z0-9_]*)\3\s*\(/i.exec(
+          rest
+        );
+      if (createMatch) {
+        const end = skipRoutineDefinition(text, i);
+        record(createMatch[2], createMatch[4], routineHeaderAndTrailer(text.slice(i, end)));
+        i = end;
+        continue;
+      }
+      const alterMatch =
+        /^alter\s+(?:function|procedure|routine)\s+(?:("?)([a-z_][a-z0-9_]*)\1\s*\.\s*)?("?)([a-z_][a-z0-9_]*)\3\b/i.exec(
+          rest
+        );
+      if (alterMatch) {
+        const end = skipToStatementEnd(text, i);
+        record(alterMatch[2], alterMatch[4], text.slice(i, end));
+        i = end;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return found;
+}
+
+/** True when `matchIndex` sits inside a DDL signature (GRANT/REVOKE/ALTER/DROP/COMMENT/TRIGGER). */
+function isDdlSignatureContext(text, matchIndex) {
+  const stmtStart = text.lastIndexOf(';', matchIndex) + 1;
+  const stmtBefore = text.slice(stmtStart, matchIndex);
+  if (
+    /^\s*(?:grant|revoke|alter|drop|comment\s+on|create\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger)\b/i.test(
+      stmtBefore
+    )
+  ) {
+    return true;
+  }
+  if (/\b(?:function|procedure|routine)\s+(?:if\s+exists\s+)?$/i.test(stmtBefore)) return true;
+  return false;
+}
+
+/**
+ * Describe why an install-time call's arguments are unbounded against live
+ * production data, or return null when the call passes a bounded/empty fixture.
+ */
+function unboundedCallReason(rawArgs) {
+  const trimmed = rawArgs.trim();
+  if (trimmed === '') return 'zero arguments () (runs full live default scope)';
+  const args = splitTopLevelArgs(trimmed);
+  if (args.length > 0 && args.every((a) => /^null(?:\s*::\s*[a-z0-9_.\s[\]"]+)*$/i.test(a))) {
+    return 'NULL-only arguments (falls back to full live default scope)';
+  }
+  for (const arg of args) {
+    if (LIVE_CLOCK_EXPR_RE.test(arg) && !FUTURE_CLOCK_SHIFT_RE.test(arg)) {
+      return 'a live current/lookback clock argument (reads live production window)';
+    }
+  }
+  return null;
+}
+
+/**
+ * Refuse install-time calls (in DO $probe$, DO blocks, or top-level SQL) that
+ * execute an unbounded live pass of either:
+ *   1. any function/procedure whose own CREATE/ALTER in this file declares
+ *      `SET statement_timeout` above the migration's install budget (12 s
+ *      ordinary, or declared offline budget; '0' counts as over-budget), or
+ *   2. any background watcher/scan/sweep/prune/reconcile/digest/backfill
+ *      routine in `public` or `smarter_private` (even when defined in an
+ *      earlier migration or rewritten via anchored edit).
+ *
+ * Bounded empty-window probes (e.g. `clock_timestamp() + interval '1 day'`,
+ * `'1970-01-01'::timestamptz`, `0`, `36500`, `LIMIT 1`, or synthetic UUIDs)
+ * remain allowed. Unboundable zero-arg cron watchers should instead use
+ * `-- @probe-exempt: schema.fn <reason>` (scripts/ci/migration-function-probes.mjs).
+ */
+export function unboundedInstallTimeFunctionCalls(file, sql, alreadyReported = new Set()) {
+  let budgetMs = DEFAULT_INSTALL_BUDGET_MS;
+  try {
+    const declared = declaredInstallBudgetSeconds(sql);
+    if (declared !== null) budgetMs = declared * 1000;
+  } catch {
+    return [];
+  }
+
+  const highTimeouts = routineDeclaredTimeouts(sql, budgetMs);
+  const exec = installExecutedText(sql);
+  const callRe =
+    /(?:(?:\b(public|smarter_private)\s*\.\s*)|(?<![.\w"]))"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
+  const findings = [];
+  const seen = new Set(alreadyReported);
+  let m;
+  while ((m = callRe.exec(exec))) {
+    if (isDdlSignatureContext(exec, m.index)) continue;
+    const parenIdx = m.index + m[0].length - 1;
+    const balanced = readBalancedParens(exec, parenIdx);
+    if (!balanced) continue;
+
+    const explicitSchema = m[1] ? m[1].toLowerCase() : null;
+    const schema = explicitSchema || 'public';
+    const name = m[2].toLowerCase();
+    const qn = `${schema}.${name}`;
+
+    const timeoutSpec = highTimeouts.get(qn) ?? null;
+    const isWatcherName =
+      WATCHER_SWEEP_NAME_RE.test(name) &&
+      (explicitSchema !== null || name.startsWith('fn_') || name.startsWith('ca_'));
+    if (!timeoutSpec && !isWatcherName) continue;
+
+    const whyUnbounded = unboundedCallReason(balanced.inner);
+    if (!whyUnbounded) continue;
+    if (seen.has(qn)) continue;
+    seen.add(qn);
+
+    if (timeoutSpec) {
+      const desc = timeoutSpec.ms === 0 ? 'disabled' : `${timeoutSpec.ms / 1000} s`;
+      findings.push(
+        `calls ${qn}(...) at install time with ${whyUnbounded}, while its own definition declares SET statement_timeout = ${timeoutSpec.raw} (${desc} > ${budgetMs / 1000} s install budget) - ` +
+          'executing an over-budget routine without an empty/bounded fixture risks killing the install transaction on production (PR #12217 / run 46054847104). ' +
+          `Pass a provably empty fixture argument (e.g. clock_timestamp() + interval '1 day', '1970-01-01'::timestamptz, 0, or LIMIT 1) or exempt it with -- @probe-exempt: ${qn} <reason >= 20 chars> (scripts/ci/migration-function-probes.mjs).`
+      );
+    } else {
+      findings.push(
+        `calls background watcher/sweep routine ${qn}(...) at install time with ${whyUnbounded} - ` +
+          `running a live multi-table cron watcher/sweep inside a ${budgetMs / 1000} s migration transaction risks timing out cold on production (PR #12217 / run 46054847104). ` +
+          `Pass a provably empty fixture argument or exempt it with -- @probe-exempt: ${qn} <reason >= 20 chars> (scripts/ci/migration-function-probes.mjs).`
       );
     }
   }

@@ -45,6 +45,13 @@ function registeredAuthorityDocs(): Record<string, string> {
 const DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN: readonly string[] =
   AUTHORITY_DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN;
 
+// 2026-11-27: a doc State written by hand ahead of the snapshot (#12207, omahaFlopPressureCapIsPriced ON at #209
+// while the snapshot still held shadow) turned main red for every lane until #12230. The failure only listed the
+// drifted rows, so each lane had to work out the repair. It now names it: the records tool reads production and
+// writes the snapshot and every doc State together, in one docs-only PR.
+const RECORDS_REPAIR =
+  'Repair: node scripts/ops/horse-option-switch.mjs records (reads production, rewrites the snapshot and every doc State in one docs-only PR). Do not hand-edit a doc State or the snapshot alone.';
+
 describe('an authority doc states the live switch', () => {
   const snapshot = JSON.parse(readFileSync(join(ROOT, SWITCH_STATE_FILE), 'utf8'));
 
@@ -67,7 +74,7 @@ describe('an authority doc states the live switch', () => {
     const drift = findAuthorityDocStateDrift({ snapshot, docs: registeredAuthorityDocs() });
     expect(
       drift,
-      `authority docs out of step with ${SWITCH_STATE_FILE}: ${JSON.stringify(drift)}`
+      `authority docs out of step with ${SWITCH_STATE_FILE}: ${JSON.stringify(drift)}. ${RECORDS_REPAIR}`
     ).toEqual([]);
   });
 
@@ -76,8 +83,16 @@ describe('an authority doc states the live switch', () => {
     const fresh = unjudged.filter((u) => !DOCS_WRITTEN_BEFORE_THE_STATE_TOKEN.includes(u.option));
     expect(
       fresh,
-      `authority docs of live options whose State cannot be judged (add a **State: ...** token): ${JSON.stringify(fresh)}`
+      `authority docs of live options whose State cannot be judged (add a **State: ...** token): ${JSON.stringify(fresh)}. ${RECORDS_REPAIR}`
     ).toEqual([]);
+  });
+
+  it('a drift failure names a repair the switch tool really offers', () => {
+    const tool = readFileSync(join(ROOT, 'scripts/ops/horse-option-switch.mjs'), 'utf8');
+    const command = /node (scripts\/ops\/horse-option-switch\.mjs) (\w+)/.exec(RECORDS_REPAIR);
+    expect(command?.[1]).toBe('scripts/ops/horse-option-switch.mjs');
+    expect(tool).toContain(`node scripts/ops/horse-option-switch.mjs ${command?.[2]} [--dry-run]`);
+    expect(tool).toContain(`if (command === '${command?.[2]}')`);
   });
 
   it('the docs written before the State token only leave that list', () => {

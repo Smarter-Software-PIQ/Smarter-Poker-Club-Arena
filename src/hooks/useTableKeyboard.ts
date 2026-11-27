@@ -193,6 +193,9 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
         return;
       }
 
+      // ── Open DOM modal check (blocks Shift+L and Lightning hotkeys behind ANY modal) ──
+      const domModalOpen = Boolean(document.querySelector('[aria-modal="true"], dialog[open]'));
+
       // ── Shift+L: Log Last Completed Hand to Personal Assistant ──
       if (
         key === 'l' &&
@@ -204,6 +207,7 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
         !e.isComposing &&
         !opts.isSpectator &&
         !opts.isModalOpen &&
+        !domModalOpen &&
         opts.onLogLastHand
       ) {
         e.preventDefault();
@@ -211,7 +215,7 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
         return;
       }
 
-      if (opts.onLightningFold && document.querySelector('[aria-modal="true"]')) return;
+      if (opts.onLightningFold && domModalOpen) return;
 
       // ── Lightning key: Shift+F, before the single-letter row ──
       const shortcut = lightningShortcut(e, readLightningPrefs().shortcutModifier);
