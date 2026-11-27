@@ -801,6 +801,8 @@ import {
 } from '../lib/tournamentDockStore';
 import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
+import LogThisHandControl from '../components/handdetail/LogThisHandControl';
+import { normalizeCanonicalUuid } from '../services/SavedHandsService';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
 import {
   resolveSnapshotActionContext,
@@ -10532,6 +10534,15 @@ function LiveTablePage({
   const registerRabbitHotkey = useCallback((handler: (() => void) | null) => {
     rabbitHotkeyRef.current = handler;
   }, []);
+  /** Shift+L: the HUD quick-bookmark handler while a completed canonical hand UUID exists. */
+  const logLastHandHotkeyRef = useRef<(() => void) | null>(null);
+  const registerLogLastHandHotkey = useCallback((handler: (() => void) | null) => {
+    logLastHandHotkeyRef.current = handler;
+  }, []);
+  const [lastCompletedHand, setLastCompletedHand] = useState<{
+    scope: string;
+    handId: string;
+  } | null>(null);
   /** Takes the Rabbit Hunt button down when the server's offer TTL runs out. */
   const rabbitExpiryTimerRef = useRef<number | null>(null);
   /**
@@ -11599,6 +11610,32 @@ function LiveTablePage({
   );
   const takeSavedHandRef = useRef(takeSavedHand);
   takeSavedHandRef.current = takeSavedHand;
+
+  // Canonical UUID of the player's last COMPLETED hand at this table (never
+  // mid-hand, never synthetic, never another table's or account's hand).
+  const lastCompletedHandId = useMemo(() => {
+    if (!userId || userId === 'guest') return null;
+    const currentScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
+    if (lastCompletedHand && lastCompletedHand.scope === currentScope) {
+      return normalizeCanonicalUuid(lastCompletedHand.handId);
+    }
+    if (
+      handHistoryViewerRef.current === userId &&
+      loadedHandHistoryScopeRef.current === currentScope &&
+      handHistory.length > 0
+    ) {
+      const latestHeroHand = handHistory.find((h) => h.players.some((p) => p.id === userId));
+      return normalizeCanonicalUuid(latestHeroHand?.id);
+    }
+    return null;
+  }, [
+    userId,
+    tableId,
+    lightningRoom?.poolSessionId,
+    tableHistoryGameMode,
+    lastCompletedHand,
+    handHistory,
+  ]);
 
   // Lightning reconnect recovery for Previous Hands: if a fast-folded deal
   // settled while the engine socket was disconnected and HandDetailModal is
@@ -14829,6 +14866,15 @@ function LiveTablePage({
         if (savedId) {
           handHistoryFetchedAtRef.current = null;
           setLastHandId(savedId);
+          if (eventType === 'hand_history_saved') {
+            const canonicalSavedId = normalizeCanonicalUuid(savedId);
+            if (canonicalSavedId) {
+              setLastCompletedHand({
+                scope: handHistoryScopeRef.current,
+                handId: canonicalSavedId,
+              });
+            }
+          }
           // Phase 1: the Previous Hand list takes the hand as it lands.
           void takeSavedHandRef.current(savedId);
         }
@@ -28201,6 +28247,8 @@ function LiveTablePage({
     /* P4 2026-09-05: B = Rabbit Hunt. The tile registers its handler only
        while an offer is up, so this is a no-op the rest of the time. */
     onRabbitHunt: () => rabbitHotkeyRef.current?.(),
+    /* Shift+L: Log the last completed canonical hand to World Hub Personal Assistant. */
+    onLogLastHand: () => logLastHandHotkeyRef.current?.(),
     /* LIGHTNING PHASE 12: present only in a Lightning room whose platform row
        offers hotkeys (the ref is null everywhere else). */
     onLightningFold: lightningRoom ? () => lightningHotkeysRef.current.fold?.() : undefined,
@@ -30499,6 +30547,12 @@ function LiveTablePage({
                     setShowShareHand(true);
                   });
                 }}
+              />
+              <LogThisHandControl
+                variant="hud"
+                handId={lastCompletedHandId}
+                accountId={userId && userId !== 'guest' ? userId : null}
+                registerHotkey={registerLogLastHandHotkey}
               />
             </div>
           )
