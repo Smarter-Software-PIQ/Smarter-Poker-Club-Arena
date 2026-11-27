@@ -251,6 +251,70 @@ export function assertReceiptOrigins(receipt, info, manifests) {
     );
 }
 
+/* A RETAINED RUNTIME REPLACED BY A NEWER PUBLISH IS NOT A FAILED CERTIFICATE
+   (2026-11-26). Club Create Certification runs 45758383418, 45770507484,
+   45774223349 and 45892509266 certified a publisher run that RETAINED an
+   earlier runtime. Before the exact-revision wait could apply its supersede
+   rule, `receive` (Resolve step) or `harness` (wait step) re-read both origins,
+   found that a later publish had replaced the retained runtime on BOTH with a
+   protected-main descendant (8db042af -> a5e97180, abf538c6 -> 14bd55d8,
+   73243beb -> cc88b0de, 2238a163 -> ffbc3e3d), and exited 1. Nothing was wrong
+   with club creation; the newer publish's own run is the certificate. When
+   both origins agree on one revision that descends from the receipt's runtime
+   AND its verification source and is on protected main, this returns it so a
+   caller that opted in can stand down; anything else (one origin moved, the
+   origins disagree, an unrelated or off-main revision, any other receipt
+   failure) returns null and still fails. */
+export function retainedRuntimeSupersededBy(error, receipt, isMainDescendant) {
+  if (!(error instanceof RetainedOriginMovedError)) return null;
+  const observed = error.observed;
+  if (!Array.isArray(observed) || observed.length !== 2) return null;
+  const [first, second] = observed.map((entry) => entry?.caSha);
+  if (typeof first !== 'string' || !SHA.test(first) || first !== second) return null;
+  if (first === receipt.runtimeSha) return null;
+  if (!isMainDescendant(receipt.runtimeSha, first)) return null;
+  if (!isMainDescendant(receipt.verificationSha, first)) return null;
+  return first;
+}
+
+function gitIsMainDescendant(ancestor, descendant) {
+  try {
+    git('fetch', '--no-tags', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main');
+  } catch {
+    // A stale origin/main can only refuse the stand-down, never grant it.
+  }
+  try {
+    git('cat-file', '-e', `${descendant}^{commit}`);
+    git('merge-base', '--is-ancestor', ancestor, descendant);
+    git('merge-base', '--is-ancestor', descendant, 'refs/remotes/origin/main');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Opt-in (RETAINED_RUNTIME_SUPERSEDE=stand-down): only Club Create
+// Certification stands down; every other caller keeps the strict refusal.
+async function requireCurrentOrSuperseded(receipt) {
+  try {
+    await requireCurrentReceipt(receipt);
+    return null;
+  } catch (error) {
+    if (process.env.RETAINED_RUNTIME_SUPERSEDE !== 'stand-down') throw error;
+    const by = retainedRuntimeSupersededBy(error, receipt, gitIsMainDescendant);
+    if (!by) throw error;
+    appendFileSync(process.env.GITHUB_OUTPUT, `superseded=true\nsuperseded_by=${by}\n`);
+    const line =
+      `NON-VERDICT: retained runtime ${receipt.runtimeSha} (publisher run ` +
+      `${receipt.originalPublisherRunId}) was replaced on both public endpoints by its main ` +
+      `descendant ${by} before it could be certified; that publish's own run is the certificate.`;
+    if (process.env.GITHUB_STEP_SUMMARY)
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
+    console.log(line);
+    return by;
+  }
+}
+
 /* A MOVED ORIGIN IS RE-ADMITTED, NOT REFUSED (2026-11-24).
    Admission reads the origin BEFORE this run takes the production lock;
    finalize reads it again INSIDE the lock. Any publish that commits in
@@ -516,7 +580,7 @@ async function main() {
     writeFileSync(args[0], `${JSON.stringify(finalReceipt, null, 2)}\n`);
   } else if (command === 'receive') {
     const receipt = readRetentionReceipt(readFileSync(args[0], 'utf8'), args[1], args[2], args[3]);
-    await requireCurrentReceipt(receipt);
+    await requireCurrentOrSuperseded(receipt);
     appendFileSync(
       process.env.GITHUB_OUTPUT,
       `sha=${receipt.runtimeSha}\nverification_sha=${receipt.verificationSha}\n`
@@ -531,7 +595,7 @@ async function main() {
     const receipt = readRetentionReceipt(readFileSync(args[2], 'utf8'), args[3], args[4], args[5]);
     if (receipt.runtimeSha !== args[0] || receipt.verificationSha !== args[1])
       throw new Error('Retained runtime harness does not match its receipt.');
-    await requireCurrentReceipt(receipt);
+    await requireCurrentOrSuperseded(receipt);
   } else throw new Error('Unsupported runtime retention command.');
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

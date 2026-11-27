@@ -361,19 +361,22 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // must not hold back cards the player has bought. Start it immediately,
     // capture this hand's fields before yielding, and report both returned
     // errors and rejected requests. It never joins the next-hand barrier.
-    void bindToProcessRoot(async () => {
-      try {
-        const { error: revealLogError } = await supabase.from('rabbit_hunt_reveals').insert({
-          user_id: userId,
-          table_id: this.tableId,
-          hand_number: hand,
-          charged: Number(charge.diamonds_spent ?? 0),
-        });
-        if (revealLogError) throw revealLogError;
-      } catch (err) {
-        reportError(err, 'ServerTableEngine.rabbit_hunt_reveal_log_error');
-      }
-    })();
+    this.detachTableWork(
+      'rabbit_hunt_reveal_log',
+      bindToProcessRoot(async () => {
+        try {
+          const { error: revealLogError } = await supabase.from('rabbit_hunt_reveals').insert({
+            user_id: userId,
+            table_id: this.tableId,
+            hand_number: hand,
+            charged: Number(charge.diamonds_spent ?? 0),
+          });
+          if (revealLogError) throw revealLogError;
+        } catch (err) {
+          reportError(err, 'ServerTableEngine.rabbit_hunt_reveal_log_error');
+        }
+      })()
+    );
 
     return {
       success: true,
@@ -843,23 +846,28 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // board leaves nothing unseen (revealRabbitHunt refuses it anyway), so
         // writing it would be a row per showdown platform-wide for nothing.
         if (persisted && persisted.cards.length > 0 && persisted.boardLength < 5) {
-          void bindToProcessRoot(async () => {
-            try {
-              const { error: offerPersistError } = await supabase.from('rabbit_hunt_offers').upsert(
-                {
-                  table_id: this.tableId,
-                  hand_number: persistedHand,
-                  cards: persisted.cards,
-                  board_len: persisted.boardLength,
-                  eligible_user_ids: Array.from(persisted.eligible),
-                },
-                { onConflict: 'table_id,hand_number' }
-              );
-              if (offerPersistError) throw offerPersistError;
-            } catch (err) {
-              reportError(err, 'ServerTableEngine.rabbit_hunt_offer_persist_error');
-            }
-          })();
+          this.detachTableWork(
+            'rabbit_hunt_offer_persist',
+            bindToProcessRoot(async () => {
+              try {
+                const { error: offerPersistError } = await supabase
+                  .from('rabbit_hunt_offers')
+                  .upsert(
+                    {
+                      table_id: this.tableId,
+                      hand_number: persistedHand,
+                      cards: persisted.cards,
+                      board_len: persisted.boardLength,
+                      eligible_user_ids: Array.from(persisted.eligible),
+                    },
+                    { onConflict: 'table_id,hand_number' }
+                  );
+                if (offerPersistError) throw offerPersistError;
+              } catch (err) {
+                reportError(err, 'ServerTableEngine.rabbit_hunt_offer_persist_error');
+              }
+            })()
+          );
         }
       } catch (err) {
         // Never silent. A throw here means no offer, no event, and a rabbit hunt
@@ -1125,7 +1133,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
            engine's own stacks BEFORE the re-broadcast - the WINNERS snapshot
            went out before these transfers were applied"); insurance is the
            same defect and never got the same line. */
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
       }
       // Chip standard 2026-09-04: what the bank net moved onto the seats, as
       // applied. Declared to the stack write as inflow (see postHandTasks).
@@ -1267,7 +1275,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
         // Re-broadcast so clients see the bounty-adjusted stacks immediately
         // (the WINNERS snapshot went out before these transfers were applied).
-        if (sdAnyApplied) void this.broadcastCurrentState();
+        if (sdAnyApplied)
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
       }
     }
 
@@ -1841,7 +1850,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       capBb: Number(tableInfo.cap_bb) || 0,
       bigBlind: Number(tableInfo.big_blind) || 0,
     };
-    setImmediate(() =>
+    this.tableImmediate('river_value_audit', () =>
       observeCommittedHandRiverValue({ tableId: this.tableId, handNumber }, input)
     );
   }
@@ -4501,9 +4510,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       // Dan 2026-10-21: a horse beaten at showdown sometimes throws something
       // at the winner (and a winner, now and then, at someone it beat), on any
       // table a person could throw at. Chat stays cash only, as for a person.
-      void gestureAfterHand(buildTableTalkInput(snap, players, this.tableInfo));
+      this.detachTableWork(
+        'gestureAfterHand',
+        gestureAfterHand(buildTableTalkInput(snap, players, this.tableInfo))
+      );
       if (isDiamondCash || this.isTournamentTable()) return;
-      void speakAtTheFelt(buildTableTalkInput(snap, players, this.tableInfo));
+      this.detachTableWork(
+        'speakAtTheFelt',
+        speakAtTheFelt(buildTableTalkInput(snap, players, this.tableInfo))
+      );
     });
     if (!this.lifecycleCanMutate()) return;
 

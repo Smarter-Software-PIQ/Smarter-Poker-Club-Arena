@@ -1555,14 +1555,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
           if (!activationIsDurable) {
             // Preserve the opponent-timer message without retaining a channel.
-            void broadcastTimeBankActivation(this.tableId, {
-              player_id: userId,
-              table_id: this.tableId,
-              additional_seconds: grantedSeconds,
-              auto_activated: true,
-              uses_remaining: usesAfterActivation,
-              unlimited_activations: bank?.unlimitedActivations === true,
-            });
+            this.detachTableWork(
+              'broadcastTimeBankActivation',
+              broadcastTimeBankActivation(this.tableId, {
+                player_id: userId,
+                table_id: this.tableId,
+                additional_seconds: grantedSeconds,
+                auto_activated: true,
+                uses_remaining: usesAfterActivation,
+                unlimited_activations: bank?.unlimitedActivations === true,
+              })
+            );
 
             // FIX 125 + 2026-04-14 spam fix: warn ONLY at the last 1 remaining
             // and at 0 (the very last one was just used). Was firing at <=5
@@ -1978,15 +1981,18 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
     if (!activationIsDurable) {
       // Preserve the opponent-timer message without retaining a channel.
-      void broadcastTimeBankActivation(this.tableId, {
-        player_id: userId,
-        table_id: this.tableId,
-        additional_seconds: bankSeconds,
-        uses_remaining: bank?.usesRemaining ?? 0,
-        total_remaining: bank?.remainingSeconds ?? 0,
-        unlimited_activations: bank?.unlimitedActivations === true,
-        auto_activated: false,
-      });
+      this.detachTableWork(
+        'broadcastTimeBankActivation',
+        broadcastTimeBankActivation(this.tableId, {
+          player_id: userId,
+          table_id: this.tableId,
+          additional_seconds: bankSeconds,
+          uses_remaining: bank?.usesRemaining ?? 0,
+          total_remaining: bank?.remainingSeconds ?? 0,
+          unlimited_activations: bank?.unlimitedActivations === true,
+          auto_activated: false,
+        })
+      );
 
       // FIX 125 + 2026-04-14 spam fix: warn ONLY at the last 1 remaining (or 0
       // = just used last one). Previous <=5 condition spammed on 4-max tables.
@@ -5001,78 +5007,81 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               settleSecondLook();
               return;
             }
-            void getLiveHorseDecisionWorker()
-              .decideDeep(
-                {
-                  ...decisionSnapshot,
-                  rngBefore: fastResult.rngBefore,
-                  deepEquity: ServerTableEngineTurns.SECOND_LOOK_DEPTH,
-                },
-                abortController.signal,
-                // The deep job lives exactly as long as the action may wait.
-                { deadlineMs: Math.max(1, secondLookClockDeadline() - Date.now()) }
-              )
-              .then(async (deepResult) => {
-                if (this.weeklyHandPause.held() && !(await this.weeklyHandPause.checkpoint())) {
-                  retireDecision(deepResult.decision);
-                  return;
-                }
-                if (
-                  deepResult.generation !== turnToken ||
-                  deepResult.fence !== fence ||
-                  !fenceIsCurrent('deep_result')
-                ) {
-                  retireDecision(deepResult.decision);
-                  return;
-                }
-                if (deepResult.decision.policyFallback === 'brain_exception') {
-                  retireDecision(deepResult.decision, 'brain_exception');
-                  noteFire('phase15_deep_brain_exception_retired');
-                  return;
-                }
-                const disposition = ServerTableEngineTurns.secondLookDisposition(
-                  decision,
-                  deepResult.decision
-                );
-                if (disposition.kind === 'replace') {
-                  const verdict = disposition;
-                  noteFire('v44_second_look_flipped');
-                  retireHorseExecutionWitness(pendingExecutionWitness, 'second_look_replaced');
-                  markPendingUtilityNotExecuted();
-                  decision = {
-                    // The deep replay owns the Phase 7 utility receipt too.
-                    // Keeping the fast object while changing only its action
-                    // made the ledger claim a different selected action from
-                    // the one the table was about to execute.
-                    ...deepResult.decision,
-                    action: verdict.action as ActionType,
-                    amount: verdict.amount,
-                    thinkTime: decision.thinkTime,
-                  };
-                  pendingUtilityLedger = decision.tournamentUtility;
-                  pendingPostflopLedger = decision.tournamentPostflop;
-                  pendingGuardLedger = decision.tournamentCatastropheGuard;
-                  pendingPlo4Ledger = decision.plo4Policy;
-                  pendingOmahaLedger = decision.omahaVariantPolicy;
-                  pendingRemainingLedger = decision.remainingVariantPolicy;
-                  pendingJointLedger = decision.jointPolicy;
-                  pendingExecutionWitness = decision.executionWitness;
-                  pendingOptionReceipts = deepResult.optionReceipts;
-                } else {
-                  retireDecision(deepResult.decision, disposition.reason);
-                }
-              })
-              .catch(async (error) => {
-                if (this.weeklyHandPause.held() && !(await this.weeklyHandPause.checkpoint()))
-                  return;
-                if (
-                  !(error instanceof HorseDecisionAbortedError) &&
-                  !abortController.signal.aborted
-                ) {
-                  reportError(error, 'ServerTableEngineTurns.secondLook');
-                }
-              })
-              .finally(settleSecondLook);
+            this.detachTableWork(
+              'getLiveHorseDecisionWorker',
+              getLiveHorseDecisionWorker()
+                .decideDeep(
+                  {
+                    ...decisionSnapshot,
+                    rngBefore: fastResult.rngBefore,
+                    deepEquity: ServerTableEngineTurns.SECOND_LOOK_DEPTH,
+                  },
+                  abortController.signal,
+                  // The deep job lives exactly as long as the action may wait.
+                  { deadlineMs: Math.max(1, secondLookClockDeadline() - Date.now()) }
+                )
+                .then(async (deepResult) => {
+                  if (this.weeklyHandPause.held() && !(await this.weeklyHandPause.checkpoint())) {
+                    retireDecision(deepResult.decision);
+                    return;
+                  }
+                  if (
+                    deepResult.generation !== turnToken ||
+                    deepResult.fence !== fence ||
+                    !fenceIsCurrent('deep_result')
+                  ) {
+                    retireDecision(deepResult.decision);
+                    return;
+                  }
+                  if (deepResult.decision.policyFallback === 'brain_exception') {
+                    retireDecision(deepResult.decision, 'brain_exception');
+                    noteFire('phase15_deep_brain_exception_retired');
+                    return;
+                  }
+                  const disposition = ServerTableEngineTurns.secondLookDisposition(
+                    decision,
+                    deepResult.decision
+                  );
+                  if (disposition.kind === 'replace') {
+                    const verdict = disposition;
+                    noteFire('v44_second_look_flipped');
+                    retireHorseExecutionWitness(pendingExecutionWitness, 'second_look_replaced');
+                    markPendingUtilityNotExecuted();
+                    decision = {
+                      // The deep replay owns the Phase 7 utility receipt too.
+                      // Keeping the fast object while changing only its action
+                      // made the ledger claim a different selected action from
+                      // the one the table was about to execute.
+                      ...deepResult.decision,
+                      action: verdict.action as ActionType,
+                      amount: verdict.amount,
+                      thinkTime: decision.thinkTime,
+                    };
+                    pendingUtilityLedger = decision.tournamentUtility;
+                    pendingPostflopLedger = decision.tournamentPostflop;
+                    pendingGuardLedger = decision.tournamentCatastropheGuard;
+                    pendingPlo4Ledger = decision.plo4Policy;
+                    pendingOmahaLedger = decision.omahaVariantPolicy;
+                    pendingRemainingLedger = decision.remainingVariantPolicy;
+                    pendingJointLedger = decision.jointPolicy;
+                    pendingExecutionWitness = decision.executionWitness;
+                    pendingOptionReceipts = deepResult.optionReceipts;
+                  } else {
+                    retireDecision(deepResult.decision, disposition.reason);
+                  }
+                })
+                .catch(async (error) => {
+                  if (this.weeklyHandPause.held() && !(await this.weeklyHandPause.checkpoint()))
+                    return;
+                  if (
+                    !(error instanceof HorseDecisionAbortedError) &&
+                    !abortController.signal.aborted
+                  ) {
+                    reportError(error, 'ServerTableEngineTurns.secondLook');
+                  }
+                })
+                .finally(settleSecondLook)
+            );
           }, secondLook.afterMs);
           this.horseSecondLookTimer.unref?.();
         }
@@ -5706,16 +5715,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     Number(p.stack ?? 0) <= 0
                 );
               if ((movesAllIn && !promotedShoveIsIllegal) || callsAllInBet) {
-                void gestureBeforeAllIn(
-                  buildAllInGestureInput(
-                    this.tableInfo,
-                    this.seatedPlayers,
-                    player.user_id,
-                    this.handCount,
-                    this.isTournamentTable(),
-                    currentState.players,
-                    currentState.lastAggressorSeat,
-                    toCall
+                this.detachTableWork(
+                  'gestureBeforeAllIn',
+                  gestureBeforeAllIn(
+                    buildAllInGestureInput(
+                      this.tableInfo,
+                      this.seatedPlayers,
+                      player.user_id,
+                      this.handCount,
+                      this.isTournamentTable(),
+                      currentState.players,
+                      currentState.lastAggressorSeat,
+                      toCall
+                    )
                   )
                 );
               }

@@ -40,6 +40,8 @@ import {
   resolveInternalLivenessPort,
 } from './http/createInternalLivenessServer.js';
 import { describeError, reportError } from './services/errorReporter.js';
+import { installProcessFaultHandlers } from './engine/TableFaultBoundary.js';
+import { startGcPauseMonitor } from './observability/gcPauseMonitor.js';
 import {
   flushEngineLifecycleLogs,
   recordEngineLifecycleLog,
@@ -773,5 +775,19 @@ const fatal = (err: unknown, kind: string) => {
   console.error(`[GameServer] FATAL (${kind}) - draining for supervisor restart`);
   void shutdown().catch(() => undefined);
 };
-process.on('uncaughtException', (err) => fatal(err, 'GameServer.Uncaught_exception'));
-process.on('unhandledRejection', (err) => fatal(err, 'GameServer.Unhandled_rejection'));
+/*
+ * ONE TABLE'S ERROR IS NOT EVERY TABLE'S (2026-11-27). Both handlers used to
+ * call fatal() for every error, so one stray throw or rejection inside one
+ * table's timer or hand pipeline restarted every table and voided every hand
+ * in play. Per-table entry points now run through engine/TableFaultBoundary,
+ * which contains a table's own error by killing that one engine generation
+ * (killForRestart -> owner rebuild -> crash recovery). What still reaches
+ * these handlers is routed by routeProcessFault: only an error a table
+ * wrapper already attributed stays with its table; everything unattributed
+ * goes to fatal() exactly as before.
+ */
+installProcessFaultHandlers(process, fatal);
+
+// A long V8 GC pause stops every table at once; name it when it happens
+// (observability/gcPauseMonitor.ts). Observes only; changes no heap flag.
+startGcPauseMonitor();

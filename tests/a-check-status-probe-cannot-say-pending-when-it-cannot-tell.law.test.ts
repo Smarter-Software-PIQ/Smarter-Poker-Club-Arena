@@ -172,10 +172,22 @@ describe('a check-status probe cannot say pending when it cannot tell', () => {
   it('no other agent-facing script treats /commits/:sha/status as a check oracle', () => {
     const dir = join(ROOT, 'scripts/ci');
     const offenders: string[] = [];
+    // The one reader that is not a CI verdict (2026-11-26): merge-window-watch.mjs
+    // reads the HISTORY of its own context "Migration merge window", which
+    // exists only as a commit status, to learn whether a window was held. It
+    // never asks whether CI passed. Only its per-context list (/statuses?) is
+    // allowed, never the aggregate /status, and it must filter by that context.
+    const NOT_A_CHECK_ORACLE = 'merge-window-watch.mjs';
+    {
+      const watch = readFileSync(join(dir, NOT_A_CHECK_ORACLE), 'utf8');
+      expect(watch).toContain('.filter((s) => s.context === MERGE_WINDOW_CONTEXT)');
+      expect(watch).not.toMatch(/commits\/[^\s'"]*\/status(?!es)/);
+    }
     for (const f of readdirSync(dir)) {
       if (!/\.(mjs|js|ts|sh)$/.test(f)) continue;
       const src = readFileSync(join(dir, f), 'utf8');
       for (const line of src.split('\n')) {
+        if (f === NOT_A_CHECK_ORACLE && /\/statuses\?per_page=/.test(line)) continue;
         // Naming the route in prose is fine and this file does it at length -
         // the header has to explain WHY it is poison. Only a line that actually
         // REQUESTS it is an offence, so require a call alongside the path.

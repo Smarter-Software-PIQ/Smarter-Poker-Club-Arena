@@ -160,7 +160,8 @@ describe('the answer is asked for where it matters', () => {
   it('the restart gate census asks again for any table holding an unknown debit', () => {
     const start = source.indexOf('maintenanceDurabilityReason(): string | null {');
     const firstCustody = source.indexOf('if (this.hasUnretiredStoppedTimeBankCustody()) {', start);
-    const kick = source.indexOf('void this.resolveUnconfirmedTimeBankDebits()', start);
+    // Detached through the table's fault boundary since 2026-11-27.
+    const kick = source.indexOf("'resolveUnconfirmedTimeBankDebits',", start);
     expect(kick).toBeGreaterThan(start);
     expect(kick).toBeLessThan(firstCustody);
   });

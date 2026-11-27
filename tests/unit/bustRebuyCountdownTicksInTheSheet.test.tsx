@@ -3,11 +3,8 @@ import { act, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  SECONDS_UNTIL_TICK_MS,
-  SecondsUntil,
-  useSecondsUntil,
-} from '../../src/components/table/SecondsUntil';
+import { SecondsUntil } from '../../src/components/table/SecondsUntil';
+import { SECONDS_UNTIL_TICK_MS, useSecondsUntil } from '../../src/hooks/useSecondsUntil';
 
 /*
  * The bust rebuy countdown used to tick (every 250 ms) inside LiveTablePage,

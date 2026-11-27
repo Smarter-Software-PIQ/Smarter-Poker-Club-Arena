@@ -1,0 +1,3 @@
+# server/src/engine/anEngineKilledMidHandKeepsEveryChip.law.test.ts
+
+An engine killed mid-hand (preflop after the blinds, after a raise, mid street on the flop, at an all-in before the runout, after the hand finished in memory but before the settlement commit, or after the commit but before the snapshot was closed) loses no chip: the successor's real checkCrashRecovery writes nothing but the one snapshot completion, every seat holds its in-hand stack plus its committed chips (the pre-hand stack, refunded once and never twice) or the committed settlement exactly once, nobody changes seat, a second recovery does nothing, and the next hand deals from the recovered stacks (code review finding 11, 2026-11-27).

@@ -2048,12 +2048,18 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 scripts/ci/test-finance-gate-db-postgres.py
+      # The program is all of server/src plus one test: the same program as the
+      # server typecheck, which peaks near Node's default heap on the runner. From
+      # 2026-11-27 00:38Z it aborted with "heap out of memory" on most runs of this
+      # shard; it gets the 6 GB #12130 gave the engine promise lint
+      # (tests/a-full-server-typecheck-gets-the-heap-it-needs.law.test.ts).
       - name: Durable variant-scoped opponent memory PostgreSQL regression
         if: matrix.shard == 2
         working-directory: server
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           npx tsc --noEmit -p tsconfig.opponent-memory.json
           npx vitest run --config vitest.opponent-memory.config.ts --reporter=verbose
@@ -4008,7 +4014,11 @@ jobs:
 
       # server/ is a separate package with its own tsconfig; the root typecheck
       # job never compiles it, so a type error here used to ship to production.
+      # Same program as the opponent-memory typecheck, which ran out of Node's
+      # default heap on 2026-11-27; this one gets the same 6 GB before it does too.
       - name: TypeScript Check (server)
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npx tsc --noEmit
 
       # server/scripts/*.ts are operator CLIs outside tsconfig.json's rootDir,
