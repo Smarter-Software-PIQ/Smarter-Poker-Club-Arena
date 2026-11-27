@@ -74,9 +74,9 @@ export const STAFF_ROLES: ClubRole[] = ['owner', 'co_owner', 'admin'];
 
 /**
  * The three club levels a Player Management card is coloured by (Dan,
- * 2026-11-27): owners, co-owners and admins are staff (green), super agents,
- * agents and sub agents are agents (teal), and everyone else is a player
- * (blue).
+ * 2026-11-27): owners, co-owners and admins are staff (red), super agents,
+ * agents and sub agents are agents (neon teal), and everyone else is a player
+ * (dark neon blue).
  */
 export type ClubLevel = 'staff' | 'agent' | 'player';
 

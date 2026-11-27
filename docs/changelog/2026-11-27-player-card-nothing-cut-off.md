@@ -57,3 +57,10 @@ Each card now carries `data-club-level` from `clubLevel()` in
 `src/types/clubRoles.ts` (staff, agent, player), and the edge is green
 `#35d95a`, teal `#2dd4bf` or blue `#45adff`. Presence keeps the portrait ring
 and the Online / At A Table line. `tests/unit/aPlayerCardShowsItsClubLevel.test.ts`.
+
+## Edge colours corrected
+
+Dan, 16:05 the same day: "OWNERS, CO OWNERS AND ADMIN'S SHOULD BE RED. SUPER
+AGENTS, AGENTS AND SUP AGENTS 'NEON TEAL' AND ALL PLAYERS DARK NEON BLUE."
+Staff `#ff3b4f`, agents `#00ffe1`, players `#1f5bff`, each with a two-layer
+neon glow. The level mapping is unchanged.

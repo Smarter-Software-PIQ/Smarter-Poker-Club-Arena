@@ -1,5 +1,7 @@
 /**
- * Dan, 2026-11-27: "THE COLORS ON THE LEFT SIDE SHOULD BE REPRESENTIVE OF WHAT
+ * Dan, 2026-11-27, corrected the same day: "OWNERS, CO OWNERS AND ADMIN'S
+ * SHOULD BE RED. SUPER AGENTS, AGENTS AND SUP AGENTS 'NEON TEAL' AND ALL
+ * PLAYERS DARK NEON BLUE." First ask: "THE COLORS ON THE LEFT SIDE SHOULD BE REPRESENTIVE OF WHAT
  * THERE LEVEL IN THE CLUB IS ... OWNER, CO OWNER AND ADMINS ARE GREEN. SUPER
  * AGENTS, AGENTS AND SUB AGENTS TEAL, AND PLAYERS BLUE."
  */
@@ -24,13 +26,13 @@ describe('a player card shows its club level on its left edge', () => {
     expect(PAGE).toMatch(/data-club-level=\{clubLevel\(member\.role\)\}/);
   });
 
-  it('paints staff green, agents teal and players blue', () => {
+  it('paints staff red, agents neon teal and players dark neon blue', () => {
     const edge = (level: string) =>
       new RegExp(
         `\\.member-row\\[data-club-level='${level}'\\]::before \\{\\s*background: (#[0-9a-f]{6});`
       ).exec(CSS)?.[1];
-    expect(edge('staff')).toBe('#35d95a');
-    expect(edge('agent')).toBe('#2dd4bf');
-    expect(edge('player')).toBe('#45adff');
+    expect(edge('staff')).toBe('#ff3b4f');
+    expect(edge('agent')).toBe('#00ffe1');
+    expect(edge('player')).toBe('#1f5bff');
   });
 });
