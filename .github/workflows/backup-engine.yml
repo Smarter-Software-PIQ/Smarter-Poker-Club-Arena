@@ -1610,7 +1610,7 @@ jobs:
             fi
             verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
               --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" \
-              --control "${CONTROL_SHA:-}" --sha "$SHA" 2> o1-copy-reason.txt) || verdict=''
+              --control "${CONTROL_SHA:-}" 2> o1-copy-reason.txt) || verdict=''
             due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
             production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
             if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then

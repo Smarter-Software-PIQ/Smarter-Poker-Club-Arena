@@ -253,6 +253,13 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Answer, read from the code on 2026-11-25:** no. `select-daily-engine.py` walks every first-parent commit from the cutoff control back to the serving build and ships the newest one with valid evidence, so an older certificate stays shippable when newer engine commits land. The mid-soak yield (O1, `backup-engine.yml`) fires only when the release-control projection (`read-engine-prequalification.py` `projection`, `CONTROL_INPUTS` only) diverged or production installed a migration the copy lacks (O16), inside 75 minutes of the cutoff: exactly the cases where the soaking candidate could not be selected. A server-only merge never stops a soak. A waiting run moves to the newest commit (O11), which contains everything older. No separate cut-off is built.
 - **What a lane must still respect:** a `CONTROL_INPUTS` merge inside 75 minutes of a cutoff stops the soak in flight. Merge release-control changes in the post-seal slot or before the next election window opens.
 
+### O35: An Unselectable Soak Yields At Once (2026-11-26)
+
+- **Why it broke:** Backup run `45938154669` kept soaking `e21eb7d915ed` for 38 minutes after production installed two migrations its copy lacked (22:16 CST), because the mid-soak yield also required fewer than 75 minutes to the next cutoff. The run for the shippable commit waited for the host; 01:00 CST was left with one attempt.
+- **Fix:** the 75-minute condition is removed from the yield in `backup-engine.yml`. Batched with the replayed #12061 (the selector names every refused candidate on the cutover log).
+- **What stops it returning:** the "mid-soak yield" cases of `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`.
+- **Live proof:** pending. Record: `docs/changelog/2026-11-26-o35-an-unselectable-soak-yields-at-once.md`.
+
 ## Open Items
 
 | Item                                                                                                       | Owner Lane                               | State                                                                                                                                                                                          |
