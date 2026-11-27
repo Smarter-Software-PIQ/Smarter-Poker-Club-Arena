@@ -112,7 +112,7 @@ export function detachTableWork(
   // `void builder` never did, so attaching to one would start work that the
   // replaced code never ran. Leave every other thenable exactly as `void` did.
   if (!(work instanceof Promise)) return;
-  void work.then(undefined, (error: unknown) => {
+  void work.catch((error: unknown) => {
     containTableFault(sink, label, error);
   });
 }

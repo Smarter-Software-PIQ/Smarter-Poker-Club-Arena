@@ -49,6 +49,7 @@ async function playAndStore(reader?: (userId: string) => unknown) {
     handController: { getState: () => state },
     markProgress: vi.fn(),
     broadcastCurrentState: vi.fn(),
+    detachTableWork: vi.fn(),
     seatedPlayers: state.players.map((p) => ({ ...p, seat_number: p.seat })),
     preActionEngine: { onBetPlaced: vi.fn() },
     hub: { emitEvent: vi.fn() },
