@@ -56,6 +56,14 @@ BACKUP_WORKFLOW = "backup-engine.yml"
 PREQUAL_WORKFLOW = "engine-release-prequalification.yml"
 PREQUAL_PATH = ".github/workflows/" + PREQUAL_WORKFLOW
 PREQUAL_HELPER_PATH = "scripts/ci/read-engine-prequalification.py"
+APPLY_WORKFLOW = "apply-merged-migration.yml"
+WINDOW_INSTALL_JOB = "Install Queued Daily-Maintenance Migrations"
+INSTALLED_MIGRATIONS_HELPER_PATH = "server/scripts/engine-release-installed-migrations.py"
+# The applier prints "[apply] <file>" before an attempt and "[apply] APPLIED" when it committed it
+# (scripts/ci/apply-recorded-migration.mjs); ALREADY-APPLIED, QUEUED and refusals commit nothing.
+APPLY_FILE_LINE_RE = re.compile(r"^\[apply\] (\d{14}_[A-Za-z0-9_.-]+\.sql)\s*$")
+APPLY_COMMITTED_LINE = "[apply] APPLIED"
+LOG_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?")
 BACKUP_STATUS_CONTEXT = "backup-engine/certified"
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -707,6 +715,24 @@ def gh_api_get(path, timeout=30):
         raise ReadError(f"gh api GET {path} returned invalid JSON: {exc}") from exc
 
 
+def gh_api_get_text(path, timeout=60):
+    """Read-only GitHub REST GET returning raw text (job logs)."""
+    try:
+        proc = subprocess.run(
+            ["gh", "api", "--method", "GET", path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise ReadError(f"gh api GET {path} failed: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        msg = detail[-1] if detail else f"exit code {proc.returncode}"
+        raise ReadError(f"gh api GET {path} failed: {msg}")
+    return proc.stdout
+
+
 def git_read(repo_root, *args, timeout=30):
     """Execute a read-only git inspection command."""
     try:
@@ -1202,6 +1228,122 @@ def _active_run_targets(candidates, active_backup):
     return notes
 
 
+def committed_files_in_log(text):
+    """Migration files the applier COMMITTED in one job log, in order."""
+    committed = []
+    current = None
+    for raw in (text or "").splitlines():
+        line = LOG_TIMESTAMP_RE.sub("", raw.strip())
+        m = APPLY_FILE_LINE_RE.match(line)
+        if m:
+            current = m.group(1)
+            continue
+        if line == APPLY_COMMITTED_LINE and current:
+            committed.append(current)
+            current = None
+    return committed
+
+
+def _jobs_of(repo, run_id, gh_get):
+    data = gh_get(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+        raise ReadError(f"unexpected jobs response for run {run_id}")
+    return data["jobs"]
+
+
+def _runs_since(repo, workflow, since_utc, gh_get):
+    since = format_utc(since_utc - timedelta(hours=1))
+    data = gh_get(
+        f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&per_page=100&created=%3E%3D{since}"
+    )
+    if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
+        raise ReadError(f"unexpected workflow_runs response for {workflow}")
+    if int(data.get("total_count") or 0) > len(data["workflow_runs"]):
+        raise ReadError(f"more {workflow} runs since {since} than one page holds")
+    return data["workflow_runs"]
+
+
+def production_installs_after(repo, since_utc, gh_get, gh_text):
+    """Migration files production COMMITTED after since_utc, read from the applier's own job logs
+    (Apply Merged Migration runs and the daily-maintenance window installer). Raises ReadError when
+    any log cannot be read: an unread install is not an absent one (CLAUDE.md 10.86)."""
+    installed = []
+    for run in _runs_since(repo, APPLY_WORKFLOW, since_utc, gh_get):
+        if run.get("status") != "completed":
+            continue
+        for job in _jobs_of(repo, run["id"], gh_get):
+            done = job.get("completed_at")
+            if not done or parse_iso_utc(done) < since_utc:
+                continue
+            for f in committed_files_in_log(gh_text(f"repos/{repo}/actions/jobs/{job['id']}/logs")):
+                installed.append({"file": f, "at": done, "runId": run["id"]})
+    for run in _runs_since(repo, STAGE_WORKFLOW, since_utc, gh_get):
+        if run.get("status") != "completed":
+            continue
+        for job in _jobs_of(repo, run["id"], gh_get):
+            done = job.get("completed_at")
+            if job.get("name") != WINDOW_INSTALL_JOB or job.get("conclusion") in ("skipped", None):
+                continue
+            if not done or parse_iso_utc(done) < since_utc:
+                continue
+            for f in committed_files_in_log(gh_text(f"repos/{repo}/actions/jobs/{job['id']}/logs")):
+                installed.append({"file": f, "at": done, "runId": run["id"]})
+    return installed
+
+
+def certificate_copy_time(repo, backup_info, gh_get):
+    """When the certifying run's copy was last proven current: its refresh job's completion."""
+    run_id = backup_info.get("runId")
+    if not run_id:
+        raise ReadError("certificate names no Backup run")
+    refresh = [j for j in _jobs_of(repo, run_id, gh_get) if j.get("name") == "refresh"]
+    if len(refresh) != 1 or refresh[0].get("conclusion") != "success" or not refresh[0].get("completed_at"):
+        raise ReadError(f"Backup run {run_id} has no successful refresh job to date its copy")
+    return parse_iso_utc(refresh[0]["completed_at"])
+
+
+def load_engine_inert(repo_root):
+    """engine_inert() from the installed-migrations helper (O33), or None when unreadable."""
+    path = Path(repo_root) / INSTALLED_MIGRATIONS_HELPER_PATH
+    try:
+        spec = importlib.util.spec_from_file_location("_ca_installed_migrations", path)
+        module = importlib.util.module_from_spec(spec)
+        with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink):
+            spec.loader.exec_module(module)
+        return module.engine_inert
+    except Exception:  # noqa: BLE001 - unreadable helper means no carve-out
+        return None
+
+
+def judge_copy_freshness(candidate, repo, repo_root, control_sha, gh_get, gh_text, git_fn, engine_inert):
+    """O36: a certificate is selectable only while its copy holds every non-inert migration
+    production committed. Returns ("fresh"|"stale"|"unread", detail)."""
+    try:
+        copy_at = certificate_copy_time(repo, candidate["backup"], gh_get)
+        installs = production_installs_after(repo, copy_at, gh_get, gh_text)
+    except ReadError as exc:
+        return ("unread", str(exc))
+    missing = []
+    for item in installs:
+        inert = False
+        if engine_inert is not None:
+            try:
+                text = git_fn(repo_root, "show", f"{control_sha}:supabase/migrations/{item['file']}")
+                inert = bool(engine_inert(text + "\n"))
+            except ReadError:
+                inert = False
+        if not inert:
+            missing.append(item)
+    if not missing:
+        return ("fresh", f"copy current as of {format_chicago(copy_at)}")
+    versions = sorted({m["file"][:14] for m in missing})
+    return (
+        "stale",
+        f"Backup copy read {format_chicago(copy_at)} lacks migration(s) production installed after it: "
+        f"{', '.join(versions)}; needs a fresh-copy Backup run",
+    )
+
+
 def determine_verdict(health, candidates, active_backup, git_info):
     """Compute top-level readiness verdict and single-line summary."""
     phase = health["phase"]
@@ -1213,6 +1355,13 @@ def determine_verdict(health, candidates, active_backup, git_info):
         )
 
     selectable = next((c for c in candidates if c["status"] == "SELECTABLE"), None)
+    if selectable is not None and selectable.get("copyFreshness") == "unread":
+        return (
+            VERDICT_UNKNOWN,
+            None,
+            f"{selectable['sha'][:12]} is certified, but whether its Backup copy is current could not be read: "
+            f"{selectable.get('copyFreshnessDetail', '')}",
+        )
     if selectable is not None:
         idx = candidates.index(selectable)
         newer_pending = [c for c in candidates[:idx] if c["status"] == "PENDING"]
@@ -1278,6 +1427,8 @@ def collect_readiness(
     gh_get_fn=None,
     git_fn=None,
     projection_fn=None,
+    gh_text_fn=None,
+    engine_inert_fn=None,
 ):
     """Collect live readiness state across health, schedule, GitHub workflows and git."""
     explicit_limit = limit is not None
@@ -1289,6 +1440,7 @@ def collect_readiness(
     checked_at = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     health_reader = health_fn or (lambda: fetch_health(health_url))
     gh_reader = gh_get_fn or gh_api_get
+    gh_text_reader = gh_text_fn or gh_api_get_text
     git_reader = git_fn or git_read
 
     report = {
@@ -1407,7 +1559,30 @@ def collect_readiness(
                 "reason": reason,
             }
 
-        candidates = [_inspect_candidate(sha) for sha in git_walk["shas"]]
+        inert_fn = engine_inert_fn if engine_inert_fn is not None else load_engine_inert(resolved_root)
+
+        def _judge_freshness(cand):
+            """O36: a SELECTABLE certificate whose copy production has moved past is not selectable."""
+            if cand["status"] != "SELECTABLE":
+                return cand
+            verdict, detail = judge_copy_freshness(
+                cand, repo, resolved_root, control_sha, gh_reader, gh_text_reader, git_reader, inert_fn
+            )
+            cand["copyFreshness"] = verdict
+            cand["copyFreshnessDetail"] = detail
+            if verdict == "stale":
+                cand["status"] = "DISQUALIFIED"
+                cand["reason"] = detail
+            return cand
+
+        candidates = []
+        found_selectable = False
+        for sha in git_walk["shas"]:
+            cand = _inspect_candidate(sha)
+            if not found_selectable:
+                cand = _judge_freshness(cand)
+                found_selectable = cand["status"] == "SELECTABLE"
+            candidates.append(cand)
 
         # O19 (D1): when the default 10-commit window contains no SELECTABLE
         # candidate, continue walking up to SELECTABLE_SEARCH_LIMIT (60) until
@@ -1421,7 +1596,7 @@ def collect_readiness(
                 inspected += 1
                 if proj_reader(extra_sha) != control_proj:
                     continue
-                extra_cand = _inspect_candidate(extra_sha, subject="")
+                extra_cand = _judge_freshness(_inspect_candidate(extra_sha, subject=""))
                 if extra_cand["status"] == "SELECTABLE":
                     extra_cand["subject"] = git_reader(
                         resolved_root, "show", "-s", "--format=%s", extra_sha
