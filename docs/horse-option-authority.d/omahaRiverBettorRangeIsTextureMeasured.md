@@ -1,6 +1,6 @@
 # omahaRiverBettorRangeIsTextureMeasured: Authority For The Live Switch
 
-Built 2026-11-27 by PLO-OWNER lead-8 (session 013U37ba), lane payoff, on Dan's order of 2026-11-26 10:57 PM Chicago (finish the unfinished work, then build and fix the leads of the outside WooWoo dossier after review). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game. Evidence NOT MET: the audited-decision replay is 1 fixed against 1 newly wrong, and the option does not remove the river pay-off it was built for (second-nut flush). It stays OFF. This file states what was measured.
+Built 2026-11-27 by PLO-OWNER lead-8 (session 013U37ba), lane payoff, on Dan's order of 2026-11-26 10:57 PM Chicago (finish the unfinished work, then build and fix the leads of the outside WooWoo dossier after review). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game. Evidence NOT MET: the audited-decision replay is 1 fixed against 1 newly wrong, the option does not remove the river pay-off it was built for (second-nut flush), and the value-only bettor probe is not yet inside its bar. It stays OFF. This file states what was measured.
 
 ## The Defect It Answers
 
@@ -27,7 +27,7 @@ The same arithmetic for every bettor: no input reads whether an opponent is a pe
 
 All in `plo-lead7-01TLQer8/l8-payoff/` (BUILD.md, harness and outputs).
 
-Flag-off check (`scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full`): FLAGOFF_RESULT.
+Flag-off check (`scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full`): 0 differences in 28,000 decisions.
 
 Real recorded decisions (296 heads-up river decisions facing a person's bet of 0.6 pot and more or raise; public action and the deciding Horse's own cards; live switch rows; 3 seeds). 109 are recorded calls with a known result, +9,149 bb against folding in all:
 
@@ -42,11 +42,29 @@ By class (calls of n, today / people prior / this option): non-nut flush on a pa
 
 Scripted probes (`plo-lead7-01TLQer8/plo-defence/src/grade2.mts`, 2 seats, 100 bb, 16,000 deals, seed 11; Horses ON minus OFF, bb/100):
 
-PROBE_TABLE
+<!-- GRADES -->
+
+| Scripted seat                               | PLO4                           | PLO5                           | PLO4, people prior also on     | PLO5, people prior also on     |
+| ------------------------------------------- | ------------------------------ | ------------------------------ | ------------------------------ | ------------------------------ |
+| Never bluffs (value only, top 12%, 0.8 pot) | -2.34 +/- 2.08                 | running at the time of writing | not run at the time of writing | not run at the time of writing |
+| Over-bluffs with blockers and draws         | not run at the time of writing | not run at the time of writing | not run at the time of writing | not run at the time of writing |
+| Balanced for the size                       | not run at the time of writing | not run at the time of writing | n/a                            | n/a                            |
+| Calls everything, never bets                | not run at the time of writing | not run at the time of writing | n/a                            | n/a                            |
+| Folds without the top 10%                   | not run at the time of writing | not run at the time of writing | n/a                            | n/a                            |
+
+Pre-registered verdict on the value-only bettor (seeds 11 to 14 pooled by inverse variance; bar: not below zero by more than one pooled standard error in both games): PLO4 1 of 4 seeds finished at the time of writing; PLO5 0 of 4 seeds finished at the time of writing.
 
 League mirror (ON seats against OFF seats, duplicate deals, 12,000 hands per card, seed 20261127, bb/100 ON minus OFF):
 
-MIRROR_TABLE
+| Card                                      | PLO4                           | PLO5                           |
+| ----------------------------------------- | ------------------------------ | ------------------------------ |
+| Heads-up, live options                    | not run at the time of writing | not run at the time of writing |
+| Heads-up, people prior also on both sides | not run at the time of writing | not run at the time of writing |
+| 6-max, live options                       | not run at the time of writing | not run at the time of writing |
+
+<!-- /GRADES -->
+
+First build (his record moved only the weakest class; superseded): value-only bettor PLO4 -4.69 +/- 1.94, PLO5 -5.39 +/- 3.89; seat that folds without the top 10% PLO5 -5.68 +/- 3.87; balanced PLO5 -1.84 +/- 3.59; over-bluffer PLO5 +2.43 +/- 4.21; caller PLO5 +0.03 +/- 0.08. The record now moves every class under the key category, the reading the people prior gives its non-core share; the table above is that build.
 
 Speed (replay seam, engine decide, min of 3, telemetry on): 731 applicable river decisions: on p50 1.37 ms, p95 2.57 ms, max 3.57 ms, worst single 4.34 ms, none over 50 ms; 576 of them 150 bb deep or more: p95 2.60 ms, max 3.51 ms. Relative-cost law `anOmahaRiverTextureClassesIsFast` (on 3.65 ms against off 2.22 ms per decision under vitest, ratio 1.64, limit 4).
 
