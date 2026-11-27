@@ -140,6 +140,14 @@ describe('LAW: the people prior counts the bets people never showed', () => {
     expect(omahaPeoplePriorTurnLineOf([flop(2, 'check', 0), flop(3, 'bet', 10)], 3)).toBe('b');
     expect(omahaPeoplePriorTurnLineOf([flop(2, 'bet', 10), flop(3, 'call', 10)], 3)).toBe('c');
     expect(omahaPeoplePriorHiddenKeyOf('plo6', 'turn', [], 3)).toBeNull();
+    // a re-raised pot: the option does not act (flop or turn)
+    const rr = [pre(1, 'sb', 1), pre(2, 'bb', 2), pre(3, 'raise', 7), pre(2, 'raise', 24)];
+    expect(omahaPeoplePriorHiddenKeyOf('plo5', 'flop', rr, 3)).toBeNull();
+    expect(omahaPeoplePriorHiddenKeyOf('plo5', 'turn', rr, 3)).toBeNull();
+    expect(omahaPeoplePriorHiddenKeyOf('plo5', 'turn', [pre(3, 'raise', 7)], 3)).toEqual({
+      game: 'plo5',
+      split: 'x',
+    });
     expect(omahaPeoplePriorHiddenKeyOf('plo5', 'river', [], 3)).toBeNull();
   });
 

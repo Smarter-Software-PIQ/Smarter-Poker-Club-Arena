@@ -14,7 +14,7 @@ PLO4/PLO5 cash (tables and Lightning), heads-up, inside the two existing priced 
 
 - **The flop (omahaFlopPressureCapIsPriced) and the turn (omahaFacingBetPriorIsPeopleMeasured).** The people cell is read from split cells, fitted per game. The flop is split by pot type: limped, single-raised, or re-raised (the pooled flop sample is mostly re-raised pots, which are value-heavy). The turn is split by line: the flop checked through, the bettor made the flop wager, or another player did.
 - **How the split cells count.** Each split cell counts every hidden bet as non-value, in both units: the price's value region and the record's top-20% unit. A hidden bet is a voluntary give-up (he checked a later street and then folded to a bet) or a muck at the showdown (lead ruling 2026-11-27). A fold facing a raise of his own wager is not counted (a value hand can be outdrawn or priced out). A bet won with no showdown keeps the shown mix. Bets only: a turn raise keeps today's people raise cell.
-- **Re-raised flop pots.** These keep the shown-only split share: the hidden bets are reported but not counted, and the bettor's record stays shown-only there too. The public data refutes the low-SPR stack-off reading: re-raised give-ups and mucks are deep, SPR 4 and over, like single-raised pots. So the counts give no public reason to treat them differently. But the serving engine already folds there under the pure-bluff break-even (PLO5 30.7% vs 46.1%), and the calls the correction added there lost (lane OFC: -40.6 +/- 17.2 bb, n 5). This is a fit decision on the counts, not a bound on the output.
+- **Re-raised pots.** The option does not act in a re-raised pot (two or more preflop raises), on the flop or the turn: today's people cell and the shown-only record stand there. The public data refutes the low-SPR stack-off reading: re-raised give-ups and mucks are deep, SPR 4 and over, like single-raised pots. So the counts give no public reason to treat them differently. But re-raised pots are value-heavy; the serving engine already folds there under the pure-bluff break-even (PLO5 flop 30.7% vs 46.1%; turn 42.0% on 200 people's bets); and the calls a correction added lost (lane OFC: -40.6 +/- 17.2 bb, n 5). The fit still reports the re-raised split cells (hidden counts not counted).
 - **Thin cells.** A thin per-game split cell first shrinks toward the same split pooled over PLO4 and PLO5 (30 pseudo-bets, still people data; lead ruling 2026-11-27). What stays thin is then blended toward the equilibrium anchor by its n, using the existing blend with 30 pseudo-bets. It is never replaced by the pooled all-pots cell. There is no clamp on the output.
 - **The bettor's own record.** HorseOmahaBetRead now also counts his hidden bets, learned from public folds and the showdown list. With the option on, the record reads shown + hidden against value, in the same unit as the corrected people share.
 - **Untouched.** The river, multiway, PLO6, tournaments and hold'em are untouched. Off, every cell, share and record read is exactly today's (law test). No input reads whether a player is a person or a Horse, a name, or an account. No unshown card is read. The option never raises. Receipt: `omaha_hidden_bets_prior_read`.
@@ -32,6 +32,14 @@ Corrected people shares (fit `server/scripts/omaha-facing-bet-people-prior-fit.t
 | PLO4 flop HU big, re-raised pot              | 0.286 | 0.333     | 42 + 3   |
 
 Grades: pending (see Known Limits). They must include the first-encounter / mucking barreller, the value-only bettor, the people-calibrated responder, real-chips natural experiment in re-raised pots, the audited replay and flag-off.
+
+## Bars (lead ruling 2026-11-27 19:3xZ)
+
+- Value-only bettor (turn + river), incremental cost pooled over 2 seeds, point estimate: no worse than PLO4 -3.0 / PLO5 -4.0 bb/100. Any over-fold fix costs something against a never-bluffer; #12116 passed on magnitude bars with an approved cost of PLO4 -2.73, PLO5 -3.93.
+- Flop value-only bettor: no worse than -4.0 bb/100, same rule.
+- People-calibrated responder: at least -1 SE.
+- Flop + turn give-up barreller (mucks) and the production-rule barreller: not profitable for the bluffer.
+- Flag-off: 0 of 28,000. Audited replay: fixed at least 2 x newly wrong. Cost law.
 
 ## Prior anchor
 

@@ -126,7 +126,10 @@ export function omahaPeoplePriorRecordCountsHidden(
   return !!key && key.split !== 'reraised';
 }
 
-/** The key for this decision, or null outside PLO4 / PLO5. */
+/** The key for this decision, or null outside PLO4 / PLO5 and in a RE-RAISED pot (two or more preflop raises): there
+ *  the option does not act on the flop or the turn (today's people cell and shown-only record stand). Re-raised pots
+ *  are value-heavy and the Horses already fold under the pure-bluff break-even there (PLO5 flop 30.7% vs 46.1%);
+ *  the public data gives no reason to treat their hidden bets as bluffs, and the calls a correction added lost. */
 export function omahaPeoplePriorHiddenKeyOf(
   variant: string,
   street: string,
@@ -135,7 +138,10 @@ export function omahaPeoplePriorHiddenKeyOf(
 ): OmahaPeoplePriorHiddenKey | null {
   const game = String(variant ?? '').toLowerCase();
   if (game !== 'plo4' && game !== 'plo5') return null;
-  if (street === 'flop') return { game, split: omahaPeoplePriorFlopPotOf(history) };
-  if (street === 'turn') return { game, split: omahaPeoplePriorTurnLineOf(history, bettorSeat) };
+  if (street !== 'flop' && street !== 'turn') return null;
+  const pot = omahaPeoplePriorFlopPotOf(history);
+  if (pot === 'reraised') return null;
+  if (street === 'flop') return { game, split: pot };
+  return { game, split: omahaPeoplePriorTurnLineOf(history, bettorSeat) };
   return null;
 }
