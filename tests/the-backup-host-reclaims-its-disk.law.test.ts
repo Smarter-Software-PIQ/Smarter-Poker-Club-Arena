@@ -19,6 +19,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceBetween } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const STANDBY_PATH = join(ROOT, 'server/standby/standby-engine.sh');
@@ -109,8 +110,7 @@ describe('the Backup host reclaims its disk', () => {
   });
 
   it('certify reclaims first and refuses by name when space is still short or unreadable', () => {
-    const start = STANDBY.indexOf('cmd_certify() {');
-    const body = STANDBY.slice(start, start + 1500);
+    const body = sliceBetween(STANDBY, 'cmd_certify() {', 'trial_regression_replay "$sha"');
     const reclaim = body.indexOf('reclaim_backup_disk "$sha"');
     expect(reclaim).toBeGreaterThan(0);
     expect(reclaim).toBeLessThan(body.indexOf('assert_valid_copy'));
