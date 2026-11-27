@@ -210,11 +210,16 @@ describe('every other pull request workflow cancels its superseded run per PR', 
         file === 'dispatch-merged-migrations.yml' &&
         cancel === false &&
         JSON.stringify((wf.on as any).pull_request_target?.types) === '["closed"]';
+      // A pull_request_target workflow cancels only its pull request runs the
+      // same way: migration-merge-window.yml (2026-11-27) cancels a superseded
+      // pull request run but never its keeper, which shares one group.
+      const prEvent = 'pull_request_target' in triggers(wf) ? 'pull_request_target' : 'pull_request';
       expect(
         cancel === true ||
           mergedDispatch ||
           (typeof cancel === 'string' &&
-            squash(cancel) === "${{ github.event_name == 'pull_request' }}"),
+            (squash(cancel) === "${{ github.event_name == 'pull_request' }}" ||
+              squash(cancel) === `\${{ github.event_name == '${prEvent}' }}`)),
         file
       ).toBe(true);
       // pull_request_target runs with github.ref = the base branch, so only the
