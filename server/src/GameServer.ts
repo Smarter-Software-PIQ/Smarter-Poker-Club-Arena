@@ -434,6 +434,9 @@ import {
   scheduledLaunchPreparationAt,
 } from './tournament/launchBreakHold.js';
 
+/** Module load time: the end of the release freeze this engine process was installed in. */
+const STATS_PROCESS_STARTED_AT = Date.now();
+
 export { TournamentManager };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4901,6 +4904,9 @@ export class GameServer {
     raise: (a) => raiseEngineAlert(a),
     resolve: (name, component, note) => resolveEngineAlert(name, component, note),
     paused: () => this.maintenanceBreak.isActive(),
+    // An engine process is installed inside a release freeze, so its own
+    // start is the end of the freeze that skipped the last index refresh.
+    lastFreezeEndedAt: () => STATS_PROCESS_STARTED_AT,
   });
   /**
    * A5: completes the jackpot payout claims in `pending_fee_distributions` and

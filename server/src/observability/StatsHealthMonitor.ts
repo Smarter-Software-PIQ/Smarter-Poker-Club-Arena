@@ -121,6 +121,13 @@ export interface StatsHealthMonitorDeps {
   resolve: (alertname: string, component: string, note: string) => Promise<unknown> | unknown;
   /** True while a maintenance break is on; suppresses the lag alert. */
   paused: () => boolean;
+  /**
+   * Epoch ms at which the last platform freeze this process knows of ended,
+   * or null. The engine is replaced inside a release freeze, so a fresh
+   * process passes its own start: the freeze it was installed in ended then.
+   * The monitor also records every paused() -> clear transition it sees.
+   */
+  lastFreezeEndedAt?: () => number | null;
   now?: () => number;
   log?: (msg: string) => void;
 }
@@ -133,6 +140,20 @@ export const STATS_EV_COVERAGE_ALERT = 'ClubArenaStatsEvCoverage';
 
 /** 30 minutes: six maintenance breaks, two Open Claw ticks. */
 export const STATS_INDEX_LAG_THRESHOLD_S = 30 * 60;
+/**
+ * The index is advanced only by World Hub /api/cron/club-stats-maintenance,
+ * which Open Claw fires every 15 minutes and which, by design, does none of
+ * its steps while fn_platform_frozen() or the daily break says so. A freeze
+ * therefore costs exactly one advance: the ceiling stays at (previous run - 5
+ * minutes) and the lag reaches ~35 minutes before the next run, although
+ * nothing is wrong. Measured 2026-11-16..19: every ClubArenaStatsIndexLag
+ * firing after a freeze paired with one `skipped / maintenance_break`
+ * heartbeat and resolved on the next run. So the lag alert waits one refresh
+ * cadence plus that run's own duration after a freeze ends. A second missed
+ * run still raises (lag ~50 minutes at the end of the grace).
+ */
+export const STATS_INDEX_REFRESH_CADENCE_S = 15 * 60;
+export const STATS_INDEX_POST_FREEZE_GRACE_S = STATS_INDEX_REFRESH_CADENCE_S + 3 * 60;
 export const STATS_HEALTH_PERIOD_MS = 60 * 1000;
 /**
  * EV coverage: raise when fewer than 99% of the week's all-in RUNOUTS carry
@@ -361,10 +382,29 @@ export class StatsHealthMonitor {
   private inFlight = false;
   private readonly now: () => number;
   private readonly log: (msg: string) => void;
+  /** Last paused() -> clear transition this monitor observed, epoch ms. */
+  private observedFreezeEndedAt: number | null = null;
+  private wasPaused = false;
 
   constructor(private readonly deps: StatsHealthMonitorDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.log = deps.log ?? ((m) => console.warn(m));
+  }
+
+  /**
+   * True while the first index refresh after a freeze may not have run yet
+   * (STATS_INDEX_POST_FREEZE_GRACE_S). Only the lag RAISE waits; a resolve is
+   * never delayed.
+   */
+  private withinPostFreezeGrace(): boolean {
+    const declared = this.deps.lastFreezeEndedAt?.() ?? null;
+    const ends = [declared, this.observedFreezeEndedAt].filter(
+      (t): t is number => typeof t === 'number' && Number.isFinite(t)
+    );
+    if (ends.length === 0) return false;
+    const last = Math.max(...ends);
+    const since = this.now() - last;
+    return since >= 0 && since < STATS_INDEX_POST_FREEZE_GRACE_S * 1000;
   }
 
   private lifecycleIsCurrent(generation: number): boolean {
@@ -582,7 +622,18 @@ export class StatsHealthMonitor {
     // 1. Index lag. Suppressed during a break (the ceiling cannot move while
     //    no hands are written), evaluated on the very next healthy read.
     const lag = s.indexLagSeconds;
-    if (lag !== null && lag > STATS_INDEX_LAG_THRESHOLD_S && !this.deps.paused()) {
+    const paused = this.deps.paused();
+    if (paused) this.wasPaused = true;
+    else if (this.wasPaused) {
+      this.wasPaused = false;
+      this.observedFreezeEndedAt = this.now();
+    }
+    if (
+      lag !== null &&
+      lag > STATS_INDEX_LAG_THRESHOLD_S &&
+      !paused &&
+      !this.withinPostFreezeGrace()
+    ) {
       if (
         !(await this.deliverAlert(generation, () =>
           this.deps.raise({
