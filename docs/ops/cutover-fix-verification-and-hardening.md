@@ -288,6 +288,18 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Fix:** the runbook's operator fallback (one `prepare-daily-engine` dispatch by an authenticated user, admitted to the same election) is now run by an OpenClaw cron on the Mac Studio at 33 and 41 minutes past the hour before each cycle (`ops/openclaw/ca-cutover-operator-preparation.json`, `scripts/ops/cutover-operator-preparation.mjs`). It sends only when no Stage run can own the cycle. No release control changed: Stage has always admitted this dispatch.
 - **What stops it returning:** `tests/every-cycle-gets-an-owner.law.test.ts` pins the script's eligibility to the election's, its windows to Stage's, its hours to the schedule policy, and the cron to two firings inside each of the eight daily windows.
 - **Limits:** it depends on the Mac Studio being on and its `gh` login valid. When it is off, a push, a delivered schedule or a delivered Backup completion still elects as before, and the O32 look-back still announces a cycle nobody owned. The job-token election class and the GitHub App dispatch remain unbuilt alternatives.
+### O35: An Unselectable Soak Yields At Once (2026-11-26)
+
+- **Why it broke:** Backup run `45938154669` kept soaking `e21eb7d915ed` for 38 minutes after production installed two migrations its copy lacked (22:16 CST), because the mid-soak yield also required fewer than 75 minutes to the next cutoff. The run for the shippable commit waited for the host; 01:00 CST was left with one attempt.
+- **Fix:** the 75-minute condition is removed from the yield in `backup-engine.yml`. Batched with the replayed #12061 (the selector names every refused candidate on the cutover log).
+- **What stops it returning:** the "mid-soak yield" cases of `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`.
+- **Live proof:** pending. Record: `docs/changelog/2026-11-26-o35-an-unselectable-soak-yields-at-once.md`.
+
+### 2026-11-27: The 01:00 CST Cycle Sealed
+
+- Sealed `f2b854319ea9` at 01:02 CST (receiver run `45952351979`), the first seal since 16:00 CST on 11-26. `/health` at 01:06 CST: 0 stalled tables, settlement ok, 79 tables dealing. No commit on main after it touched `server/` or `supabase/migrations`, so every engine and database change held back by the three kept-serving cycles shipped.
+- What decided it: O34 freed the Backup host (22:15 CST); `ecebbc212831` certified at 23:39 CST on a copy restored at 22:58 CST, and `f2b854319ea9` certified after it before the 00:30 CST cutoff. `e21eb7d915ed`, certified at 22:53 CST on a copy two installed migrations had passed, was correctly not selected (see O35).
+- The operator fallback cron ran for the first time at 00:33 CST and followed the existing owner (Stage run `45942274643`); it sent nothing.
 
 ## Open Items
 

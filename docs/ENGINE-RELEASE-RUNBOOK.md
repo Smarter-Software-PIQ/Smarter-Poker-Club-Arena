@@ -544,8 +544,9 @@ conditions hold - (a) a newer active push run of `backup-engine.yml` is queued
 or in progress on `main`, (b) `projection(SHA)` from
 `scripts/ci/read-engine-prequalification.py` or `supabase/migrations` on
 `origin/main` already differs from `SHA` (proving `SHA` can never be selected
-against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
-next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
+against current `main`), (c) the time to the next scheduled three-hourly or
+daily cutoff (`THREE_HOURLY_START_HOURS`) could be read (since O35, 2026-11-26,
+it no longer has to be under 75 minutes: an unselectable soak yields at once), and
 (d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
 10.86) - the runner terminates the SSH certify command, stops the standby
 container cleanly via `/usr/local/sbin/standby-engine`'s `stop_for_restore`

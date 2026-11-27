@@ -995,7 +995,7 @@ def classify_candidate(
 
     waiting = []
     if not backup_green:
-        active_b_run = next((r["id"] for r in active_backup_runs if r.get("headSha") == sha), None)
+        active_b_run = next((r["id"] for r in active_backup_runs if _run_heads_candidate(r, sha)), None)
         b_run_id = backup_info.get("runId") or active_b_run
         abandoned = backup_info.get("abandonedByRun")
         if abandoned:
@@ -1164,6 +1164,18 @@ def compute_migration_hold_advisory(
 ACTIVE_RUN_STATUSES = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
 
 
+def _run_heads_candidate(run, sha):
+    """True when an active Backup run is certifying `sha` judged by its head.
+
+    Only a push run's head is its own target (2026-11-26). A dispatched,
+    post-seal or after-install run's head is main at its start while it
+    certifies another commit: on 2026-11-26 the readiness post said IN_FLIGHT
+    6f062e8f0d1d while manual run 45759269821 (head 6f062e8f0d1d) certified
+    c951436a6ead. Such a run is matched by the pending status it writes on its
+    real target (backup.runId), never by its head."""
+    return run.get("event") == "push" and run.get("headSha") == sha
+
+
 def _candidate_in_flight(candidate, active_backup):
     b_state = candidate["backup"]["state"]
     p_status = candidate["prequalification"]["status"]
@@ -1171,7 +1183,23 @@ def _candidate_in_flight(candidate, active_backup):
         return True
     if p_status in ACTIVE_RUN_STATUSES:
         return True
-    return any(r.get("headSha") == candidate["sha"] for r in active_backup)
+    return any(_run_heads_candidate(r, candidate["sha"]) for r in active_backup)
+
+
+def _active_run_targets(candidates, active_backup):
+    """'run N certifies <sha>' for each active Backup run whose pending status
+    names a candidate, saying plainly when that candidate cannot be selected."""
+    notes = []
+    for run in active_backup:
+        rid = run.get("id")
+        target = next((c for c in candidates if rid and c["backup"].get("runId") == rid), None)
+        if target is None:
+            continue
+        if target["status"] == "DISQUALIFIED":
+            notes.append(f"run {rid} certifies {target['sha'][:12]}, which cannot be selected ({target['reason']})")
+        else:
+            notes.append(f"run {rid} certifies {target['sha'][:12]}")
+    return notes
 
 
 def determine_verdict(health, candidates, active_backup, git_info):
@@ -1198,10 +1226,13 @@ def determine_verdict(health, candidates, active_backup, git_info):
     in_flight = [
         c for c in candidates if c["status"] == "PENDING" and _candidate_in_flight(c, active_backup)
     ]
+    targets = _active_run_targets(candidates, active_backup)
     if in_flight:
         newest = in_flight[0]
         active_ids = ", ".join(str(r["id"]) for r in active_backup if r.get("id"))
         backup_note = f"; active backup run(s): {active_ids}" if active_ids else ""
+        if targets:
+            backup_note += "; " + "; ".join(targets)
         return (
             VERDICT_IN_FLIGHT,
             None,
@@ -1210,10 +1241,11 @@ def determine_verdict(health, candidates, active_backup, git_info):
 
     if active_backup:
         active_ids = ", ".join(str(r["id"]) for r in active_backup if r.get("id"))
+        target_note = ("; " + "; ".join(targets)) if targets else ""
         return (
             VERDICT_IN_FLIGHT,
             None,
-            f"no selectable candidate yet; active backup-engine.yml run(s): {active_ids}",
+            f"no selectable candidate yet; active backup-engine.yml run(s): {active_ids}{target_note}",
         )
 
     if git_info["totalCommitsSinceServing"] == 0:
