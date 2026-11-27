@@ -51,6 +51,7 @@ import { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react';
 import HandDetailView from '../handdetail/HandDetailView';
 import HandNoteEditor from '../handdetail/HandNoteEditor';
 import HandFlagControl from '../handdetail/HandFlagControl';
+import LogThisHandControl from '../handdetail/LogThisHandControl';
 import type { ReplayModel } from '../../utils/handReplay';
 import type { HeroHandFacts } from '../../services/HandHistoryService';
 import { gameTypeLabel, money, stamp } from '../../utils/handFormat';
@@ -441,6 +442,7 @@ function HandEntry({
             noteKnown={noteKnown}
             onSaved={onNoteSaved}
           />
+          <LogThisHandControl handId={hand.id} accountId={heroId} compact />
           {(onReplay || onOpenDetail) && (
             <div className="hh-entry__actions-row">
               {onOpenDetail && (
