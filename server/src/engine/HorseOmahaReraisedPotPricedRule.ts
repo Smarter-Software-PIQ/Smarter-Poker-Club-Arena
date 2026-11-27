@@ -563,7 +563,9 @@ export function reraisedPotPricedDecision(
  * opens and folded 0 of 265 4-bets: a range that wide, which never folds, is one the top of an opening range is
  * ahead of with the pot already built.
  *
- * WHAT IT DOES. PLO4/PLO5 cash, preflop, facing exactly a 3-bet (a fold facing a 4-bet or more is not priced here:
+ * WHAT IT DOES. PLO4/PLO5 cash, preflop, the Horse having made the first raise of the hand and facing exactly a cold
+ * 3-bet of it (the re-raiser's first voluntary action: a limp-re-raise is a far stronger range than his 3-bet rate
+ * describes, and is not priced; a fold facing a 4-bet or more is not priced here either:
  * people's answers to a 5-bet are 15, too thin to price a stack on), OUT OF POSITION against him on the later streets
  * (in position the fold is already weighed against the call by the live in-position defence, and the realization fit
  * credits an in-position aggressor with more than his equity on far stronger ranges), heads-up against the re-raiser (no other live
@@ -588,6 +590,22 @@ function reraisedPotFoldReraise(
   // exactly a 3-bet (the measured gap: the opener's fold); a fold facing a 4-bet or more is left to the fold
   if (spot.preflopRaises !== 2) return null;
   if (spot.opponents.length !== 1) return null;
+  // a COLD 3-bet of the Horse's own first raise only: the Horse made the first raise of the hand and the re-raise
+  // is the re-raiser's first voluntary action. A limp-re-raise is not priced: its range is far stronger than the
+  // re-raiser's 3-bet rate, which is all the read knows.
+  {
+    const pre = (gs.actionHistory ?? []).filter((a) => a.stage === 'preflop');
+    const isRaise = (a: (typeof pre)[number]): boolean =>
+      a.action === 'raise' ||
+      a.action === 'bet' ||
+      (a.action === 'all_in' && a.isFullRaise !== undefined);
+    const firstRaise = pre.find(isRaise);
+    if (!firstRaise || firstRaise.seat !== player.seat) return null;
+    const hisRaise = pre.findIndex((a) => a.seat === found.raiserSeat && isRaise(a));
+    if (hisRaise < 0) return null;
+    if (pre.slice(0, hisRaise).some((a) => a.seat === found.raiserSeat && a.action === 'call'))
+      return null;
+  }
   // out of position against the re-raiser only: in position the standing fold has already been weighed against the
   // call (omahaPreflopReraiseDefencePricedInPosition), and the fit credits an in-position aggressor with more than
   // his equity on ranges far stronger than a hand that was folded

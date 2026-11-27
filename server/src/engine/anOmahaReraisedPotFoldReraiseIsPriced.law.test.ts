@@ -1,8 +1,8 @@
 /**
  * LAW (PLO-OWNER lead-8 lane preflop, 2026-11-27): omahaReraisedPotFoldReraiseIsPriced (default OFF).
  *
- * Facing exactly a 3-bet preflop in PLO4/PLO5 cash, out of position and heads-up against the re-raiser, a standing
- * FOLD is priced
+ * Having made the first raise and facing exactly a cold 3-bet of it preflop in PLO4/PLO5 cash, out of position and
+ * heads-up against the re-raiser, a standing FOLD is priced
  * against the pot-size re-raise and becomes it only when EV(re-raise) > max(EV(call), 0) + deadband + the sampling
  * error of the price on the verdict of
  * HorseOmahaReraisedPotPriced, the re-raiser read from his OWN record, then the people-only prior, then the
@@ -13,8 +13,8 @@
  *     standing is one the price does not clear. It is never a call: a call of a 3-bet or a 4-bet is not made here.
  *  2. The price follows the opponent, not a class: against a measured wide 3-bettor far more folds become
  *     re-raises than against a measured tight one, and against a tight one the weakest opens stay folded.
- *  3. A standing call or re-raise is never touched; in position, multiway (callers in, players to act) and facing a
- *     4-bet or more nothing changes.
+ *  3. A standing call or re-raise is never touched; in position, multiway (callers in, players to act), facing a
+ *     4-bet or more, facing a limp-re-raise, or when the first raise was another player's, nothing changes.
  *  4. Off (absent, false, a truthy non-boolean) every decision is byte for byte the one it was; a tournament is
  *     outside the spot.
  *  5. The prior is the people prior: no record reads 0.156 for the re-raise rate and 0.028 for the fold to a 4-bet
@@ -38,6 +38,7 @@ import {
   reraisedPotFoldReraiseSamplingMargin,
   reraisedPotFoldToReraiseOf,
   reraisedPotPotRaise,
+  reraisedPotPricedDecision,
   reraisedPotPricedSpot,
   reraisedPotRaiseRateOf,
 } from './HorseOmahaReraisedPotPricedRule.js';
@@ -193,6 +194,46 @@ describe('only heads-up against the re-raiser, only in its own spot, inert when 
           const b = rrDecide(h, 'ipHu', ON, 7, { variant }, read);
           expect(strip(b.d)).toBe(strip(a.d));
         }
+  }, 120_000);
+
+  it("a limp-re-raise is not a cold 3-bet, and a re-raise of another player's raise is not the Horse's own: neither is priced", () => {
+    const which = { call: false, reraise: false, foldReraise: true };
+    const ctx = { mind: true, telemetry: false };
+    const fold = { action: 'fold', thinkTime: 1 } as never;
+    let pricedCold = 0;
+    for (const variant of ['plo5', 'plo4'] as const)
+      for (const h of rrHands(12, variant === 'plo4' ? 4 : 5, 33)) {
+        const { hero, gs } = rrSpot(h, 'oopHu', { variant });
+        rrSetRead(variant, WIDE[0], WIDE[1]);
+        HorseMind.setDecisionScope(readScopeOf(variant, 6), variant, 'cash');
+        try {
+          const cold = reraisedPotPricedDecision(fold, hero, gs, which, ctx);
+          expect(cold.receipt).toMatch(/^fold_rerais/);
+          pricedCold++;
+          const raises = (gs.actionHistory ?? []).filter((a) => a.action === 'raise');
+          const his = raises[raises.length - 1]!;
+          // the same spot, but the re-raiser had limped before the Horse raised
+          const limped = {
+            ...gs,
+            actionHistory: [
+              { ...his, action: 'call', amount: gs.bigBlind, isFullRaise: undefined },
+              ...(gs.actionHistory ?? []),
+            ],
+          } as typeof gs;
+          expect(reraisedPotPricedDecision(fold, hero, limped, which, ctx).receipt).toBeNull();
+          // the same spot, but the first raise of the hand was another player's
+          const other = {
+            ...gs,
+            actionHistory: (gs.actionHistory ?? []).map((a) =>
+              a === raises[0] ? { ...a, seat: 1 } : a
+            ),
+          } as typeof gs;
+          expect(reraisedPotPricedDecision(fold, hero, other, which, ctx).receipt).toBeNull();
+        } finally {
+          HorseMind.setDecisionScope(null);
+        }
+      }
+    expect(pricedCold).toBe(24);
   }, 120_000);
 
   it('facing a 4-bet or more (the 5-bet node) nothing changes', () => {
