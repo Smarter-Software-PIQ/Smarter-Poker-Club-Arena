@@ -32,15 +32,18 @@ No input reads whether a player is a person or a Horse, a name or an account; no
 
 Serving-engine replay of the 9,898 turn decisions with the option on (live switch rows as the base; same seeds). Checked-through flop, 0.7-1.1 pot, zero-equity bluff bb per bet (bar: not more than +2 SE above zero):
 
-| cell          | today        | option on (shown-only cells) | option on + hidden cells |
-| ------------- | ------------ | ---------------------------- | ------------------------ |
-| PLO5 heads-up | +9.1 +/- 2.7 | +1.6 +/- 2.7                 | -5.8 +/- 2.7             |
-| PLO4 heads-up | +5.6 +/- 1.6 | +4.2 +/- 1.6                 | +0.1 +/- 1.6             |
-| PLO5 3-way    | +5.7 +/- 3.0 | -0.9 +/- 3.0                 | -10.2 +/- 2.8            |
-| PLO5 4+ way   | +4.5 +/- 2.2 | -2.4 +/- 2.2                 | -5.4 +/- 2.2             |
-| PLO4 3-way    | +7.1 +/- 1.7 | +3.7 +/- 1.8                 | -1.1 +/- 1.8             |
+| cell                                                                           | today        | this option alone (shown-only cells) | this option, hidden cells | both options on (shipped code) |
+| ------------------------------------------------------------------------------ | ------------ | ------------------------------------ | ------------------------- | ------------------------------ |
+| PLO5 heads-up                                                                  | +9.1 +/- 2.7 | +1.6 +/- 2.7                         | -5.8 +/- 2.7              | -5.8 +/- 2.7                   |
+| PLO4 heads-up                                                                  | +5.6 +/- 1.6 | +4.2 +/- 1.6                         | +0.1 +/- 1.6              | +3.4 +/- 1.6                   |
+| PLO5 3-way                                                                     | +5.7 +/- 3.0 | -0.9 +/- 3.0                         | -10.2 +/- 2.8             | -10.2 +/- 2.8                  |
+| PLO5 4+ way                                                                    | +4.5 +/- 2.2 | -2.4 +/- 2.2                         | -5.4 +/- 2.2              | -5.7 +/- 2.2                   |
+| PLO4 3-way                                                                     | +7.1 +/- 1.7 | +3.7 +/- 1.8                         | -1.1 +/- 1.8              | +1.3 +/- 1.8                   |
+| (OFA's option alone, for reference) PLO4 heads-up / PLO5 heads-up / PLO5 3-way |              |                                      |                           | +3.4 / -5.8 / -7.0             |
 
-(The hidden column's heads-up rows use this option's hidden-corrected cells; with both options on in the shipped code the heads-up bet is priced by `omahaPeoplePriorCountsHiddenBets`' own cell.) Grades on the fixed harness, the audited replay, flag-off and speed follow in this file as they are run.
+(The hidden column's heads-up rows use this option's hidden-corrected cells; with both options on in the shipped code the heads-up bet is priced by `omahaPeoplePriorCountsHiddenBets`' own cell.) Both options on, PLO4 heads-up stays just over the bar (+3.4 +/- 1.6, z 2.1): OFA's per-game PLO4 turn cell is milder than this option's pooled hidden cell (+0.1 +/- 1.6 when this option prices the heads-up bet itself).
+
+Flag-off: `horse-flag-off-check.sh origin/main HEAD --set full`: 0 differences in 28,000 decisions. Speed (relative-cost law, 40 real turn decisions it prices, engine decide): on 8.15 ms vs off 8.20 ms per decision telemetry off (ratio 0.99), 8.27 vs 8.20 telemetry on (1.01). Fixed-harness grades: in the PR body.
 
 ## Prior anchor
 
@@ -51,7 +54,12 @@ Serving-engine replay of the 9,898 turn decisions with the option on (live switc
 
 ## Replay
 
-- Replay: NOT RUN (the audited-decision scorer has not been run for this option yet)
+- Replay: fixed 0; newlyWrong 2; changed 2; unchanged 867; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm LS vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 1; changed 8; unchanged 2689; unjudged 7; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm LS vs off; replayed 2697 of 2697
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm B vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 1; unchanged 2696; unjudged 1; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm B vs off; replayed 2697 of 2697
+
+Arm LS = this option alone on the live switch rows; arm B = this option with omahaPeoplePriorCountsHiddenBets (OFA's commit 26d03cb3 merged locally). Alone it changes 10 audited decisions and makes 3 newly wrong, 0 fixed (bar: fixed >= 2x newly wrong: NOT MET); with the hidden-bets option it changes 1 (unjudged).
 
 ## Known Limits
 
