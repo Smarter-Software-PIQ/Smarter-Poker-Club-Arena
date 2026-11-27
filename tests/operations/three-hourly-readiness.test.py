@@ -1542,14 +1542,16 @@ class CopyFreshnessTests(unittest.TestCase):
     REPO = "o/r"
     COPY_AT = "2026-11-27T10:05:00Z"
 
-    def _gh(self, apply_runs, stage_runs, logs, refresh=None):
-        refresh = refresh if refresh is not None else [
-            {"id": 1, "name": "refresh", "conclusion": "success", "completed_at": self.COPY_AT}
+    SHA = "7" * 40
+
+    def _gh(self, apply_runs, stage_runs, logs, artifacts=None):
+        artifacts = artifacts if artifacts is not None else [
+            {"id": 5, "name": f"backup-certificate-{self.SHA}-1", "expired": False}
         ]
 
         def gh_get(path):
-            if path.startswith(f"repos/{self.REPO}/actions/runs/700/jobs"):
-                return {"jobs": refresh}
+            if path.startswith(f"repos/{self.REPO}/actions/runs/700/artifacts"):
+                return {"artifacts": artifacts}
             if f"/workflows/{mod.APPLY_WORKFLOW}/runs" in path:
                 return {"total_count": len(apply_runs), "workflow_runs": [r for r, _ in apply_runs]}
             if f"/workflows/{mod.STAGE_WORKFLOW}/runs" in path:
@@ -1567,10 +1569,26 @@ class CopyFreshnessTests(unittest.TestCase):
 
         return gh_get, gh_text
 
-    def _judge(self, gh_get, gh_text, inert=lambda _t: False, git_text="BEGIN;\nCOMMIT;"):
-        cand = {"backup": {"runId": 700}}
+    def _zip(self, cert):
+        buf = io.BytesIO()
+        import zipfile
+
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("certificate.json", json.dumps(cert))
+        return buf.getvalue()
+
+    def _judge(self, gh_get, gh_text, inert=lambda _t: False, git_text="BEGIN;\nCOMMIT;", cert=None):
+        cert = cert if cert is not None else {"database": {"restoredAt": self.COPY_AT}}
+        archive = self._zip(cert)
+
+        def gh_bytes(path):
+            if path == f"repos/{self.REPO}/actions/artifacts/5/zip":
+                return archive
+            raise mod.ReadError(path)
+
+        cand = {"sha": self.SHA, "backup": {"runId": 700}}
         return mod.judge_copy_freshness(
-            cand, self.REPO, "/repo", "c" * 40, gh_get, gh_text, lambda _r, *_a: git_text, inert
+            cand, self.REPO, "/repo", "c" * 40, gh_get, gh_text, lambda _r, *_a: git_text, inert, gh_bytes
         )
 
     def test_the_window_install_that_cost_07_00_makes_the_certificate_stale(self):
@@ -1613,6 +1631,14 @@ class CopyFreshnessTests(unittest.TestCase):
         gh_get, gh_text = self._gh(apply_runs, [], {91: log})
         self.assertEqual(self._judge(gh_get, gh_text)[0], "fresh")
 
+    def test_a_reused_copy_is_dated_by_its_restore_not_by_the_run(self):
+        # 4f2a8bcc269e's run refreshed at 03:49 CST but certified a copy restored 01:25 CST.
+        after = [({"id": 904, "status": "completed"}, [{"id": 95, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T08:30:00Z"}])]
+        gh_get, gh_text = self._gh(after, [], {95: "[apply] 20261124195144_a.sql\n[apply] APPLIED"})
+        verdict, detail = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T07:25:01Z"}})
+        self.assertEqual(verdict, "stale")
+        self.assertIn("01:25", detail)
+
     def test_an_install_before_the_copy_or_an_engine_inert_one_is_not_missing(self):
         before = [({"id": 901, "status": "completed"}, [{"id": 92, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T10:00:00Z"}])]
         gh_get, gh_text = self._gh(before, [], {92: "[apply] 20261127000004_w.sql\n[apply] APPLIED"})
@@ -1628,12 +1654,14 @@ class CopyFreshnessTests(unittest.TestCase):
         after = [({"id": 903, "status": "completed"}, [{"id": 94, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T11:00:00Z"}])]
         gh_get, gh_text = self._gh(after, [], {})  # the log cannot be read
         self.assertEqual(self._judge(gh_get, gh_text)[0], "unread")
-        gh_get, gh_text = self._gh([], [], {}, refresh=[])  # no refresh job dates the copy
+        gh_get, gh_text = self._gh([], [], {}, artifacts=[])  # no certificate kept
         self.assertEqual(self._judge(gh_get, gh_text)[0], "unread")
+        gh_get, gh_text = self._gh([], [], {})
+        self.assertEqual(self._judge(gh_get, gh_text, cert={"database": {}})[0], "unread")
 
         def truncated(path):
-            if "/jobs" in path:
-                return {"jobs": [{"id": 1, "name": "refresh", "conclusion": "success", "completed_at": self.COPY_AT}]}
+            if "/artifacts" in path:
+                return {"artifacts": [{"id": 5, "name": f"backup-certificate-{self.SHA}-1"}]}
             return {"total_count": 101, "workflow_runs": []}
 
         self.assertEqual(self._judge(truncated, gh_text)[0], "unread")

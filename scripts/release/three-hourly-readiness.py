@@ -14,6 +14,7 @@ yields verdict UNKNOWN (exit code 3), never READY or NO_CANDIDATE
 import argparse
 import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -22,6 +23,7 @@ import sys
 import types
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -1291,15 +1293,41 @@ def production_installs_after(repo, since_utc, gh_get, gh_text):
     return installed
 
 
-def certificate_copy_time(repo, backup_info, gh_get):
-    """When the certifying run's copy was last proven current: its refresh job's completion."""
+def gh_api_get_bytes(path, timeout=60):
+    """Read-only GitHub REST GET returning raw bytes (artifact archives)."""
+    try:
+        proc = subprocess.run(["gh", "api", "--method", "GET", path], capture_output=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise ReadError(f"gh api GET {path} failed: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raise ReadError(f"gh api GET {path} failed: {detail[-1] if detail else proc.returncode}")
+    return proc.stdout
+
+
+def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes):
+    """When the certified copy was restored: database.restoredAt in the run's own certificate.
+    A run that reuses a copy certifies data restored earlier than the run itself."""
     run_id = backup_info.get("runId")
     if not run_id:
         raise ReadError("certificate names no Backup run")
-    refresh = [j for j in _jobs_of(repo, run_id, gh_get) if j.get("name") == "refresh"]
-    if len(refresh) != 1 or refresh[0].get("conclusion") != "success" or not refresh[0].get("completed_at"):
-        raise ReadError(f"Backup run {run_id} has no successful refresh job to date its copy")
-    return parse_iso_utc(refresh[0]["completed_at"])
+    data = gh_get(f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100")
+    if not isinstance(data, dict) or not isinstance(data.get("artifacts"), list):
+        raise ReadError(f"unexpected artifacts response for run {run_id}")
+    names = [
+        a
+        for a in data["artifacts"]
+        if str(a.get("name", "")).startswith(f"backup-certificate-{sha}-") and not a.get("expired")
+    ]
+    if not names:
+        raise ReadError(f"Backup run {run_id} kept no certificate for {sha[:12]}")
+    archive = gh_bytes(f"repos/{repo}/actions/artifacts/{names[-1]['id']}/zip")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+            cert = json.loads(zf.read("certificate.json"))
+        return parse_iso_utc(cert["database"]["restoredAt"])
+    except (zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
+        raise ReadError(f"certificate of run {run_id} names no copy restore time: {exc}") from exc
 
 
 def load_engine_inert(repo_root):
@@ -1315,11 +1343,15 @@ def load_engine_inert(repo_root):
         return None
 
 
-def judge_copy_freshness(candidate, repo, repo_root, control_sha, gh_get, gh_text, git_fn, engine_inert):
+def judge_copy_freshness(
+    candidate, repo, repo_root, control_sha, gh_get, gh_text, git_fn, engine_inert, gh_bytes=None
+):
     """O36: a certificate is selectable only while its copy holds every non-inert migration
     production committed. Returns ("fresh"|"stale"|"unread", detail)."""
     try:
-        copy_at = certificate_copy_time(repo, candidate["backup"], gh_get)
+        copy_at = certificate_copy_time(
+            repo, candidate["sha"], candidate["backup"], gh_get, gh_bytes or gh_api_get_bytes
+        )
         installs = production_installs_after(repo, copy_at, gh_get, gh_text)
     except ReadError as exc:
         return ("unread", str(exc))
@@ -1429,6 +1461,7 @@ def collect_readiness(
     projection_fn=None,
     gh_text_fn=None,
     engine_inert_fn=None,
+    gh_bytes_fn=None,
 ):
     """Collect live readiness state across health, schedule, GitHub workflows and git."""
     explicit_limit = limit is not None
@@ -1566,7 +1599,8 @@ def collect_readiness(
             if cand["status"] != "SELECTABLE":
                 return cand
             verdict, detail = judge_copy_freshness(
-                cand, repo, resolved_root, control_sha, gh_reader, gh_text_reader, git_reader, inert_fn
+                cand, repo, resolved_root, control_sha, gh_reader, gh_text_reader, git_reader, inert_fn,
+                gh_bytes_fn,
             )
             cand["copyFreshness"] = verdict
             cand["copyFreshnessDetail"] = detail
