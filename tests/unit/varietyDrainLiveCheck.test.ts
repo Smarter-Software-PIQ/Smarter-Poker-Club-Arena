@@ -75,10 +75,37 @@ describe('the variety drain live check', () => {
     expect(body).toContain("h.detail -> 'cash_room' AS room");
     expect(body).toMatch(/WHEN count\(\*\) = 0 THEN 'INFO'/);
     expect(body).toContain("(room ->> 'counted')::int > (room ->> 'cap')::int");
-    /* waits are islands over heartbeats that carry an owed list, so a withheld
-       cycle (an empty list) never splits or ends a wait */
-    expect(body).toContain('FROM hb WHERE jsonb_array_length(owed_games) > 0');
-    expect(body).toContain('b.rn - row_number() OVER (PARTITION BY g ORDER BY b.rn) AS grp');
+  });
+
+  it("2026-11-27: a wait ends at the game's first dealt hand, never at the game leaving the owed list", () => {
+    /* Live on the 1 AM seal f2b854319ea9: one Lightning game left and re-entered
+       the owed list 104 times while it was dealing. Ending a wait when a game
+       left the list read that as 114 starts with a 2-minute median; the true
+       median, ended by dealt hands, was 429 minutes. */
+    expect(body).not.toContain('b.rn - row_number() OVER (PARTITION BY g ORDER BY b.rn) AS grp');
+    /* the end of a wait is a cash hand of that game (any of its tables) */
+    expect(body).toMatch(
+      /FROM public\.hand_history hh JOIN public\.tables t ON t\.id = hh\.table_id/
+    );
+    expect(body).toContain('hh.tournament_id IS NULL');
+    expect(body).toContain('t.cluster_id::text AS game');
+    expect(body).toContain(
+      '(SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k + 1) AS started_at'
+    );
+    /* an owed beat just after a hand of that game is a game that is dealing */
+    expect(body).toContain("d.ts < o.ts - interval '3 minutes'");
+    /* both wait rows read the same waits; a still-waiting game is one on the last beat */
+    expect(body).toContain('FROM waits WHERE started_at IS NOT NULL');
+    expect(body).toContain(
+      'FROM waits WHERE started_at IS NULL AND last_beat = (SELECT max(beat_at) FROM hb)'
+    );
+  });
+
+  it('2026-11-27: a wait that began before the window says it is a minimum', () => {
+    expect(body).toContain(
+      "min(w.ts) <= (SELECT min(beat_at) FROM hb) + interval '60 seconds' AS truncated"
+    );
+    expect(body.match(/already owed at the release: their waits are minimums/g)?.length).toBe(2);
   });
 
   it('is the R11 read the regression method names', () => {

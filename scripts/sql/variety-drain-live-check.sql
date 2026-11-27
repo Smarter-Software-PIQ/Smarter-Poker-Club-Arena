@@ -22,8 +22,16 @@
 --   cap_every_cycle       no heartbeat read more counted tables than its cap
 --                         (detail.cash_room; INFO until a build that writes it)
 --   owed_starts_made      owed games that started since the release, with the
---                         median and longest wait (heartbeats with an owed list)
---   owed_waiting_now      owed games still waiting, and the longest wait so far
+--                         median and longest wait. A wait ends at the game's first
+--                         cash hand dealt, never at the game leaving the owed list
+--                         (2026-11-27: one Lightning game left and re-entered the
+--                         list 104 times while dealing, which read as 114 "starts"
+--                         and a 2-minute median; the true median was 429 minutes).
+--                         An owed beat within 3 minutes after a hand of that game
+--                         is a game that is dealing, not waiting.
+--   owed_waiting_now      owed games still waiting, and the longest wait so far.
+--                         Both rows say how many waits began before the window
+--                         (already owed at the release): those waits are minimums.
 --   horse_error_log       zero rows in the window
 WITH rel AS (
   SELECT at FROM public.ca_engine_deploy_attempts WHERE shipped ORDER BY at DESC LIMIT 1
@@ -55,18 +63,35 @@ fresh AS (
       WHERE p.table_id = n.table_id
         AND p.beat_at = (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at < n.beat_at))
 ),
-owing_beats AS (
-  SELECT beat_at, owed_games, row_number() OVER (ORDER BY beat_at) AS rn
-    FROM hb WHERE jsonb_array_length(owed_games) > 0
-),
 owing AS (
-  SELECT b.beat_at, b.rn, g AS game,
-         b.rn - row_number() OVER (PARTITION BY g ORDER BY b.rn) AS grp
-    FROM owing_beats b, jsonb_array_elements_text(b.owed_games) g
+  SELECT hb.beat_at, g AS game FROM hb, jsonb_array_elements_text(hb.owed_games) g
 ),
-spans AS (
-  SELECT game, grp, min(beat_at) AS s, max(beat_at) AS e, max(rn) AS last_rn
-    FROM owing GROUP BY game, grp
+dealt AS (
+  SELECT t.cluster_id::text AS game, hh.created_at AS at
+    FROM public.hand_history hh JOIN public.tables t ON t.id = hh.table_id, rel
+   WHERE hh.created_at > rel.at - interval '3 minutes' AND hh.tournament_id IS NULL
+     AND t.cluster_id::text IN (SELECT DISTINCT game FROM owing)
+),
+ev AS (
+  SELECT game, beat_at AS ts, 0 AS deal FROM owing
+  UNION ALL SELECT game, at, 1 FROM dealt
+),
+ep AS (
+  SELECT game, ts, deal,
+         sum(deal) OVER (PARTITION BY game ORDER BY ts, deal ROWS UNBOUNDED PRECEDING) AS k
+    FROM ev
+),
+deals AS (SELECT game, k, ts FROM ep WHERE deal = 1),
+waiting AS (
+  SELECT o.game, o.k, o.ts
+    FROM ep o LEFT JOIN deals d ON d.game = o.game AND d.k = o.k
+   WHERE o.deal = 0 AND (d.ts IS NULL OR d.ts < o.ts - interval '3 minutes')
+),
+waits AS (
+  SELECT w.game, w.k, min(w.ts) AS s, max(w.ts) AS last_beat,
+         (SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k + 1) AS started_at,
+         min(w.ts) <= (SELECT min(beat_at) FROM hb) + interval '60 seconds' AS truncated
+    FROM waiting w GROUP BY w.game, w.k
 ),
 cap AS (SELECT table_cap FROM public.fn_cash_hourly_table_range()),
 census AS (SELECT count(*) AS counted FROM public.fn_cash_hourly_table_capacity_census())
@@ -126,14 +151,20 @@ SELECT 'cap_every_cycle',
 UNION ALL
 SELECT 'owed_starts_made', 'INFO',
        count(*) || ' started; median wait ' ||
-         coalesce(round(extract(epoch FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY e - s)) / 60)::text, '-') ||
-         ' min, longest ' || coalesce(round(extract(epoch FROM max(e - s)) / 60)::text, '-') || ' min'
-  FROM spans WHERE last_rn < (SELECT max(rn) FROM owing_beats)
+         coalesce(round(extract(epoch FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY started_at - s)) / 60)::text, '-') ||
+         ' min, longest ' || coalesce(round(extract(epoch FROM max(started_at - s)) / 60)::text, '-') || ' min' ||
+         CASE WHEN count(*) FILTER (WHERE truncated) > 0
+              THEN ' (' || count(*) FILTER (WHERE truncated) || ' already owed at the release: their waits are minimums)'
+              ELSE '' END
+  FROM waits WHERE started_at IS NOT NULL
 UNION ALL
 SELECT 'owed_waiting_now', 'INFO',
        count(*) || ' waiting; longest so far ' ||
-         coalesce(round(extract(epoch FROM max(e - s)) / 60)::text, '-') || ' min'
-  FROM spans WHERE last_rn = (SELECT max(rn) FROM owing_beats)
+         coalesce(round(extract(epoch FROM max((SELECT max(beat_at) FROM hb) - s)) / 60)::text, '-') || ' min' ||
+         CASE WHEN count(*) FILTER (WHERE truncated) > 0
+              THEN ' (' || count(*) FILTER (WHERE truncated) || ' already owed at the release: their waits are minimums)'
+              ELSE '' END
+  FROM waits WHERE started_at IS NULL AND last_beat = (SELECT max(beat_at) FROM hb)
 UNION ALL
 SELECT 'horse_error_log',
        CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
