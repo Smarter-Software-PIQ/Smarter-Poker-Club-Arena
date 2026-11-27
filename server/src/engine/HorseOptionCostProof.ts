@@ -77,6 +77,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemOpeningBluffIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemRiverBluffIsPricedOnPeople: 'engine/aHoldemRiverBluffIsPricedOnPeople.law.test.ts',
+  holdemRiverFacingBetPriorIsPeopleMeasured:
+    'engine/aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts',
   holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemMultiwayOpeningBluffIsPriced: 'engine/aHoldemMultiwayOpeningPriceIsFast.law.test.ts',

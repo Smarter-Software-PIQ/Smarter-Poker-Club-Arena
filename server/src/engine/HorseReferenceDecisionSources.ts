@@ -221,6 +221,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off priced Hold'em opening side (plo-lead7 2026-11-25, holdemOpeningValueBetIsPriced and holdemOpeningBluffIsPriced): NLH cash heads-up, not facing a wager, a check becomes a value bet or a blocker / range-advantage bluff only when it prices above the check against his record-first fold anchored to equilibrium; off never runs",
     'src/engine/HorseHoldemMultiwayOpeningIsPriced.ts':
       "the default-off priced first bet of the turn or river against two or more opponents (plo-lead7 2026-11-26, holdemMultiwayOpeningBluffIsPriced and holdemMultiwayOpeningValueBetIsPriced): NLH cash, nobody has bet the street, a check becomes a value bet or a blocker / range-advantage bluff only when it prices above the check against the field's joint fold (the minimum defence shared across the field, each opponent's record first, anchored to equilibrium); off never runs",
+    'src/engine/HorseHoldemFacingBetPeoplePrior.ts':
+      "the default-off people-measured Hold'em river facing-bet prior (lead-9 2026-11-27, holdemRiverFacingBetPriorIsPeopleMeasured): what a heads-up NLH cash river first bet is, the bettor's own public record of betting when checked to shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium; a fold becomes a call only when the call clears its sampling error",
+    'src/engine/HorseHoldemFacingBetPeoplePriorTables.json':
+      'the people-only river first-bet table behind HorseHoldemFacingBetPeoplePrior.ts (bets by people only, shown cards only; scripts/ops/holdem-people-facing-bet-prior-fit.mjs)',
     'src/engine/HorseHoldemPeopleRiverFold.ts':
       "the default-off people-measured Hold'em river fold (lead-8 2026-11-27, holdemRiverBluffIsPricedOnPeople): his fold to a heads-up NLH cash river first bet read size by size, his own lifetime river record of that size shrunk to people's measured fold for the Horse's line and that size, shrunk to equilibrium; off never runs",
     'src/engine/HorseHoldemPeopleRiverFoldTables.json':

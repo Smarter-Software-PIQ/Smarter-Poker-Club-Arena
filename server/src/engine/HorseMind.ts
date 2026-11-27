@@ -1403,7 +1403,7 @@ export interface OmahaLifetimeStreetRecordProvider {
   /** his actions on the street with no wager yet made on it (opps) and those in which he made the first wager */
   unopenedWagerRecord(
     opponentId: string,
-    game: 'plo4' | 'plo5',
+    game: 'plo4' | 'plo5' | 'nlh',
     street: 'turn' | 'river',
     players: 'hu' | 'mw'
   ): { bets: number; opps: number } | null;
@@ -3576,6 +3576,26 @@ export class HorseMind {
       }
     };
     return { foldSmall: fold('small'), foldBig: fold('big') };
+  }
+  /**
+   * HOLD'EM RIVER UNOPENED-WAGER RECORD (holdemRiverFacingBetPriorIsPeopleMeasured, default off): one opponent's
+   * lifetime public count of first wagers on an unopened heads-up NLH river and of his opportunities, from the same
+   * provider (OPPONENT-HUD's river stab and lead cells). Counts only; the consumer shrinks them. Null with no
+   * provider, no record, or on any provider error. Pure. One function for every opponent.
+   */
+  static holdemRiverUnopenedWagerRecordOf(userId: string): { bets: number; opps: number } | null {
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return null;
+    try {
+      const r = provider.unopenedWagerRecord(userId, 'nlh', 'river', 'hu');
+      if (!r) return null;
+      const bets = Number(r.bets);
+      const opps = Number(r.opps);
+      if (!Number.isFinite(bets) || !Number.isFinite(opps) || !(opps > 0) || bets < 0) return null;
+      return { bets: Math.min(bets, opps), opps };
+    } catch {
+      return null;
+    }
   }
   /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
   private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {

@@ -2952,6 +2952,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemRiverFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folded every Horse 72.5% of the time against a pure-bluff break-even of 46.4%, +11.3 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the river, facing the river's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: the bettor's own public record of betting when checked to, shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium (HorseHoldemFacingBetPeoplePrior). Never folds a call, never raises.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -10552,6 +10557,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_bluff_below_check',
     'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
     "no river bluff size cleared the check by more than the error of his fold on his own record and people's measured river fold: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_call',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river (NLH cash) the brain's fold became a call: priced on the bettor's own record of betting when checked to and people's measured river first bets of that size, line and pot type, the call clears its sampling error",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_fold_stands',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river the brain's fold was re-priced on the bettor's own record and people's measured river first bets and the call did not clear its sampling error: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_own_record_read',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "the bettor's own public record of betting when no bet is to be faced moved people's measured shares of a river first bet",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_unpriced',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(

@@ -125,7 +125,11 @@ export const HUD_LIVE_SNAPSHOT_FAMILIES: readonly HudFamily[] = ['plo4', 'plo5']
  * its opponent's packet (the option reads r.fb.sm.hu / r.fb.bg.hu). Every other NLH decision, and every NLH decision
  * while none is switched, carries nothing, exactly as before (AUDIT-24H P1-2).
  */
-export const HUD_NLH_RIVER_CONSUMERS: readonly string[] = ['holdemRiverBluffIsPricedOnPeople'];
+export const HUD_NLH_RIVER_CONSUMERS: readonly string[] = [
+  'holdemRiverBluffIsPricedOnPeople',
+  // lead-9 2026-11-27: reads the bettor's river stab and lead cells (r.stab.hu / r.lead.hu)
+  'holdemRiverFacingBetPriorIsPeopleMeasured',
+];
 export const HUD_CATCHUP_PAUSE_MS = 200;
 export const HUD_CATCHUP_SLOW_MS = 1_000;
 export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
