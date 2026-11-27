@@ -1169,12 +1169,16 @@
   grid-area: 2 / 1;
   min-width: 0;
 }
+/* The PlayerID, role and status line runs the full width of the card under
+   the portrait column and the figures (Dan, 2026-11-27: a seated player's
+   table name ran off the bottom of the card when it had to wrap inside the
+   name column). */
 .arena-workspace.club-members-page .member-subline {
-  grid-area: 3 / 1;
+  grid-area: 3 / 1 / 4 / 3;
   min-width: 0;
 }
 .arena-workspace.club-members-page .member-simple-balance {
-  grid-area: 1 / 2 / 4 / 3;
+  grid-area: 1 / 2 / 3 / 3;
   align-self: center;
 }
 .arena-workspace.club-members-page .member-chevron {
