@@ -7,6 +7,8 @@
  * off it never acts; on it prices heads-up and multiway turn bets, changes only calls and folds (never a raise),
  * and after a checked-through flop it folds less; flipping every other seat between person and Horse changes nothing.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { enableBrainTelemetry, withDecisionFireScope } from './BrainTelemetry.js';
 import {
@@ -124,4 +126,19 @@ describe('LAW: the turn bettor is priced on the people cell of his flop line', (
       );
     }
   }, 300_000);
+
+  it('no identity input: the module reads no person / Horse flag, account or name', () => {
+    const code = readFileSync(join(__dirname, 'HorseOmahaTurnLinePeoplePrior.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    for (const banned of [
+      'omahaOpponentKindOf',
+      'is_horse',
+      'isHorse',
+      'humanUserIds',
+      'username',
+      'user_id',
+    ])
+      expect(code.includes(banned), banned).toBe(false);
+  });
 });

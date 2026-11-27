@@ -15368,6 +15368,44 @@ function omahaFacingBetEvCount(
     // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, a bet or a raise: the non-value share is the
     // people-only measured share (river: three measured regions), the balanced share weighting a thin cell, moved
     // by the bettor's own shown bets (HorseOmahaFacingBetPeoplePrior); a raise reads the people raise cell only.
+    if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        const variant = String(gs.gameVariant ?? '').toLowerCase();
+        const anchored = omahaPeoplePriorShare({
+          street: spot.street,
+          potFrac: spot.potFrac,
+          isRaise: spot.isRaise === true,
+          multiway: false,
+          paid: spot.paid,
+          winnable: spot.winnable,
+          rake: omahaFacingBetDeduction(player, gs, opts),
+          twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
+          record:
+            mind && bettor && spot.isRaise !== true
+              ? omahaBetReadOwnCellOf(
+                  bettor.user_id,
+                  variant,
+                  spot.street,
+                  spot.potFrac,
+                  omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
+                    'agg'
+                )
+              : null,
+        });
+        if (anchored) {
+          readBeforeAnchor = read;
+          read = {
+            ...OMAHA_EV_UNKNOWN_READ,
+            pricedShare: anchored.share,
+            pricedRegions: anchored.regions,
+          };
+          equilibriumAnchored = anchored;
+        }
+      } catch {
+        equilibriumAnchored = null;
+      }
+    }
     // omahaTurnFacingBetPriorIsLineSplit (default off): a turn first wager, heads-up or multiway: the flop line's
     // people cell (HorseOmahaTurnLinePeoplePrior) replaces the line-blind heads-up cell and the old multiway constant.
     // With omahaPeoplePriorCountsHiddenBets on, a HEADS-UP turn bet stays with that option's own hidden-corrected
@@ -15408,6 +15446,11 @@ function omahaFacingBetEvCount(
           countsHidden: turnLineHidden,
         });
         if (anchored) {
+          // the line cell replaces the line-blind heads-up cell of omahaFacingBetPriorIsPeopleMeasured where both apply
+          if (equilibriumAnchored) {
+            read = readBeforeAnchor;
+            equilibriumAnchored = null;
+          }
           readBeforeAnchor = read;
           read = {
             ...OMAHA_EV_UNKNOWN_READ,
@@ -15418,44 +15461,6 @@ function omahaFacingBetEvCount(
         }
       } catch {
         lineSplitPriced = null;
-      }
-    }
-    if (!lineSplitPriced && equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
-      try {
-        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
-        const variant = String(gs.gameVariant ?? '').toLowerCase();
-        const anchored = omahaPeoplePriorShare({
-          street: spot.street,
-          potFrac: spot.potFrac,
-          isRaise: spot.isRaise === true,
-          multiway: false,
-          paid: spot.paid,
-          winnable: spot.winnable,
-          rake: omahaFacingBetDeduction(player, gs, opts),
-          twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
-          record:
-            mind && bettor && spot.isRaise !== true
-              ? omahaBetReadOwnCellOf(
-                  bettor.user_id,
-                  variant,
-                  spot.street,
-                  spot.potFrac,
-                  omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
-                    'agg'
-                )
-              : null,
-        });
-        if (anchored) {
-          readBeforeAnchor = read;
-          read = {
-            ...OMAHA_EV_UNKNOWN_READ,
-            pricedShare: anchored.share,
-            pricedRegions: anchored.regions,
-          };
-          equilibriumAnchored = anchored;
-        }
-      } catch {
-        equilibriumAnchored = null;
       }
     }
     // omahaMultiwayFieldIsPeopleMeasured (default off): the people-measured field, multiway only.
