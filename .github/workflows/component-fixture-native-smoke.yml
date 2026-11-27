@@ -94,6 +94,10 @@ jobs:
       - name: Install locked fixture test dependencies on the disposable CI runner
         run: npm ci --prefix operations/release/fixture --ignore-scripts --no-audit --no-fund
       - name: Compile the actual engine for isolated EV actors
+        env:
+          # the server build's tsc compiles all of server/src: over Node's default heap on this runner since
+          # 2026-11-27 (4,314 MB measured on main 84749b1c). tests/a-full-server-typecheck-gets-the-heap-it-needs.law.test.ts
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           npm ci --prefix server --ignore-scripts --no-audit --no-fund
           npm run build --prefix server

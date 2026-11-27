@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaMultiwayFieldIsPeopleMeasured.law.test.ts
+
+omahaMultiwayFieldIsPeopleMeasured (default OFF) prices the field of a multiway PLO4/PLO5 cash turn or river call inside the facing-bet verdict on people's measured play: a caller holds the people-measured caller width and a player still to act continues at the people multiway continue rate, each blended with its equilibrium anchor at 30 pseudo-observations. On the 162 audited PLO4 multiway decisions (the deciding Horse's own cards only) it prices them, never acts when off, changes only folds and calls, and facing people's turn bets the Horses fold 28 of 41 instead of 32; heads-up decisions are identical, and flipping every other seat between person and Horse changes nothing.

@@ -1,0 +1,30 @@
+{
+  "note": "Which Horse option owns the fix of each over-fold cell (scripts/ops/horse-plo-overfold-gate-lib.mjs). games: plo4, plo5, nlh (cash), nlh-mtt. streets: flop, turn, river. fields: hu (two players in), mw. sizes: small (<0.4 pot), mid (0.4-0.7), large (0.7+). A cell no entry covers has no owner yet. Every option here is registered in server/src/engine/HorseOptionSwitch.ts or listed under awaitingRegistration with the pull request that registers it (law anOverFoldAlarmWatchesEveryCell). Adding an owner here never switches anything.",
+  "owners": [
+    {
+      "option": "omahaFacingBetPriorIsPeopleMeasured",
+      "games": ["plo4", "plo5"],
+      "streets": ["turn", "river"],
+      "fields": ["hu"],
+      "sizes": ["small", "mid", "large"]
+    },
+    {
+      "option": "omahaFlopPressureCapIsPriced",
+      "games": ["plo4", "plo5"],
+      "streets": ["flop"],
+      "fields": ["hu"],
+      "sizes": ["large"]
+    },
+    {
+      "option": "omahaMultiwayFieldIsPeopleMeasured",
+      "games": ["plo4", "plo5"],
+      "streets": ["turn", "river"],
+      "fields": ["mw"],
+      "sizes": ["small", "mid", "large"]
+    }
+  ],
+  "awaitingRegistration": {
+    "omahaFlopPressureCapIsPriced": "PR #12184",
+    "omahaMultiwayFieldIsPeopleMeasured": "PR #12164"
+  }
+}

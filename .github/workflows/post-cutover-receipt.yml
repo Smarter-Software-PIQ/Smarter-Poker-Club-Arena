@@ -37,6 +37,8 @@ jobs:
       issues: read
     outputs:
       needed: ${{ steps.find.outputs.needed }}
+      run_id: ${{ steps.find.outputs.run_id }}
+      late: ${{ steps.find.outputs.late }}
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
@@ -49,7 +51,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Find the cycle comment this run posted
+      - name: Find the cycle comment this run posted, or the oldest cycle still without a receipt
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,6 +65,11 @@ jobs:
     if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && needs.gate.outputs.needed == 'true' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
+    # One audit at a time across all runs, so two gates that found the same orphan never post twice (the audit
+    # re-reads the log right before posting).
+    concurrency:
+      group: post-cutover-receipt-audit
+      cancel-in-progress: false
     timeout-minutes: 10
     permissions:
       contents: read
@@ -81,7 +88,7 @@ jobs:
 
       - name: Fetch the live release and enough history for the ancestry check
         env:
-          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+          RECEIVER_RUN_ID: ${{ needs.gate.outputs.run_id }}
         run: |
           set -euo pipefail
           [[ "$RECEIVER_RUN_ID" =~ ^[1-9][0-9]*$ ]]
@@ -92,7 +99,8 @@ jobs:
       - name: Audit and post the receipt
         env:
           GH_TOKEN: ${{ github.token }}
-          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+          RECEIVER_RUN_ID: ${{ needs.gate.outputs.run_id }}
+          RECEIPT_LATE: ${{ needs.gate.outputs.late }}
           AUDIT_DB_URL_ENV: AUDIT_DATABASE_URL
           AUDIT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ops/post-cutover-receipt.mjs

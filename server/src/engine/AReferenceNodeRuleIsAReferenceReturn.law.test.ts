@@ -41,6 +41,7 @@ import {
   HorseLogic,
   lightningVpipFloorLimpOnlyInputs,
   vpipFloorCallDown,
+  vpipFloorLimpFoldsToARaiseStep,
   vpipFloorLimpOnlyApplies,
   vpipFloorLimpOnlyStep,
   vpipLimpTargetFor,
@@ -77,6 +78,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     kind: 'receipt_only',
     proof: 'spreads the decision, adds a receipt',
   },
+  {
+    owner: 'raisedFloorLimp.decision',
+    kind: 'post_route',
+    proof:
+      'vpipFloorLimpFoldsToARaise (default OFF): returns the decision it was given unless the option is on and the Horse faces a raise after its own remembered floor limp; then it returns a FOLD and nothing else, and a fold of a price to call is a reference return on every route (raisedFloorLimpFold below)',
+  },
   { owner: 'limpOnly.decision', kind: 'post_route', proof: 'tableLimp (vpipFloorLimpOnly)' },
   {
     owner: 'limpOnly.decision',
@@ -107,6 +114,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     kind: 'postflop',
     proof:
       'holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (default OFF): postflop only, heads-up NLH cash, not facing a wager; returns the decision it was given unless an option is on and a bet prices above the check (HorseHoldemOpeningIsPriced.law.test.ts)',
+  },
+  {
+    owner: 'holdemMultiwayOpeningPriced',
+    kind: 'postflop',
+    proof:
+      'holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced (default OFF): turn and river only, NLH cash against two or more opponents, nobody has bet the street; returns the decision it was given unless an option is on and a bet prices above the check (HorseHoldemMultiwayOpeningIsPriced.law.test.ts)',
   },
   {
     owner: 'holdemTournamentBluffPriced',
@@ -517,6 +530,57 @@ describe('every floor rule of the reference node is admitted on every route it c
       admitted++;
     }
     expect(admitted).toBeGreaterThan(50);
+  });
+});
+
+describe('the raised floor limp of the reference node (vpipFloorLimpFoldsToARaise, default OFF)', () => {
+  it('raisedFloorLimpFold: it only ever returns a fold, and a fold of a price to call is a reference return on every named route', () => {
+    // its only outputs: the decision it was given, or a fold (HorseLogic.vpipFloorLimpFoldsToARaiseStep)
+    const given: HorseDecision = { action: 'call', amount: 7, thinkTime: 1 };
+    const hist = [
+      { stage: 'preflop', seat: 4, action: 'call' },
+      { stage: 'preflop', seat: 6, action: 'raise', isFullRaise: true },
+    ];
+    const me = { seat: 4, bet: 2 };
+    const facing = {
+      stage: 'preflop',
+      currentBet: 9,
+      ownVpipFloorLimpThisHand: true,
+      actionHistory: hist,
+    };
+    expect(vpipFloorLimpFoldsToARaiseStep(given, me, facing, {}).decision).toBe(given);
+    expect(
+      vpipFloorLimpFoldsToARaiseStep(
+        given,
+        me,
+        { ...facing, ownVpipFloorLimpThisHand: false },
+        {
+          vpipFloorLimpFoldsToARaise: true,
+        }
+      ).decision
+    ).toBe(given);
+    for (const action of ['call', 'raise', 'all_in', 'fold'] as const) {
+      const out = vpipFloorLimpFoldsToARaiseStep({ ...given, action }, me, facing, {
+        vpipFloorLimpFoldsToARaise: true,
+      }).decision;
+      expect([action, out.action, out.amount]).toEqual([
+        action,
+        'fold',
+        action === 'fold' ? 7 : undefined,
+      ]);
+    }
+    // a fold facing chips to call is admitted on every named route, on every state of the grid
+    let states = 0;
+    for (const snap of grid('nlh', TABLE_FLOORS)) {
+      const toCall = snap.gameState.currentBet - snap.player.bet;
+      if (!(toCall > 0)) continue;
+      states++;
+      for (const route of NAMED) {
+        const receipt = { route, referenceProposal: { action: 'fold', amount: null } } as never;
+        expect(referenceReturnShape(receipt, { ...snap, opts: {} })).toBe(true);
+      }
+    }
+    expect(states).toBeGreaterThan(100);
   });
 });
 

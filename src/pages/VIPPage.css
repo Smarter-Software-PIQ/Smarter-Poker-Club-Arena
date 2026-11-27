@@ -271,6 +271,16 @@
   margin: 0 0 12px;
 }
 
+/* The first-month price a non-member decides on, on its own line in the
+   schema's brass (#d6ad52, the sanctioned warm accent for body copy). */
+.section-offer {
+  margin: -4px 0 14px;
+  color: #d6ad52;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .purchase-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

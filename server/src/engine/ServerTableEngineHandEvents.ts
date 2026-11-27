@@ -176,7 +176,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             timestamp: Date.now(),
           })
         );
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         break;
 
       case 'BOMB_POT_TRIGGERED' as any: {
@@ -511,7 +511,11 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // ring reset / over-ran) and DisconnectEngine.onPlayerTurn could start
         // a spurious 30s countdown against the OLD player. Only the handler
         // whose seat is still on the clock may proceed.
-        if (this.handController?.getState().currentPlayerSeat !== event.seat) {
+        const currentSeat =
+          typeof this.handController?.getCurrentPlayerSeat === 'function'
+            ? this.handController.getCurrentPlayerSeat()
+            : this.handController?.getState().currentPlayerSeat;
+        if (currentSeat !== event.seat) {
           break;
         }
 
@@ -796,7 +800,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             })
           );
         }
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         break;
 
       case 'COMMUNITY_CARDS':
@@ -928,7 +932,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
               /* idle street prewarm is advisory only */
             }
           }
-          void this.broadcastCurrentState();
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
           break;
         }
 
@@ -937,7 +941,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // Each player must discard 1 of their 3 hole cards within the action timer.
         // ServerTableEngine starts a discard timer; auto-discards (last card) on expiry.
         this.handlePineappleDiscard(event);
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         break;
 
       case 'ALL_IN_RUNOUT':
@@ -1000,7 +1004,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
           })
         );
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         // ── ADDITIVE event-sourcing shadow (#1): record ShowdownRevealed ──
         if (this.shadowRecorder && this.handController) {
           const sdState = this.handController.getState();
@@ -1179,7 +1183,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           }));
           this.shadowRecorder.recordPotAwarded(awPayouts);
         }
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         // AUDIT FIX 2026-07-19: emit the hole-card reveal HERE (winners now
         // known) and respect auto-muck — reveal cards only for winners, players
         // who voluntarily showed, or when auto-muck is disabled for the table.
@@ -1456,20 +1460,23 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
          * never delay a hand. raiseFinancialAlert never throws or rejects.
          */
         const critical = result.violations.some((v) => v.severity === 'critical');
-        void raiseFinancialAlert(
-          critical ? 'critical' : 'warning',
-          'ServerTableEngine.street_integrity_violation',
-          detail,
-          {
-            tableId: this.tableId,
-            handNumber,
-            stage,
-            pot,
-            chipTotal: result.chipTotal,
-            expectedChipTotal: result.expectedChipTotal ?? null,
-            drift: result.drift ?? null,
-            violations: result.violations.map((v) => ({ type: v.type, severity: v.severity })),
-          }
+        this.detachTableWork(
+          'raiseFinancialAlert',
+          raiseFinancialAlert(
+            critical ? 'critical' : 'warning',
+            'ServerTableEngine.street_integrity_violation',
+            detail,
+            {
+              tableId: this.tableId,
+              handNumber,
+              stage,
+              pot,
+              chipTotal: result.chipTotal,
+              expectedChipTotal: result.expectedChipTotal ?? null,
+              drift: result.drift ?? null,
+              violations: result.violations.map((v) => ({ type: v.type, severity: v.severity })),
+            }
+          )
         );
       }
     } catch (err) {

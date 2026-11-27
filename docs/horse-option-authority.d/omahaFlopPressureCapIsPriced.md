@@ -1,0 +1,103 @@
+# omahaFlopPressureCapIsPriced: Authority For The Live Switch
+
+Built 2026-11-26 by a PLO-OWNER lead-7 worker (session 01TLQer8) on Dan's orders of 2026-11-26 ("the stats need to be used against human players, not horses"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFlopPressureCapIsPriced`). This file states the evidence; the switch is turned on only through the shadow stage and the live-switch procedure. Evidence MET for PLO5 only (2026-11-27 follow-up): switch it on only with the game scope `horse.omahaGameScope.omahaFlopPressureCapIsPriced` = 5 published first. For PLO4 the evidence is not met (the paragraph below).
+
+**Evidence MET for PLO5; Evidence NOT MET for PLO4 (follow-up 2026-11-27: his record also narrows the value region).** Switch it on only after the game scope `horse.omahaGameScope.omahaFlopPressureCapIsPriced` = 5 (PLO5 only) is published, so that a switch-on acts in PLO5 and nowhere else. The scope is a runtime setting, not a code default: a non-zero compiled scope would travel in every PLO4/PLO5 decision request. PLO5, the follow-up graded on new seeds against bars written before the runs (`plo-lead7-01TLQer8/l8-of-flop/BUILD.md`): value-only, seeds 91 to 94 plus forked confirmation seed 99, +3.74 +/- 1.69 bb/100 (+2.21 SE); over-bluffer, seeds 95 to 98 plus forked seed 100, -0.28 +/- 1.78 (-0.16 SE); replay fold rate facing people's 0.7+ pot heads-up flop bets 46.1% against the 44.7% ceiling (z 0.9); heads-up mirror +1.23 over its same-seed no-op, 6-max +0.40; flag-off 0 differences in 28,000; speed p95 9.48 ms, max 13.62 ms. PLO4: the replay fold rate in that cell stays over its ceiling (52.5% against 43.1%, z 2.1), and the chips in the cell are too thin to say the folds are wrong (n 4, -12.80 +/- 25.99 bb). This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
+
+Independent review 2026-11-27 (`plo-lead7-01TLQer8/l8-of-skeptic/REVIEW.md`, item 2): the form first merged was NOT MET. The follow-up below is the fix it asked for. Every value-only PLO4 run (top 15%, pot-sized flop bet, 100 bb, 12,000 deals, Horses ON minus OFF, bb/100 +/- SE), in run order:
+
+| Seed | 21             | 41             | 51             | 52             | 53             | 54             | 71             | 72             | 73             | Pooled (9)                |
+| ---- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | ------------------------- |
+| PLO4 | -2.75 +/- 2.65 | +1.58 +/- 2.19 | +1.78 +/- 2.12 | -2.13 +/- 2.51 | -1.55 +/- 2.05 | -1.80 +/- 2.21 | -1.63 +/- 2.55 | -2.18 +/- 2.01 | -1.31 +/- 2.60 | -1.11 +/- 0.78 (-1.43 SE) |
+
+Inverse-variance pooling gives -1.00 +/- 0.76 (-1.31 SE); the three fresh seeds alone -1.71 +/- 1.39, all negative. Gain side: over-bluffer PLO4 +1.30 +/- 2.46, PLO5 -4.45 +/- 4.46; balanced PLO4 -0.44 +/- 3.37. PLO5 value-only over its 6 seeds (21, 41, 51 to 54) pools +3.37 +/- 1.50, but its over-bluffer probe does not support a PLO5-only switch-on either. The replay fold-rate change stands: PLO5 heads-up flop facing a person's bet of 0.7 pot and over, Horses fold 60.4% live (n 91, 24 h) against a ceiling of 44.7%, 46.1% with the option on in replay.
+
+## Follow-up 2026-11-27: his record also narrows the value region (lead-8 l8-of-flop)
+
+Why. An instrumented replay of the value-only probe (`plo-lead7-01TLQer8/l8-of-flop/BUILD.md`) was run over 13 PLO4 seeds (156,000 deals). It found the cost in the option's own decisions: one-pair folds that become calls, n 372, -4.70 +/- 1.08 bb each. Folds of hands the Horse used to call won back +3.60 +/- 0.73 each (n 360). On those one-pair calls the price read 0.485 equity where the equity against his real range was 0.320. Almost all of the gap was the value region: the price stayed against the strongest 0.35 of holdings, while his record (all top-20% bets) moved only q. That accounts for +0.13. q accounts for +0.03; the 6-river count for 0.00. The people flop cell is not the cause either: split by game, PLO4 people's heads-up big-bet share is 0.333 (n 75) against PLO5's 0.387 (n 318), but a PLO4-only cell blended at 30 pseudo-bets prices q higher (0.42), not lower.
+
+What changed. `omahaFlopPressureCapRegion`: the same ratio r that his shown flop bets apply to q (his not-top-20% rate over people's, 8 pseudo-bets) now also narrows the region, to `0.20 + (valueShare - 0.20) x r` when r < 1. 0.20 is the record's own resolution (its top-20% unit), not a chosen threshold. With no record, with a record as loose as people's or looser, or for a raise, nothing changes. Law test 7.
+
+Harness note. The original probe (`flop-pp/src/gradeF.mts`) has a null spread. With the option OFF in both worlds it gives -0.77 +/- 1.56 and -0.65 +/- 1.69 bb/100 (seeds 51, 52), because each world's memory drifts once any result differs, and world b reads the shared bet-read store one deal ahead. A forked variant (`l8-of-flop/src/forkF.mts`: the OFF world plays each deal first, from a copy of the ON world's memory) gives +0.03 +/- 0.10 on the same no-op.
+
+Grades (bars written before the runs; original harness unless marked forked; fix ON minus OFF, bb/100, pooled mean with SE = sqrt(sum se^2)/n):
+
+| Probe                                                              | PLO4                                                                                            | PLO5                                                                                             |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Value only, seeds 91 to 94                                         | +5.61, +2.08, -0.01, -4.78: +0.73 +/- 1.19 (+0.61 SE)                                           | +3.44, -0.92, +12.35, +1.79: +4.17 +/- 2.08; with forked seed 99 (+2.05 +/- 1.42) +3.74 +/- 1.69 |
+| Over-bluffer, seeds 95 to 98                                       | +1.44, +5.67, +5.12, -2.65: +2.40 +/- 1.30 (of which the option's own decisions -0.35 +/- 0.76) | -1.55, -3.64, -0.41, +4.71: -0.22 +/- 2.19; with forked seed 100 (-0.49 +/- 1.76) -0.28 +/- 1.78 |
+| Forked, fix minus the first form, value only, seeds 81 to 83       | +0.87, +0.36, +1.59: +0.94 +/- 0.45                                                             | seed 81 +0.80 +/- 1.25                                                                           |
+| League mirror, seed 101, 12,000 hands, against its same-seed no-op | heads-up -0.27 +/- 1.59 vs -0.93 +/- 1.71; 6-max +0.31 +/- 0.49 vs 0.00 +/- 0.13                | heads-up -1.19 +/- 2.83 vs -2.42 +/- 2.98; 6-max +0.58 +/- 0.81 vs +0.18 +/- 0.72                |
+
+The replay of the 5,050 heads-up audited decisions (of-residual set, no opponent memory, so every record is empty) and the scored audited replay are unchanged by the follow-up (0 differences; Replay rows below as before). The flag-off check (`e5013b580009` against the follow-up) gives 0 differences in 28,000. Speed on the compiled build: ON p95 9.48 ms, max 13.62 ms; the region function costs 17.5 ns per call.
+
+## The Defect It Answers
+
+Heads-up on the PLO4 cash flop, facing one bet over 0.8 pot, Horses fold 72.9% where people fold 49.4% (`plo-lead7-01TLQer8/plo4-audit/FINDINGS.md`, Nov 19 to 26, n 144 / 81, z 3.5). The over-fold does not come from the flop verdict (`omahaFlopFacingBetEv`): that option has been off since 2026-11-24 07:08Z, and the audit split by its switch period gives 72.5% with it off and 73.4% with it on (`plo-lead7-01TLQer8/flop-pp/BUILD.md`). The replay of the audit's 445 heads-up flop facing-bet decisions on the live switch rows (deciding Horse's own cards only, 3 seeds) puts 75 of 76 of the folds to people's bets over 0.8 pot on the reference brain's call-or-fold check (receipt `v38_ev_fold`). The V40 Omaha pressure cap (`v40_omaha_pressure_cap`) cut the equity in 53 of them. That cap is a fixed equity ceiling per made-hand class: one pair or air 0.28, board two pair 0.30, low two pair 0.32 / 0.36, top two 0.34 / 0.50, weak trips 0.50, a set 0.62, minus 0.05 per extra pressure signal, plus 0.10 on the flop. It is a number per class, not an equity against the range that bet.
+
+## What It Does
+
+PLO4/PLO5 cash (tables and Lightning, one board, high only, no bomb pot), the flop, heads-up, facing a single bet (not a raise), in exactly the spots where the V40 cap is evaluated (a weak made class with an extra pressure signal or a bet of 0.6 pot and over). In those spots the reference call-or-fold check reads the Horse's equity against the bettor's range instead of the capped number (`HorseOmahaFlopPressureCapPriced.ts`):
+
+- Range: his value region (the strongest `OMAHA_FLOP_EV_VALUE_SHARE` x line of holdings on the flop; the flop verdict's own spot) plus a share q of every other holding.
+- q: the PEOPLE-ONLY measured flop non-value share for the size (`HorseOmahaFacingBetPeoplePrior.data.ts` `flop`, generated by `server/scripts/omaha-facing-bet-people-prior-fit.ts`: a person's flop bet, cards a person showed with `mucked = false`, in the verdict's value unit; heads-up 109 / 193 / 393 bets under 0.4 / 0.4 to 0.7 / 0.7 pot and over; Oct 27 to Nov 26). It is blended toward the balanced share for the price at 30 pseudo-bets: `1 - (1 - b)^3` with the turn and river to come, `b` on a final call. The bettor's answerer is NOT filtered to people: a heads-up flop bet answered by a person and shown happened only 45 times in 30 days, too thin to fit, and the count is recorded per cell (`answeredByAPerson`).
+- His own shown flop bets (`HorseOmahaBetRead`'s per-opponent flop cell) move q as a Beta-binomial ratio with 8 pseudo-bets, in the record's own unit (people's not-top-20% share of the cell).
+- Equity: `(1 - q)` x his share against the value region + `q` x his share against the rest, at showdown over two-card runouts, sampled by the flop verdict's deterministic count (`omahaFlopEvCounts`, 6 rivers per turn card). The check reads `min(equity before the cap, priced equity)`. The same realization, rake, margin and read shift act on it as before.
+
+What it does not touch: the V40 block itself still runs, and every other consumer of the capped equity (raise bars, the draw raise, later streets) reads the cap exactly as before. So only call vs fold can change; a draw the check would price as a raise (`comboRaise38`) keeps the capped equity. `v87DeepDiveDiscipline` and its flop-cap lift withhold are not edited, moved or wrapped. The option is a separate branch before the V40 block, and the law shows identical decisions outside the scope with v87 on and off. Turn, river, raises, multiway, PLO6, tournaments, hi-lo, bomb pots and hold'em are untouched (law test). It never raises, so the owner rules on non-nut turn and river raises and out-of-position draw raises are unaffected. The same arithmetic applies to every bettor: no input reads whether an opponent is a person or a Horse, and no unshown card is read. Receipts: `omaha_flop_pressure_cap_priced`, `_call`, `_fold`. Staged for shadow re-decision on the flop.
+
+`omaha_implied_credit_withheld` stays as it is. The priced equity already counts every improving runout. The measured flop realization of one-pair-or-less calls is 0.52 to 0.58 of their equity (`OMAHA_FLOP_EV_REALIZATION_FIT`, 1,883 calls), and made hands out of position realize 0.69. Weak hands realize less than their equity, not more, so there is no implied credit to restore.
+
+## What Was Measured
+
+All in `plo-lead7-01TLQer8/flop-pp/` (scripts in its src folder, logs in out, replay and aud; BUILD.md has every table).
+
+Flag-off check (`scripts/ops/horse-flag-off-check.sh 824a7dd1ce5c b4ab71f73f2d --set full`): 0 differences in 28,000 decisions.
+
+Real recorded decisions: the audit's 445 heads-up PLO4 flop facing-bet decisions (Nov 19 to 26). Public state and the deciding Horse's own cards, live switch rows of the audit, seeds 1 / 7 / 42, majority action. Fold rates:
+
+| Bet (share of pot) | Bettor | n   | Recorded live | Option off (replay) | Option on | People fold |
+| ------------------ | ------ | --- | ------------- | ------------------- | --------- | ----------- |
+| 0.8 and over       | person | 101 | 74.3%         | 74.9%               | 57.1%     | 49.4%       |
+| 0.8 and over       | all    | 144 | 72.9%         | 69.9%               | 54.4%     |             |
+| 0.4 to 0.8         | person | 79  | 45.6%         | 30.0%               | 27.0%     | 34.0%       |
+| 0.4 to 0.8         | all    | 195 | 40.0%         | 24.1%               | 23.6%     |             |
+| under 0.4          | all    | 106 | 23.6%         | 6.6%                | 6.6%      | 25.9%       |
+
+Changed decisions: 29 folds become calls, 7 calls become folds. No raise is added or removed (149 raise choices in both arms). Showdown outcomes where cards were shown: 1 changed decision reached a showdown with cards shown (a fold that becomes a call; the live call won 1.8 bb). The others ended without a showdown, and unshown cards are never read. Chips indicator against people's shown flop range, by strength percentile on the same board (`plo-lead7-01TLQer8/flop-pp/src/chips.mts`; showdown equity over sampled runouts, no later-street betting, so optimistic): all 23 folds-to-calls against people have equity above the price (+120.7 bb at showdown in total); the 3 calls-to-folds give up +3.1 bb.
+
+Scored audited replay (`run-aud2.sh`, verdict-only, memory off): 2,697 decisions of the Nov 20 to 24 audit and 869 of the Nov 25 daily audit. 17 changed, all folds that become calls, every one the call the live Horse actually made; the auditors judged 4 of those calls CORRECT and 13 MISTAKE OPPORTUNITY "missed raise for value" (calling was better than folding; the option never raises). The scorer counts them as fixed 0, newly wrong 0, unjudged 17 (it judges a node only where the replayed base repeats the recorded action).
+
+Scripted probes (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` probe, 2 seats, 12,000 deals each; seat 0 bets the flop heads-up first-in at pot by script and is the production Horse elsewhere; the production learner reads its shown hands; Horses ON minus OFF, bb/100 +/- SE):
+
+| Bettor                                                     | PLO4                                                                                  | PLO5                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Value only, top 15%, 100 bb (the key probe)                | -2.75 +/- 2.65; second seed +1.58 +/- 2.19                                            | -0.40 +/- 3.63; second seed +10.04 +/- 3.54                                           |
+| Value only, 100 bb, pre-registered seeds 51 to 54 (pooled) | -0.93 +/- 1.11 (seeds +1.78 +/- 2.12, -2.13 +/- 2.51, -1.55 +/- 2.05, -1.80 +/- 2.21) | +2.65 +/- 1.86 (seeds +7.18 +/- 3.12, +0.22 +/- 3.91, +3.39 +/- 3.98, -0.19 +/- 3.80) |
+| Value only, top 15%, 200 bb                                | -0.43 +/- 2.96                                                                        | -2.46 +/- 5.37                                                                        |
+| Value only, top 30%, 100 bb                                | -1.39 +/- 3.25                                                                        | +1.90 +/- 4.97                                                                        |
+| Balanced (three-street share for the size)                 | -0.44 +/- 3.37                                                                        | +12.88 +/- 4.52                                                                       |
+| Over-bluffs with draws and 40% of the rest                 | +1.30 +/- 2.46                                                                        | -4.45 +/- 4.46                                                                        |
+| Calls everything, never bets                               | +0.15 +/- 0.12                                                                        | -0.04 +/- 0.23                                                                        |
+| Folds without the top 10%                                  | -1.59 +/- 1.49                                                                        | +3.55 +/- 2.73                                                                        |
+
+League mirror (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` mirror: duplicate deals, ON seats against OFF seats swapped every pair, Hybrid cash Horses, live switch rows, 100 bb, 6,000 pairs = 12,000 hands a card; a field of Horses, for completeness):
+
+| Card     | PLO4                                                  | PLO5           |
+| -------- | ----------------------------------------------------- | -------------- |
+| Heads-up | -1.65 +/- 1.59; 24,000 hands, seed 61: -0.30 +/- 1.59 | +1.71 +/- 2.97 |
+| 6-max    | -0.45 +/- 0.55                                        | +0.27 +/- 0.72 |
+
+Speed (compiled build, `plo-lead7-01TLQer8/flop-pp/src/speedc.mjs`; the audited and committed heads-up flop states at 1x, 2x and 4x stacks: 889 applicable of 5,790, 666 of them deep; cold flop sample, best of 3, machine load about 7): ON p50 5.90, p95 9.44, max 13.26 ms; added p50 5.13, p95 8.09, max 8.85 ms; none over 50 ms. Relative-cost law anOmahaFlopPressureCapPriceIsFast: on/off 7.4 under vitest (limit 12).
+
+## Prior anchor
+
+- Baseline: the balanced non-value share for the price over the streets still to bet, `1 - (1 - b)^3` with the turn and river to come and `b = paid / (winnable x (1 - rake) + paid)` on a final call; it is the prior only where no people cell is measured and the weight behind a thin one.
+- Population weight: the PEOPLE-ONLY measured flop share, weight n / (n + 30); Horse play never enters any population number (law anOmahaFlopPressureCapIsPriced checks the fit and export filters).
+- Own record: the bettor's own shown flop bets of the size move the share in the record's unit with 8 pseudo-bets, so his own record dominates from about 8 shown bets.
+- No unshown cards: the fit reads only cards people showed at showdown (mucked = false); at decision time the option reads the public table state, the deciding Horse's own cards and the bettor's record of hands shown at showdown.
+
+## Replay
+
+- Replay: fixed 0; newlyWrong 0; changed 17; unchanged 2680; unjudged 17; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm pc vs off; replayed 2697 of 2697
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm pc vs off; replayed 869 of 869

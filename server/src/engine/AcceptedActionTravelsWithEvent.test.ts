@@ -47,6 +47,8 @@ async function drain(
     handController: missingController ? undefined : { getState: () => lateState },
     markProgress: vi.fn(),
     broadcastCurrentState: vi.fn(),
+    // The engine hands its detached work to its fault boundary (2026-11-27).
+    detachTableWork: vi.fn(),
     seatedPlayers: lateState.players.map((p) => ({ ...p, seat_number: p.seat })),
     preActionEngine: { onBetPlaced: vi.fn() },
     hub: { emitEvent: vi.fn() },

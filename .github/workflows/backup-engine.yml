@@ -114,7 +114,10 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # select-daily-engine.py admits a retargeted control from push runs only.
 # Inside tonight's freeze certification window the baseline rule
 # (scripts/ci/backup-freeze-baseline.py) alone decides: `due` certifies the
-# baseline exactly as a push run would, any other in-window answer certifies
+# baseline exactly as a push run would; `claimed` or `done` certifies it again
+# (2026-11-26: a certificate made before or across the seal rehearsed against
+# the outgoing engine, 187d1ee1b4cf), unless the standing success already
+# rehearsed against the sealed build; any other in-window answer certifies
 # nothing. A next-candidate run is treated as a push run by late supersession
 # while waiting (O11), the uninstalled-migration guard (O7) and the mid-soak
 # yield (O1/O16); it waits (bounded, 25 minutes, in the existing `due` read)
@@ -372,7 +375,33 @@ jobs:
               fi
               nothing "tonight's freeze baseline ${baseline:-unknown} is due but is not a build ahead of the sealed build on this run's commit"
               ;;
-            claimed|done|served|refused|unselectable)
+            claimed|done)
+              # A CERTIFICATE THAT SPANS THE SEAL IS RE-CERTIFIED (2026-11-26).
+              # On 2026-11-25 the freeze baseline 187d1ee1b4cf was certified
+              # 06:33-07:26Z, across the 07:00Z seal, so its rollback rehearsal
+              # named the outgoing engine d2833d21 and the selector refused it
+              # for good ("serving rollback rehearsal unavailable"); this run
+              # (45565107439, 07:03Z) read `claimed` and certified nothing.
+              # A baseline that is claimed (its run started before this seal)
+              # or done (certified before it, or while it happened) is now
+              # planned again, without a new claim status, so that it is never
+              # left without a certificate the new engine can roll back to. The
+              # refresh job's standing-certificate check hands the host back,
+              # with no soak, when the standing success already rehearsed
+              # against the sealed build and names production's current set.
+              if [[ "$baseline" =~ ^[0-9a-f]{40}$ ]] && [ "$baseline" != "$sealed" ] \
+                 && git merge-base --is-ancestor "$sealed" "$baseline" 2>/dev/null \
+                 && git merge-base --is-ancestor "$baseline" "$GITHUB_SHA" 2>/dev/null; then
+                echo "FREEZE BASELINE RE-CERTIFIED AFTER THE SEAL: $baseline answers $baseline_state, so its certificate rehearsed (or will rehearse) its rollback against the engine before $sealed; this run certifies it again with the rollback rehearsed against $sealed, unless the standing success already names $sealed."
+                { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\` ($baseline_state) re-certified after the seal of \`$sealed\` (refresh forced; host handed back if its standing success already rehearsed against \`$sealed\`)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                echo "sha=$baseline" >> "$GITHUB_OUTPUT"
+                echo "freeze_baseline=1" >> "$GITHUB_OUTPUT"
+                echo "post_seal=1" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              nothing "tonight's freeze baseline ${baseline:-unknown} answers $baseline_state but is not a build ahead of the sealed build on this run's commit"
+              ;;
+            served|refused|unselectable)
               nothing "inside tonight's release schema freeze the baseline rule decides the one shippable build and answers $baseline_state${baseline:+ for $baseline}"
               ;;
           esac
@@ -1122,7 +1151,9 @@ jobs:
           # minutes (one wait, no second one) for a next-candidate run. Still
           # uninstalled afterwards: the O7 rule below hands the host back.
           refresh_wait=()
-          if [ "${POST_SEAL:-}" = 1 ]; then refresh_wait=(--wait 1500); fi
+          # A freeze baseline re-certified after a seal waits for nothing: the
+          # freeze holds every later migration until 04:15.
+          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ]; then refresh_wait=(--wait 1500); fi
           verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
             --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
             --control "$CONTROL" --sha "$SHA" --wait 240 ${refresh_wait[@]+"${refresh_wait[@]}"} 2> due-reason.txt) || verdict='due=true'
@@ -1225,8 +1256,10 @@ jobs:
           # set AND its retained certificate rehearsed the rollback against the
           # build that just sealed; a certificate rehearsed against the previous
           # engine cannot be selected, so it is certified again. Any unreadable
-          # answer certifies (CLAUDE.md 10.86).
-          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
+          # answer certifies (CLAUDE.md 10.86). Since 2026-11-26 this also
+          # judges a freeze baseline the post-seal run plans again because it
+          # was claimed or done before the seal.
+          if [ "${POST_SEAL:-}" = 1 ] \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]] && [[ "${SEALED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
             standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
               --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
@@ -1567,8 +1600,22 @@ jobs:
           #   (b) projection(SHA) on origin/main already differs from SHA, or
           #       supabase/migrations differs AND production now holds a migration
           #       (or required definition) the soaking copy lacks (O16),
-          #   (c) < 75 minutes (4500 s) remain until the next scheduled 3-hourly/daily cutoff,
+          #   (c) the time to the next scheduled 3-hourly/daily cutoff could be read
+          #       (it is reported; since O35 it no longer has to be under 75 minutes),
           #   (d) every read succeeded (unreadable -> keep soaking, CLAUDE.md 10.86).
+          #
+          # AN UNSELECTABLE SOAK YIELDS AT ONCE, HOWEVER FAR THE CUTOFF (2026-11-26, O35).
+          # Until O35 the yield also required fewer than 75 minutes to the next
+          # cutoff. Backup 45938154669 began soaking e21eb7d915ed at 22:09 Chicago
+          # on a copy read at 22:08; migrations 20261127005018 and 20261126222226
+          # merged in the 22:10 merge window and installed at 22:13 and 22:16,
+          # so from 22:16 that certificate could never be selected. The cutoff was
+          # 134 minutes away, so the soak ran to 22:54 and the run for the
+          # selectable commit (45940769729) waited 38 minutes for the host: one
+          # attempt was left for the 01:00 cycle instead of two. A copy production
+          # has moved past, or a diverged release-control projection, never
+          # becomes selectable again by waiting, so with (a), (b) and (d) the
+          # soak stops whatever the clock says.
           #
           # A NEW MIGRATION FILE IS NOT A NEW INSTALL (2026-11-23, O16). At
           # 02:44:02Z Backup 45099104481 stopped certifying a9fde5791f0a sixteen
@@ -1646,7 +1693,7 @@ jobs:
                   raise SystemExit(0)
           raise SystemExit(1)
           ' 2>/dev/null) || secs_to_cutoff=unreadable
-              if ! [[ "$secs_to_cutoff" =~ ^[0-9]+$ ]] || [ "$secs_to_cutoff" -ge 4500 ]; then
+              if ! [[ "$secs_to_cutoff" =~ ^[0-9]+$ ]]; then
                 continue
               fi
               newer_waiting=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \

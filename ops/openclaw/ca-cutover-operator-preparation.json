@@ -1,0 +1,18 @@
+{
+  "comment": "OpenClaw cron on Dan's Mac Studio (CLAUDE.md 10.85: a real cron, never the Claude scheduler). Gives every engine cutover cycle an owner: three and eleven minutes after each cycle's preparation opens it runs the installed copy of scripts/ops/cutover-operator-preparation.mjs, which sends the runbook's operator dispatch (prepare-daily-engine) only when no Stage run can own the cycle. Install the script: mkdir -p ~/.smarter-poker/ops && gh api -H 'Accept: application/vnd.github.raw' repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/contents/scripts/ops/cutover-operator-preparation.mjs?ref=main > ~/.smarter-poker/ops/cutover-operator-preparation.mjs. Restore the cron with: openclaw cron add --name ca-cutover-operator-preparation --cron \"33,41 0,3,6,9,12,15,18,21 * * *\" --tz America/Chicago --exact --no-deliver --timeout-seconds 120 --command \"node ~/.smarter-poker/ops/cutover-operator-preparation.mjs\". Check: openclaw cron runs --id <id>.",
+  "name": "ca-cutover-operator-preparation",
+  "schedule": {
+    "kind": "cron",
+    "expr": "33,41 0,3,6,9,12,15,18,21 * * *",
+    "tz": "America/Chicago",
+    "staggerMs": 0
+  },
+  "payload": {
+    "kind": "command",
+    "argv": ["sh", "-lc", "node ~/.smarter-poker/ops/cutover-operator-preparation.mjs"],
+    "timeoutSeconds": 120
+  },
+  "delivery": {
+    "mode": "none"
+  }
+}

@@ -32,6 +32,7 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceSighting';
 import { parseJwtPayload } from './authUtils';
+import { isRealtimeLive, startRealtimeAwarePoll } from './realtimeAwarePoll';
 
 export const ENROLLED_DEVICE_STORAGE_KEY = 'ca_enrolled_device_id';
 export const RESUME_SESSION_GONE_SOURCE = 'resume:session_gone';
@@ -248,27 +249,10 @@ function waitForPairingVerdict(
       }
       document.removeEventListener('visibilitychange', onResume);
       window.removeEventListener('pageshow', onResume);
-      clearInterval(poll);
+      poll.stop();
       clearTimeout(timer);
       resolve(v);
     };
-    const ch = supabase
-      .channel(`pairing-wait:${requestId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'ca_pairing_requests',
-          filter: `id=eq.${requestId}`,
-        },
-        (p) => {
-          const s = String((p.new as Record<string, unknown>)?.status ?? '');
-          if (s === 'approved') finish('approved');
-          else if (s === 'denied' || s === 'expired') finish('denied');
-        }
-      )
-      .subscribe();
     // Realtime can miss the first event; poll as a backstop.
     const readVerdict = async () => {
       if (done) return;
@@ -286,10 +270,35 @@ function waitForPairingVerdict(
         /* keep waiting */
       }
     };
+    const poll = startRealtimeAwarePoll(() => void readVerdict(), { fastMs: 2500 });
+    const ch = supabase
+      .channel(`pairing-wait:${requestId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ca_pairing_requests',
+          filter: `id=eq.${requestId}`,
+        },
+        (p) => {
+          const s = String((p.new as Record<string, unknown>)?.status ?? '');
+          if (s === 'approved') finish('approved');
+          else if (s === 'denied' || s === 'expired') finish('denied');
+        }
+      )
+      .subscribe((status) => {
+        // The read below is the safety net: every 2.5 s while this channel is
+        // not subscribed, every 30 s while it is (src/lib/realtimeAwarePoll.ts).
+        // Re-read on SUBSCRIBED so a verdict written before the channel joined
+        // is not left to the slow cadence.
+        const live = isRealtimeLive(status);
+        poll.setLive(live);
+        if (live) void readVerdict();
+      });
     const onResume = () => {
       if (document.visibilityState !== 'hidden') void readVerdict();
     };
-    const poll = setInterval(() => void readVerdict(), 2500);
     const timer = setTimeout(() => finish('timeout'), 180_000);
     document.addEventListener('visibilitychange', onResume);
     window.addEventListener('pageshow', onResume);

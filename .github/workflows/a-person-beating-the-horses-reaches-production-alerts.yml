@@ -10,6 +10,7 @@ on:
     paths:
       - supabase/migrations/20261121011654_a_person_beating_the_plo_horses_reaches_production_alerts.sql
       - supabase/migrations/20261122094628_the_horse_exposure_hands_are_planned_for_their_own_window.sql
+      - supabase/migrations/20261127043816_three_monitors_read_their_windows_by_index_instead_of_per_ro.sql
       - supabase/migrations/20261119234116_the_3_am_check_says_whether_the_4_am_cutover_will_ship.sql
       - scripts/ci/test-a-person-beating-the-horses-reaches-production-alerts.py
       - scripts/ci/test-a-missed-engine-cutover-is-paged.py

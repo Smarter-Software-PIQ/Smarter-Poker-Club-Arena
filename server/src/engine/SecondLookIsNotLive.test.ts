@@ -518,8 +518,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     },
     outside: {
       'const tele = telemetryOn(opts);': [
-        56,
-        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule and the tournament bluff priced rule)',
+        58,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule, the multiway opening priced rule and the tournament bluff priced rule)',
       ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
@@ -586,6 +586,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       'equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)': [
         1,
         'omahaFacingBetPriorIsPeopleMeasured: decides whether to re-run the verdict on the old read only to name the changed receipt; the decision is the same either way',
+      ],
+      'peopleFieldPriced && verdict !== null && telemetryOn(opts)': [
+        1,
+        'omahaMultiwayFieldIsPeopleMeasured: decides whether to re-run the verdict on the stated field constants only to name the changed receipt; the decision is the same either way',
       ],
       tele: [
         2,

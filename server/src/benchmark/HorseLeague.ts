@@ -4706,6 +4706,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-27 (lead-8 lane preflop): omahaReraisedPotFoldReraiseIsPriced, default OFF: facing a 3-bet or more
+  // heads-up against the re-raiser, a standing fold priced against the pot-size re-raise. Both arms carry
+  // production's live set; a adds the option (docs/horse-option-authority.d/omahaReraisedPotFoldReraiseIsPriced.md).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_fold_reraise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPotFoldReraiseIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a
@@ -5065,6 +5076,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFlopRealizationIsPriced: true,
     },
   })),
+  // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): heads-up on the flop facing one bet, the V40 class cap
+  // in the reference call-or-fold check priced against the bettor's range on people-only flop shares
+  // (HorseOmahaFlopPressureCapPriced).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_pressure_cap_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFlopPressureCapIsPriced: true },
+    b: {},
+  })),
   // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the bettor's non-value share anchored to the balanced
   // share for the price, moved only by his own shown bets (HorseOmahaEquilibriumAnchor).
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -5073,6 +5095,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-27 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the multiway field of the facing-bet price measured on
+  // people (HorseOmahaMultiwayPeopleField).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_field_is_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaMultiwayFieldIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -5154,6 +5186,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaRiverFirstToActBetIsPriced: true,
       omahaRiverCheckedToBetIsMeasured: true,
       omahaRiverBetFoldIsHisRecord: true,
+    },
+  })),
+  // 2026-11-26 PLO-OWNER lead-7 lane river-station (default OFF, PLO4/PLO5 cash): omahaRiverBetCheckIsHisRecord over
+  // the two river bet rules with his record and the people curve; a on, b the same set without it (his checks read
+  // through his own unopened bet record).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_check_his_record`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+      omahaRiverBetFoldIsPeopleMeasured: true,
+      omahaRiverBetCheckIsHisRecord: true,
+    },
+    b: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+      omahaRiverBetFoldIsPeopleMeasured: true,
     },
   })),
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES (default OFF, PLO4/PLO5 cash): #18 omahaBigBetSizeIsPriced
@@ -5292,6 +5346,34 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'nlh',
     pairs: 6000,
     a: { holdemOpeningBluffIsPriced: true },
+    b: {},
+  },
+  // 2026-11-26 plo-lead7 (default OFF): the first bet of the turn or river against two or more opponents priced,
+  // each option alone at a six-handed table (heads-up they never act); a switches it on, b is today's brain. Graded
+  // by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
+  {
+    name: 'nlh6_holdem_multiway_opening_bluff_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    a: { holdemMultiwayOpeningBluffIsPriced: true },
+    b: {},
+  },
+  {
+    name: 'nlh6_holdem_multiway_opening_value_bet_is_priced',
+    variant: 'nlh',
+    seats: 6,
+    pairs: 6000,
+    a: { holdemMultiwayOpeningValueBetIsPriced: true },
+    b: {},
+  },
+  // 2026-11-27 lead-8 (default OFF): the NLH cash heads-up river bluff priced on people's river fold; a switches it
+  // on, b is today's brain. Graded by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
+  {
+    name: 'nlh_holdem_river_bluff_is_priced_on_people',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverBluffIsPricedOnPeople: true },
     b: {},
   },
   // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option
@@ -7905,7 +7987,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'history, so both arms see an absent HUD packet and play the same hands. Measured instead on the learning ' +
       'bench with SPARRING_HUD=1 and seeded priors (CRITERIA-HUD-B4-V3-SIXMAX-PREFLOP, V303 PASS); in this league ' +
       '0 of 0 pairs were dealt for it (not run: no seat has a lifetime history). The option is DEFAULT OFF ' +
-      '(read as === true). What would change this: a league that seeds each opponent with a lifetime history.',
+      '(read as === true). Measured 2026-11-27 by running this refused matchup through runMatchup (seed ' +
+      '20261127, 300 pairs): 0 of 300 pairs diverged. What would change this: a league that seeds each opponent with a lifetime history.',
   })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
@@ -8036,6 +8119,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       "and each seat's judged VPIP; until it is built, HorseVpipFloorLimpOnlyTenHandWindow.test.ts " +
       'and the sitting evaluation of HorseVpipFloorLimpOnly.test-support.ts (audit archive ' +
       'repairs/TENHAND) are the evidence.',
+  })),
+  // 2026-11-27 (lead-8 lane preflop): vpipFloorLimpFoldsToARaise, default off. Refused, not dealt:
+  // this league seats no VPIP-floor table, so no floor limp is ever made or remembered.
+  ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_vpip_floor_limp_folds_to_a_raise`,
+    variant,
+    a: { vpipFloorLimpOnly: true, vpipFloorLimpFoldsToARaise: true },
+    b: { vpipFloorLimpOnly: true },
+    reason:
+      'Unanswerable by this league: the option acts only on a Horse whose own accepted limp of the hand was ' +
+      "the VPIP floor's (gs.ownVpipFloorLimpThisHand, remembered by the table engine from the mark the " +
+      'limp-only step sets), and playHand builds its decision state with no vpipFloor, vpipWindowHands, ' +
+      'ownVpip or ownVpipFloorLimpThisHand, so the two arms play identical poker. The option is DEFAULT OFF ' +
+      '(read as === true). Measured 2026-11-27 by running this refused matchup through runMatchup (seed ' +
+      '20261127, 300 pairs): 0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor, each seat's " +
+      'judged VPIP and the per-hand memory of a floor limp; until it is built, ' +
+      'aVpipFloorLimpFoldsToARaise.law.test.ts (real replayed nodes) and the floored mirror recorded in ' +
+      'docs/horse-option-authority.d/vpipFloorLimpFoldsToARaise.md are the evidence.',
   })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.

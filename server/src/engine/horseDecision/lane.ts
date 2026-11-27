@@ -767,24 +767,26 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     }
     const original = structuredClone(snapshot);
     const shardIndex = horseDecisionShard(original.fence, this.clients.length);
-    return this.clients[shardIndex]!.decideFast(original, signal, options).then((result) => {
-      // Only the validated original FAST can register this observer. A rejected
-      // or never-delivered decision cannot enroll another horse in a hand.
-      try {
-        this.observerParticipants.capture(original);
-      } catch (error) {
-        throw markHorseDecisionRejection(error, 'post_result_failed');
+    return this.clients[shardIndex]!.decideFastDetached(original, signal, options).then(
+      (result) => {
+        // Only the validated original FAST can register this observer. A rejected
+        // or never-delivered decision cannot enroll another horse in a hand.
+        try {
+          this.observerParticipants.capture(original);
+        } catch (error) {
+          throw markHorseDecisionRejection(error, 'post_result_failed');
+        }
+        // Pure read-only rolling latency telemetry for /health (bounded O(1) memory,
+        // never mutates result, never throws).
+        recordHorseDecisionLatencySample({
+          workerIndex: shardIndex,
+          variant: original.gameState.gameVariant,
+          computeMs: result.computeMs,
+          transitions: result.decision.policyGraph?.transitions,
+        });
+        return result;
       }
-      // Pure read-only rolling latency telemetry for /health (bounded O(1) memory,
-      // never mutates result, never throws).
-      recordHorseDecisionLatencySample({
-        workerIndex: shardIndex,
-        variant: original.gameState.gameVariant,
-        computeMs: result.computeMs,
-        transitions: result.decision.policyGraph?.transitions,
-      });
-      return result;
-    });
+    );
   }
 
   decideDeep(

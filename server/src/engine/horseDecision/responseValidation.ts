@@ -2049,7 +2049,8 @@ function policyGraphIsValidInScope(
       OMAHA_STRATEGY_PLO45.has(variant) &&
       transition.after.action === 'raise' &&
       previous !== null &&
-      previous.action === 'call' &&
+      // a call (omahaReraisedPotReraiseIsPriced) or a fold (omahaReraisedPotFoldReraiseIsPriced, default off)
+      (previous.action === 'call' || previous.action === 'fold') &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraisedPotPricedAdmitsRaise(context.player, context.gameState, transition.after.amount);

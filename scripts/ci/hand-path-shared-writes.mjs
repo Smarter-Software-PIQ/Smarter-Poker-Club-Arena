@@ -443,18 +443,93 @@ export function declaredHandPathWrites(sql) {
 const SNAPSHOT_TAG = '$ca_hand_path_snapshot$';
 const CHECK_TAG = '$ca_hand_path_check$';
 
+/**
+ * Sound catalog fingerprint over every pg_catalog input handPathBlock() reads
+ * for a given reachable closure and identifier watch-set:
+ *   1. pg_proc rows in public/smarter_private whose oid is in hp_closure OR
+ *      whose proname is in HAND_PATH_ROOTS U callees(hp_closure);
+ *   2. every non-internal trigger on public relations, its target table name,
+ *      UPDATE OF column names, enabled state, and trigger function source;
+ *   3. every public table/partitioned table and its unique non-partial indexes
+ *      with resolved key column names.
+ * If this single indexed md5 is unchanged between snapshot and check, then
+ * handPathBlock() is mathematically guaranteed to produce the exact same
+ * roots, closure, shared tables and violations, so checkSQL() can skip the
+ * second ~2 s full regex BFS (reclaiming ~2 s of the 12 s ordinary budget).
+ */
+function catalogFingerprintSQL(closureExpr, watchNamesExpr) {
+  return `pg_catalog.md5(
+   COALESCE((
+    SELECT pg_catalog.string_agg(
+      p.oid::text || ':' || p.pronamespace::text || ':' || p.proname::text || ':' ||
+      p.prokind::text || ':' || p.prolang::text || ':' || pg_catalog.md5(COALESCE(p.prosrc, '')),
+      '|' ORDER BY p.oid)
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname::text = ANY (${NSPS})
+       AND (p.oid = ANY (${closureExpr}) OR p.proname::text = ANY (${watchNamesExpr}))
+   ), '')
+   || '#' ||
+   COALESCE((
+    SELECT pg_catalog.string_agg(
+      t.oid::text || ':' || t.tgrelid::text || ':' || r.relname::text || ':' ||
+      t.tgfoid::text || ':' || t.tgtype::text || ':' || t.tgenabled::text || ':' ||
+      COALESCE(t.tgattr::text, '') || ':' ||
+      COALESCE((
+        SELECT pg_catalog.string_agg(pa.attnum::text || '=' || pa.attname::text, ',' ORDER BY pa.attnum)
+          FROM pg_catalog.pg_attribute pa
+         WHERE pa.attrelid = r.oid AND pa.attnum = ANY (t.tgattr::int2[])
+      ), '') || ':' ||
+      COALESCE(tp.proname::text, '') || ':' || pg_catalog.md5(COALESCE(tp.prosrc, '')),
+      '|' ORDER BY t.oid)
+      FROM pg_catalog.pg_class r
+      JOIN pg_catalog.pg_trigger t ON t.tgrelid = r.oid AND NOT t.tgisinternal
+      LEFT JOIN pg_catalog.pg_proc tp ON tp.oid = t.tgfoid
+     WHERE r.relnamespace = 'public'::regnamespace
+   ), '')
+   || '#' ||
+   COALESCE((
+    SELECT pg_catalog.string_agg(
+      c.oid::text || ':' || c.relname::text || ':' || c.relkind::text || ':' ||
+      COALESCE(i.indexrelid::text, '') || ':' || COALESCE(i.indkey::text, '') || ':' ||
+      COALESCE((
+        SELECT pg_catalog.string_agg(pa.attnum::text || '=' || pa.attname::text, ',' ORDER BY pa.attnum)
+          FROM pg_catalog.pg_attribute pa
+         WHERE pa.attrelid = c.oid AND pa.attnum = ANY (i.indkey::int2[])
+      ), ''),
+      '|' ORDER BY c.oid, i.indexrelid NULLS FIRST)
+      FROM pg_catalog.pg_class c
+      LEFT JOIN pg_catalog.pg_index i
+        ON i.indrelid = c.oid AND i.indisunique AND i.indpred IS NULL
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+   ), '')
+  )`;
+}
+
 function snapshotSQL() {
   const { declare, body } = handPathBlock();
   return `
 DO ${SNAPSHOT_TAG}
-DECLARE previous text := current_setting('search_path');${declare}
+DECLARE previous text := current_setting('search_path'); hp_watch_names text[]; hp_fp_before text;${declare}
 BEGIN
  PERFORM set_config('search_path', 'pg_catalog', true);${body}
+ hp_closure := COALESCE(hp_closure, ARRAY[]::oid[]);
+ SELECT COALESCE(array_agg(DISTINCT w.nm), ${arr(HAND_PATH_ROOTS)}) INTO hp_watch_names
+   FROM (
+     SELECT unnest(${arr(HAND_PATH_ROOTS)}) AS nm
+     UNION
+     SELECT (pg_catalog.regexp_matches(f.src, '([a-z_][a-z0-9_]*)\\s*\\(', 'g'))[1] AS nm
+       FROM (${normalized('hp_closure')}) f
+   ) w;
+ hp_fp_before := ${catalogFingerprintSQL('hp_closure', 'hp_watch_names')};
  PERFORM pg_catalog.set_config('search_path', previous, true);
  PERFORM pg_catalog.set_config('ca.hand_path_before', (
    SELECT COALESCE(jsonb_agg(v->>'function' || '|' || (v->>'kind') || '|' || (v->>'target')), '[]'::jsonb)::text
      FROM jsonb_array_elements(a->'violations') v), true);
  PERFORM pg_catalog.set_config('ca.hand_path_roots_before', (a->'roots')::text, true);
+ PERFORM pg_catalog.set_config('ca.hand_path_closure_before', hp_closure::text, true);
+ PERFORM pg_catalog.set_config('ca.hand_path_watch_names_before', hp_watch_names::text, true);
+ PERFORM pg_catalog.set_config('ca.hand_path_catalog_fp', hp_fp_before, true);
 END ${SNAPSHOT_TAG};`;
 }
 
@@ -462,9 +537,21 @@ function checkSQL(declared) {
   const { declare, body } = handPathBlock();
   return `
 DO ${CHECK_TAG}
-DECLARE previous text := current_setting('search_path'); added text; missing text;${declare}
+DECLARE previous text := current_setting('search_path'); added text; missing text; hp_fp_before text; hp_fp_after text; hp_closure_before oid[]; hp_watch_before text[];${declare}
 BEGIN
- PERFORM set_config('search_path', 'pg_catalog', true);${body}
+ PERFORM set_config('search_path', 'pg_catalog', true);
+ hp_fp_before := pg_catalog.current_setting('ca.hand_path_catalog_fp', true);
+ IF hp_fp_before IS NOT NULL AND hp_fp_before <> '' THEN
+  hp_closure_before := pg_catalog.current_setting('ca.hand_path_closure_before')::oid[];
+  hp_watch_before := pg_catalog.current_setting('ca.hand_path_watch_names_before')::text[];
+  hp_fp_after := ${catalogFingerprintSQL('hp_closure_before', 'hp_watch_before')};
+  IF hp_fp_after IS NOT NULL AND hp_fp_after = hp_fp_before THEN
+   PERFORM pg_catalog.set_config('ca.hand_path_check_mode', 'fast_path', true);
+   PERFORM pg_catalog.set_config('search_path', previous, true);
+   RETURN;
+  END IF;
+ END IF;
+ PERFORM pg_catalog.set_config('ca.hand_path_check_mode', 'full_bfs', true);${body}
  PERFORM pg_catalog.set_config('search_path', previous, true);
  SELECT string_agg(r, ', ') INTO missing
    FROM jsonb_array_elements_text(current_setting('ca.hand_path_roots_before')::jsonb) r

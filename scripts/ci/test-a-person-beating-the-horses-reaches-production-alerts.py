@@ -41,6 +41,9 @@ MIGRATION = MIGRATIONS / '20261121011654_a_person_beating_the_plo_horses_reaches
 # The hands helper as production runs it now: the same body through RETURN QUERY EXECUTE,
 # so every call gets a custom plan for its own window. Every case below runs against it.
 PLANNED = MIGRATIONS / '20261122094628_the_horse_exposure_hands_are_planned_for_their_own_window.sql'
+# The watch as production runs it from 20261127043816: step 3 (the leak breakdown) reads one hand at a time.
+# The dry run below is answered by both definitions and must be identical; every later case runs against it.
+BOUNDED = MIGRATIONS / '20261127043816_three_monitors_read_their_windows_by_index_instead_of_per_ro.sql'
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 FLEET = '01a09b86-5ba8-7290-8657-1041f13dd3ca'
 
@@ -299,6 +302,17 @@ def main():
         flagged = {f['user_id']: f for f in r['flagged']}
         assert set(flagged) == {persons['winner']}, sorted(flagged)
         ok('a dry run flags only the person above +2 SE EV-adjusted and writes nothing')
+
+        bounded = BOUNDED.read_text()
+        start = bounded.index('CREATE OR REPLACE FUNCTION public.fn_ca_horse_exposure_watch(')
+        end = bounded.index('$function$;', start) + len('$function$;')
+        rb = psql([], bounded[start:end] + '\n')
+        assert rb.returncode == 0, f'{BOUNDED.name}: {rb.stderr}'
+        assert 'ONE HAND AT A TIME' in sql("SELECT pg_get_functiondef('public.fn_ca_horse_exposure_watch(timestamptz, boolean)'::regprocedure)")
+        r_bounded = json.loads(sql(f"SELECT public.fn_ca_horse_exposure_watch('{at}', true)"))
+        assert r_bounded == r, (r_bounded, r)
+        assert alerts() == 0 and sql('SELECT count(*) FROM smarter_private.ca_horse_exposure_runs') == '0'
+        ok('the one-hand-at-a-time breakdown (20261127043816) answers the dry run exactly as the original; every case below runs against it')
 
         f = flagged[persons['winner']]
         want = windows(persons['winner'])

@@ -1243,11 +1243,25 @@
         "omahaFlopRealizationIsPriced"
       ]
     },
+    "omahaFlopPressureCapIsPriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_pressure_cap_priced"],
+      "unlessOn": []
+    },
     "omahaFacingBetPriorIsPeopleMeasured": {
       "releaseDefault": "off",
       "source": "declared",
       "keys": [],
       "prefixes": ["omaha_people_prior_"],
+      "unlessOn": []
+    },
+    "omahaMultiwayFieldIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_mw_people_field_"],
       "unlessOn": []
     },
     "omahaFacingBetFieldIsJoint": {
@@ -1309,6 +1323,16 @@
       ],
       "prefixes": [],
       "unlessOn": ["omahaReraisedPotCallIsPriced"]
+    },
+    "omahaReraisedPotFoldReraiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_fold_reraise_kept",
+        "omaha_reraised_pot_priced_fold_reraised"
+      ],
+      "prefixes": [],
+      "unlessOn": []
     },
     "omahaStabDefenceIsPriced": {
       "releaseDefault": "off",
@@ -1550,6 +1574,17 @@
         "lightning_vpip_floor_limp_only_limp",
         "lightning_vpip_floor_limp_only_priced_out",
         "lightning_vpip_floor_limp_only_seen"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "vpipFloorLimpFoldsToARaise": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "vpip_floor_limp_raised_fold",
+        "vpip_floor_limp_raised_fold_kept",
+        "vpip_floor_limp_raised_fold_restored"
       ],
       "prefixes": [],
       "unlessOn": []
@@ -2433,6 +2468,41 @@
       "prefixes": [],
       "unlessOn": ["holdemOpeningValueBetIsPriced"]
     },
+    "holdemMultiwayOpeningBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_multiway_opening_bluff_bet",
+        "holdem_multiway_opening_bluff_no_edge",
+        "holdem_multiway_opening_unpriced",
+        "holdem_multiway_opening_value_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemMultiwayOpeningValueBetIsPriced"]
+    },
+    "holdemMultiwayOpeningValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_multiway_opening_bluff_bet",
+        "holdem_multiway_opening_bluff_no_edge",
+        "holdem_multiway_opening_unpriced",
+        "holdem_multiway_opening_value_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemMultiwayOpeningBluffIsPriced"]
+    },
+    "holdemRiverBluffIsPricedOnPeople": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_people_bluff_below_check",
+        "holdem_river_people_bluff_bet",
+        "holdem_river_people_bluff_no_edge"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "cashDefenceTrimColdCalls": {
       "releaseDefault": "off",
       "source": "ledger",
@@ -2889,6 +2959,13 @@
       "unlessOn": []
     },
     "omahaRiverBetFoldIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_checked_to_bet_measured", "omaha_river_first_to_act_bet_priced"],
+      "unlessOn": ["omahaRiverCheckedToBetIsMeasured", "omahaRiverFirstToActBetIsPriced"]
+    },
+    "omahaRiverBetCheckIsHisRecord": {
       "releaseDefault": "off",
       "source": "declared",
       "keys": [],

@@ -87,29 +87,81 @@ type HorseDecisionKeyInput = Pick<
   | 'opponentHud'
 >;
 
-/** JSON-compatible canonicalizer with sorted object keys and finite numbers. */
-function canonicalDecisionValue(value: unknown, path = '$'): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value))
-      throw new Error(`decision key contains non-finite number at ${path}`);
-    return Object.is(value, -0) ? 0 : value;
+function formatDecisionPath(segments: readonly (string | number)[]): string {
+  let out = String.fromCharCode(36);
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    out += typeof seg === 'number' ? `[${seg}]` : `.${seg}`;
+  }
+  return out;
+}
+
+/**
+ * Stream canonical JSON directly into a SHA-256 hash without allocating
+ * intermediate sorted-key objects, arrays, path strings, or a full serialized
+ * JSON string (incident 1e532243). Byte-identical to
+ * `JSON.stringify(canonicalDecisionValue(value))` for every valid input.
+ */
+function streamCanonicalDecisionJson(
+  hash: ReturnType<typeof createHash>,
+  value: unknown,
+  path: (string | number)[]
+): void {
+  if (value === null) {
+    hash.update('null');
+    return;
+  }
+  const type = typeof value;
+  if (type === 'string') {
+    hash.update(JSON.stringify(value));
+    return;
+  }
+  if (type === 'boolean') {
+    hash.update(value ? 'true' : 'false');
+    return;
+  }
+  if (type === 'number') {
+    const num = value as number;
+    if (!Number.isFinite(num)) {
+      throw new Error(`decision key contains non-finite number at ${formatDecisionPath(path)}`);
+    }
+    hash.update(Object.is(num, -0) ? '0' : String(num));
+    return;
   }
   if (Array.isArray(value)) {
-    return value.map((item, index) => canonicalDecisionValue(item, `${path}[${index}]`));
+    hash.update('[');
+    for (let i = 0; i < value.length; i++) {
+      if (i > 0) hash.update(',');
+      path.push(i);
+      streamCanonicalDecisionJson(hash, value[i], path);
+      path.pop();
+    }
+    hash.update(']');
+    return;
   }
-  if (typeof value === 'object') {
+  if (type === 'object') {
     const record = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) {
+    const keys = Object.keys(record).sort();
+    hash.update('{');
+    let wrote = false;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
       const item = record[key];
       // Structured clone cannot carry functions or symbols. Undefined object
       // fields are behaviorally identical to omission when options are spread.
-      if (item !== undefined) out[key] = canonicalDecisionValue(item, `${path}.${key}`);
+      if (item === undefined) continue;
+      if (wrote) hash.update(',');
+      wrote = true;
+      hash.update(JSON.stringify(key));
+      hash.update(':');
+      path.push(key);
+      streamCanonicalDecisionJson(hash, item, path);
+      path.pop();
     }
-    return out;
+    hash.update('}');
+    return;
   }
-  throw new Error(`decision key contains unsupported value at ${path}`);
+  throw new Error(`decision key contains unsupported value at ${formatDecisionPath(path)}`);
 }
 
 /**
@@ -120,7 +172,8 @@ function canonicalDecisionValue(value: unknown, path = '$'): unknown {
  * keys without weakening worker-side equality validation.
  */
 export function buildHorseDecisionKey(input: HorseDecisionKeyInput): string {
-  const material = canonicalDecisionValue({
+  const hash = createHash('sha256');
+  const material: Record<string, unknown> = {
     ...(input.handJournalCoordinate !== undefined
       ? { handJournalCoordinate: input.handJournalCoordinate }
       : {}),
@@ -137,9 +190,9 @@ export function buildHorseDecisionKey(input: HorseDecisionKeyInput): string {
       : {}),
     // OPPONENT HUD: bound only when attached (absent leaves every key byte-identical)
     ...(input.opponentHud !== undefined ? { opponentHud: input.opponentHud } : {}),
-  });
-  const digest = createHash('sha256').update(JSON.stringify(material)).digest('hex');
-  return `phase5-v1:${digest}`;
+  };
+  streamCanonicalDecisionJson(hash, material, []);
+  return `phase5-v1:${hash.digest('hex')}`;
 }
 
 /**
@@ -186,7 +239,13 @@ export function validatedHorsePolicySamplingKey(
   // existing baseline strategy. The full request key still binds its bytes.
   // lightningVpipFloor (2026-11-18) is likewise newly captured: a pool's floor and the Horse's own
   // count are read only with lightningVpipFloorLimpOnly on, so carrying them resamples nothing.
-  const gameState = project(capturedState, ['smallBlind', 'lightningVpipFloor'])!;
+  // ownVpipFloorLimpThisHand (vpipFloorLimpFoldsToARaise, 2026-11-27) likewise: read only with that option on,
+  // and then only to fold; carrying it resamples nothing.
+  const gameState = project(capturedState, [
+    'smallBlind',
+    'lightningVpipFloor',
+    'ownVpipFloorLimpThisHand',
+  ])!;
   return mods === input.mods &&
     opts === input.opts &&
     gameState === input.gameState &&

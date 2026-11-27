@@ -57,6 +57,7 @@ import { hasShareSheet, shareLink } from '../../lib/share';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
+import LogThisHandControl from '../handdetail/LogThisHandControl';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
 import {
@@ -98,6 +99,7 @@ import {
 } from '../../services/rabbitHuntPricing';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useHandReviewDetails } from '../../hooks/useHandReviewDetails';
+import { useVipIntroEligibility } from '../../hooks/useVipIntroEligibility';
 
 export interface HandDetailModalProps {
   isOpen: boolean;
@@ -146,6 +148,8 @@ export interface HandDetailModalProps {
   onReplay?: (hand: HandRecord) => void;
   /** Open the share modal for THE HAND PASSED IN. */
   onShare?: (hand: HandRecord) => void;
+  /** Open Personal Assistant Leak Finder analysis for THE HAND PASSED IN. */
+  onAnalyze?: (hand: HandRecord) => void;
   /** Fetch the next canonical page when the reader reaches the oldest loaded hand. */
   onLoadOlder?: () => Promise<string | null>;
   hasOlderHands?: boolean;
@@ -357,6 +361,8 @@ function RabbitHuntReplayBlock({
                   ? 'Expired After 24 Hours'
                   : null;
   const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
+  // The first-month price beside the VIP note; no server answer, no price.
+  const vipIntro = useVipIntroEligibility(vipNoteInsteadOfButton && !hidden);
   const showsButton = !settled && !statusNote && !vipNoteInsteadOfButton;
   const wantsPrice = showsButton && !hidden;
   useEffect(() => {
@@ -421,7 +427,12 @@ function RabbitHuntReplayBlock({
           {statusNote}
         </div>
       ) : vipNoteInsteadOfButton ? (
-        <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
+        <>
+          <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
+          {vipIntro.priceLine ? (
+            <div className="hdm-section-count">VIP {vipIntro.priceLine}</div>
+          ) : null}
+        </>
       ) : (
         <>
           <button
@@ -545,6 +556,7 @@ export function HandDetailModal({
   viewerSeated = true,
   onReplay,
   onShare,
+  onAnalyze,
   onRabbitHunt,
   onRabbitHuntReceipt,
   rabbitUserId,
@@ -1254,7 +1266,19 @@ export function HandDetailModal({
             >
               Replay
             </button>
+            {onAnalyze && (
+              <button
+                type="button"
+                className="hdm-actions__analyze"
+                aria-label="Analyze Hand In Personal Assistant Leak Finder"
+                title="Analyze In Personal Assistant Leak Finder"
+                onClick={() => onAnalyze(hand)}
+              >
+                Analyze
+              </button>
+            )}
           </div>
+          <LogThisHandControl handId={hand.id} accountId={heroId} />
           {/* The sender's own view of a hand they sent: how many people opened
               it, and the way to take it back. A stopped link opens nothing;
               the next Link or Share makes a new one. */}

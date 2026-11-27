@@ -111,8 +111,10 @@ const mockWakeHandProjection = vi.fn(async () => ({
   deferred: 0,
   failed: 0,
 }));
+const mockClaimLocalPostCommitEnvelope = vi.fn();
 vi.mock('./handProjection.js', () => ({
   wakeHandProjection: () => mockWakeHandProjection(),
+  claimLocalPostCommitEnvelope: (id: string) => mockClaimLocalPostCommitEnvelope(id),
 }));
 
 const mockReportError = vi.fn();
@@ -380,6 +382,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  mockClaimLocalPostCommitEnvelope.mockReset();
   terminalRead = undefined;
   storedHandRead = undefined;
   calls.length = 0;
@@ -963,6 +966,12 @@ describe('logHandHistory - accepted-hand transaction', () => {
     expect(drainHorseNets()).toEqual([]);
     expect(drainHorsePlay()).toEqual([]);
     expect(mockWakeHandProjection).toHaveBeenCalled();
+    // The engine applies this hand's envelope next: the drain is told so
+    // before it is woken, so it yields the row instead of racing for it.
+    expect(mockClaimLocalPostCommitEnvelope).toHaveBeenCalledTimes(1);
+    expect(mockClaimLocalPostCommitEnvelope.mock.invocationCallOrder[0]).toBeLessThan(
+      mockWakeHandProjection.mock.invocationCallOrder[0]
+    );
   });
   it('uses the one authoritative RPC and wakes projection only after its receipt is proved', async () => {
     atomicRpcResults = [
@@ -1028,6 +1037,8 @@ describe('logHandHistory - accepted-hand transaction', () => {
       })
     ).toBe(`${input.tableId}:${input.handNumber}:${leaseGeneration}`);
     expect(mockWakeHandProjection).toHaveBeenCalledTimes(1);
+    // No envelope in this commit: nothing for the drain to yield to.
+    expect(mockClaimLocalPostCommitEnvelope).not.toHaveBeenCalled();
   });
 
   it('replays one byte-identical obligations-aware request after a lost response', async () => {

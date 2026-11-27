@@ -129,6 +129,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   // PLO lead-6 2026-11-24: preflop facing a 3-bet or more only
   omahaReraisedPotCallIsPriced: PLO4_PLO5,
   omahaReraisedPotReraiseIsPriced: PLO4_PLO5,
+  // lead-8 lane preflop 2026-11-27: preflop facing a 3-bet or more only
+  omahaReraisedPotFoldReraiseIsPriced: PLO4_PLO5,
   // PLO-LEAD-6 2026-11-24: acts only preflop, facing one open out of position
   omahaOopReraiseRangeHoldsVsReraise: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -170,7 +172,15 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
+  omahaFlopPressureCapIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFacingBetFieldIsJoint: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaMultiwayFieldIsPeopleMeasured: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
@@ -187,6 +197,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     streets: Object.freeze(['river']),
   }),
   omahaRiverBetFoldIsPeopleMeasured: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaRiverBetCheckIsHisRecord: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
   }),
@@ -273,6 +287,14 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     ['flop', 'turn', 'river']
   ),
   holdemOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  // plo-lead7 2026-11-26: the first bet of the turn or river against two or more opponents (NLH cash)
+  holdemMultiwayOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  holdemMultiwayOpeningValueBetIsPriced: holdemStage(
+    ['nlh_cash', 'nlh_lightning'],
+    ['turn', 'river']
+  ),
+  // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
+  holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
 });
 
 /**

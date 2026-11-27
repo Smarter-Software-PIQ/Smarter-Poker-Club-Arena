@@ -204,6 +204,12 @@ import {
   type CashMoveArrival,
 } from '../services/supabase/cashMovePresence.js';
 import { deadlineScheduler } from './DeadlineScheduler.js';
+import {
+  detachTableWork,
+  registerTableFaultSink,
+  tableCallback,
+  type TableFaultSink,
+} from './TableFaultBoundary.js';
 import type {
   SeatPlayer,
   GameVariant,
@@ -447,11 +453,10 @@ export abstract class ServerTableEngineBase {
   /** All hand-owned capture fields survive together, including future additions. */
   protected captureContinuationEngine(): Record<string, unknown> {
     const self = this as unknown as Record<string, unknown>;
-    const fields = Object.fromEntries(
-      Object.keys(self)
-        .filter((k) => k.startsWith('currentHand'))
-        .map((k) => [k, structuredClone(self[k])])
-    );
+    const fields: Record<string, unknown> = {};
+    for (const k of Object.keys(self)) {
+      if (k.startsWith('currentHand')) fields[k] = structuredClone(self[k]);
+    }
     const capturedAt = Date.now();
     return {
       fields,
@@ -480,10 +485,13 @@ export abstract class ServerTableEngineBase {
     const authority = this.getEngineLeaseAuthority();
     if (authority?.scope !== 'tournament' || !authority.verified || !authority.generation)
       throw new Error('Hand Continuation Lease Is Unproven');
+    // Parse once per batch instead of parsing twice on seq 0 (incident 1e532243).
+    const parsedController = JSON.parse(batch.controller) as {
+      handStarted?: boolean;
+      state: GameState;
+    };
     const prepared =
-      batch.sequence === 0 &&
-      batch.events.length === 0 &&
-      JSON.parse(batch.controller).handStarted === false;
+      batch.sequence === 0 && batch.events.length === 0 && parsedController.handStarted === false;
     if (prepared) this.preparedOriginalRetentionUnconfirmed = true;
     const retained = retainHandContinuation(
       original,
@@ -499,8 +507,7 @@ export abstract class ServerTableEngineBase {
     await retained;
     // State copied from these exact retained bytes, never a later controller
     // mutation still waiting behind this batch. The future deck stays private.
-    const saved = JSON.parse(batch.controller).state;
-    this.retainedPublicHandState = { ...saved, deck: [] } as GameState;
+    this.retainedPublicHandState = { ...parsedController.state, deck: [] } as GameState;
   }
 
   /** Positive retained bytes or a canonical claimed seq0 own this capability. */
@@ -828,7 +835,8 @@ export abstract class ServerTableEngineBase {
     let deadlineHit = false;
     let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
     const deadlineReached = new Promise<void>((resolve) => {
-      deadlineTimer = setTimeout(
+      deadlineTimer = this.tableTimeout(
+        'rebuy_pause_deadline',
         () => {
           deadlineHit = true;
           this.rebuyPauseWake?.();
@@ -854,7 +862,7 @@ export abstract class ServerTableEngineBase {
             this.rebuyPauseWake = null;
             resolve();
           };
-          const timer = setTimeout(finish, slice);
+          const timer = this.tableTimeout('rebuy_pause_poll', finish, slice);
           this.rebuyPauseWake = finish;
         });
       }
@@ -1502,7 +1510,12 @@ export abstract class ServerTableEngineBase {
   /** Claim shared scheduler identity without ever evicting a live generation. */
   private claimProcessOwnership(): boolean {
     const claimed = ServerTableEngineBase.claimCurrentEngine(this.tableId, this);
-    if (claimed) this.claimedProcessOwnership = true;
+    if (claimed) {
+      this.claimedProcessOwnership = true;
+      // Shared-scheduler callbacks for this tableId (turn clocks, heartbeat,
+      // insurance, run it twice, breaks) are contained to this generation.
+      this.releaseTableFaultSink ??= registerTableFaultSink(this.tableFaultSink);
+    }
     return claimed;
   }
 
@@ -1540,16 +1553,20 @@ export abstract class ServerTableEngineBase {
       this.expireEngineLeaseAuthority();
       return;
     }
-    this.engineLeaseExpiryTimer = setTimeout(() => {
-      this.engineLeaseExpiryTimer = null;
-      /* Timers may wake early. Re-read the monotonic deadline rather than
+    this.engineLeaseExpiryTimer = this.tableTimeout(
+      'engine_lease_expiry',
+      () => {
+        this.engineLeaseExpiryTimer = null;
+        /* Timers may wake early. Re-read the monotonic deadline rather than
          converting scheduler jitter into a false ownership loss. */
-      if (this.engineLeaseAuthorityIsCurrent()) {
-        this.armEngineLeaseExpiryTimer();
-        return;
-      }
-      this.expireEngineLeaseAuthority();
-    }, Math.ceil(delayMs));
+        if (this.engineLeaseAuthorityIsCurrent()) {
+          this.armEngineLeaseExpiryTimer();
+          return;
+        }
+        this.expireEngineLeaseAuthority();
+      },
+      Math.ceil(delayMs)
+    );
     this.engineLeaseExpiryTimer.unref?.();
   }
 
@@ -2079,7 +2096,7 @@ export abstract class ServerTableEngineBase {
           this.pineappleDiscardDeadlines.set(seat, extended);
           this.markProgress();
           this.armPineappleDiscardSweep(controllerRef);
-          void this.broadcastCurrentState();
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
           return;
         }
       }
@@ -2102,7 +2119,7 @@ export abstract class ServerTableEngineBase {
     }
     this.markProgress();
     this.armPineappleDiscardSweep(controllerRef);
-    void this.broadcastCurrentState();
+    this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
   }
 
   /**
@@ -2190,7 +2207,7 @@ export abstract class ServerTableEngineBase {
     const extended = Date.now() + seconds * 1000;
     this.pineappleDiscardDeadlines.set(seat, extended);
     this.armPineappleDiscardSweep(this.handController);
-    void this.broadcastCurrentState();
+    this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
     return { success: true, deadlineMs: extended };
   }
 
@@ -2992,16 +3009,19 @@ export abstract class ServerTableEngineBase {
       this.f06OwnReservedResolvesSinceProgress ===
       ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS + 1
     ) {
-      void raiseEngineAlert({
-        alertname: 'F06OwnReservedRecoveryStalled',
-        severity: 'critical',
-        component: this.ownReservedRecoveryAlertComponent(),
-        summary: 'Tournament permit recovery repeated without a started hand',
-        description:
-          'Four Own-Generation Reserved Permits Resolved Without HAND_START; Normal Stall Safeguards Remain Active.',
-        labels: { table_id: this.tableId },
-        page: true,
-      });
+      this.detachTableWork(
+        'raiseEngineAlert',
+        raiseEngineAlert({
+          alertname: 'F06OwnReservedRecoveryStalled',
+          severity: 'critical',
+          component: this.ownReservedRecoveryAlertComponent(),
+          summary: 'Tournament permit recovery repeated without a started hand',
+          description:
+            'Four Own-Generation Reserved Permits Resolved Without HAND_START; Normal Stall Safeguards Remain Active.',
+          labels: { table_id: this.tableId },
+          page: true,
+        })
+      );
     }
     return (
       this.f06OwnReservedResolvesSinceProgress <=
@@ -3018,7 +3038,10 @@ export abstract class ServerTableEngineBase {
     ) {
       // A replacement generation can clear the same durable table alert, but
       // teardown alone must not claim the stalled table recovered.
-      void resolveEngineAlert('F06OwnReservedRecoveryStalled', component, 'A hand started');
+      this.detachTableWork(
+        'resolveEngineAlert',
+        resolveEngineAlert('F06OwnReservedRecoveryStalled', component, 'A hand started')
+      );
     }
     this.f06OwnReservedResolvesSinceProgress = 0;
   }
@@ -4205,7 +4228,7 @@ export abstract class ServerTableEngineBase {
         // public snapshot is re-sent by the hub on reconnect, but hole cards
         // are not — without this a reconnecting player sees a live action
         // clock but a blank hand and gets auto-folded at the deadline.
-        void this.rePushHoleCards(event.playerId);
+        this.detachTableWork('rePushHoleCards', this.rePushHoleCards(event.playerId));
       }
     });
     this.preActionEngine = new PreActionEngine((event) => {
@@ -5629,6 +5652,8 @@ export abstract class ServerTableEngineBase {
       }
 
       ServerTableEngineBase.releaseCurrentEngine(this.tableId, this);
+      this.releaseTableFaultSink?.();
+      this.releaseTableFaultSink = null;
     }
     // Note: chipRaceEngine, tableBalancer, tableBreakEngine are stateless per-call — no dispose needed
 
@@ -5859,7 +5884,7 @@ export abstract class ServerTableEngineBase {
           console.log(
             `[ServerTableEngine:${this.tableId}] held leave released for ${userId} - nobody else left to play the owed hands`
           );
-          void this.broadcastCurrentState();
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
           continue;
         }
         const res = await atomicCashoutVoluntary(
@@ -5891,7 +5916,7 @@ export abstract class ServerTableEngineBase {
           console.log(
             `[ServerTableEngine:${this.tableId}] held leave released for ${userId} - the owed hands are played`
           );
-          void this.broadcastCurrentState();
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
         } else if (res.code === 'LEAVE_LOCKED') {
           this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
           await this.returnOwedLightningLeaveToPool(userId, seated);
@@ -5937,7 +5962,10 @@ export abstract class ServerTableEngineBase {
     // in profit; the seat (already sat out) is blinded off for them.
     if (!this.isLightningAnchorNow()) {
       this.chipContinuity.markBlindOff(userId, true);
-      void setCashSessionBlindOff(this.tableId, userId, true);
+      this.detachTableWork(
+        'setCashSessionBlindOff',
+        setCashSessionBlindOff(this.tableId, userId, true)
+      );
     }
     this.chipContinuity.noteRefusal(userId, stayRemainingMs);
     console.log(
@@ -6504,7 +6532,7 @@ export abstract class ServerTableEngineBase {
     }
     if (movedIds.length > 0) {
       this.seatedPlayers = this.seatedPlayers.filter((sp) => !movedIds.includes(sp.user_id));
-      void this.broadcastCurrentState();
+      this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
       // The game's seats changed at two tables at once; one wake covers both.
       this.wakeClusterGame('seat_move');
     }
@@ -7570,7 +7598,7 @@ export abstract class ServerTableEngineBase {
       this.releaseDepartedSeats(departed);
       if (departed.length > 0) {
         this.wakeClusterGame('seat_left');
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
       }
     } finally {
       releaseSeatBoundary();
@@ -8062,7 +8090,8 @@ export abstract class ServerTableEngineBase {
       return await Promise.race([
         work,
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(
+          timer = this.tableTimeout(
+            'deal_step_budget',
             () =>
               reject(
                 new Error(
@@ -8127,6 +8156,82 @@ export abstract class ServerTableEngineBase {
     this.fenceTerminalEngine(reason, notifyOwner);
   }
 
+  /*
+   * ── ONE TABLE'S ERROR STAYS ON ITS TABLE (2026-11-27) ──────────────────────
+   *
+   * Every timer this engine arms and every promise it starts without awaiting
+   * goes through the four helpers below (tests/one-tables-error-stays-on-its-
+   * table.law.test.ts refuses a raw setTimeout/setInterval/setImmediate/
+   * queueMicrotask or a bare `void promise` in the ServerTableEngine files).
+   * A throw or rejection there used to reach index.ts as an uncaughtException
+   * or unhandledRejection, and fatal() then restarted every table on the box.
+   * Now it is contained to this generation: containTableFault fences it with
+   * killForRestart, the owner rebuilds the one table, and the rebuilt engine's
+   * crash recovery replays or refunds the in-flight hand from its snapshot,
+   * exactly as for every other watchdog kill. Chips still move only at
+   * settlement: stop() joins any settlement already in flight before the
+   * owner releases the table, and the fence clears the controller so no new
+   * hand event can dispatch from the dead generation.
+   */
+
+  /** This generation's fault sink (TableFaultBoundary). */
+  private tableFaultSinkInstance: TableFaultSink | null = null;
+  protected get tableFaultSink(): TableFaultSink {
+    this.tableFaultSinkInstance ??= {
+      tableId: this.tableId,
+      containTableFault: (label: string, error: unknown) => this.containTableFault(label, error),
+    };
+    return this.tableFaultSinkInstance;
+  }
+  /** Unregisters this generation from the shared-scheduler sink registry. */
+  private releaseTableFaultSink: (() => void) | null = null;
+
+  /**
+   * Contain an error that came out of this table's own work. Never throws for
+   * an ordinary engine: a generation that is already terminal (killed or
+   * stopped) only records it, because killForRestart preserves the first
+   * cause and a stopped engine must not be rebuilt by a late callback.
+   */
+  protected containTableFault(label: string, error: unknown): void {
+    reportError(error, 'ServerTableEngine.' + this.tableId + '.contained_fault', {
+      label,
+      terminal: this.terminal,
+      currentHandNumber: this.handCount,
+    });
+    this.killForRestart('contained_fault:' + label);
+  }
+
+  /** setTimeout whose callback errors are contained to this table. */
+  protected tableTimeout(
+    label: string,
+    work: () => unknown,
+    ms: number
+  ): ReturnType<typeof setTimeout> {
+    return setTimeout(tableCallback(this.tableFaultSink, label, work), ms);
+  }
+
+  /** setInterval whose callback errors are contained to this table. */
+  protected tableInterval(
+    label: string,
+    work: () => unknown,
+    ms: number
+  ): ReturnType<typeof setInterval> {
+    return setInterval(tableCallback(this.tableFaultSink, label, work), ms);
+  }
+
+  /** setImmediate / queueMicrotask equivalents with the same containment. */
+  protected tableImmediate(label: string, work: () => unknown): ReturnType<typeof setImmediate> {
+    return setImmediate(tableCallback(this.tableFaultSink, label, work));
+  }
+  protected tableMicrotask(label: string, work: () => unknown): void {
+    queueMicrotask(tableCallback(this.tableFaultSink, label, work));
+  }
+
+  /** A promise this table starts and nobody awaits: a rejection kills this table only. */
+  protected detachTableWork(label: string, work: PromiseLike<unknown>): void {
+    detachTableWork(this.tableFaultSink, label, work);
+  }
+
   /** Local fence only. Process ownership remains retained until stop completes. */
   private fenceTerminalEngine(reason: string, notifyOwner: boolean): void {
     // A terminal kill is the end of the recovery chain. Non-terminal recovery
@@ -8187,7 +8292,7 @@ export abstract class ServerTableEngineBase {
     this.restartRequiredSignalled = true;
     const callback = this.restartRequiredCallback;
     if (!callback) return;
-    queueMicrotask(() => {
+    this.tableMicrotask('restart_required_signal', () => {
       if (this.restartRequiredCallback !== callback) return;
       try {
         callback(reason);
@@ -8695,7 +8800,10 @@ export abstract class ServerTableEngineBase {
       const alreadyParked =
         this.handForHandResolve !== null &&
         (this.isBetweenHands() || this.isPreparedOriginalHeldForMaintenance());
-      void this.persistPresenceForRestart(alreadyParked ? 'parked' : 'announced');
+      this.detachTableWork(
+        'persistPresenceForRestart',
+        this.persistPresenceForRestart(alreadyParked ? 'parked' : 'announced')
+      );
     }
     if (maxWaitMs > 0) {
       // Take the LONGER of the two budgets. A hand-for-hand pause armed a
@@ -8839,7 +8947,7 @@ export abstract class ServerTableEngineBase {
           this.boundaryPauseWaiters.delete(wake);
           resolve();
         };
-        const timer = setTimeout(wake, remaining);
+        const timer = this.tableTimeout('boundary_pause_wait', wake, remaining);
         (timer as { unref?: () => void }).unref?.();
         this.boundaryPauseWaiters.add(wake);
       });
@@ -9040,7 +9148,7 @@ export abstract class ServerTableEngineBase {
           this.boundaryPauseWaiters.delete(wake);
           resolve();
         };
-        const timer = setTimeout(wake, remaining);
+        const timer = this.tableTimeout('boundary_pause_wait', wake, remaining);
         (timer as { unref?: () => void }).unref?.();
         this.boundaryPauseWaiters.add(wake);
       });
@@ -9084,14 +9192,18 @@ export abstract class ServerTableEngineBase {
         this.tournamentMovePauseExpiryTimers.has(ownerId)
       )
         continue;
-      const timer = setTimeout(() => {
-        if (
-          !this.claimedTournamentMovePauseOwners.has(ownerId) &&
-          !this.breakHeldTournamentMovePauseOwners.has(ownerId)
-        ) {
-          this.releaseTournamentMovePause(ownerId);
-        }
-      }, ServerTableEngineBase.TOURNAMENT_MOVE_UNCLAIMED_PARK_MS);
+      const timer = this.tableTimeout(
+        'tournament_move_pause_expiry',
+        () => {
+          if (
+            !this.claimedTournamentMovePauseOwners.has(ownerId) &&
+            !this.breakHeldTournamentMovePauseOwners.has(ownerId)
+          ) {
+            this.releaseTournamentMovePause(ownerId);
+          }
+        },
+        ServerTableEngineBase.TOURNAMENT_MOVE_UNCLAIMED_PARK_MS
+      );
       (timer as { unref?: () => void }).unref?.();
       this.tournamentMovePauseExpiryTimers.set(ownerId, timer);
     }
@@ -9417,7 +9529,11 @@ export abstract class ServerTableEngineBase {
        left to report. */
     // The census asks about unknown debits again (by id, exactly once each);
     // the answer lands before the next census reads this table.
-    if (this.unresolvedTimeBankDebits.size > 0) void this.resolveUnconfirmedTimeBankDebits();
+    if (this.unresolvedTimeBankDebits.size > 0)
+      this.detachTableWork(
+        'resolveUnconfirmedTimeBankDebits',
+        this.resolveUnconfirmedTimeBankDebits()
+      );
     if (this.hasUnretiredStoppedTimeBankCustody()) {
       // Accounting still in flight is the one case we cannot even ASK about:
       // a debit whose outcome is unknown must not be frozen into a snapshot.
@@ -10651,7 +10767,11 @@ export abstract class ServerTableEngineBase {
            * go (resumeFromMaintenance defers to hand-for-hand and friends).
            */
           if ((this.maintenancePaused || this.weeklyPayoutPauseOwners.size > 0) && this.running) {
-            this.pauseGateTimer = setTimeout(onSafetyTimeout, maxWaitMs);
+            this.pauseGateTimer = this.tableTimeout(
+              'pause_gate_safety',
+              onSafetyTimeout,
+              maxWaitMs
+            );
             (this.pauseGateTimer as { unref?: () => void }).unref?.();
             return;
           }
@@ -10680,7 +10800,7 @@ export abstract class ServerTableEngineBase {
           resolve();
         }
       };
-      this.pauseGateTimer = setTimeout(onSafetyTimeout, maxWaitMs);
+      this.pauseGateTimer = this.tableTimeout('pause_gate_safety', onSafetyTimeout, maxWaitMs);
       // The break is minutes long and this timer is the only thing keeping a
       // reference; unref so a shutdown inside a break is not held open by it.
       (this.pauseGateTimer as { unref?: () => void }).unref?.();
@@ -11085,15 +11205,18 @@ export abstract class ServerTableEngineBase {
     ) {
       this.resumeContinuationTimeBankActivation(event);
       const automatic = event.activationCause === 'automatic';
-      void broadcastTimeBankActivation(this.tableId, {
-        player_id: event.playerId,
-        table_id: this.tableId,
-        additional_seconds: event.secondsGranted,
-        auto_activated: automatic,
-        uses_remaining: event.usesRemaining,
-        ...(automatic ? {} : { total_remaining: event.totalRemaining }),
-        unlimited_activations: event.unlimitedActivations === true,
-      });
+      this.detachTableWork(
+        'broadcastTimeBankActivation',
+        broadcastTimeBankActivation(this.tableId, {
+          player_id: event.playerId,
+          table_id: this.tableId,
+          additional_seconds: event.secondsGranted,
+          auto_activated: automatic,
+          uses_remaining: event.usesRemaining,
+          ...(automatic ? {} : { total_remaining: event.totalRemaining }),
+          unlimited_activations: event.unlimitedActivations === true,
+        })
+      );
       if (
         event.unlimitedActivations !== true &&
         Number(event.usesRemaining) >= 0 &&
@@ -11948,6 +12071,14 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandOptionReceipts: Map<string, number> = new Map();
 
+  /**
+   * vpipFloorLimpFoldsToARaise (default OFF): the Horses whose accepted limp THIS hand was the VPIP floor's one
+   * action. Filled when a Horse's accepted call carries the decision's own private mark `vpipFloorLimp` (set by
+   * the worker only with the option on), cleared at the deal, handed back to that Horse's later decisions of the
+   * hand as gs.ownVpipFloorLimpThisHand. With the option off it stays empty and nothing reads it.
+   */
+  protected currentHandVpipFloorLimps: Set<string> = new Set();
+
   /** The table row's kill configuration; `off` on any row without it. */
   protected killSettingsFromTable(): KillSettings {
     return readKillSettings(this.tableInfo as never);
@@ -12751,14 +12882,18 @@ export abstract class ServerTableEngineBase {
     this.snapshotDirty = true;
     const since = Date.now() - this.lastSnapshotAtMs;
     if (since >= ServerTableEngineBase.SNAPSHOT_MIN_INTERVAL_MS) {
-      void this.flushSnapshot();
+      this.detachTableWork('flushSnapshot', this.flushSnapshot());
       return;
     }
     if (this.snapshotTimer) return; // a trailing write is already queued
-    this.snapshotTimer = setTimeout(() => {
-      this.snapshotTimer = null;
-      void this.flushSnapshot();
-    }, ServerTableEngineBase.SNAPSHOT_MIN_INTERVAL_MS - since);
+    this.snapshotTimer = this.tableTimeout(
+      'snapshot_trailing_write',
+      () => {
+        this.snapshotTimer = null;
+        this.detachTableWork('flushSnapshot', this.flushSnapshot());
+      },
+      ServerTableEngineBase.SNAPSHOT_MIN_INTERVAL_MS - since
+    );
     // Never hold the process open for a snapshot.
     this.snapshotTimer.unref?.();
   }

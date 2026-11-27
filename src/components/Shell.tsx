@@ -18,6 +18,7 @@ import { useClubTheme } from '../utils/clubThemeEngine';
 import { scheduleStaleCacheReaper } from '../utils/staleCacheReaper';
 import './Shell.css';
 import { reportError } from '../utils/errorReporter';
+import { VIP_MEMBERSHIP_PURCHASE_PATH } from '../hooks/useVipIntroEligibility';
 
 // VIP Badge Component
 function VIPBadge() {
@@ -30,7 +31,7 @@ function VIPBadge() {
     <button
       className={`shell-vip-badge ${isVIP ? 'vip-active' : ''}`}
       onClick={() => {
-        navigate('/marketplace?tab=diamonds');
+        navigate(isVIP ? '/vip' : VIP_MEMBERSHIP_PURCHASE_PATH);
       }}
       title={isVIP ? 'VIP Gold Active' : 'Get VIP Benefits'}
     >

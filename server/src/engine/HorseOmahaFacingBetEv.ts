@@ -1605,6 +1605,12 @@ export interface OmahaFacingBetEvContext {
    * (HorseOmahaRiverBluffCatch). `mixUnit` from public state only.
    */
   riverBluffCatch?: { mixUnit: number; rows?: readonly OmahaRiverRow[] };
+  /**
+   * omahaMultiwayFieldIsPeopleMeasured (default off): present only with the option on, in a PLO4/PLO5 cash spot with
+   * a caller or a player still to act. A caller then holds the strongest `callerWidth` of holdings and a player
+   * still to act continues at `behindContinue` with the strongest `callerWidth` (HorseOmahaMultiwayPeopleField).
+   */
+  peopleField?: { callerWidth: number; behindContinue: number };
 }
 
 /**
@@ -1683,12 +1689,20 @@ export function omahaFacingBetEvVerdict(
   // keeps no showdown record of a player's calls by wager size, so there is
   // no per-caller read to move it (audit 2026-11-15, item 8: the unfed
   // callerShown input was removed).
-  const baseCallerShare = OMAHA_EV_CALLER_SHARE[spot.street];
+  // omahaMultiwayFieldIsPeopleMeasured (default off): the caller width and the continue rate behind are the
+  // people-measured ones (HorseOmahaMultiwayPeopleField); absent, the stated constants exactly.
+  const peopleField = hole.length !== 6 ? ctx.peopleField : undefined;
+  const baseCallerShare = peopleField
+    ? peopleField.callerWidth
+    : OMAHA_EV_CALLER_SHARE[spot.street];
   const callerShare =
     spot.potFrac < 0.25 ? 1 - (1 - baseCallerShare) * (spot.potFrac / 0.25) : baseCallerShare;
   if (spot.callers > 0) field *= need(callerShare, true) ** spot.callers;
   if (spot.allIns > 0) field *= need(OMAHA_EV_ALL_IN_SHARE, true) ** spot.allIns;
-  if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
+  if (spot.behind > 0 && peopleField) {
+    const t = counted.top(callerShare);
+    field *= (1 - peopleField.behindContinue * (1 - (t.win + t.tie * 0.5))) ** spot.behind;
+  } else if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;
   pTie *= field;
   let realization = spot.final

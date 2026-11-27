@@ -908,13 +908,35 @@ export class LiveHorseDecisionWorkerClient {
     signal?: AbortSignal,
     options?: HorseDecisionJobOptions
   ): Promise<FastHorseDecisionResult> {
-    const startedAt = Date.now();
     try {
       horseRequestAllowance(snapshot);
     } catch (error) {
       return Promise.reject(error);
     }
-    const captured = structuredClone(snapshot);
+    return this.decideFastInternal(structuredClone(snapshot), signal, options, false);
+  }
+
+  /**
+   * Internal entry point for `HorseDecisionWorkerLane`, which has already
+   * validated `horseRequestAllowance(snapshot)` and detached `captured` via
+   * `structuredClone`. Eliminates two redundant full-tree clones and one
+   * redundant property-descriptor walk per horse decision (incident 1e532243).
+   */
+  decideFastDetached(
+    captured: LiveHorseDecisionSnapshot,
+    signal?: AbortSignal,
+    options?: HorseDecisionJobOptions
+  ): Promise<FastHorseDecisionResult> {
+    return this.decideFastInternal(captured, signal, options, true);
+  }
+
+  private decideFastInternal(
+    captured: LiveHorseDecisionSnapshot,
+    signal: AbortSignal | undefined,
+    options: HorseDecisionJobOptions | undefined,
+    alreadyDetached: boolean
+  ): Promise<FastHorseDecisionResult> {
+    const startedAt = Date.now();
     const context = horseObserverReadContextFromRequest(captured);
     const callerBudget =
       typeof options?.deadlineMs === 'number' &&
@@ -944,7 +966,9 @@ export class LiveHorseDecisionWorkerClient {
       'FAST_RESULT',
       signal,
       false,
-      Math.max(1, callerBudget - (Date.now() - startedAt))
+      Math.max(1, callerBudget - (Date.now() - startedAt)),
+      false,
+      alreadyDetached
     ).then((result) => {
       try {
         if (context)
@@ -1388,7 +1412,8 @@ export class LiveHorseDecisionWorkerClient {
     signal?: AbortSignal,
     priority = false,
     deadlineMs?: number,
-    background = false
+    background = false,
+    alreadyDetached = false
   ): Promise<T> {
     if (this.phase === 'stopping' || this.phase === 'stopped') {
       return Promise.reject(
@@ -1413,7 +1438,7 @@ export class LiveHorseDecisionWorkerClient {
       this.requestRetention.reserve(request);
       reserved = true;
       // The allowance owns detached data; later caller mutation cannot enlarge it.
-      request = structuredClone(request);
+      if (!alreadyDetached) request = structuredClone(request);
     } catch (error) {
       if (reserved) this.requestRetention.release(request.requestId);
       return Promise.reject(markHorseDecisionRejection(error, 'enqueue_failed'));

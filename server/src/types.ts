@@ -1084,6 +1084,10 @@ export interface HorseDecision {
    * uncalibrated later joint proposal cannot reopen its rejected call-off. */
   // Cold multiway flush pressure is physical action evidence and survives
   // maniac recovery; generic equity floors may still adapt to a maniac.
+  /** vpipFloorLimpFoldsToARaise (default OFF): this call is the VPIP floor's one action, the limp
+   *  (HorseLogic.vpipFloorLimpOnlyStep). Private; the table engine / Lightning hand host reads it once the call is
+   *  accepted and remembers the limp for the hand (gs.ownVpipFloorLimpThisHand). Absent with the option off. */
+  vpipFloorLimp?: true;
   continuationGuard?:
     | 'multiway_commitment_floor'
     | 'dominated_commitment_floor'

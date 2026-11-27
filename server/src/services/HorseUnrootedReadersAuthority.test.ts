@@ -33,6 +33,11 @@ import {
 } from './OpponentHudStore.js';
 import { ServerTableEngineDealing } from '../engine/ServerTableEngineDealing.js';
 import { ServerTableEngineSettlement } from '../engine/ServerTableEngineSettlement.js';
+import {
+  __clearTournamentBrainCache,
+  refreshTournamentBrainContext,
+  refreshTournamentBrainContextAfterClockCommit,
+} from './TournamentBrainContext.js';
 
 const TOURNAMENT_AUTH = {
   tournamentId: '64b7c660-575a-45d7-8e76-55f9ae758cc1',
@@ -340,6 +345,9 @@ describe('observe-only horse readers bind to process root outside tournament dat
           rabbitHuntInFlight: new Set<string>(),
           getRabbitHuntOffer: () => offers.get(42),
           callerHasActiveVip: async () => true,
+          detachTableWork: (_label: string, work: Promise<unknown>) => {
+            void work.catch(() => undefined);
+          },
         },
         '10000000-0000-4000-8000-000000000001',
         42
@@ -355,10 +363,68 @@ describe('observe-only horse readers bind to process root outside tournament dat
       resolve(process.cwd(), 'src/engine/ServerTableEngineSettlement.ts'),
       'utf8'
     );
-    const offerIdx = settlementSrc.indexOf("from('rabbit_hunt_offers').upsert");
-    expect(offerIdx).toBeGreaterThan(-1);
-    expect(settlementSrc.slice(Math.max(0, offerIdx - 220), offerIdx)).toContain(
-      'bindToProcessRoot(async () =>'
+    expect(settlementSrc).toMatch(
+      /bindToProcessRoot\(async \(\) => \{\s*try \{\s*const \{ error: offerPersistError \} = await supabase\s*\.from\('rabbit_hunt_offers'\)\s*\.upsert\(/
     );
+  });
+
+  it('TournamentBrainContext refresh and post-clock-commit refresh clear tournament authority via bindToProcessRoot (1e532243)', async () => {
+    const tid = TOURNAMENT_AUTH.tournamentId;
+    __clearTournamentBrainCache();
+
+    let firstQueryStarted!: () => void;
+    let firstQueryPromise = new Promise<void>((resolve) => {
+      firstQueryStarted = resolve;
+    });
+
+    const buildQuery = () => {
+      const q: Record<string, unknown> = {};
+      for (const method of ['select', 'eq', 'in', 'is', 'order', 'limit', 'gt']) {
+        q[method] = () => q;
+      }
+      q.maybeSingle = async () => ({ data: null, error: { message: 'stubbed' } });
+      q.then = (resolve: (value: unknown) => unknown) =>
+        Promise.resolve({ data: [], count: 0, error: null }).then(resolve);
+      return q;
+    };
+
+    mock.from.mockImplementation(() => {
+      mock.observedTournamentIds.push(currentTournamentIdOrNull());
+      firstQueryStarted();
+      return buildQuery();
+    });
+
+    runWithTournamentDataAuthority(TOURNAMENT_AUTH, () => {
+      expect(currentTournamentIdOrNull()).toBe(tid);
+      refreshTournamentBrainContext(tid);
+    });
+    await firstQueryPromise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mock.observedTournamentIds.length).toBeGreaterThan(0);
+    expect(mock.observedTournamentIds.every((seen) => seen === null)).toBe(true);
+
+    // Post-clock-commit refresh also runs unbound from tournament data authority.
+    mock.observedTournamentIds.length = 0;
+    firstQueryPromise = new Promise<void>((resolve) => {
+      firstQueryStarted = resolve;
+    });
+    runWithTournamentDataAuthority(TOURNAMENT_AUTH, () => {
+      expect(currentTournamentIdOrNull()).toBe(tid);
+      refreshTournamentBrainContextAfterClockCommit(tid);
+    });
+    await firstQueryPromise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mock.observedTournamentIds.length).toBeGreaterThan(0);
+    expect(mock.observedTournamentIds.every((seen) => seen === null)).toBe(true);
+
+    __clearTournamentBrainCache();
+
+    const brainSrc = readFileSync(
+      resolve(process.cwd(), 'src/services/TournamentBrainContext.ts'),
+      'utf8'
+    );
+    expect(brainSrc).toContain('const refreshAtRoot = bindToProcessRoot(refresh);');
   });
 });

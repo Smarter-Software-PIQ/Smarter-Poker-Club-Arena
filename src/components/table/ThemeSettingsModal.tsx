@@ -1,4 +1,5 @@
 import { ActionControllerSettings } from './ActionControllerSettings';
+import { useVipIntroEligibility } from '../../hooks/useVipIntroEligibility';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import {
   pendingAppearancePatch,
@@ -62,6 +63,7 @@ import {
 } from '../../hooks/useUserThemeSettings';
 import { persistInterfaceTheme, type InterfaceTheme } from '../../lib/persistInterfaceTheme';
 import { masterBus } from '../../core/MasterBus';
+import { useRealtimeAwarePoll } from '../../hooks/useRealtimeAwarePoll';
 import { useWalletStore } from '../../stores/useWalletStore';
 import { DiamondTopUpModal } from '../vip/DiamondTopUpModal';
 import {
@@ -755,6 +757,8 @@ export function ThemeSettingsModal({
     useState<PendingAssetPurchase | null>(null);
   const pendingAssetPurchase =
     pendingAssetPurchaseState?.userId === userId ? pendingAssetPurchaseState : null;
+  // The first-month price inside the unlock prompt; no answer, no price.
+  const vipIntro = useVipIntroEligibility(!isVip && pendingAssetPurchase !== null);
   const [purchaseBusyUserId, setPurchaseBusyUserId] = useState<string | null>(null);
   const purchaseBusy = purchaseBusyUserId === userId;
   const [diamondStoreUserId, setDiamondStoreUserId] = useState<string | null>(null);
@@ -1233,23 +1237,29 @@ export function ThemeSettingsModal({
   // While the small Studio surface is open, a lightweight authoritative read
   // repairs the rare case where every notification in a burst was missed
   // (mobile sleep/wake, radio handoff, websocket backpressure). Immediate
-  // events still update the tile in the same render; this two-second cadence is
-  // only the bounded safety net and pauses when the page is hidden.
+  // events still update the tile in the same render. The read runs every two
+  // seconds while the entitlement channel is NOT subscribed (it is then the
+  // only path), and drops to the shared 30 s safety cadence while it is
+  // (src/lib/realtimeAwarePoll.ts). Focus and coming back online still
+  // reconcile at once, and a hidden page skips the read.
+  const reconcileEntitlements = useCallback(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    setOwnershipRevision((revision) => revision + 1);
+  }, []);
+  useRealtimeAwarePoll(reconcileEntitlements, {
+    enabled: isOpen && !!userId && entitlementRealtimeState !== 'local',
+    live: entitlementRealtimeState === 'live',
+    fastMs: 2_000,
+  });
   useEffect(() => {
-    if (!isOpen || !userId || entitlementRealtimeState !== 'live') return undefined;
-    const reconcile = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      setOwnershipRevision((revision) => revision + 1);
-    };
-    const interval = window.setInterval(reconcile, 2_000);
-    window.addEventListener('focus', reconcile);
-    window.addEventListener('online', reconcile);
+    if (!isOpen || !userId) return undefined;
+    window.addEventListener('focus', reconcileEntitlements);
+    window.addEventListener('online', reconcileEntitlements);
     return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('focus', reconcile);
-      window.removeEventListener('online', reconcile);
+      window.removeEventListener('focus', reconcileEntitlements);
+      window.removeEventListener('online', reconcileEntitlements);
     };
-  }, [entitlementRealtimeState, isOpen, userId]);
+  }, [isOpen, reconcileEntitlements, userId]);
 
   // Stripe Checkout is a full-page redirect. Restore the exact design that
   // sent this player to the Diamond Store, but rebuild its price and feature
@@ -1500,31 +1510,37 @@ export function ThemeSettingsModal({
 
   // Postgres Changes is a low-latency signal, not a durable queue. Keep the
   // open Studio's preview honest if a mobile radio handoff or a busy Realtime
-  // connection drops the appearance event: one authoritative snapshot every
-  // two seconds repairs the editor without reloading the page.
+  // connection drops the appearance event: one authoritative snapshot repairs
+  // the editor without reloading the page. Every two seconds while the
+  // appearance channel is NOT subscribed (the snapshot is then the only path),
+  // and on the shared 30 s safety cadence while it is
+  // (src/lib/realtimeAwarePoll.ts).
   //
   // Do this while the Studio is OPEN even when the document is backgrounded.
   // A second device/tab can miss one websocket frame while its Studio remains
   // mounted; pausing the only durable reconciliation merely because that page
   // is hidden leaves its preview stale indefinitely. This is one six-column
-  // row read at most every two seconds, bounded to an open modal. Browsers may
-  // throttle the timer, but the application must not disable it itself.
+  // row read, bounded to an open modal. Browsers may throttle the timer, but
+  // the application must not disable it itself.
   // The request guard above prevents an older snapshot from rolling back a tap
   // or a newer event while the read is in flight.
+  const reconcileAppearance = useCallback(() => {
+    setThemeLoadRevision((revision) => revision + 1);
+  }, []);
+  useRealtimeAwarePoll(reconcileAppearance, {
+    enabled: isOpen && !!userId && appearanceRealtime.state !== 'local',
+    live: appearanceRealtime.state === 'live',
+    fastMs: 2_000,
+  });
   useEffect(() => {
-    if (!isOpen || !userId || appearanceRealtime.state !== 'live') return undefined;
-    const reconcile = () => {
-      setThemeLoadRevision((revision) => revision + 1);
-    };
-    const interval = window.setInterval(reconcile, 2_000);
-    window.addEventListener('focus', reconcile);
-    window.addEventListener('online', reconcile);
+    if (!isOpen || !userId) return undefined;
+    window.addEventListener('focus', reconcileAppearance);
+    window.addEventListener('online', reconcileAppearance);
     return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('focus', reconcile);
-      window.removeEventListener('online', reconcile);
+      window.removeEventListener('focus', reconcileAppearance);
+      window.removeEventListener('online', reconcileAppearance);
     };
-  }, [appearanceRealtime.state, isOpen, userId]);
+  }, [isOpen, reconcileAppearance, userId]);
 
   // Resume an interrupted choice once on this explicit editor opening. The
   // existing observation cadence below/above never retries a save.
@@ -2871,6 +2887,9 @@ export function ThemeSettingsModal({
                 <p id="theme-purchase-description" className="sc-copy tsc__copy">
                   Purchase This Design For {pendingAssetPurchase.price.toLocaleString()} Diamonds.
                   It Will Unlock Permanently And Apply To The Live Table Immediately.
+                  {vipIntro.priceLine
+                    ? ` VIP Members Use Every Premium Design. VIP ${vipIntro.priceLine}`
+                    : ''}
                 </p>
                 <div className="tsc__row" aria-live="polite">
                   <span className="tsc__label sc-ink--blue">
