@@ -19,7 +19,9 @@ import {
   STATEMENT_TIMEOUT_CHECKED_FROM,
   isCostChecked,
   migrationCostRisks,
+  unboundedInstallTimeFunctionCalls,
 } from '../../scripts/ci/migration-cost-shape.mjs';
+import { missingProbes } from '../../scripts/ci/migration-function-probes.mjs';
 import { migrationFiles, migrationNames } from '../helpers/migrationCorpus';
 
 const ROOT = resolve(__dirname, '../..');
@@ -353,6 +355,221 @@ COMMIT;`,
         sql
       ).toEqual([]);
     }
+  });
+
+  it('catches the exact #12217 unbounded watcher probe (20261127172908, run 46054847104) on any new file and accepts -- @probe-exempt', () => {
+    const pr12217Shape = `BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '8s';
+CREATE OR REPLACE FUNCTION public.fn_ca_free_buy_funding_watch()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+ SET lock_timeout TO '2s'
+ SET statement_timeout TO '60s'
+AS $function$
+BEGIN
+  RETURN '{}'::jsonb;
+END $function$;
+REVOKE ALL ON FUNCTION public.fn_ca_free_buy_funding_watch() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_free_buy_funding_watch() TO service_role;
+-- @probe-for: public.fn_ca_free_buy_funding_watch
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_free_buy_funding_watch();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+COMMIT;`;
+
+    // Caught even on an older reserved timestamp (closed historical grandfather set, not version cutoff).
+    const risks = migrationCostRisks('20261126000000_open_pr_watcher.sql', pr12217Shape);
+    expect(risks.some((r) => r.includes('public.fn_ca_free_buy_funding_watch'))).toBe(true);
+    // The structural guard independently catches it without relying on OVER_BUDGET_FUNCTIONS.
+    const structural = unboundedInstallTimeFunctionCalls(
+      '20261126000000_open_pr_watcher.sql',
+      pr12217Shape
+    );
+    expect(structural).toHaveLength(1);
+    expect(structural[0]).toContain("SET statement_timeout = '60s'");
+
+    // Replacing the live probe with -- @probe-exempt satisfies BOTH guards cleanly.
+    const fixed = pr12217Shape.replace(
+      /-- @probe-for:[\s\S]*END \$probe\$;/,
+      '-- @probe-exempt: public.fn_ca_free_buy_funding_watch zero-arg 14-day multi-table cron watcher exceeds 12 s install budget'
+    );
+    expect(migrationCostRisks('20261127200000_fixed_watcher.sql', fixed)).toEqual([]);
+    expect(missingProbes(fixed)).toEqual([]);
+
+    // The exact merged commit f9abf5eb78fb bytes, when history is present.
+    try {
+      const sql = execFileSync(
+        'git',
+        [
+          'show',
+          'f9abf5eb78fb:supabase/migrations/20261127172908_cron_watchers_materialize_and_prune_without_deadlock.sql',
+        ],
+        { cwd: ROOT, encoding: 'utf8' }
+      );
+      const copyRisks = migrationCostRisks('20261127200000_replayed_cron_watchers.sql', sql);
+      expect(copyRisks.some((r) => r.includes('public.fn_ca_free_buy_funding_watch'))).toBe(true);
+      // Bounded sibling probes in the same file (future timestamp + 36500-day floor) are NOT flagged.
+      const copyStructural = unboundedInstallTimeFunctionCalls(
+        '20261127200000_replayed_cron_watchers.sql',
+        sql
+      );
+      expect(copyStructural).toHaveLength(1);
+      expect(copyStructural[0]).toContain('public.fn_ca_free_buy_funding_watch');
+      expect(copyStructural[0]).not.toContain('fn_ca_guarantee_funding_variance_scan');
+      expect(copyStructural[0]).not.toContain('fn_ca_diamond_prune_history');
+    } catch {
+      // A shallow checkout may not hold the commit; the synthetic case above still pins the rule.
+    }
+  });
+
+  it('refuses unbounded install-time calls to over-budget-timeout routines and background watchers while allowing bounded empty probes', () => {
+    const badCases: Array<[string, string]> = [
+      [
+        'zero-arg routine with SET statement_timeout > 12s',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_custom_heavy_job()
+ RETURNS void LANGUAGE plpgsql SET statement_timeout TO '45s'
+AS $f$ BEGIN NULL; END $f$;
+DO $p$ BEGIN PERFORM public.fn_custom_heavy_job(); END $p$;
+COMMIT;`,
+      ],
+      [
+        'trailing SET statement_timeout = 0 (disabled) called with NULL',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_custom_batch(p_since timestamptz DEFAULT NULL)
+ RETURNS void AS $f$ BEGIN NULL; END $f$ LANGUAGE plpgsql SET statement_timeout = '0';
+DO $p$ BEGIN PERFORM public.fn_custom_batch(NULL::timestamptz); END $p$;
+COMMIT;`,
+      ],
+      [
+        'ALTER FUNCTION raising statement_timeout called with live now() - interval lookback',
+        `BEGIN;
+ALTER FUNCTION public.fn_custom_report(timestamptz) SET statement_timeout = '90s';
+DO $p$ BEGIN PERFORM public.fn_custom_report(now() - interval '7 days'); END $p$;
+COMMIT;`,
+      ],
+      [
+        'anchored-edit / existing zero-arg cron watcher without CREATE FUNCTION in file',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(); END $p$;
+COMMIT;`,
+      ],
+      [
+        'existing scanner called with NULL default or live clock_timestamp()',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_guarantee_funding_variance_scan(NULL); END $p$;
+COMMIT;`,
+      ],
+      [
+        'smarter_private sweep called with current_timestamp',
+        `BEGIN;
+DO $p$ BEGIN PERFORM smarter_private.fn_ledger_sweep(current_timestamp); END $p$;
+COMMIT;`,
+      ],
+      [
+        'existing pruner called with zero arguments',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_diamond_prune_history(); END $p$;
+COMMIT;`,
+      ],
+    ];
+    for (const [label, sql] of badCases) {
+      const risks = migrationCostRisks('20261127200000_bad_unbounded.sql', sql);
+      expect(risks.length, label).toBeGreaterThan(0);
+    }
+
+    const okCases: Array<[string, string]> = [
+      [
+        'future-bounded timestamp probe on 60s scan routine',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_ca_guarantee_funding_variance_scan(p_since timestamptz DEFAULT NULL)
+ RETURNS integer LANGUAGE plpgsql SET statement_timeout TO '60s'
+AS $f$ BEGIN RETURN 0; END $f$;
+DO $p$ BEGIN PERFORM public.fn_ca_guarantee_funding_variance_scan(clock_timestamp() + interval '1 day'); END $p$;
+COMMIT;`,
+      ],
+      [
+        'epoch-bounded probe on 120s watcher routine',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_ca_horse_exposure_watch(p_at timestamptz, p_dry boolean)
+ RETURNS void LANGUAGE plpgsql SET statement_timeout TO '120s'
+AS $f$ BEGIN NULL; END $f$;
+DO $p$ BEGIN PERFORM public.fn_ca_horse_exposure_watch('1970-01-01'::timestamptz, true); END $p$;
+COMMIT;`,
+      ],
+      [
+        'high retention floor probe on 120s prune routine',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_ca_diamond_prune_history(a int, b int, c int)
+ RETURNS jsonb LANGUAGE plpgsql SET statement_timeout TO '120s'
+AS $f$ BEGIN RETURN '{}'::jsonb; END $f$;
+DO $p$ BEGIN PERFORM public.fn_ca_diamond_prune_history(36500, 36500, 36500); END $p$;
+COMMIT;`,
+      ],
+      [
+        'explicit numeric window on union sweep or zero-day collusion scan',
+        `BEGIN;
+DO $p$ BEGIN
+  PERFORM public.fn_ca_collusion_scan(0);
+  PERFORM public.fn_union_integrity_sweep_all(24);
+END $p$;
+COMMIT;`,
+      ],
+      [
+        'DDL grants, revokes, triggers, and routine body references never count as install calls',
+        `BEGIN;
+REVOKE ALL ON FUNCTION public.fn_ca_new_drift_watch() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_new_drift_watch() TO service_role;
+ALTER FUNCTION public.fn_ca_new_drift_watch() SET statement_timeout = '60s';
+CREATE TRIGGER trg_after_x AFTER INSERT ON public.clubs EXECUTE FUNCTION public.fn_ca_new_drift_watch();
+CREATE OR REPLACE FUNCTION public.fn_caller() RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN PERFORM public.fn_ca_new_drift_watch(); END $f$;
+COMMIT;`,
+      ],
+      [
+        'ordinary fast helper with SET statement_timeout <= 12s',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_fast_check()
+ RETURNS int LANGUAGE plpgsql SET statement_timeout TO '5s'
+AS $f$ BEGIN RETURN 1; END $f$;
+DO $p$ BEGIN PERFORM public.fn_fast_check(); END $p$;
+COMMIT;`,
+      ],
+    ];
+    for (const [label, sql] of okCases) {
+      expect(migrationCostRisks('20261127200000_ok_bounded.sql', sql), label).toEqual([]);
+    }
+  });
+
+  it('covers live public.hand_history in wide install scans and correlated hot-table subqueries', () => {
+    const wideScan = `BEGIN;
+DO $p$ BEGIN
+  PERFORM count(*) FROM public.hand_history WHERE created_at >= now() - interval '1 day';
+END $p$;
+COMMIT;`;
+    expect(
+      migrationCostRisks('20261127200000_hh_scan.sql', wideScan).some((r) =>
+        r.includes('public.hand_history')
+      )
+    ).toBe(true);
+
+    const corrSubquery = `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_bad_hh_report() RETURNS TABLE(tid uuid, cnt bigint) LANGUAGE sql AS $f$
+  SELECT t.id, (SELECT count(*) FROM public.hand_history h WHERE h.table_id = t.id) FROM public.tables t;
+$f$;
+COMMIT;`;
+    expect(
+      migrationCostRisks(`${CORRELATED_HOT_SUBQUERY_CHECKED_FROM}_hh_corr.sql`, corrSubquery).some(
+        (r) => r.includes('hot table hand_history')
+      )
+    ).toBe(true);
   });
 
   it('judges only from the cut-over on, so merged history is not re-judged', () => {
