@@ -428,6 +428,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetMinimumDefencePrior',
   // 2026-11-26 PLO-OWNER lead-7 lane PLO-DEFENCE: the bettor's non-value share anchored to the balanced share (ships dark)
   'omahaFacingBetPriorIsPeopleMeasured',
+  // 2026-11-27 PLO-OWNER lead-8 lane payoff: the heads-up river bettor on people's measured hand classes by board
+  // texture, the Horse's blockers counted (ships dark)
+  'omahaRiverBettorRangeIsTextureMeasured',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',

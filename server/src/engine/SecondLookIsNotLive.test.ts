@@ -583,6 +583,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'passes the gate to a module that counts with it (2026-11-24: also omahaMultiwayValueBetRule and omahaFlopCallTreeRule, which only noteFire with it; and the re-raised pot price rule)',
       ],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
+      'texturePriced && verdict !== null && telemetryOn(opts)': [
+        1,
+        'omahaRiverBettorRangeIsTextureMeasured: decides whether to re-run the verdict on the read without the texture classes only to name the changed receipt; the decision is the same either way',
+      ],
       'equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)': [
         1,
         'omahaFacingBetPriorIsPeopleMeasured: decides whether to re-run the verdict on the old read only to name the changed receipt; the decision is the same either way',

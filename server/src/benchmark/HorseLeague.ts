@@ -5075,6 +5075,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
   })),
+  // 2026-11-27 PLO-OWNER lead-8 (default OFF, PLO4/PLO5 cash): a heads-up river bettor priced on people's measured
+  // weights on the board's five absolute hand classes by texture, blockers counted (HorseOmahaRiverTextureClasses).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bettor_range_is_texture_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaRiverBettorRangeIsTextureMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
     variant,

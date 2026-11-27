@@ -1362,6 +1362,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverBettorRangeIsTextureMeasured',
+    "PLO-OWNER lead-8 2026-11-27 (S7/l8-payoff/BUILD.md; river pay-offs with second-best hands, blocker catchers). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up river bettor (a bet of 0.4 pot or more, or a raise) is priced on PEOPLE's measured weights on the board's five absolute hand classes by texture (paired, three-flush, both, neither), size and bet-or-raise, the balanced share weighting thin cells, his own shown bets moving the weakest class; each class is counted on the holdings the Horse's own cards leave in it (blockers); Horse play never enters; a multiway spot and a smaller bet keep today's price. HorseOmahaRiverTextureClasses.ts, HorseOmahaRiverTextureClasses.data.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
@@ -6286,6 +6291,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_river_texture_classes_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaRiverTextureClasses)',
+    "the facing-bet verdict priced a heads-up river bet or raise on people's measured hand classes of the board texture, the Horse's blockers counted (omahaRiverBettorRangeIsTextureMeasured)",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_texture_classes_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaRiverTextureClasses)',
+    'the verdict on the texture classes differs from the verdict without them (omahaRiverBettorRangeIsTextureMeasured)',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_facing_bet_changed',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
     "the corrected facing-bet price's call or fold differs from today's facing-bet verdict",
@@ -10956,6 +10973,7 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   // on by release), whose omaha_reraised_call_priced_* receipts fire by design
   // the people-measured facing-bet prior names its own receipts in their descriptions; declared by prefix
   omahaFacingBetPriorIsPeopleMeasured: { prefixes: ['omaha_people_prior_'] },
+  omahaRiverBettorRangeIsTextureMeasured: { prefixes: ['omaha_river_texture_classes_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

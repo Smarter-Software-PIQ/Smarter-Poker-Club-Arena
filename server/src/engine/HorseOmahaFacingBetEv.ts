@@ -204,6 +204,16 @@ export interface OmahaFacingBetEvRead {
   /** omahaFacingBetPriorIsPeopleMeasured (default off), river only: the bettor's measured weights on the three regions
    *  (core value region / middle / weakest pool; sum 1). With them the river verdict prices each region apart. */
   pricedRegions?: { core: number; middle: number; bottom: number } | null;
+  /** omahaRiverBettorRangeIsTextureMeasured (default off), river only, heads-up: the bettor as people's measured
+   *  weights on the board's absolute hand classes (HorseOmahaRiverTextureClasses): `cuts` are the score cuts between
+   *  the classes, strongest first; `weights` the measured share of his bets in each class (cuts.length + 1 numbers);
+   *  `boardShare` each class's share of all holdings on this board before the Horse's cards are removed. With them
+   *  the river verdict prices each class on the exact count of his holdings the Horse's own cards leave in it. */
+  textureClasses?: {
+    cuts: readonly number[];
+    weights: readonly number[];
+    boardShare: readonly number[];
+  } | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -844,6 +854,11 @@ export interface OmahaEvHandCounts {
     /** the value region reaches the weakest pool: no holding lies between them */
     middleEmpty?: boolean;
   };
+  /** river only: the Horse against the disjoint score bands the cuts make (strongest first: at or above cuts[0],
+   *  then at or above cuts[1] and below cuts[0], ..., last: below the last cut): each band's exact share of the
+   *  holdings left after the Horse's cards and the Horse's win / tie share inside it. Read only when a priced read
+   *  carries texture classes (omahaRiverBettorRangeIsTextureMeasured). A method for the same reason as regionsOf. */
+  bandsOf?: (cuts: readonly number[]) => Array<OmahaEvShares & { share: number }>;
 }
 
 /**
@@ -1051,6 +1066,38 @@ function evHandCounts(
           bottom,
         };
       },
+      bandsOf(cuts: readonly number[]) {
+        const allWin = noBT;
+        const allTie = noB - noBT;
+        const out: Array<OmahaEvShares & { share: number }> = [];
+        let prevN = 0;
+        let prevWin = 0;
+        let prevTie = 0;
+        for (const c of cuts) {
+          const t = c - 0.5; // scores are whole numbers: above t = at or above the cut
+          const S = pairsAbove(scores, m, t, false);
+          const above = total - cnt(`S${t}`, () => S);
+          const a = againstAbove(t, above);
+          const n = Math.max(0, above - prevN);
+          const w = a.win * above - prevWin;
+          const ti = a.tie * above - prevTie;
+          out.push({
+            share: n / total,
+            win: n > 0 ? Math.max(0, Math.min(1, w / n)) : 0,
+            tie: n > 0 ? Math.max(0, Math.min(1, ti / n)) : 0,
+          });
+          prevN = above;
+          prevWin = a.win * above;
+          prevTie = a.tie * above;
+        }
+        const rest = total - prevN;
+        out.push({
+          share: rest / total,
+          win: rest > 0 ? Math.max(0, Math.min(1, (allWin - prevWin) / rest)) : 0,
+          tie: rest > 0 ? Math.max(0, Math.min(1, (allTie - prevTie) / rest)) : 0,
+        });
+        return out;
+      },
       valueShare: v.above / total,
       top: (s: number) => {
         const k = Math.round(s * 1000);
@@ -1190,6 +1237,80 @@ function evHandCounts(
       return r;
     },
   } as OmahaEvHandCounts;
+}
+
+/**
+ * omahaRiverBettorRangeIsTextureMeasured: the river board alone (no hand removed): for the score cuts given, each
+ * band's exact share of all `holeCount`-card holdings of the 47 cards off the board (bands as in
+ * OmahaEvHandCounts.bandsOf). `cutsOf` receives `best(below)`, the best score any two cards make on the board
+ * under `below` (0 when none), and `unbeaten(lo, hi)`, the lowest score in [lo, hi) of a two-card pair that no
+ * pair of OTHER cards beats inside [lo, hi) (the nut hands of that score range: every ace-high flush, not only the
+ * best one; 0 when none), and returns the cuts, strongest first. The last few boards are remembered (a pure
+ * function of the board and the hole count).
+ */
+export interface OmahaRiverBoardScores {
+  best: (below: number) => number;
+  unbeaten: (lo: number, hi: number) => number;
+}
+const BOARD_BANDS: Array<{ id: string; nut: number; cuts: number[]; share: number[] }> = [];
+export function omahaRiverBoardBands(
+  board: Card[],
+  holeCount: number,
+  cutsOf: (scores: OmahaRiverBoardScores) => number[]
+): { nut: number; cuts: number[]; share: number[] } | null {
+  if (!Array.isArray(board) || board.length !== 5 || (holeCount !== 4 && holeCount !== 5))
+    return null;
+  const id = `${holeCount}|${board.map(key).join(',')}`;
+  const at = BOARD_BANDS.findIndex((b) => b.id === id);
+  if (at >= 0) return BOARD_BANDS[at];
+  const deck = unseenCards([], board, []);
+  if (!deck || deck.length !== 47) return null;
+  const m = deck.length;
+  const scores = pairScores(deck, board);
+  const best = (below: number): number => {
+    let top = 0;
+    for (let i = 0; i < m; i++)
+      for (let j = i + 1; j < m; j++) {
+        const x = scores[i * m + j];
+        if (x > top && x < below) top = x;
+      }
+    return top;
+  };
+  const unbeaten = (lo: number, hi: number): number => {
+    const inRange: Array<[number, number, number]> = [];
+    for (let i = 0; i < m; i++)
+      for (let j = i + 1; j < m; j++) {
+        const x = scores[i * m + j];
+        if (x >= lo && x < hi) inRange.push([x, i, j]);
+      }
+    inRange.sort((p, q) => q[0] - p[0]);
+    let low = 0;
+    for (let a = 0; a < inRange.length; a++) {
+      const [x, i, j] = inRange[a];
+      let beaten = false;
+      for (let b = 0; b < a && !beaten; b++) {
+        const [y, k, l] = inRange[b];
+        if (y > x && k !== i && k !== j && l !== i && l !== j) beaten = true;
+      }
+      if (!beaten) low = x;
+    }
+    return low;
+  };
+  const nut = best(Infinity);
+  const cuts = cutsOf({ best, unbeaten });
+  const total = choose(m, holeCount);
+  const share: number[] = [];
+  let prev = 0;
+  for (const c of cuts) {
+    const above = total - countHoldingsWithout(m, holeCount, pairsAbove(scores, m, c - 0.5, false));
+    share.push(Math.max(0, above - prev) / total);
+    prev = above;
+  }
+  share.push((total - prev) / total);
+  const out = { id, nut, cuts, share };
+  BOARD_BANDS.unshift(out);
+  if (BOARD_BANDS.length > 8) BOARD_BANDS.length = 8;
+  return out;
 }
 
 // ───────────────────────────── the spot ─────────────────────────────
@@ -1669,6 +1790,27 @@ export function omahaFacingBetEvVerdict(
       const mw = r.middleEmpty ? 0 : reg.middle;
       pWin = (cw * r.core.win + mw * r.middle.win + reg.bottom * r.bottom.win) / w;
       pTie = (cw * r.core.tie + mw * r.middle.tie + reg.bottom * r.bottom.tie) / w;
+    }
+  }
+  // omahaRiverBettorRangeIsTextureMeasured (default off): on the river, heads-up, the bettor is people's measured
+  // weights on the board's absolute hand classes; each class counts the holdings the Horse's own cards leave in it
+  // (a class the Horse blocks loses that share of its weight; a class it does not block keeps it).
+  const tex = spot.street === 'river' ? read?.textureClasses : null;
+  if (tex && counted.bandsOf && tex.weights.length === tex.cuts.length + 1) {
+    const bands = counted.bandsOf(tex.cuts);
+    let w = 0;
+    let win = 0;
+    let tie = 0;
+    for (let i = 0; i < bands.length; i++) {
+      const base = tex.boardShare[i];
+      const wi = base > 0 ? tex.weights[i] * (bands[i].share / base) : 0;
+      w += wi;
+      win += wi * bands[i].win;
+      tie += wi * bands[i].tie;
+    }
+    if (w > 0) {
+      pWin = win / w;
+      pTie = tie / w;
     }
   }
   // The field: each must be beaten too. A player already in is always there;

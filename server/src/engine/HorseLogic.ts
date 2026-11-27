@@ -221,6 +221,7 @@ import {
   omahaPeoplePriorShare,
   type OmahaPeoplePriorShare,
 } from './HorseOmahaFacingBetPeoplePrior.js';
+import { omahaRiverTextureClasses } from './HorseOmahaRiverTextureClasses.js';
 import {
   classCapFloorKeepsTheCall,
   classCapRespectingEquity,
@@ -4563,6 +4564,11 @@ export interface HorseDecideOpts {
    *  non-value share is the balanced share for the price (HorseOmahaEquilibriumAnchor), moved only by his own
    *  shown bets; OMAHA_EV_PRIOR_BLUFF and the public field reads do not act. Default OFF, read `=== true`. */
   omahaFacingBetPriorIsPeopleMeasured?: boolean;
+  /** PLO-OWNER lead-8 2026-11-27 (lane payoff). PLO4/PLO5 cash, river, heads-up, inside omahaFacingBetEv, a bet of
+   *  0.4 pot or more or a raise: the bettor is people's measured weights on the board's five absolute hand classes
+   *  by texture (HorseOmahaRiverTextureClasses), each class counted on the holdings the Horse's own cards leave in
+   *  it (blockers). Default OFF, read `=== true`. */
+  omahaRiverBettorRangeIsTextureMeasured?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14674,6 +14680,10 @@ function omahaFacingBetEvRule(
         if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
         if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
+      if (ev.texture) {
+        noteFire('omaha_river_texture_classes_priced');
+        if (ev.texture.changed) noteFire('omaha_river_texture_classes_changed');
+      }
       // the corrected price (omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint) decided
       if (ev.priced) {
         const how = ev.priced.priced;
@@ -14721,6 +14731,9 @@ type OmahaFacingBetEvAnswer = {
   /** omahaFacingBetPriorIsPeopleMeasured: the balanced share priced the bettor (his own shown bets read:
    *  shown), and whether the verdict differs from the one the population prior gives */
   anchored?: { shown: number; changed: boolean };
+  /** omahaRiverBettorRangeIsTextureMeasured: the texture classes priced the bettor, and whether the verdict
+   *  differs from the one without them */
+  texture?: { changed: boolean };
 };
 
 /** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
@@ -14765,6 +14778,8 @@ let omahaFacingBetEvCountMemo: {
   valueShareMeasured: boolean;
   /** omahaFacingBetPriorIsPeopleMeasured */
   equilibriumAnchor: boolean;
+  /** omahaRiverBettorRangeIsTextureMeasured */
+  riverTexture: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -14986,6 +15001,11 @@ function omahaFacingBetEvCount(
     opts.omahaFacingBetPriorIsPeopleMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaRiverBettorRangeIsTextureMeasured (default off): PLO4/PLO5 cash only.
+  const riverTexture =
+    opts.omahaRiverBettorRangeIsTextureMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const pricedOn =
     omahaPricedFacingAnyOn(pricedOpts) &&
     !isTournamentMode(gs) &&
@@ -15014,6 +15034,7 @@ function omahaFacingBetEvCount(
     memo.stabDefence === stabDefence &&
     memo.valueShareMeasured === valueShareMeasured &&
     memo.equilibriumAnchor === equilibriumAnchor &&
+    memo.riverTexture === riverTexture &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15060,6 +15081,8 @@ function omahaFacingBetEvCount(
     let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
     let equilibriumAnchored: OmahaPeoplePriorShare | null = null;
     let readBeforeAnchor: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    let readBeforeTexture: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    let texturePriced = false;
     let modeTurnRealization: number | null = null;
     if (mind) {
       try {
@@ -15150,31 +15173,34 @@ function omahaFacingBetEvCount(
     // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, a bet or a raise: the non-value share is the
     // people-only measured share (river: three measured regions), the balanced share weighting a thin cell, moved
     // by the bettor's own shown bets (HorseOmahaFacingBetPeoplePrior); a raise reads the people raise cell only.
+    // the people prior's share for this bet (pure): read by the two options below
+    const peoplePriorOf = (): OmahaPeoplePriorShare | null => {
+      const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+      const variant = String(gs.gameVariant ?? '').toLowerCase();
+      return omahaPeoplePriorShare({
+        street: spot.street,
+        potFrac: spot.potFrac,
+        isRaise: spot.isRaise === true,
+        multiway: false,
+        paid: spot.paid,
+        winnable: spot.winnable,
+        rake: omahaFacingBetDeduction(player, gs, opts),
+        twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
+        record:
+          mind && bettor && spot.isRaise !== true
+            ? omahaBetReadOwnCellOf(
+                bettor.user_id,
+                variant,
+                spot.street,
+                spot.potFrac,
+                omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) === 'agg'
+              )
+            : null,
+      });
+    };
     if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
       try {
-        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
-        const variant = String(gs.gameVariant ?? '').toLowerCase();
-        const anchored = omahaPeoplePriorShare({
-          street: spot.street,
-          potFrac: spot.potFrac,
-          isRaise: spot.isRaise === true,
-          multiway: false,
-          paid: spot.paid,
-          winnable: spot.winnable,
-          rake: omahaFacingBetDeduction(player, gs, opts),
-          twoStreet: spot.street === 'turn' && !spot.final && spot.bettorCanBarrelRiver !== false,
-          record:
-            mind && bettor && spot.isRaise !== true
-              ? omahaBetReadOwnCellOf(
-                  bettor.user_id,
-                  variant,
-                  spot.street,
-                  spot.potFrac,
-                  omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
-                    'agg'
-                )
-              : null,
-        });
+        const anchored = peoplePriorOf();
         if (anchored) {
           readBeforeAnchor = read;
           read = {
@@ -15186,6 +15212,39 @@ function omahaFacingBetEvCount(
         }
       } catch {
         equilibriumAnchored = null;
+      }
+    }
+    // omahaRiverBettorRangeIsTextureMeasured (default off): heads-up river, a bet of 0.4 pot or more or a raise:
+    // the bettor is people's measured weights on the board's five absolute hand classes (by texture, size bucket
+    // and bet-or-raise), the balanced share weighting thin cells, his own shown bets moving the weakest class
+    // (HorseOmahaRiverTextureClasses); the verdict counts each class on the holdings the Horse's cards leave.
+    if (riverTexture && spot.street === 'river' && spot.callers + spot.allIns + spot.behind === 0) {
+      try {
+        const prior = equilibriumAnchored ?? peoplePriorOf();
+        const classes = prior
+          ? omahaRiverTextureClasses({
+              board: gs.communityCards ?? [],
+              holeCount: (player.cards ?? []).length,
+              potFrac: spot.potFrac,
+              isRaise: spot.isRaise === true,
+              balanced: prior.balanced,
+              recordRatio: prior.prior > 0 ? prior.share / prior.prior : 1,
+            })
+          : null;
+        if (classes) {
+          readBeforeTexture = read;
+          read = {
+            ...(read ?? OMAHA_EV_UNKNOWN_READ),
+            textureClasses: {
+              cuts: classes.cuts,
+              weights: classes.weights,
+              boardShare: classes.boardShare,
+            },
+          };
+          texturePriced = true;
+        }
+      } catch {
+        texturePriced = false;
       }
     }
     const verdictOf = (
@@ -15240,6 +15299,11 @@ function omahaFacingBetEvCount(
     const anchorChanged =
       equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)
         ? verdictOf(spot, readBeforeAnchor)?.call !== verdict.call
+        : false;
+    // Receipt only: the texture classes changed the verdict the read without them gives.
+    const textureChanged =
+      texturePriced && verdict !== null && telemetryOn(opts)
+        ? verdictOf(spot, readBeforeTexture)?.call !== verdict.call
         : false;
     if (verdict && spot !== baseSpot && baseSpot && telemetryOn(opts)) {
       noteFire('omaha_turn_stab_defence_priced_seen');
@@ -15406,6 +15470,7 @@ function omahaFacingBetEvCount(
         ...answer,
         anchored: { shown: equilibriumAnchored.shown, changed: anchorChanged },
       };
+    if (answer && texturePriced) answer = { ...answer, texture: { changed: textureChanged } };
   }
   omahaFacingBetEvCountMemo = {
     player,
@@ -15426,6 +15491,7 @@ function omahaFacingBetEvCount(
     stabDefence,
     valueShareMeasured,
     equilibriumAnchor,
+    riverTexture,
     pricedKey,
     answer,
   };
