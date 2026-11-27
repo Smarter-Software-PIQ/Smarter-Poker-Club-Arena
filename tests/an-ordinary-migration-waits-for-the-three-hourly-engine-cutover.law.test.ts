@@ -100,14 +100,16 @@ describe('three-hourly migration deferral constants, purity, and schedule agreem
   });
 
   it('workflow timeout covers both daytime three-hourly deferral and nightly freeze budgets', () => {
-    const wf = parse(read('.github/workflows/dispatch-merged-migrations.yml')) as Record<
-      string,
-      any
-    >;
+    const raw = read('.github/workflows/dispatch-merged-migrations.yml');
+    const wf = parse(raw) as Record<string, any>;
     const timeout = wf.jobs['dispatch-merged-migrations']['timeout-minutes'];
     expect(THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES + 15).toBeLessThanOrEqual(timeout);
     expect(RELEASE_FREEZE_WAIT_BUDGET_MINUTES + 15).toBeLessThanOrEqual(timeout);
     expect(timeout).toBeLessThanOrEqual(360);
+    // Keep the workflow comment synced with the O21 deferral & nightly budgets.
+    expect(raw).toContain(`${THREE_HOURLY_DEFER_WAIT_BUDGET_MINUTES} minutes`);
+    expect(raw).toContain(`cycle-${THREE_HOURLY_PRE_CUTOFF_DEFER_MINUTES}m`);
+    expect(raw).toContain(`${RELEASE_FREEZE_WAIT_BUDGET_MINUTES} minutes`);
   });
 });
 

@@ -1,0 +1,78 @@
+name: Migration Apply Refusal Alert
+
+# IMMEDIATE MIGRATION APPLY REFUSAL ALERT (2026-11-26, post-incident 37a45c05).
+#
+# When `Apply Merged Migration` fails on main, this workflow immediately posts
+# ONE deduplicated alert comment on the owning merged PR and ONE concise note on
+# release custody issue #11599 — within ~30 seconds instead of waiting 60+ minutes
+# for `migration-install-watch` to fire CRITICAL `MergedMigrationNotInstalled`.
+#
+# Reporting only: holds ZERO database secrets, runs ZERO database queries, has
+# NO timer/schedule, never retries or dispatches a release, and never writes
+# `Cycle:`/`Result:`/`Sealed SHA:` lines on #11599.
+on:
+  workflow_run:
+    workflows: ['Apply Merged Migration']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      apply_run_id:
+        description: 'Run ID of the failed Apply Merged Migration run to report'
+        required: true
+        type: string
+      dry_run:
+        description: 'Inspect and render comments without posting'
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: migration-apply-refusal-alert-${{ github.event.workflow_run.id || inputs.apply_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  report-refusal:
+    name: Report failed migration install to owning PR and custody log
+    # Refuses job-token dispatch/re-run and binds workflow_run to this repository's
+    # exact Apply Merged Migration workflow on main (aJobTokenCannotStartTrustedWork).
+    if: >-
+      !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch')
+      && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))
+      && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+      && (github.event_name == 'workflow_dispatch'
+          || (github.event_name == 'workflow_run'
+              && github.event.workflow_run.conclusion == 'failure'
+              && github.event.workflow_run.head_branch == 'main'
+              && github.event.workflow_run.head_repository.full_name == github.repository
+              && github.event.workflow_run.path == '.github/workflows/apply-merged-migration.yml'
+              && (github.event.workflow_run.event == 'repository_dispatch'
+                  || github.event.workflow_run.event == 'workflow_dispatch')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout reviewed default-branch automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Report migration apply refusal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          APPLY_RUN_ID: ${{ github.event.workflow_run.id || inputs.apply_run_id }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: node scripts/ci/migration-apply-refusal-alert.mjs

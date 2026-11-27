@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import {
+  CORRELATED_HOT_SUBQUERY_CHECKED_FROM,
   COST_CHECKED_FROM,
   STATEMENT_TIMEOUT_CHECKED_FROM,
   isCostChecked,
@@ -286,6 +287,69 @@ COMMIT;`,
     for (const sql of ok) {
       expect(
         migrationCostRisks(`${STATEMENT_TIMEOUT_CHECKED_FROM}_ok_timeout.sql`, sql),
+        sql
+      ).toEqual([]);
+    }
+  });
+
+  it('refuses correlated scalar aggregate subqueries over hot tables inside new functions and views', () => {
+    const bad = [
+      `BEGIN;
+CREATE OR REPLACE VIEW public.v_spin_reserve_health AS
+SELECT c.id,
+       (SELECT COALESCE(SUM(l.amount), 0)
+          FROM public.spin_reserve_ledger l
+         WHERE l.club_id = c.id) AS reserve_sum
+  FROM public.clubs c;
+COMMIT;`,
+      `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_bad_bbj_report(p_since timestamptz)
+RETURNS TABLE(pool_id uuid, contributed numeric)
+LANGUAGE sql
+AS $fn$
+SELECT p.id,
+       (SELECT COALESCE(SUM(bc.amount), 0)
+          FROM public.bbj_contributions bc
+         WHERE bc.pool_id = p.id
+           AND bc.created_at >= p_since)
+  FROM public.bbj_pools p;
+$fn$;
+COMMIT;`,
+    ];
+    for (const sql of bad) {
+      const risks = migrationCostRisks(`${CORRELATED_HOT_SUBQUERY_CHECKED_FROM}_bad_corr.sql`, sql);
+      expect(risks, sql).toHaveLength(1);
+      expect(risks[0]).toContain('correlated scalar aggregate subquery over hot table');
+    }
+
+    const ok = [
+      // Single-pass GROUP BY CTE + LEFT JOIN passes cleanly.
+      `BEGIN;
+CREATE OR REPLACE VIEW public.v_spin_reserve_health AS
+WITH totals AS (
+  SELECT club_id, SUM(amount) AS reserve_sum
+    FROM public.spin_reserve_ledger
+   GROUP BY club_id
+)
+SELECT c.id, COALESCE(t.reserve_sum, 0) AS reserve_sum
+  FROM public.clubs c
+  LEFT JOIN totals t ON t.club_id = c.id;
+COMMIT;`,
+      // Point-key idempotency_key lookup is O(1) and allowed.
+      `BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_ok_point_lookup()
+RETURNS TABLE(k text, cnt bigint)
+LANGUAGE sql
+AS $fn$
+SELECT r.k,
+       (SELECT count(*) FROM public.chip_ledger l WHERE l.idempotency_key = r.k)
+  FROM public.some_keys r;
+$fn$;
+COMMIT;`,
+    ];
+    for (const sql of ok) {
+      expect(
+        migrationCostRisks(`${CORRELATED_HOT_SUBQUERY_CHECKED_FROM}_ok_corr.sql`, sql),
         sql
       ).toEqual([]);
     }
