@@ -461,6 +461,105 @@ describe('shadow-read-report-lib', () => {
       nowMs: Date.parse('2026-11-22T15:20:00Z'),
     });
 
+    it('prints the direction, the street x size cells, the Lightning split and the option own stage counters; engine-host flush identities are not missing pickups (2026-11-27)', () => {
+      const o = 'holdemPersonaPostflop';
+      const base = makeHealthySnapshot(o);
+      const report = buildShadowReadReport({
+        option: o,
+        switchRow: activeSwitch,
+        auditRows: activeAudit,
+        windowMeta: activeWindow,
+        dbSnapshot: {
+          ...base,
+          receiptSummary: { ...base.receiptSummary, active_workers: 10, decision_workers: 8 },
+          receiptFires: [
+            ...base.receiptFires,
+            { feature: `option_shadow_${o}_dir_fold_to_call_seen`, fires: 30, distinct_workers: 5 },
+            {
+              feature: `option_shadow_${o}_dir_fold_to_call_person_seen`,
+              fires: 3,
+              distinct_workers: 2,
+            },
+            { feature: `option_shadow_${o}_dir_size_seen`, fires: 20, distinct_workers: 5 },
+            {
+              feature: `option_shadow_${o}_cell_turn_facing_70plus_fold_to_call_seen`,
+              fires: 25,
+              distinct_workers: 5,
+            },
+            {
+              feature: `option_shadow_${o}_cell_turn_facing_70plus_fold_to_call_person_seen`,
+              fires: 2,
+              distinct_workers: 1,
+            },
+            {
+              feature: `option_shadow_${o}_cell_river_facing_lt40_fold_to_call_seen`,
+              fires: 5,
+              distinct_workers: 2,
+            },
+            { feature: `fmt_l_option_shadow_${o}_same_seen`, fires: 300, distinct_workers: 3 },
+            { feature: `fmt_l_option_shadow_${o}_changed_seen`, fires: 12, distinct_workers: 3 },
+            {
+              feature: `fmt_l_option_shadow_${o}_dir_fold_to_call_seen`,
+              fires: 9,
+              distinct_workers: 3,
+            },
+            {
+              feature: `fmt_l_option_shadow_${o}_cell_turn_facing_70plus_fold_to_call_seen`,
+              fires: 7,
+              distinct_workers: 3,
+            },
+            {
+              feature: `option_shadow_${o}_stage_skipped_backlog_seen`,
+              fires: 11,
+              distinct_workers: 4,
+            },
+            { feature: `option_shadow_${o}_stage_slow_seen`, fires: 1, distinct_workers: 1 },
+          ],
+        },
+        health: evaluateLiveHealth(HEALTHY_ENGINE),
+        measuredAt: '2026-11-22T15:20:00Z',
+      });
+      const d = report.shadow.directions;
+      expect(d.byDirection).toEqual([
+        { direction: 'fold_to_call', all: 30, person: 3, lightning: 9 },
+        { direction: 'size', all: 20, person: 0, lightning: 0 },
+      ]);
+      expect(d.directionTotal).toBe(50);
+      expect(d.cells).toEqual([
+        {
+          street: 'turn',
+          size: 'facing_70plus',
+          direction: 'fold_to_call',
+          all: 25,
+          person: 2,
+          lightning: 7,
+        },
+        {
+          street: 'river',
+          size: 'facing_lt40',
+          direction: 'fold_to_call',
+          all: 5,
+          person: 0,
+          lightning: 0,
+        },
+      ]);
+      expect(d.lightning).toEqual({ same: 300, changed: 12, samePerson: 0, changedPerson: 0 });
+      expect(d.stage).toEqual({ skipped_backlog: 11, slow: 1 });
+      expect(report.pickup.decisionWorkers).toBe(8);
+      expect(report.pickup.hostIdentitiesExcluded).toBe(2);
+      expect(report.pickup.missingDecisionWorkers).toBe(0);
+      expect(report.window.activeWorkers).toBe(8);
+      const text = formatShadowReportText(report);
+      expect(text).toContain('Changed by direction (50 of 50 changed carry one):');
+      expect(text).toContain(
+        'turn    facing_70plus  fold_to_call       all=25 person=2 lightning=7'
+      );
+      expect(text).toContain(
+        'missing pickup=0 (engine-host flush identities with no decide latency excluded: 2)'
+      );
+      expect(report.inboxReceipt).toContain('dir(fold_to_call=30,size=20)');
+    });
+
     it('produces HEALTHY_ACTIVE with exact Wilson CIs, people-first share, and crisp inbox receipt', () => {
       const report = buildShadowReadReport({
         option: 'holdemPersonaPostflop',

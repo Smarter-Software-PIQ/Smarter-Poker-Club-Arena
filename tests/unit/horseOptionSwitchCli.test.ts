@@ -17,6 +17,10 @@ import {
   checkNestedChildDependency,
   checkServingRegistry,
   checkShadowConcurrency,
+  MAX_CONCURRENT_SHADOW_ROWS,
+  buildPerOptionStageCountersSql,
+  perOptionStageCountersServing,
+  styleOptionsOfRegistries,
   checkUtcWindowAndBlackout,
   evaluateInboxFreezeState,
   evaluatePickup,
@@ -399,6 +403,84 @@ describe('Horse Option Switch CLI — core guards & lib', () => {
       });
       expect(otherPlainShadow.ok).toBe(false);
       expect(otherPlainShadow.code).toBe('SHADOW_CONCURRENCY_VIOLATION');
+    });
+
+    it('admits up to MAX_CONCURRENT_SHADOW_ROWS non-style rows once the serving release counts per option (2026-11-27)', () => {
+      // the switch lib mirrors the engine's constant (server/src/engine/HorseOptionShadowStage.ts)
+      const stageSource = readFileSync(
+        resolve('server/src/engine/HorseOptionShadowStage.ts'),
+        'utf8'
+      );
+      const engineMax = /export const OPTION_SHADOW_STAGE_MAX_ROWS = (\d+);/.exec(stageSource);
+      expect(engineMax).not.toBeNull();
+      expect(MAX_CONCURRENT_SHADOW_ROWS).toBe(Number(engineMax![1]));
+      const rows = [
+        { option: 'omahaFlopPressureCapIsPriced', state: 'shadow' },
+        { option: 'omahaRiverBluffIsPricedOnRangeAdvantage', state: 'shadow' },
+      ];
+      const ok = checkShadowConcurrency({
+        option: 'omahaReraisedPotFoldReraiseIsPriced',
+        targetState: 'shadow',
+        currentRows: rows,
+        perOptionStageCounters: true,
+      });
+      expect(ok.ok).toBe(true);
+      // without the proof the old rule holds
+      expect(
+        checkShadowConcurrency({
+          option: 'omahaReraisedPotFoldReraiseIsPriced',
+          targetState: 'shadow',
+          currentRows: rows.slice(0, 1),
+        }).code
+      ).toBe('SHADOW_CONCURRENCY_VIOLATION');
+      // a fourth row is refused
+      expect(
+        checkShadowConcurrency({
+          option: 'holdemRiverBluffIsPricedOnPeople',
+          targetState: 'shadow',
+          currentRows: [
+            ...rows,
+            { option: 'omahaReraisedPotFoldReraiseIsPriced', state: 'shadow' },
+          ],
+          perOptionStageCounters: true,
+        }).code
+      ).toBe('SHADOW_CONCURRENCY_VIOLATION');
+      // a style option, or a style row already in shadow, keeps one row
+      const style = new Set(['styleTightPlayerExploit']);
+      expect(
+        checkShadowConcurrency({
+          option: 'styleTightPlayerExploit',
+          targetState: 'shadow',
+          currentRows: rows.slice(0, 1),
+          perOptionStageCounters: true,
+          styleOptions: style,
+        }).code
+      ).toBe('SHADOW_CONCURRENCY_VIOLATION');
+      expect(
+        checkShadowConcurrency({
+          option: 'omahaReraisedPotFoldReraiseIsPriced',
+          targetState: 'shadow',
+          currentRows: [{ option: 'styleTightPlayerExploit', state: 'shadow' }],
+          perOptionStageCounters: true,
+          styleOptions: style,
+        }).code
+      ).toBe('SHADOW_CONCURRENCY_VIOLATION');
+      // the proof: every fresh serving release seen timing per-option re-decisions
+      const serving = [{ release_sha: 'a' }, { release_sha: 'b' }];
+      expect(
+        perOptionStageCountersServing(serving, [
+          { release_sha: 'a', n: 3 },
+          { release_sha: 'b', n: 1 },
+        ])
+      ).toBe(true);
+      expect(perOptionStageCountersServing(serving, [{ release_sha: 'a', n: 3 }])).toBe(false);
+      expect(perOptionStageCountersServing([], [])).toBe(false);
+      expect(buildPerOptionStageCountersSql()).toContain(
+        'option\\_shadow\\_stage\\_redecide\\_opt\\_%'
+      );
+      expect(
+        styleOptionsOfRegistries([{ registry: { a: ['off', 'canary'], b: ['off', 'shadow'] } }])
+      ).toEqual(new Set(['a']));
     });
 
     it('refuses moving a live ON non-default-on row to plain shadow (must use on_shadow)', () => {

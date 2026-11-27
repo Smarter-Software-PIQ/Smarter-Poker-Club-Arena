@@ -265,6 +265,9 @@ export function buildShadowWindowBatchSql({ option, since, until }) {
 
   const pickupLikeLit = sqlLiteral(`option\\_switch\\_${safeOpt}\\_%\\_seen`);
   const shadowLikeLit = sqlLiteral(`option\\_shadow\\_${safeOpt}\\_%`);
+  // 2026-11-27: the Lightning copies of a staged PLO receipt's counters (fmt_l_option_shadow_<option>_...)
+  const lightningLikeLit = sqlLiteral(`fmt\\_l\\_option\\_shadow\\_${safeOpt}\\_%`);
+  const optLatencyScopeLit = sqlLiteral(`option_shadow_stage_redecide_opt_${safeOpt}`);
   const shadowExactFeatures = [
     `option_shadow_${safeOpt}_same_seen`,
     `option_shadow_${safeOpt}_changed_seen`,
@@ -300,6 +303,7 @@ filtered_fires AS (
     AND (
       feature LIKE ${pickupLikeLit} ESCAPE '\\'
       OR feature LIKE ${shadowLikeLit} ESCAPE '\\'
+      OR feature LIKE ${lightningLikeLit} ESCAPE '\\'
       OR feature LIKE 'option\\_shadow\\_skipped\\_%' ESCAPE '\\'
       OR feature LIKE 'option\\_shadow\\_stage\\_%' ESCAPE '\\'
       OR feature IN (
@@ -342,7 +346,7 @@ grouped_latency AS (
   WHERE scope IS NOT NULL AND scope <> ''
   GROUP BY scope
   ORDER BY
-    (scope IN ('nlh', 'style_read', 'option_shadow_redecide', 'option_shadow_stage_redecide', 'style_shadow_redecide')) DESC,
+    (scope IN ('nlh', 'style_read', 'option_shadow_redecide', 'option_shadow_stage_redecide', 'style_shadow_redecide', ${optLatencyScopeLit})) DESC,
     sum(over100) DESC,
     sum(samples) DESC
   LIMIT 60
@@ -354,6 +358,11 @@ SELECT json_build_object(
       SELECT
         count(*)::bigint AS receipt_count,
         count(DISTINCT worker_id)::bigint AS active_workers,
+        -- 2026-11-27: decision workers flush latency, an engine-host flush identity (no decide latency)
+        -- flushes counters only and is not a worker that can pick an option up
+        count(DISTINCT worker_id) FILTER (
+          WHERE jsonb_typeof(latency) = 'array' AND jsonb_array_length(latency) > 0
+        )::bigint AS decision_workers,
         min(collected_at) AS first_collected_at,
         max(collected_at) AS last_collected_at
       FROM window_receipts
@@ -737,7 +746,7 @@ export function classifySafetyFeature(feature) {
   return null;
 }
 
-export function summarizeLatencyRows(rows) {
+export function summarizeLatencyRows(rows, optionScope = null) {
   const list = Array.isArray(rows) ? rows : [];
   if (list.length === 0) {
     return {
@@ -804,6 +813,7 @@ export function summarizeLatencyRows(rows) {
       styleRead: byScope.get('style_read') ?? null,
       shadow: byScope.get('option_shadow_redecide') ?? null,
       shadowStage: byScope.get('option_shadow_stage_redecide') ?? null,
+      shadowStageOption: optionScope ? (byScope.get(optionScope) ?? null) : null,
       styleShadow: byScope.get('style_shadow_redecide') ?? null,
     },
     scopes: scopes.slice(0, 30),
@@ -835,6 +845,86 @@ function indexFeatureRows(rows) {
   return map;
 }
 
+const CELL_STREETS = ['preflop', 'flop', 'turn', 'river', 'other'];
+const CELL_SIZES = [
+  'any',
+  'unopened',
+  'facing_lt40',
+  'facing_40to70',
+  'facing_70plus',
+  'facing_raise',
+  'facing_unread',
+];
+
+/**
+ * 2026-11-27 (PLO-OWNER lead-8 lane acttool): what the changed re-decisions would have changed, from the counters
+ * the engine takes per option: option_shadow_<opt>_dir_<dir>_seen (hold'em and, since 2026-11-27, PLO staged),
+ * option_shadow_<opt>_cell_<street>_<size>_<dir>_seen (PLO staged), their _person_seen subsets, the Lightning copies
+ * fmt_l_<same key>, and the per-option stage counters option_shadow_<opt>_stage_<skipped_<reason>|slow|self_disabled>_seen.
+ */
+export function shadowDirectionsOf(option, featureMap) {
+  const fires = (k) => featureMap.get(k)?.fires ?? 0;
+  const own = `option_shadow_${option}_`;
+  const byDirection = [];
+  const cells = [];
+  const stage = {};
+  const lightning = {
+    same: fires(`fmt_l_${own}same_seen`),
+    changed: fires(`fmt_l_${own}changed_seen`),
+    samePerson: fires(`fmt_l_${own}same_person_seen`),
+    changedPerson: fires(`fmt_l_${own}changed_person_seen`),
+  };
+  for (const k of featureMap.keys()) {
+    if (!k.startsWith(own) || !k.endsWith('_seen') || k.endsWith('_person_seen')) continue;
+    const rest = k.slice(own.length, -'_seen'.length);
+    if (rest.startsWith('dir_')) {
+      const dir = rest.slice('dir_'.length);
+      byDirection.push({
+        direction: dir,
+        all: fires(k),
+        person: fires(`${own}dir_${dir}_person_seen`),
+        lightning: fires(`fmt_l_${k}`),
+      });
+    } else if (rest.startsWith('cell_')) {
+      const body = rest.slice('cell_'.length);
+      const street = CELL_STREETS.find((st) => body.startsWith(`${st}_`));
+      if (!street) continue;
+      const afterStreet = body.slice(street.length + 1);
+      const size = [...CELL_SIZES]
+        .sort((a, b) => b.length - a.length)
+        .find((sz) => afterStreet.startsWith(`${sz}_`));
+      if (!size) continue;
+      const dir = afterStreet.slice(size.length + 1);
+      cells.push({
+        street,
+        size,
+        direction: dir,
+        all: fires(k),
+        person: fires(`${k.slice(0, -'_seen'.length)}_person_seen`),
+        lightning: fires(`fmt_l_${k}`),
+      });
+    } else if (rest.startsWith('stage_')) {
+      stage[rest.slice('stage_'.length)] = fires(k);
+    }
+  }
+  byDirection.sort((a, b) => b.all - a.all || a.direction.localeCompare(b.direction));
+  const streetOrder = (st) => CELL_STREETS.indexOf(st);
+  cells.sort(
+    (a, b) =>
+      streetOrder(a.street) - streetOrder(b.street) ||
+      CELL_SIZES.indexOf(a.size) - CELL_SIZES.indexOf(b.size) ||
+      b.all - a.all ||
+      a.direction.localeCompare(b.direction)
+  );
+  return {
+    byDirection,
+    directionTotal: byDirection.reduce((a, d) => a + d.all, 0),
+    cells,
+    lightning,
+    stage,
+  };
+}
+
 export function buildShadowReadReport({
   option,
   switchRow = null,
@@ -863,7 +953,14 @@ export function buildShadowReadReport({
 
   const receiptSummaryRaw = dbSnapshot.receiptSummary ?? {};
   const receiptCount = Number(receiptSummaryRaw.receipt_count) || 0;
-  const activeWorkers = Number(receiptSummaryRaw.active_workers) || 0;
+  const flushIdentities = Number(receiptSummaryRaw.active_workers) || 0;
+  // 2026-11-27: engine-host flush identities (no decide latency) are not workers that pick an option up
+  const decisionWorkersRaw = receiptSummaryRaw.decision_workers;
+  const activeWorkers =
+    decisionWorkersRaw === undefined || decisionWorkersRaw === null
+      ? flushIdentities
+      : Number(decisionWorkersRaw) || 0;
+  const hostIdentities = Math.max(0, flushIdentities - activeWorkers);
   const useReceipts = receiptCount > 0;
   const telemetrySource = useReceipts
     ? 'horse_brain_flush_receipts'
@@ -902,6 +999,11 @@ export function buildShadowReadReport({
     distinctWorkers: pickupReceiptEntry?.distinctWorkers ?? 0,
     lastUpdatedAt: pickupTelemetryEntry?.lastUpdatedAt ?? null,
     byState: pickupByState,
+    decisionWorkers: activeWorkers,
+    hostIdentitiesExcluded: hostIdentities,
+    missingDecisionWorkers: useReceipts
+      ? Math.max(0, activeWorkers - (pickupReceiptEntry?.distinctWorkers ?? 0))
+      : null,
   };
 
   // 2. Shadow re-decision counts & Wilson 95% CIs
@@ -959,6 +1061,9 @@ export function buildShadowReadReport({
       changedPerson: telemetryShadowMap.get(changedPersonFeat)?.fires ?? 0,
     },
   };
+
+  // 2b. Direction, street x size cells, Lightning split and per-option stage counters (2026-11-27)
+  shadow.directions = shadowDirectionsOf(safeOpt, shadowSourceMap);
 
   // 3. Shadow skip counters
   const skipSourceMap = useReceipts ? receiptFireMap : telemetryFallbackMap;
@@ -1035,7 +1140,10 @@ export function buildShadowReadReport({
   };
 
   // 5. Latency summary
-  const latency = summarizeLatencyRows(dbSnapshot.latency);
+  const latency = summarizeLatencyRows(
+    dbSnapshot.latency,
+    `option_shadow_stage_redecide_opt_${safeOpt}`
+  );
 
   // 6. Deterministic verdict
   const rollbackReasons = [];
@@ -1129,6 +1237,7 @@ export function buildShadowReadReport({
       shadowExitedAt: windowMeta.shadowExitedAt,
       receiptCount,
       activeWorkers,
+      hostIdentitiesExcluded: hostIdentities,
     },
     health,
     pickup,
@@ -1193,6 +1302,12 @@ export function formatInboxReceipt(report) {
     `pickup=${fmtInt(report.pickup.count)}(${report.pickup.distinctWorkers}w/${report.pickup.stateChecked})`,
     `redec=${fmtInt(ov.total)} chg=${fmtInt(ov.changed)}(${ovCi})`,
     `person=${fmtInt(pe.total)}(${fmtPct(report.shadow.peopleFirstSharePct)} share) chg=${fmtInt(pe.changed)}(${peCi})`,
+    `dir(${
+      (report.shadow.directions?.byDirection ?? [])
+        .slice(0, 4)
+        .map((d) => `${d.direction}=${d.all}`)
+        .join(',') || 'none'
+    })`,
     `skips(backlog=${fmtInt(sk.backlog)} budget=${fmtInt(sk.budget)} rate=${fmtInt(sk.rate)} self_dis=${fmtInt(sk.stageSelfDisabled)} fail=${fmtInt(sk.redecideFailed)})`,
     `safety(err=${sf.horseErrorLogCount} alarm=${sf.counts.alarm} cfg=${sf.counts.configError} ill=${sf.counts.illegal} exc=${sf.counts.exception} brk=${sf.counts.breaker})`,
     `lat(${fmtScopeCompact('nlh', hl.nlh)}, ${fmtScopeCompact('style', hl.styleRead)}, ${fmtScopeCompact('shadow', shadowLat)})`,
@@ -1236,6 +1351,10 @@ export function formatShadowReportText(report) {
   lines.push(
     `Pickup: ${report.pickup.feature} = ${fmtInt(report.pickup.count)} (telemetry_table=${fmtInt(report.pickup.telemetryTableCount)}, window_receipts=${fmtInt(report.pickup.windowReceiptCount)}, distinct_workers=${report.pickup.distinctWorkers})`
   );
+  if (report.pickup.decisionWorkers !== undefined)
+    lines.push(
+      `  decision workers in window=${report.pickup.decisionWorkers}, missing pickup=${report.pickup.missingDecisionWorkers ?? 'n/a'} (engine-host flush identities with no decide latency excluded: ${report.pickup.hostIdentitiesExcluded ?? 0})`
+    );
 
   const ov = report.shadow.overall;
   const pe = report.shadow.person;
@@ -1245,6 +1364,34 @@ export function formatShadowReportText(report) {
   lines.push(
     `Shadow person-present: total=${fmtInt(pe.total)} (${fmtPct(report.shadow.peopleFirstSharePct)} people-first share) same=${fmtInt(pe.same)} changed=${fmtInt(pe.changed)} rate=${fmtPct(pe.changeRatePct)} (95% Wilson CI: ${fmtPct(pe.ci95LowPct)} .. ${fmtPct(pe.ci95HighPct)})`
   );
+
+  const dirs = report.shadow.directions;
+  if (dirs) {
+    const lt = dirs.lightning;
+    lines.push(
+      `Lightning (fmt_l_, staged PLO): total=${fmtInt(lt.same + lt.changed)} changed=${fmtInt(lt.changed)} person=${fmtInt(lt.samePerson + lt.changedPerson)} (table = overall minus Lightning)`
+    );
+    lines.push(
+      `Changed by direction (${fmtInt(dirs.directionTotal)} of ${fmtInt(ov.changed)} changed carry one):`
+    );
+    if (dirs.byDirection.length === 0) lines.push('  (none)');
+    for (const d of dirs.byDirection)
+      lines.push(
+        `  ${d.direction.padEnd(18)} all=${fmtInt(d.all)} person=${fmtInt(d.person)} lightning=${fmtInt(d.lightning)}`
+      );
+    if (dirs.cells.length > 0) {
+      lines.push('Changed by street x size faced (PLO staged):');
+      for (const c of dirs.cells)
+        lines.push(
+          `  ${c.street.padEnd(7)} ${c.size.padEnd(14)} ${c.direction.padEnd(18)} all=${fmtInt(c.all)} person=${fmtInt(c.person)} lightning=${fmtInt(c.lightning)}`
+        );
+    }
+    const st = Object.entries(dirs.stage);
+    if (st.length > 0)
+      lines.push(
+        `This option's own stage counters: ${st.map(([k, v]) => `${k}=${fmtInt(v)}`).join(', ')}`
+      );
+  }
 
   const sk = report.skips;
   lines.push(
@@ -1270,6 +1417,7 @@ export function formatShadowReportText(report) {
     ['style_read', hl.styleRead],
     ['option_shadow_redecide', hl.shadow],
     ['option_shadow_stage_redecide', hl.shadowStage],
+    [`option_shadow_stage_redecide_opt_${report.option}`, hl.shadowStageOption],
   ]) {
     if (!sc) continue;
     lines.push(
