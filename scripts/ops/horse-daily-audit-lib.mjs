@@ -12,6 +12,8 @@
 //   horse-plo-overfold-gate.mjs   (every over-fold cell: PLO4, PLO5, Hold'em cash and tournaments, flop/turn/river,
 //                                  heads-up and multiway, by size, facing a person's first bet, against the people
 //                                  prior, people's own folds or minimum defence; says if the cell's fix is ON)
+//   horse-overfold-fix-validation.mjs (one run per owner-map option whose switch is ON: BEFORE vs AFTER its ON
+//                                  instant on the cells it owns; VALIDATED / NOT YET / REGRESSED per cell)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
 import { cellTable, foldThroughTable } from './horse-plo-overfold-gate-lib.mjs';
 
@@ -31,6 +33,25 @@ const tsOf = (v) =>
       .replace(' ', 'T')
       .replace(/\+00(:00)?$/, 'Z')
   );
+
+const OPTION_NAME = /^[A-Za-z][A-Za-z0-9]{2,80}$/;
+/** The owner-map options whose switch row is ON now (one SELECT; the fix validation runs for each). */
+export function onOwnersSql(options) {
+  const names = [...new Set(options)].filter((x) => OPTION_NAME.test(x));
+  if (!names.length) return null;
+  return `SELECT option, state FROM public.ca_horse_style_switch WHERE option IN (${names.map((x) => `'${x}'`).join(',')}) AND state = 'on' ORDER BY option`;
+}
+/** The ON options of an onOwnersSql answer, kept to the owner map (rows of any other shape are ignored). */
+export function onOwnersOf(rows, options) {
+  const want = new Set(options);
+  return [
+    ...new Set(
+      (Array.isArray(rows) ? rows : [])
+        .filter((r) => r && want.has(r.option) && String(r.state).toLowerCase() === 'on')
+        .map((r) => r.option)
+    ),
+  ].sort();
+}
 
 /** The read-only SELECTs of the boundaries. */
 export function boundarySql(sinceMs, untilMs) {
@@ -99,7 +120,7 @@ export function splitGroups(sinceMs, untilMs, splits, max) {
 }
 
 /** The tool runs of one daily audit: name, script, argv, output files. */
-export function planRuns(sinceMs, untilMs, splits) {
+export function planRuns(sinceMs, untilMs, splits, onOptions = []) {
   const range = ['--since', iso(sinceMs), '--until', iso(untilMs)];
   const runs = [
     {
@@ -120,6 +141,12 @@ export function planRuns(sinceMs, untilMs, splits) {
       args: [...range, '--json'],
       out: 'plo-overfold.json',
     },
+    ...onOptions.map((option) => ({
+      name: `overfold-fix-validation-${option}`,
+      script: 'horse-overfold-fix-validation.mjs',
+      args: ['--option', option, '--until', iso(untilMs), '--json'],
+      out: `overfold-fix-validation-${option}.json`,
+    })),
   ];
   splitGroups(sinceMs, untilMs, splits, EXPLOIT_MAX_SPLITS).forEach((g, i) => {
     const r = ['--since', iso(g.since), '--until', iso(g.until)];
@@ -166,6 +193,14 @@ export function exitMeaning(name, code) {
     return (
       ['clean', 'FINDING (a HARD leak versus people got worse)', 'too few hands'][code] ??
       `exit ${code}`
+    );
+  if (name.startsWith('overfold-fix-validation'))
+    return (
+      [
+        'VALIDATED or NOT YET',
+        'FINDING (a cell its fix owns REGRESSED after ON)',
+        'not ON (nothing to validate)',
+      ][code] ?? `exit ${code}`
     );
   if (name === 'plo-overfold')
     return (
@@ -258,6 +293,14 @@ export function regressionRows(results) {
             c.fixClass === 'fix-on'
               ? `BREACH-CLASS (over-fold with the fix ON): ${c.line}`
               : c.line,
+        });
+    // the fix validation: a cell its fix owns that REGRESSED after the fix went ON is breach-class
+    if (name.startsWith('overfold-fix-validation'))
+      for (const c of [...arr(j?.cells), ...arr(j?.watch)].filter((x) => x.verdict === 'REGRESSED'))
+        out.push({
+          id: `ofv|${j?.option}|${c.key ?? c.cls}`,
+          breachClass: true,
+          text: `BREACH-CLASS (over-fold fix REGRESSED after ON): ${j?.option} ${c.key ?? c.cls}${c.why ? `: ${c.why}` : ''}`,
         });
     if (name.startsWith('person-vs-horse') && r.code === 1)
       out.push({
@@ -446,6 +489,17 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
     }
   }
   L.push('');
+  const ofv = Object.entries(results).filter(([n]) => n.startsWith('overfold-fix-validation'));
+  section(
+    'Over-Fold Fix Validation',
+    ofv.map(([n, r]) => {
+      const j = r.json;
+      if (!j) return `${n}: ${exitMeaning(n, r.code)} (see ${r.out})`;
+      const cnt = (v) => [...arr(j.cells), ...arr(j.watch)].filter((c) => c.verdict === v).length;
+      return `${j.option} (ON ${j.on}): **${j.verdict}**: ${cnt('VALIDATED')} validated, ${cnt('NOT YET')} not yet, ${cnt('REGRESSED')} regressed (page: ${r.out})`;
+    }),
+    'No owner-map option is ON.'
+  );
   section(
     'Top Leaks',
     topLeaks(results),
