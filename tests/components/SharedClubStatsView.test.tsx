@@ -297,7 +297,7 @@ it('prints only columns from the selected game mode', async () => {
     />
   );
   await screen.findByRole('heading', { name: 'Cash Performance' });
-  expect(screen.getByRole('columnheader', { name: 'BB/100' })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'BB/100 Hands' })).toBeInTheDocument();
   expect(screen.queryByRole('columnheader', { name: 'Tournaments' })).not.toBeInTheDocument();
   rerender(
     <SharedClubStatsView
@@ -314,5 +314,5 @@ it('prints only columns from the selected game mode', async () => {
   );
   await screen.findByRole('heading', { name: 'Tournament Performance' });
   expect(screen.getByRole('columnheader', { name: 'Tournaments' })).toBeInTheDocument();
-  expect(screen.queryByRole('columnheader', { name: 'BB/100' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'BB/100 Hands' })).not.toBeInTheDocument();
 });

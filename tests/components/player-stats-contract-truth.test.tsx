@@ -448,23 +448,23 @@ async function hero() {
 }
 
 describe('the hero hand count says when it is lifetime (defect 5)', () => {
-  it('labels the larger known-mode count Recorded Cash Hands', async () => {
+  it('labels the larger known-mode count Recorded Hands', async () => {
     rpcPayload = payload(PLAYED_OVERALL, 50_000);
     render(<PlayerStatsPage />);
     const h = await hero();
     expect(await within(h).findByText('50,000')).toBeInTheDocument();
-    expect(within(h).getByText('Recorded Cash Hands')).toBeInTheDocument();
+    expect(within(h).getByText('Recorded Hands')).toBeInTheDocument();
     expect(within(h).getByText('2,000 Analysed')).toBeInTheDocument();
-    expect(within(h).queryByText('Cash Hands')).not.toBeInTheDocument();
+    expect(within(h).queryByText('Hands')).not.toBeInTheDocument();
     expect(within(h).queryByText('Hands Played')).not.toBeInTheDocument();
   }, 12_000);
 
-  it('says Cash Hands when the recorded and analysed counts agree', async () => {
+  it('says Hands when the recorded and analysed counts agree', async () => {
     render(<PlayerStatsPage />);
     const h = await hero();
     expect(await within(h).findByText('2,000')).toBeInTheDocument();
-    expect(within(h).getByText('Cash Hands')).toBeInTheDocument();
-    expect(within(h).queryByText('Recorded Cash Hands')).not.toBeInTheDocument();
+    expect(within(h).getByText('Hands')).toBeInTheDocument();
+    expect(within(h).queryByText('Recorded Hands')).not.toBeInTheDocument();
   }, 12_000);
 
   it('never calls the analysed count lifetime while the lifetime index is catching up', async () => {
@@ -472,13 +472,13 @@ describe('the hero hand count says when it is lifetime (defect 5)', () => {
     render(<PlayerStatsPage />);
     const h = await hero();
     expect(await within(h).findByText('2,000')).toBeInTheDocument();
-    expect(within(h).getByText('Cash Hands')).toBeInTheDocument();
-    expect(within(h).queryByText('Recorded Cash Hands')).not.toBeInTheDocument();
+    expect(within(h).getByText('Hands')).toBeInTheDocument();
+    expect(within(h).queryByText('Recorded Hands')).not.toBeInTheDocument();
   }, 12_000);
 });
 
 describe('the hero names capped figures as an analysis sample', () => {
-  it('does not label a capped 750-hand cash result as authoritative Cash Profit', async () => {
+  it('does not label a capped 750-hand cash result as authoritative Profit', async () => {
     rpcPayload = payload(
       {
         ...PLAYED_OVERALL,
@@ -493,14 +493,14 @@ describe('the hero names capped figures as an analysis sample', () => {
     );
     render(<PlayerStatsPage />);
     const h = await hero();
-    expect(await within(h).findByText('Analysis Cash Result')).toBeInTheDocument();
-    expect(within(h).queryByText('Cash Profit')).not.toBeInTheDocument();
+    expect(await within(h).findByText('Analysis Result')).toBeInTheDocument();
+    expect(within(h).queryByText('Profit')).not.toBeInTheDocument();
     expect(screen.getByText('Based On Your Most Recent 750 Hands.')).toBeInTheDocument();
   }, 12_000);
 });
 
 describe('the hero does not rate an empty sample (defect 3, hero)', () => {
-  it('with no hands scored, the gauge and BB/100 read Not Yet Measured, not 0% and 0.00', async () => {
+  it('with no hands scored, the gauge and BB/100 Hands read Not Yet Measured, not 0% and 0.00', async () => {
     rpcPayload = {
       ...payload(EMPTY_OVERALL, 0),
       tournaments: {
@@ -513,14 +513,14 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
     };
     render(<PlayerStatsPage />);
     const h = await hero();
-    expect(within(h).getByText('BB/100').parentElement).toHaveTextContent(NOT_YET_MEASURED);
+    expect(within(h).getByText('BB/100 Hands').parentElement).toHaveTextContent(NOT_YET_MEASURED);
     const gauge = h.querySelector('.gauge-center') as HTMLElement;
     expect(within(gauge).getByText(NOT_YET_MEASURED)).toBeInTheDocument();
     expect(within(gauge).getByText('Hands Won')).toBeInTheDocument();
     expect(gauge.querySelector('.gauge-value')).toBeNull();
     expect(within(h).queryByText('0.00')).not.toBeInTheDocument();
     // No win or loss colour on a figure that was never measured.
-    const bb = within(h).getByText('BB/100').parentElement as HTMLElement;
+    const bb = within(h).getByText('BB/100 Hands').parentElement as HTMLElement;
     const value = bb.querySelector('.hero-stat-value') as HTMLElement;
     expect(value).toHaveTextContent(NOT_YET_MEASURED);
     expect(value.className).not.toMatch(/\b(positive|negative)\b/);
@@ -542,13 +542,15 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
     expect(within(playing).getByText('400')).toBeInTheDocument();
     expect(within(playing).getByText('2,000')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Headline Performance' })).not.toBeInTheDocument();
-    expect(screen.queryByText('BB/100')).not.toBeInTheDocument();
+    expect(screen.queryByText('BB/100 Hands')).not.toBeInTheDocument();
   }, 12_000);
 
   it('a measured cash win rate still prints its number and its colour', async () => {
     render(<PlayerStatsPage />);
     const h = await hero();
     expect(await within(h).findByText('4.3')).toHaveClass('positive');
-    expect(within(h).getByText('BB/100').parentElement).not.toHaveTextContent(NOT_YET_MEASURED);
+    expect(within(h).getByText('BB/100 Hands').parentElement).not.toHaveTextContent(
+      NOT_YET_MEASURED
+    );
   }, 12_000);
 });

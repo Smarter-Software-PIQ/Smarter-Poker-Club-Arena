@@ -198,7 +198,7 @@ export default function BenchmarkPanel({
               <span className="bench-label">{r.def.label}</span>
               <span className="bench-value">
                 {r.value.toFixed(1)}
-                {r.def.unit === 'bb/100' ? ' BB/100' : r.def.unit}
+                {r.def.unit === 'bb/100' ? ' BB/100 Hands' : r.def.unit}
               </span>
               {r.percentile !== null ? (
                 <span className={`bench-pill tone-${r.tone}`}>

@@ -31,7 +31,7 @@ describe('Club Arena Personal Assistant cross-app deep-link contracts', () => {
       "gameMode === 'cash' || gameMode === 'tournament' ? `&format=${gameMode}` : ''"
     );
     expect(statsSrc).toContain('onOpenLeakFinder={isOwnProfile ? openLeakFinder : undefined}');
-    expect(tourneyStatsSrc).toContain('Analyze Tournament Leaks');
+    expect(tourneyStatsSrc).toContain('Analyze Leaks');
     expect(tourneyStatsSrc).toContain('onOpenLeakFinder');
   });
 });
