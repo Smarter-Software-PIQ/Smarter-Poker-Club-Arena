@@ -2409,6 +2409,20 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           }
         }
         if (completedStage(6)) return;
+        // A fenced gap-balance source already parked waiting for this sweep to
+        // settle is sitting idle between hands. Yield now (the cursor is
+        // already at stage 6) so finally() calls onEliminationSweepSettled() ->
+        // drainBoundaryBalance() immediately instead of holding the parked
+        // table behind expansionStage, handForHandStage, and wake acks. The
+        // requeued sweep resumes directly at stage 6 without re-entering
+        // balanceStage (incident 1e532243).
+        if (!sweepStopped() && this.shouldYieldSweepForParkedBoundaryBalance()) {
+          if (!budgetRequeued) {
+            budgetRequeued = true;
+            this.requestEliminationSweep();
+          }
+          return;
+        }
       }
 
       expansionStage: {
@@ -8042,6 +8056,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   }
 
   // ── Implemented by TournamentManager (layer 3/3) ──
+  protected shouldYieldSweepForParkedBoundaryBalance(): boolean {
+    return false;
+  }
+
   protected abstract checkTableBalance(): Promise<TournamentBalanceProgress | void>;
   protected abstract processSatelliteAwards(
     tournament: any,

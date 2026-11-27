@@ -776,7 +776,10 @@ describe('a boundary move is planned under the hold', () => {
 
       const baseLoad = m.loadBalancerTables.getMockImplementation();
       m.loadBalancerTables.mockImplementation(async (ids: string[], tag: string) => {
-        // A bust at another table advances balanceBoardEpoch mid-STEP-2 read.
+        // A bust during STEP 1 forces STEP 2 to re-read balanceFresh, and a bust
+        // during balanceFresh advances balanceBoardEpoch so the seeded board is
+        // invalidated and the boundary drain reads fresh.
+        if (tag === 'balanceInitial') settleHand(short, [id(7776)]);
         if (tag === 'balanceFresh') settleHand(short, [id(7777)]);
         return baseLoad(ids, tag);
       });
@@ -810,6 +813,136 @@ describe('a boundary move is planned under the hold', () => {
       await settle();
 
       expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+    });
+  });
+
+  describe('zero-break sweep reuse, parked-source tie-break, and post-balance sweep yield (1e532243)', () => {
+    it('reuses STEP 1 board in STEP 2 when no tables broke and balanceBoardEpoch did not advance', async () => {
+      const a = table(0, 8);
+      const b = table(1, 8);
+      const { m } = manager([a, b]);
+
+      await m.checkTableBalance();
+
+      expect(m.liveTournamentTableIdsWithPlayers).toHaveBeenCalledTimes(1);
+      const tags = m.loadBalancerTables.mock.calls.map((c: unknown[]) => c[1]);
+      expect(tags).toEqual(['balanceInitial']);
+    });
+
+    it('re-reads balanceFresh in STEP 2 when a bust advances balanceBoardEpoch during STEP 1', async () => {
+      const a = table(0, 8);
+      const b = table(1, 8);
+      const { m, settleHand } = manager([a, b]);
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      m.loadBalancerTables.mockImplementation(async (ids: string[], tag: string) => {
+        if (tag === 'balanceInitial') settleHand(b, [id(9901)]);
+        return baseLoad(ids, tag);
+      });
+
+      await m.checkTableBalance();
+
+      expect(m.liveTournamentTableIdsWithPlayers).toHaveBeenCalledTimes(2);
+      const tags = m.loadBalancerTables.mock.calls.map((c: unknown[]) => c[1]);
+      expect(tags).toEqual(['balanceInitial', 'balanceFresh']);
+    });
+
+    it('chooses an already-parked 9-player table on a 9/9/7 tie instead of fencing a mid-hand 9-player table', async () => {
+      // Array order places firstBig before secondBig; without tie-breaking,
+      // calculateMoves keeps firstBig at 9 and picks secondBig to shed 1.
+      const sweepCase = manager([table(0, 9), table(1, 9), table(2, 7)]);
+      const firstBigId = id(2000);
+      const secondBigId = id(2001);
+      const shortId = id(2002);
+
+      // 1. checkTableBalance sees firstBig already parked, moves from firstBig immediately,
+      // and NEVER fences the mid-hand secondBig.
+      sweepCase.m.gapBalanceFencedSources.add(firstBigId);
+      sweepCase.park(firstBigId);
+      await sweepCase.m.checkTableBalance();
+      expect(sweepCase.m.gapBalanceFencedSources.has(secondBigId)).toBe(false);
+      expect(sweepCase.engines.get(secondBigId)!.parkForTournamentMove).not.toHaveBeenCalled();
+      expect(sweepCase.m.executePlayerMoves).toHaveBeenCalledTimes(1);
+      const sweepMoves = sweepCase.m.executePlayerMoves.mock.calls[0][0] as Array<{
+        fromTableId: string;
+        toTableId: string;
+      }>;
+      expect(sweepMoves).toHaveLength(1);
+      expect(sweepMoves[0].fromTableId).toBe(firstBigId);
+      expect(sweepMoves[0].toTableId).toBe(shortId);
+
+      // 2. balanceParkedGapSources moves from already-parked firstBig directly without fencing secondBig.
+      const boundaryCase = manager([table(0, 9), table(1, 9), table(2, 7)]);
+      boundaryCase.m.gapBalanceFencedSources.add(firstBigId);
+      boundaryCase.park(firstBigId);
+      await boundaryCase.m.balanceParkedGapSources();
+      expect(boundaryCase.m.executePlayerMoves).toHaveBeenCalledTimes(1);
+      const boundaryMoves = boundaryCase.m.executePlayerMoves.mock.calls[0][0] as Array<{
+        fromTableId: string;
+        toTableId: string;
+      }>;
+      expect(boundaryMoves).toHaveLength(1);
+      expect(boundaryMoves[0].fromTableId).toBe(firstBigId);
+      expect(boundaryMoves[0].toTableId).toBe(shortId);
+      expect(boundaryCase.m.gapBalanceFencedSources.has(secondBigId)).toBe(false);
+      expect(boundaryCase.engines.get(secondBigId)!.parkForTournamentMove).not.toHaveBeenCalled();
+    });
+
+    it('yields runEliminationSweep immediately after balanceStage when a parked gap-balance source awaits settlement, then resumes at expansionStage without livelock', async () => {
+      const big = table(0, 9);
+      const short = table(1, 7);
+      const { m, park } = manager([big, short]);
+
+      const order: string[] = [];
+      m.eliminationSweepCursor.reset();
+      // Start directly at balanceStage (stage 5) to isolate the stage 5 -> stage 6 yield.
+      m.eliminationSweepCursor.advanceTo(5);
+      m.checkTableBalance = vi.fn(async () => {
+        order.push('balanceStage');
+        m.gapBalanceFencedSources.add(big.tableId);
+        park(big.tableId);
+        return { kind: 'planning-complete' as const };
+      });
+      m.checkDynamicTableExpansion = vi.fn(async () => {
+        order.push('expansionStage');
+        return true;
+      });
+      // Stub manager wake inbox & hand-for-hand DB reads cleanly.
+      vi.spyOn(supabase, 'from').mockImplementation(((relation: string) => {
+        const q: Record<string, unknown> = {};
+        for (const name of ['select', 'eq', 'in', 'is', 'order', 'gt', 'limit', 'not', 'lte']) {
+          q[name] = () => q;
+        }
+        q.then = (resolve: (value: unknown) => unknown) =>
+          Promise.resolve(
+            relation === 'tournament_manager_wakes'
+              ? { data: [], error: null }
+              : { data: [], count: 16, error: null }
+          ).then(resolve);
+        return q;
+      }) as never);
+      m.onEliminationSweepSettled = vi.fn(() => {
+        order.push('onEliminationSweepSettled');
+        // Simulate boundary drain releasing the parked source.
+        m.gapBalanceFencedSources.clear();
+        m.boundaryBalanceRequested = false;
+      });
+
+      // Pass 1: balanceStage completes, sees parked source, yields before expansionStage!
+      await m.runEliminationSweep(new AbortController().signal);
+      expect(order).toEqual(['balanceStage', 'onEliminationSweepSettled']);
+      expect(m.eliminationSweepCursor.nextStage).toBe(6);
+      expect(m.requestEliminationSweep).toHaveBeenCalledTimes(1);
+
+      // Pass 2: resumed sweep starts at stage 6 (skips balanceStage) and completes cleanly.
+      await m.runEliminationSweep(new AbortController().signal);
+      expect(order).toEqual([
+        'balanceStage',
+        'onEliminationSweepSettled',
+        'expansionStage',
+        'onEliminationSweepSettled',
+      ]);
+      expect(m.checkTableBalance).toHaveBeenCalledTimes(1);
+      expect(m.checkDynamicTableExpansion).toHaveBeenCalledTimes(1);
     });
   });
 });

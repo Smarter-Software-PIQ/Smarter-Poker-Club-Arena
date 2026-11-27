@@ -5844,33 +5844,41 @@ export abstract class TournamentManagerBase {
       label,
       shouldContinue: () => this.lifecycleIsCurrent(lifecycle),
     });
-    const { rows: liveTables, complete: tablesComplete } = await fetchAllRows((cursor, limit) => {
-      let query = supabase
-        .from('tables')
-        .select('id')
-        .eq('tournament_id', this.tournamentId)
-        .in('status', ['running', 'waiting'])
-        .order('id', { ascending: true })
-        .limit(limit);
-      if (cursor) query = query.gt('id', cursor);
-      return query;
-    }, options('Tournament.balance_live_tables'));
+    // Both queries filter directly by this tournament_id and are independent;
+    // run them in parallel to cut balance/boundary board-read latency in half
+    // (incident 1e532243).
+    const [
+      { rows: liveTables, complete: tablesComplete },
+      { rows: seats, complete: seatsComplete },
+    ] = await Promise.all([
+      fetchAllRows((cursor, limit) => {
+        let query = supabase
+          .from('tables')
+          .select('id')
+          .eq('tournament_id', this.tournamentId)
+          .in('status', ['running', 'waiting'])
+          .order('id', { ascending: true })
+          .limit(limit);
+        if (cursor) query = query.gt('id', cursor);
+        return query;
+      }, options('Tournament.balance_live_tables')),
+      // Read every occupied table through its tournament relationship. Passing
+      // the entire table inventory in a URL would itself cap large fields.
+      fetchAllRows((cursor, limit) => {
+        let query = supabase
+          .from('table_seats')
+          .select('id, table_id, tables!table_seats_table_id_fkey!inner(tournament_id)')
+          .eq('tables.tournament_id', this.tournamentId)
+          .is('left_at', null)
+          .order('id', { ascending: true })
+          .limit(limit);
+        if (cursor) query = query.gt('id', cursor);
+        return query;
+      }, options('Tournament.balance_live_seats')),
+    ]);
     if (!tablesComplete) return null;
     const ids = liveTables.map((t: { id: string }) => t.id).filter(Boolean);
     if (ids.length === 0) return [];
-    // Read every occupied table through its tournament relationship. Passing
-    // the entire table inventory in a URL would itself cap large fields.
-    const { rows: seats, complete: seatsComplete } = await fetchAllRows((cursor, limit) => {
-      let query = supabase
-        .from('table_seats')
-        .select('id, table_id, tables!table_seats_table_id_fkey!inner(tournament_id)')
-        .eq('tables.tournament_id', this.tournamentId)
-        .is('left_at', null)
-        .order('id', { ascending: true })
-        .limit(limit);
-      if (cursor) query = query.gt('id', cursor);
-      return query;
-    }, options('Tournament.balance_live_seats'));
     if (!seatsComplete) return null;
     const holding = new Set(seats.map((s: { table_id: string }) => s.table_id));
     return ids.filter((id) => holding.has(id));
