@@ -1258,17 +1258,30 @@ export const VIP_INTRO_OFFER = Object.freeze({
 });
 
 /**
- * true = the server says this account has never held a Card subscription,
- * false = it has, null = unknown. Unknown shows and confirms the regular price.
+ * The server's answer for this account, with the reason it gave when it gave
+ * one (for example 'verify_contact'). `eligible`: true = this account has
+ * never held a Card subscription, false = it has, null = unknown. A reason is
+ * only ever a short lower-case code; anything else is dropped.
  */
-export async function fetchVipIntroEligibility(
+export interface VipIntroOfferStatus {
+  eligible: boolean | null;
+  reason: string | null;
+}
+
+export async function fetchVipIntroOfferStatus(
   userId: string,
   signal?: AbortSignal
-): Promise<boolean | null> {
-  if (!isUuid(userId)) return null;
+): Promise<VipIntroOfferStatus> {
+  const unknown: VipIntroOfferStatus = { eligible: null, reason: null };
+  if (!isUuid(userId)) return unknown;
   try {
     const body = await storeFetch<{
-      introOffer?: { eligible?: unknown; firstPeriodCents?: unknown; regularCents?: unknown };
+      introOffer?: {
+        eligible?: unknown;
+        firstPeriodCents?: unknown;
+        regularCents?: unknown;
+        reason?: unknown;
+      };
     }>('/api/store/vip-membership-status', { signal, expectedUserId: userId });
     const offer = body?.introOffer;
     if (
@@ -1277,12 +1290,27 @@ export async function fetchVipIntroEligibility(
       offer.firstPeriodCents !== VIP_INTRO_OFFER.firstPeriodCents ||
       offer.regularCents !== VIP_INTRO_OFFER.regularCents
     ) {
-      return null;
+      return unknown;
     }
-    return offer.eligible;
+    const reason =
+      typeof offer.reason === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(offer.reason)
+        ? offer.reason
+        : null;
+    return { eligible: offer.eligible, reason };
   } catch {
-    return null;
+    return unknown;
   }
+}
+
+/**
+ * true = the server says this account has never held a Card subscription,
+ * false = it has, null = unknown. Unknown shows and confirms the regular price.
+ */
+export async function fetchVipIntroEligibility(
+  userId: string,
+  signal?: AbortSignal
+): Promise<boolean | null> {
+  return (await fetchVipIntroOfferStatus(userId, signal)).eligible;
 }
 
 export interface VipDiamondOfferConfirmation {
