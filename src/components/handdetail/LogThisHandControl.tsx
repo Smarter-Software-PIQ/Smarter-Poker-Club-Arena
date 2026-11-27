@@ -42,12 +42,12 @@ export interface LogThisHandControlProps {
   hidden?: boolean;
 }
 
-export function hasOpenModalInDocument(): boolean {
+function hasOpenModalInDocument(): boolean {
   if (typeof document === 'undefined') return false;
   return Boolean(document.querySelector('[aria-modal="true"], dialog[open]'));
 }
 
-export function isEditableShortcutTarget(target: EventTarget | null): boolean {
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!target || typeof target !== 'object') return false;
   const el = target as HTMLElement;
   const tag = typeof el.tagName === 'string' ? el.tagName.toUpperCase() : '';
