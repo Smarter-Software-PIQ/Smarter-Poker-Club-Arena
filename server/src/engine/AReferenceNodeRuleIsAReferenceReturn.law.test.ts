@@ -116,6 +116,12 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
       'holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced (default OFF): postflop only, heads-up NLH cash, not facing a wager; returns the decision it was given unless an option is on and a bet prices above the check (HorseHoldemOpeningIsPriced.law.test.ts)',
   },
   {
+    owner: 'holdemMultiwayOpeningPriced',
+    kind: 'postflop',
+    proof:
+      'holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced (default OFF): turn and river only, NLH cash against two or more opponents, nobody has bet the street; returns the decision it was given unless an option is on and a bet prices above the check (HorseHoldemMultiwayOpeningIsPriced.law.test.ts)',
+  },
+  {
     owner: 'holdemTournamentBluffPriced',
     kind: 'postflop',
     proof:

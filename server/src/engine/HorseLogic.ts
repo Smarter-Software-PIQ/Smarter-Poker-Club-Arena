@@ -32,6 +32,12 @@ import {
   holdemRangeAdvantage,
 } from './HorseHoldemOpeningIsPriced.js';
 import {
+  HOLDEM_MULTIWAY_OPENING_MAX_OPPONENTS,
+  holdemMultiwayOpeningBest,
+  holdemMultiwayOpeningPrice,
+  holdemMultiwayRangeAdvantage,
+} from './HorseHoldemMultiwayOpeningIsPriced.js';
+import {
   HOLDEM_PEOPLE_RIVER_RECORD_BIG_ABOVE,
   holdemPeopleRiverFold,
   holdemPeopleRiverFoldMultiplier,
@@ -6468,6 +6474,17 @@ export interface HorseDecideOpts {
    * remove more of his calling part than of his folding part (blockers) or the Horse's line range outscores his
    * (range advantage) (HorseHoldemOpeningIsPriced). Off: byte-identical. */
   holdemOpeningBluffIsPriced?: boolean;
+  /** plo-lead7 2026-11-26 (default off, read `=== true`): NLH cash, turn/river, the FIRST bet of the street against
+   * two or more opponents. A check becomes a bluff only when it prices above the check against the field's joint
+   * fold (the minimum defence shared across the field; each opponent's own record moves it by the geometric mean)
+   * AND the Horse's cards block the field's calling parts or its line range outscores every opponent's
+   * (HorseHoldemMultiwayOpeningIsPriced). Off: byte-identical. */
+  holdemMultiwayOpeningBluffIsPriced?: boolean;
+  /** plo-lead7 2026-11-26 (default off, read `=== true`): NLH cash, turn/river, the FIRST bet of the street against
+   * two or more opponents. A check becomes a value bet when the chips the callers add are won on balance (the share
+   * of the joint calling range the hand beats) and the bet prices above the check
+   * (HorseHoldemMultiwayOpeningIsPriced). Off: byte-identical. */
+  holdemMultiwayOpeningValueBetIsPriced?: boolean;
   /** PLO-OWNER + Hold'em owner lead-8 2026-11-27 (daily real-hand audits, NLH cash against people: missed river
    * bluffs are the top Hold'em chip leak; people fold 49% of heads-up river first bets where equilibrium folds 38%):
    * opt-in (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, river, not facing a wager:
@@ -19281,6 +19298,13 @@ export class HorseLogic {
           opts.holdemRiverBluffIsPricedOnPeople === true
         )
           decision = this.holdemOpeningPriced(decision, player, gs, vi, opts);
+        // holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced (default off): the first bet of
+        // the turn or river against two or more opponents priced.
+        if (
+          opts.holdemMultiwayOpeningBluffIsPriced === true ||
+          opts.holdemMultiwayOpeningValueBetIsPriced === true
+        )
+          decision = this.holdemMultiwayOpeningPriced(decision, player, gs, vi, opts);
         // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
         if (
           opts.holdemTournamentRiverBluffIsPriced === true ||
@@ -36384,6 +36408,168 @@ export class HorseLogic {
       return decision;
     } catch {
       if (tele) noteFire('holdem_opening_priced_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced (plo-lead7 2026-11-26, both default
+   * off, read `=== true`): NLH cash (table and Lightning), one board, turn or river, two or more opponents, nobody
+   * has bet the street. The brain's check becomes a bet when the bet prices above the check against the FIELD
+   * (HorseHoldemMultiwayOpeningIsPriced): every opponent must fold for a bluff to win, the field's joint fold is the
+   * minimum defence shared across it (no record: the bettor's break-even) moved by each opponent's own record; a
+   * value bet when the chips the callers add are won on balance; a bluff only when blockers or the range advantage
+   * over every opponent are the Horse's. Never the Horse population. Draws nothing from fastRandom.
+   */
+  private static holdemMultiwayOpeningPriced(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const valueOn = opts.holdemMultiwayOpeningValueBetIsPriced === true;
+    const bluffOn = opts.holdemMultiwayOpeningBluffIsPriced === true;
+    if (!valueOn && !bluffOn) return decision;
+    const street = gs.stage;
+    if (street !== 'turn' && street !== 'river') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    if (decision.action !== 'check') return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length < 2 || live.length > HOLDEM_MULTIWAY_OPENING_MAX_OPPONENTS) return decision;
+    const tele = telemetryOn(opts);
+    try {
+      const board = gs.communityCards ?? [];
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      // the first bet of the street: nobody has wagered, and everyone can still fold or call
+      if (Math.max(0, Number(gs.currentBet ?? 0)) > 1e-9 || heroIn > 1e-9) return decision;
+      if (live.some((p) => Math.max(0, Number(p.bet ?? 0)) > 1e-9)) return decision;
+      if (live.some((p) => p.is_all_in || !(Number(p.stack ?? 0) > 0))) return decision;
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      if (!(heroStack > 0)) return decision;
+      const canWager = !Array.isArray(gs.legalActions)
+        ? true
+        : gs.legalActions.some((x) => x === 'raise' || x === 'bet' || x === 'all_in');
+      if (!canWager) return decision;
+      const scope = readScopeOf('nlh', dealtHorseTableSize(gs, player.seat));
+      const field = live.map((opp) => {
+        const counters =
+          opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+        // his own fold record first (the river response record on the river), shrunk to the equilibrium anchor
+        const riverOpps = counters?.riverCallOpp ?? 0;
+        const foldRef =
+          street === 'river' && riverOpps > 0
+            ? holdemOpeningFoldReference(riverOpps - (counters?.riverCall ?? 0), riverOpps)
+            : holdemOpeningFoldReference(counters?.foldToBet ?? 0, counters?.foldToBetOpp ?? 0);
+        const betShare = holdemOpeningBetShare(
+          counters?.betCheckedTo ?? 0,
+          counters?.betCheckedToOpp ?? 0
+        );
+        const { range: base } = this.holdemPricedLineRead(opp, player, [], gs, foldRef, betShare);
+        return { base, foldRef, in: 0, stack: Math.max(0, Number(opp.stack ?? 0)) };
+      });
+      if (field.some((o) => !(o.base.total > 0))) {
+        if (tele) noteFire('holdem_multiway_opening_unpriced');
+        return decision;
+      }
+      const order = (seat: number) => {
+        const d = (seat - Number(gs.dealerSeat ?? 0) + 100) % 100;
+        return d === 0 ? 100 : d;
+      };
+      const actsLast = live.every((p) => order(player.seat) > order(p.seat));
+      const r = street === 'river' || actsLast ? 1 : HOLDEM_PRICED_REALIZATION_OOP;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const deepest = Math.max(...field.map((o) => o.stack));
+      const legal = new Map<number, HorseDecision>();
+      const targets = holdemPricedWagerTargets({
+        street: street as 'turn' | 'river',
+        pot,
+        currentBet: 0,
+        heroIn: 0,
+        villainIn: 0,
+        heroStack,
+        villainStack: deepest,
+        inPosition: actsLast,
+        villainToAct: false,
+        foldAtReference: HOLDEM_OPENING_FOLD_ANCHOR,
+        betWhenCheckedTo: HOLDEM_OPENING_BET_SHARE_ANCHOR,
+        bluffShare: 0,
+        heroMade: true,
+      });
+      for (const target of targets) {
+        const d = this.legalize({ action: 'bet', amount: target, thinkTime: 0 }, player, gs, vi);
+        const to =
+          d.action === 'raise' || d.action === 'bet'
+            ? Number(d.amount)
+            : d.action === 'all_in'
+              ? heroStack
+              : NaN;
+        if (Number.isFinite(to) && to > 0 && !legal.has(to)) legal.set(to, d);
+      }
+      const priced = holdemMultiwayOpeningPrice(
+        { pot, heroIn: 0, heroStack, r },
+        player.cards,
+        board,
+        field,
+        [...legal.keys()].sort((x, y) => x - y)
+      );
+      if (!priced) {
+        if (tele) noteFire('holdem_multiway_opening_unpriced');
+        return decision;
+      }
+      const thinkTime = decision.thinkTime ?? 0;
+      const value = holdemMultiwayOpeningBest(priced.bets, true);
+      if (valueOn && value && value.ev > priced.check + 1e-9) {
+        if (tele) noteFire('holdem_multiway_opening_value_bet');
+        return { ...(legal.get(value.to) as HorseDecision), thinkTime };
+      }
+      // a bluff is a hand with no value size at all (a hand that has one is the value option's, bet or not)
+      if (bluffOn && !value) {
+        const bluff = holdemMultiwayOpeningBest(priced.bets, false);
+        if (bluff && bluff.ev > priced.check + 1e-9) {
+          let edge = bluff.fold > bluff.foldBase + 1e-9;
+          if (!edge) {
+            const { range: mine } = this.holdemPricedLineRead(
+              player,
+              live[0],
+              [],
+              gs,
+              HOLDEM_OPENING_FOLD_ANCHOR,
+              HOLDEM_OPENING_BET_SHARE_ANCHOR
+            );
+            edge =
+              mine.total > 0 &&
+              holdemMultiwayRangeAdvantage(
+                mine,
+                field.map((o) => o.base),
+                board
+              ) > 0.5;
+          }
+          if (edge) {
+            if (tele) noteFire('holdem_multiway_opening_bluff_bet');
+            return { ...(legal.get(bluff.to) as HorseDecision), thinkTime };
+          }
+          if (tele) noteFire('holdem_multiway_opening_bluff_no_edge');
+        }
+      }
+      return decision;
+    } catch {
+      if (tele) noteFire('holdem_multiway_opening_unpriced');
       return decision;
     }
   }

@@ -79,6 +79,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   holdemRiverBluffIsPricedOnPeople: 'engine/aHoldemRiverBluffIsPricedOnPeople.law.test.ts',
   holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
+  holdemMultiwayOpeningBluffIsPriced: 'engine/aHoldemMultiwayOpeningPriceIsFast.law.test.ts',
+  holdemMultiwayOpeningValueBetIsPriced: 'engine/aHoldemMultiwayOpeningPriceIsFast.law.test.ts',
 });
 
 /** Option -> why it cannot add a decision cost worth a law. */

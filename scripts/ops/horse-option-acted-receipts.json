@@ -2468,6 +2468,30 @@
       "prefixes": [],
       "unlessOn": ["holdemOpeningValueBetIsPriced"]
     },
+    "holdemMultiwayOpeningBluffIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_multiway_opening_bluff_bet",
+        "holdem_multiway_opening_bluff_no_edge",
+        "holdem_multiway_opening_unpriced",
+        "holdem_multiway_opening_value_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemMultiwayOpeningValueBetIsPriced"]
+    },
+    "holdemMultiwayOpeningValueBetIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_multiway_opening_bluff_bet",
+        "holdem_multiway_opening_bluff_no_edge",
+        "holdem_multiway_opening_unpriced",
+        "holdem_multiway_opening_value_bet"
+      ],
+      "prefixes": [],
+      "unlessOn": ["holdemMultiwayOpeningBluffIsPriced"]
+    },
     "holdemRiverBluffIsPricedOnPeople": {
       "releaseDefault": "off",
       "source": "ledger",
