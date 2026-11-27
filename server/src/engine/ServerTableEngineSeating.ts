@@ -1028,6 +1028,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       const genAtStart = this.pendingAddOnSweepGen;
       const beforeStack = new Map(players.map((player) => [player.user_id, Number(player.stack)]));
       let receipt: ExactPendingAddOnReceipt | null = null;
+      let completedAttempt = 0;
       let lastError: unknown = null;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
@@ -1062,6 +1063,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         }
         if (!error) {
           receipt = (data ?? null) as ExactPendingAddOnReceipt | null;
+          completedAttempt = attempt;
           break;
         }
         lastError = error;
@@ -1089,15 +1091,27 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
 
       const rows = Array.isArray(receipt.rows) ? receipt.rows : null;
       if (
+        !rows ||
         receipt.table_id !== this.tableId ||
         receipt.lease_generation?.toLowerCase() !== authority.generation.toLowerCase() ||
         !Number.isSafeInteger(Number(receipt.resolved)) ||
-        Number(receipt.resolved) !== rows?.length
+        Number(receipt.resolved) !== rows.length
       ) {
         const error = new Error('Exact pending add-on resolver returned a malformed receipt');
         reportError(error, `ServerTableEngine.${this.tableId}.pending_addon_exact_malformed`);
         this.killForRestart('pending_addon_exact_malformed');
         throw error;
+      }
+
+      /* First attempt succeeded cleanly with zero rows resolved: no lost-response
+         retry happened and Postgres proved zero stacks changed, so skip the
+         redundant serial table_seats RTT. Whenever rows were resolved OR a retry
+         ran (completedAttempt > 1, where attempt 1 may have committed before its
+         HTTP response was lost), re-read absolute seat truth from table_seats. */
+      if (completedAttempt === 1 && rows.length === 0) {
+        this.pendingAddOns.clear();
+        if (this.pendingAddOnSweepGen === genAtStart) this.pendingAddOnSweepNeeded = false;
+        return;
       }
 
       /* A committed response may have been lost before the identical retry.
