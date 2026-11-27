@@ -444,6 +444,36 @@ describe('a missed merge window is paged (2026-11-26)', () => {
     expect(windowVerdict(win, [])).toBe('not-needed');
   });
 
+  it('a draft is never a witness: a window is not called missed because sampled drafts stayed held', () => {
+    // 2026-11-27: the keeper never opens a draft. Its status is DRAFT_HELD, or an
+    // older "Migrations merge" text it has not rewritten yet; either way it never
+    // turns green, and three such samples would have paged a held window as missed.
+    const draft = (number: number, description: string) => ({
+      number,
+      isDraft: true,
+      statuses: [status('failure', description, '2026-11-26T22:27:46Z')],
+    });
+    const ready = {
+      number: 2303,
+      isDraft: false,
+      statuses: [
+        status('success', 'Install window open: merge before 7:27 PM CST', '2026-11-27T01:11:19Z'),
+        before,
+      ],
+    };
+    const drafts = [draft(1, DRAFT_HELD), draft(2, before.description), draft(3, DRAFT_HELD)];
+    expect(windowVerdict(win, drafts)).toBe('not-needed');
+    expect(windowVerdict(win, [...drafts, ready])).toBe('held');
+    // A ready pull request that stayed held still says missed, drafts or not.
+    expect(windowVerdict(win, [...drafts, { number: 9, isDraft: false, statuses: [before] }])).toBe(
+      'missed'
+    );
+    const watch = read('scripts/ci/merge-window-watch.mjs');
+    expect(/^(Install window open|Migrations merge|Release controls merge|Outage override)/.test(DRAFT_HELD)).toBe(false);
+    expect(watch).toContain('nodes{ number isDraft commits(last:1)');
+    expect(watch).toContain('.filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(');
+  });
+
   it('fires one fleet-addressed episode for a missed window and resolves it on the next held one', () => {
     const fire = watchDecide('missed', win, undefined);
     expect(fire.action).toBe('fire');
