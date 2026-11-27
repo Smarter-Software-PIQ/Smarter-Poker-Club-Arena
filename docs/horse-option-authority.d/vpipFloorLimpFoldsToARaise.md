@@ -1,6 +1,6 @@
 # vpipFloorLimpFoldsToARaise: authority for the live switch
 
-Evidence for switching this option on: **Evidence MET for the owner ruling it enforces; chips neutral** (2026-11-27, PLO-OWNER lead-8 lane preflop). The option is not a chips gain and does not claim one: it makes the owner's ruling hold. The rule it enforces (a floor limp, raised, never calls and never re-raises) is proven on real production nodes and on built tables of every floored game; off is byte for byte the decision it was; the cost is nil; the chips grades below are inside noise (the calls it removes neither won nor lost measurably). Default OFF in source (read `=== true`). Nothing in this change switches anything.
+**State: LIVE ON since audit #206, 2026-11-27T16:31:28Z.** Evidence for switching this option on: **Evidence MET for the owner ruling it enforces; chips neutral** (2026-11-27, PLO-OWNER lead-8 lane preflop). The option is not a chips gain and does not claim one: it makes the owner's ruling hold. The rule it enforces (a floor limp, raised, never calls and never re-raises) is proven on real production nodes and on built tables of every floored game; off is byte for byte the decision it was; the cost is nil; the chips grades below are inside noise (the calls it removes neither won nor lost measurably). Default OFF in source (read `=== true`). Nothing in this change switches anything.
 
 ## The owner's orders it rests on (verbatim)
 

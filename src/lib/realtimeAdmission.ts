@@ -9,18 +9,125 @@ interface RealtimeOwner {
   isConnected(): boolean;
 }
 
+function createRefusedSocket(url: string | URL, error: Error): WebSocket {
+  const listeners = new Map<string, Set<(event: Event) => void>>();
+  const emit = (type: string, event: Event) => {
+    const handler = (facade as Record<string, unknown>)[`on${type}`];
+    if (typeof handler === 'function') {
+      try {
+        (handler as (e: Event) => void).call(facade, event);
+      } catch {
+        /* ignore degraded handler errors */
+      }
+    }
+    const set = listeners.get(type);
+    if (set) {
+      for (const fn of [...set]) {
+        try {
+          fn.call(facade, event);
+        } catch {
+          /* ignore degraded listener errors */
+        }
+      }
+    }
+  };
+  const facade: Record<string, unknown> = {
+    CONNECTING: 0,
+    OPEN: 1,
+    CLOSING: 2,
+    CLOSED: 3,
+    readyState: 3,
+    url: String(url),
+    protocol: '',
+    extensions: '',
+    bufferedAmount: 0,
+    binaryType: 'blob',
+    timeout: 0,
+    onopen: null,
+    onerror: null,
+    onmessage: null,
+    onclose: null,
+    addEventListener(type: string, fn: (event: Event) => void) {
+      if (typeof fn !== 'function') return;
+      let set = listeners.get(type);
+      if (!set) {
+        set = new Set();
+        listeners.set(type, set);
+      }
+      set.add(fn);
+    },
+    removeEventListener(type: string, fn: (event: Event) => void) {
+      listeners.get(type)?.delete(fn);
+    },
+    dispatchEvent(event: Event) {
+      emit(event.type, event);
+      return true;
+    },
+    send() {},
+    close() {},
+  };
+  queueMicrotask(() => {
+    emit('error', {
+      type: 'error',
+      message: error.message,
+      error,
+      target: facade,
+    } as unknown as Event);
+    emit('close', {
+      type: 'close',
+      code: 1000,
+      reason: 'WebSocket unavailable',
+      wasClean: true,
+      target: facade,
+    } as unknown as Event);
+  });
+  return facade as unknown as WebSocket;
+}
+
 export class RealtimeAdmission {
   readonly transport: typeof WebSocket;
   private socket: WebSocket | null = null;
   private observers = new Set<(error?: Error) => void>();
   private readinessObservers = new Set<() => void>();
+  private warnedRefusal = false;
 
   constructor(NativeSocket?: typeof WebSocket) {
     // The supported custom transport returns the native socket. Event listeners
     // observe it; the SDK still owns onopen/onclose and reconnect/heartbeat.
+    // If the browser refuses `new WebSocket(...)` synchronously (restricted
+    // environments, SecurityError, invalid URL), degrade to a closed facade
+    // rather than crashing the calling React effect.
     const createSocket = (url: string | URL, protocols?: string | string[]) => {
       const Socket = NativeSocket ?? globalThis.WebSocket;
-      const socket = new Socket(url, protocols);
+      let socket: WebSocket;
+      if (typeof Socket !== 'function') {
+        const err = new Error('WebSocket constructor is not available in this runtime');
+        if (!this.warnedRefusal) {
+          this.warnedRefusal = true;
+          console.warn('[Realtime] WebSocket unavailable; degrading cleanly:', err.message);
+        }
+        socket = createRefusedSocket(url, err);
+        this.socket = socket;
+        queueMicrotask(() => {
+          if (this.socket === socket) this.notify(err);
+        });
+        return socket;
+      }
+      try {
+        socket = protocols === undefined ? new Socket(url) : new Socket(url, protocols);
+      } catch (thrown) {
+        const err = thrown instanceof Error ? thrown : new Error('WebSocket unavailable');
+        if (!this.warnedRefusal) {
+          this.warnedRefusal = true;
+          console.warn('[Realtime] WebSocket unavailable; degrading cleanly:', err.message);
+        }
+        socket = createRefusedSocket(url, err);
+        this.socket = socket;
+        queueMicrotask(() => {
+          if (this.socket === socket) this.notify(err);
+        });
+        return socket;
+      }
       this.socket = socket;
       socket.addEventListener('open', () => {
         if (this.socket !== socket) return;

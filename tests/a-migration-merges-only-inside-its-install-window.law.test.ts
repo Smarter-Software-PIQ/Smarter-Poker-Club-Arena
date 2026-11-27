@@ -45,8 +45,17 @@ import {
   PREFETCH_LEAD_MS,
   publish,
   publishOrder,
+  prepare,
   pushAction,
+  GH_RETRY_DELAYS_MS,
+  KEEPER_CLOSE_GRACE_MINUTES,
+  KEEPER_HORIZON_MINUTES,
+  KEEPER_MAX_MINUTES,
+  TRANSIENT_GH_ERROR,
+  ghRunner,
   keep,
+  passClean,
+  sweep,
 } from '../scripts/ci/migration-merge-window.mjs';
 import { releaseFreezeAdmission } from '../scripts/ci/release-freeze-admission.mjs';
 import {
@@ -155,9 +164,11 @@ describe('a migration merges only inside its install window', () => {
   it('no window depends on the schedule: a held run closes its own window, for one pull request or all', async () => {
     const src = read('scripts/ci/migration-merge-window.mjs');
     expect(src).toContain('export async function keep({ repo, number = null,');
-    expect(src).toContain('write(prepared, { repo, now, cadence, targetUrl, log });');
-    expect(src).toMatch(
-      /if \(t >= closes \|\| t - started > KEEPER_MAX_MINUTES \* MINUTE\) break;/
+    expect(src).toContain('prepared = read({ repo, number });');
+    expect(src).toContain('clean = passClean(write(prepared, { repo, now, cadence, targetUrl, log }));');
+    expect(src).toContain('if (t >= closes && clean) {');
+    expect(src).toContain(
+      'if (t - started > (KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * MINUTE) {'
     );
   });
 
@@ -593,5 +604,165 @@ describe('the window opens on time (2026-11-27)', () => {
     expect(wf.concurrency['cancel-in-progress']).toBe(
       "${{ github.event_name == 'pull_request_target' }}"
     );
+  });
+});
+
+// 2026-11-27 7:23 AM CST: a keeper died on one 'gh: HTTP 504' reading its first
+// page. Had it been the only keeper, the 7:10 window would have stayed green past
+// 7:27 and a migration could have merged outside its install window.
+describe('one GitHub hiccup never ends a pass or leaves a window open (2026-11-27)', () => {
+  const REPO = 'o/r';
+  const pr = (number: number) => ({
+    number,
+    state: 'OPEN',
+    headRefOid: `${String(number).padStart(4, '0')}${'a'.repeat(36)}`,
+    baseRefName: 'main',
+    body: '',
+    labels: { nodes: [] },
+    files: { totalCount: 1, nodes: [{ path: 'src/x.ts', changeType: 'MODIFIED' }] },
+    commits: { nodes: [{ commit: { status: { contexts: [] } } }] },
+  });
+  const page = (nums: number[]) =>
+    JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: nums.map(pr) },
+        },
+      },
+    });
+
+  function withRunner(exec: (args: string[]) => string, body: (pauses: number[]) => unknown) {
+    const real = { exec: ghRunner.exec, pause: ghRunner.pause };
+    const pauses: number[] = [];
+    ghRunner.exec = exec as typeof ghRunner.exec;
+    ghRunner.pause = (ms: number) => void pauses.push(ms);
+    try {
+      return body(pauses);
+    } finally {
+      ghRunner.exec = real.exec;
+      ghRunner.pause = real.pause;
+    }
+  }
+  const isRead = (args: string[]) => args[1] === 'graphql';
+  const isWrite = (args: string[]) => args.includes('POST');
+  const fail = (msg: string) =>
+    Object.assign(new Error(`Command failed: gh\n${msg}`), { stderr: msg });
+
+  it('the keeper stops itself before the runner would kill it', () => {
+    const wf = parse(read('.github/workflows/migration-merge-window.yml'));
+    const limit = Number(wf.jobs['merge-window']['timeout-minutes']);
+    expect(KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES).toBeLessThan(limit);
+    // Opened up to the horizon early, a window still closes with retry time left.
+    expect(KEEPER_HORIZON_MINUTES + 17 + 3).toBeLessThanOrEqual(
+      KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES
+    );
+  });
+
+  it('retries only what GitHub calls transient', () => {
+    for (const t of [
+      'gh: HTTP 504',
+      'HTTP 502: Bad Gateway',
+      'You have exceeded a secondary rate limit',
+      'read: connection reset by peer',
+    ])
+      expect(TRANSIENT_GH_ERROR.test(t)).toBe(true);
+    for (const t of ['gh: HTTP 422', 'HTTP 404: Not Found', 'HTTP 401: Bad credentials'])
+      expect(TRANSIENT_GH_ERROR.test(t)).toBe(false);
+    expect(GH_RETRY_DELAYS_MS.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a 504 on the page read is retried and the pass completes', () => {
+    let reads = 0;
+    const results = withRunner(
+      (args) => {
+        if (isRead(args) && ++reads === 1) throw fail('gh: HTTP 504');
+        return isRead(args) ? page([1, 2]) : '{}';
+      },
+      (pauses) => {
+        const r = sweep({
+          repo: REPO,
+          nowMs: Date.parse('2026-11-26T19:15:00Z'),
+          cadence: C,
+          log: () => {},
+        });
+        expect(pauses).toEqual([GH_RETRY_DELAYS_MS[0]]);
+        return r;
+      }
+    ) as { number: number; writeFailed: boolean }[];
+    expect(reads).toBe(2);
+    expect(results.map((r) => r.number)).toEqual([1, 2]);
+    expect(passClean(results)).toBe(true);
+  });
+
+  it('one refused status write skips that pull request, never the rest of the pass', () => {
+    const written: string[] = [];
+    const results = withRunner(
+      (args) => {
+        if (isRead(args)) return page([11, 12, 13]);
+        if (isWrite(args)) {
+          const target = args.find((a) => a.startsWith('repos/')) ?? '';
+          if (target.includes('/0012')) throw fail('gh: HTTP 422');
+          written.push(target);
+        }
+        return '{}';
+      },
+      () =>
+        sweep({ repo: REPO, nowMs: Date.parse('2026-11-26T19:15:00Z'), cadence: C, log: () => {} })
+    ) as { number: number; writeFailed: boolean }[];
+    expect(results.map((r) => [r.number, r.writeFailed])).toEqual([
+      [11, false],
+      [12, true],
+      [13, false],
+    ]);
+    expect(written).toHaveLength(2);
+    expect(passClean(results)).toBe(false);
+  });
+
+  it('the keeper outlives a dead pass and does not stop until a closing pass is clean', async () => {
+    // 13:00 CST cycle: window 13:10-13:27 CST = 19:10-19:27Z. The clock moves
+    // only when the keeper sleeps; each read is one pass.
+    let clock = Date.parse('2026-11-26T19:15:00Z');
+    const CLOSES = Date.parse('2026-11-26T19:27:00Z');
+    const passes: { at: number; failed: boolean }[] = [];
+    const real = { exec: ghRunner.exec, pause: ghRunner.pause };
+    ghRunner.pause = () => {};
+    let failing = false;
+    ghRunner.exec = ((args: string[]) => {
+      if (isRead(args)) {
+        if (failing) throw fail('gh: HTTP 504');
+        return page([21]);
+      }
+      return '{}';
+    }) as typeof ghRunner.exec;
+    let kept: unknown;
+    try {
+      kept = await keep({
+        repo: REPO,
+        cadence: C,
+        now: () => clock,
+        sleep: async (ms: number) => {
+          clock += ms;
+        },
+        log: () => {},
+        read: (opts: { repo: string; number: number | null }) => {
+          // Pass 2 (mid-window) and the first closing pass fail even after every retry.
+          const n = passes.length + 1;
+          // A read within the prefetch lead of the close feeds the first closing write.
+          const closingRead = clock >= CLOSES - PREFETCH_LEAD_MS;
+          failing = n === 2 || (closingRead && !passes.some((p) => p.at >= CLOSES - PREFETCH_LEAD_MS));
+          passes.push({ at: clock, failed: failing });
+          return prepare(opts);
+        },
+      });
+    } finally {
+      ghRunner.exec = real.exec;
+      ghRunner.pause = real.pause;
+    }
+    expect(kept).toBe(true);
+    expect(passes[1].failed).toBe(true);
+    const closing = passes.filter((p) => p.at >= CLOSES - PREFETCH_LEAD_MS);
+    expect(closing.length).toBeGreaterThanOrEqual(2);
+    expect(closing[0].failed).toBe(true);
+    expect(closing[closing.length - 1].failed).toBe(false);
   });
 });

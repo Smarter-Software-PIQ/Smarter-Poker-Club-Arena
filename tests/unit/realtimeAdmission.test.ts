@@ -421,3 +421,56 @@ it('transport-open observation resumes after the SDK handler and cancels queued 
   await vi.advanceTimersByTimeAsync(0);
   expect(observer).not.toHaveBeenCalled();
 });
+
+describe('refused or missing WebSocket constructor never crashes callers', () => {
+  const PROD_ERROR =
+    "Failed to construct 'WebSocket': Failed to create a WebSocket: the provided URL is invalid.";
+
+  class ThrowingWebSocket {
+    constructor() {
+      throw new DOMException(PROD_ERROR, 'SyntaxError');
+    }
+  }
+
+  it('reproduces the synchronous SDK throw without RealtimeAdmission, and degrades cleanly with it', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Baseline: raw RealtimeClient with a throwing WebSocket crashes channel.subscribe() synchronously.
+      const unguarded = new RealtimeClient('wss://fixture.invalid/realtime/v1', {
+        params: { apikey: 'synthetic-publishable-fixture' },
+        transport: ThrowingWebSocket as unknown as typeof WebSocket,
+      });
+      clients.push(unguarded);
+      expect(() => unguarded.channel('unguarded-table').subscribe()).toThrow(
+        /Failed to construct 'WebSocket'/
+      );
+
+      // Hardened: RealtimeAdmission catches the constructor throw and degrades cleanly.
+      const admission = new RealtimeAdmission(ThrowingWebSocket as unknown as typeof WebSocket);
+      const client = new RealtimeClient('wss://fixture.invalid/realtime/v1', {
+        params: { apikey: 'synthetic-publishable-fixture' },
+        transport: admission.transport,
+        accessToken: async () => syntheticToken,
+      });
+      clients.push(client);
+
+      const statuses: string[] = [];
+      let ch: ReturnType<typeof client.channel> | undefined;
+      expect(() => {
+        ch = client.channel('hardened-table').subscribe((status) => statuses.push(status));
+      }).not.toThrow();
+      expect(ch).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(statuses.some((s) => s === 'CHANNEL_ERROR' || s === 'CLOSED')).toBe(true);
+
+      // admission.ready() must reject immediately on constructor refusal rather than hanging 20s.
+      const controller = new AbortController();
+      const err = await admission.ready(client, controller.signal).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});

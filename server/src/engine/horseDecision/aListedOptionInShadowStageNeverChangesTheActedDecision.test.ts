@@ -253,7 +253,12 @@ import {
   optionShadowStageDirection,
   optionShadowStageGameOf,
   optionShadowStageInScope,
+  optionShadowStageIsLightning,
+  optionShadowStageOptionSkipKeys,
+  optionShadowStagePloDirectionKeys,
+  optionShadowStagePloSize,
   optionShadowStageWallOnlySlow,
+  OPTION_SHADOW_STAGE_MAX_ROWS,
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import { OPTION_SWITCH_REGISTRY } from '../HorseOptionSwitch.js';
@@ -786,17 +791,288 @@ describe("hold'em options in the stage (2026-11-24): NLH cash, Lightning and tou
     expect(shadowKeys(same.features).filter((k) => k.includes('_dir_'))).toEqual([]);
   });
 
-  it('a PLO staged re-decision counts no direction (its counters are those it counted before)', async () => {
+  it('a PLO staged re-decision counts its direction and its street x size cell (2026-11-27); a same answer none', async () => {
+    const request = fastRequest(plo4With('person'));
     const shadow = await run(
-      [fastRequest(plo4With('person'))],
+      [request],
       scripted(STAGED, true, CALL, RAISE),
       { [STAGED]: 'shadow' },
       stage()
     );
-    expect(shadowKeys(shadow.features).filter((k) => k.includes('_dir_'))).toEqual([]);
+    expect(
+      shadowKeys(shadow.features).filter((k) => k.includes('_dir_') || k.includes('_cell_'))
+    ).toEqual([
+      `option_shadow_${STAGED}_dir_call_to_raise_seen`,
+      `option_shadow_${STAGED}_dir_call_to_raise_person_seen`,
+      `option_shadow_${STAGED}_cell_preflop_any_call_to_raise_seen`,
+      `option_shadow_${STAGED}_cell_preflop_any_call_to_raise_person_seen`,
+    ]);
+    // a table decision is not a Lightning one: no fmt_l_ copy
+    expect(shadow.features.filter((k) => k.startsWith('fmt_l_option_shadow_'))).toEqual([]);
     expect(
       shadow.latency.filter(([s]) => s === 'option_shadow_stage_redecide_game_plo4')
     ).toHaveLength(1);
+    // PER-OPTION STAGE COUNTERS: its own time scope
+    expect(
+      shadow.latency.filter(([s]) => s === `option_shadow_stage_redecide_opt_${STAGED}`)
+    ).toHaveLength(1);
+    const same = await run(
+      [request],
+      scripted(STAGED, true, CALL, CALL),
+      { [STAGED]: 'shadow' },
+      stage()
+    );
+    expect(same.features).toContain(`option_shadow_${STAGED}_same_seen`);
+    expect(
+      shadowKeys(same.features).filter((k) => k.includes('_dir_') || k.includes('_cell_'))
+    ).toEqual([]);
+  });
+
+  it('a Lightning PLO staged re-decision counts every receipt counter again under fmt_l_ (2026-11-27)', async () => {
+    const s = plo4With('person');
+    (
+      s.gameState as unknown as { publicMemoryDomain?: Record<string, unknown> }
+    ).publicMemoryDomain = {
+      ...((s.gameState as unknown as { publicMemoryDomain?: Record<string, unknown> })
+        .publicMemoryDomain ?? {}),
+      speed: 'lightning',
+    };
+    const plain = await run([fastRequest(s)], scripted(STAGED, true, CALL, RAISE), null, stage());
+    const shadow = await run(
+      [fastRequest(s)],
+      scripted(STAGED, true, CALL, RAISE),
+      { [STAGED]: 'shadow' },
+      stage()
+    );
+    expect(comparable(shadow.fasts[0]!)).toBe(comparable(plain.fasts[0]!));
+    expect(shadow.features.filter((k) => k.startsWith('fmt_l_option_shadow_'))).toEqual([
+      `fmt_l_option_shadow_${STAGED}_changed_seen`,
+      `fmt_l_option_shadow_${STAGED}_changed_person_seen`,
+      `fmt_l_option_shadow_${STAGED}_dir_call_to_raise_seen`,
+      `fmt_l_option_shadow_${STAGED}_dir_call_to_raise_person_seen`,
+      `fmt_l_option_shadow_${STAGED}_cell_preflop_any_call_to_raise_seen`,
+      `fmt_l_option_shadow_${STAGED}_cell_preflop_any_call_to_raise_person_seen`,
+    ]);
+  });
+
+  it('the size cell a PLO decision faced: public actions, street bets and the pot only', () => {
+    const seat = (seatNo: number, bet: number) => ({ seat: seatNo, bet });
+    const gs = (
+      stage: string,
+      bets: Array<[number, number]>,
+      pot: number,
+      history: Array<{ stage: string; seat: number; action: string; amount: number }>
+    ) => ({ stage, pot, players: bets.map(([a, b]) => seat(a, b)), actionHistory: history });
+    const hero = seat(1, 0);
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'preflop',
+          [
+            [1, 0],
+            [2, 40],
+          ],
+          60,
+          []
+        )
+      )
+    ).toBe('any');
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 0],
+          ],
+          100,
+          []
+        )
+      )
+    ).toBe('unopened');
+    // pot 100 before a 30 bet: the pot now 130
+    const bet = (amount: number) => [{ stage: 'turn', seat: 2, action: 'bet', amount }];
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 30],
+          ],
+          130,
+          bet(30)
+        )
+      )
+    ).toBe('facing_lt40');
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 50],
+          ],
+          150,
+          bet(50)
+        )
+      )
+    ).toBe('facing_40to70');
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 70],
+          ],
+          170,
+          bet(70)
+        )
+      )
+    ).toBe('facing_70plus');
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 120],
+          ],
+          220,
+          bet(120)
+        )
+      )
+    ).toBe('facing_70plus');
+    expect(
+      optionShadowStagePloSize(
+        seat(1, 30),
+        gs(
+          'turn',
+          [
+            [1, 30],
+            [2, 120],
+          ],
+          250,
+          [
+            { stage: 'turn', seat: 1, action: 'bet', amount: 30 },
+            { stage: 'turn', seat: 2, action: 'raise', amount: 120 },
+          ]
+        )
+      )
+    ).toBe('facing_raise');
+    // the street's actions do not reproduce the bets on the table
+    expect(
+      optionShadowStagePloSize(
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 70],
+          ],
+          170,
+          bet(50)
+        )
+      )
+    ).toBe('facing_unread');
+    expect(optionShadowStagePloSize(null, null)).toBe('unopened');
+    expect(optionShadowStagePloSize(hero, { stage: 'river', players: 7 })).toBe('facing_unread');
+    const receipt = (changed: boolean) => ({
+      option: 'o',
+      changed,
+      personDealt: false,
+      street: 'turn',
+      actual: { action: 'fold' },
+      would: { action: 'call' },
+    });
+    expect(
+      optionShadowStagePloDirectionKeys(
+        receipt(true),
+        hero,
+        gs(
+          'turn',
+          [
+            [1, 0],
+            [2, 70],
+          ],
+          170,
+          bet(70)
+        )
+      )
+    ).toEqual([
+      'option_shadow_o_dir_fold_to_call_seen',
+      'option_shadow_o_cell_turn_facing_70plus_fold_to_call_seen',
+    ]);
+    expect(optionShadowStagePloDirectionKeys(receipt(false), hero, null)).toEqual([]);
+    expect(optionShadowStageIsLightning({ publicMemoryDomain: { speed: 'lightning' } })).toBe(true);
+    expect(
+      optionShadowStageIsLightning({
+        gameMode: 'tournament',
+        publicMemoryDomain: { speed: 'lightning' },
+      })
+    ).toBe(false);
+    expect(optionShadowStageIsLightning(null)).toBe(false);
+    expect(optionShadowStageOptionSkipKeys('o', 'backlog', true)).toEqual([
+      'option_shadow_o_stage_skipped_backlog_seen',
+      'option_shadow_o_stage_skipped_backlog_person_seen',
+    ]);
+  });
+
+  it('THREE rows in shadow (2026-11-27): each decision re-decides at most one, the acted decisions are those of no row, and every counter names its option', async () => {
+    const OPTS = [
+      STAGED,
+      'omahaReraisedPotCallIsPriced',
+      'omahaReraisedPotReraiseIsPriced',
+    ] as const;
+    expect(OPTS.length).toBe(OPTION_SHADOW_STAGE_MAX_ROWS);
+    const table: OptionShadowStageTable = Object.fromEntries(
+      OPTS.map((o) => [o, { games: [4, 5] }])
+    );
+    const anyOn: Decide = (_p, _g, _s, _m, o = {}) => {
+      fastRandom();
+      fastRandom();
+      return { ...(OPTS.some((x) => (o as Record<string, unknown>)[x] === true) ? RAISE : CALL) };
+    };
+    // 24 decisions with distinct decision keys (the pick hashes the key; the key reads the decision hour)
+    const requests = Array.from({ length: 24 }, (_, i) => {
+      const r = {
+        ...fastRequest(plo4With('person'), i + 1),
+        decisionTimeMs: DECISION_TIME_MS + i * 3_600_000,
+      };
+      return { ...r, decisionKey: buildHorseDecisionKey(r) } as FastHorseDecisionRequest;
+    });
+    expect(new Set(requests.map((r) => r.decisionKey)).size).toBe(requests.length);
+    const plain = await run(requests, anyOn, null, stage(table));
+    const states = Object.fromEntries(OPTS.map((o) => [o, 'shadow'])) as OptionSwitchStates;
+    const shadow = await run(requests, anyOn, states, stage(table));
+    expect(shadow.fasts.map(comparable)).toEqual(plain.fasts.map(comparable));
+    // one acted call per decision + at most one re-decision per decision
+    expect(shadow.calls.length).toBeGreaterThan(requests.length);
+    expect(shadow.calls.length).toBeLessThanOrEqual(2 * requests.length);
+    for (const c of shadow.calls)
+      expect(OPTS.filter((o) => c[o] === true).length).toBeLessThanOrEqual(1);
+    // the samples are spread over the options by decision key, and each receipt and time names its option
+    const picked = new Set(shadow.staged.map((x) => x.receipt.option));
+    expect(picked.size).toBeGreaterThan(1);
+    for (const o of picked) {
+      const n = shadow.staged.filter((x) => x.receipt.option === o).length;
+      expect(shadow.features.filter((k) => k === `option_shadow_${o}_changed_seen`)).toHaveLength(
+        n
+      );
+      expect(
+        shadow.latency.filter(([sc]) => sc === `option_shadow_stage_redecide_opt_${o}`)
+      ).toHaveLength(n);
+    }
+    expect(shadow.latency.filter(([sc]) => sc === 'option_shadow_stage_redecide')).toHaveLength(
+      shadow.staged.length
+    );
   });
 
   it('out of its games the option is not re-decided at all (the tournament option at a cash table, and back)', async () => {

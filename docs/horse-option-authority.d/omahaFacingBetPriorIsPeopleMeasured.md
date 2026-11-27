@@ -1,6 +1,6 @@
 # omahaFacingBetPriorIsPeopleMeasured: Authority For The Live Switch
 
-Built 2026-11-26 by PLO-OWNER lead-7 (session 01TLQer8), personally, on Dan's orders of 2026-11-26 ("the stats need to be used against human players, not horses"; "watch, fix, build, and implement the over folding ... yourself, and then fully test it before turning it on"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFacingBetPriorIsPeopleMeasured`). This file states the evidence; the switch is turned on only through the shadow stage and the live-switch procedure.
+**State: LIVE ON since audit #202, 2026-11-27T08:39:43Z.** Built 2026-11-26 by PLO-OWNER lead-7 (session 01TLQer8), personally, on Dan's orders of 2026-11-26 ("the stats need to be used against human players, not horses"; "watch, fix, build, and implement the over folding ... yourself, and then fully test it before turning it on"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFacingBetPriorIsPeopleMeasured`). This file states the evidence; the switch is turned on only through the shadow stage and the live-switch procedure.
 
 ## The Defect It Answers
 
