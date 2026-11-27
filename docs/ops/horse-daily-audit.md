@@ -24,7 +24,11 @@ node scripts/ops/horse-daily-audit.mjs --plan [--until <ISO>]     # boundaries a
      split after it (every split keeps its full window on both sides). With no boundary: `--gate=absolute`;
    - `person-vs-horse-results.mjs --split-at <every boundary> --gate --json` (at most eight a call, grouped the same
      way); with no boundary, the plain report;
-   - `horse-plo-overfold-gate.mjs --json` (the over-fold alarm for every cell, PLO and Hold'em, below).
+   - `horse-plo-overfold-gate.mjs --json` (the over-fold alarm for every cell, PLO and Hold'em, below; each
+     fold-through row also prints the bb-weighted value of a zero-equity bluff in real pots, information only).
+   - `horse-overfold-fix-validation.mjs --option <name> --until <until> --json` for every option of
+     `horse-overfold-owner-map.json` whose switch is `on` (BEFORE vs AFTER its ON instant on the cells it owns:
+     [horse-overfold-fix-validation.md](horse-overfold-fix-validation.md)); a REGRESSED cell is a breach-class regression.
 3. Writes `<out-root>/<until as YYYY-MM-DD-HHMMZ>/`: `plan.json` (range, boundaries and why, commands), each tool's
    JSON output and `.err` log, the PLO CSVs, and `SUMMARY.md`.
 
