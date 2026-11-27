@@ -29,6 +29,8 @@ import {
   loadMultiwayAuditedStates,
 } from './HorseOmahaMultiwayPeopleField.test-support.js';
 
+/** Heads-up turn and river states compared on against off (an array page, not a source window). */
+const HEADS_UP_SAMPLE = 120;
 const kind = (d: { action: string }): string => (d.action === 'all_in' ? 'call' : d.action);
 
 describe('LAW: the multiway field of the PLO facing-bet price is measured on people', () => {
@@ -105,7 +107,7 @@ describe('LAW: the multiway field of the PLO facing-bet price is measured on peo
   it('3. heads-up turn and river decisions are identical in action and amount', () => {
     for (const s of loadPricedStates()
       .filter((x) => x.gs.stage !== 'flop')
-      .slice(0, 120)) {
+      .slice(0, HEADS_UP_SAMPLE)) {
       const a = decideMultiway(s.player, s.gs, false, false);
       const b = decideMultiway(s.player, s.gs, true, false);
       expect([b.action, b.amount]).toEqual([a.action, a.amount]);
