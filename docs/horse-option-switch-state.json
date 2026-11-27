@@ -1,7 +1,7 @@
 {
   "schema": "horse-option-switch-state/v1",
-  "asOfUtc": "2026-11-27T17:27:13.078Z",
-  "auditMax": 208,
+  "asOfUtc": "2026-11-26T08:05:41.154Z",
+  "auditMax": 200,
   "rows": {
     "cashDefenceTrimColdCalls": {
       "state": "on",
@@ -133,20 +133,10 @@
       "auditId": 128,
       "changedAt": "2026-11-20T05:10:04.344Z"
     },
-    "omahaFacingBetPriorIsPeopleMeasured": {
-      "state": "on",
-      "auditId": 202,
-      "changedAt": "2026-11-27T08:39:43.136Z"
-    },
     "omahaFlopFacingBetEv": {
       "state": "off",
       "auditId": 192,
       "changedAt": "2026-11-24T07:08:52.774Z"
-    },
-    "omahaFlopPressureCapIsPriced": {
-      "state": "shadow",
-      "auditId": 208,
-      "changedAt": "2026-11-27T16:33:28.541Z"
     },
     "omahaMadeHandDefenseVsValueLeader": {
       "state": "on",
@@ -242,16 +232,6 @@
       "state": "off",
       "auditId": 69,
       "changedAt": "2026-11-18T01:42:08.570Z"
-    },
-    "omahaRiverBluffIsPricedOnBlockers": {
-      "state": "on",
-      "auditId": 204,
-      "changedAt": "2026-11-27T10:30:49.983Z"
-    },
-    "omahaRiverBluffIsPricedOnRangeAdvantage": {
-      "state": "off",
-      "auditId": 207,
-      "changedAt": "2026-11-27T16:33:12.884Z"
     },
     "omahaRiverCurrentNutsCallFloor": {
       "state": "on",
@@ -387,11 +367,6 @@
       "state": "off",
       "auditId": 74,
       "changedAt": "2026-11-19T00:08:32.981Z"
-    },
-    "vpipFloorLimpFoldsToARaise": {
-      "state": "on",
-      "auditId": 206,
-      "changedAt": "2026-11-27T16:31:28.225Z"
     },
     "vpipFloorLimpOnly": {
       "state": "on",
