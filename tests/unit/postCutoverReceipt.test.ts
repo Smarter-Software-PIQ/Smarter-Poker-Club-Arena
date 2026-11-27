@@ -3,13 +3,15 @@
 // THE CUTOVER POSTS ITS OWN AUDIT RECEIPT (2026-11-26). The post-cutover audit was run and posted by a chat that
 // woke on a timer; a missed wake-up was silence that read like a pass. These cases pin
 // scripts/ops/post-cutover-receipt.mjs and .github/workflows/post-cutover-receipt.yml: the receipt answers the
-// one cycle its receiver posted, once; it can never be read as a cycle result by the tools that read the log; and
+// one cycle its receiver or Stage run posted, once; it can never be read as a cycle result by the tools that read the log; and
 // the workflow is reporting only.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import {
   auditWithOneSettleRetry,
+  chicagoTime,
   findCutoverComment,
   formatReceipt,
   receiptAlreadyPosted,
@@ -54,6 +56,7 @@ describe('post-cutover receipt', () => {
       cycle: '2026-11-26 16:00 CST',
       result: 'SEALED',
       sealedSha: SHA,
+      expectSha: SHA,
     });
     expect(findCutoverComment(comments, 1000)).toMatchObject({
       result: 'REFUSED',
@@ -61,6 +64,28 @@ describe('post-cutover receipt', () => {
     });
     expect(findCutoverComment(comments, 10)).toBeNull();
     expect(findCutoverComment(comments, 'x')).toBeNull();
+  });
+
+  it('finds the KEEP-SERVING cycle Stage posted and expects the serving release', () => {
+    const keep = `Cycle: 2026-11-26 19:00 CST\nResult: KEEP-SERVING (the serving engine keeps running)\nServing SHA: \`${'c'.repeat(40)}\`\nReason: x\nStage: ${RUN}/45913871888\n`;
+    expect(findCutoverComment([{ id: 9, body: keep }], 45913871888)).toEqual({
+      id: 9,
+      cycle: '2026-11-26 19:00 CST',
+      result: 'KEEP-SERVING',
+      sealedSha: null,
+      expectSha: 'c'.repeat(40),
+    });
+    // A readiness line from the same Stage run is not a cycle result.
+    const readiness = `Cycle: 2026-11-26 19:00 CST | Readiness at T-45m: READY | Stage: ${RUN}/45913871888`;
+    expect(findCutoverComment([{ body: readiness }], 45913871888)).toBeNull();
+  });
+
+  it('gives the audit time in Chicago time, standard and daylight', () => {
+    expect(chicagoTime('2026-11-27T01:10:00Z')).toBe('2026-11-26 19:10 CST');
+    expect(chicagoTime('2026-07-01T15:05:00Z')).toBe('2026-07-01 10:05 CDT');
+    expect(chicagoTime('nope')).toBe('unknown time');
+    const body = formatReceipt({ cycle: 'c', result: 'SEALED', runId: 1, report: REPORT });
+    expect(body).toContain('at 2026-11-26 16:21 CST');
   });
 
   it('answers a cycle once', () => {
@@ -77,7 +102,7 @@ describe('post-cutover receipt', () => {
       runId: 100,
       report: REPORT,
     });
-    expect(body.startsWith('Post-cutover audit for receiver run 100')).toBe(true);
+    expect(body.startsWith('Post-cutover audit for run 100 (')).toBe(true);
     expect(body).toContain('OVERALL PASS');
     expect(body).toContain('- switch_records: WARN (snapshot holds audit max 200, production 201)');
     expect(CYCLE_RESULT_LINE.test(body)).toBe(false);
@@ -141,8 +166,9 @@ describe('the receipt workflow is reporting only', () => {
     resolve(__dirname, '../../.github/workflows/post-cutover-receipt.yml'),
     'utf8'
   );
-  it('runs only after the engine receiver completes, or by hand, never on a timer', () => {
-    expect(wf).toMatch(/workflows: \['Auto-Deploy Hetzner Engine \(on server\/ changes\)'\]/);
+  it('runs only after the engine receiver or Stage completes, or by hand, never on a timer', () => {
+    expect(wf).toContain("- 'Auto-Deploy Hetzner Engine (on server/ changes)'");
+    expect(wf).toContain("- 'Stage Exact Club Arena Engine Release'");
     expect(wf).toMatch(/types: \[completed\]/);
     expect(wf).not.toMatch(/^\s*schedule:/m);
     expect(wf).not.toMatch(/cron:/);
@@ -158,11 +184,21 @@ describe('the receipt workflow is reporting only', () => {
     expect(wf).not.toMatch(/^\s*repository_dispatch:/m);
     expect(wf).toMatch(/node scripts\/ops\/post-cutover-receipt\.mjs/);
   });
-  it('the name it waits for is the receiver workflow name', () => {
-    const receiver = readFileSync(
-      resolve(__dirname, '../../.github/workflows/auto-deploy-hetzner.yml'),
-      'utf8'
+  it('the names it waits for are the receiver and Stage workflow names', () => {
+    const first = (f: string) =>
+      readFileSync(resolve(__dirname, `../../.github/workflows/${f}`), 'utf8').split('\n')[0];
+    expect(first('auto-deploy-hetzner.yml')).toBe(
+      'name: Auto-Deploy Hetzner Engine (on server/ changes)'
     );
-    expect(receiver.split('\n')[0]).toBe('name: Auto-Deploy Hetzner Engine (on server/ changes)');
+    expect(first('stage-engine-release.yml')).toBe('name: Stage Exact Club Arena Engine Release');
+  });
+  it('the gate that every Stage tick starts holds no secret, and the audit starts only after it says yes', () => {
+    const doc = parse(wf) as { jobs: Record<string, Record<string, unknown>> };
+    const gate = JSON.stringify(doc.jobs.gate);
+    expect(gate).not.toMatch(/secrets\.|"environment"/);
+    expect(doc.jobs.gate.permissions).toEqual({ contents: 'read', issues: 'read' });
+    expect(gate).toContain('post-cutover-receipt.mjs --find');
+    expect(doc.jobs.receipt.needs).toBe('gate');
+    expect(String(doc.jobs.receipt.if)).toContain("needs.gate.outputs.needed == 'true'");
   });
 });
