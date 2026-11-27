@@ -55,3 +55,18 @@ unknown, native, signed out, shared request, account change, sign-out; and a
 source contract per surface). `tests/unit/VIPCardsModal.test.tsx` and
 `tests/unit/vipAllInSqueeze.test.ts` updated for the new link target and the
 upsell's price argument.
+
+## Follow-up the same day: the membership tab's offer text
+
+Rendered at 393px and 1280px, two things in the tab were wrong:
+
+- the offer sentence reused `planPeriod` (9px) and was close to unreadable. It
+  now has its own class, `planOffer` (12.5px, line height 1.35, the store's
+  light ink); `planPeriod` is unchanged for Per Month, Per Year and One Payment;
+- the card button label wrapped inside the 174px painted button. It is now
+  "Subscribe For 1 USD" on one line, with a non-breaking space so the amount
+  never leaves its unit. The sentence above the button carries the rest of the
+  terms.
+
+Not published: the owner asked for the membership surfaces to be redesigned
+before anything ships, so this branch stays unmerged until he approves pictures.

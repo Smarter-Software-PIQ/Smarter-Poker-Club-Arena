@@ -1162,6 +1162,17 @@
   text-transform: capitalize;
 }
 
+/* The first-month offer line: a full sentence, so it reads at body size in the
+   store's own light ink instead of the 9px term label beside it. */
+.planOffer {
+  margin: 6px 0 12px;
+  color: #d9e4ea;
+  font:
+    700 12.5px/1.35 Inter,
+    sans-serif;
+  letter-spacing: 0.01em;
+}
+
 .planFeatures {
   display: flex;
   flex: 1 1 auto;
@@ -1667,6 +1678,7 @@
 :global([data-theme='light']) .sectionSub,
 :global([data-theme='light']) .itemDesc,
 :global([data-theme='light']) .planFeatures li,
+:global([data-theme='light']) .planOffer,
 :global([data-theme='light']) .emptySubText {
   color: #526773;
 }
