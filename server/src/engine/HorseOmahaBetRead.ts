@@ -146,10 +146,43 @@ export function omahaBetReadFitDecay(person: number, pop: number): void {
 }
 
 /** Per opponent: `${userId lower}|${variant}`; population: `*|${variant}`. */
-const rows = new Map<string, Row>();
+let rows = new Map<string, Row>();
 /** The rows whose streets were also counted in the population (a person's; a Horse's never are). */
-const mePerson = new Set<string>();
-const handsSeen = new Set<string>();
+let mePerson = new Set<string>();
+let handsSeen = new Set<string>();
+
+/**
+ * GRADING SEAM (no production caller; server/src/benchmark/HorseGradeHarness.ts only): the learner's whole state as
+ * one opaque store, so a grading harness can give each simulated world its OWN read. Production keeps the one
+ * module store it starts with and never calls these. Root of the probe/mirror null drift (2026-11-27): with one
+ * shared store, the world that plays a deal second read the first world's learning of that same deal.
+ */
+export interface OmahaBetReadStore {
+  readonly __omahaBetReadStore: true;
+}
+interface StoreState {
+  rows: Map<string, Row>;
+  mePerson: Set<string>;
+  handsSeen: Set<string>;
+}
+/** A new, empty store (not installed). */
+export function omahaBetReadNewStore(): OmahaBetReadStore {
+  const st: StoreState = { rows: new Map(), mePerson: new Set(), handsSeen: new Set() };
+  return st as unknown as OmahaBetReadStore;
+}
+/** A deep copy of a store (not installed). */
+export function omahaBetReadCloneStore(store: OmahaBetReadStore): OmahaBetReadStore {
+  return structuredClone(store as unknown as StoreState) as unknown as OmahaBetReadStore;
+}
+/** Install `store` as the one every learn/read uses; returns the store that was installed before. */
+export function omahaBetReadUseStore(store: OmahaBetReadStore): OmahaBetReadStore {
+  const before: StoreState = { rows, mePerson, handsSeen };
+  const st = store as unknown as StoreState;
+  rows = st.rows;
+  mePerson = st.mePerson;
+  handsSeen = st.handsSeen;
+  return before as unknown as OmahaBetReadStore;
+}
 const HANDS_SEEN_MAX = 50000;
 
 const rowKey = (userId: string, variant: string): string => `${userId.toLowerCase()}|${variant}`;
