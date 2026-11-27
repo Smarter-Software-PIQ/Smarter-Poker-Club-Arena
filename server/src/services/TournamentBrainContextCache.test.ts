@@ -1260,4 +1260,107 @@ describe('TournamentBrainContext lifecycle cache', () => {
     expect(paused.timingStatus).toBe('paused');
     expect(paused.previousLevel?.bigBlind).toBe(20);
   });
+
+  it('skips mystery-chest and satellite-entitlement reads on repeat refreshes for non-mystery/non-satellite MTTs, with fail-closed fallback if format flips', async () => {
+    successfulResponses();
+    refreshTournamentBrainContext('t-format-skip');
+    await settleRefresh();
+    expect(h.calls).toEqual([
+      'tournaments',
+      'tournament_players',
+      'tournament_bounty_chests',
+      'tournament_satellite_entitlements',
+    ]);
+
+    // Repeat refresh: format is already known (non-mystery, non-satellite) -> only 2 queries!
+    h.calls.length = 0;
+    vi.setSystemTime(NOW + 20_001);
+    refreshTournamentBrainContext('t-format-skip');
+    await settleRefresh();
+    expect(h.calls).toEqual(['tournaments', 'tournament_players']);
+    expect(getTournamentBrainContextSnapshot('t-format-skip', NOW + 20_001).status).toBe(
+      'complete'
+    );
+
+    // Fail-closed fallback: if tournament row later reports is_mystery_bounty=true,
+    // immediately fetch tournament_bounty_chests before publishing!
+    h.calls.length = 0;
+    h.responses.set('tournaments', {
+      data: { ...tournamentRow(), is_mystery_bounty: true, mystery_bounty_stage: 'active' },
+      error: null,
+    });
+    h.responses.set('tournament_bounty_chests', {
+      data: [{ status: 'available', amount_cents: 50_000 }],
+      error: null,
+    });
+    vi.setSystemTime(NOW + 40_002);
+    refreshTournamentBrainContext('t-format-skip');
+    await settleRefresh();
+    expect(h.calls).toEqual(['tournaments', 'tournament_players', 'tournament_bounty_chests']);
+    const afterFlip = getTournamentBrainContextSnapshot('t-format-skip', NOW + 40_002);
+    expect(afterFlip.status).toBe('complete');
+    expect(afterFlip.context?.mysteryChestsLeft).toBe(1);
+    expect(afterFlip.context?.mysteryTopCents).toBe(50_000);
+  });
+
+  it('retries a full keyset pass once on transient mid-pagination count drift while remaining fail-closed if drift persists', async () => {
+    successfulResponses();
+    h.responses.set('tournaments', {
+      data: { ...tournamentRow(), is_mystery_bounty: true, mystery_bounty_stage: 'active' },
+      error: null,
+    });
+    const chests = Array.from({ length: 1001 }, (_, index) => ({
+      id: `chest-${String(index).padStart(6, '0')}`,
+      status: 'available',
+      amount_cents: index === 1000 ? 75_000 : 100,
+    }));
+    let chestCalls = 0;
+    const baseFrom = h.from.getMockImplementation()!;
+    h.from.mockImplementation((table: string) => {
+      if (table !== 'tournament_bounty_chests') return baseFrom(table);
+      chestCalls++;
+      // Pass 1 page 2 reports a drifted count (simulating a concurrent chest open),
+      // while pass 2 succeeds cleanly.
+      if (chestCalls === 2) {
+        h.rangeResponses.set('tournament_bounty_chests:after-first', {
+          data: [chests[1000]],
+          count: 2,
+          error: null,
+        });
+      } else {
+        h.rangeResponses.delete('tournament_bounty_chests:after-first');
+      }
+      return baseFrom(table);
+    });
+    h.responses.set('tournament_bounty_chests', { data: chests, error: null });
+
+    refreshTournamentBrainContext('t-chest-drift-retry');
+    await settleRefresh();
+    const snapshot = getTournamentBrainContextSnapshot('t-chest-drift-retry');
+    expect(snapshot.status).toBe('complete');
+    expect(snapshot.context?.mysteryChestsLeft).toBe(1001);
+    expect(snapshot.context?.mysteryTopCents).toBe(75_000);
+    expect(h.reportError).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'TournamentBrainContext.chests_unavailable'
+    );
+
+    // Persistent count drift across both attempts still fails closed.
+    h.reportError.mockClear();
+    h.from.mockImplementation(baseFrom);
+    h.rangeResponses.set('tournament_bounty_chests:after-first', {
+      data: [chests[1000]],
+      count: 2,
+      error: null,
+    });
+    vi.setSystemTime(NOW + 20_001);
+    refreshTournamentBrainContext('t-chest-drift-retry');
+    await settleRefresh();
+    const drifted = getTournamentBrainContextSnapshot('t-chest-drift-retry', NOW + 20_001);
+    expect(drifted.issues).toContain('mystery_bounty_inventory_unavailable');
+    expect(h.reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      'TournamentBrainContext.chests_unavailable'
+    );
+  });
 });
