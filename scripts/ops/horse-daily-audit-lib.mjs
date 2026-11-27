@@ -9,10 +9,11 @@
 //   horse-exploit-report.mjs      (--gate regression split at every switch change and build boundary; at most 4
 //                                  splits a call, so more splits run as consecutive calls over overlapping ranges)
 //   person-vs-horse-results.mjs   (people's results, split at the same instants, at most 8 a call)
-//   horse-plo-overfold-gate.mjs   (PLO4/PLO5 heads-up turn/river folds facing a person's first bet, against the
-//                                  people-measured or break-even fold ceiling and the previous 3 days pooled)
+//   horse-plo-overfold-gate.mjs   (every over-fold cell: PLO4, PLO5, Hold'em cash and tournaments, flop/turn/river,
+//                                  heads-up and multiway, by size, facing a person's first bet, against the people
+//                                  prior, people's own folds or minimum defence; says if the cell's fix is ON)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
-import { cellTable } from './horse-plo-overfold-gate-lib.mjs';
+import { cellTable, foldThroughTable } from './horse-plo-overfold-gate-lib.mjs';
 
 export const RANGE_HOURS = 24;
 /** Two boundaries closer than this are one (a cutover starts the engine and its standby minutes apart). */
@@ -168,15 +169,20 @@ export function exitMeaning(name, code) {
     );
   if (name === 'plo-overfold')
     return (
-      ['clean', 'FINDING (Horses fold above the ceiling facing people)', 'too few decisions'][
-        code
-      ] ?? `exit ${code}`
+      [
+        'clean',
+        'FINDING (Horses fold above a ceiling facing people; see whether the fix is ON)',
+        'too few decisions',
+      ][code] ?? `exit ${code}`
     );
   return `exit ${code}`;
 }
 
+export const OVERFOLD_HEADING =
+  "## Over-Fold Gate (PLO4, PLO5, Hold'em cash and tournaments; flop, turn, river; facing a person's first bet)";
 const n1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(1) : '-');
 const arr = (x) => (Array.isArray(x) ? x : []);
+const pc1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : '-');
 
 /**
  * The top leaks: the NLH audit's ranked leaks (format, street, type, bb lost), the PLO audit's HARD leaks versus
@@ -240,10 +246,19 @@ export function regressionRows(results) {
         text: `exploit (${name}): ${j?.gate?.line ?? `gate finding (see ${r.out})`}`,
       });
     }
-    // the over-fold gate: one finding per gating cell (identity: street and size, the same in every run); read from
-    // the tool's JSON, so a run before (whose exit code was not stored) lists the same identities
+    // the over-fold gate: one finding per gating cell (identity: game, street, players and size, the same in every
+    // run); read from the tool's JSON, so a run before (whose exit code was not stored) lists the same identities.
+    // A cell over its ceiling WITH ITS FIX ON is breach-class: it is listed before every other regression.
     if (name === 'plo-overfold')
-      for (const c of arr(j?.cells).filter((x) => x.gating)) out.push({ id: c.key, text: c.line });
+      for (const c of [...arr(j?.cells), ...arr(j?.foldThrough)].filter((x) => x.gating))
+        out.push({
+          id: c.fixClass === 'fix-on' ? `${c.key}|fix-on` : c.key,
+          breachClass: c.fixClass === 'fix-on',
+          text:
+            c.fixClass === 'fix-on'
+              ? `BREACH-CLASS (over-fold with the fix ON): ${c.line}`
+              : c.line,
+        });
     if (name.startsWith('person-vs-horse') && r.code === 1)
       out.push({
         id: `pvh|${name}`,
@@ -251,6 +266,7 @@ export function regressionRows(results) {
         text: `people vs Horses (${name}): people measurably better after a split (see ${r.out})`,
       });
   }
+  out.sort((a, b) => (b.breachClass ? 1 : 0) - (a.breachClass ? 1 : 0));
   return out;
 }
 
@@ -382,17 +398,52 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
     ownerRuleBreaches(results, listing),
     'None graded in the PLO audit (the NLH audit grades no owner-rule class).'
   );
-  L.push("## PLO Over-Fold Gate (heads-up turn and river, facing a person's first bet)");
+  L.push(OVERFOLD_HEADING);
   L.push('');
   const of = results['plo-overfold']?.json;
   if (!of || !Array.isArray(of.cells))
     L.push('Not measured (the tool failed or did not run: see Tools).');
   else {
     L.push(
-      `${of.gate?.line ?? ''}. Ceiling: ${of.prior ?? 'break-even fold'}; previous window from ${of.previousSince ?? '-'}.`
+      `${of.gate?.line ?? ''}. People prior: ${of.prior ?? 'none'}; ${of.ownerMap ?? 'no owner map'}; previous window from ${of.previousSince ?? '-'}; people's own folds from ${of.peopleSince ?? '-'}.`
     );
     L.push('');
+    const over = [...of.cells, ...arr(of.foldThrough)].filter((c) => c.gating);
+    const cls = (k) => over.filter((c) => (Array.isArray(k) ? k : [k]).includes(c.fixClass));
+    const list = (title, rows) => {
+      if (!rows.length) return;
+      L.push(`**${title}**`, '');
+      // the full line of each is under Regressions: here one short line a cell
+      for (const c of rows)
+        L.push(
+          c.key?.startsWith('foldthru|')
+            ? `- ${c.game} ${c.street} ${c.playersLabel} ${c.size}: a person's first bet into Horses folded through ${pc1(c.rate)} (n ${c.n}, 7 days) vs the pure-bluff break-even ${pc1(c.breakEven)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+            : `- ${c.game} ${c.street} ${c.fieldLabel} ${c.size}: Horse folds ${pc1(c.rate)} (n ${c.n}; with the previous 3 days ${pc1(c.pooledRate)}, n ${c.pooledN}) vs ceiling ${pc1(c.ceiling)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+        );
+      L.push('');
+    };
+    list('Over its ceiling WITH ITS FIX ON (regression, breach-class)', cls('fix-on'));
+    list('Over its ceiling, fix ON for part of the window (mixed)', cls('fix-on-partial'));
+    list('Over its ceiling while its fix is OFF', cls(['fix-off', 'fix-unknown']));
+    list(
+      'Over its ceiling, no owner yet',
+      over.filter((c) => !c.fixClass || c.fixClass === 'no-owner')
+    );
     L.push(...cellTable(of.cells));
+    const empty = of.cells.filter((c) => !(c.n > 0) && !(c.previousN > 0)).length;
+    if (empty)
+      L.push(
+        '',
+        `${empty} of ${of.cells.length} cells had no decision in either window (not shown).`
+      );
+    if (Array.isArray(of.foldThrough)) {
+      L.push(
+        '',
+        `**Multiway fold-through** (a person's first bet into Horses, everyone folds, against the pure-bluff break-even s/(1+s); trailing 7 days from ${of.foldThroughSince ?? '-'}). Multiway gates here; the multiway rows above are information only.`,
+        ''
+      );
+      L.push(...foldThroughTable(of.foldThrough));
+    }
   }
   L.push('');
   section(

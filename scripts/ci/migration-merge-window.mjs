@@ -34,6 +34,19 @@
  * file it cannot read) is failure: it fails closed.
  *
  * One rule: the windows are releaseFreezeAdmission's, never a second copy.
+ *
+ * A RELEASE-CONTROL CHANGE MERGES IN THE SAME WINDOW (2026-11-26, release
+ * custody). A merge that changes one file of the release-control projection
+ * (scripts/ci/read-engine-prequalification.py CONTROL_INPUTS, minus its
+ * exclusions) makes every existing Backup certificate unselectable, exactly as
+ * an installed migration does, and a new certificate takes about an hour. That
+ * cost two cycles in two days (O27 merged 22:50 Chicago on 11-25; the O31
+ * batch at 12:40 on 11-26), each time against a written rule nothing enforced. A pull request that changes a projected
+ * file is now held by this same required status to the same minutes: the
+ * window opens after a cycle's break, when the certificate it would strand has
+ * just been used or refused, and leaves the rest of the three hours for the
+ * new certificate. Which paths are projected is read from the Python
+ * constants themselves (release-control-paths.mjs), never from a copy.
  */
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -43,6 +56,7 @@ import {
   RELEASE_FREEZE_OVERRIDE_MIN_LENGTH,
 } from './release-freeze-admission.mjs';
 import { windowDeclaration } from './maintenance-window-migrations.mjs';
+import { controlLists, releaseControlChanges } from './release-control-paths.mjs';
 
 export const MERGE_WINDOW_CONTEXT = 'Migration merge window';
 export const MERGE_WINDOW_OVERRIDE_LABEL = 'migration-outage-override';
@@ -129,12 +143,15 @@ export function ordinaryMigrations(files) {
 }
 
 /** The status for one pull request at nowMs: { state: 'success'|'failure', description } (description <= 140 chars). */
-export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body }) {
+export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body, lists = controlLists() }) {
   if (!Number.isFinite(nowMs)) throw new Error('nowMs must be a finite epoch millisecond');
   const cut = (s) => (s.length <= 140 ? s : `${s.slice(0, 137)}...`);
   if (baseRef !== 'main') return { state: 'success', description: 'Not a pull request into main' };
   const ordinary = ordinaryMigrations(files);
-  if (ordinary.length === 0) return { state: 'success', description: 'No ordinary migration in this pull request' };
+  const controls = releaseControlChanges(files, lists);
+  if (ordinary.length === 0 && controls.length === 0) {
+    return { state: 'success', description: 'No ordinary migration in this pull request' };
+  }
   if (mergeWindowOpen(nowMs, cadence)) {
     const closes = mergeWindowCloses(nowMs, cadence);
     return { state: 'success', description: cut(`Install window open: merge before ${chicagoTime(closes)}`) };
@@ -142,10 +159,13 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
   const why = outageOverride(labels, body);
   if (why) return { state: 'success', description: cut(`Outage override: ${why}`) };
   const next = nextMergeWindow(nowMs, cadence);
+  // A control-only pull request says so; with a migration the migration text
+  // stands (merge-window-watch.mjs reads these openings).
+  const held = ordinary.length === 0 ? 'Release controls merge' : 'Migrations merge';
   return {
     state: 'failure',
     description: cut(
-      `Migrations merge 10-27 min after a cycle or 4:15-4:27 AM` +
+      `${held} 10-27 min after a cycle or 4:15-4:27 AM` +
         (next === null ? '' : `; next ${chicagoTime(next)}`) +
         `. Open: gh workflow run migration-merge-window.yml -f mode=keep`
     ),
@@ -218,7 +238,11 @@ function allFiles(repo, pr) {
   } else {
     const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr.number}/files?per_page=100`]));
     const map = { added: 'ADDED', removed: 'DELETED', modified: 'MODIFIED', renamed: 'RENAMED', copied: 'COPIED', changed: 'CHANGED' };
-    files = rows.flat().map((f) => ({ path: f.filename, changeType: map[f.status] ?? 'CHANGED' }));
+    files = rows.flat().map((f) => ({
+      path: f.filename,
+      changeType: map[f.status] ?? 'CHANGED',
+      ...(f.previous_filename ? { previousPath: f.previous_filename } : {}),
+    }));
   }
   filesByHead.set(pr.headRefOid, files);
   return files;

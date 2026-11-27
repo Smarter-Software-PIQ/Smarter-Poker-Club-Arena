@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import AdminDashboardPage from '../../src/pages/AdminDashboardPage';
@@ -72,7 +72,7 @@ beforeEach(() => {
 });
 
 it('opens only the verified standalone owner bank and closes it immediately on club or account change', async () => {
-  let finishMember!: (value: null) => void;
+  let finishMember: ((value: null) => void) | undefined;
   m.readScope.mockImplementation((id: string) =>
     id === 'solo'
       ? Promise.resolve('club')
@@ -90,7 +90,13 @@ it('opens only the verified standalone owner bank and closes it immediately on c
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: 'Club Bank' })).not.toBeInTheDocument();
   await screen.findByRole('tab', { name: 'Settings' });
-  await act(async () => finishMember(null));
+  // The Settings tab is already on screen from the first club, so finding it
+  // does not prove the second club's scope read has started. Wait for that
+  // read itself: until it starts, there is nothing to finish (2026-11-27: the
+  // test failed with "finishMember is not a function" on the first attempt of
+  // three pull requests in one hour and passed each rerun).
+  await waitFor(() => expect(finishMember).toBeTypeOf('function'));
+  await act(async () => finishMember?.(null));
   expect(screen.queryByRole('tab', { name: 'Club Bank' })).not.toBeInTheDocument();
   m.role = 'owner';
   m.actor = 'owner2';
