@@ -51,7 +51,15 @@ Against the declared bars:
 2. Churn within what the owner's ruling was given for (at most 0.52 evictions per table-hour on the six-Horse model and 0.82 on the one-chair model, the highest measured on a thirty-hand table at 40%): PLO5 (0.52, 0.56), PLO8 (0.23, 0.79) and short deck (0.14, 0.11) pass; hold'em (0.99, 1.35), PLO4 (0.65, 1.69) and PLO6 (1.08, 2.25) do NOT.
 3. Pool not exhausted: MET.
 
-So the evidence for switching on is NOT MET as declared. The option is one switch for every variant; it has no per-variant setting.
+So the evidence for switching on is NOT MET as declared for every variant at once. Since 2026-11-27 the switch can be confined to games (section "Game scope" below); PLO5 alone passes the churn bar.
+
+## Game scope (lead-8 lane tenhand, 2026-11-27)
+
+Engine runtime settings `horse.vpipFloorTenHandWindowGame.nlh`, `.plo4`, `.plo5` (0 or 1, compiled default 0; `server/src/engine/HorseVpipFloorTenHandWindowGames.ts`). None set to 1: the switch acts in every game it acts in above (unchanged). Any set to 1: the switch is on only at a ten-hand table whose variant is listed and reads as off (today's exception) at every other table, PLO4, hold'em, PLO6, PLO8 and short deck included. One read site (`vpipFloorLimpOnlyTenHandWindowOn`), used by `vpipFloorLimpOnlyGovernsTenHandTable` and `vpipFloorLimpOnlyApplies`. The list never turns the switch on. Law: `server/src/engine/aVpipFloorTenHandWindowIsScopedByGame.law.test.ts`.
+
+PLO5 against the declared bars: correctness MET; churn 0.52 (six-Horse) and 0.56 (one chair) per table-hour against bars of 0.52 and 0.82: MET; pool MET. Churn accepted by the lead by name (lead-8, 2026-11-26 11:45 PM Chicago, LEAD8-STATE: "end the exception for PLO5 ten-hand tables first, evictions 0.52 per table-hour, inside the accepted level"). Hold'em, PLO4 and PLO6 stay NOT MET on churn and must stay unlisted.
+
+Order: a serving engine refuses a whole settings version that names a key it does not register, so `horse.vpipFloorTenHandWindowGame.plo5 = 1` is published only after a build with this scope serves on every engine host, and it is published and accepted BEFORE the switch row goes on (the switch tool does not check the scope; with no list the switch would act in every game).
 
 ## Receipts
 

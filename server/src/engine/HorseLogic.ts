@@ -336,6 +336,7 @@ import {
   omahaOptionGameOf,
   type OmahaOptionGameScope,
 } from './HorseOmahaOptionGameScope.js';
+import { vpipFloorLimpOnlyTenHandWindowOn } from './HorseVpipFloorTenHandWindowGames.js';
 import { withBlanketRowsOffInPlo45Cash } from './HorseOmahaBlanketRowsOffInPlo45Cash.js';
 import {
   omahaStrongHandRaiseVerdict,
@@ -4369,6 +4370,12 @@ export interface HorseDecideOpts {
    * floored table (refused matchups
    * <variant>_vpip_floor_limp_only_ten_hand_window). */
   vpipFloorLimpOnlyTenHandWindow?: boolean;
+  /** The games vpipFloorLimpOnlyTenHandWindow may act in (lead-8 lane tenhand 2026-11-27,
+   * HorseVpipFloorTenHandWindowGames.ts): a PARAMETER, not an on/off option, set from the engine runtime settings
+   * `horse.vpipFloorTenHandWindowGame.<variant>` (absent at the compiled defaults). Absent or empty: the option as
+   * published, byte-identical. Given: the option is on only at a table whose gs.gameVariant is listed, and reads
+   * as off (today's exception) everywhere else. It never turns the option on. */
+  vpipFloorLimpOnlyTenHandWindowGames?: readonly string[];
   /** Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses
    * must always follow"): a Lightning pool whose game carries a VPIP floor
    * binds its Horses. The Lightning snapshot carries the game's floor, its
@@ -7192,7 +7199,7 @@ export function vpipFloorLimpOnlyGovernsTenHandTable(
   tournament: boolean
 ): boolean {
   return (
-    opts.vpipFloorLimpOnlyTenHandWindow === true &&
+    vpipFloorLimpOnlyTenHandWindowOn(gs, opts) &&
     vpipFloorLimpOnlyTenHandTable(gs, opts, tournament)
   );
 }
@@ -7207,7 +7214,7 @@ export function vpipFloorLimpOnlyApplies(
 ): boolean {
   return (
     vpipFloorLimpOnlyInScope(gs, opts, tournament) &&
-    (opts.vpipFloorLimpOnlyTenHandWindow === true ||
+    (vpipFloorLimpOnlyTenHandWindowOn(gs, opts) ||
       !vpipFloorLimpOnlyTenHandTable(gs, opts, tournament))
   );
 }
