@@ -26,6 +26,7 @@ import { recordDbAttemptFailure, recordDbResponseStatus } from './dbReplyMetrics
 import {
   classifyEventDbFailure,
   classifyEventDbOutcome,
+  classifyEventDbPriority,
   eventDatabaseBulkhead,
   type EventDbOutcome,
   type EventDbPermit,
@@ -205,7 +206,11 @@ function createBoundedServiceClient(
             callerSignal?.addEventListener('abort', onAbort, { once: true });
             callerSignal?.throwIfAborted();
             if (eventKey !== null) {
-              const admitted = eventDatabaseBulkhead.acquire(eventKey, ctl.signal);
+              const admitted = eventDatabaseBulkhead.acquire(
+                eventKey,
+                ctl.signal,
+                classifyEventDbPriority(attemptInput)
+              );
               // Under the bound the permit is returned synchronously: no await.
               permit = admitted instanceof Promise ? await admitted : admitted;
               sentAt = performance.now();

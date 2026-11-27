@@ -3384,15 +3384,18 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
          hand's. This engine applied the previous envelope itself only when
          envelopeChainApplied is set, and an applied envelope proves every
          earlier one at the table applied (the function refuses otherwise).
-         A fresh engine, a handoff, or a tournament reads after, as before. */
+         Tournaments never credit cash add-ons (pending_addons is always null)
+         and commit final stacks in fn_ca_commit_hand_submission, so overlapping
+         readCommittedStacks() beside processHandPostCommitObligations removes
+         one full serial PostgREST RTT on every tournament hand (1e532243). */
       const stacksReadBesideEnvelope =
         this.envelopeChainApplied === true &&
-        !this.isTournamentTable() &&
-        // Chip cash only: a Diamond top-up door writes the seat on its own.
-        !isDiamondCash &&
-        // A Lightning hand settles its own envelopes on its anchor tables.
-        !this.dealingHaltLock &&
-        (!this.tableInfo?.cluster_id || this.clusterLightningEnabled === false) &&
+        (this.isTournamentTable() ||
+          // Chip cash only: a Diamond top-up door writes the seat on its own.
+          (!isDiamondCash &&
+            // A Lightning hand settles its own envelopes on its anchor tables.
+            !this.dealingHaltLock &&
+            (!this.tableInfo?.cluster_id || this.clusterLightningEnabled === false))) &&
         seatCreditsInFlightAtRead === 0 &&
         this.lifecycleCanMutate()
           ? readCommittedStacks().then(
@@ -3548,7 +3551,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           persistedSeats =
             beside?.ok === true &&
             beside.rows !== null &&
-            resolvedAddOnCount === 0 &&
+            (resolvedAddOnCount === 0 ||
+              (this.isTournamentTable() && resolvedAddOnCount === undefined)) &&
             (this.directSeatCreditsInFlight ?? 0) === 0 &&
             (this.directSeatCreditEpoch ?? 0) === seatCreditEpochAtRead
               ? beside.rows

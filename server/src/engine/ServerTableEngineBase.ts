@@ -453,11 +453,10 @@ export abstract class ServerTableEngineBase {
   /** All hand-owned capture fields survive together, including future additions. */
   protected captureContinuationEngine(): Record<string, unknown> {
     const self = this as unknown as Record<string, unknown>;
-    const fields = Object.fromEntries(
-      Object.keys(self)
-        .filter((k) => k.startsWith('currentHand'))
-        .map((k) => [k, structuredClone(self[k])])
-    );
+    const fields: Record<string, unknown> = {};
+    for (const k of Object.keys(self)) {
+      if (k.startsWith('currentHand')) fields[k] = structuredClone(self[k]);
+    }
     const capturedAt = Date.now();
     return {
       fields,
@@ -486,10 +485,13 @@ export abstract class ServerTableEngineBase {
     const authority = this.getEngineLeaseAuthority();
     if (authority?.scope !== 'tournament' || !authority.verified || !authority.generation)
       throw new Error('Hand Continuation Lease Is Unproven');
+    // Parse once per batch instead of parsing twice on seq 0 (incident 1e532243).
+    const parsedController = JSON.parse(batch.controller) as {
+      handStarted?: boolean;
+      state: GameState;
+    };
     const prepared =
-      batch.sequence === 0 &&
-      batch.events.length === 0 &&
-      JSON.parse(batch.controller).handStarted === false;
+      batch.sequence === 0 && batch.events.length === 0 && parsedController.handStarted === false;
     if (prepared) this.preparedOriginalRetentionUnconfirmed = true;
     const retained = retainHandContinuation(
       original,
@@ -505,8 +507,7 @@ export abstract class ServerTableEngineBase {
     await retained;
     // State copied from these exact retained bytes, never a later controller
     // mutation still waiting behind this batch. The future deck stays private.
-    const saved = JSON.parse(batch.controller).state;
-    this.retainedPublicHandState = { ...saved, deck: [] } as GameState;
+    this.retainedPublicHandState = { ...parsedController.state, deck: [] } as GameState;
   }
 
   /** Positive retained bytes or a canonical claimed seq0 own this capability. */

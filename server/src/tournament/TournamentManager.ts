@@ -38,6 +38,7 @@ import { supabase } from '../services/supabase.js';
 import {
   chooseOpenSeat,
   type BalancerTable,
+  type CalculateMovesOptions,
   type MoveInstruction,
 } from '../engine/TableBalancer.js';
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
@@ -82,6 +83,11 @@ import {
   hasReachedFinalTableShape,
   mayBecomeFinalTable,
 } from './finalTableTransition.js';
+import {
+  recordBoundaryPlanOutcome,
+  recordGapBalanceParkDwell,
+  type GapBalanceParkOutcome,
+} from '../observability/gapBalanceMetrics.js';
 
 /** Lease owns the implementation and the actual global registry. */
 interface BreakRetirementBinding {
@@ -3316,6 +3322,37 @@ export class TournamentManager extends TournamentManagerEliminations {
    * hold every physical slot for minutes. This is O(chunks), fail closed, and
    * never releases a live scheduler promise while work remains.
    */
+  private static readonly LIVE_BOARD_PREFETCH_MAX_AGE_MS = 2_000;
+
+  private consumeLiveBoardPrefetch(tableIds: string[]): {
+    tables: Array<{ id: string; max_players: number | null }>;
+    seats: Array<{
+      table_id: string;
+      user_id: string;
+      stack: number | null;
+      seat_number: number | null;
+    }>;
+  } | null {
+    const prefetch = this.lastLiveBoardPrefetch;
+    this.lastLiveBoardPrefetch = null;
+    if (!prefetch) return null;
+    if (
+      prefetch.epoch !== this.balanceBoardEpoch ||
+      Date.now() - prefetch.capturedAtMs > TournamentManager.LIVE_BOARD_PREFETCH_MAX_AGE_MS
+    ) {
+      return null;
+    }
+    const wanted = new Set(tableIds);
+    const tables: Array<{ id: string; max_players: number | null }> = [];
+    for (const tableId of wanted) {
+      const row = prefetch.tablesById.get(tableId);
+      if (!row) return null;
+      tables.push(row);
+    }
+    const seats = prefetch.seats.filter((s) => wanted.has(s.table_id));
+    return { tables, seats };
+  }
+
   private async loadBalancerTables(
     tableIds: string[],
     label: string,
@@ -3349,30 +3386,43 @@ export class TournamentManager extends TournamentManagerEliminations {
     // run them in parallel (2026-11-21, incident 1e532243): running them
     // serially multiplied parked boundary-balance latency ~3x on 50+ table
     // MTTs under EventDbBulkhead load.
+    // Consume single-use tables/table_seats prefetch captured moments ago by
+    // liveTournamentTableIdsWithPlayers() on the same balanceBoardEpoch so we
+    // never re-read tables and table_seats twice in back-to-back waves.
+    // On direct calls (or stale/partial prefetch), fall back to the 3-way
+    // selectInChunks read with a 100-table chunk ceiling (<= 900 seat rows,
+    // staying strictly below PostgREST's 1,000-row db-max-rows cap).
+    const BALANCER_SEAT_CHUNK = Math.min(IN_LIST_CHUNK, 100);
+    const prefetched = this.consumeLiveBoardPrefetch(tableIds);
     const [tableRead, seatRead, rosterRead] = await Promise.all([
-      selectInChunks<{
-        id: string;
-        max_players: number | null;
-      }>(
-        tableIds,
-        (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
-        `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
-      ),
-      selectInChunks<{
-        table_id: string;
-        user_id: string;
-        stack: number | null;
-        seat_number: number | null;
-      }>(
-        tableIds,
-        (batch) =>
-          supabase
-            .from('table_seats')
-            .select('table_id, user_id, stack, seat_number')
-            .in('table_id', batch)
-            .is('left_at', null),
-        `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`
-      ),
+      prefetched
+        ? Promise.resolve({ complete: true as const, rows: prefetched.tables })
+        : selectInChunks<{
+            id: string;
+            max_players: number | null;
+          }>(
+            tableIds,
+            (batch) => supabase.from('tables').select('id, max_players').in('id', batch),
+            `Tournament.${label}.tables(${this.tournamentId.slice(0, 8)})`
+          ),
+      prefetched
+        ? Promise.resolve({ complete: true as const, rows: prefetched.seats })
+        : selectInChunks<{
+            table_id: string;
+            user_id: string;
+            stack: number | null;
+            seat_number: number | null;
+          }>(
+            tableIds,
+            (batch) =>
+              supabase
+                .from('table_seats')
+                .select('table_id, user_id, stack, seat_number')
+                .in('table_id', batch)
+                .is('left_at', null),
+            `Tournament.${label}.seats(${this.tournamentId.slice(0, 8)})`,
+            BALANCER_SEAT_CHUNK
+          ),
       selectInChunks<{
         table_id: string | null;
         seat_number: number | null;
@@ -3385,7 +3435,8 @@ export class TournamentManager extends TournamentManagerEliminations {
             .eq('tournament_id', this.tournamentId)
             .in('status', ['registered', 'playing'])
             .in('table_id', batch),
-        `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`
+        `Tournament.${label}.roster(${this.tournamentId.slice(0, 8)})`,
+        BALANCER_SEAT_CHUNK
       ),
     ]);
     if (!this.eliminationMutationAllowed()) return null;
@@ -4258,6 +4309,8 @@ export class TournamentManager extends TournamentManagerEliminations {
        worst of them 36 players on 36 tables. Ask the database which tables
        still hold players; loadBalancerTables already reads everything else from
        there and only wants tableEngines for a button seat, which defaults. */
+    const initialBoardEpoch = this.balanceBoardEpoch;
+    const initialBoardReadAtMs = Date.now();
     const liveTableIds = await this.liveTournamentTableIdsWithPlayers();
     if (!this.eliminationMutationAllowed()) return;
     if (liveTableIds === null) {
@@ -4420,16 +4473,34 @@ export class TournamentManager extends TournamentManagerEliminations {
     }
 
     // ── STEP 2: Standard gap-1 rebalancing across remaining tables ──
-    // Re-fetch after potential break (tables may have changed)
+    // Re-fetch after a break or when any bust / seat move advanced
+    // balanceBoardEpoch during STEP 1. When STEP 1 broke no tables and the
+    // board epoch has not moved, reuse the snapshot already read in STEP 1 so
+    // an ordinary balance sweep does not execute 5 redundant full-tournament
+    // Supabase scans back-to-back (incident 1e532243).
     // Same rule as the break step above: the tables that hold players, not the
     // tables that happen to be dealing.
-    const freshBoardEpoch = this.balanceBoardEpoch;
-    const freshBoardReadAtMs = Date.now();
-    const freshTableIds = await this.liveTournamentTableIdsWithPlayers();
-    if (!this.eliminationMutationAllowed()) return;
-    if (freshTableIds === null) {
-      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-      return;
+    let freshBoardEpoch = initialBoardEpoch;
+    let freshBoardReadAtMs = initialBoardReadAtMs;
+    let step2TableIds: string[] = liveTableIds;
+    let step2Tables: BalancerTable[] | null = balancerTables;
+    if (breakSources.length > 0 || this.balanceBoardEpoch !== initialBoardEpoch) {
+      freshBoardEpoch = this.balanceBoardEpoch;
+      freshBoardReadAtMs = Date.now();
+      const freshTableIds = await this.liveTournamentTableIdsWithPlayers();
+      if (!this.eliminationMutationAllowed()) return;
+      if (freshTableIds === null) {
+        this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+        return;
+      }
+      step2TableIds = freshTableIds;
+      if (freshTableIds.length > 1) {
+        const freshTables = await this.loadBalancerTables(freshTableIds, 'balanceFresh');
+        if (!freshTables) return;
+        step2Tables = freshTables;
+      } else {
+        step2Tables = null;
+      }
     }
     // Hand the balanced board we just read to any fenced source that parked
     // while this sweep held the manager so onEliminationSweepSettled releases
@@ -4445,27 +4516,29 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.preparedBoundaryPlan = {
           epoch: freshBoardEpoch,
           preparedAtMs: freshBoardReadAtMs,
-          liveTableIds: freshTableIds,
+          liveTableIds: step2TableIds,
           tables,
         };
       }
     };
     // A fenced source this fresh plan does not need is handed back now, while
     // its completion hold is still playing (see releaseGapFencesNotIn).
-    if (freshTableIds.length <= 1) {
+    if (step2TableIds.length <= 1) {
       this.releaseGapFencesNotIn(new Set());
       seedBalancedBoardForParkedSources(null);
     }
-    if (freshTableIds.length > 1) {
-      const freshTables = await this.loadBalancerTables(freshTableIds, 'balanceFresh');
-      if (!freshTables) return;
+    if (step2TableIds.length > 1 && step2Tables) {
+      const freshTables = step2Tables;
 
       if (!this.tableBalancer.shouldRebalance(freshTables)) {
         this.releaseGapFencesNotIn(new Set());
         seedBalancedBoardForParkedSources(freshTables);
       }
       if (this.tableBalancer.shouldRebalance(freshTables)) {
-        const moves = this.tableBalancer.calculateMoves(freshTables);
+        const moves = this.tableBalancer.calculateMoves(
+          freshTables,
+          this.gapBalanceSourcePreferences(freshTables)
+        );
         this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
         if (moves.length === 0) {
           seedBalancedBoardForParkedSources(freshTables);
@@ -4539,6 +4612,7 @@ export class TournamentManager extends TournamentManagerEliminations {
               }
               this.gapBalanceFencedSources.delete(m.fromTableId);
               this.gapBalanceClaimedSources.delete(m.fromTableId);
+              this.finishGapBalancePark(m.fromTableId, 'moved');
             }
             if (!this.eliminationMutationAllowed()) return;
             if (movedCount < safeMoves.length) {
@@ -4604,8 +4678,37 @@ export class TournamentManager extends TournamentManagerEliminations {
   // A successful park request has already claimed this manager's owner.
   // awaitsTournamentMoveClaim() is therefore false for that exact result.
   private readonly gapBalanceClaimedSources = new Map<string, ServerTableEngine>();
+  private readonly gapBalanceParkedAtMs = new Map<string, number>();
   private boundaryBalanceRequested = false;
   private boundaryBalanceAwaitingSweep = false;
+
+  private noteGapBalanceParked(tableId: string): void {
+    if (!this.gapBalanceParkedAtMs.has(tableId)) {
+      this.gapBalanceParkedAtMs.set(tableId, Date.now());
+    }
+  }
+
+  private finishGapBalancePark(tableId: string, outcome: GapBalanceParkOutcome | null): void {
+    const parkedAt = this.gapBalanceParkedAtMs.get(tableId);
+    if (parkedAt === undefined) return;
+    this.gapBalanceParkedAtMs.delete(tableId);
+    if (outcome !== null) recordGapBalanceParkDwell(outcome, Date.now() - parkedAt);
+  }
+
+  public getGapBalanceParkedSummary(nowMs: number = Date.now()): {
+    parked: number;
+    oldestMs: number;
+  } {
+    let parked = 0;
+    let oldestMs = 0;
+    for (const [tableId, parkedAt] of this.gapBalanceParkedAtMs) {
+      if (!this.isParkedGapBalanceSource(tableId)) continue;
+      parked++;
+      const age = Math.max(0, nowMs - parkedAt);
+      if (age > oldestMs) oldestMs = age;
+    }
+    return { parked, oldestMs };
+  }
 
   private fenceGapBalanceSource(tableId: string): void {
     const engine = this.tableEngines.get(tableId);
@@ -4633,6 +4736,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       .catch((error) => {
         this.gapBalanceFencedSources.delete(tableId);
         this.gapBalanceClaimedSources.delete(tableId);
+        this.finishGapBalancePark(tableId, null);
         this.boundaryPlanAwaitingPark.delete(tableId);
         reportError(error, 'Tournament.rebalance_source_hold_failed', {
           tournamentId: this.tournamentId,
@@ -4651,8 +4755,10 @@ export class TournamentManager extends TournamentManagerEliminations {
     if (engine && this.retainsTournamentBreakSource(tableId, engine)) {
       this.gapBalanceFencedSources.delete(tableId);
       this.gapBalanceClaimedSources.delete(tableId);
+      this.finishGapBalancePark(tableId, null);
       return false;
     }
+    this.noteGapBalanceParked(tableId);
     this.boundaryPlanAwaitingPark.delete(tableId);
     this.boundaryBalanceRequested = true;
     this.drainBoundaryBalance();
@@ -4676,6 +4782,33 @@ export class TournamentManager extends TournamentManagerEliminations {
     return false;
   }
 
+  protected override shouldYieldSweepForParkedBoundaryBalance(): boolean {
+    return (
+      !isMaintenanceFrozen() && (this.boundaryBalanceRequested || this.hasParkedGapBalanceSource())
+    );
+  }
+
+  private gapBalanceSourcePreferences(
+    tables: BalancerTable[],
+    knownParked?: ReadonlyMap<string, ServerTableEngine>
+  ): CalculateMovesOptions | undefined {
+    if (this.gapBalanceFencedSources.size === 0 && (!knownParked || knownParked.size === 0)) {
+      return undefined;
+    }
+    const parkedSourceIds = new Set<string>();
+    const fencedSourceIds = new Set<string>();
+    for (const table of tables) {
+      const tableId = table.tableId;
+      if (knownParked?.has(tableId) || this.isParkedGapBalanceSource(tableId)) {
+        parkedSourceIds.add(tableId);
+      } else if (this.gapBalanceFencedSources.has(tableId)) {
+        fencedSourceIds.add(tableId);
+      }
+    }
+    if (parkedSourceIds.size === 0 && fencedSourceIds.size === 0) return undefined;
+    return { parkedSourceIds, fencedSourceIds };
+  }
+
   private collectParkedGapSources(
     target: Map<string, ServerTableEngine> = new Map(),
     allowedTableIds?: ReadonlySet<string>
@@ -4685,6 +4818,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       if (!engine || !this.gameServer.ownsTournamentTableEngine(tableId, engine)) {
         this.gapBalanceFencedSources.delete(tableId);
         this.gapBalanceClaimedSources.delete(tableId);
+        this.finishGapBalancePark(tableId, null);
         continue;
       }
       if (this.gapBalanceClaimedSources.get(tableId) !== engine)
@@ -4694,6 +4828,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         engine.awaitsTournamentMoveClaim?.() === true ||
         this.gapBalanceClaimedSources.get(tableId) === engine
       ) {
+        this.noteGapBalanceParked(tableId);
         target.set(tableId, engine);
         this.boundaryPlanAwaitingPark.delete(tableId);
       }
@@ -4848,7 +4983,11 @@ export class TournamentManager extends TournamentManagerEliminations {
         players: t.players.map((p) => ({ ...p })),
         reservedSeats: t.reservedSeats ? [...t.reservedSeats] : t.reservedSeats,
       }));
-      for (const move of this.tableBalancer.calculateMoves(board)) needed.add(move.fromTableId);
+      for (const move of this.tableBalancer.calculateMoves(
+        board,
+        this.gapBalanceSourcePreferences(board)
+      ))
+        needed.add(move.fromTableId);
     }
     this.releaseGapFencesNotIn(needed);
   }
@@ -4926,14 +5065,26 @@ export class TournamentManager extends TournamentManagerEliminations {
     if (inFlight && inFlight.epoch === this.balanceBoardEpoch) await inFlight.promise;
     const plan = this.preparedBoundaryPlan;
     this.preparedBoundaryPlan = null;
-    if (
-      !plan ||
-      plan.epoch !== this.balanceBoardEpoch ||
-      Date.now() - plan.preparedAtMs > TournamentManager.PREPARED_BOUNDARY_PLAN_MAX_AGE_MS
-    )
+    if (!plan) {
+      recordBoundaryPlanOutcome('miss_absent');
       return null;
+    }
+    if (plan.epoch !== this.balanceBoardEpoch) {
+      recordBoundaryPlanOutcome('miss_epoch');
+      return null;
+    }
+    if (Date.now() - plan.preparedAtMs > TournamentManager.PREPARED_BOUNDARY_PLAN_MAX_AGE_MS) {
+      recordBoundaryPlanOutcome('miss_age');
+      return null;
+    }
     // Every parked source must be on the board the plan read.
-    for (const tableId of parked.keys()) if (!plan.liveTableIds.includes(tableId)) return null;
+    for (const tableId of parked.keys()) {
+      if (!plan.liveTableIds.includes(tableId)) {
+        recordBoundaryPlanOutcome('miss_source_missing');
+        return null;
+      }
+    }
+    recordBoundaryPlanOutcome('hit');
     return {
       liveTableIds: [...plan.liveTableIds],
       tables:
@@ -5021,16 +5172,17 @@ export class TournamentManager extends TournamentManagerEliminations {
     if (parked.size === 0) return;
 
     // Give a parked source back to the dealer unless a break owns it.
-    const release = (tableId: string): void => {
+    const release = (tableId: string, outcome: GapBalanceParkOutcome = 'released'): void => {
       this.boundaryPlanAwaitingPark.delete(tableId);
       this.gapBalanceFencedSources.delete(tableId);
       this.gapBalanceClaimedSources.delete(tableId);
+      this.finishGapBalancePark(tableId, outcome);
       const engine = parked.get(tableId);
       if (engine && !this.retainsTournamentBreakSource(tableId, engine))
         engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
     };
-    const releaseAll = (): void => {
-      for (const tableId of parked.keys()) release(tableId);
+    const releaseAll = (outcome: GapBalanceParkOutcome = 'released'): void => {
+      for (const tableId of parked.keys()) release(tableId, outcome);
     };
 
     // Recheck after every awaited read/probe: a break, freeze or lifecycle
@@ -5052,7 +5204,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.requestEliminationSweep('tournament_move_parked');
         return;
       }
-      releaseAll();
+      releaseAll('deferred');
       if (this.running)
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
     };
@@ -5111,7 +5263,10 @@ export class TournamentManager extends TournamentManagerEliminations {
     const liveTableSet = new Set(liveTableIds);
     this.collectParkedGapSources(parked, liveTableSet);
 
-    const moves = this.tableBalancer.calculateMoves(tables);
+    const moves = this.tableBalancer.calculateMoves(
+      tables,
+      this.gapBalanceSourcePreferences(tables, parked)
+    );
     this.releaseGapFencesNotIn(new Set(moves.map((m) => m.fromTableId)));
     const ready: MoveInstruction[] = [];
     // Sources the plan still needs that cannot move at this instant.
@@ -5180,6 +5335,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         if (!unknown && !this.retainsTournamentBreakSource(tableId, engine)) {
           this.gapBalanceFencedSources.delete(tableId);
           this.gapBalanceClaimedSources.delete(tableId);
+          this.finishGapBalancePark(tableId, 'moved');
           engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
         }
       }
@@ -5227,40 +5383,46 @@ export class TournamentManager extends TournamentManagerEliminations {
     const lifecycle = this.captureLifecycleToken();
     const current = () => this.lifecycleIsCurrent(lifecycle) && !isMaintenanceFrozen();
     if (!(await this.redrivePendingTournamentSeatMoveOutcomes()) || !current()) return 0;
-    const { rows: tableRows, complete: tablesComplete } = await fetchAllRows(
-      (cursor, limit) => {
-        let query = supabase
-          .from('tables')
-          .select('id, status, is_deleted, max_players')
-          .eq('tournament_id', this.tournamentId)
-          .order('id', { ascending: true })
-          .limit(limit);
-        if (cursor) query = query.gt('id', cursor);
-        return query;
-      },
-      { label: 'Tournament.orphan_tables', pageAttempts: 1, shouldContinue: current }
-    );
-    if (!tablesComplete || tableRows.length === 0) return 0;
-
-    // The tournament relationship bounds the filter without a giant IN URL.
-    // Every live chair is needed before deciding occupancy or source ambiguity.
-    const { rows: seatRows, complete: seatsComplete } = await fetchAllRows(
-      (cursor, limit) => {
-        let query = supabase
-          .from('table_seats')
-          .select(
-            'id, table_id, user_id, seat_number, stack, tables!table_seats_table_id_fkey!inner(tournament_id)'
-          )
-          .eq('tables.tournament_id', this.tournamentId)
-          .is('left_at', null)
-          .order('id', { ascending: true })
-          .limit(limit);
-        if (cursor) query = query.gt('id', cursor);
-        return query;
-      },
-      { label: 'Tournament.orphan_seats', pageAttempts: 1, shouldContinue: current }
-    );
-    if (!seatsComplete) return 0;
+    // Both queries filter directly by this tournament_id and are independent;
+    // run them in parallel to avoid doubling sweep wall-clock latency
+    // (incident 1e532243).
+    const [
+      { rows: tableRows, complete: tablesComplete },
+      { rows: seatRows, complete: seatsComplete },
+    ] = await Promise.all([
+      fetchAllRows(
+        (cursor, limit) => {
+          let query = supabase
+            .from('tables')
+            .select('id, status, is_deleted, max_players')
+            .eq('tournament_id', this.tournamentId)
+            .order('id', { ascending: true })
+            .limit(limit);
+          if (cursor) query = query.gt('id', cursor);
+          return query;
+        },
+        { label: 'Tournament.orphan_tables', pageAttempts: 1, shouldContinue: current }
+      ),
+      // The tournament relationship bounds the filter without a giant IN URL.
+      // Every live chair is needed before deciding occupancy or source ambiguity.
+      fetchAllRows(
+        (cursor, limit) => {
+          let query = supabase
+            .from('table_seats')
+            .select(
+              'id, table_id, user_id, seat_number, stack, tables!table_seats_table_id_fkey!inner(tournament_id)'
+            )
+            .eq('tables.tournament_id', this.tournamentId)
+            .is('left_at', null)
+            .order('id', { ascending: true })
+            .limit(limit);
+          if (cursor) query = query.gt('id', cursor);
+          return query;
+        },
+        { label: 'Tournament.orphan_seats', pageAttempts: 1, shouldContinue: current }
+      ),
+    ]);
+    if (!tablesComplete || tableRows.length === 0 || !seatsComplete) return 0;
 
     const moves = planOrphanReseats(tableRows as OrphanTableRow[], seatRows as OrphanSeatRow[]);
 
@@ -5901,7 +6063,10 @@ export class TournamentManager extends TournamentManagerEliminations {
     // Calculate optimal moves to balance all tables
     let rebalanceComplete = true;
     if (this.tableBalancer.shouldRebalance(allTables)) {
-      const moves = this.tableBalancer.calculateMoves(allTables);
+      const moves = this.tableBalancer.calculateMoves(
+        allTables,
+        this.gapBalanceSourcePreferences(allTables)
+      );
       if (moves.length > 0) {
         console.log(
           `[Tournament:${this.tournamentId.slice(0, 8)}] Post-expansion rebalance: ${moves.length} player moves`

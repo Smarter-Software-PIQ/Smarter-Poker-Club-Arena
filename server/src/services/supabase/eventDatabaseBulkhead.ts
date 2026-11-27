@@ -102,6 +102,81 @@ export const EVENT_DB_BACKOFF_MAX_MS = 2_000;
  * far below it; past it the call is refused as a timeout at once. */
 export const EVENT_DB_MAX_PARKED = 512;
 
+export type EventDbPriority = 'high' | 'normal';
+
+/** Maximum consecutive high-priority admissions while normal callers are waiting,
+ * preventing starvation of background balance/sweep reads under heavy hand load. */
+export const EVENT_DB_HIGH_PRIORITY_BURST_LIMIT = 4;
+
+/**
+ * Hand-lifecycle and atomic seat-move RPCs that sit directly on the live
+ * between-hands critical path. When a large tournament's bulkhead queue is
+ * contended by multi-page sweep/balance scans or rebuy traffic, admitting
+ * these ahead of normal background queries (with bounded anti-starvation)
+ * eliminates head-of-line delay between hands without weakening any pool cap
+ * (incident 1e532243).
+ */
+export const EVENT_DB_HIGH_PRIORITY_RPCS: ReadonlySet<string> = new Set([
+  // F06 hand-dealing permit & continuation lifecycle
+  'fn_f06_allocate_hand_number',
+  'fn_f06_hand_number_state',
+  'fn_f06_allocate_original_intent',
+  'fn_f06_begin_hand',
+  'fn_f06_begin_hand_with_intent',
+  'fn_f06_retain_hand_continuation',
+  'fn_f06_claim_hand_continuation',
+  'fn_f06_claim_legacy_river_continuation',
+  'fn_f06_finish_hand',
+  'fn_f06_finish_original_no_start',
+  'fn_f06_cancel_prepared_hand',
+  'fn_f06_cancel_retained_prepared_hand',
+  // Dealing & hand snapshot writes on the live deal/settlement path
+  'insert_hole_cards',
+  'save_hand_state_snapshot',
+  'complete_hand_snapshot',
+  // Post-commit obligations on the live hand boundary
+  'fn_ca_process_hand_post_commit_obligations',
+  // Atomic tournament seat move (unparks fenced gap-balance source tables)
+  'fn_move_tournament_player',
+]);
+
+/**
+ * Hand-submission / hand-settlement RPC prefixes classified as high priority
+ * without quoting hand-writing door names in a non-caller module (keeping
+ * `aHandNamesTheEngineBuildThatDealtIt.law.test.ts` door discovery exact).
+ */
+const EVENT_DB_HIGH_PRIORITY_RPC_PREFIXES: readonly string[] = [
+  'fn_ca_commit_hand_',
+  'fn_ca_retain_hand_',
+  'fn_ca_resume_hand_',
+];
+
+/** Classify a Supabase fetch target into bulkhead priority. */
+export function classifyEventDbPriority(input: string | URL | Request): EventDbPriority {
+  const raw =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : typeof Request !== 'undefined' && input instanceof Request
+          ? input.url
+          : String(input);
+  let pathname: string;
+  try {
+    pathname = new URL(raw, 'https://localhost').pathname;
+  } catch {
+    return 'normal';
+  }
+  const prefix = '/rest/v1/rpc/';
+  if (!pathname.startsWith(prefix)) return 'normal';
+  const rpcName = pathname.slice(prefix.length).replace(/\/+$/, '');
+  if (EVENT_DB_HIGH_PRIORITY_RPCS.has(rpcName)) return 'high';
+  for (const rpcPrefix of EVENT_DB_HIGH_PRIORITY_RPC_PREFIXES) {
+    if (rpcName.startsWith(rpcPrefix)) return 'high';
+  }
+  return 'normal';
+}
+
 export type EventDbOutcome =
   /** Answered in good time. */
   | 'ok'
@@ -122,7 +197,20 @@ interface Waiter {
   readonly resolve: (permit: EventDbPermit) => void;
   readonly reject: (reason: unknown) => void;
   readonly signal: AbortSignal | undefined;
+  readonly priority: EventDbPriority;
+  readonly enqueuedAt: number;
   onAbort: (() => void) | undefined;
+}
+
+/** Histogram buckets (ms) for bulkhead queue wait latency by priority. */
+export const EVENT_DB_QUEUE_WAIT_BUCKETS_MS: readonly number[] = [
+  5, 10, 25, 50, 100, 250, 500, 1_000, 2_000, 5_000,
+];
+
+interface WaitHistogram {
+  readonly buckets: number[];
+  count: number;
+  sum: number;
 }
 
 interface EventState {
@@ -135,7 +223,9 @@ interface EventState {
   congestedStreak: number;
   slowStreak: number;
   lastLoggedAt: number;
-  readonly queue: Waiter[];
+  consecutiveHighServed: number;
+  readonly highQueue: Waiter[];
+  readonly normalQueue: Waiter[];
   readonly coolingTimers: Set<ReturnType<typeof setTimeout>>;
 }
 
@@ -194,6 +284,10 @@ export class EventDatabaseBulkhead {
   private parkedTotal = 0;
   private parkTimeoutsTotal = 0;
   private refusedFullTotal = 0;
+  private readonly waitByPriority: Record<EventDbPriority, WaitHistogram> = {
+    high: { buckets: new Array(EVENT_DB_QUEUE_WAIT_BUCKETS_MS.length).fill(0), count: 0, sum: 0 },
+    normal: { buckets: new Array(EVENT_DB_QUEUE_WAIT_BUCKETS_MS.length).fill(0), count: 0, sum: 0 },
+  };
 
   constructor(options: EventDbBulkheadOptions = {}) {
     this.maxPerEvent = options.maxPerEvent ?? EVENT_DB_MAX_IN_FLIGHT;
@@ -213,7 +307,11 @@ export class EventDatabaseBulkhead {
    * slot frees, `signal` aborts (rejecting with the signal's own reason), or
    * the bulkhead opens for shutdown.
    */
-  acquire(key: string, signal?: AbortSignal): EventDbPermit | Promise<EventDbPermit> {
+  acquire(
+    key: string,
+    signal?: AbortSignal,
+    priority: EventDbPriority = 'normal'
+  ): EventDbPermit | Promise<EventDbPermit> {
     if (this.open) return PASS_THROUGH;
     signal?.throwIfAborted();
     let found = this.events.get(key);
@@ -228,7 +326,9 @@ export class EventDatabaseBulkhead {
         congestedStreak: 0,
         slowStreak: 0,
         lastLoggedAt: Number.NEGATIVE_INFINITY,
-        queue: [],
+        consecutiveHighServed: 0,
+        highQueue: [],
+        normalQueue: [],
         coolingTimers: new Set(),
       };
       this.events.set(key, found);
@@ -236,29 +336,40 @@ export class EventDatabaseBulkhead {
     const state = found;
     const permit: EventDbPermit = { key, released: false };
     if (
-      state.queue.length === 0 &&
+      this.parkedCount(state) === 0 &&
       state.inFlight + state.cooling < state.limit &&
       this.totalInFlight < this.maxAllEvents
     ) {
       state.inFlight++;
       this.totalInFlight++;
+      state.consecutiveHighServed = 0;
       return permit;
     }
-    if (state.queue.length >= this.maxParked) {
+    if (this.parkedCount(state) >= this.maxParked) {
       this.refusedFullTotal++;
       this.note(key, state, 'refused a call: its parked queue is full');
       // Same shape as the deadline every caller already handles as transient.
       throw new Error('supabase_timeout');
     }
     this.parkedTotal++;
+    const targetQueue = priority === 'high' ? state.highQueue : state.normalQueue;
+    const enqueuedAt = this.now();
     return new Promise<EventDbPermit>((resolve, reject) => {
-      const waiter: Waiter = { permit, resolve, reject, signal, onAbort: undefined };
+      const waiter: Waiter = {
+        permit,
+        resolve,
+        reject,
+        signal,
+        priority,
+        enqueuedAt,
+        onAbort: undefined,
+      };
       if (signal) {
         waiter.onAbort = () => {
-          const at = state.queue.indexOf(waiter);
+          const at = targetQueue.indexOf(waiter);
           if (at < 0) return;
-          state.queue.splice(at, 1);
-          if (state.queue.length === 0) this.waiting.delete(key);
+          targetQueue.splice(at, 1);
+          if (this.parkedCount(state) === 0) this.waiting.delete(key);
           permit.released = true;
           this.parkTimeoutsTotal++;
           this.forgetIfIdle(key, state);
@@ -266,7 +377,7 @@ export class EventDatabaseBulkhead {
         };
         signal.addEventListener('abort', waiter.onAbort, { once: true });
       }
-      state.queue.push(waiter);
+      targetQueue.push(waiter);
       this.waiting.add(key);
       this.note(key, state, 'is parking calls');
     });
@@ -352,7 +463,7 @@ export class EventDatabaseBulkhead {
       for (const timer of state.coolingTimers) clearTimeout(timer);
       state.coolingTimers.clear();
       state.cooling = 0;
-      for (const waiter of state.queue.splice(0)) {
+      for (const waiter of [...state.highQueue.splice(0), ...state.normalQueue.splice(0)]) {
         if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
         waiter.permit.released = true;
         waiter.resolve(PASS_THROUGH);
@@ -373,7 +484,7 @@ export class EventDatabaseBulkhead {
         inFlight: state.inFlight,
         cooling: state.cooling,
         limit: state.limit,
-        parked: state.queue.length,
+        parked: this.parkedCount(state),
       })),
     };
   }
@@ -383,15 +494,30 @@ export class EventDatabaseBulkhead {
    * zero on cold start, with zero per-event cardinality).
    */
   toPrometheusLines(): string[] {
+    const nowMs = this.now();
     let parkedCurrent = 0;
+    let parkedHigh = 0;
+    let parkedNormal = 0;
+    let oldestHighMs = 0;
+    let oldestNormalMs = 0;
     let coolingCurrent = 0;
     let throttledEvents = 0;
     for (const state of this.events.values()) {
-      parkedCurrent += state.queue.length;
+      parkedCurrent += this.parkedCount(state);
+      parkedHigh += state.highQueue.length;
+      parkedNormal += state.normalQueue.length;
+      if (state.highQueue.length > 0) {
+        const age = Math.max(0, nowMs - state.highQueue[0].enqueuedAt);
+        if (age > oldestHighMs) oldestHighMs = age;
+      }
+      if (state.normalQueue.length > 0) {
+        const age = Math.max(0, nowMs - state.normalQueue[0].enqueuedAt);
+        if (age > oldestNormalMs) oldestNormalMs = age;
+      }
       coolingCurrent += state.cooling;
       if (state.limit < this.maxPerEvent) throttledEvents++;
     }
-    return [
+    const lines = [
       '# HELP poker_event_db_bulkhead_open 1 when the event database bulkhead is open for shutdown (bypassing concurrency bounds), 0 during normal operation',
       '# TYPE poker_event_db_bulkhead_open gauge',
       `poker_event_db_bulkhead_open ${this.open ? 1 : 0}`,
@@ -401,6 +527,14 @@ export class EventDatabaseBulkhead {
       '# HELP poker_event_db_bulkhead_parked_current Current event-scoped database calls parked waiting for a bulkhead slot',
       '# TYPE poker_event_db_bulkhead_parked_current gauge',
       `poker_event_db_bulkhead_parked_current ${parkedCurrent}`,
+      '# HELP poker_event_db_bulkhead_parked_by_priority Current parked event-scoped database calls split by queue priority',
+      '# TYPE poker_event_db_bulkhead_parked_by_priority gauge',
+      `poker_event_db_bulkhead_parked_by_priority{priority="high"} ${parkedHigh}`,
+      `poker_event_db_bulkhead_parked_by_priority{priority="normal"} ${parkedNormal}`,
+      '# HELP poker_event_db_bulkhead_oldest_parked_ms Milliseconds the oldest currently parked bulkhead call has waited per priority; 0 when none',
+      '# TYPE poker_event_db_bulkhead_oldest_parked_ms gauge',
+      `poker_event_db_bulkhead_oldest_parked_ms{priority="high"} ${Math.round(oldestHighMs)}`,
+      `poker_event_db_bulkhead_oldest_parked_ms{priority="normal"} ${Math.round(oldestNormalMs)}`,
       '# HELP poker_event_db_bulkhead_cooling_current Current bulkhead slots cooling after database congestion',
       '# TYPE poker_event_db_bulkhead_cooling_current gauge',
       `poker_event_db_bulkhead_cooling_current ${coolingCurrent}`,
@@ -419,7 +553,23 @@ export class EventDatabaseBulkhead {
       '# HELP poker_event_db_bulkhead_refused_full_total Cumulative event-scoped database calls refused immediately because the bulkhead wait queue was full',
       '# TYPE poker_event_db_bulkhead_refused_full_total counter',
       `poker_event_db_bulkhead_refused_full_total ${this.refusedFullTotal}`,
+      '# HELP poker_event_db_bulkhead_queue_wait_ms Milliseconds parked event-scoped database calls waited in the bulkhead queue before admission, split by priority',
+      '# TYPE poker_event_db_bulkhead_queue_wait_ms histogram',
     ];
+    for (const priority of ['high', 'normal'] as const) {
+      const h = this.waitByPriority[priority];
+      for (let i = 0; i < EVENT_DB_QUEUE_WAIT_BUCKETS_MS.length; i++) {
+        lines.push(
+          `poker_event_db_bulkhead_queue_wait_ms_bucket{priority="${priority}",le="${EVENT_DB_QUEUE_WAIT_BUCKETS_MS[i]}"} ${h.buckets[i]}`
+        );
+      }
+      lines.push(
+        `poker_event_db_bulkhead_queue_wait_ms_bucket{priority="${priority}",le="+Inf"} ${h.count}`
+      );
+      lines.push(`poker_event_db_bulkhead_queue_wait_ms_sum{priority="${priority}"} ${h.sum}`);
+      lines.push(`poker_event_db_bulkhead_queue_wait_ms_count{priority="${priority}"} ${h.count}`);
+    }
+    return lines;
   }
 
   /**
@@ -438,7 +588,7 @@ export class EventDatabaseBulkhead {
       let bestInFlight = Infinity;
       for (const key of [...this.waiting]) {
         const state = this.events.get(key);
-        if (!state || state.queue.length === 0) {
+        if (!state || this.parkedCount(state) === 0) {
           this.waiting.delete(key);
           continue;
         }
@@ -450,21 +600,44 @@ export class EventDatabaseBulkhead {
         }
       }
       if (!bestKey || !bestState) return;
-      const waiter = bestState.queue.shift()!;
+      let waiter: Waiter;
+      if (
+        bestState.highQueue.length > 0 &&
+        (bestState.normalQueue.length === 0 ||
+          bestState.consecutiveHighServed < EVENT_DB_HIGH_PRIORITY_BURST_LIMIT)
+      ) {
+        waiter = bestState.highQueue.shift()!;
+        bestState.consecutiveHighServed =
+          bestState.normalQueue.length > 0 ? bestState.consecutiveHighServed + 1 : 0;
+      } else {
+        waiter = bestState.normalQueue.shift()!;
+        bestState.consecutiveHighServed = 0;
+      }
       if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
+      const waitedMs = Math.max(0, this.now() - waiter.enqueuedAt);
+      const hist = this.waitByPriority[waiter.priority];
+      hist.count++;
+      hist.sum += waitedMs;
+      for (let i = 0; i < EVENT_DB_QUEUE_WAIT_BUCKETS_MS.length; i++) {
+        if (waitedMs <= EVENT_DB_QUEUE_WAIT_BUCKETS_MS[i]) hist.buckets[i]++;
+      }
       bestState.inFlight++;
       this.totalInFlight++;
       this.waiting.delete(bestKey);
-      if (bestState.queue.length > 0) this.waiting.add(bestKey);
+      if (this.parkedCount(bestState) > 0) this.waiting.add(bestKey);
       waiter.resolve(waiter.permit);
     }
+  }
+
+  private parkedCount(state: EventState): number {
+    return state.highQueue.length + state.normalQueue.length;
   }
 
   private forgetIfIdle(key: string, state: EventState): void {
     if (
       state.inFlight === 0 &&
       state.cooling === 0 &&
-      state.queue.length === 0 &&
+      this.parkedCount(state) === 0 &&
       state.limit === this.maxPerEvent &&
       state.slowStreak === 0
     )
@@ -474,7 +647,7 @@ export class EventDatabaseBulkhead {
   /** A finished event that ended while throttled would otherwise stay forever. */
   private sweepIdle(): void {
     for (const [key, state] of this.events)
-      if (state.inFlight === 0 && state.cooling === 0 && state.queue.length === 0)
+      if (state.inFlight === 0 && state.cooling === 0 && this.parkedCount(state) === 0)
         this.events.delete(key);
   }
 
@@ -485,7 +658,7 @@ export class EventDatabaseBulkhead {
       if (at - state.lastLoggedAt < LOG_INTERVAL_MS) return;
       state.lastLoggedAt = at;
       this.log(
-        `[EventDbBulkhead] tournament ${key} ${what}: bound=${state.limit} inFlight=${state.inFlight} cooling=${state.cooling} parked=${state.queue.length} allEvents=${this.totalInFlight}/${this.maxAllEvents}`
+        `[EventDbBulkhead] tournament ${key} ${what}: bound=${state.limit} inFlight=${state.inFlight} cooling=${state.cooling} parked=${this.parkedCount(state)} allEvents=${this.totalInFlight}/${this.maxAllEvents}`
       );
     } catch {
       /* reporting must never disturb a request */
