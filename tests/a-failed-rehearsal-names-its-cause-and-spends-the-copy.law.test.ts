@@ -143,14 +143,15 @@ describe('a failed rehearsal spends the copy', () => {
 describe('a failed rehearsal keeps the hung engine log', () => {
   it('prints the filtered, masked tail of the engine still running', () => {
     const r =
-      bash(`docker() { printf '%s\\n' 'boot ok' 'maintenance: adopted break token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abcdefghijklmnop' 'thaw/release unproven; keeping every table paused' 'hand 12 dealt' "leader key ${'a'.repeat(48)}"; }
+      bash(`docker() { printf '%s\\n' 'boot ok' 'maintenance: adopted break token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abcdefghijklmnop' 'thaw/release unproven; keeping every table paused MaintenanceThawError: maintenance_thaw_checkpoint_limit_reached_without_release' 'hand 12 dealt' 'leader key Ab3dEf9hIj2kLm5nOp7qRs1tUv4wXy6zAB8C' 'leader release ${'a'.repeat(40)}'; }
 rehearsal_engine_log`);
     expect(r.status, r.stderr).toBe(0);
     const lines = r.stdout.trim().split('\n');
     expect(lines).toEqual([
       'rehearsal engine: maintenance: adopted break token=<masked>',
-      'rehearsal engine: thaw/release unproven; keeping every table paused',
+      'rehearsal engine: thaw/release unproven; keeping every table paused MaintenanceThawError: maintenance_thaw_checkpoint_limit_reached_without_release',
       'rehearsal engine: leader key <masked>',
+      `rehearsal engine: leader release ${'a'.repeat(40)}`,
     ]);
   });
 
@@ -158,5 +159,26 @@ rehearsal_engine_log`);
     expect(STANDBY).toContain(
       `rehearsal_engine_log >&2 || log "certify $sha: the rehearsal engine's log could not be read"`
     );
+  });
+});
+
+describe('the player witness lasts as long as the rehearsal it watches', () => {
+  const PROBE = readFileSync(join(ROOT, 'server/standby/player-reconnect.mjs'), 'utf8');
+  const TRIALS = readFileSync(join(ROOT, 'server/standby/standby-trials.sh'), 'utf8');
+
+  it('its one budget is the thaw deadline plus the dealing wait of trial_swap', () => {
+    const thaw = Number(
+      /wait_frozen_seats "\$seat_owner" "\$\(\(t0 \+ (\d+)\)\)"/.exec(TRIALS)?.[1]
+    );
+    const deal = Number(/\(\( now - start < (\d+) \)\) \|\| return 1/.exec(TRIALS)?.[1]);
+    expect(thaw).toBe(1800);
+    expect(deal).toBe(1200);
+    expect(PROBE).toContain(`export const WITNESS_BUDGET_MS = (${thaw} + ${deal}) * 1000;`);
+    expect(PROBE).toContain('const deadline = Date.now() + WITNESS_BUDGET_MS;');
+  });
+
+  it('no phase of the witness has a cap shorter than that budget', () => {
+    expect(PROBE).not.toMatch(/12 \* 60_000|600000|480000/);
+    expect(PROBE).toContain('Math.max(0, deadline - Date.now())');
   });
 });
