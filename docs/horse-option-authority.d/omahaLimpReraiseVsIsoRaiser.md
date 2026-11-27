@@ -1,6 +1,6 @@
 # omahaLimpReraiseVsIsoRaiser: authority for the live switch
 
-Built 2026-11-27 by lead-8 lane limprr on the owner's order of 12:48 PM Chicago. **Evidence NOT MET**: the option stays OFF until its grades below are read and the lead decides. Default off (read `=== true`), switchable live, PLO4/PLO5 cash only (table and Lightning), preflop only. This file does not authorize switching it on.
+Built 2026-11-27 by lead-8 lane limprr on the owner's order of 12:48 PM Chicago. **Evidence MET on the harness bars B1 to B7** (lead-9 ruling, 2026-11-27). Audited / real-node replay: nothing to judge (0 of 3,566 audited decisions and 0 of 1,247 real limp-then-raised nodes change, because today's Horses never limp a top-20% hand); this leg is owed from live watch-only reads against people before the option is switched on. The option stays OFF. Default off (read `=== true`), switchable live, PLO4/PLO5 cash only (table and Lightning), preflop only. This file does not authorize switching it on.
 
 ## The owner's rulings it follows
 
@@ -27,7 +27,45 @@ See `server/src/engine/HorseOmahaLimpReraise.ts`. (1) First in, at most two play
 
 ## Grades
 
-PENDING (bars in S7/l8-limprr/BUILD.md, written before any grade).
+Grade sheet of 2026-11-27 23:05Z (grader W13b for lead-9; bars in S7/l8-limprr/BUILD.md, written before any grade).
+
+Every figure is ON-minus-same-seed-no-op, bb/100 of the Horses' net, on the fixed harness (#12212), base = live switch rows
+(S7/l8-harness/opts-live.json), 100 bb stacks. Every run: no-op 0.00 with 0 divergent deals, 0 illegal, 0 truncated.
+Pooled = inverse-variance over the seeds listed. Bars are the ones written in BUILD.md at 19:20Z (unchanged).
+
+| Card                                                                | Game                      | Seeds (size each)                     | ON-minus-no-op bb/100 ± SE                             | Bar                             | Result          |
+| ------------------------------------------------------------------- | ------------------------- | ------------------------------------- | ------------------------------------------------------ | ------------------------------- | --------------- |
+| B1 probe: raises pot over every limp                                | PLO5 HU                   | 401, 402 (6,000 deals)                | +2.77 ± 1.35 (+4.17 ± 1.93; +1.45 ± 1.88)              | > 0                             | PASS            |
+| B1 probe: raises pot over every limp                                | PLO4 HU                   | 401, 402 (6,000 deals)                | +1.06 ± 0.64 (+1.43 ± 1.47; +0.97 ± 0.71)              | > 0                             | PASS            |
+| B1 second clause: the raiser's own net vs ON Horses                 | PLO5 HU / PLO4 HU         | 401, 402                              | +2.2 ± 8.3 / +1.2 ± 7.9                                | not > 0 by 2 SE                 | PASS            |
+| B1 probe: raises pot over every limp (NEW)                          | PLO5 6-max                | 401 (3,000 deals)                     | +1.40 ± 0.69 (7 divergent deals)                       | > 0                             | PASS            |
+| B2 probe: tight raiser, top 10% only                                | PLO5 HU                   | 401, 402 (6,000 deals)                | -0.66 ± 0.96 (-0.14 ± 1.07; -2.72 ± 2.12)              | not below -2 SE                 | PASS (-0.7 SE)  |
+| B2 probe: tight raiser, top 10% only                                | PLO4 HU                   | 401 (6,000 deals)                     | -1.24 ± 0.75                                           | not below -2 SE                 | PASS (-1.65 SE) |
+| B2 probe: tight raiser, top 10% only (NEW)                          | PLO5 6-max                | 401 (3,000 deals)                     | +0.10 ± 0.27 (3 divergent deals)                       | not below -2 SE                 | PASS            |
+| B3 people-calibrated responder                                      | PLO5 HU                   | 401, 402 (6,000 deals)                | -0.53 ± 0.75 (-0.31 ± 0.81; -1.76 ± 1.91)              | not below -1 SE                 | PASS (-0.7 SE)  |
+| B3 people-calibrated responder (NEW)                                | PLO4 HU                   | 401 (6,000 deals)                     | -0.50 ± 0.65 (15 divergent deals)                      | not below -1 SE                 | PASS (-0.77 SE) |
+| B3 people-calibrated responder (NEW)                                | PLO5 6-max                | 401 (3,000 deals)                     | +0.62 ± 0.58 (4 divergent deals)                       | not below -1 SE                 | PASS            |
+| B4 mirror, ON seats vs OFF seats (NEW)                              | PLO5 HU                   | 501, 502 (6,000 pairs = 12,000 hands) | -1.71 ± 2.93 (-4.12 ± 4.26; +0.44 ± 4.03)              | not below -2 SE                 | PASS (-0.6 SE)  |
+| B4 mirror (NEW)                                                     | PLO4 HU                   | 501 (6,000 pairs = 12,000 hands)      | +2.22 ± 2.84                                           | not below -2 SE                 | PASS            |
+| B4 mirror (NEW)                                                     | PLO5 6-max                | 501, 502 (3,000 pairs = 6,000 hands)  | -0.85 ± 1.00 (-0.45 ± 1.39; -1.28 ± 1.45)              | not below -2 SE                 | PASS (-0.8 SE)  |
+| B5 flag-off                                                         | all                       | 28,000 decisions                      | 0 differences                                          | 0                               | PASS            |
+| B6 cost                                                             | PLO4/PLO5, 100/300/800 bb | 2,520 spots                           | p95 1.45 ms, max 2.30 ms, 0 over 25 ms; law ratio 0.65 | p95 <= 10, max <= 25, none > 50 | PASS            |
+| B7 law (IP or rundown; floor limp never re-raises; off = identical) | PLO4/PLO5                 | law suite                             | 12/12 pass                                             | pass                            | PASS            |
+
+Harness verdict (grader W13b): MET on every bar written in BUILD.md (B1 to B7, all games listed); no card failed. Caveat the lead must weigh before the authority doc says MET: the audited-decision replay found nothing to judge (0 changed, 0 fixed, 0 newly wrong in 869 + 2,697 audited decisions and in 1,247 real limp-then-raised nodes), so the proof is harness chips only, none from real hands.
+
+Limits, stated plainly:
+
+- No measured gain against people: the people responder reads -0.53 (PLO5 HU), -0.50 (PLO4 HU), +0.62 (PLO5 6-max), all inside 1.1 SE of zero. The only significant gain is against the scripted any-two isolator.
+- The mirrors are also inside 1 SE of zero (PLO5 HU -1.71, PLO5 6-max -0.85, PLO4 HU +2.22): no loss shown, no gain shown.
+- 6-max probes are thin: the option changed 7, 3 and 4 deals of 3,000. One seed each.
+- Single seed: PLO4 tight, PLO4 people, PLO4 mirror, all three 6-max probes.
+- Earlier rows (seeds 401/402 HU probes) were graded on commit 9298a1155123 + harness a3f35178; the NEW rows on branch head 7ea860ee3d3a + origin/main fd425990 (grade-only worktree S7/wt-l9-limprr-grade, local merge 4bedcda92eb1, never pushed). W13 logged that the later fixes do not change decisions; not re-verified here.
+- Mirrors and people probes ran through server/scripts/horse-grade.ts; the iso and tight probes need the lane's scripted raiser, so they ran through the lane's own limp-grade script, which is not in the repo (same harness calls).
+- The harness has no VPIP floor; rfi is the stand-in for an isolation counter.
+
+Not run: PLO4 6-max (no bar asks for it); second seeds for the single-seed cards; batch1's extra "iso plo4 seed 403". No card was re-run.
+Raw: S7/l8-limprr/out/g1.jsonl (earlier), S7/l8-limprr/l9/qa.jsonl and qb.jsonl (new); table reader python3 S7/l8-limprr/l9/ana.py.
 
 ## Tests
 
@@ -36,13 +74,16 @@ PENDING (bars in S7/l8-limprr/BUILD.md, written before any grade).
 ## Evidence rows
 
 - Mechanism, scope, receipts, tests, off-identity: MET.
-- Chips: see Grades.
-- Audited decisions: NOT RUN.
-- Against people: NOT MEASURED (only a live shadow can show it).
+- Chips: MET on the harness bars B1 to B7 (see Grades; several cards single-seed; no measured gain against the people responder; the harness has no VPIP floor).
+- Audited decisions: nothing to judge (0 changed of 869 + 2,697; rows under Replay). Real limp-then-raised nodes: 0 of 1,247 change.
+- Against people: NOT MEASURED (only live watch-only reads can show it; owed before the option is switched on).
 
 ## Replay
 
-- Replay: NOT RUN (as of 2026-11-27 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm LR vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2697; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm LR vs off; replayed 2697 of 2697
+
+Both sets: no decision changed, so nothing was fixed and nothing made newly wrong (today's Horses never limp a top-20% hand). Rows as recorded by the lane (S7/l8-limprr/aud/rows.lr.txt).
 
 ## Rollback
 
