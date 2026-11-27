@@ -511,8 +511,16 @@ for (const rosterLoadsLast of [false, true]) {
         document.querySelectorAll('.member-row').forEach((row) => {
           const avatar = row.querySelector('.member-avatar')!.getBoundingClientRect();
           const name = row.querySelector('.member-alias')!.getBoundingClientRect();
-          if (avatar.right > name.left || !name.width) found.push('avatar overlaps player name');
           const r = row.getBoundingClientRect();
+          /* Dan, 2026-11-27: the portrait sits in the upper left corner at
+             double its old size, with the name and every other line below
+             it, never floated to the middle of the card. */
+          if (avatar.bottom > name.top + 0.5 || !name.width)
+            found.push('player name is not below the portrait');
+          if (avatar.left - r.left > 16 || avatar.top - r.top > 16)
+            found.push('portrait is not in the upper left corner');
+          if (avatar.width < 64 || Math.abs(avatar.width - avatar.height) > 1)
+            found.push(`portrait is not double size: ${avatar.width}x${avatar.height}`);
           row
             .querySelectorAll(
               '.member-alias, .member-upline, .member-number, .member-role, .member-seen, .member-simple-balance > *'

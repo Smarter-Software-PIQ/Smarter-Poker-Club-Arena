@@ -1093,5 +1093,73 @@ describe('a boundary move is planned under the hold', () => {
       expect(chair).toBe(4);
       expect(priorityByTag.get('moveChairAtTheDoor')).toBe('high');
     });
+
+    it('batches moveChairAtTheDoor reads into one high-priority query for multi-destination moves while reading fresh for same-destination repeats', async () => {
+      const src = table(0, 9);
+      const destA = table(1, 4);
+      const destB = table(2, 4);
+      const { m, engines } = manager([src, destA, destB]);
+      const doorCalls: Array<{ ids: string[]; priority: string | undefined }> = [];
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      m.loadBalancerTables.mockImplementation(async (ids: string[], tag: string) => {
+        if (tag === 'moveChairAtTheDoor') {
+          doorCalls.push({ ids: [...ids], priority: getEventDbPriorityOverride() });
+        }
+        return baseLoad(ids, tag);
+      });
+      m.redrivePendingTournamentSeatMoveOutcomesOwned = vi.fn(async () => true);
+      m.claimTournamentMoveBoundary = vi.fn(async () => ({
+        engine: engines.get(src.tableId),
+        sourceMode: 'live_source',
+      }));
+      m.requestTournamentSeatMoveAtBoundary = vi.fn(async (input: any) => ({
+        requestId: input.requestId,
+        sourceSeatNumber: 1,
+        destinationSeatNumber: input.destinationSeatNumber,
+      }));
+      vi.spyOn(m.committedSeatShow, 'moved').mockImplementation(() => {});
+      m.runWithTournamentSeatMoveAuthority = async (fn: () => Promise<number>) => fn();
+      m.executePlayerMoves = (TournamentManager.prototype as any).executePlayerMoves.bind(m);
+
+      // 2 moves from `src` to 2 distinct destinations -> 1 batched high-priority door read!
+      const movedDistinct = await m.executePlayerMoves([
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[0].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destB.tableId,
+          playerId: src.players[1].userId,
+          toSeat: 5,
+        },
+      ]);
+      expect(movedDistinct).toBe(2);
+      expect(doorCalls).toEqual([{ ids: [destA.tableId, destB.tableId], priority: 'high' }]);
+
+      // 2 moves from `src` to the SAME destination -> 2 fresh per-move door reads!
+      doorCalls.length = 0;
+      const movedSame = await m.executePlayerMoves([
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[2].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[3].userId,
+          toSeat: 6,
+        },
+      ]);
+      expect(movedSame).toBe(2);
+      expect(doorCalls).toEqual([
+        { ids: [destA.tableId], priority: 'high' },
+        { ids: [destA.tableId], priority: 'high' },
+      ]);
+    });
   });
 });
