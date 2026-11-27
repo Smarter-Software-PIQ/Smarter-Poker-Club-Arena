@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaTurnFacingBetPriorIsLineSplit.law.test.ts
+
+omahaTurnFacingBetPriorIsLineSplit (default OFF) prices a PLO4/PLO5 cash turn first wager, heads-up or multiway, on the people-only cell of its flop line (checked through / wagered) and size, his own shown bets first and the balanced share behind a thin cell. On real turn decisions of Horses facing a person's first turn wager (the deciding Horse's own cards only) it never acts when off, prices heads-up and multiway bets when on, changes only calls and folds, folds less after a checked-through flop, and flipping every other seat between person and Horse changes nothing; the data is people-only.

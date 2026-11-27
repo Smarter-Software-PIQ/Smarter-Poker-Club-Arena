@@ -442,6 +442,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetPriorIsPeopleMeasured',
   // 2026-11-27 PLO-OWNER lead-7 (plo4-audit): the multiway field of the facing-bet price measured on people (ships dark)
   'omahaMultiwayFieldIsPeopleMeasured',
+  // 2026-11-27 lead-8 lane OFB: the turn bettor priced on the people cell of the flop line, heads-up and multiway (ships dark)
+  'omahaTurnFacingBetPriorIsLineSplit',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',
