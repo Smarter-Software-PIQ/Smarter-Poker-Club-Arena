@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/statement-timeouts-lane. Migration 20261126220936 adds fn_game_management_feed, the Game Management board's authorized, indexed feed (src/hooks/useGameManagementRealtime.ts). PROMISED until apply-merged-migration installs it and the nightly base absorbs it.",
+  "functions": ["fn_game_management_feed"]
+}

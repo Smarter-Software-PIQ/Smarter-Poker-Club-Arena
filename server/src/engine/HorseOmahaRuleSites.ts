@@ -552,6 +552,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverBetFoldIsHisRecord: priced(
     "the answer curve the two river bet rules price a heads-up river bet with is the population's with its fold share multiplied by the opponent's own lifetime public fold record at a river's first wager over the population's, shrunk n / (n + k) with the measured k; no record is the population curve exactly (default OFF)"
   ),
+  omahaRiverBetFoldIsPeopleMeasured: priced(
+    "the answer curve the two river bet rules price a heads-up river bet with is re-measured on PEOPLE's answers for the Horse's line and the size (shrunk to equilibrium by the measured k); Horse answers never enter (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
   omahaCbetRaiseIsPriced: priced(
     "facing a raise of its own flop continuation bet, the Horse prices the call against the top W x rho of holdings, rho the raiser's lifetime public raise share facing a first flop c-bet shrunk to the population's by K; heads-up bluff and semi-bluff c-bets carry that raise branch"
   ),
@@ -566,6 +569,15 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaRiverBluffIsPricedOnBlockers: priced(
     "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's cards raise his fold share (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaRiverBluffIsPricedOnRangeAdvantage: priced(
+    "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's measured range beats his on this texture with the hand in the weakest share of the Horse's range that its value carries at the size (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaTurnBluffIsPricedOnBlockers: priced(
+    "a heads-up turn check with nothing to call becomes the best-priced bet only where it beats the full-realization value of the check (his fold share from equilibrium moved by his own turn record, the Horse's sampled share with a card to come, the turn realization, his raise-back) by more than its error AND the Horse's cards raise his fold share (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaTurnBluffIsPricedOnRangeAdvantage: priced(
+    "a heads-up turn check with nothing to call becomes the best-priced bet only where it beats the full-realization value of the check by more than its error AND the Horse's measured range beats his on this texture with the hand in the weakest share of the Horse's range that its value carries at the size (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),
   omahaRiverCheckedToBetIsMeasured: priced(
     'a river check heads-up after the opponent checked becomes a bet only where the bet, priced on the measured response curve of river bets after a check and the card-impact range (no opponent kind), beats the calibrated showdown value of the check by more than its standard error (default OFF)'

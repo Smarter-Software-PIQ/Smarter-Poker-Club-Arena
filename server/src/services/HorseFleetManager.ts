@@ -94,6 +94,7 @@ import {
   drainShortfall,
   publishVarietyDrain,
   varietyDrainTables,
+  VARIETY_DRAIN_NEW_TABLE_MS,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -786,6 +787,8 @@ export class HorseFleetManager {
   private varietyHeldStarts: ReadonlySet<string> = new Set();
   /** The extra table released for an owed Main 1 last cycle, kept while it is a candidate. */
   private varietyDrainTableIds: string[] = [];
+  /** When the drain last added a NEW table (the ramp runs at the rotator's pace). */
+  private varietyDrainNewAtMs = 0;
   /* Last time a failed fleet-state publish was reported. The engine can ship
      before the World Hub migration that creates fn_ca_fleet_state_upsert, and
      an unthrottled report would file one error reporting event and one console line
@@ -3148,7 +3151,11 @@ export class HorseFleetManager {
          so the database's feeder opener holds on the same list. */
       this.varietyHeldStarts = new Set();
       clearVarietyHolds();
-      publishVarietyDrain(null, Date.now());
+      /* No clear of the drain publication here (review 2026-11-26): clearing it
+         before the awaited reads below left a window in which a rotator tick saw
+         no released table and lost a whole 90 s cycle. The publication is
+         replaced at the end of the decision, and goes stale by itself after
+         VARIETY_DRAIN_FRESH_MS if this cycle returns early. */
       beat.varietyOwedGames = [];
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
@@ -3207,18 +3214,39 @@ export class HorseFleetManager {
             ),
           }),
           current: this.varietyDrainTableIds,
+          mayAddNew: Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS,
         });
+        if (varietyDrain.some((id) => !this.varietyDrainTableIds.includes(id)))
+          this.varietyDrainNewAtMs = Date.now();
       }
+      const drainDecided = !!(cashPlanLightningGames && this.humansWaitingReadComplete);
+      /* AN UNDECIDED CYCLE KEEPS THE RELEASED TABLES CLOSED TO SEATING (review
+         2026-11-26). With an unread waiting list (or Lightning set) nothing is
+         stood up, because an unread list is never "no person waiting"; but the
+         tables already being released stay out of the walk and the seat calls,
+         or the walk refills a half-emptied table (the 2026-11-26 churn through
+         another door). A table with a person seated is never held this way. The
+         held tables stay published, so a Horse move onto one still waits and the
+         heartbeat still names them. */
+      const holdOnly =
+        !drainDecided && beat.varietyOwedGames.length > 0
+          ? this.varietyDrainTableIds.filter(
+              (id) => !(seatsByTable.get(id) ?? []).some((x) => !horseIdSet.has(x.user_id))
+            )
+          : [];
+      for (const tableId of holdOnly) surplusTableIds.add(tableId);
+      const released = drainDecided ? varietyDrain : holdOnly;
       /* A cycle that could not decide (an unread list, cap or Lightning set)
          releases nothing but does not forget which table was being released:
          the next readable cycle keeps that one instead of picking another. */
-      if (
-        beat.varietyOwedGames.length === 0 ||
-        (cashPlanLightningGames && this.humansWaitingReadComplete)
-      )
+      /* A WITHHELD CYCLE FORGETS NOTHING (review 2026-11-26): a withheld cycle
+         publishes no owed games, which is not "nothing is owed". The memory is
+         replaced only by a decided cycle, or cleared when a seating cycle finds
+         nothing owed. */
+      if (drainDecided || (beat.varietyOwedGames.length === 0 && !cycleWithheld))
         this.varietyDrainTableIds = varietyDrain;
-      beat.varietyDrainTable = varietyDrain[0] ?? null;
-      beat.varietyDrainTables = varietyDrain;
+      beat.varietyDrainTable = released[0] ?? null;
+      beat.varietyDrainTables = released;
       for (const tableId of varietyDrain) surplusTableIds.add(tableId);
       if (varietyDrain.length > 0) {
         console.log(
@@ -3227,7 +3255,7 @@ export class HorseFleetManager {
             `${beat.varietyOwedGames.length} owed start(s) - not seating them`
         );
       }
-      publishVarietyDrain(varietyDrain, Date.now());
+      publishVarietyDrain(released, Date.now(), horseIdSet);
       let hourlyAutonomousStarted = false;
       /* A CALLED NAME KEEPS ITS PLACE (Dan 2026-11-22; migration 20261123013241).
          A seat call is answered at every table, not only the ones the hourly

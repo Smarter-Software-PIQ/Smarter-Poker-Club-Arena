@@ -23,7 +23,8 @@ node scripts/ops/horse-daily-audit.mjs --plan [--until <ISO>]     # boundaries a
      splits, so more boundaries run as consecutive calls, each over the range from the split before its group to the
      split after it (every split keeps its full window on both sides). With no boundary: `--gate=absolute`;
    - `person-vs-horse-results.mjs --split-at <every boundary> --gate --json` (at most eight a call, grouped the same
-     way); with no boundary, the plain report.
+     way); with no boundary, the plain report;
+   - `horse-plo-overfold-gate.mjs --json` (the PLO over-fold alarm, below).
 3. Writes `<out-root>/<until as YYYY-MM-DD-HHMMZ>/`: `plan.json` (range, boundaries and why, commands), each tool's
    JSON output and `.err` log, the PLO CSVs, and `SUMMARY.md`.
 
@@ -45,6 +46,24 @@ breach".
 
 Exit: 0 clean; 1 a regression or an owner-rule breach that is not a repeat; 64 a usage error; 70 a read or a tool failed (the summary is
 still written and names the tool; read its `.err`).
+
+## The PLO Over-Fold Gate
+
+Why: the Horses' PLO4/PLO5 over-folding was fixed and came back several times, because fixes were layered on a bluff
+prior fitted on 41-179 hands, some re-fits used the Horse field (which never bluffs), and nothing alarmed when live
+folding drifted. `scripts/ops/horse-plo-overfold-gate.mjs` (pure core `horse-plo-overfold-gate-lib.mjs`) counts every
+Horse decision in PLO4/PLO5 cash, heads-up on the turn or river, facing a person's first bet of the street, by street
+and bet size (under 0.4, 0.4 to 0.7, 0.7 and over of the pot). It selects no hole cards: actions, seats and the
+profiles' Horse flag only. Each cell's fold rate is held against a ceiling, per decision and averaged: the break-even
+fold s/(1+s); where `server/src/engine/HorseOmahaFacingBetPeoplePrior.data.ts` exists, says `source: 'people-only'` and
+has at least 30 people bets in the cell, the people-measured ceiling (the break-even fold while people bluff at least
+the balanced share s/(1+2s), rising linearly to 1 as their measured bluff share falls to 0). A cell gates (exit 1, one
+line naming the cell, n, the rates and z) only when its folds are above the ceiling by z of at least
+`correctedZ(3, cells tested)` (`horse-audit-multiple-tests.mjs`; a cell needs 20 decisions to be tested). The previous
+3 days pooled are shown beside each cell and never gate alone. The summary has a section **PLO Over-Fold Gate** with the
+table of all six cells; a gating cell is a regression with the identity `overfold|<street>|<size>` and is marked repeat
+like the other findings. Limit: the ceiling does not see the Horse's range (a Horse that checked a weak range may fold
+more than break-even correctly); the people-measured ceiling is the correction for what people actually bet.
 
 ## Safety
 

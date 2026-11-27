@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/social-posts-count. Migration 20261126232411 adds fn_social_profile_post_count (the public profile Posts number, asked of the social_posts SELECT policies set-wise; World Hub pages/hub/user/[username].js and src/lib/cacheWarmer.js) and its invoker fingerprint helper fn_social_posts_visibility_fingerprint. PROMISED until apply-merged-migration installs it and the nightly base absorbs it.",
+  "functions": ["fn_social_profile_post_count", "fn_social_posts_visibility_fingerprint"]
+}

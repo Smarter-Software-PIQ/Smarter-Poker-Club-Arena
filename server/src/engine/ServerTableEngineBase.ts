@@ -6614,23 +6614,14 @@ export abstract class ServerTableEngineBase {
           `${carried.fromTableId} (tournament move): ${carried.fsm.state}`
       );
       if (carried.fsm.state !== 'SAT_OUT' || p.is_sitting_out === true || !p.occupancy_id) continue;
-      void Promise.resolve(
-        supabase
-          .from('table_seats')
-          .update({ is_sitting_out: true })
-          .eq('table_id', this.tableId)
-          .eq('user_id', p.user_id)
-          .eq('occupancy_id', p.occupancy_id)
-          .is('left_at', null)
-      )
-        .then(({ error }) => {
-          if (error) {
-            reportError(
-              new Error(`persist carried sit-out failed: ${error.message}`),
-              'ServerTableEngine.' + this.tableId + '.moved_sitout_persist_failed'
-            );
-          }
-        })
+      // THE TABLE BEFORE THE SEAT (2026-11-26). A direct PATCH of
+      // is_sitting_out locked the chair first and then, through the
+      // zz_note_human_seat_seen trigger, the tables row, while the f06 table
+      // lane (fn_ca_f06_share_table_lane) takes the tables row and then every
+      // chair: deadlock 2026-11-26 16:22:05 UTC. fn_cash_seat_sitout takes the
+      // table first, like every other sit-out write.
+      void this.seatSitOutPersistence
+        .persist(this.tableId, p.user_id, p.occupancy_id, true)
         .catch((err) => {
           reportError(err, 'ServerTableEngine.' + this.tableId + '.moved_sitout_persist_threw');
         });

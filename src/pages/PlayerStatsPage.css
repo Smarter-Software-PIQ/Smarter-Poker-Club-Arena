@@ -1738,6 +1738,12 @@
     font-size: 0.7rem;
   }
 
+  .stats-page .tournament-study-actions button {
+    white-space: normal;
+    line-height: 1.25;
+    text-align: center;
+  }
+
   .stats-club-comparison {
     margin-bottom: 14px;
     padding: 20px;

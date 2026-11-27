@@ -205,6 +205,51 @@ describe('enrollDevice', () => {
     expect(document.body.textContent).toContain('Waiting For Approval');
   });
 
+  it('the pairing wait polls fast only while its channel is not subscribed', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      rpcMock.mockImplementation((name: string) => {
+        if (name === 'ca_claim_active_login')
+          return Promise.resolve({
+            data: { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Dan Mac' }] },
+            error: null,
+          });
+        if (name === 'ca_request_pairing')
+          return Promise.resolve({ data: { ok: true, request_id: 'req-1' }, error: null });
+        return Promise.resolve({ data: {}, error: null });
+      });
+      await enrollDevice(tokenWith(SID_A));
+      await settle();
+      expect(clickButton('Same As Dan Mac')).toBe(true);
+      await settle();
+      expect(document.body.textContent).toContain('Waiting For Approval');
+      const pairingStatus = subscribeCallbacks.at(-1)!;
+      expect(pairingStatus).toBeTypeOf('function');
+
+      // Not subscribed yet: the read is the only path, every 2.5 s.
+      queryMock.mockClear();
+      vi.advanceTimersByTime(5_000);
+      expect(queryMock).toHaveBeenCalledTimes(2);
+
+      // Subscribed: one read to close the join gap, then only the 30 s net.
+      queryMock.mockClear();
+      pairingStatus('SUBSCRIBED');
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(29_999);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1);
+      expect(queryMock).toHaveBeenCalledTimes(2);
+
+      // Dropped: the fast cadence is back at once.
+      queryMock.mockClear();
+      pairingStatus('CHANNEL_ERROR');
+      vi.advanceTimersByTime(2_500);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a dead resumed session bounces, superseded uses the another-device source', async () => {
     rpcMock.mockResolvedValue({
       data: { ok: false, why: 'session_gone', superseded: true },

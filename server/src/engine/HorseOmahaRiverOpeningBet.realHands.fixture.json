@@ -5093,7 +5093,7 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "value": "bet", "bluff": "check", "off": "check" }
+      "expect": { "value": "check", "bluff": "check", "off": "check" }
     },
     {
       "set": "daily-2026-11-25",
@@ -13972,7 +13972,7 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "value": "bet", "bluff": "check", "off": "check" }
+      "expect": { "value": "check", "bluff": "check", "off": "check" }
     },
     {
       "set": "first-2026-11-20-24",
