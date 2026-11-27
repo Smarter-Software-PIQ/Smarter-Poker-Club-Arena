@@ -121,6 +121,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaFacingBetMinimumDefencePrior',
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaFacingBetPriorIsPeopleMeasured',
+  // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
+  'omahaFlopPressureCapIsPriced',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',

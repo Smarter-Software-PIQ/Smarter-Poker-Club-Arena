@@ -1357,6 +1357,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopPressureCapIsPriced',
+    "PLO-OWNER lead-7 2026-11-26 (plo4-audit FINDINGS.md: heads-up flop fold to bets over 0.8 pot 72.9% vs people 49.4%; flop-pp/BUILD.md: 75 of 76 replayed folds are v38_ev_fold, the V40 class cap on 53). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop facing a single bet, where the V40 pressure cap prices a weak made class, the reference call-or-fold check reads the equity against the bettor's range (flop value region plus the PEOPLE-ONLY measured flop non-value share, balanced share weighting a thin cell, moved by his own shown flop bets) instead of the class ceiling; every other consumer reads the cap as before (call vs fold only); turn, river, multiway and raises keep today's price. HorseOmahaFlopPressureCapPriced.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetPriorIsPeopleMeasured',
     "PLO-OWNER lead-7 2026-11-26 (audit-rootcause/REPORT.md section B; woowoo/REPORT.md gap 1). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters; a multiway spot keeps today's price. HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
     'V94'
@@ -6268,6 +6273,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_flop_pressure_cap_priced',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    "the heads-up flop call-or-fold check read the equity against the bettor's people-measured range in place of the V40 class cap (omahaFlopPressureCapIsPriced)",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_pressure_cap_priced_call',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    'the priced heads-up flop call-or-fold check called (omahaFlopPressureCapIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_pressure_cap_priced_fold',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    'the priced heads-up flop call-or-fold check folded (omahaFlopPressureCapIsPriced)',
+    'V94'
+  ),
+  receipt(
     'omaha_people_prior_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
     'the facing-bet verdict priced a heads-up turn or river bet or raise on the people-only measured share (river: three measured regions) (omahaFacingBetPriorIsPeopleMeasured)',
@@ -10956,6 +10979,7 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   // on by release), whose omaha_reraised_call_priced_* receipts fire by design
   // the people-measured facing-bet prior names its own receipts in their descriptions; declared by prefix
   omahaFacingBetPriorIsPeopleMeasured: { prefixes: ['omaha_people_prior_'] },
+  omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

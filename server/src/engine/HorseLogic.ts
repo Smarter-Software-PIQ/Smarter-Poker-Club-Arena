@@ -229,6 +229,11 @@ import {
   omahaNoMadeClassCapInScope,
 } from './HorseOmahaClassCapsRespectEquity.js';
 import {
+  omahaFlopPressureCapGate,
+  omahaFlopPressureCapPricedEquity,
+  omahaFlopPressureCapPricedSpot,
+} from './HorseOmahaFlopPressureCapPriced.js';
+import {
   plo6FacingBetPriced,
   plo6FacingBetPricedScope,
   plo6PairedRiverBetPriced,
@@ -3883,6 +3888,14 @@ export interface HorseDecideOpts {
    * other game are untouched.
    */
   omahaNoMadeClassCap?: boolean;
+  /**
+   * PLO-OWNER lead-7 2026-11-26 (HorseOmahaFlopPressureCapPriced.ts). Default OFF, read `=== true`. PLO4/PLO5 cash,
+   * the flop, heads-up, facing a single bet, in exactly the spots the V40 pressure cap prices: the reference brain's
+   * call-or-fold check reads the Horse's equity against the bettor's range (people-only measured flop share, his own
+   * shown flop bets) in place of the class cap. Every other consumer still reads the capped equity, so only call vs
+   * fold can change. Turn, river, multiway, raises, PLO6 and tournaments untouched.
+   */
+  omahaFlopPressureCapIsPriced?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -31733,6 +31746,56 @@ export class HorseLogic {
       });
     if (noMadeClassCap && tele15 && useV40 && vi.isOmaha && made40 != null && made40.weak)
       noteFire('omaha_made_class_cap_not_applied');
+    // omahaFlopPressureCapIsPriced (default off): computed BEFORE the V40 block and separate from it; the block below
+    // runs exactly as with the option off. Only the call-or-fold check (eqRead38) reads this number.
+    let pricedCap38: number | null = null;
+    if (
+      opts.omahaFlopPressureCapIsPriced === true &&
+      !noMadeClassCap &&
+      useV40 &&
+      vi.isOmaha &&
+      !vi.isHiLo &&
+      street === 'flop' &&
+      oppCount === 1 &&
+      !raisedAfterAggr &&
+      !multiBoard36 &&
+      gs.bombPot !== true &&
+      !isTournamentMode(gs) &&
+      made40 != null &&
+      omahaFlopPressureCapGate({
+        barrels: barrels40,
+        potFrac,
+        pressure: pressure20,
+        cls: made40.cls,
+        weak: made40.weak,
+      })
+    ) {
+      try {
+        const spotP = omahaFlopPressureCapPricedSpot(player, gs);
+        if (spotP) {
+          const bettorP = gs.players.find((p) => p.seat === spotP.bettorSeat);
+          const priced = omahaFlopPressureCapPricedEquity(
+            spotP,
+            player.cards,
+            board,
+            player.knownDeadCards ?? [],
+            omahaFacingBetDeduction(player, gs, opts),
+            useMind && bettorP
+              ? omahaBetReadOwnCellOf(
+                  bettorP.user_id,
+                  String(gs.gameVariant ?? '').toLowerCase(),
+                  'flop',
+                  spotP.potFrac,
+                  false
+                )
+              : null
+          );
+          if (priced) pricedCap38 = Math.min(eq15, priced.equity);
+        }
+      } catch {
+        pricedCap38 = null;
+      }
+    }
     if (!noMadeClassCap && useV40 && vi.isOmaha && made40 != null && made40.weak) {
       const heat40 =
         barrels40 +
@@ -34620,8 +34683,12 @@ export class HorseLogic {
     ) {
       // the exploit reads, as an equity shift instead of a margin
       const readShift38 = -(respect - 1) * 0.08;
+      // omahaFlopPressureCapIsPriced (default off): the priced equity in place of the class cap, for call vs fold
+      // only (a draw the check prices as a raise keeps the capped equity).
+      const pricedCall38 = pricedCap38 !== null && !comboRaise38 && !isRiver;
+      if (pricedCall38 && tele15) noteFire('omaha_flop_pressure_cap_priced');
       let eqRead38 = clamp01(
-        eq15 +
+        (pricedCall38 ? (pricedCap38 as number) : eq15) +
           impliedBonus68 +
           readShift38 -
           dominationPenaltyCall -
@@ -34907,6 +34974,10 @@ export class HorseLogic {
         : !!callEv && callEv.ev >= 0;
       if (continuation38 && tele15)
         noteFire(takeCall38 ? 'horse_continuation_budget_call' : 'horse_continuation_budget_fold');
+      if (pricedCall38 && tele15)
+        noteFire(
+          takeCall38 ? 'omaha_flop_pressure_cap_priced_call' : 'omaha_flop_pressure_cap_priced_fold'
+        );
       if (takeCall38) {
         if (tele15) noteFire('v38_ev_call');
         return { action: 'call', amount: toCall, thinkTime: 0 };
