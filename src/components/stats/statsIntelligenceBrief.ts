@@ -140,7 +140,7 @@ export function buildStatsIntelligenceBrief(input: {
       detail: !sampleIsReliable
         ? `Needs ${MIN_TOTAL_CASH_HANDS.toLocaleString()} cash hands before ranking positions.`
         : bestPosition
-          ? `${signed(bestPosition.bb100)} BB/100 across ${bestPosition.hands_played.toLocaleString()} hands.`
+          ? `${signed(bestPosition.bb100)} BB/100 Hands across ${bestPosition.hands_played.toLocaleString()} hands.`
           : `Needs ${MIN_SEGMENT_HANDS.toLocaleString()} hands in one position.`,
       tone:
         !sampleIsReliable || !bestPosition
@@ -160,7 +160,7 @@ export function buildStatsIntelligenceBrief(input: {
       detail: !sampleIsReliable
         ? `Needs ${MIN_TOTAL_CASH_HANDS.toLocaleString()} cash hands before ranking games.`
         : bestVariant
-          ? `${signed(bestVariant.bb100)} BB/100 across ${bestVariant.hands.toLocaleString()} hands.`
+          ? `${signed(bestVariant.bb100)} BB/100 Hands across ${bestVariant.hands.toLocaleString()} hands.`
           : `Needs ${MIN_SEGMENT_HANDS.toLocaleString()} hands in one game.`,
       tone:
         !sampleIsReliable || !bestVariant

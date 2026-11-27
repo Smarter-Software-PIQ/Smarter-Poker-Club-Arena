@@ -408,7 +408,12 @@ certified_player_swap() {
 trial_swap() {
   local from="$1" to="$2" t0 frozen_at stop_at live_at thaw_at reasons=""
   valid_sha "$from"; valid_sha "$to"
-  cmd_run "$from" || return 1
+  # Skip a redundant stop+reboot when $CONTAINER is already running $from (e.g.
+  # right after cmd_certify's initial boot or after the rollback swap finished
+  # with $serving live and dealing). Matches trial_break and trial_table_kill.
+  if [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}} {{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "$from true" ]; then
+    cmd_run "$from" || return 1
+  fi
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }
   wait_pretrial_dealing "$from" || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }

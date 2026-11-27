@@ -58,7 +58,13 @@ import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
 import LogThisHandControl from '../handdetail/LogThisHandControl';
-import { getCachedSavedHand, type SavedHandsBatchMap } from '../../services/SavedHandsService';
+import {
+  checkSavedHandsBatch,
+  getCachedSavedHand,
+  isCanonicalUuid,
+  subscribeSavedHandsUpdates,
+  type SavedHandsBatchMap,
+} from '../../services/SavedHandsService';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
 import {
@@ -636,6 +642,125 @@ export function HandDetailModal({
     return 0;
   }, [hands, subjectId]);
   const { hand, privateState, refresh } = useHandReviewDetails(hands[index], heroId, isOpen);
+
+  const heroParticipated = Boolean(
+    hand &&
+    heroId &&
+    heroId !== 'guest' &&
+    ((Array.isArray(hand.players) && hand.players.some((p) => p?.id === heroId)) ||
+      (Array.isArray(hand.replay?.players) &&
+        hand.replay.players.some((p) => p?.userId === heroId)))
+  );
+
+  const propSavedHandId = useMemo(() => {
+    if (!hand?.id || !savedHandsByHandId) return null;
+    const direct = savedHandsByHandId[hand.id];
+    if (direct?.id) return direct.id;
+    const targetLower = hand.id.toLowerCase();
+    const lowerDirect = savedHandsByHandId[targetLower];
+    if (lowerDirect?.id) return lowerDirect.id;
+    for (const [key, entry] of Object.entries(savedHandsByHandId)) {
+      if (key.toLowerCase() === targetLower && entry?.id) {
+        return entry.id;
+      }
+    }
+    return null;
+  }, [hand?.id, savedHandsByHandId]);
+
+  const [hydratedSavedIds, setHydratedSavedIds] = useState<Record<string, string>>({});
+  const hydratedSavedIdsRef = useRef<Record<string, string>>(hydratedSavedIds);
+  hydratedSavedIdsRef.current = hydratedSavedIds;
+  const checkedModalHandIdsRef = useRef<Set<string>>(new Set());
+  const modalHydrationUserRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!heroId || heroId === 'guest') {
+      modalHydrationUserRef.current = null;
+      checkedModalHandIdsRef.current.clear();
+      hydratedSavedIdsRef.current = {};
+      setHydratedSavedIds({});
+      return;
+    }
+    if (modalHydrationUserRef.current !== heroId) {
+      modalHydrationUserRef.current = heroId;
+      checkedModalHandIdsRef.current.clear();
+      hydratedSavedIdsRef.current = {};
+      setHydratedSavedIds({});
+    }
+    return subscribeSavedHandsUpdates((event) => {
+      if (event.type === 'deleted') {
+        if (event.userId && event.userId !== heroId) return;
+        const targetLower = event.handId ? event.handId.toLowerCase() : null;
+        const targetSavedId = event.savedHandId ?? null;
+        setHydratedSavedIds((prev) => {
+          let changed = false;
+          const next: Record<string, string> = { ...prev };
+          for (const [key, savedId] of Object.entries(prev)) {
+            if (
+              (targetLower !== null && key === targetLower) ||
+              (targetSavedId !== null && savedId === targetSavedId)
+            ) {
+              delete next[key];
+              changed = true;
+            }
+          }
+          if (!changed) return prev;
+          hydratedSavedIdsRef.current = next;
+          return next;
+        });
+        return;
+      }
+      if (event.userId !== heroId) return;
+      const lower = event.handId.toLowerCase();
+      setHydratedSavedIds((prev) => {
+        if (prev[lower] === event.entry.savedHandId) return prev;
+        const next = { ...prev, [lower]: event.entry.savedHandId };
+        hydratedSavedIdsRef.current = next;
+        return next;
+      });
+    });
+  }, [heroId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      checkedModalHandIdsRef.current.clear();
+      return;
+    }
+    if (!heroParticipated || !hand?.id || !isCanonicalUuid(hand.id)) return;
+    const lowerId = hand.id.toLowerCase();
+    if (
+      propSavedHandId ||
+      hydratedSavedIdsRef.current[lowerId] ||
+      getCachedSavedHand(heroId, hand.id) ||
+      checkedModalHandIdsRef.current.has(lowerId)
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    let alive = true;
+    void checkSavedHandsBatch([hand.id], {
+      signal: controller.signal,
+      userId: heroId,
+    }).then((map) => {
+      if (!alive) return;
+      checkedModalHandIdsRef.current.add(lowerId);
+      const matched =
+        map[hand.id] ??
+        map[lowerId] ??
+        Object.entries(map).find(([k]) => k.toLowerCase() === lowerId)?.[1];
+      if (!matched?.id) return;
+      setHydratedSavedIds((prev) => {
+        if (prev[lowerId] === matched.id) return prev;
+        const next = { ...prev, [lowerId]: matched.id };
+        hydratedSavedIdsRef.current = next;
+        return next;
+      });
+    });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [isOpen, heroParticipated, hand?.id, heroId, propSavedHandId]);
   /* The sender's Share & Invite code, fetched while the hand is open so the
      Link tap can hand the phone's share sheet a finished link at once. */
   const senderInvite = useSenderInviteCode(hand?.tableId, heroId, isOpen);
@@ -1282,15 +1407,18 @@ export function HandDetailModal({
               </button>
             )}
           </div>
-          <LogThisHandControl
-            handId={hand.id}
-            accountId={heroId}
-            initialSavedHandId={
-              savedHandsByHandId?.[hand.id]?.id ??
-              getCachedSavedHand(heroId, hand.id)?.savedHandId ??
-              null
-            }
-          />
+          {heroParticipated && (
+            <LogThisHandControl
+              handId={hand.id}
+              accountId={heroId}
+              initialSavedHandId={
+                propSavedHandId ??
+                hydratedSavedIds[hand.id.toLowerCase()] ??
+                getCachedSavedHand(heroId, hand.id)?.savedHandId ??
+                null
+              }
+            />
+          )}
           {/* The sender's own view of a hand they sent: how many people opened
               it, and the way to take it back. A stopped link opens nothing;
               the next Link or Share makes a new one. */}

@@ -258,7 +258,7 @@ export default function SharedClubStatsView(props: Props) {
                 <tr>
                   <th>Hands</th>
                   <th>Won</th>
-                  {!tournament && <th>BB/100</th>}
+                  {!tournament && <th>BB/100 Hands</th>}
                   <th>VPIP</th>
                   <th>PFR</th>
                   {tournament && (
@@ -275,7 +275,7 @@ export default function SharedClubStatsView(props: Props) {
                   <td data-label="Hands">{o.hands ?? 0}</td>
                   <td data-label="Won">{o.hands_won ?? 0}</td>
                   {!tournament && (
-                    <td data-label="BB/100">
+                    <td data-label="BB/100 Hands">
                       {ratioOrUnmeasured(o.bb_per_100, o.cash_hands, (value) => value.toFixed(1))}
                     </td>
                   )}

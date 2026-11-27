@@ -106,7 +106,7 @@ describe('Performance cash-stat evidence', () => {
     const cbet = screen.getByText('C-Bet Flop').closest('.stat-row');
     expect(cbet).not.toBeNull();
     expect(within(cbet as HTMLElement).getByText(/100 Opportunities/)).toHaveTextContent(
-      '95% Confidence 40.4% To 59.6%'
+      '100 Opportunities · 40.4% To 59.6%'
     );
 
     const wtsd = screen.getByText('WTSD').closest('.stat-row');
@@ -130,9 +130,14 @@ describe('Performance cash-stat evidence', () => {
     const threeBet = screen.getByText('3-Bet %').closest('.stat-row');
     expect(threeBet).not.toBeNull();
     expect(within(threeBet as HTMLElement).getByText('Not Yet Measured')).toBeInTheDocument();
+    // The value already says it was not measured; the caption is not repeated
+    // (Dan, 2026-11-27: remove unnecessary explanations).
     expect(
-      within(threeBet as HTMLElement).getByText('Opportunity Denominator Unavailable')
-    ).toBeInTheDocument();
+      within(threeBet as HTMLElement).queryByText('Opportunity Denominator Unavailable')
+    ).not.toBeInTheDocument();
+    expect(within(threeBet as HTMLElement).getByText('Not Yet Measured')).toHaveClass(
+      'is-unmeasured'
+    );
   });
 
   it('overlays canonical cash opportunity rates when exact facts are available', () => {

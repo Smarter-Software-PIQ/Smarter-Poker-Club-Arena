@@ -803,6 +803,11 @@ import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import LogThisHandControl from '../components/handdetail/LogThisHandControl';
 import { normalizeCanonicalUuid } from '../services/SavedHandsService';
+import {
+  handHistorySavedEventIdentity,
+  resolveNextLastCompletedHand,
+  type LastCompletedHandState,
+} from '../lib/lastCompletedHandGate';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
 import {
   resolveSnapshotActionContext,
@@ -1790,6 +1795,14 @@ function LiveTablePage({
      keeping those cards asks this, never the seat index or the deal cue. See
      src/lib/heroCardCustody.ts. */
   const heroCardsHandRef = useRef(0);
+  const heroDealtHandsRef = useRef<{ scope: string; hands: Set<number> }>({
+    scope: '',
+    hands: new Set(),
+  });
+  const recordHeroDealtHandRef = useRef<(handNumber: number) => void>(() => {});
+  const heroAtTableRef = useRef(false);
+  const lightningObserverRef = useRef(false);
+  const lastProcessedHandSavedEventRef = useRef<{ event: unknown; key: string } | null>(null);
   const lightningClubId = lightningRoom?.meta?.clubId ?? null;
   const navigate = useNavigate();
   const location = useLocation();
@@ -2691,6 +2704,7 @@ function LiveTablePage({
     return foldRevealRef.current;
   }, [engineSnapshot, lightningRoom]);
   const lightningObserver = isLightningObserverSnapshot(engineSnapshot);
+  lightningObserverRef.current = lightningObserver;
   const [lightningAnchorFunded, setLightningAnchorFunded] = useState(false);
   useEffect(() => setLightningAnchorFunded(false), [tableId, userId]);
   // A funded physical anchor survives an empty/stale public hand roster.
@@ -3192,6 +3206,14 @@ function LiveTablePage({
         /* Dan 2026-10-14: an all-in / showdown snapshot carries the hero's
            cards in DEALT order. Keep the row in its display order. */
         if (sp.isHero && sp.holeCards && sp.holeCards.length > 0) {
+          if (
+            !lightningObserver &&
+            Number.isSafeInteger(cardHoldNextHand) &&
+            cardHoldNextHand > 0 &&
+            typeof recordHeroDealtHandRef !== 'undefined'
+          ) {
+            recordHeroDealtHandRef.current(cardHoldNextHand);
+          }
           // A reload may recover the shown hand through this snapshot alone.
           // Retain its dealt order before preserving/sorting the hero's row.
           if (sp.holeCards.every((card) => card != null)) {
@@ -10539,10 +10561,7 @@ function LiveTablePage({
   const registerLogLastHandHotkey = useCallback((handler: (() => void) | null) => {
     logLastHandHotkeyRef.current = handler;
   }, []);
-  const [lastCompletedHand, setLastCompletedHand] = useState<{
-    scope: string;
-    handId: string;
-  } | null>(null);
+  const [lastCompletedHand, setLastCompletedHand] = useState<LastCompletedHandState | null>(null);
   /** Takes the Rabbit Hunt button down when the server's offer TTL runs out. */
   const rabbitExpiryTimerRef = useRef<number | null>(null);
   /**
@@ -11363,6 +11382,19 @@ function LiveTablePage({
   const tableHistoryGameMode = tableState.isTournament ? 'tournament' : 'cash';
   const handHistoryScopeRef = useRef('');
   handHistoryScopeRef.current = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
+  recordHeroDealtHandRef.current = (handNumber: number) => {
+    if (!Number.isSafeInteger(handNumber) || handNumber <= 0) return;
+    const scope = handHistoryScopeRef.current;
+    if (heroDealtHandsRef.current.scope !== scope) {
+      heroDealtHandsRef.current = { scope, hands: new Set([handNumber]) };
+      return;
+    }
+    heroDealtHandsRef.current.hands.add(handNumber);
+    if (heroDealtHandsRef.current.hands.size > 64) {
+      const oldest = heroDealtHandsRef.current.hands.values().next().value;
+      if (oldest !== undefined) heroDealtHandsRef.current.hands.delete(oldest);
+    }
+  };
   const handHistoryStateRef = useRef<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   handHistoryStateRef.current = handHistoryState;
   /* Saved-hand ids that arrived WHILE the page fetch was in flight. The fetch
@@ -11610,32 +11642,6 @@ function LiveTablePage({
   );
   const takeSavedHandRef = useRef(takeSavedHand);
   takeSavedHandRef.current = takeSavedHand;
-
-  // Canonical UUID of the player's last COMPLETED hand at this table (never
-  // mid-hand, never synthetic, never another table's or account's hand).
-  const lastCompletedHandId = useMemo(() => {
-    if (!userId || userId === 'guest') return null;
-    const currentScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
-    if (lastCompletedHand && lastCompletedHand.scope === currentScope) {
-      return normalizeCanonicalUuid(lastCompletedHand.handId);
-    }
-    if (
-      handHistoryViewerRef.current === userId &&
-      loadedHandHistoryScopeRef.current === currentScope &&
-      handHistory.length > 0
-    ) {
-      const latestHeroHand = handHistory.find((h) => h.players.some((p) => p.id === userId));
-      return normalizeCanonicalUuid(latestHeroHand?.id);
-    }
-    return null;
-  }, [
-    userId,
-    tableId,
-    lightningRoom?.poolSessionId,
-    tableHistoryGameMode,
-    lastCompletedHand,
-    handHistory,
-  ]);
 
   // Lightning reconnect recovery for Previous Hands: if a fast-folded deal
   // settled while the engine socket was disconnected and HandDetailModal is
@@ -14156,6 +14162,9 @@ function LiveTablePage({
         /* Stamped for every accepted delivery, audible or not: this is what
            HAND_STARTED and the snapshot hold ask (heroCardCustody.ts). */
         heroCardsHandRef.current = dealtHandNumber;
+        if (typeof recordHeroDealtHandRef !== 'undefined') {
+          recordHeroDealtHandRef.current(dealtHandNumber);
+        }
         if (
           heroDealSoundHandRef.current !== dealtHandNumber &&
           lightningHoldsHeroDealSound({
@@ -14564,6 +14573,13 @@ function LiveTablePage({
               const recoveredHand = Number(data.hand_number);
               if (Number.isSafeInteger(recoveredHand) && recoveredHand > 0)
                 heroCardsHandRef.current = recoveredHand;
+              if (
+                Number.isSafeInteger(recoveredHand) &&
+                recoveredHand > 0 &&
+                typeof recordHeroDealtHandRef !== 'undefined'
+              ) {
+                recordHeroDealtHandRef.current(recoveredHand);
+              }
             }
             cardsApplied = true;
             heroCardsRecoveredRef.current = true;
@@ -14867,13 +14883,34 @@ function LiveTablePage({
           handHistoryFetchedAtRef.current = null;
           setLastHandId(savedId);
           if (eventType === 'hand_history_saved') {
-            const canonicalSavedId = normalizeCanonicalUuid(savedId);
-            if (canonicalSavedId) {
-              setLastCompletedHand({
-                scope: handHistoryScopeRef.current,
-                handId: canonicalSavedId,
-              });
-            }
+            const rawSavedEvent = handState as Record<string, unknown>;
+            const savedEventKey = handHistorySavedEventIdentity(rawSavedEvent);
+            const alreadyProcessed =
+              lastProcessedHandSavedEventRef.current?.event === handState ||
+              (savedEventKey.length > 0 &&
+                lastProcessedHandSavedEventRef.current?.key === savedEventKey);
+            lastProcessedHandSavedEventRef.current = { event: handState, key: savedEventKey };
+            const currentScope = handHistoryScopeRef.current;
+            const dealtHands =
+              heroDealtHandsRef.current.scope === currentScope
+                ? heroDealtHandsRef.current.hands
+                : new Set<number>();
+            setLastCompletedHand((prev) =>
+              resolveNextLastCompletedHand({
+                event: rawSavedEvent,
+                alreadyProcessed,
+                userId,
+                tableId,
+                poolSessionId: lightningRoomRef.current?.poolSessionId ?? null,
+                currentScope,
+                heroAtTable: heroAtTableRef.current,
+                lightningObserver: lightningObserverRef.current,
+                heroDealtHands: dealtHands,
+                heroCardsHandNumber: heroCardsHandRef.current,
+                heroHandOutcome: heroHandOutcomeRef.current,
+                previous: prev,
+              })
+            );
           }
           // Phase 1: the Previous Hand list takes the hand as it lands.
           void takeSavedHandRef.current(savedId);
@@ -24623,6 +24660,36 @@ function LiveTablePage({
     lightningRoom: !!lightningRoom,
     heroSeat: tableState.heroSeat,
   });
+  heroAtTableRef.current = heroAtTable;
+
+  // Canonical UUID of the player's last COMPLETED participated hand at this table
+  // (never mid-hand, never synthetic, never spectator/observer/sat-out, never another
+  // table's or account's hand).
+  const lastCompletedHandId = useMemo(() => {
+    if (!heroAtTable || lightningObserver || !userId || userId === 'guest') return null;
+    const currentScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
+    if (lastCompletedHand && lastCompletedHand.scope === currentScope) {
+      return normalizeCanonicalUuid(lastCompletedHand.handId);
+    }
+    if (
+      handHistoryViewerRef.current === userId &&
+      loadedHandHistoryScopeRef.current === currentScope &&
+      handHistory.length > 0
+    ) {
+      const latestHeroHand = handHistory.find((h) => h.players.some((p) => p.id === userId));
+      return normalizeCanonicalUuid(latestHeroHand?.id);
+    }
+    return null;
+  }, [
+    heroAtTable,
+    lightningObserver,
+    userId,
+    tableId,
+    lightningRoom?.poolSessionId,
+    tableHistoryGameMode,
+    lastCompletedHand,
+    handHistory,
+  ]);
   // Spectators use the desktop reference's unprojected oval on phones.
   const tablePerspectiveTaper = heroAtTable ? undefined : 0;
   /* The face of the hero's waiting chair between Lightning hands, worked out
@@ -28226,7 +28293,15 @@ function LiveTablePage({
       showLeaveConfirm ||
       bustRebuyOpen ||
       showRebuyModal ||
-      postOrWaitOpen,
+      postOrWaitOpen ||
+      showHandDetail ||
+      showHandReplay ||
+      showShareHand ||
+      showTimeBankStore ||
+      showSessionHUD ||
+      showGameRules ||
+      showIdentityModal ||
+      showHandRevealModal,
     /* Every action key runs the SAME function the on-screen button runs.
        2026-08-28: these pointed at `handleFold` / `handleCall`, a parallel pair
        that skipped the VPIP/PFR counting inside handleActionPanelAction — so a
@@ -30395,10 +30470,13 @@ function LiveTablePage({
           /* Dan 2026-11-09: "the action slider menu that pops up when click
              raise, allows the time bank to appear and bleed through." This
              corner is inside the open overlay's band, and nothing in it is
-             usable while a bet is being sized, so it stands down entirely. */
-          raisePanelOpen ? null : (
-            <div className="hud-ul-column hud-bl-row">
-              {/* Dan 2026-08-21: "the previous hand should be in the bottom left
+             usable while a bet is being sized, so the corner tiles stand down
+             while LogThisHandControl stays mounted-but-hidden via CSS so an
+             in-flight POST /api/poker/saved-hands is never aborted. */
+          <div className="hud-ul-column hud-bl-row">
+            {raisePanelOpen ? null : (
+              <>
+                {/* Dan 2026-08-21: "the previous hand should be in the bottom left
                 corner, the time bank icon should be on top of it." Stacked in
                 that exact order — alarm clock above, previous-hand card below.
 
@@ -30470,92 +30548,100 @@ function LiveTablePage({
                 eat the Rabbit Hunt window: ActionPanel owns that body class and
                 removes it on unmount, and ActionPanel only mounts while the
                 hero is to act in a live hand. No hand, no class. */}
-              {hudSlotControl === 'timebank' && (
-                <TimebankCounter
-                  /* null = not loaded yet. The tile renders a dash rather
-                   than asserting a number, which is what showed a wrong 4. */
-                  count={timeBanksRemaining}
-                  low={!timeBankUnlimited && (timeBanksRemaining ?? 99) <= 1}
-                  unlimited={timeBankUnlimited}
-                  /* AUDIT 2026-08-25: the tile's accessible label and tooltip say
-                   "N seconds each", and that number was the component's hard
-                   default of 20 because nothing was ever passed. Meanwhile
-                   `timeBankGrantedSeconds` held the figure the ENGINE actually
-                   granted (TIME_BANK_ACTIVATED payload) and was read nowhere.
-                   Wired: a table configured for anything other than 20 no
-                   longer tells a screen-reader user the wrong number. */
-                  bankSeconds={timeBankGrantedSeconds}
-                  /* Dan 2026-08-21, item 3: out of banks → the buy sheet, not
-                   the (empty) time-bank panel.
+                {hudSlotControl === 'timebank' && (
+                  <TimebankCounter
+                    /* null = not loaded yet. The tile renders a dash rather
+                     than asserting a number, which is what showed a wrong 4. */
+                    count={timeBanksRemaining}
+                    low={!timeBankUnlimited && (timeBanksRemaining ?? 99) <= 1}
+                    unlimited={timeBankUnlimited}
+                    /* AUDIT 2026-08-25: the tile's accessible label and tooltip say
+                     "N seconds each", and that number was the component's hard
+                     default of 20 because nothing was ever passed. Meanwhile
+                     `timeBankGrantedSeconds` held the figure the ENGINE actually
+                     granted (TIME_BANK_ACTIVATED payload) and was read nowhere.
+                     Wired: a table configured for anything other than 20 no
+                     longer tells a screen-reader user the wrong number. */
+                    bankSeconds={timeBankGrantedSeconds}
+                    /* Dan 2026-08-21, item 3: out of banks → the buy sheet, not
+                     the (empty) time-bank panel.
 
-                   2026-08-24: the OTHER half of that ternary was a dead tap.
-                   It called `setShowTimeBank(true)`, and `showTimeBank` was
-                   written in seven places and READ IN NONE — the floating panel
-                   it used to open was deleted (see the tombstone above the
-                   control strip) and the state outlived it. The state itself
-                   was removed on 2026-08-25. So a player WITH
-                   banks left tapped the counter and nothing happened at all,
-                   which is worse than being sent somewhere. Both arms now open
-                   the store, where the balance is shown and more can be
-                   bought. */
-                  onClick={timeBankUnlimited ? undefined : () => setShowTimeBankStore(true)}
+                     2026-08-24: the OTHER half of that ternary was a dead tap.
+                     It called `setShowTimeBank(true)`, and `showTimeBank` was
+                     written in seven places and READ IN NONE — the floating panel
+                     it used to open was deleted (see the tombstone above the
+                     control strip) and the state outlived it. The state itself
+                     was removed on 2026-08-25. So a player WITH
+                     banks left tapped the counter and nothing happened at all,
+                     which is worse than being sent somewhere. Both arms now open
+                     the store, where the balance is shown and more can be
+                     bought. */
+                    onClick={timeBankUnlimited ? undefined : () => setShowTimeBankStore(true)}
+                  />
+                )}
+                {/* The same slot, same tile, once the hand is over. It cannot
+                  render beside the time bank: `hudSlotControl` yields one value,
+                  and 'timebank' wins. */}
+                {hudSlotControl === 'rabbit' && (
+                  <RabbitHunt
+                    key={rabbitHandNumberRef.current}
+                    isAvailable={isRabbitAvailable}
+                    cardsAvailable={rabbitCardsAvailable}
+                    rabbitDiamondCost={rabbitDiamondCost}
+                    userId={userId === 'guest' ? null : userId}
+                    onReveal={handleRabbitReveal}
+                    registerHotkey={registerRabbitHotkey}
+                    autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
+                  />
+                )}
+                <PreviousHandCard
+                  handNumber={reviewedLightningDeal?.number ?? prevHandResult?.handNumber ?? null}
+                  canReviewHistory={Boolean(userId && userId !== 'guest')}
+                  result={prevHandResult?.result ?? 0}
+                  didWin={prevHandResult?.didWin ?? false}
+                  didFold={prevHandResult?.didFold ?? false}
+                  handDescription={prevHandResult?.handDescription}
+                  onTap={() => {
+                    if (reviewedLightningDeal) {
+                      setPinnedLightningDeal(reviewedLightningDeal);
+                      setPinnedLightningDealStatus('pending');
+                    }
+                    setShowHandDetail(true);
+                  }}
+                  onShareHand={() => {
+                    // The modal renders only when a hand has been captured. Say so
+                    // instead of no-opping — tapping a menu item and getting
+                    // nothing at all is how this looked before today.
+                    const recording = shareRecording.current;
+                    if (recording.pendingHand() == null && !recording.sealed()) {
+                      toast?.info?.('Play a hand to the end, then share it.');
+                      return;
+                    }
+                    offerShareWhenRecorded(null, () => {
+                      const hand = recording.sealed();
+                      if (!hand) return;
+                      setSharedHandId(null);
+                      setSharedHandData(hand);
+                      setShowShareHand(true);
+                    });
+                  }}
+                />
+              </>
+            )}
+            {heroAtTable &&
+              !lightningObserver &&
+              Boolean(lastCompletedHandId) &&
+              Boolean(userId) &&
+              userId !== 'guest' && (
+                <LogThisHandControl
+                  variant="hud"
+                  handId={lastCompletedHandId}
+                  accountId={userId}
+                  registerHotkey={registerLogLastHandHotkey}
+                  hidden={raisePanelOpen}
                 />
               )}
-              {/* The same slot, same tile, once the hand is over. It cannot
-                render beside the time bank: `hudSlotControl` yields one value,
-                and 'timebank' wins. */}
-              {hudSlotControl === 'rabbit' && (
-                <RabbitHunt
-                  key={rabbitHandNumberRef.current}
-                  isAvailable={isRabbitAvailable}
-                  cardsAvailable={rabbitCardsAvailable}
-                  rabbitDiamondCost={rabbitDiamondCost}
-                  userId={userId === 'guest' ? null : userId}
-                  onReveal={handleRabbitReveal}
-                  registerHotkey={registerRabbitHotkey}
-                  autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
-                />
-              )}
-              <PreviousHandCard
-                handNumber={reviewedLightningDeal?.number ?? prevHandResult?.handNumber ?? null}
-                canReviewHistory={Boolean(userId && userId !== 'guest')}
-                result={prevHandResult?.result ?? 0}
-                didWin={prevHandResult?.didWin ?? false}
-                didFold={prevHandResult?.didFold ?? false}
-                handDescription={prevHandResult?.handDescription}
-                onTap={() => {
-                  if (reviewedLightningDeal) {
-                    setPinnedLightningDeal(reviewedLightningDeal);
-                    setPinnedLightningDealStatus('pending');
-                  }
-                  setShowHandDetail(true);
-                }}
-                onShareHand={() => {
-                  // The modal renders only when a hand has been captured. Say so
-                  // instead of no-opping — tapping a menu item and getting
-                  // nothing at all is how this looked before today.
-                  const recording = shareRecording.current;
-                  if (recording.pendingHand() == null && !recording.sealed()) {
-                    toast?.info?.('Play a hand to the end, then share it.');
-                    return;
-                  }
-                  offerShareWhenRecorded(null, () => {
-                    const hand = recording.sealed();
-                    if (!hand) return;
-                    setSharedHandId(null);
-                    setSharedHandData(hand);
-                    setShowShareHand(true);
-                  });
-                }}
-              />
-              <LogThisHandControl
-                variant="hud"
-                handId={lastCompletedHandId}
-                accountId={userId && userId !== 'guest' ? userId : null}
-                registerHotkey={registerLogLastHandHotkey}
-              />
-            </div>
-          )
+          </div>
         }
       />
       {/* ═══════════════════════════════════════════════════════════════════════
