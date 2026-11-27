@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { REALTIME_SAFETY_POLL_MS } from '../../src/lib/realtimeAwarePoll';
 
 const mocks = vi.hoisted(() => ({
   themeResult: Promise.resolve({ data: [], error: null }) as Promise<{
@@ -223,6 +224,13 @@ const savedTheme = {
   cards_id: 'classic_red',
 };
 
+/* Only setInterval is faked, and the fake clock still moves with real time,
+   so every other wait in a test behaves as before. The realtime-backed polls
+   (src/lib/realtimeAwarePoll.ts) are the intervals this lets a test step. */
+function fakeIntervals() {
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setInterval', 'clearInterval'] });
+}
+
 function renderStudio(checkoutReturnResult: 'success' | 'canceled' | null = null) {
   return render(
     <ThemeSettingsModal
@@ -327,6 +335,10 @@ describe('ThemeSettingsModal hardening', () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.history.replaceState({}, '', '/table/test-table');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('finishes a slow initial design read while periodic refreshes are requested', async () => {
@@ -894,6 +906,7 @@ describe('ThemeSettingsModal hardening', () => {
   });
 
   it('repairs ownership when a sleeping tab missed the entire realtime burst', async () => {
+    fakeIntervals();
     renderStudio();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'House Classic' })).toBeEnabled()
@@ -907,6 +920,17 @@ describe('ThemeSettingsModal hardening', () => {
       error: null,
     });
 
+    // The channel is live, so there is no two-second read any more...
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2_100));
+    });
+    expect(
+      screen.getByRole('button', { name: 'Neon Ice, Purchase Or VIP Required' })
+    ).toBeEnabled();
+    // ...but the safety read still repairs the missed burst.
+    act(() => {
+      vi.advanceTimersByTime(REALTIME_SAFETY_POLL_MS);
+    });
     expect(
       await screen.findByRole('button', { name: 'Neon Ice' }, { timeout: 3_000 })
     ).toBeEnabled();
@@ -946,6 +970,47 @@ describe('ThemeSettingsModal hardening', () => {
     });
   });
 
+  it('re-reads ownership every two seconds while the entitlement channel is not subscribed', async () => {
+    fakeIntervals();
+    mocks.autoEntitlementSubscribe = false;
+    renderStudio();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'House Classic' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Tables' }));
+    expect(
+      screen.getByRole('button', { name: 'Neon City, Purchase Or VIP Required' })
+    ).toBeEnabled();
+
+    // Still linking: the read is the only path, so it runs at the fast cadence.
+    mocks.unlockResult = Promise.resolve({
+      data: [{ category: 'table_id', asset_id: 'neon_city' }],
+      error: null,
+    });
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(await screen.findByRole('button', { name: 'Neon City' })).toBeEnabled();
+
+    // Live, then dropped: the fast cadence resumes the moment it drops.
+    act(() => mocks.entitlementStatus?.('SUBSCRIBED'));
+    expect(await screen.findByText('Table Art Live')).toBeVisible();
+    act(() => mocks.entitlementStatus?.('CHANNEL_ERROR'));
+    expect(await screen.findByText('Live Unlock Updates Are Disconnected')).toBeVisible();
+    mocks.unlockResult = Promise.resolve({
+      data: [
+        { category: 'table_id', asset_id: 'neon_city' },
+        { category: 'theme_id', asset_id: 'neon-blue' },
+      ],
+      error: null,
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Looks' }));
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(await screen.findByRole('button', { name: 'Neon Ice' })).toBeEnabled();
+  });
+
   it('reconciles ownership after subscription before declaring Table Art live', async () => {
     mocks.autoEntitlementSubscribe = false;
     renderStudio();
@@ -983,13 +1048,14 @@ describe('ThemeSettingsModal hardening', () => {
     act(() => mocks.entitlementStatus?.('SUBSCRIBED'));
     await waitFor(() => expect(grid).toHaveAttribute('aria-busy', 'true'));
 
-    // Keep the next periodic reconciliation pending. The first valid snapshot
+    // Keep the next (focus) reconciliation pending. The first valid snapshot
     // is no longer the newest request when it returns, but it still proves the
     // same user's monotonic ownership ledger is readable and must clear busy.
     const newerRefresh = deferred<{ data: unknown[]; error: null }>();
     await act(async () => {
       mocks.unlockResult = newerRefresh.promise;
-      await new Promise((resolve) => setTimeout(resolve, 2_100));
+      window.dispatchEvent(new Event('focus'));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     });
     await act(async () => {
       firstRefresh.resolve({ data: [], error: null });
@@ -1116,6 +1182,7 @@ describe('ThemeSettingsModal hardening', () => {
   });
 
   it('repairs an open studio when the appearance realtime event was entirely missed', async () => {
+    fakeIntervals();
     renderStudio();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'House Classic' })).toBeEnabled()
@@ -1140,6 +1207,17 @@ describe('ThemeSettingsModal hardening', () => {
       error: null,
     });
 
+    // Live channel: no two-second snapshot any more, only the safety read.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2_100));
+    });
+    expect(screen.getByTestId('gameplay-preview')).toHaveAttribute(
+      'data-table-theme',
+      'classic_green'
+    );
+    act(() => {
+      vi.advanceTimersByTime(REALTIME_SAFETY_POLL_MS);
+    });
     await waitFor(
       () =>
         expect(screen.getByTestId('gameplay-preview')).toHaveAttribute(
@@ -1156,6 +1234,7 @@ describe('ThemeSettingsModal hardening', () => {
   });
 
   it('keeps the authoritative repair active for an open studio on a hidden second device', async () => {
+    fakeIntervals();
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     try {
       renderStudio();
@@ -1184,6 +1263,9 @@ describe('ThemeSettingsModal hardening', () => {
         error: null,
       });
 
+      act(() => {
+        vi.advanceTimersByTime(REALTIME_SAFETY_POLL_MS);
+      });
       await waitFor(
         () =>
           expect(screen.getByTestId('gameplay-preview')).toHaveAttribute(
@@ -1202,6 +1284,7 @@ describe('ThemeSettingsModal hardening', () => {
   });
 
   it('does not let an in-flight appearance snapshot roll back a newer realtime change', async () => {
+    fakeIntervals();
     renderStudio();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'House Classic' })).toBeEnabled()
@@ -1210,7 +1293,8 @@ describe('ThemeSettingsModal hardening', () => {
     const staleRefresh = deferred<{ data: unknown[]; error: null }>();
     mocks.themeResult = staleRefresh.promise;
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 2_100));
+      vi.advanceTimersByTime(REALTIME_SAFETY_POLL_MS);
+      await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     act(() => {
