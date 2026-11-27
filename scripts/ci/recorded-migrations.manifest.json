@@ -2478,6 +2478,17 @@
       "recoveredFrom": "public.fn_ca_migration_text(20261121143102) md5 3c90b93f9b870be85ae556d29438ad85, equal to the committed file bytes",
       "refusedBy": [],
       "liveVerdict": "Applied directly by Claude (session 01Gw7aDsRQtbAfJZgjgvir7C) through the Supabase MCP at about 14:31 UTC 2026-11-21: hand_source_correction_claim_guard refused the certified correction with HAND_SOURCE_CORRECTION_LEASE_REFUSED (postgres_logs) because its cash branch names each admitted cause. Admits proof_version 20261121142714 only (preimage md5 6d11f374 checked; owner, security, ACL and config unchanged). Read after apply: the engine's resume settled hand #60380607 at 14:31:24 UTC, the kill storm stopped and the table dealt again."
+    },
+    {
+      "version": "20261126185500",
+      "name": "training_game_favorites",
+      "file": "supabase/migrations/20261126185500_training_game_favorites.sql",
+      "md5": "29c3b7726155d7b1b5ed873a5dca9a13",
+      "appliedToProductionAt": "2026-11-26",
+      "recoveredOn": "2026-11-27",
+      "recoveredFrom": "public.fn_ca_migration_text(20261126185500) md5 29c3b7726155d7b1b5ed873a5dca9a13, equal to the committed file bytes",
+      "refusedBy": [],
+      "liveVerdict": "Applied with created_by 'antigravity_sql_push:v4' (the World Hub Training Games Arena Lobby favorites) and never committed here, so Installed and merged migrations agree failed on every pull request. Read from production 2026-11-27: public.training_game_favorites exists with RLS on, exactly the three policies the file creates (select_own, insert_own, delete_own, each auth.uid() = user_id), grants to authenticated of SELECT, INSERT and DELETE only, nothing to anon, 0 rows. No money or seat table is touched."
     }
   ]
 }
