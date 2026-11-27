@@ -104,6 +104,11 @@ Every option ships default OFF with a flag-off check (0 differences), a shadow w
   fold rate in the cell over the trailing 14 days with its sample (people only, no HUD row); else minimum defence
   (s/(1+s) heads-up, (s/(1+s))^(1/k) for each of k players left multiway). Tested on the range and on the range
   pooled with the 3 days before, against one multiple-comparison-corrected bar.
+- **Multiway is gated on fold-through, not on a people fold rate:** people over-call multiway (the Horse multiway
+  turn calls today's engine folds lost 4.2 bb each over 31 days), so a multiway people fold rate is shown as
+  information only. The gate is the fold-through of a person's first bet into Horses (everyone folds) against the
+  pure-bluff break-even s/(1+s), by game, street, 3-way / 4-way+ and size, over 7 days. It is also shown beside every
+  heads-up cell.
 - **The regression signal:** `scripts/ops/horse-overfold-owner-map.json` names the option that owns each cell; the
   alarm reads that option's live state. A cell over its ceiling WITH ITS FIX ON for the whole tested window is
   breach-class: first in the alarm, first under Regressions in the daily summary, and never folded into the

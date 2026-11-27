@@ -13,7 +13,7 @@
 //                                  heads-up and multiway, by size, facing a person's first bet, against the people
 //                                  prior, people's own folds or minimum defence; says if the cell's fix is ON)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
-import { cellTable } from './horse-plo-overfold-gate-lib.mjs';
+import { cellTable, foldThroughTable } from './horse-plo-overfold-gate-lib.mjs';
 
 export const RANGE_HOURS = 24;
 /** Two boundaries closer than this are one (a cutover starts the engine and its standby minutes apart). */
@@ -250,7 +250,7 @@ export function regressionRows(results) {
     // run); read from the tool's JSON, so a run before (whose exit code was not stored) lists the same identities.
     // A cell over its ceiling WITH ITS FIX ON is breach-class: it is listed before every other regression.
     if (name === 'plo-overfold')
-      for (const c of arr(j?.cells).filter((x) => x.gating))
+      for (const c of [...arr(j?.cells), ...arr(j?.foldThrough)].filter((x) => x.gating))
         out.push({
           id: c.fixClass === 'fix-on' ? `${c.key}|fix-on` : c.key,
           breachClass: c.fixClass === 'fix-on',
@@ -408,7 +408,7 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
       `${of.gate?.line ?? ''}. People prior: ${of.prior ?? 'none'}; ${of.ownerMap ?? 'no owner map'}; previous window from ${of.previousSince ?? '-'}; people's own folds from ${of.peopleSince ?? '-'}.`
     );
     L.push('');
-    const over = of.cells.filter((c) => c.gating);
+    const over = [...of.cells, ...arr(of.foldThrough)].filter((c) => c.gating);
     const cls = (k) => over.filter((c) => (Array.isArray(k) ? k : [k]).includes(c.fixClass));
     const list = (title, rows) => {
       if (!rows.length) return;
@@ -416,7 +416,9 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
       // the full line of each is under Regressions: here one short line a cell
       for (const c of rows)
         L.push(
-          `- ${c.game} ${c.street} ${c.fieldLabel} ${c.size}: Horse folds ${pc1(c.rate)} (n ${c.n}; with the previous 3 days ${pc1(c.pooledRate)}, n ${c.pooledN}) vs ceiling ${pc1(c.ceiling)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+          c.key?.startsWith('foldthru|')
+            ? `- ${c.game} ${c.street} ${c.playersLabel} ${c.size}: a person's first bet into Horses folded through ${pc1(c.rate)} (n ${c.n}, 7 days) vs the pure-bluff break-even ${pc1(c.breakEven)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+            : `- ${c.game} ${c.street} ${c.fieldLabel} ${c.size}: Horse folds ${pc1(c.rate)} (n ${c.n}; with the previous 3 days ${pc1(c.pooledRate)}, n ${c.pooledN}) vs ceiling ${pc1(c.ceiling)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
         );
       L.push('');
     };
@@ -434,6 +436,14 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
         '',
         `${empty} of ${of.cells.length} cells had no decision in either window (not shown).`
       );
+    if (Array.isArray(of.foldThrough)) {
+      L.push(
+        '',
+        `**Multiway fold-through** (a person's first bet into Horses, everyone folds, against the pure-bluff break-even s/(1+s); trailing 7 days from ${of.foldThroughSince ?? '-'}). Multiway gates here; the multiway rows above are information only.`,
+        ''
+      );
+      L.push(...foldThroughTable(of.foldThrough));
+    }
   }
   L.push('');
   section(

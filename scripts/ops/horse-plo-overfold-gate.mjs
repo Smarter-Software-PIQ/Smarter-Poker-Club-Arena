@@ -25,10 +25,13 @@ import { queryReadOnly } from './horse-hand-audit-omaha.mjs';
 import { parseHand } from './horse-hand-audit-omaha-lib/hand.mjs';
 import {
   GAMES,
+  FT_DAYS,
   PEOPLE_DAYS,
   PEOPLE_ONLY_SOURCE,
   PREVIOUS_DAYS,
   cellTable,
+  foldThroughBets,
+  foldThroughTable,
   gateCells,
   overfoldSpots,
 } from './horse-plo-overfold-gate-lib.mjs';
@@ -177,12 +180,16 @@ export const readFrom = (sinceMs, untilMs) =>
 
 /**
  * Spots of rows: the Horses' of the range (current) and of the PREVIOUS_DAYS before it (previous), and people's
- * own over the trailing PEOPLE_DAYS that end with the range (people).
+ * own over the trailing PEOPLE_DAYS that end with the range (people); and a person's first bets into Horses over the
+ * trailing FT_DAYS (bets) and inside the range (rangeBets) for the fold-through.
  */
 export function spotsOf(rows, sinceMs, untilMs) {
   const current = [];
   const previous = [];
   const people = [];
+  const bets = [];
+  const rangeBets = [];
+  const ftFrom = untilMs - FT_DAYS * DAY;
   const prevFrom = sinceMs - PREVIOUS_DAYS * DAY;
   const peopleFrom = untilMs - PEOPLE_DAYS * DAY;
   for (const r of rows) {
@@ -198,8 +205,13 @@ export function spotsOf(rows, sinceMs, untilMs) {
       } else if (t >= sinceMs) current.push(x);
       else if (t >= prevFrom) previous.push(x);
     }
+    if (t >= ftFrom || t >= sinceMs)
+      for (const x of foldThroughBets(hand, { known })) {
+        if (t >= ftFrom) bets.push(x);
+        if (t >= sinceMs) rangeBets.push(x);
+      }
   }
-  return { current, previous, people };
+  return { current, previous, people, bets, rangeBets };
 }
 
 export function runOverfoldGate(argv, deps = {}) {
@@ -259,28 +271,33 @@ export function runOverfoldGate(argv, deps = {}) {
     deps.prior !== undefined
       ? { prior: deps.prior, note: 'people prior (given)' }
       : loadPeoplePrior(o.prior);
-  const { current, previous, people } = spotsOf(rows, o.since, o.until);
+  const { current, previous, people, bets, rangeBets } = spotsOf(rows, o.since, o.until);
   const previousSince = o.since - PREVIOUS_DAYS * DAY;
   const gate = gateCells({
     current,
     previous,
     people,
+    bets,
+    rangeBets,
     prior,
     ownerMap,
     switches,
     sinceMs: o.since,
     previousSinceMs: previousSince,
+    ftSinceMs: o.until - FT_DAYS * DAY,
   });
   const report = {
     since: iso(o.since),
     until: iso(o.until),
     previousSince: iso(previousSince),
     peopleSince: iso(o.until - PEOPLE_DAYS * DAY),
+    foldThroughSince: iso(o.until - FT_DAYS * DAY),
     hands: rows.length,
     prior: note,
     ownerMap: ownerNote,
     switches,
     cells: gate.cells,
+    foldThrough: gate.foldThrough,
     gating: gate.gating,
     fixOn: gate.fixOn,
     gate: {
@@ -289,11 +306,17 @@ export function runOverfoldGate(argv, deps = {}) {
       lines: gate.lines,
       zBar: gate.zBar,
       tests: gate.tests,
+      ftZBar: gate.ftZBar,
+      ftTests: gate.ftTests,
     },
   };
   if (o.json) out(JSON.stringify(report, null, 1));
-  else if (o.table) for (const l of cellTable(gate.cells)) out(l);
-  else for (const c of gate.cells) if (c.n > 0 || c.previousN > 0) out(c.line);
+  else if (o.table) {
+    for (const l of cellTable(gate.cells)) out(l);
+    out('');
+    for (const l of foldThroughTable(gate.foldThrough)) out(l);
+    out('');
+  } else for (const c of gate.cells) if (c.n > 0 || c.previousN > 0) out(c.line);
   for (const l of gate.lines) out(l);
   out(gate.line);
   return gate.exitCode;

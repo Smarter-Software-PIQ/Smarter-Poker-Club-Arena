@@ -21,9 +21,8 @@
 //      once that fit is on main). Per decision: the minimum-defence fold while b is at least the balanced share
 //      s/(1+2s) a bluff-catcher's call pays, rising linearly to 1 as b falls to 0 (people who bluff less may be
 //      folded to more). This is the ceiling of the first alarm, unchanged.
-//      Multiway: the table's measured people fold share of the cell (fold.<street>.mw; turn and river). The
-//      bluff-share price is one caller's break-even; with players behind it is not a per-player ceiling, so the
-//      measured cell is used and the bluff cell is not.
+//      Multiway: the table's measured people fold share of the cell (fold.<street>.mw; turn and river) is SHOWN
+//      (the bluff-share price is one caller's break-even, not a per-player ceiling). It never gates: see below.
 //   2. PEOPLE'S OWN FOLDS: people's measured fold rate in the same cell over the trailing PEOPLE_DAYS days, with
 //      its sample (people only: profiles.is_horse = false and not acting on Horse policy; never a HUD '*' row),
 //      at least PEOPLE_MIN_N decisions (bettor: anyone; people almost never face a person's bet). The test
@@ -39,6 +38,17 @@
 // by z >= correctedZ(GATE_Z, all tests of the run) (one-sided, Bonferroni; horse-audit-multiple-tests.mjs). A cell
 // needs MIN_N decisions to be tested (the pooled window also POOLED_MIN_RANGE_N of them inside the range, so the
 // previous days never gate alone). The z of the range against the previous days is shown, never gates.
+//
+// MULTIWAY GATES ON FOLD-THROUGH, NOT ON A PEOPLE FOLD RATE (lead-8, 2026-11-27, from the multiway analysis
+// l8-mwfold). People over-call multiway: the Horse calls today's engine folds lost 4.2 bb each over 31 days, so
+// "Horses fold more than people" is not a leak there and a people fold rate is not a valid multiway ceiling. The
+// multiway decision cells are therefore shown as INFORMATION ONLY and never gate. The multiway signal is the
+// FOLD-THROUGH of a person's first bet into a field of Horses (every opponent folds on that street) against the
+// pure-bluff break-even s/(1+s): a zero-equity bet profits exactly when the field folds through more often than
+// that, whatever anyone holds. Cells: game group x street x 3-way / 4-way+ x size (and all sizes), over the trailing
+// FT_DAYS days, n >= FT_MIN_N, z >= correctedZ(FT_GATE_Z, fold-through tests). The same fold-through numbers are
+// shown beside every heads-up cell as a second column ("can a pure bluff print"); heads-up still gates on its
+// people-measured ceiling.
 //
 // THE FIX SIGNAL. horse-overfold-owner-map.json names the option that owns each cell. With the option's live state
 // (ca_horse_style_switch) a gating cell is one of: over its ceiling WITH ITS FIX ON for the whole tested window (a
@@ -77,6 +87,17 @@ export const PRIOR_MIN_N = 30;
 export const PEOPLE_MIN_N = 30;
 /** The pooled window is tested only when the range itself has at least this many decisions in the cell. */
 export const POOLED_MIN_RANGE_N = 5;
+/** Fold-through: the trailing window (it ends where the range ends), the trip and the sample it needs. */
+export const FT_DAYS = 7;
+export const FT_GATE_Z = 2.5;
+export const FT_MIN_N = 60;
+/** A first bet over this many pots is left out of the fold-through count (a shove into a dry side pot). */
+export const FT_MAX_S = 3;
+export const PLAYERS = Object.freeze([
+  { key: 'hu', label: 'heads-up', field: 'hu' },
+  { key: '3way', label: '3-way', field: 'mw' },
+  { key: '4way+', label: '4-way+', field: 'mw' },
+]);
 /** The comparison window before the range. */
 export const PREVIOUS_DAYS = 3;
 /** The trailing window people's own folds are measured over (it ends where the range ends). */
@@ -183,6 +204,46 @@ export function overfoldSpots(hand, { known = null } = {}) {
       bucket: bucketOf(s),
       fold: d.act === 'fold',
       who,
+    });
+  }
+  return out;
+}
+
+/**
+ * The first bets of one parsed hand made by a PERSON (not on Horse policy) into a field of Horses only, on the
+ * flop, turn or river, and whether the field folded through (every opponent folded on that street). Public actions
+ * only. -> [{ handId, t, gv, mtt, street, players, opponents, s, bucket, through }]
+ */
+export function foldThroughBets(hand, { known = null } = {}) {
+  const out = [];
+  if (!hand || !GAMES.includes(hand.gv) || hand.bomb || hand.rit) return out;
+  const mtt = hand.mtt === true;
+  if (mtt && hand.gv !== 'nlh') return out;
+  const decs = hand.decisions ?? [];
+  for (let i = 0; i < decs.length; i++) {
+    const d = decs[i];
+    if (!STREETS.includes(d.street) || !d.firstWager) continue;
+    const bettor = hand.byUid.get(d.u);
+    if (!bettor || bettor.isHorse !== false || d.origin === 'horse_policy') continue;
+    if (known && !known.has(bettor.uid)) continue;
+    const opp = (d.liveUids ?? []).filter((u) => u !== d.u);
+    if (!opp.length || !opp.every((u) => hand.byUid.get(u)?.isHorse === true)) continue;
+    const s = (d.amt - (d.myCom ?? 0)) / Math.max(1e-9, d.pot);
+    if (!(s > 0) || s > FT_MAX_S) continue;
+    const rest = decs.slice(i + 1).filter((e) => e.street === d.street);
+    const through =
+      rest.length > 0 && rest.length >= opp.length && rest.every((e) => e.act === 'fold');
+    out.push({
+      handId: hand.id,
+      t: hand.t,
+      gv: hand.gv,
+      mtt,
+      street: d.street,
+      players: opp.length === 1 ? 'hu' : opp.length === 2 ? '3way' : '4way+',
+      opponents: opp.length,
+      s,
+      bucket: bucketOf(s),
+      through,
     });
   }
   return out;
@@ -297,8 +358,11 @@ export function gateCells({
   prior = null,
   ownerMap = null,
   switches = null,
+  bets = [],
+  rangeBets = [],
   sinceMs = NaN,
   previousSinceMs = NaN,
+  ftSinceMs = NaN,
   z = GATE_Z,
   minN = MIN_N,
 }) {
@@ -415,10 +479,13 @@ export function gateCells({
             pooledRate: pooled.rate,
             pooledCeiling: pooled.ceiling,
             zPooled: pooled.z,
-            tested: m.n >= minN,
+            // multiway decision cells are information only: multiway gates on fold-through (see the header)
+            infoOnly: f.key !== 'hu',
+            tested: f.key === 'hu' && m.n >= minN,
             // the pooled window is a second test only where the previous days add decisions and the range has
             // decisions of its own (the previous days never gate alone)
-            testedPooled: prevN > 0 && m.n >= POOLED_MIN_RANGE_N && pooled.n >= minN,
+            testedPooled:
+              f.key === 'hu' && prevN > 0 && m.n >= POOLED_MIN_RANGE_N && pooled.n >= minN,
             owner: owner ? owner.option : null,
             ownerState: st
               ? st.text
@@ -452,27 +519,132 @@ export function gateCells({
       `folds ${pct(c.rate)} vs ceiling ${pct(c.ceiling)} (${c.ceilingSource}), z ${z2(c.zCeiling)}; with the ` +
       `previous ${PREVIOUS_DAYS} days n ${c.pooledN}, ${pct(c.pooledRate)} vs ${pct(c.pooledCeiling)}, z ${z2(c.zPooled)}` +
       `${Number.isFinite(c.zPrevious) ? ` (range against previous z ${z2(c.zPrevious)})` : ''}; ` +
-      `${c.gating ? `OVER ITS CEILING on the ${c.gatingWindow === 'range' ? 'range' : 'pooled window'}` : 'against'} ` +
+      `${c.gating ? `OVER ITS CEILING on the ${c.gatingWindow === 'range' ? 'range' : 'pooled window'}` : c.infoOnly ? 'information only (multiway gates on fold-through), no' : 'against'} ` +
       `bar ${z2(zBar)} (${tests} tests); ${fix}`;
   }
+  // FOLD-THROUGH: a person's first bet into Horses against the pure-bluff break-even
+  const ft = [];
+  for (const g of GROUPS)
+    for (const street of STREETS)
+      for (const pl of PLAYERS)
+        for (const b of SIZE_ROWS) {
+          const all = b.key === ALL_SIZES.key;
+          const inCell = (x) =>
+            g.gv.includes(x.gv) &&
+            (x.mtt === true) === g.mtt &&
+            x.street === street &&
+            x.players === pl.key &&
+            (all || x.bucket === b.key);
+          const stat = (rows) => {
+            let n = 0;
+            let through = 0;
+            let be = 0;
+            let v = 0;
+            let ev = 0;
+            for (const x of rows) {
+              if (!inCell(x)) continue;
+              n++;
+              if (x.through) through++;
+              const c = breakEvenFold(x.s);
+              be += c;
+              v += c * (1 - c);
+              ev += x.through ? 1 : -x.s;
+            }
+            return {
+              n,
+              through,
+              rate: n ? through / n : null,
+              breakEven: n ? be / n : null,
+              z: v > 0 ? (through - be) / Math.sqrt(v) : null,
+              evPot: n ? ev / n : null,
+            };
+          };
+          const w = stat(bets);
+          const r = stat(rangeBets);
+          const owner = pl.field === 'mw' ? ownerOf(ownerMap, g.key, street, 'mw', b.key) : null;
+          const st = ownerState(ownerMap, owner, switches);
+          ft.push({
+            key: `foldthru|${g.key}|${street}|${pl.key}|${b.key}`,
+            group: g.key,
+            game: g.label,
+            street,
+            players: pl.key,
+            playersLabel: pl.label,
+            bucket: b.key,
+            size: b.label,
+            n: w.n,
+            through: w.through,
+            rate: w.rate,
+            breakEven: w.breakEven,
+            z: w.z,
+            evPot: w.evPot,
+            rangeN: r.n,
+            rangeRate: r.rate,
+            // heads-up fold-through is the second column of the heads-up cells: shown, never a gate of its own
+            tested: pl.field === 'mw' && w.n >= FT_MIN_N,
+            owner: owner ? owner.option : null,
+            ownerState: st
+              ? st.text
+              : all && BUCKETS.some((x) => ownerOf(ownerMap, g.key, street, 'mw', x.key))
+                ? 'no single owner (see the size rows)'
+                : 'no owner yet',
+            ownerSince: st?.since ?? null,
+            _st: st,
+          });
+        }
+  const ftTests = ft.filter((c) => c.tested).length;
+  const ftZBar = correctedZ(FT_GATE_Z, Math.max(1, ftTests));
+  for (const c of ft) {
+    c.gating = c.tested && Number.isFinite(c.z) && c.z >= ftZBar;
+    const st = c._st;
+    delete c._st;
+    c.fixClass = c.gating ? fixClassOf(st, ftSinceMs) : null;
+    const fix = !c.owner
+      ? c.ownerState
+      : c.fixClass === 'fix-on'
+        ? `WITH ITS FIX ON (${c.owner} ${c.ownerState}${c.ownerSince ? ` since ${c.ownerSince}` : ''}): REGRESSION, breach-class`
+        : c.fixClass === 'fix-on-partial'
+          ? `its fix ${c.owner} is ${c.ownerState}${c.ownerSince ? ` since ${c.ownerSince}` : ''}, for part of the window (mixed)`
+          : `while its fix ${c.owner} is ${c.ownerState}`;
+    c.line =
+      `Fold-through ${c.game} ${c.street} ${c.playersLabel} ${c.size} (a person's first bet into Horses, everyone ` +
+      `folds): n ${c.n} over ${FT_DAYS} days, folded through ${pct(c.rate)} vs the pure-bluff break-even ` +
+      `${pct(c.breakEven)}, z ${z2(c.z)} (a zero-equity bet earns ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} pot); ` +
+      `in the range n ${c.rangeN}, ${pct(c.rangeRate)}; ` +
+      `${c.gating ? 'OVER THE BREAK-EVEN on' : c.tested ? 'against' : 'not tested against'} bar ${z2(ftZBar)} (${ftTests} tests); ${fix}`;
+  }
+  // the heads-up cells carry their fold-through as a second column
+  const ftBy = new Map(ft.map((c) => [`${c.group}|${c.street}|${c.players}|${c.bucket}`, c]));
+  for (const c of cells) {
+    if (c.field !== 'hu') continue;
+    const x = ftBy.get(`${c.group}|${c.street}|hu|${c.bucket}`);
+    c.ftN = x?.n ?? 0;
+    c.ftRate = x?.rate ?? null;
+    c.ftBreakEven = x?.breakEven ?? null;
+    c.ftZ = x?.z ?? null;
+  }
   const rank = (c) => FIX_CLASSES.indexOf(c.fixClass);
-  const gating = cells
+  const strength = (c) => c.zPooled ?? c.z ?? 0;
+  const gating = [...cells, ...ft]
     .filter((c) => c.gating)
-    .sort((a, b2) => rank(a) - rank(b2) || (b2.zPooled ?? 0) - (a.zPooled ?? 0));
+    .sort((a, b2) => rank(a) - rank(b2) || strength(b2) - strength(a));
   const count = (k) => gating.filter((c) => c.fixClass === k).length;
-  const exitCode = gating.length ? 1 : tests === 0 ? 2 : 0;
+  const exitCode = gating.length ? 1 : tests + ftTests === 0 ? 2 : 0;
   const head = gating.length
     ? `Over-fold: ${gating.length} cell(s) over their ceiling: ${count('fix-on')} WITH ITS FIX ON (regression, ` +
       `breach-class), ${count('fix-on-partial')} with the fix ON for part of the window, ` +
       `${count('fix-off') + count('fix-unknown')} while the fix is OFF, ${count('no-owner')} with no owner yet ` +
-      `(${tests} tests, bar z ${z2(zBar)})`
-    : tests === 0
-      ? `Over-fold: no cell has ${minN} decisions (too few to test)`
-      : `Over-fold: clean (${tests} tests, bar z ${z2(zBar)})`;
+      `(heads-up ${tests} tests, bar z ${z2(zBar)}; multiway fold-through ${ftTests} tests, bar z ${z2(ftZBar)})`
+    : tests + ftTests === 0
+      ? `Over-fold: no heads-up cell has ${minN} decisions and no multiway fold-through cell has ${FT_MIN_N} bets (too few to test)`
+      : `Over-fold: clean (heads-up ${tests} tests, bar z ${z2(zBar)}; multiway fold-through ${ftTests} tests, bar z ${z2(ftZBar)})`;
   return {
     cells,
+    foldThrough: ft,
     tests,
     zBar,
+    ftTests,
+    ftZBar,
     gating: gating.map((c) => c.key),
     fixOn: gating.filter((c) => c.fixClass === 'fix-on').map((c) => c.key),
     exitCode,
@@ -490,20 +662,52 @@ const gateWord = (c) =>
         : c.fixClass === 'no-owner'
           ? 'OVER, no owner'
           : 'OVER, fix OFF'
-    : c.tested || c.testedPooled
-      ? 'clean'
-      : `n < ${MIN_N}`;
+    : c.infoOnly
+      ? 'information only'
+      : c.tested || c.testedPooled
+        ? 'clean'
+        : `n < ${MIN_N}`;
 
 /** Markdown rows of the cells. all = false leaves out cells with no decision in either window. */
 export function cellTable(cells, { all = false } = {}) {
   const L = [
-    '| game | street | players | size | n | Horse fold | ceiling | ceiling source | z vs ceiling | previous 3 days (n) | z vs previous | pooled n | pooled fold | pooled z | owner option (state) | gate |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| game | street | players | size | n | Horse fold | ceiling | ceiling source | z vs ceiling | previous 3 days (n) | z vs previous | pooled n | pooled fold | pooled z | fold-through 7 days: n, rate vs break-even, z | owner option (state) | gate |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const c of cells ?? []) {
     if (!all && !(c.n > 0) && !(c.previousN > 0)) continue;
     L.push(
-      `| ${c.game ?? 'PLO4+PLO5 cash'} | ${c.street} | ${c.fieldLabel ?? 'heads-up'} | ${c.size} | ${c.n} | ${pct(c.rate)} | ${pct(c.ceiling)} | ${c.ceilingSource} | ${z2(c.zCeiling)} | ${pct(c.previousRate)} (${c.previousN ?? 0}) | ${z2(c.zPrevious)} | ${c.pooledN ?? '-'} | ${pct(c.pooledRate)} | ${z2(c.zPooled)} | ${c.owner ? `${c.owner} (${c.ownerState})` : (c.ownerState ?? 'no owner yet')} | ${gateWord(c)} |`
+      `| ${c.game ?? 'PLO4+PLO5 cash'} | ${c.street} | ${c.fieldLabel ?? 'heads-up'} | ${c.size} | ${c.n} | ${pct(c.rate)} | ${pct(c.ceiling)} | ${c.ceilingSource} | ${z2(c.zCeiling)} | ${pct(c.previousRate)} (${c.previousN ?? 0}) | ${z2(c.zPrevious)} | ${c.pooledN ?? '-'} | ${pct(c.pooledRate)} | ${z2(c.zPooled)} | ${c.field === 'mw' ? 'see the fold-through table' : c.ftN ? `${c.ftN}, ${pct(c.ftRate)} vs ${pct(c.ftBreakEven)}, ${z2(c.ftZ)}` : '-'} | ${c.owner ? `${c.owner} (${c.ownerState})` : (c.ownerState ?? 'no owner yet')} | ${gateWord(c)} |`
+    );
+  }
+  return L;
+}
+
+const ftWord = (c) =>
+  c.gating
+    ? c.fixClass === 'fix-on'
+      ? 'OVER, FIX ON (regression)'
+      : c.fixClass === 'fix-on-partial'
+        ? 'OVER, fix ON part of window'
+        : c.fixClass === 'no-owner'
+          ? 'OVER, no owner'
+          : 'OVER, fix OFF'
+    : c.players === 'hu'
+      ? 'shown with the heads-up cell'
+      : c.tested
+        ? 'clean'
+        : `n < ${FT_MIN_N}`;
+
+/** Markdown rows of the multiway fold-through cells (all = true: heads-up and empty cells too). */
+export function foldThroughTable(ft, { all = false } = {}) {
+  const L = [
+    '| game | street | players | size | bets (7 days) | folded through | pure-bluff break-even | z | zero-equity bet earns (pot) | in the range (n) | owner option (state) | gate |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const c of ft ?? []) {
+    if (!all && (c.players === 'hu' || !(c.n > 0))) continue;
+    L.push(
+      `| ${c.game} | ${c.street} | ${c.playersLabel} | ${c.size} | ${c.n} | ${pct(c.rate)} | ${pct(c.breakEven)} | ${z2(c.z)} | ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} | ${pct(c.rangeRate)} (${c.rangeN}) | ${c.owner ? `${c.owner} (${c.ownerState})` : c.ownerState} | ${ftWord(c)} |`
     );
   }
   return L;

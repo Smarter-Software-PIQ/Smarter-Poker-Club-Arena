@@ -12,7 +12,9 @@
  *     own vocabulary. (A typo here would report a regression as "fix OFF" for ever.)
  *  2. the alarm's cells are every game group x flop / turn / river x heads-up / multiway x three sizes and the
  *     all-sizes row, and the daily audit still runs it (the constants are read from the script's source: this
- *     test imports no script).
+ *     test imports no script). Heads-up cells gate on the people-measured ceiling; multiway gates on the
+ *     fold-through of a person's first bet into Horses (3-way, 4-way+) against the pure-bluff break-even, and a
+ *     multiway decision cell (a people fold rate) is information only and never gates.
  *  3. the alarm only reads: its SQL goes through the read-only runner, and it reads no HUD row.
  * Cheap: it reads four files and the option registry.
  */
@@ -167,6 +169,13 @@ describe('the over-fold alarm watches every cell and its owner map names only re
     expect(iPrior).toBeGreaterThan(0);
     expect(iPeople).toBeGreaterThan(iPrior);
     expect(iAnchor).toBeGreaterThan(iPeople);
+    // multiway gates on the fold-through of a person's bet against the pure-bluff break-even, never on a people
+    // fold rate (people over-call multiway): the multiway decision cells are information only
+    expect(lib).toMatch(/infoOnly: f\.key !== 'hu'/);
+    expect(lib).toMatch(/tested: f\.key === 'hu' && /);
+    for (const key of ["key: '3way'", "key: '4way+'", 'foldthru|', 'breakEvenFold(x.s)'])
+      expect(lib).toContain(key);
+    expect(lib).toMatch(/tested: pl\.field === 'mw' && w\.n >= FT_MIN_N/);
     expect(read('horse-daily-audit-lib.mjs')).toContain("script: 'horse-plo-overfold-gate.mjs'");
   });
 

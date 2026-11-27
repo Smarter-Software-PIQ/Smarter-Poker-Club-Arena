@@ -58,7 +58,7 @@ Hold'em over-folds measured that week were watched by nothing. Since 2026-11-27 
 name) counts every Horse decision facing a person's first bet of a postflop street, before any raise. It selects no
 hole cards: actions, seats and the profiles' Horse flag only, and it never reads a HUD row.
 
-**Cells (120).** Game group (PLO5 cash, PLO4 cash, the two pooled, Hold'em cash, Hold'em tournaments) x flop / turn /
+**Decision cells (120).** Game group (PLO5 cash, PLO4 cash, the two pooled, Hold'em cash, Hold'em tournaments) x flop / turn /
 river x heads-up (two players still in at the decision) / multiway x bet size (under 0.4, 0.4 to 0.7, 0.7 and over of
 the pot), plus an "all sizes" row per game, street and players in which each decision is held against the ceiling of
 its own size cell (a multiway cell holds a handful of decisions a day; a leak spread over three sizes shows there
@@ -72,8 +72,7 @@ first).
    it arrives with the flop fit, until then flop cells use the next ceiling). Per decision: the minimum-defence fold
    while people bluff at least the balanced share s/(1+2s), rising linearly to 1 as their measured bluff share falls
    to 0 (the first alarm's ceiling, unchanged). Multiway: the table's measured people fold share of the cell
-   (`fold.<street>.mw`, turn and river); the bluff-share price is one caller's break-even and is not a per-player
-   ceiling with players behind.
+   (`fold.<street>.mw`, turn and river) is shown, as information only (see below).
 2. **People's own folds**: people's fold rate in the same cell over the trailing 14 days that end with the range,
    with its sample size, when it has at least 30 decisions. People only: `profiles.is_horse = false`, a profile row
    found, not acting on Horse policy; the bettor may be anyone (people almost never face a person's bet). The test
@@ -85,7 +84,19 @@ first).
    strategy (the last to act carries more than the first), which is why the two people-measured ceilings come
    first.
 
-**Statistics.** Each cell is tested on the range and on the range pooled with the 3 days before it (the pooled test
+**Multiway gates on fold-through, not on a people fold rate.** People over-call multiway: over 31 days the Horse
+multiway turn calls that today's engine folds lost 4.2 bb each, so "Horses fold more than people" is not a leak
+there. The multiway decision cells above are shown as information only and never gate. The multiway signal is the
+**fold-through** of a person's first bet into a field of Horses (every opponent folds on that street) against the
+pure-bluff break-even s/(1+s): a zero-equity bet profits exactly when the field folds through more often than that.
+Cells: game group x street x 3-way / 4-way+ x size and all sizes, over the trailing 7 days that end with the range;
+a cell needs 60 bets; it gates at z of at least `correctedZ(2.5, fold-through tests of the run)`. The table also
+gives what a zero-equity bet earned in pots. The same fold-through numbers are shown beside every heads-up cell as
+a second column (the direct "can a pure bluff print" test); heads-up still gates on its people-measured ceiling.
+On 2026-11-27 the cell PLO5 turn 3-way gated (62.6% of 115 bets folded through against 44.8%), and the multiway
+flop did not (36.8% of 185 against 44.6%).
+
+**Statistics (heads-up cells).** Each cell is tested on the range and on the range pooled with the 3 days before it (the pooled test
 needs at least 5 decisions inside the range, so the previous days never gate alone). A window needs 20 decisions to
 be tested. A cell gates when either window is above its ceiling by z of at least `correctedZ(3, tests of the run)`
 (`horse-audit-multiple-tests.mjs`: Bonferroni over every tested cell and window). The z of the range against the
@@ -93,8 +104,8 @@ previous 3 days is shown beside it and never gates.
 
 **The fix signal.** `scripts/ops/horse-overfold-owner-map.json` names the option that owns each cell's fix (PLO
 heads-up turn and river: `omahaFacingBetPriorIsPeopleMeasured`; PLO heads-up flop bets of 0.7 pot and over:
-`omahaFlopPressureCapIsPriced`; PLO multiway turn and river: `omahaMultiwayFieldIsPeopleMeasured`; every other cell:
-no owner yet). The tool reads each owner's live state from `ca_horse_style_switch` (SELECT) and every gating cell is
+`omahaFlopPressureCapIsPriced`; PLO multiway turn and river fold-through: `omahaMultiwayFieldIsPeopleMeasured`; every
+other cell: no owner yet). The tool reads each owner's live state from `ca_horse_style_switch` (SELECT) and every gating cell is
 one of:
 
 - **over its ceiling WITH ITS FIX ON** (`on` or `on_shadow` since before the tested window began): a regression. It
@@ -112,7 +123,7 @@ read-only path. `tests/unit/horsePloOverfoldGate.test.ts` fires a synthetic over
 cell quiet at its ceiling.
 
 Exit 1 when any cell gates; the summary has the section **Over-Fold Gate** with the four lists above and the table
-of every cell that had a decision. A gating cell's identity is `overfold|<game>|<street>|<hu or mw>|<size>` (with
+of every cell that had a decision. A gating cell's identity is `overfold|<game>|<street>|hu|<size>` or `foldthru|<game>|<street>|<3way or 4way+>|<size>` (with
 `|fix-on` when its fix is ON) and is marked repeat like the other findings.
 
 Limits: the ceiling does not see the Horse's range (a Horse that checked a weak range may fold more correctly); a

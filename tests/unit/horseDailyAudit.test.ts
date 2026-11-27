@@ -231,7 +231,7 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
     );
     expect(summary).toContain('| plo-overfold | 0 | clean |');
     expect(summary).toContain(
-      '| PLO4+PLO5 cash | river | heads-up | 0.7+ pot | 25 | 40.0% | 45.0% | break-even s/(1+s) | -0.50 | 42.0% (60) | -0.20 | - | - | - | no owner yet | clean |'
+      '| PLO4+PLO5 cash | river | heads-up | 0.7+ pot | 25 | 40.0% | 45.0% | break-even s/(1+s) | -0.50 | 42.0% (60) | -0.20 | - | - | - | - | no owner yet | clean |'
     );
     expect(JSON.parse(readFileSync(join(dir, 'plan.json'), 'utf8')).splits).toHaveLength(1);
   });

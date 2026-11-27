@@ -7,6 +7,8 @@ import { correctedZ } from '../../scripts/ops/horse-audit-multiple-tests.mjs';
 import {
   BUCKETS,
   FIELDS,
+  FT_MIN_N,
+  FT_GATE_Z,
   GATE_Z,
   GROUPS,
   MIN_N,
@@ -17,6 +19,8 @@ import {
   cellTable,
   fixClassOf,
   foldCeiling,
+  foldThroughBets,
+  foldThroughTable,
   gateCells,
   minimumDefenceFold,
   overfoldSpots,
@@ -78,6 +82,28 @@ function cell(
     who,
   }));
 }
+/** n first bets by a person into Horses in one fold-through cell, `through` of them folded through. */
+function bet(
+  group: string,
+  street: string,
+  players: string,
+  bucket: string,
+  n: number,
+  through: number
+) {
+  const g = GROUPS.find((x) => x.key === group)!;
+  return Array.from({ length: n }, (_, i) => ({
+    gv: g.gv[0]!,
+    mtt: g.mtt,
+    street,
+    players,
+    opponents: players === 'hu' ? 1 : players === '3way' ? 2 : 3,
+    bucket,
+    s: S_OF[bucket]!,
+    through: i < through,
+  }));
+}
+const HU = FIELDS.filter((f) => f.key === 'hu');
 const bluffCells = (share: number, n: number) => ({
   under40: { n, share },
   mid: { n, share },
@@ -199,12 +225,12 @@ describe('the gate, every cell (counts only)', () => {
     );
   });
 
-  it('fires on a synthetic over-fold in EVERY cell and stays quiet at the ceiling, under each of the three ceilings', () => {
+  it('fires on a synthetic over-fold in EVERY heads-up cell and stays quiet at the ceiling, under each of the three ceilings', () => {
     const prior = PEOPLE(0.45, 150, true); // people bluff over the balanced share: ceiling = minimum defence
     for (const withPeople of [false, true])
       for (const g of SINGLE_GROUPS)
         for (const street of STREETS)
-          for (const f of FIELDS)
+          for (const f of HU)
             for (const b of BUCKETS) {
               const key = `overfold|${g.key}|${street}|${f.key}|${b.key}`;
               const k = f.key === 'hu' ? 1 : 2;
@@ -247,10 +273,91 @@ describe('the gate, every cell (counts only)', () => {
             }
   });
 
-  it('a leak spread thin over the three sizes (each under MIN_N) fires on the all-sizes row of every game, street and players', () => {
+  it('multiway gates on FOLD-THROUGH: a synthetic fold-through over the pure-bluff break-even fires in every 3-way and 4-way+ cell, and is quiet at the break-even', () => {
     for (const g of SINGLE_GROUPS)
       for (const street of STREETS)
-        for (const f of FIELDS) {
+        for (const players of ['3way', '4way+'])
+          for (const b of BUCKETS) {
+            const key = `foldthru|${g.key}|${street}|${players}|${b.key}`;
+            const over = gateCells({ bets: bet(g.key, street, players, b.key, 200, 200) });
+            expect(over.gating, key).toContain(key);
+            expect(over.gating, key).toContain(`foldthru|${g.key}|${street}|${players}|all`);
+            expect(over.exitCode, key).toBe(1);
+            const c = over.foldThrough.find((x) => x.key === key)!;
+            expect(c.breakEven!, key).toBeCloseTo(breakEvenFold(S_OF[b.key]!), 12);
+            expect(c.line, key).toContain('OVER THE BREAK-EVEN');
+            const at = gateCells({
+              bets: bet(
+                g.key,
+                street,
+                players,
+                b.key,
+                200,
+                Math.floor(200 * breakEvenFold(S_OF[b.key]!))
+              ),
+            });
+            expect(at.gating, key).toEqual([]);
+            expect(at.exitCode, key).toBe(0);
+          }
+    // the trip: FT_MIN_N bets and correctedZ(FT_GATE_Z, fold-through tests); under FT_MIN_N nothing is tested
+    const few = gateCells({
+      bets: bet('plo5', 'turn', '3way', 'large', FT_MIN_N - 1, FT_MIN_N - 1),
+    });
+    expect(few.gating).toEqual([]);
+    expect(few.exitCode).toBe(2);
+    const one = gateCells({ bets: bet('plo5', 'turn', '3way', 'large', 126, 77) });
+    // plo5 and pooled plo, the size row and the all-sizes row
+    expect(one.ftTests).toBe(4);
+    expect(one.ftZBar).toBeCloseTo(correctedZ(FT_GATE_Z, 4), 9);
+    // 61.1% of 126 against 42.9%: z 4.1, over the bar
+    expect(one.gating).toContain('foldthru|plo5|turn|3way|large');
+    // heads-up fold-through is the second column of the heads-up cell, never a gate of its own
+    const hu = gateCells({ bets: bet('plo5', 'turn', 'hu', 'large', 200, 200) });
+    expect(hu.gating).toEqual([]);
+    const col = hu.cells.find((x) => x.key === 'overfold|plo5|turn|hu|large')!;
+    expect(col.ftN).toBe(200);
+    expect(col.ftRate).toBe(1);
+    expect(col.ftBreakEven!).toBeCloseTo(0.75 / 1.75, 12);
+    expect(col.ftZ!).toBeGreaterThan(10);
+    expect(foldThroughTable(hu.foldThrough)).toHaveLength(2);
+    expect(foldThroughTable(one.foldThrough).join('\n')).toMatch(
+      /\| PLO5 cash \| turn \| 3-way \| 0\.7\+ pot \| 126 \| 61\.1% \| 42\.9% \| 4\.\d\d \| 0\.\d\d \| - \(0\) \| no owner yet \| OVER, no owner \|/
+    );
+  });
+
+  it('a multiway DECISION cell is information only: a people fold rate never gates it, however far over the Horses are', () => {
+    const current = SINGLE_GROUPS.flatMap((g) =>
+      STREETS.flatMap((street) =>
+        BUCKETS.flatMap((b) => cell(g.key, street, 'mw', b.key, 200, 200))
+      )
+    );
+    const people = SINGLE_GROUPS.flatMap((g) =>
+      STREETS.flatMap((street) =>
+        BUCKETS.flatMap((b) => cell(g.key, street, 'mw', b.key, 200, 60, 'person'))
+      )
+    );
+    const r = gateCells({ current, people, prior: withFold(PEOPLE(0.3, 150, true), 0.5) });
+    expect(r.gating).toEqual([]);
+    expect(r.tests).toBe(0);
+    for (const c of r.cells.filter((x) => x.field === 'mw')) {
+      expect(c.infoOnly).toBe(true);
+      expect(c.tested).toBe(false);
+      expect(c.testedPooled).toBe(false);
+      expect(c.gating).toBe(false);
+    }
+    // the people rate is still shown
+    const c = r.cells.find((x) => x.key === 'overfold|nlh-cash|turn|mw|mid')!;
+    expect(c.ceilingSource).toBe("people's own folds, trailing 14 days (30.0%, n 200)");
+    expect(c.line).toContain('information only (multiway gates on fold-through)');
+    expect(cellTable(r.cells).join('\n')).toMatch(
+      /\| see the fold-through table \|.*\| information only \|/
+    );
+  });
+
+  it('a leak spread thin over the three sizes (each under MIN_N) fires on the all-sizes row of every game and street (heads-up decisions; multiway fold-through)', () => {
+    for (const g of SINGLE_GROUPS)
+      for (const street of STREETS)
+        for (const f of HU) {
           const current = BUCKETS.flatMap((b) =>
             cell(g.key, street, f.key, b.key, MIN_N - 5, MIN_N - 5)
           );
@@ -284,25 +391,34 @@ describe('the gate, every cell (counts only)', () => {
             ),
           });
           expect(quiet.gating, key).toEqual([]);
+          // multiway: 25 bets a size (under FT_MIN_N) all folded through fire on the all-sizes fold-through row
+          const ft = gateCells({
+            bets: BUCKETS.flatMap((b) => bet(g.key, street, '3way', b.key, 25, 25)),
+          });
+          expect(ft.gating, key).toContain(`foldthru|${g.key}|${street}|3way|all`);
+          expect(
+            ft.gating.every((k) => k.endsWith('|3way|all')),
+            key
+          ).toBe(true);
         }
   });
 
   it('the pooled PLO4+PLO5 cell fires when both games over-fold, and a tournament hand never lands in a cash cell', () => {
     const g = gateCells({
       current: [
-        ...cell('plo4', 'flop', 'mw', 'mid', 40, 40),
-        ...cell('plo5', 'flop', 'mw', 'mid', 40, 40),
+        ...cell('plo4', 'flop', 'hu', 'mid', 40, 40),
+        ...cell('plo5', 'flop', 'hu', 'mid', 40, 40),
       ],
     });
     expect(g.gating).toEqual(
       expect.arrayContaining([
-        'overfold|plo|flop|mw|mid',
-        'overfold|plo4|flop|mw|mid',
-        'overfold|plo5|flop|mw|mid',
-        'overfold|plo|flop|mw|all',
+        'overfold|plo|flop|hu|mid',
+        'overfold|plo4|flop|hu|mid',
+        'overfold|plo5|flop|hu|mid',
+        'overfold|plo|flop|hu|all',
       ])
     );
-    expect(g.cells.find((c) => c.key === 'overfold|plo|flop|mw|mid')!.n).toBe(80);
+    expect(g.cells.find((c) => c.key === 'overfold|plo|flop|hu|mid')!.n).toBe(80);
     const t = gateCells({ current: cell('nlh-mtt', 'river', 'hu', 'large', 60, 60) });
     expect(t.gating).toEqual(['overfold|nlh-mtt|river|hu|large', 'overfold|nlh-mtt|river|hu|all']);
     expect(t.cells.find((c) => c.key === 'overfold|nlh-cash|river|hu|large')!.n).toBe(0);
@@ -393,7 +509,7 @@ describe('the gate, every cell (counts only)', () => {
     expect(one.ceilingSource).toBe('people prior table (bluff share 10.0%, n 150)');
     expect(one.gating).toBe(false);
     expect(gateCells({ current, prior: PEOPLE(0.45) }).gating).toContain(key);
-    // multiway: the table's measured people fold share is the ceiling (a rate with its n), not the bluff cell
+    // multiway: the table's measured people fold share is SHOWN (not the bluff cell) and never gates
     const mwCur = cell('plo5', 'turn', 'mw', 'large', 60, 52);
     const mwKey = 'overfold|plo5|turn|mw|large';
     const mwBluffOnly = gateCells({ current: mwCur, prior: PEOPLE(0.05) });
@@ -402,13 +518,8 @@ describe('the gate, every cell (counts only)', () => {
     const mwCell = mw.cells.find((x) => x.key === mwKey)!;
     expect(mwCell.ceilingSource).toBe("people prior table (people's fold share 60.0%, n 400)");
     expect(mwCell.ceiling).toBeCloseTo(0.6, 12);
-    expect(mw.gating).toContain(mwKey);
-    expect(
-      gateCells({
-        current: cell('plo5', 'turn', 'mw', 'large', 60, 36),
-        prior: withFold(PEOPLE(0.05), 0.6),
-      }).gating
-    ).toEqual([]);
+    expect(mwCell.infoOnly).toBe(true);
+    expect(mw.gating).toEqual([]);
     // the prior is PLO's: a Hold'em cell never reads it
     expect(
       gateCells({ prior: PEOPLE(0.1) }).cells.find(
@@ -416,15 +527,15 @@ describe('the gate, every cell (counts only)', () => {
       )!.ceilingTier
     ).toBe('minimum-defence');
     // a small people sample widens the test: the same folds gate against 2,000 people decisions, not against 40
-    const cur2 = cell('nlh-cash', 'turn', 'mw', 'mid', 60, 52);
-    const k2 = 'overfold|nlh-cash|turn|mw|mid';
+    const cur2 = cell('nlh-cash', 'turn', 'hu', 'mid', 60, 52);
+    const k2 = 'overfold|nlh-cash|turn|hu|mid';
     const big = gateCells({
       current: cur2,
-      people: cell('nlh-cash', 'turn', 'mw', 'mid', 2000, 1300, 'person'),
+      people: cell('nlh-cash', 'turn', 'hu', 'mid', 2000, 1300, 'person'),
     });
     const small = gateCells({
       current: cur2,
-      people: cell('nlh-cash', 'turn', 'mw', 'mid', 40, 26, 'person'),
+      people: cell('nlh-cash', 'turn', 'hu', 'mid', 40, 26, 'person'),
     });
     expect(big.gating).toContain(k2);
     expect(small.gating).toEqual([]);
@@ -437,20 +548,27 @@ describe('the fix signal: over the ceiling with the fix ON is a regression, list
   const current = [
     ...cell('plo5', 'turn', 'hu', 'large', 60, 55),
     ...cell('plo5', 'flop', 'hu', 'large', 60, 55),
-    ...cell('plo5', 'turn', 'mw', 'mid', 60, 59),
-    ...cell('plo5', 'flop', 'mw', 'mid', 60, 59),
+    ...cell('plo5', 'flop', 'hu', 'mid', 60, 59),
     ...cell('nlh-cash', 'river', 'hu', 'large', 60, 55),
   ];
+  // multiway: a person's first bets into Horses, folded through far over the break-even
+  const bets = [
+    ...bet('plo5', 'turn', '3way', 'mid', 100, 95),
+    ...bet('plo5', 'flop', '3way', 'mid', 100, 95),
+  ];
+  const ftSince = since - 6 * 86400_000;
   const run = (switches: Record<string, { state: string; since: string | null }> | null) =>
     gateCells({
       current,
+      bets,
       ownerMap: OWNER_MAP,
       switches,
       sinceMs: since,
       previousSinceMs: previousSince,
+      ftSinceMs: ftSince,
     });
   const cls = (g: ReturnType<typeof gateCells>, key: string) =>
-    g.cells.find((c) => c.key === key)!.fixClass;
+    [...g.cells, ...g.foldThrough].find((c) => c.key === key)!.fixClass;
 
   it('the owner map: heads-up turn/river, heads-up flop big bets, multiway turn/river; everything else has no owner yet', () => {
     const o = (g: string, s: string, f: string, b: string) =>
@@ -480,7 +598,9 @@ describe('the fix signal: over the ceiling with the fix ON is a regression, list
   it('fix OFF (no row, off, shadow, not registered yet), fix ON, ON for part of the window, switch not read', () => {
     const off = run({});
     expect(cls(off, 'overfold|plo5|turn|hu|large')).toBe('fix-off');
-    expect(cls(off, 'overfold|plo5|flop|mw|mid')).toBe('no-owner');
+    expect(cls(off, 'overfold|plo5|flop|hu|mid')).toBe('no-owner');
+    expect(cls(off, 'foldthru|plo5|turn|3way|mid')).toBe('fix-off');
+    expect(cls(off, 'foldthru|plo5|flop|3way|mid')).toBe('no-owner');
     expect(cls(off, 'overfold|nlh-cash|river|hu|large')).toBe('no-owner');
     expect(off.fixOn).toEqual([]);
     expect(off.cells.find((c) => c.key === 'overfold|plo5|turn|hu|large')!.ownerState).toBe(
@@ -504,17 +624,23 @@ describe('the fix signal: over the ceiling with the fix ON is a regression, list
       omahaMultiwayFieldIsPeopleMeasured: { state: 'on_shadow', since: '2026-11-20T00:00:00Z' },
     });
     expect(cls(on, 'overfold|plo5|turn|hu|large')).toBe('fix-on');
-    expect(cls(on, 'overfold|plo5|turn|mw|mid')).toBe('fix-on');
+    expect(cls(on, 'foldthru|plo5|turn|3way|mid')).toBe('fix-on');
+    expect(cls(on, 'foldthru|plo5|flop|3way|mid')).toBe('no-owner');
     expect(cls(on, 'overfold|plo5|flop|hu|large')).toBe('fix-off');
     expect(on.fixOn).toEqual(
-      expect.arrayContaining(['overfold|plo5|turn|hu|large', 'overfold|plo5|turn|mw|mid'])
+      expect.arrayContaining(['overfold|plo5|turn|hu|large', 'foldthru|plo5|turn|3way|mid'])
     );
     // the regression is listed first, and the line says so
     const firstOff = on.gating.findIndex((k) => !on.fixOn.includes(k));
     expect(on.gating.slice(0, firstOff).sort()).toEqual([...on.fixOn].sort());
-    expect(on.lines[0]).toContain(
-      'WITH ITS FIX ON (omahaFacingBetPriorIsPeopleMeasured ON since 2026-11-20T00:00:00Z): REGRESSION, breach-class'
+    expect(on.lines[0]).toMatch(
+      /WITH ITS FIX ON \(omaha(FacingBetPrior|MultiwayField)IsPeopleMeasured ON(_SHADOW)? since 2026-11-20T00:00:00Z\): REGRESSION, breach-class/
     );
+    // a fold-through fix switched on inside its 7-day window is not yet a verdict
+    const ftPart = run({
+      omahaMultiwayFieldIsPeopleMeasured: { state: 'on', since: '2026-11-24T00:00:00Z' },
+    });
+    expect(cls(ftPart, 'foldthru|plo5|turn|3way|mid')).toBe('fix-on-partial');
     expect(on.line).toMatch(/: [1-9]\d* WITH ITS FIX ON \(regression, breach-class\)/);
 
     // switched on inside the range: the window holds decisions from before the fix
@@ -663,6 +789,41 @@ describe("the spots: a player facing the street's first bet", () => {
   });
 });
 
+describe("fold-through: a person's first bet into Horses, and whether everyone folded", () => {
+  const bets = (r: ReturnType<typeof row>) => {
+    const h = parseHand(r) as ReturnType<typeof parseHand> & { mtt?: boolean };
+    h.mtt = r.mtt === true;
+    const known = new Set(
+      (r.pl as unknown[][]).filter((p) => p[5] !== false).map((p) => p[1] as string)
+    );
+    return foldThroughBets(h, { known });
+  };
+  it('heads-up: the Horse folds = folded through; a call is not', () => {
+    const b = bets(row({}));
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ street: 'river', players: 'hu', bucket: 'large', through: true });
+    expect(b[0]!.s).toBeCloseTo(0.75, 12);
+    expect(bets(row({ act: 'call' }))[0]!.through).toBe(false);
+  });
+  it('3-way: through only when EVERY Horse folded; one fold with a Horse still to act is not', () => {
+    const one = row({ third: true });
+    expect(bets(one)[0]).toMatchObject({ players: '3way', opponents: 2, through: false });
+    const both = row({ third: true });
+    (both.ac as unknown[]).push([3, 'river', 'fold', 0, 'horse_policy', false, 175, 75, V]);
+    expect(bets(both)[0]).toMatchObject({ players: '3way', through: true });
+    const called = row({ third: true });
+    (called.ac as unknown[]).push([3, 'river', 'call', 75, 'horse_policy', false, 175, 75, V]);
+    expect(bets(called)[0]!.through).toBe(false);
+  });
+  it('leaves out a Horse bettor, a person on Horse policy, a seat with no profile and a PLO tournament', () => {
+    expect(bets(row({ bettor: H, responder: P }))).toEqual([]);
+    expect(bets(row({ origin: 'horse_policy' }))).toEqual([]);
+    expect(bets(row({ unknownPerson: true }))).toEqual([]);
+    expect(bets(row({ gv: 'plo4', mtt: true }))).toEqual([]);
+    expect(bets(row({ gv: 'nlh', mtt: true }))).toHaveLength(1);
+  });
+});
+
 describe("the tool (read-only, no hole cards, people from profiles and never a HUD '*' row)", () => {
   const sql = overfoldSql({
     from: Date.parse('2026-11-25T00:00:00Z'),
@@ -759,6 +920,14 @@ describe("the tool (read-only, no hole cards, people from profiles and never a H
     expect(j.previousSince).toBe('2026-11-22T05:00:00Z');
     expect(j.peopleSince).toBe('2026-11-12T05:00:00Z');
     expect(j.cells).toHaveLength(120);
+    // 5 game groups x 3 streets x heads-up / 3-way / 4-way+ x 3 sizes and all sizes
+    expect(j.foldThrough).toHaveLength(180);
+    expect(j.foldThroughSince).toBe('2026-11-19T05:00:00Z');
+    // 40 bets by the person in 7 days (30 in the range, all folded through; 10 earlier, called)
+    const huFt = j.foldThrough.find(
+      (x: { key: string }) => x.key === 'foldthru|plo5|river|hu|large'
+    );
+    expect([huFt.n, huFt.through, huFt.rangeN]).toEqual([40, 30, 30]);
     // the Horse folds 30 of 30 with its fix ON since before the window: a regression, listed in fixOn
     expect([...j.gating].sort()).toEqual(
       [
@@ -784,7 +953,7 @@ describe('in the daily audit', () => {
   const U = Date.parse('2026-11-26T05:00:00Z');
   const current = [
     ...cell('plo5', 'river', 'hu', 'large', 60, 50),
-    ...cell('nlh-cash', 'flop', 'mw', 'mid', 60, 59),
+    ...cell('nlh-cash', 'flop', 'hu', 'mid', 60, 59),
   ];
   const gate = gateCells({ current, ownerMap: OWNER_MAP, switches: {} });
   const gateOn = gateCells({
@@ -806,7 +975,7 @@ describe('in the daily audit', () => {
     const m = regressionsMarked(res(gate));
     expect(m.count).toBe(6); // plo5, pooled plo, nlh-cash: each its size row and its all-sizes row
     expect(m.lines.join('\n')).toContain('Over-fold PLO5 cash river heads-up 0.7+ pot');
-    expect(m.lines.join('\n')).toContain("Over-fold Hold'em cash flop multiway 0.4-0.7 pot");
+    expect(m.lines.join('\n')).toContain("Over-fold Hold'em cash flop heads-up 0.4-0.7 pot");
     expect(overallExit(runs, { ...all, ...res(gate) })).toBe(1);
     const prev = (g: ReturnType<typeof gateCells>) =>
       previousListing(
@@ -856,10 +1025,10 @@ describe('in the daily audit', () => {
     expect(iNo).toBeGreaterThan(iOn);
     expect(summary).not.toContain('**Over its ceiling while its fix is OFF**');
     expect(summary).toMatch(
-      /\| PLO5 cash \| river \| heads-up \| 0\.7\+ pot \| 60 \| 83\.3% \| 42\.9% \| minimum-defence s\/\(1\+s\) \(no people prior cell; people n 0 < 30\) \| \d+\.\d\d \| - \(0\) \| - \| 60 \| 83\.3% \| \d+\.\d\d \| omahaFacingBetPriorIsPeopleMeasured \(ON\) \| OVER, FIX ON \(regression\) \|/
+      /\| PLO5 cash \| river \| heads-up \| 0\.7\+ pot \| 60 \| 83\.3% \| 42\.9% \| minimum-defence s\/\(1\+s\) \(no people prior cell; people n 0 < 30\) \| \d+\.\d\d \| - \(0\) \| - \| 60 \| 83\.3% \| \d+\.\d\d \| - \| omahaFacingBetPriorIsPeopleMeasured \(ON\) \| OVER, FIX ON \(regression\) \|/
     );
     expect(summary).toMatch(
-      /\| Hold'em cash \| flop \| multiway \| 0\.4-0\.7 pot \| 60 \|.*\| no owner yet \| OVER, no owner \|/
+      /\| Hold'em cash \| flop \| heads-up \| 0\.4-0\.7 pot \| 60 \|.*\| no owner yet \| OVER, no owner \|/
     );
     expect(summary).toContain('114 of 120 cells had no decision in either window (not shown).');
     expect(cellTable(gate.cells, { all: true })).toHaveLength(122);
