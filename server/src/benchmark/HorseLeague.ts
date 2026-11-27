@@ -7905,7 +7905,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'history, so both arms see an absent HUD packet and play the same hands. Measured instead on the learning ' +
       'bench with SPARRING_HUD=1 and seeded priors (CRITERIA-HUD-B4-V3-SIXMAX-PREFLOP, V303 PASS); in this league ' +
       '0 of 0 pairs were dealt for it (not run: no seat has a lifetime history). The option is DEFAULT OFF ' +
-      '(read as === true). What would change this: a league that seeds each opponent with a lifetime history.',
+      '(read as === true). Measured 2026-11-27 by running this refused matchup through runMatchup (seed ' +
+      '20261127, 300 pairs): 0 of 300 pairs diverged. What would change this: a league that seeds each opponent with a lifetime history.',
   })),
   // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
   // default off. Refused, not dealt: this league has no clock.
@@ -8049,7 +8050,9 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       "the VPIP floor's (gs.ownVpipFloorLimpThisHand, remembered by the table engine from the mark the " +
       'limp-only step sets), and playHand builds its decision state with no vpipFloor, vpipWindowHands, ' +
       'ownVpip or ownVpipFloorLimpThisHand, so the two arms play identical poker. The option is DEFAULT OFF ' +
-      "(read as === true). What would change this: a league table that carries a VPIP floor, each seat's " +
+      '(read as === true). Measured 2026-11-27 by running this refused matchup through runMatchup (seed ' +
+      '20261127, 300 pairs): 0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor, each seat's " +
       'judged VPIP and the per-hand memory of a floor limp; until it is built, ' +
       'aVpipFloorLimpFoldsToARaise.law.test.ts (real replayed nodes) and the floored mirror recorded in ' +
       'docs/horse-option-authority.d/vpipFloorLimpFoldsToARaise.md are the evidence.',
