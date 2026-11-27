@@ -86,3 +86,38 @@ tournaments are untouched.
 
 Every option ships default OFF with a flag-off check (0 differences), a shadow watch of at least 60 minutes
 (breaker 0, errors 0, no decision over 50 ms), then a live switch. Fits use people only.
+
+## P10: The over-fold alarm watched six cells; the measured over-folds were in cells nobody watched
+
+- **What broke:** the daily alarm of P1 counted only PLO heads-up turn and river. Measured on public actions,
+  PLO5 cash, Nov 19 to 27, Horses against people: heads-up flop fold to a bet 51.0% (1,717) against 31.9% (1,443),
+  to large bets 62.7% against 44.8%; multiway turn 76.6% (572) against 47.7% (199); multiway flop 66.0% (1,038)
+  against 47.8% (318); PLO4 the same pattern. Hold'em had no over-fold alarm at all. Any of these could be fixed
+  and come back without a line in the daily summary.
+- **Why it kept returning:** an alarm scoped to the cell of the fix that was being built watches the fix, not the
+  leak. And the alarm could not tell "this cell is over-folding because its fix is still OFF" from "this cell is
+  over-folding although its fix is ON", so a real regression read like yesterday's known finding.
+- **Root fix (scripts only, no decision code):** `scripts/ops/horse-plo-overfold-gate*.mjs` now has 120 cells: PLO5
+  cash, PLO4 cash, the two pooled, Hold'em cash, Hold'em tournaments x flop / turn / river x heads-up / multiway x
+  three bet sizes and an all-sizes row. Each cell's ceiling is, in order and named in the row: the people prior
+  table's cell (heads-up its bluff share as a price, multiway its measured people fold share); else people's own
+  fold rate in the cell over the trailing 14 days with its sample (people only, no HUD row); else minimum defence
+  (s/(1+s) heads-up, (s/(1+s))^(1/k) for each of k players left multiway). Tested on the range and on the range
+  pooled with the 3 days before, against one multiple-comparison-corrected bar.
+- **Multiway is gated on fold-through, not on a people fold rate:** people over-call multiway (the Horse multiway
+  turn calls today's engine folds lost 4.2 bb each over 31 days), so a multiway people fold rate is shown as
+  information only. The gate is the fold-through of a person's first bet into Horses (everyone folds) against the
+  pure-bluff break-even s/(1+s), by game, street, 3-way / 4-way+ and size, over 7 days. It is also shown beside every
+  heads-up cell.
+- **The regression signal:** `scripts/ops/horse-overfold-owner-map.json` names the option that owns each cell; the
+  alarm reads that option's live state. A cell over its ceiling WITH ITS FIX ON for the whole tested window is
+  breach-class: first in the alarm, first under Regressions in the daily summary, and never folded into the
+  earlier fix-OFF finding as a repeat.
+- **Guards:**
+  - Law `anOverFoldAlarmWatchesEveryCell`: the owner map names only registered options (or awaited with a pull
+    request), one owner per cell; the alarm keeps every cell, the three ceilings in order, and only reads.
+  - `tests/unit/horsePloOverfoldGate.test.ts`: a synthetic over-fold fires in every cell under each of the three
+    ceilings and every cell is quiet at its ceiling; a leak spread thin over three sizes fires on the all-sizes
+    row; fix ON, ON for part of the window, OFF and no owner are told apart.
+- **Honest limit:** an alarm is not a fix. A lower people fold rate is not proof that a Horse fold loses chips;
+  the options named in the owner map carry their own chips grades.
