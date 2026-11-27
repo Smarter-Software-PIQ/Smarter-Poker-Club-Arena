@@ -50,6 +50,7 @@ function fakeEngine() {
     hasClaimedTournamentMoveBoundary: vi.fn(() => false),
     isBetweenHands: () => false,
     hasSettlementInFlight: () => false,
+    getCurrentButtonSeat: () => 0,
     wakeWaitingForPlayers: vi.fn(),
   };
 }
@@ -943,6 +944,77 @@ describe('a boundary move is planned under the hold', () => {
       ]);
       expect(m.checkTableBalance).toHaveBeenCalledTimes(1);
       expect(m.checkDynamicTableExpansion).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses liveTournamentTableIdsWithPlayers tables/table_seats prefetch in loadBalancerTables so Wave 2 queries only tournament_players (1e532243)', async () => {
+      const a = table(0, 6);
+      const b = table(1, 6);
+      const { m } = manager([a, b]);
+      // Restore real methods to exercise the actual PostgREST prefetch handshake.
+      delete m.liveTournamentTableIdsWithPlayers;
+      delete m.loadBalancerTables;
+
+      const queriedRelations: string[] = [];
+      const chunkSizes: Array<{ relation: string; size: number }> = [];
+      vi.spyOn(supabase, 'from').mockImplementation(((relation: string) => {
+        queriedRelations.push(relation);
+        let inSize = 0;
+        const q: Record<string, unknown> = {};
+        for (const name of ['select', 'eq', 'is', 'order', 'gt', 'limit']) q[name] = () => q;
+        q.in = (col: string, vals: unknown[]) => {
+          if (col === 'id' || col === 'table_id') inSize = vals.length;
+          return q;
+        };
+        q.then = (resolve: (value: unknown) => unknown) => {
+          if (inSize > 0) chunkSizes.push({ relation, size: inSize });
+          if (relation === 'tables') {
+            return Promise.resolve({
+              data: [
+                { id: a.tableId, max_players: 9 },
+                { id: b.tableId, max_players: 9 },
+              ],
+              error: null,
+            }).then(resolve);
+          }
+          if (relation === 'table_seats') {
+            return Promise.resolve({
+              data: [...a.players, ...b.players].map((p, idx) => ({
+                id: id(8000 + idx),
+                table_id: idx < a.players.length ? a.tableId : b.tableId,
+                user_id: p.userId,
+                stack: p.stack,
+                seat_number: p.seat,
+              })),
+              error: null,
+            }).then(resolve);
+          }
+          return Promise.resolve({
+            data: [...a.players, ...b.players].map((p, idx) => ({
+              table_id: idx < a.players.length ? a.tableId : b.tableId,
+              seat_number: p.seat,
+            })),
+            error: null,
+          }).then(resolve);
+        };
+        return q;
+      }) as never);
+
+      const liveIds = await m.liveTournamentTableIdsWithPlayers();
+      expect(liveIds).toEqual([a.tableId, b.tableId]);
+      expect(queriedRelations.sort()).toEqual(['table_seats', 'tables']);
+
+      // Wave 2 consumes the same-epoch prefetch and queries ONLY tournament_players.
+      queriedRelations.length = 0;
+      const loaded = await m.loadBalancerTables(liveIds, 'balanceInitial');
+      expect(queriedRelations).toEqual(['tournament_players']);
+      expect(loaded).toHaveLength(2);
+      expect(loaded[0].playerCount).toBe(6);
+      expect(loaded[1].playerCount).toBe(6);
+
+      // Prefetch is single-use: a second direct call queries all three tables.
+      queriedRelations.length = 0;
+      await m.loadBalancerTables(liveIds, 'balanceFresh');
+      expect(queriedRelations.sort()).toEqual(['table_seats', 'tables', 'tournament_players']);
     });
   });
 });

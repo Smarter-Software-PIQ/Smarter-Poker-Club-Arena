@@ -166,6 +166,16 @@ function middleNames(count: number): string[] {
  * is labelled BTN on a dead-button hand, and the seats between the big blind
  * and the small blind take the middle names, the last of them CO.
  */
+// Bible V8 Appendix B position names (hoisted once to avoid per-broadcast allocations).
+const POSITION_NAMES: Readonly<Record<number, readonly string[]>> = {
+  4: ['UTG'],
+  5: ['UTG', 'CO'],
+  6: ['UTG', 'MP', 'CO'],
+  7: ['UTG', 'UTG+1', 'MP', 'CO'],
+  8: ['UTG', 'UTG+1', 'MP', 'MP+1', 'CO'],
+  9: ['UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ', 'CO'],
+};
+
 export function positionLabelsFor(
   dealerSeat: number,
   players: SeatPlayer[],
@@ -203,16 +213,7 @@ export function positionLabelsFor(
     labels.set(seats[(dealerIdx + 1) % n], 'SB');
     labels.set(seats[(dealerIdx + 2) % n], 'BB');
 
-    // Bible V8 Appendix B position names
-    const positionNames: Record<number, string[]> = {
-      4: ['UTG'],
-      5: ['UTG', 'CO'],
-      6: ['UTG', 'MP', 'CO'],
-      7: ['UTG', 'UTG+1', 'MP', 'CO'],
-      8: ['UTG', 'UTG+1', 'MP', 'MP+1', 'CO'],
-      9: ['UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ', 'CO'],
-    };
-    const names = positionNames[n] || positionNames[9] || [];
+    const names = POSITION_NAMES[n] || POSITION_NAMES[9] || [];
     for (let i = 0; i < n - 3 && i < names.length; i++) {
       labels.set(seats[(dealerIdx + 3 + i) % n], names[i]);
     }

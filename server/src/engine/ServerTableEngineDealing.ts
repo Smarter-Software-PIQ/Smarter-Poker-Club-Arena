@@ -219,6 +219,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       authority.scope !== 'cash'
     )
       return false;
+    // Fast-skip fn_cash_hourly_table_close when no hourly-close operation is
+    // in flight and the freshly loaded roster confirms an active non-horse
+    // human seat: the authoritative SQL door unconditionally returns
+    // { closed: false, reason: 'within_cap_or_human' } for any human-seated
+    // table (incident 1e532243).
+    if (
+      this.hourlyCashOperationId === null &&
+      this.seatedPlayers.some((p) => p.is_horse === false && !p.is_sitting_out)
+    ) {
+      return false;
+    }
     const releaseBoundary = await this.acquireSeatBoundary();
     try {
       if (!this.lifecycleCanMutate() || !this.isBetweenHands() || isMaintenanceFrozen())
@@ -1345,7 +1356,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // begin instead of blocking dealHand serially.
         if (
           this.nextHandNotBeforeMs !== null &&
-          this.nextHandNotBeforeMs > Date.now() &&
           !this.terminalCloseoutPaused &&
           this.tournamentMovePauseOwners.size === 0
         ) {
@@ -2724,6 +2734,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // table) and does not depend on loadSeatedPlayers or handNumber. Starting
       // it here removes one full serial PostgREST RTT from reserveF06Hand().
       this.prefetchF06HandState();
+      // Start the F06 tournament blind read in Wave 1 so it overlaps both
+      // loadSeatedPlayers/fn_f06_hand_number_state AND fn_f06_begin_hand
+      // (startRestBlindRead deduplicates against awaitNextHandRestLead; 1e532243).
+      if (
+        this.reservesPermitUnderTheRest() &&
+        this.nextHandNotBeforeMs !== null &&
+        !this.isNextHandPaused() &&
+        !this.terminalCloseoutPaused &&
+        this.tournamentMovePauseOwners.size === 0
+      ) {
+        this.startRestBlindRead();
+      }
       // A failed sibling read or elapsed step budget does not cancel a
       // transaction. Join the raw cashout before releasing engine ownership.
       // Read and cashout still start together; no new polling is introduced.

@@ -95,4 +95,28 @@ describe('hourly cash closure uses the original hand boundary', () => {
     );
     expect(e.stop).toHaveBeenCalledOnce();
   });
+
+  it('fast-skips fn_cash_hourly_table_close when an active human is seated and no close op is in flight (1e532243)', async () => {
+    const close = vi.spyOn(hourly, 'closeHourlyCashTable').mockResolvedValue({
+      closed: false,
+      reason: 'within_cap_or_human',
+    });
+
+    // Active human seated -> 0 DB RTTs.
+    const humanEngine = engine();
+    humanEngine.seatedPlayers = [{ user_id: 'u-human', is_horse: false, is_sitting_out: false }];
+    expect(await humanEngine.passHourlyCashBoundary()).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+
+    // Sitting-out human or all-horse table -> still asks the authoritative DB door.
+    humanEngine.seatedPlayers = [{ user_id: 'u-human', is_horse: false, is_sitting_out: true }];
+    expect(await humanEngine.passHourlyCashBoundary()).toBe(false);
+    expect(close).toHaveBeenCalledTimes(1);
+
+    // Active human with an already in-flight hourlyCashOperationId -> still retries the DB door.
+    humanEngine.seatedPlayers = [{ user_id: 'u-human', is_horse: false, is_sitting_out: false }];
+    humanEngine.hourlyCashOperationId = 'op-in-flight';
+    expect(await humanEngine.passHourlyCashBoundary()).toBe(false);
+    expect(close).toHaveBeenCalledTimes(2);
+  });
 });

@@ -556,4 +556,52 @@ describe('priority queueing for hand-path and seat-move RPCs (1e532243)', () => 
     expect(parkedNormal.permit?.key).toBeNull();
     bulkhead.release(holder.permit!, 'ok');
   });
+
+  it('exposes zero-seeded per-priority queue-wait histograms, parked counts, and oldest-parked gauges on /metrics', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      now,
+      maxPerEvent: 1,
+      minPerEvent: 1,
+    });
+    const cold = bulkhead.toPrometheusLines().join('\n');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_by_priority{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_by_priority{priority="normal"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="normal"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="normal"} 0');
+
+    const holder = ask(bulkhead, STUCK);
+    const n1 = ask(bulkhead, STUCK, undefined, 'normal');
+    await vi.advanceTimersByTimeAsync(40);
+    const h1 = ask(bulkhead, STUCK, undefined, 'high');
+    await vi.advanceTimersByTimeAsync(15);
+
+    const parked = bulkhead.toPrometheusLines().join('\n');
+    expect(parked).toContain('poker_event_db_bulkhead_parked_by_priority{priority="high"} 1');
+    expect(parked).toContain('poker_event_db_bulkhead_parked_by_priority{priority="normal"} 1');
+    expect(parked).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="high"} 15');
+    expect(parked).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="normal"} 55');
+
+    // High is admitted after 15 ms; normal is admitted 25 ms later (80 ms total wait).
+    bulkhead.release(holder.permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(25);
+    bulkhead.release(h1.permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    bulkhead.release(n1.permit!, 'ok');
+
+    const after = bulkhead.toPrometheusLines().join('\n');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="high"} 1');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_sum{priority="high"} 15');
+    expect(after).toContain(
+      'poker_event_db_bulkhead_queue_wait_ms_bucket{priority="high",le="25"} 1'
+    );
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="normal"} 1');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_sum{priority="normal"} 80');
+    expect(after).toContain(
+      'poker_event_db_bulkhead_queue_wait_ms_bucket{priority="normal",le="100"} 1'
+    );
+    expect(after).not.toContain(STUCK);
+  });
 });

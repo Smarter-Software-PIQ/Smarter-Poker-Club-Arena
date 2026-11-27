@@ -4279,7 +4279,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         return 'hand_replaced';
       }
       if (!this.lifecycleCanMutate()) return 'lifecycle_locked';
-      if (handControllerRef.getState().currentPlayerSeat !== seat) return 'seat_moved';
+      const activeSeat =
+        typeof handControllerRef.getCurrentPlayerSeat === 'function'
+          ? handControllerRef.getCurrentPlayerSeat()
+          : handControllerRef.getState().currentPlayerSeat;
+      if (activeSeat !== seat) return 'seat_moved';
       const currentLease = this.getEngineLeaseAuthority();
       if (
         leaseGeneration === null ||
@@ -4313,7 +4317,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         handControllerRef === this.handController &&
         this.handCount === handNumber &&
         this.lifecycleCanMutate() &&
-        handControllerRef.getState().currentPlayerSeat === seat
+        (typeof handControllerRef.getCurrentPlayerSeat === 'function'
+          ? handControllerRef.getCurrentPlayerSeat()
+          : handControllerRef.getState().currentPlayerSeat) === seat
       ) {
         const retryTimer = this.setHandTimeout(() => {
           if (this.horseActionTimer === retryTimer) this.horseActionTimer = null;

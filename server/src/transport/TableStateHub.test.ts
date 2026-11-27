@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TableStateHub, type HubSubscriber } from './TableStateHub.js';
 
 function makeSub(id: string, readyState = 1 /* OPEN */) {
@@ -363,6 +363,61 @@ describe('TableStateHub', () => {
       hub.publish(TABLE, { pot: 1 });
       hub.publish(TABLE, { pot: 2 });
       expect(plain.sent).toHaveLength(2);
+    });
+  });
+
+  describe('main-thread zero-subscriber fast-path and snapshot serialization cache (1e532243)', () => {
+    it('does not invoke JSON.stringify when publishing or emitting to a 0-subscriber room while preserving Round 25 no-op seq and late-join SNAPSHOT', () => {
+      const stringifySpy = vi.spyOn(JSON, 'stringify');
+      try {
+        expect(hub.publish(TABLE, { pot: 100, extra: undefined, bad: Number.NaN })).toBe(1);
+        // Exact same JSON-normalized state -> Round 25 no-op (seq stays 1).
+        expect(hub.publish(TABLE, { pot: 100, bad: null })).toBe(1);
+        // Real change advances seq to 2.
+        expect(
+          hub.publish(TABLE, { pot: 200, arr: [1, undefined, Number.POSITIVE_INFINITY] })
+        ).toBe(2);
+        hub.emitEvent(TABLE, { type: 'turn_change', seat: 1 });
+        expect(hub.sendToUser(TABLE, 'absent-user', { type: 'hole_cards' })).toBe(0);
+        expect(stringifySpy).not.toHaveBeenCalled();
+
+        // Late joiner gets exact JSON-normalized SNAPSHOT at seq 2, and a 2nd joiner + resync share the cached string.
+        const sub1 = makeSub('late-1');
+        const sub2 = makeSub('late-2');
+        hub.subscribe(TABLE, sub1);
+        hub.subscribe(TABLE, sub2);
+        hub.resync(TABLE, sub1);
+        expect(stringifySpy).toHaveBeenCalledTimes(1);
+        expect(sub1.outbox[0]).toBe(sub2.outbox[0]);
+        expect(sub1.outbox[1]).toBe(sub1.outbox[0]);
+        expect(JSON.parse(sub1.outbox[0])).toEqual({
+          type: 'SNAPSHOT',
+          tableId: TABLE,
+          seq: 2,
+          state: { pot: 200, arr: [1, null, null] },
+        });
+      } finally {
+        stringifySpy.mockRestore();
+      }
+    });
+
+    it('skips JSON.stringify in sendToUser when subscribers exist but none match the target userId', () => {
+      const sub = makeSub('other-sub');
+      (sub as { userId?: string }).userId = 'user-a';
+      hub.subscribe(TABLE, sub);
+      const stringifySpy = vi.spyOn(JSON, 'stringify');
+      try {
+        expect(hub.sendToUser(TABLE, 'user-b', { type: 'hole_cards', cards: ['As', 'Kh'] })).toBe(
+          0
+        );
+        expect(stringifySpy).not.toHaveBeenCalled();
+        expect(hub.sendToUser(TABLE, 'user-a', { type: 'hole_cards', cards: ['As', 'Kh'] })).toBe(
+          1
+        );
+        expect(stringifySpy).toHaveBeenCalledTimes(1);
+      } finally {
+        stringifySpy.mockRestore();
+      }
     });
   });
 });

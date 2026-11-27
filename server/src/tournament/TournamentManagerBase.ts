@@ -4114,6 +4114,23 @@ export abstract class TournamentManagerBase {
    * else falls back to reading the board fresh at the boundary.
    */
   protected balanceBoardEpoch = 0;
+  /**
+   * Single-use prefetch captured by `liveTournamentTableIdsWithPlayers()` so
+   * the immediately following `loadBalancerTables()` call does not re-read
+   * `tables` and `table_seats` from PostgREST on the same `balanceBoardEpoch`
+   * (incident 1e532243).
+   */
+  protected lastLiveBoardPrefetch: {
+    epoch: number;
+    capturedAtMs: number;
+    tablesById: Map<string, { id: string; max_players: number | null }>;
+    seats: Array<{
+      table_id: string;
+      user_id: string;
+      stack: number | null;
+      seat_number: number | null;
+    }>;
+  } | null = null;
 
   /**
    * A managed table settled a hand (the hand-complete edge, which fires
@@ -5840,13 +5857,17 @@ export abstract class TournamentManagerBase {
    */
   protected async liveTournamentTableIdsWithPlayers(): Promise<string[] | null> {
     const lifecycle = this.captureLifecycleToken();
+    const capturedEpoch = this.balanceBoardEpoch;
+    const capturedAtMs = Date.now();
+    this.lastLiveBoardPrefetch = null;
     const options = (label: string) => ({
       label,
       shouldContinue: () => this.lifecycleIsCurrent(lifecycle),
     });
     // Both queries filter directly by this tournament_id and are independent;
-    // run them in parallel to cut balance/boundary board-read latency in half
-    // (incident 1e532243).
+    // run them in parallel and project the columns loadBalancerTables also
+    // needs so the follow-up board load skips duplicate tables/table_seats
+    // scans on the same epoch (incident 1e532243).
     const [
       { rows: liveTables, complete: tablesComplete },
       { rows: seats, complete: seatsComplete },
@@ -5854,7 +5875,7 @@ export abstract class TournamentManagerBase {
       fetchAllRows((cursor, limit) => {
         let query = supabase
           .from('tables')
-          .select('id')
+          .select('id, max_players')
           .eq('tournament_id', this.tournamentId)
           .in('status', ['running', 'waiting'])
           .order('id', { ascending: true })
@@ -5867,7 +5888,9 @@ export abstract class TournamentManagerBase {
       fetchAllRows((cursor, limit) => {
         let query = supabase
           .from('table_seats')
-          .select('id, table_id, tables!table_seats_table_id_fkey!inner(tournament_id)')
+          .select(
+            'id, table_id, user_id, stack, seat_number, tables!table_seats_table_id_fkey!inner(tournament_id)'
+          )
           .eq('tables.tournament_id', this.tournamentId)
           .is('left_at', null)
           .order('id', { ascending: true })
@@ -5881,6 +5904,35 @@ export abstract class TournamentManagerBase {
     if (ids.length === 0) return [];
     if (!seatsComplete) return null;
     const holding = new Set(seats.map((s: { table_id: string }) => s.table_id));
+    if (
+      this.balanceBoardEpoch === capturedEpoch &&
+      seats.every(
+        (s: { user_id?: unknown }) => typeof s.user_id === 'string' && s.user_id.length > 0
+      )
+    ) {
+      const tablesById = new Map<string, { id: string; max_players: number | null }>();
+      for (const row of liveTables as Array<{ id: string; max_players?: number | null }>) {
+        if (row.id) tablesById.set(row.id, { id: row.id, max_players: row.max_players ?? null });
+      }
+      this.lastLiveBoardPrefetch = {
+        epoch: capturedEpoch,
+        capturedAtMs,
+        tablesById,
+        seats: (
+          seats as Array<{
+            table_id: string;
+            user_id: string;
+            stack?: number | null;
+            seat_number?: number | null;
+          }>
+        ).map((s) => ({
+          table_id: s.table_id,
+          user_id: s.user_id,
+          stack: s.stack ?? null,
+          seat_number: s.seat_number ?? null,
+        })),
+      };
+    }
     return ids.filter((id) => holding.has(id));
   }
 
