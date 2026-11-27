@@ -66,8 +66,8 @@ describe('atomic tournament seat move transport', () => {
     });
   });
 
-  it.each(['PGRST202', 'PGRST203', '55P03', '40001', '40P01', '42501', 'P0001'])(
-    'treats a definitive %s database response as refused',
+  it.each(['PGRST202', 'PGRST203', '55P03', '40001', '40P01'])(
+    'treats a definitive %s contention or routing response as refused after one identical resend',
     async (code) => {
       const fetchReceipt = vi.fn();
       vi.stubGlobal('fetch', fetchReceipt);
@@ -80,6 +80,42 @@ describe('atomic tournament seat move transport', () => {
       expect(fetchReceipt).not.toHaveBeenCalled();
     }
   );
+
+  // A VERDICT IS NOT ASKED TWICE (2026-11-26): every one of the 72
+  // "tournament move destination seat is occupied" lines of 2026-11-25/26 was
+  // one refusal sent twice under the same request id, ~120 ms apart.
+  it.each([
+    ['23505', 'tournament move destination seat is occupied'],
+    ['23505', 'tournament move destination roster is occupied'],
+    ['P0404', 'tournament move source chips or coordinates are not exact'],
+    ['55000', 'tournament move destination is not open'],
+    ['42501', 'tournament manager lease expired'],
+    ['P0001', 'database refused the move'],
+  ])('sends a first-attempt %s verdict (%s) once and refuses', async (code, msg) => {
+    const fetchReceipt = vi.fn();
+    vi.stubGlobal('fetch', fetchReceipt);
+    rpc.mockResolvedValue({ data: null, error: { code, message: msg } });
+    await expect(moveTournamentPlayerAtomically(input)).rejects.toBeInstanceOf(
+      TournamentSeatMoveRefusedError
+    );
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(fetchReceipt).not.toHaveBeenCalled();
+  });
+
+  it('still resends a verdict once when an earlier invocation left the outcome unknown', async () => {
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-role-key');
+    const fetchReceipt = vi.fn().mockResolvedValue(new Response('null', { status: 200 }));
+    vi.stubGlobal('fetch', fetchReceipt);
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: '23505', message: 'tournament move destination seat is occupied' },
+    });
+    await expect(
+      moveTournamentPlayerAtomically(input, { outcomeWasAlreadyUnknown: true })
+    ).rejects.toBeInstanceOf(TournamentSeatMoveOutcomeUnknownError);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(fetchReceipt).toHaveBeenCalledTimes(1);
+  });
 
   it.each(
     ['PGRST202', '55P03', '40001', '40P01', '42501'].flatMap((code) =>
@@ -131,7 +167,7 @@ describe('atomic tournament seat move transport', () => {
     expect(rpc).toHaveBeenCalledTimes(2);
   });
 
-  it('classifies a repeated database refusal without any compensation path', async () => {
+  it('classifies a database refusal without any compensation path', async () => {
     rpc.mockResolvedValue({
       data: null,
       error: { code: 'P0404', message: 'source chips are not exact' },
@@ -139,7 +175,7 @@ describe('atomic tournament seat move transport', () => {
     await expect(moveTournamentPlayerAtomically(input)).rejects.toBeInstanceOf(
       TournamentSeatMoveRefusedError
     );
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 
   it('keeps an earlier ambiguous commit fenced when the retry is refused before receipt lookup', async () => {

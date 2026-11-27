@@ -1,0 +1,3 @@
+# tests/a-rebuy-takes-the-seat-table-cap-before-the-daily-missions-key.law.test.ts
+
+A rebuy takes the seat root's table cap before the daily missions key. Every tournament seat root takes the two-int advisory key (hashtext('table_cap'), hashtext(user)) and then fn_lock_daily_mission_user; process_tournament_rebuy's fast-refusal try-locks took 'daily-missions-user:' first and the two-int key only later, blocking, and deadlocked with a seat acquisition on 2026-11-26. Migration 20261126233144 tries the two-int key between the bigint table cap and daily missions, with the same 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY refusal the engine already resends.

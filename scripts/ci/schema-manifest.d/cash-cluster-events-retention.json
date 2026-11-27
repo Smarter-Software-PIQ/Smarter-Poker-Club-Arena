@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/deep-dive-item-8/cash-cluster-events-retention",
+  "_comment": "Migration 20261126215730: owner-only rolling 30-day retention pruner for public.cash_cluster_events.",
+  "functions": ["fn_ca_prune_cash_cluster_events"]
+}

@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   OPTION_COST_GRANDFATHERED,
+  OPTION_COST_EXEMPT,
   OPTION_COST_LAWS,
   optionCostKey,
   optionCostProofGaps,
@@ -48,6 +49,7 @@ describe('LAW: a priced or default-off option proves its decision cost', () => {
     // or a reasoned exemption
     expect(
       optionCostProofGaps(registry, readLaw, OPTION_COST_LAWS, {
+        ...OPTION_COST_EXEMPT,
         holdemSomethingNewIsPriced:
           'a pure threshold on a number the decision already computed: no sampling',
       })

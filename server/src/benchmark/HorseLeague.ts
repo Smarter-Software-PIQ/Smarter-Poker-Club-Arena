@@ -3558,8 +3558,35 @@ const PLO_RIVER_OPENING_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as cons
       }))
     )
 );
+/**
+ * 2026-11-26 PLO-OWNER lead-7 lane plo-bluffs grade cards (development: dealt by name only, never nightly): the
+ * heads-up turn and river opening bluff (omahaTurnBluffIsPricedOnBlockers, omahaTurnBluffIsPricedOnRangeAdvantage,
+ * omahaRiverBluffIsPricedOnRangeAdvantage, and omahaRiverBluffIsPricedOnBlockers with people's fold prior), each alone, heads-up and 6-max: b is the live set of 2026-11-26, a adds
+ * the option. Same seeds both sides (duplicate pairs).
+ */
+const PLO_OPENING_BLUFF_GRADE_PARTS: ReadonlyArray<readonly [string, HorseDecideOpts]> = [
+  ['turn_blockers', { omahaTurnBluffIsPricedOnBlockers: true }],
+  ['turn_range', { omahaTurnBluffIsPricedOnRangeAdvantage: true }],
+  ['river_blockers', { omahaRiverBluffIsPricedOnBlockers: true }],
+  ['river_range', { omahaRiverBluffIsPricedOnRangeAdvantage: true }],
+];
+const PLO_OPENING_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    PLO_OPENING_BLUFF_GRADE_PARTS.flatMap(([part, on]) =>
+      ([2, 6] as const).map((seats) => ({
+        name: `${variant}_omaha_opening_bluff_${part}_${seats === 2 ? 'hu' : '6max'}`,
+        variant,
+        seats,
+        pairs: 6000,
+        productionStyles: true,
+        a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+        b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+      }))
+    )
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...PLO_RIVER_OPENING_GRADE_CARDS,
+  ...PLO_OPENING_BLUFF_GRADE_CARDS,
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   ...PLO_FACING_BET_PRICED_GRADE_CARDS,
@@ -5119,6 +5146,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaRiverBetFoldIsHisRecord: true,
     },
     b: { omahaRiverFirstToActBetIsPriced: true, omahaRiverCheckedToBetIsMeasured: true },
+  })),
+  // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): omahaRiverBetFoldIsPeopleMeasured over the two river bet
+  // rules with his record; a on, b the same set without it (the answer curve re-measured on people's answers).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_fold_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+      omahaRiverBetFoldIsPeopleMeasured: true,
+    },
+    b: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+    },
   })),
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES (default OFF, PLO4/PLO5 cash): #18 omahaBigBetSizeIsPriced
   // (replaces #18 omahaBigBetIsPotShare with continuous pot-share/HUD aggressor range + priced limped-pot bet sizing).
@@ -9097,12 +9143,25 @@ async function claimProducedRows(job: string, date: string): Promise<boolean | n
 export async function claimNightlyJob(job: string, date: string): Promise<boolean> {
   const me = process.env.HOSTNAME ?? 'engine';
   try {
-    const { error } = await supabase
+    // THE CLAIM ASKS, IT DOES NOT COLLIDE (2026-11-26). A plain INSERT made
+    // every losing claim a Postgres unique_violation: five ERROR lines and five
+    // PostgREST 409s on horse_job_runs_pkey in the 24 hours to 2026-11-26
+    // 21:45 UTC, each one the designed "somebody owns it" answer. ON CONFLICT
+    // DO NOTHING keeps the primary key as the lock (exactly one INSERT wins)
+    // and reports the loss as zero returned rows instead of an error.
+    const { data: claimed, error } = await supabase
       .from('horse_job_runs')
-      .insert({ job, run_date: date, claimed_by: me });
-    if (!error) return true;
-    const code = (error as { code?: string }).code;
-    if (code !== '23505') throw new Error(error.message);
+      .upsert(
+        { job, run_date: date, claimed_by: me },
+        { onConflict: 'job,run_date', ignoreDuplicates: true }
+      )
+      .select('job');
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== '23505') throw new Error(error.message);
+    } else if ((claimed?.length ?? 0) > 0) {
+      return true;
+    }
 
     // Somebody owns it. Is that owner alive?
     const { data: existing, error: readErr } = await supabase

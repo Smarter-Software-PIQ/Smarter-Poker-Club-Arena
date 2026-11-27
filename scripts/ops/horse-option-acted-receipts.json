@@ -1370,6 +1370,27 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "omahaTurnBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_turn_bluff_priced_on_blockers"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaTurnBluffIsPricedOnRangeAdvantage": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_turn_bluff_priced_on_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaRiverBluffIsPricedOnRangeAdvantage": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_river_bluff_priced_on_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "omahaRiverCheckedToBetIsMeasured": {
       "releaseDefault": "off",
       "source": "ledger",
@@ -2873,6 +2894,13 @@
       "keys": ["omaha_river_bet_fold_his_record_read"],
       "prefixes": [],
       "unlessOn": []
+    },
+    "omahaRiverBetFoldIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_checked_to_bet_measured", "omaha_river_first_to_act_bet_priced"],
+      "unlessOn": ["omahaRiverCheckedToBetIsMeasured", "omahaRiverFirstToActBetIsPriced"]
     }
   }
 }
