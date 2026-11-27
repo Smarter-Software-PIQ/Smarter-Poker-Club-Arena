@@ -78,12 +78,14 @@ describe('LAW: the people prior counts the bets people never showed', () => {
     for (const c of Object.values(OMAHA_PEOPLE_PRIOR_HIDDEN_DATA))
       if (c.share !== null && c.shownShare !== null)
         expect(c.share).toBeGreaterThanOrEqual(c.shownShare);
-    const k = 'turn|plo5|hu|big|b';
-    const c = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[k]!;
-    expect(omahaPeoplePriorCell('turn', 0.8, false, false, { game: 'plo5', split: 'b' })).toEqual({
-      n: c.shown + c.hidden,
-      share: c.share,
-    });
+    const g = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA['turn|plo5|hu|big|b']!;
+    const a = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA['turn|all|hu|big|b']!;
+    const ng = g.shown + g.hidden;
+    const pa = Math.min(30, a.shown + a.hidden);
+    const cell = omahaPeoplePriorCell('turn', 0.8, false, false, { game: 'plo5', split: 'b' });
+    // the per-game cell shrinks toward the same split over both games by 30 pseudo-bets (people data both)
+    expect(cell.n).toBe(ng + pa);
+    expect(cell.share!).toBeCloseTo((ng * g.share! + pa * a.share!) / (ng + pa), 9);
   });
 
   it('a thin or empty split cell is blended toward the anchor, never replaced by the pooled cell', () => {

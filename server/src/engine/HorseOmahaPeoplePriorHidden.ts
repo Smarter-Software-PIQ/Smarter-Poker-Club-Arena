@@ -14,8 +14,9 @@
  * flop wager / another player did), counts each hidden bet as non-value in both units (the price's value region and
  * the record's top-20% unit). A bet won with no showdown keeps the shown mix. Re-raised flop pots keep the shown-only
  * share (hidden bets reported, not counted; the reason is in the fit and l8-ofa/BUILD.md), and the bettor's record
- * stays shown-only there too (omahaPeoplePriorRecordCountsHidden). A thin split cell is NEVER replaced by
- * the pooled cell (the pooled flop sample is mostly re-raised pots, value-heavy): the caller blends the split cell's
+ * stays shown-only there too (omahaPeoplePriorRecordCountsHidden). A thin per-game split cell first shrinks toward the same split
+ * pooled over PLO4 and PLO5 (OMAHA_PEOPLE_PRIOR_HIDDEN_POOL_BETS, still people data); it is NEVER replaced by the pooled
+ * all-pots cell (the pooled flop sample is mostly re-raised pots, value-heavy): the caller blends the split cell's
  * own counts toward the equilibrium anchor by its n (omahaPeoplePriorBlend, 30 pseudo-bets); a split with no bets at
  * all is the anchor alone. No clamp on the output: a cell is a fit, not a rule.
  * Public events only (a fold and a muck are public; no card is read). People-only bettors; no identity input.
@@ -33,6 +34,23 @@ export interface OmahaPeoplePriorHiddenKey {
 
 /** The hidden-corrected split cell (n = shown + hidden; n 0 and share null when the split has no bets), or null when
  *  no key is given or the street is not the flop or the turn (then the caller's pooled cell stands). */
+/** Pseudo-bets of the game-pooled split cell behind a per-game split cell (lead ruling 2026-11-27: a thin per-game cell
+ *  shrinks toward the same street, line / pot type and size pooled over PLO4 and PLO5, still people data; what stays
+ *  thin after that is blended toward the equilibrium anchor by the caller). */
+export const OMAHA_PEOPLE_PRIOR_HIDDEN_POOL_BETS = 30;
+
+type HiddenRow = (typeof OMAHA_PEOPLE_PRIOR_HIDDEN_DATA)[string];
+const rowN = (c: HiddenRow | undefined): number =>
+  c ? c.shown + (c.hiddenCounted ? c.hidden : 0) : 0;
+const okShare = (c: HiddenRow | undefined): c is HiddenRow =>
+  !!c && rowN(c) > 0 && c.share !== null && Number.isFinite(c.share);
+const okNt = (x: number | null | undefined): x is number =>
+  x !== null && x !== undefined && x > 0 && x < 1;
+
+/** The hidden-corrected split cell, or null when no key is given or the street is not the flop or the turn (then the
+ *  caller's pooled cell stands). The per-game cell (n_g, s_g) shrinks toward the game-pooled split cell (n_a, s_a):
+ *  share = (n_g s_g + P s_a) / (n_g + P), P = OMAHA_PEOPLE_PRIOR_HIDDEN_POOL_BETS (capped at n_a), and its n is
+ *  n_g + min(P, n_a), the people evidence behind it, which the caller's anchor blend weighs. No bets at all: n 0. */
 export function omahaPeoplePriorHiddenCell(
   street: string,
   multiway: boolean,
@@ -41,15 +59,19 @@ export function omahaPeoplePriorHiddenCell(
 ): { n: number; share: number | null; nonTop20: number | null } | null {
   if (!key || (street !== 'flop' && street !== 'turn')) return null;
   const b = bucket === 'over' ? 'big' : bucket;
-  const c =
-    OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[
-      `${street}|${key.game}|${multiway ? 'mw' : 'hu'}|${b}|${key.split}`
-    ];
-  const n = c ? c.shown + (c.hiddenCounted ? c.hidden : 0) : 0;
-  if (!c || !(n > 0) || c.share === null || !Number.isFinite(c.share))
-    return { n: 0, share: null, nonTop20: null };
-  const nt = c.nonTop20 !== null && c.nonTop20 > 0 && c.nonTop20 < 1 ? c.nonTop20 : null;
-  return { n, share: c.share, nonTop20: nt };
+  const w = multiway ? 'mw' : 'hu';
+  const g = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[`${street}|${key.game}|${w}|${b}|${key.split}`];
+  const a = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[`${street}|all|${w}|${b}|${key.split}`];
+  const ng = okShare(g) ? rowN(g) : 0;
+  const pa = okShare(a) ? Math.min(OMAHA_PEOPLE_PRIOR_HIDDEN_POOL_BETS, rowN(a)) : 0;
+  if (!(ng + pa > 0)) return { n: 0, share: null, nonTop20: null };
+  const share = (ng * (ng > 0 ? g!.share! : 0) + pa * (pa > 0 ? a!.share! : 0)) / (ng + pa);
+  const ntG = ng > 0 && okNt(g!.nonTop20) ? g!.nonTop20 : null;
+  const ntA = pa > 0 && okNt(a!.nonTop20) ? a!.nonTop20 : null;
+  const wG = ntG !== null ? ng : 0;
+  const wA = ntA !== null ? pa : 0;
+  const nonTop20 = wG + wA > 0 ? ((ntG ?? 0) * wG + (ntA ?? 0) * wA) / (wG + wA) : null;
+  return { n: ng + pa, share, nonTop20 };
 }
 
 type Hist =
