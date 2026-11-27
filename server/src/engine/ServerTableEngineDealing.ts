@@ -1348,7 +1348,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // begin instead of blocking dealHand serially.
         if (
           this.nextHandNotBeforeMs !== null &&
-          this.nextHandNotBeforeMs > Date.now() &&
           !this.terminalCloseoutPaused &&
           this.tournamentMovePauseOwners.size === 0
         ) {
@@ -2731,6 +2730,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // table) and does not depend on loadSeatedPlayers or handNumber. Starting
       // it here removes one full serial PostgREST RTT from reserveF06Hand().
       this.prefetchF06HandState();
+      // Start the F06 tournament blind read in Wave 1 so it overlaps both
+      // loadSeatedPlayers/fn_f06_hand_number_state AND fn_f06_begin_hand
+      // (startRestBlindRead deduplicates against awaitNextHandRestLead; 1e532243).
+      if (
+        this.reservesPermitUnderTheRest() &&
+        typeof this.nextHandNotBeforeMs === 'number' &&
+        !this.terminalCloseoutPaused &&
+        (this.tournamentMovePauseOwners?.size ?? 0) === 0 &&
+        !this.isNextHandPaused()
+      ) {
+        this.startRestBlindRead();
+      }
       // A failed sibling read or elapsed step budget does not cancel a
       // transaction. Join the raw cashout before releasing engine ownership.
       // Read and cashout still start together; no new polling is introduced.

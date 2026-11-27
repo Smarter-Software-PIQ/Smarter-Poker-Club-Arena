@@ -37,7 +37,7 @@ export const CLOSED = ['verified_fixed', 'historical'];
 export const OPENER_JOB = 'OpenClaw cron ca-migration-merge-window-open (openclaw cron runs --id 471acb81-41ba-43cf-ab5c-5008874e1633)';
 const MINUTE = 60_000;
 const OPEN_TEXT = /^Install window open/;
-const MIGRATION_STATUS = /^(Install window open|Migrations merge|Outage override)/;
+const MIGRATION_STATUS = /^(Install window open|Migrations merge|Release controls merge|Outage override)/;
 
 /** The most recent window that closed at least SETTLE_MINUTES before nowMs, within LOOKBACK_HOURS: { open, close } or null. */
 export function lastClosedWindow(nowMs, cadence) {
