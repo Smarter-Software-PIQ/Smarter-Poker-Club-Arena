@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { splitConcurrentPreamble } from '../scripts/ci/migration-concurrent-preamble.mjs';
+import { migrationCostRisks } from '../scripts/ci/migration-cost-shape.mjs';
+import { missingProbes } from '../scripts/ci/migration-function-probes.mjs';
 
 /**
  * CRON WATCHERS MATERIALIZE THEIR READS AND PRUNE WITHOUT DEADLOCK (2026-11-27).
@@ -127,5 +129,42 @@ describe('cron watchers materialize their reads and prune without deadlock', () 
     expect(SQL).toContain(
       'GRANT EXECUTE ON FUNCTION public.fn_ca_diamond_prune_history(integer, integer, integer) TO service_role;'
     );
+  });
+
+  it('keeps the install transaction bounded: no live watcher or unindexed pruner probe inside BEGIN..COMMIT (incident 37a45c05)', () => {
+    // Every redefined SECURITY DEFINER PL/pgSQL routine must satisfy the probe law.
+    expect(missingProbes(SQL)).toEqual([]);
+
+    // Must pass all install-budget cost guards on its own merits (both real filename and synthetic)
+    // and must never rely on GRANDFATHERED_UNBOUNDED_WATCHER_PROBES.
+    expect(migrationCostRisks(FILE, SQL)).toEqual([]);
+    expect(
+      migrationCostRisks('20261127200000_cron_watchers_install_budget_check.sql', SQL)
+    ).toEqual([]);
+    expect(read('scripts/ci/migration-cost-shape.mjs')).not.toContain(
+      "'20261127172908_cron_watchers_materialize_and_prune_without_deadlock.sql'"
+    );
+
+    // Install-time statement timeout stays strictly within the 12s ordinary transaction budget.
+    expect(SQL).toContain("SET LOCAL statement_timeout = '8s';");
+
+    // Extract every DO block body (stripping SQL comments first) and ensure neither over-budget routine is invoked at install time.
+    const doBodies = [...code(SQL).matchAll(/\bDO\s+(\$[A-Za-z_0-9]*\$)([\s\S]*?)\1\s*;/gi)].map(
+      (m) => m[2]
+    );
+    expect(doBodies.length).toBe(2);
+    const allDoCode = doBodies.join('\n');
+    expect(allDoCode).not.toMatch(/\bfn_ca_free_buy_funding_watch\s*\(/i);
+    expect(allDoCode).not.toMatch(/\bfn_ca_diamond_prune_history\s*\(/i);
+
+    // Explicit @probe-exempt annotations document why static plpgsql_check covers both.
+    expect(SQL).toMatch(/^-- @probe-exempt: public\.fn_ca_free_buy_funding_watch .{20,}/m);
+    expect(SQL).toMatch(/^-- @probe-exempt: public\.fn_ca_diamond_prune_history .{20,}/m);
+
+    // The remaining variance-scan probe uses a strictly distant future shift (0 rows via idx_tournaments_start_time).
+    expect(allDoCode).toContain(
+      "PERFORM public.fn_ca_guarantee_funding_variance_scan(clock_timestamp() + interval '100 years');"
+    );
+    expect(allDoCode).toContain("RAISE EXCEPTION 'probe-unwind';");
   });
 });
