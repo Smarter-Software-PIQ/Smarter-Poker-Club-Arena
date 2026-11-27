@@ -81,7 +81,9 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     // O23: versions neither the target's nor control's tree ships are not compared.
     expect(fn).toContain("tree = module.tree_versions('.', target, control) if target else None");
     // O33: an engine-inert version (horse option whitelist registrations only) is not compared either.
-    expect(fn).toContain("inert = module.inert_versions('.', control, *([target] if target else []))");
+    expect(fn).toContain(
+      "inert = module.inert_versions('.', control, *([target] if target else []))"
+    );
     expect(fn).toContain(
       "module.judge(evidence['schemaEvidence'], db, production, required, tree, inert)"
     );
@@ -118,14 +120,16 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     const run = step(certify, (s) => s.id === 'certify');
     expect(run.run).toContain('engine-release-installed-migrations.py certified-digest');
     expect(run.run).toContain('--evidence schema-evidence.json --certificate certificate.json');
-    // O23: the certificate's set leaves out versions neither tree ships; the
-    // cutover re-read and the mid-soak stale check read the same trees.
+    // O23 + O37/O35: certified-digest reads the run's CONTROL_SHA; the mid-soak
+    // stale check passes $main_sha (origin/main) so a newly merged+installed Club
+    // Arena migration is NOT filtered out as foreign under the older soaking control.
     expect(run.run).toMatch(
       /certified-digest \\\n.*--sha "\$SHA" \\\n\s+--control "\$\{CONTROL_SHA:-\}"\); then/
     );
     expect(run.run).toMatch(
-      /--copy-evidence-sha "\$evidence_sha" \\\n\s+--control "\$\{CONTROL_SHA:-\}" 2> o1-copy-reason\.txt/
+      /--copy-evidence-sha "\$evidence_sha" \\\n\s+--control "\$judge_control" 2> o1-copy-reason\.txt/
     );
+    expect(run.run).toContain('copy_state=$(o1_copy_state "$main_sha")');
     // The cutover's status reads the control SHA from its own generation's
     // control-sha manifest (the transaction is hash-pinned and unchanged).
     expect(TRANSACTION).toContain('CONTROL_SHA="$(tr -d \'\\r\\n\' < "$CONTROL_DIR/control-sha")"');

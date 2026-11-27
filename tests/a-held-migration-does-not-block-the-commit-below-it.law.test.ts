@@ -20,6 +20,7 @@
  * real installed-migrations reader; ssh, gh, production and /health are local.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -110,17 +111,26 @@ ssh() {
   case "$*" in
     *"python3 - '"*) cat > /dev/null; echo "LEASE_RELEASED" >> "$CALLS" ;;
     *"restoredAt"*) echo "2026-11-26T04:00:00Z" ;;
+    *"schemaEvidenceSha256"*) echo "\${COPY_EVIDENCE_SHA:-}" ;;
+    *"schema-evidence.json"*) [ -n "\${COPY_EVIDENCE_FILE:-}" ] && cat "$COPY_EVIDENCE_FILE" || echo "" ;;
     *) echo "" ;;
   esac
 }
-gh() { echo "gh $*" >> "$CALLS"; return 1; }
 curl() { echo "curl $*" >> "$CALLS"; return 1; }
 python3() {
   if [ "\${1:-}" = -B ] && [ "\${2:-}" = ${SCRIPT} ]; then
     shift 2
-    command python3 -B "$LAW_ROOT/${SCRIPT}" "$@" --prequal "$LAW_ROOT/scripts/ci/read-engine-prequalification.py" \\
-      --installed-tool "$LAW_ROOT/server/scripts/engine-release-installed-migrations.py" \\
-      --production "$PRODUCTION" --health-url "$HEALTH_URL"
+    local is_check=0
+    for arg in "$@"; do
+      if [ "$arg" = --check-prequal-only ]; then is_check=1; break; fi
+    done
+    if [ "$is_check" = 1 ]; then
+      command python3 -B "$LAW_ROOT/${SCRIPT}" "$@"
+    else
+      command python3 -B "$LAW_ROOT/${SCRIPT}" "$@" --prequal "$LAW_ROOT/scripts/ci/read-engine-prequalification.py" \\
+        --installed-tool "$LAW_ROOT/server/scripts/engine-release-installed-migrations.py" \\
+        --production "$PRODUCTION" --health-url "$HEALTH_URL"
+    fi
     return
   fi
   if [ "\${1:-}" = -B ] && [ "\${2:-}" = server/scripts/engine-release-installed-migrations.py ]; then
@@ -138,21 +148,137 @@ python3() {
 }
 `;
 
-function runDue(f: Fixture, env: Record<string, string>) {
+type PrequalMock = Record<
+  string,
+  | 'passed'
+  | 'failed'
+  | 'pending'
+  | 'absent'
+  | 'FAIL'
+  | { status: string; conclusion?: string; id?: number }
+>;
+type StatusMock = Record<
+  string,
+  { state: string; description?: string; target_url?: string } | 'FAIL'
+>;
+
+function writeFakeGh(binDir: string, prequal: PrequalMock = {}, statuses: StatusMock = {}) {
+  mkdirSync(binDir, { recursive: true });
+  const prequalFile = resolve(binDir, 'prequal-mock.json');
+  const statusFile = resolve(binDir, 'status-mock.json');
+  writeFileSync(prequalFile, JSON.stringify(prequal));
+  writeFileSync(statusFile, JSON.stringify(statuses));
+  writeFileSync(
+    resolve(binDir, 'gh'),
+    `#!/usr/bin/env python3
+import json, os, re, sys
+args = sys.argv[1:]
+calls = os.environ.get('CALLS')
+if calls:
+    with open(calls, 'a') as f:
+        f.write('gh ' + ' '.join(args) + '\\n')
+if not args or args[0] != 'api':
+    sys.exit(1)
+url = args[1] if len(args) > 1 else ''
+jq_expr = args[args.index('--jq') + 1] if '--jq' in args else None
+prequal = json.load(open(${JSON.stringify(prequalFile)}))
+statuses = json.load(open(${JSON.stringify(statusFile)}))
+
+if 'engine-release-prequalification.yml/runs' in url:
+    m = re.search(r'head_sha=([0-9a-f]{40})', url)
+    if not m:
+        sys.exit(1)
+    sha = m.group(1)
+    entry = prequal.get(sha)
+    if entry is None or entry == 'FAIL':
+        sys.exit(1)
+    if entry == 'absent':
+        print(json.dumps({'workflow_runs': []}))
+        sys.exit(0)
+    if entry == 'passed':
+        run = {'id': 46050162216, 'head_sha': sha, 'status': 'completed', 'conclusion': 'success'}
+    elif entry == 'failed':
+        run = {'id': 46052191027, 'head_sha': sha, 'status': 'completed', 'conclusion': 'failure'}
+    elif entry == 'pending':
+        run = {'id': 46052191028, 'head_sha': sha, 'status': 'in_progress', 'conclusion': None}
+    else:
+        run = {'id': entry.get('id', 46052191027), 'head_sha': sha, 'status': entry['status'], 'conclusion': entry.get('conclusion')}
+    print(json.dumps({'workflow_runs': [run]}))
+    sys.exit(0)
+
+m = re.search(r'commits/([0-9a-f]{40})/statuses', url)
+if m:
+    sha = m.group(1)
+    entry = statuses.get(sha)
+    if entry == 'FAIL':
+        sys.exit(1)
+    rows = [] if entry is None else [{
+        'context': 'backup-engine/certified',
+        'state': entry['state'],
+        'description': entry.get('description', ''),
+        'target_url': entry.get('target_url', ''),
+    }]
+    if jq_expr is not None:
+        if rows:
+            r = rows[0]
+            if '\\\\t' in jq_expr or '\\t' in jq_expr:
+                print(f"{r['state']}\\t{r['description']}")
+            else:
+                print(f"{r['state']}|{r['target_url']}|{r['description']}")
+        sys.exit(0)
+    print(json.dumps(rows))
+    sys.exit(0)
+
+sys.exit(1)
+`,
+    { mode: 0o755 }
+  );
+}
+
+function runDue(
+  f: Fixture,
+  env: Record<string, string>,
+  mocks: { prequal?: PrequalMock; statuses?: StatusMock; copyMatchesProduction?: boolean } = {}
+) {
   const dir = temp('o29-run-');
+  const binDir = resolve(dir, 'bin');
+  writeFakeGh(binDir, mocks.prequal, mocks.statuses);
   const output = resolve(dir, 'github-output');
   const calls = resolve(dir, 'calls');
   const summary = resolve(dir, 'summary.md');
+  let copyEvidenceFile = '';
+  let copyEvidenceSha = '';
+  if (mocks.copyMatchesProduction) {
+    const prod = JSON.parse(readFileSync(f.production, 'utf8'));
+    const body = JSON.stringify({
+      schema: 'club-arena-schema-evidence/v1',
+      migrations: prod.migrations,
+      functions: Object.fromEntries(
+        Object.entries(prod.functions as Record<string, string>).map(([sig, defn]) => [
+          sig,
+          createHash('sha256').update(defn).digest('hex'),
+        ])
+      ),
+      dumpSha256: 'a'.repeat(64),
+    });
+    copyEvidenceFile = resolve(dir, 'copy-evidence.json');
+    writeFileSync(copyEvidenceFile, body);
+    copyEvidenceSha = createHash('sha256').update(body).digest('hex');
+  }
+  const baseEnv = cleanEnv();
   const result = spawnSync('bash', ['-c', HARNESS + String(due.run)], {
     encoding: 'utf8',
     cwd: f.repo,
     env: {
-      ...cleanEnv(),
+      ...baseEnv,
+      PATH: `${binDir}:${baseEnv.PATH ?? ''}`,
       HOME: dir,
       CALLS: calls,
       LAW_ROOT: ROOT,
       PRODUCTION: f.production,
       HEALTH_URL: f.health,
+      COPY_EVIDENCE_FILE: copyEvidenceFile,
+      COPY_EVIDENCE_SHA: copyEvidenceSha,
       GITHUB_OUTPUT: output,
       GITHUB_STEP_SUMMARY: summary,
       SSH_KEY: 'fixture-key-not-a-credential',
@@ -188,13 +314,20 @@ describe('a held migration does not block the commit below it (O29)', () => {
     expect(r.status, r.stderr).toBe(0);
   }, 120_000);
 
-  it('the due step asks the step-down script once, and every later consumer prefers its answer', () => {
+  it('the due step wires O29/O37 prequal check + unified step-down, and every later consumer prefers its answer', () => {
     const run = String(due.run);
-    expect(run.split(`python3 -B ${SCRIPT}`).length - 1).toBe(1);
+    // O37: one --check-prequal-only check and one unified step-down call with --repo.
+    expect(run.split(`python3 -B ${SCRIPT}`).length - 1).toBe(2);
+    expect(run).toContain('--check-prequal-only');
+    expect(run).toContain('--repo "${GITHUB_REPOSITORY:-}"');
+    expect(run).toContain('--skip-failed-prequal');
     expect(run).toContain('--producer "${GITHUB_SHA:-}"');
     expect(run).toContain('--input-sha "${INPUT_SHA:-}"');
-    // The step-down is tried before the hand-back, never after it.
+    // Both calls are tried before the hand-back, never after it.
     expect(run.indexOf(`python3 -B ${SCRIPT}`)).toBeLessThan(run.indexOf('DEFERRED: $SHA carries'));
+    expect(run.lastIndexOf(`python3 -B ${SCRIPT}`)).toBeLessThan(
+      run.indexOf('DEFERRED: $SHA carries')
+    );
     expect(run).toContain('echo "sha=$fallback" >> "$GITHUB_OUTPUT"');
     expect(due.env.INPUT_SHA).toBe('${{ github.event.inputs.sha }}');
     expect(due.env.AFTER_CYCLE).toBe('${{ github.event.inputs.after_cycle }}');
@@ -209,11 +342,15 @@ describe('a held migration does not block the commit below it (O29)', () => {
       'needs.refresh.outputs.sha || needs.plan.outputs.sha'
     );
     expect(fromRefresh.length - 1).toBeGreaterThanOrEqual(5);
-    // The refresh job's sparse checkout holds the script it runs.
-    const checkout = refresh.steps.find((s: any) =>
+    // Both refresh and certify sparse checkouts hold the script they run.
+    const refreshCheckout = refresh.steps.find((s: any) =>
       String(s.uses ?? '').startsWith('actions/checkout')
     );
-    expect(String(checkout.with['sparse-checkout']).split('\n')).toContain(SCRIPT);
+    expect(String(refreshCheckout.with['sparse-checkout']).split('\n')).toContain(SCRIPT);
+    const certifyCheckout = certify.steps.find((s: any) =>
+      String(s.uses ?? '').startsWith('actions/checkout')
+    );
+    expect(String(certifyCheckout.with['sparse-checkout']).split('\n')).toContain(SCRIPT);
     // No new trigger, timer or dispatch came with it.
     expect(run).not.toMatch(/gh workflow run|\/dispatches/);
   });
@@ -369,4 +506,219 @@ describe('a held migration does not block the commit below it (O29)', () => {
       '## A Held Migration Does Not Block The Commit Below It (O29, 2026-11-26)'
     );
   });
+});
+
+describe('prequalification-aware pre-soak step-down and hand-back (O37)', () => {
+  function fixturePrequal(): Fixture {
+    const dir = temp('o37-law-');
+    const repo = resolve(dir, 'repo');
+    mkdirSync(repo);
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: cleanEnv() });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    const commit = (message: string, files: Record<string, string>) => {
+      for (const [name, text] of Object.entries(files)) {
+        mkdirSync(dirname(resolve(repo, name)), { recursive: true });
+        writeFileSync(resolve(repo, name), text);
+      }
+      git('add', '-A');
+      git('commit', '-q', '-m', message);
+      return git('rev-parse', 'HEAD');
+    };
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'O37 fixture');
+    git('config', 'commit.gpgsign', 'false');
+    const stage = '.github/workflows/stage-engine-release.yml';
+    const shas: Record<string, string> = {};
+    shas.serving = commit('serving build', { 'server/src/a.ts': 'a\n', [stage]: 'v1\n' });
+    shas.good = commit('good engine commit (same control)', {
+      'server/src/a.ts': 'b\n',
+      [stage]: 'v2\n',
+    });
+    shas.badPrequal = commit('commit whose prequalification failed', {
+      'server/src/a.ts': 'c\n',
+    });
+    shas.heldMig = commit('commit carrying held migration above badPrequal', {
+      [`supabase/migrations/${HELD}_fix.sql`]: 'SELECT 1;\n',
+    });
+    const signatures = spawnSync(
+      'python3',
+      [
+        '-B',
+        '-c',
+        'import importlib.util,json,sys;s=importlib.util.spec_from_file_location("se",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);print(json.dumps({"migrations":[["20260101000000","fixture"]],"functions":{k:"a"*64 for k in m.SIGNATURES}}))',
+        resolve(ROOT, 'server/standby/schema-evidence.py'),
+      ],
+      { encoding: 'utf8' }
+    );
+    const production = resolve(dir, 'production.json');
+    writeFileSync(production, signatures.stdout);
+    const health = resolve(dir, 'health.json');
+    writeFileSync(health, JSON.stringify({ running: true, releaseSha: shas.serving }));
+    return { repo, production, health: pathToFileURL(health).href, shas };
+  }
+
+  it('steps down directly when target failed prequalification (no pending migration), and skips prequal-failed commits when stepping past a held migration', () => {
+    const f = fixturePrequal();
+    const { good, badPrequal, heldMig } = f.shas;
+
+    // Direct pre-soak prequal failure (no pending migrations): steps down badPrequal -> good.
+    const direct = runDue(
+      f,
+      { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal },
+      { prequal: { [badPrequal]: 'failed', [good]: 'passed' } }
+    );
+    expect(direct.status, direct.stderr).toBe(0);
+    expect(direct.stdout).toContain(
+      `STEPPED DOWN: ${badPrequal} failed Engine release prequalification (failure, run 46052191027); certifying ${good}, the newest shippable commit below it.`
+    );
+    expect(direct.out).toContain(`sha=${good}\n`);
+    expect(direct.out).not.toContain('deferred=1');
+    expect(direct.calls).not.toContain('LEASE_RELEASED');
+    expect(direct.summary).toContain(`STEPPED DOWN \`${badPrequal}\` -> \`${good}\``);
+
+    // 2026-11-27 replay (Backup 46054761856): heldMig above badPrequal above good
+    // steps past BOTH the held migration AND the prequal-failed commit straight to good.
+    const chained = runDue(
+      f,
+      { SHA: heldMig, CONTROL: heldMig, GITHUB_SHA: heldMig },
+      { prequal: { [heldMig]: 'pending', [badPrequal]: 'failed', [good]: 'passed' } }
+    );
+    expect(chained.status, chained.stderr).toBe(0);
+    expect(chained.stdout).toContain(
+      `STEPPED DOWN: ${heldMig} carries held migration(s) (${HELD}) not installed until the dispatcher's window; certifying ${good}, the newest shippable commit below it.`
+    );
+    expect(chained.out).toContain(`sha=${good}\n`);
+    expect(chained.out).not.toContain('deferred=1');
+    expect(chained.calls).not.toContain('LEASE_RELEASED');
+  }, 120_000);
+
+  it('releases the host in seconds via O10 ALREADY CERTIFIED when the stepped-down good ancestor is already certified for the current copy', () => {
+    const f = fixturePrequal();
+    const { good, badPrequal } = f.shas;
+    // Compute the exact comparable installed-migrations digest that refresh-due emits for `good`.
+    const compRun = spawnSync(
+      'python3',
+      [
+        '-B',
+        resolve(ROOT, 'server/scripts/engine-release-installed-migrations.py'),
+        'refresh-due',
+        '--copy-evidence',
+        '/dev/null',
+        '--control',
+        badPrequal,
+        '--sha',
+        good,
+        '--wait',
+        '1',
+        '--production',
+        f.production,
+      ],
+      { encoding: 'utf8', cwd: f.repo, env: cleanEnv() }
+    );
+    const comparable = /^comparable=([0-9a-f]{64})$/m.exec(compRun.stdout)?.[1];
+    expect(comparable).toMatch(/^[0-9a-f]{64}$/);
+
+    const r = runDue(
+      f,
+      { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal },
+      {
+        copyMatchesProduction: true,
+        prequal: { [badPrequal]: 'failed', [good]: 'passed' },
+        statuses: {
+          [good]: {
+            state: 'success',
+            description: `Certified on the Backup Engine; installed migrations ${comparable}`,
+          },
+        },
+      }
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(
+      `STEPPED DOWN: ${badPrequal} failed Engine release prequalification`
+    );
+    expect(r.stdout).toContain(
+      `ALREADY CERTIFIED: ${good} already carries backup-engine/certified = success for current installed migrations (${comparable})`
+    );
+    expect(r.out).toContain(`sha=${good}\n`);
+    expect(r.out).toContain('due=false\n');
+    expect(r.out).toContain('deferred=1\n');
+    expect(r.calls).toContain('LEASE_RELEASED');
+  }, 60_000);
+
+  it('defers cleanly and releases the host lease when target failed prequalification and no shippable commit remains below it', () => {
+    const f = fixturePrequal();
+    const { good, badPrequal } = f.shas;
+    for (const extraEnv of [
+      {},
+      { EVENT: 'workflow_dispatch', MODE: 'force', AFTER_CYCLE: '2026-11-27T13' },
+    ]) {
+      const r = runDue(
+        f,
+        { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal, ...extraEnv },
+        { prequal: { [badPrequal]: 'failed', [good]: 'failed' } }
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain(
+        `DEFERRED: ${badPrequal} failed Engine release prequalification (failure, run 46052191027)`
+      );
+      expect(r.stdout).toContain('Host handed back cleanly, no status written.');
+      expect(r.out).toContain('due=false\n');
+      expect(r.out).toContain('deferred=1\n');
+      expect(r.out).not.toMatch(/^sha=/m);
+      expect(r.calls).toContain('LEASE_RELEASED');
+      expect(r.calls).not.toContain('-f state=');
+    }
+  }, 120_000);
+
+  it.each(['FAIL', 'pending', 'absent', 'passed'] as const)(
+    'CLAUDE.md 10.86 fail-safe: prequal=%s never steps down or defers',
+    (state) => {
+      const f = fixturePrequal();
+      const { badPrequal, good } = f.shas;
+      const r = runDue(
+        f,
+        { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal },
+        { prequal: { [badPrequal]: state, [good]: 'passed' } }
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).not.toContain('STEPPED DOWN');
+      expect(r.stdout).not.toContain('DEFERRED:');
+      expect(r.out).not.toMatch(/^sha=/m);
+      expect(r.out).not.toContain('deferred=1');
+      expect(r.calls).not.toContain('LEASE_RELEASED');
+    },
+    120_000
+  );
+
+  it('exempts freeze_baseline, booking, forced push, and explicit INPUT_SHA even when prequalification failed', () => {
+    const f = fixturePrequal();
+    const { badPrequal, good } = f.shas;
+    for (const extraEnv of [
+      { FREEZE_BASELINE: '1' },
+      { PLAN_PRIORITY: 'booking' },
+      { MODE: 'force' },
+      {
+        EVENT: 'workflow_dispatch',
+        MODE: 'force',
+        AFTER_CYCLE: '2026-11-27T13',
+        INPUT_SHA: badPrequal,
+      },
+    ]) {
+      const r = runDue(
+        f,
+        { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal, ...extraEnv },
+        { prequal: { [badPrequal]: 'failed', [good]: 'passed' } }
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).not.toContain('STEPPED DOWN');
+      expect(r.stdout).not.toContain('DEFERRED:');
+      expect(r.out).not.toMatch(/^sha=/m);
+      expect(r.out).not.toContain('deferred=1');
+      expect(r.calls).not.toContain('LEASE_RELEASED');
+    }
+  }, 120_000);
 });

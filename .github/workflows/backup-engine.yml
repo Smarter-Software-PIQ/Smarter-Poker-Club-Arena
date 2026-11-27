@@ -980,7 +980,15 @@ jobs:
                     --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || head_state=unreadable
                   case "$head_state" in
                     missing|pending|failure|error)
-                      if git checkout --force --quiet "$head" 2>/dev/null; then
+                      # O37: never retarget in-place onto a commit whose Engine release
+                      # prequalification already failed (unselectable). Unreadable,
+                      # pending, absent, or passed keeps existing behavior (CLAUDE.md 10.86).
+                      head_prequal_out=$(python3 -B scripts/release/step-down-past-held-migration.py --check-prequal-only \
+                        --repo "${GITHUB_REPOSITORY:-}" --sha "$head" 2>/dev/null) || head_prequal_out=''
+                      head_prequal=$(printf '%s\n' "$head_prequal_out" | sed -n 's/^prequal=//p' | head -1)
+                      if [ "$head_prequal" = failed ]; then
+                        echo "SKIPPED RETARGET: main's newest commit $head already failed Engine release prequalification; keeping $SHA."
+                      elif git checkout --force --quiet "$head" 2>/dev/null; then
                         echo "RETARGETED IN-PLACE: $SHA -> $head (newest uncertified server or release-control commit on main; keeping acquired Backup host lease)."
                         { echo "### Backup Engine"; echo ""; echo "- RETARGETED IN-PLACE \`$SHA\` -> \`$head\` after acquiring host turn (lease kept)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
                         target_sha="$head"
@@ -1161,43 +1169,53 @@ jobs:
           pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
           comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
           [ "$contents_due" = false ] || contents_due=true
-          # PRE-SOAK UNINSTALLED-MIGRATION GUARD (2026-11-22, O7).
+          # PRE-SOAK UNINSTALLED-MIGRATION & PREQUALIFICATION GUARD (2026-11-22, O7;
+          # 2026-11-26, O29; 2026-11-27, O37).
           # An ordinary push commit carrying recently-added ordinary migrations
           # that are still absent from production after --wait (for example,
-          # held by RELEASE_SCHEMA_FREEZE_CHICAGO or O3 cycle deferral) can
-          # never pass select-daily-engine.py on a copy lacking them. Hand the
-          # exclusive Backup host lease back immediately without writing any
-          # status. Freeze-baseline, booking, forced, manual, nightly, and
-          # sealed-build runs are exempt; unreadable production emits no pending=.
-          # A post-seal next-candidate run (O24) follows the push rule although
-          # its refresh is forced: its target is an ordinary candidate.
+          # held by RELEASE_SCHEMA_FREEZE_CHICAGO or O3 cycle deferral), OR a
+          # commit whose Engine release prequalification already completed with
+          # a non-success conclusion (O37), can never pass select-daily-engine.py.
+          # Before handing back, ask scripts/release/step-down-past-held-migration.py
+          # (with --repo so prequal-failed / backup-failed ancestors are skipped too)
+          # for the newest shippable commit below it (ahead of serving, same
+          # release-control projection as CONTROL, nothing uninstalled, not
+          # prequal-failed) and certify that instead; CONTROL never moves.
+          # Freeze-baseline, booking, forced push, manual without after_cycle,
+          # nightly, and explicit INPUT_SHA runs are exempt. Any unreadable
+          # answer (unknown/pending/absent) keeps existing behavior (CLAUDE.md 10.86).
           held=0
           if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then held=1; fi
-          # A HELD MIGRATION DOES NOT BLOCK THE COMMIT BELOW IT (2026-11-26, O29).
-          # Run 45758112198 handed the host back for 6f062e8f0d1d (migration
-          # 20261126021630, held until 04:15 CST) while a5e971803865, one commit
-          # below with current release controls and nothing uninstalled, was
-          # never certified: the 01:00 CST cycle kept serving. Before handing
-          # back, ask ONCE for the newest shippable commit below the held
-          # migration (scripts/release/step-down-past-held-migration.py: ahead
-          # of the serving build (the sealed build after a seal, else /health's
-          # releaseSha), same release-control projection as CONTROL,
-          # nothing of its own uninstalled) and certify that instead; CONTROL
-          # never moves. A "Backup after keep-serving" run (O27: no sha input)
-          # asks too, and otherwise certifies main exactly as before. A run
-          # given an explicit sha is never stepped down. No fallback, or any
-          # unreadable answer: exactly the O7 hand-back below (CLAUDE.md 10.86).
+          step_eligible=0
+          if { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ] || { [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ]; }; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ -z "${INPUT_SHA:-}" ]; then
+            step_eligible=1
+          fi
+          prequal_state=''; prequal_run_id=''; prequal_conclusion=''; prequal_failed=0
+          if [ "$step_eligible" = 1 ]; then
+            prequal_out=$(python3 -B scripts/release/step-down-past-held-migration.py --check-prequal-only \
+              --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || prequal_out=''
+            prequal_state=$(printf '%s\n' "$prequal_out" | sed -n 's/^prequal=//p' | head -1)
+            prequal_run_id=$(printf '%s\n' "$prequal_out" | sed -n 's/^run_id=//p' | head -1)
+            prequal_conclusion=$(printf '%s\n' "$prequal_out" | sed -n 's/^conclusion=//p' | head -1)
+            if [ "$prequal_state" = failed ]; then prequal_failed=1; fi
+          fi
           step_why=''
-          if [ "$held" = 1 ] || { [ -n "$pending_migrations" ] && [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ] && [ -z "${INPUT_SHA:-}" ]; }; then
+          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || { [ -n "$pending_migrations" ] && [ "$step_eligible" = 1 ]; }; then
             serving=''
             if [ "${POST_SEAL:-}" = 1 ]; then serving="${SEALED_SHA:-}"; fi
+            step_flags=()
+            if [ "$prequal_failed" = 1 ]; then step_flags=(--skip-failed-prequal); fi
             step=$(python3 -B scripts/release/step-down-past-held-migration.py --sha "$SHA" --control "$CONTROL" \
-              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" --input-sha "${INPUT_SHA:-}" 2>/dev/null) && step_rc=0 || step_rc=$?
+              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" \
+              --input-sha "${INPUT_SHA:-}" --repo "${GITHUB_REPOSITORY:-}" ${step_flags[@]+"${step_flags[@]}"} 2>/dev/null) && step_rc=0 || step_rc=$?
             fallback=$(printf '%s\n' "$step" | sed -n 's/^fallback=//p')
-            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]]; then
+            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]] && { [ "$prequal_failed" != 1 ] || [ "$fallback" != "$SHA" ]; }; then
               if [ "$fallback" = "$SHA" ]; then
                 echo "NOT HELD: migration(s) ($pending_migrations) held until the dispatcher's window were added above $SHA, which carries none of them; certifying it."
                 { echo "### Backup Engine"; echo ""; echo "- NOT HELD \`$SHA\`: held migration(s) \`$pending_migrations\` were added above it; certified as planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              elif [ "$prequal_failed" = 1 ] && [ -z "$pending_migrations" ]; then
+                echo "STEPPED DOWN: $SHA failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               else
                 echo "STEPPED DOWN: $SHA carries held migration(s) ($pending_migrations) not installed until the dispatcher's window; certifying $fallback, the newest shippable commit below it."
                 { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: held migration(s) \`$pending_migrations\`; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -1212,6 +1230,7 @@ jobs:
               [ "$contents_due" = false ] || contents_due=true
               pending_migrations=''
               held=0
+              prequal_failed=0
             else
               step_why=$(printf '%s\n' "$step" | sed -n 's/^reason=//p' | head -1)
               if [ "$step_rc" = 1 ] && [ -n "$step_why" ]; then
@@ -1219,11 +1238,11 @@ jobs:
               else
                 step_why=" No commit below was certified: could not tell${step_why:+ ($step_why)} (CLAUDE.md 10.86)."
               fi
-              [ "$held" = 1 ] || echo "KEEP-SERVING BACKUP NOT STEPPED DOWN: $SHA carries uninstalled ordinary migration(s) ($pending_migrations); certifying it exactly as before.$step_why"
+              [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || echo "KEEP-SERVING BACKUP NOT STEPPED DOWN: $SHA carries uninstalled ordinary migration(s) ($pending_migrations); certifying it exactly as before.$step_why"
             fi
           fi
-          if [ "$held" = 1 ]; then
-            sed -n 's/^reason=/contents: /p' due-reason.txt
+          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ]; then
+            [ "$held" = 1 ] && sed -n 's/^reason=/contents: /p' due-reason.txt
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
           import fcntl, json, os, sys
@@ -1240,8 +1259,13 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
-            echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written.$step_why"
-            { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            if [ "$held" = 1 ]; then
+              echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written.$step_why"
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            else
+              echo "DEFERRED: $SHA failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); certifying an unselectable commit wastes the Backup host. Host handed back cleanly, no status written.$step_why"
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            fi
             echo "due=false" >> "$GITHUB_OUTPUT"
             echo "deferred=1" >> "$GITHUB_OUTPUT"
             exit 0
@@ -1551,6 +1575,7 @@ jobs:
           fetch-depth: 0
           sparse-checkout: |
             scripts/ci/read-engine-prequalification.py
+            scripts/release/step-down-past-held-migration.py
             server/scripts
             server/standby/schema-evidence.py
           sparse-checkout-cone-mode: false
@@ -1632,6 +1657,7 @@ jobs:
           # window or unreadable answers keep soaking. The nightly freeze holds
           # migrations merged after 23:45 Chicago the same way.
           o1_copy_state() {
+            local judge_control="${1:-${CONTROL_SHA:-}}"
             local evidence_sha verdict due_answer production_digest
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               'cat /var/lib/club-arena-standby/schema-evidence.json' > o1-copy-evidence.json 2>/dev/null || : > o1-copy-evidence.json
@@ -1641,9 +1667,13 @@ jobs:
               echo unreadable
               return 0
             fi
+            # O37/O35: judge against origin/main ($judge_control), not the old soaking
+            # CONTROL_SHA; refresh-due filters by tree_versions(control) (O23), so
+            # passing the old control treated newly merged+installed Club Arena
+            # migrations as foreign and kept soaking forever.
             verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
               --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" \
-              --control "${CONTROL_SHA:-}" 2> o1-copy-reason.txt) || verdict=''
+              --control "$judge_control" 2> o1-copy-reason.txt) || verdict=''
             due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
             production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
             if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1655,6 +1685,17 @@ jobs:
             else
               echo unreadable
             fi
+          }
+          o1_stop_soak() {
+            kill -TERM "$ssh_pid" 2>/dev/null || true
+            for _ in 1 2 3 4 5; do
+              kill -0 "$ssh_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill -KILL "$ssh_pid" 2>/dev/null || true
+            wait "$ssh_pid" 2>/dev/null || true
+            ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
+              "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; bash -c '. /usr/local/sbin/standby-engine && stop_for_restore' >/dev/null 2>&1 || true" || true
           }
           o1_noted=''
           : > certificate.out
@@ -1673,6 +1714,23 @@ jobs:
                 elapsed=$((elapsed + 1))
               done
               kill -0 "$ssh_pid" 2>/dev/null || break
+              # O37 (2026-11-27): if Engine release prequalification for the soaking
+              # SHA has already completed with a non-success conclusion, it can NEVER
+              # be selected by Stage; yield cleanly immediately even when no newer
+              # push run has arrived yet. Unreadable/pending/absent keeps soaking
+              # (CLAUDE.md 10.86).
+              o37_out=$(python3 -B scripts/release/step-down-past-held-migration.py --check-prequal-only \
+                --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || o37_out=''
+              o37_prequal=$(printf '%s\n' "$o37_out" | sed -n 's/^prequal=//p' | head -1)
+              if [ "$o37_prequal" = failed ]; then
+                o37_run_id=$(printf '%s\n' "$o37_out" | sed -n 's/^run_id=//p' | head -1)
+                o37_conclusion=$(printf '%s\n' "$o37_out" | sed -n 's/^conclusion=//p' | head -1)
+                yielded=1
+                yield_reason="prequalification_failed (${o37_conclusion:-failure}${o37_run_id:+, run $o37_run_id})"
+                echo "YIELDED_OBSOLETE: prequalification_failed: $SHA failed Engine release prequalification (${o37_conclusion:-failure}${o37_run_id:+, run $o37_run_id}). Stopping standby certification cleanly so the Backup host is free for a selectable commit."
+                o1_stop_soak
+                break
+              fi
               secs_to_cutoff=$(python3 -B -c '
           import os, runpy, time
           from datetime import datetime
@@ -1728,7 +1786,7 @@ jobs:
                 continue
               fi
               if [ "$diverged" = migrations_tree_diverged ]; then
-                copy_state=$(o1_copy_state)
+                copy_state=$(o1_copy_state "$main_sha")
                 case "$copy_state" in
                   stale) diverged="migrations_tree_diverged,migrations_installed_after_copy" ;;
                   current)
@@ -1748,15 +1806,7 @@ jobs:
               yielded=1
               yield_reason="$diverged (main=$main_sha, ${secs_to_cutoff}s to next cutoff, $newer_waiting newer active push run(s))"
               echo "YIELDED_OBSOLETE: $SHA became unselectable mid-soak: $yield_reason. Stopping standby certification cleanly so the waiting selectable commit can acquire the host."
-              kill -TERM "$ssh_pid" 2>/dev/null || true
-              for _ in 1 2 3 4 5; do
-                kill -0 "$ssh_pid" 2>/dev/null || break
-                sleep 1
-              done
-              kill -KILL "$ssh_pid" 2>/dev/null || true
-              wait "$ssh_pid" 2>/dev/null || true
-              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
-                "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; bash -c '. /usr/local/sbin/standby-engine && stop_for_restore' >/dev/null 2>&1 || true" || true
+              o1_stop_soak
               break
             done
           fi
