@@ -241,6 +241,12 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **How it was fixed:** `cmd_certify` records the crash and recovery instants and the judge removes exactly the pairs whose gap spans them (keyed as `worst_hands` names them). A pair it cannot locate is kept and reported. The 5,000 ms ceiling, the 250 ms budget and the binomial rule are unchanged.
 - **What stops it returning:** six cases in `tests/backup-cert-checks-lifecycle-logs.law.test.ts`, including the real run replayed and a real 7.6 s stall beside the drill still refused. Merged 17:17 CST.
 
+### 2026-11-26: The 19:00 CST Cycle Was Blocked By An Uninstallable Migration
+
+- **Why it broke:** `20261126203947_the_bbj_drift_alarm_reads_its_window_once.sql` (#12129) merged at 16:13 CST. The applier refused it (run `45903772035`): its in-transaction proof compares old and new bodies over a day of live `rake_records` and hits the transaction timeout. Measured on production at 17:40 CST, the new body alone takes 10.9 s. Every later commit carried it, so Backup run `45910072116` deferred main (O7), and the O29 step-down found no commit below with current release controls.
+- **How it was fixed:** revert #12154, merged 18:43 CST. The concurrently built index stays in production, valid and harmless. The next push Backup (`45918356098`) restored a fresh copy and is certifying main for 22:00 CST.
+- **What stops it returning:** custodian checklist rule 9 (check the applier run after each merge; revert a refused migration at once).
+
 ### Fixed Cut-Off Per Cycle: Already Provided By O1 And O16
 
 - **Question:** does every new engine merge restart the certification queue, so a busy hour leaves nothing certified?
