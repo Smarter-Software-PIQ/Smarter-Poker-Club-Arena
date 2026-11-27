@@ -72,6 +72,21 @@ export const ROLE_DESCRIPTION: Record<ClubRole, string> = {
 export const AGENT_ROLES: ClubRole[] = ['super_agent', 'agent', 'sub_agent'];
 export const STAFF_ROLES: ClubRole[] = ['owner', 'co_owner', 'admin'];
 
+/**
+ * The three club levels a Player Management card is coloured by (Dan,
+ * 2026-11-27): owners, co-owners and admins are staff (green), super agents,
+ * agents and sub agents are agents (teal), and everyone else is a player
+ * (blue).
+ */
+export type ClubLevel = 'staff' | 'agent' | 'player';
+
+export function clubLevel(role: unknown): ClubLevel {
+  const key = normaliseRole(role);
+  if (STAFF_ROLES.includes(key)) return 'staff';
+  if (AGENT_ROLES.includes(key)) return 'agent';
+  return 'player';
+}
+
 export function isClubRole(value: unknown): value is ClubRole {
   return typeof value === 'string' && (CLUB_ROLES as readonly string[]).includes(value);
 }

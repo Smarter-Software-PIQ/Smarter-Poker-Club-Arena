@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { measureMobileTapTargets } from '../support/mobileTapTargets';
+import { rosterCardPitchFor } from '../../../src/lib/rosterCardPitch';
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/pages/ClubMembersPage.css'), 'utf8');
 const ADMIN_CSS = readFileSync(
@@ -479,7 +480,7 @@ for (const rosterLoadsLast of [false, true]) {
            unavailable, as on the hosted Chromium runner. */
         @media (max-width: 320px) { .application-shell .member-subline { font-family: Arial, sans-serif; } }
       </style>
-      <main class="application-shell"><section class="club-members-page members-simple arena-workspace" style="--member-row-pitch:187px">
+      <main class="application-shell"><section class="club-members-page members-simple arena-workspace" style="--member-row-pitch:${rosterCardPitchFor(width)}px">
         <header class="arena-workspace-mast"></header>
         <section class="members-console"><div class="members-console__heading"><h2>Find A Player</h2><span class="members-result-count">168 Results</span></div></section>
         <section class="members-live-now">Live Now</section>
@@ -519,11 +520,18 @@ for (const rosterLoadsLast of [false, true]) {
             found.push('player name is not below the portrait');
           if (avatar.left - r.left > 16 || avatar.top - r.top > 16)
             found.push('portrait is not in the upper left corner');
+          // The portrait's ring is drawn 4px outside its box; the name keeps
+          // clear air below it (Dan, 2026-11-27).
+          if (name.top - avatar.bottom < 8) found.push('player name touches the portrait frame');
+          // The selection box sits in the card's upper right corner.
+          const box = row.querySelector('.member-select input')!.getBoundingClientRect();
+          if (r.right - box.right > 24 || box.top - r.top > 24)
+            found.push('selection box is not in the upper right corner');
           if (avatar.width < 64 || Math.abs(avatar.width - avatar.height) > 1)
             found.push(`portrait is not double size: ${avatar.width}x${avatar.height}`);
           row
             .querySelectorAll(
-              '.member-alias, .member-upline, .member-number, .member-role, .member-seen, .member-simple-balance > *'
+              '.member-alias, .member-upline, .member-number, .member-role, .member-seen, .member-online, .member-seated, .member-simple-balance > *'
             )
             .forEach((e) => {
               const b = e.getBoundingClientRect();

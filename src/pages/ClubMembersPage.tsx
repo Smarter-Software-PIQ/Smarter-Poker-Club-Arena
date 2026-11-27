@@ -1,6 +1,15 @@
 import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { rosterCardPitchFor } from '../lib/rosterCardPitch';
 import {
   Link,
   useLocation,
@@ -57,7 +66,7 @@ import {
   selectLoadedRoster,
   allLoadedSelected,
 } from '../utils/rosterSelection';
-import { AGENT_ROLES, roleLabel } from '../types/clubRoles';
+import { AGENT_ROLES, clubLevel, roleLabel } from '../types/clubRoles';
 import ClubRosterService, {
   type RosterCursor,
   type RosterFilter,
@@ -71,7 +80,6 @@ import { purgeRosterCache, readRosterCache, writeRosterCache } from '../lib/rost
 import { RosterSummaryCoordinator, settleRosterReadsIndependently } from '../lib/rosterLoadPolicy';
 import {
   DEFAULT_ROSTER_SORT,
-  ROSTER_ROW_HEIGHT,
   defaultRosterWorkspace,
   loadRosterWorkspace,
   writeRosterWorkspace,
@@ -87,6 +95,20 @@ import './ClubMembersPage.css';
 /** Largest CSS size a player card portrait is drawn at (ArenaWorkspace.css
  *  `--member-portrait`, clamp(64px, 12vw, 92px)); the avatar is fetched at 2x. */
 const MEMBER_PORTRAIT_PX = 92;
+
+function subscribeViewportWidth(onChange: () => void): () => void {
+  window.addEventListener('resize', onChange);
+  return () => window.removeEventListener('resize', onChange);
+}
+
+/** The card pitch for the current viewport, re-read when the width changes. */
+function useRosterCardPitch(): number {
+  return useSyncExternalStore(
+    subscribeViewportWidth,
+    () => rosterCardPitchFor(window.innerWidth),
+    () => rosterCardPitchFor(Number.NaN)
+  );
+}
 
 /* The page's tour. The controls that matter here are a toggle, a search, a
    filter and a list, none of them a section heading, so the generic tour
@@ -290,8 +312,9 @@ export default function ClubMembersPage() {
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [filter, setFilter] = useState<RosterFilter>(() => readFilter(searchParams.get('view')));
   const [sortKey, setSortKey] = useState<RosterSort>(() => readSort(searchParams.get('sort')));
-  // Daily figures and exact wallet balances can occupy several lines on phones.
-  const rowHeight = ROSTER_ROW_HEIGHT + 64;
+  // The card pitch follows the viewport so no card is cut off at the bottom
+  // on a phone and none carries an empty band on a wide screen.
+  const rowHeight = useRosterCardPitch();
   const [winLossPeriod, setWinLossPeriod] = usePlayerPreference<WinLossPeriod>(
     'roster:winLossPeriod',
     'week',
@@ -2159,6 +2182,7 @@ export const MemberRow = memo(function MemberRow({
   return (
     <div
       className={`member-row${seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
+      data-club-level={clubLevel(member.role)}
       role="listitem"
       aria-posinset={position}
       aria-setsize={total}
