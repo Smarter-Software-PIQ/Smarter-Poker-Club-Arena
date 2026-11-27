@@ -378,10 +378,11 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
    * publishing the map on the shared broadcast leaks nothing.
    */
   protected pineappleDiscardSnapshotFields(): Record<string, unknown> {
-    if (
-      this.pineappleDiscardBaseDeadlineMs === null ||
-      this.handController?.getState().stage !== 'pineapple_discard'
-    ) {
+    const stage =
+      typeof this.handController?.getStage === 'function'
+        ? this.handController.getStage()
+        : this.handController?.getState().stage;
+    if (this.pineappleDiscardBaseDeadlineMs === null || stage !== 'pineapple_discard') {
       return { discard_deadline_ms: null, discard_deadlines: {}, discard_duration_ms: 0 };
     }
     /* Never announce a deadline for a seat that has already settled its round.

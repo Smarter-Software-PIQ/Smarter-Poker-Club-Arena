@@ -27,6 +27,7 @@ import {
  */
 
 import { supabase } from './supabase.js';
+import { bindToProcessRoot } from './supabase/dataActorContext.js';
 import { reportError } from './errorReporter.js';
 import { resolvePayoutStructure, type PayoutSubject } from '../tournament/payoutStructure.js';
 import {
@@ -1319,7 +1320,7 @@ export function refreshTournamentBrainContext(tournamentId: string): TournamentB
     e.inFlight = true;
     e.lastAttemptAt = now;
     e.generation += 1;
-    void refresh(tournamentId, e, e.generation, now);
+    void refreshAtRoot(tournamentId, e, e.generation, now);
   }
   return e.ctx;
 }
@@ -1344,7 +1345,7 @@ export function refreshTournamentBrainContextAfterClockCommit(tournamentId: stri
   e.inFlight = true;
   e.lastAttemptAt = now;
   e.generation += 1;
-  void refresh(tournamentId, e, e.generation, now);
+  void refreshAtRoot(tournamentId, e, e.generation, now);
 }
 
 /**
@@ -1706,6 +1707,13 @@ async function readTournamentContextRows<T>(
     ? { data: result.rows as T[], error: null }
     : { data: null, error: failure };
 }
+
+// Read-only horse ICM/field context refreshes are observe-only background reads
+// triggered from table/manager callbacks. Bind to the process root so their
+// full-field tournament_players + club_members scans run as service actor and
+// never compete for the tournament's EventDatabaseBulkhead slots or halve its
+// dealing/settlement concurrency limit on a slow wallet read (incident 1e532243).
+const refreshAtRoot = bindToProcessRoot(refresh);
 
 async function refresh(
   tournamentId: string,

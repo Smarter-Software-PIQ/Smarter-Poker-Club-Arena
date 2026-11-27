@@ -263,3 +263,82 @@ describe('B2 findOpenSeat via calculateMoves - seated by the button, not by seat
     expect(b.shouldRebalance([t('aaaa', 6), t('bbbb', 5)])).toBe(false);
   });
 });
+
+describe('source tie-breaking prefers already-parked and fenced tables (1e532243)', () => {
+  it('picks an already-parked 9-player table over an unfenced 9-player table regardless of array order', () => {
+    const b = new TableBalancer();
+    // 25 players across 9 / 9 / 7 -> targets are 9 / 8 / 8 (1 move).
+    // Without preference, array order gives 'aaaa' target 9 and 'bbbb' target 8.
+    const parked = table('aaaa', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const unfenced = table('bbbb', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const dest = table('cccc', [1, 2, 3, 4, 5, 6, 7], 9, 1);
+
+    const baseline = b.calculateMoves([parked, unfenced, dest]);
+    expect(baseline).toHaveLength(1);
+    expect(baseline[0].fromTableId).toBe('bbbb');
+
+    const withParked = b.calculateMoves([parked, unfenced, dest], {
+      parkedSourceIds: new Set(['aaaa']),
+    });
+    expect(withParked).toHaveLength(1);
+    expect(withParked[0].fromTableId).toBe('aaaa');
+    expect(withParked[0].toTableId).toBe('cccc');
+  });
+
+  it('orders exact playerCount ties as parked > fenced > unfenced', () => {
+    const b = new TableBalancer();
+    // 34 players across 9 / 9 / 9 / 7 -> ideal=8, rem=2 -> targets 9, 9, 8, 8 (1 move).
+    const parked = table('t1', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const fenced = table('t2', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const unfenced = table('t3', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const dest = table('t4', [1, 2, 3, 4, 5, 6, 7], 9, 1);
+
+    const movesParkedWins = b.calculateMoves([parked, fenced, unfenced, dest], {
+      parkedSourceIds: new Set(['t1']),
+      fencedSourceIds: new Set(['t2']),
+    });
+    expect(movesParkedWins).toHaveLength(1);
+    expect(movesParkedWins[0].fromTableId).toBe('t1');
+
+    const movesFencedWins = b.calculateMoves([parked, fenced, unfenced, dest], {
+      fencedSourceIds: new Set(['t2']),
+    });
+    expect(movesFencedWins).toHaveLength(1);
+    expect(movesFencedWins[0].fromTableId).toBe('t2');
+  });
+
+  it('lets an already-parked over-seated source claim scarce open destination chairs first', () => {
+    const b = new TableBalancer();
+    // 33 players across 9 / 9 / 9 / 6 -> ideal=8, rem=1 -> two 9-player sources shed 1 each,
+    // but dest has 2 reserved seats leaving only 1 open chair (seat 9).
+    const unfenced = table('t1', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const fenced = table('t2', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const parked = table('t3', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const dest = {
+      ...table('t4', [1, 2, 3, 4, 5, 6], 9, 1),
+      reservedSeats: [7, 8],
+    };
+
+    const moves = b.calculateMoves([fenced, parked, unfenced, dest], {
+      parkedSourceIds: new Set(['t3']),
+      fencedSourceIds: new Set(['t2']),
+    });
+    expect(moves).toHaveLength(1);
+    expect(moves[0].fromTableId).toBe('t3');
+    expect(moves[0].toTableId).toBe('t4');
+  });
+
+  it('never overrides strict playerCount ordering with park or fence preference', () => {
+    const b = new TableBalancer();
+    // 23 players across 9 / 8 / 6 -> targets 8 / 8 / 7 -> must move from 9, never from parked 8.
+    const biggest = table('t9', [1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 1);
+    const parkedSmaller = table('t8', [1, 2, 3, 4, 5, 6, 7, 8], 9, 1);
+    const dest = table('t6', [1, 2, 3, 4, 5, 6], 9, 1);
+
+    const moves = b.calculateMoves([parkedSmaller, biggest, dest], {
+      parkedSourceIds: new Set(['t8']),
+    });
+    expect(moves).toHaveLength(1);
+    expect(moves[0].fromTableId).toBe('t9');
+  });
+});
