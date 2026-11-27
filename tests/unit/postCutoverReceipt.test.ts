@@ -11,7 +11,13 @@ import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import {
   auditWithOneSettleRetry,
+  auditErrorReport,
   chicagoTime,
+  chooseReceiptRun,
+  cycleRunId,
+  findOrphanCycle,
+  RECEIPTS_START,
+  RECORDS_REPAIR,
   findCutoverComment,
   formatReceipt,
   receiptAlreadyPosted,
@@ -161,6 +167,84 @@ describe('post-cutover receipt', () => {
   });
 });
 
+describe('the sweep answers a cycle whose receipt never came', () => {
+  const at = (iso: string) => Date.parse(iso);
+  const sealedAt = (id: number, created_at: string) => ({ body: sealed(id), created_at });
+  const receiptFor = (id: number, created_at: string) => ({
+    body: formatReceipt({ cycle: 'c', result: 'SEALED', runId: id, report: REPORT }),
+    created_at,
+  });
+
+  it('reads the run a cycle names on its Receiver or Stage line, and nothing else', () => {
+    expect(cycleRunId(sealed(45898660400))).toBe('45898660400');
+    expect(cycleRunId(refused(7))).toBe('7');
+    expect(
+      cycleRunId(`Cycle: 2026-11-26 19:00 CST | Readiness at T-45m: READY\nStage: ${RUN}/5`)
+    ).toBeNull();
+    expect(cycleRunId('Receiver: https://github.com/o/r/actions/runs/5')).toBeNull();
+  });
+
+  it('finds the oldest old-enough cycle without a receipt, never one before the workflow existed', () => {
+    const now = at('2026-11-27T05:00:00Z');
+    const log = [
+      sealedAt(1, '2026-11-27T01:00:00Z'), // before RECEIPTS_START: never swept
+      sealedAt(2, '2026-11-27T04:00:00Z'),
+      receiptFor(2, '2026-11-27T04:05:00Z'),
+      sealedAt(3, '2026-11-27T04:20:00Z'), // orphan
+      sealedAt(4, '2026-11-27T04:50:00Z'), // too fresh: its own receipt may still be on the way
+    ];
+    expect(Date.parse(RECEIPTS_START)).toBeGreaterThan(at('2026-11-27T01:00:00Z'));
+    expect(findOrphanCycle(log, now)).toBe('3');
+    expect(findOrphanCycle([...log, receiptFor(3, '2026-11-27T04:59:00Z')], now)).toBeNull();
+    expect(findOrphanCycle(log, at('2026-11-27T04:30:00Z'))).toBeNull();
+  });
+
+  it('answers its own cycle first, then the oldest orphan, else nothing', () => {
+    const now = at('2026-11-27T05:00:00Z');
+    const log = [sealedAt(3, '2026-11-27T04:20:00Z'), sealedAt(4, '2026-11-27T04:58:00Z')];
+    expect(chooseReceiptRun(log, 4, now)).toEqual({ runId: '4', late: false });
+    expect(chooseReceiptRun(log, 999, now)).toEqual({ runId: '3', late: true });
+    expect(chooseReceiptRun([sealedAt(4, '2026-11-27T04:58:00Z')], 999, now)).toBeNull();
+  });
+
+  it('a crashed audit still answers the cycle, as ERROR, so the sweep never retries it forever', () => {
+    const report = auditErrorReport(
+      new Error('psql: could not connect\nto server'),
+      new Date('2026-11-27T05:00:00Z')
+    );
+    const body = formatReceipt({ cycle: 'c', result: 'SEALED', runId: 3, report });
+    expect(body).toContain('OVERALL ERROR');
+    expect(body).toContain(
+      '- audit: ERROR (the audit could not run: psql: could not connect to server)'
+    );
+    expect(receiptAlreadyPosted([{ body }], 3)).toBe(true);
+    expect(/^(Result|Sealed SHA|Cycle):/m.test(body)).toBe(false);
+  });
+
+  it('a late receipt says so, and a drifted switch record names its repair', () => {
+    const drift = formatReceipt({
+      cycle: 'c',
+      result: 'SEALED',
+      runId: 3,
+      report: REPORT,
+      late: true,
+    });
+    expect(drift).toContain('Late receipt (the sweep)');
+    expect(drift).toContain(RECORDS_REPAIR);
+    const clean = formatReceipt({
+      cycle: 'c',
+      result: 'SEALED',
+      runId: 3,
+      report: {
+        ...REPORT,
+        checks: [{ name: 'switch_records', status: 'pass', failures: [], warnings: [] }],
+      },
+    });
+    expect(clean).not.toContain('Late receipt');
+    expect(clean).not.toContain('Records repair');
+  });
+});
+
 describe('the receipt workflow is reporting only', () => {
   const wf = readFileSync(
     resolve(__dirname, '../../.github/workflows/post-cutover-receipt.yml'),
@@ -200,5 +284,12 @@ describe('the receipt workflow is reporting only', () => {
     expect(gate).toContain('post-cutover-receipt.mjs --find');
     expect(doc.jobs.receipt.needs).toBe('gate');
     expect(String(doc.jobs.receipt.if)).toContain("needs.gate.outputs.needed == 'true'");
+    // The audit answers the run the gate chose (its own cycle, or the sweep's orphan), one audit at a time.
+    expect(JSON.stringify(doc.jobs.receipt.steps)).toContain('needs.gate.outputs.run_id');
+    expect(doc.jobs.receipt.concurrency).toEqual({
+      group: 'post-cutover-receipt-audit',
+      'cancel-in-progress': false,
+    });
+    expect(JSON.stringify(doc.jobs.receipt)).not.toContain('github.event.workflow_run.id');
   });
 });
