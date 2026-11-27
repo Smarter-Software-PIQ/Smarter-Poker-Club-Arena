@@ -391,6 +391,61 @@ export function nutClass(hole, board) {
   }
   return null;
 }
+/**
+ * The engine's ONE definition of the combo draw that may raise in position (comboDrawForRaise is a port of
+ * omahaComboDrawForRaise, HorseOmahaBigDrawAggression.ts; owner 2026-11-15 12:30 "only in position when its combo
+ * draws"): on a flop or turn board, a hand below two pair with five or more next cards that make a flush, together
+ * with eight or more straight outs counted by rank under the two-card rule (omahaStraightOutRanks,
+ * HorseOmahaCardImpact.ts; a card that also completes the flush counts). The engine keeps a turn raise with it in
+ * position (omahaTurnComboDrawRaisePermitted), so the audit's owner-rule check must too.
+ */
+export function straightOutRanks(holeMask, boardMask) {
+  const made = (bm) => {
+    for (let top = 14; top >= 5; top--) {
+      let w = 0;
+      for (let k = 0; k < 5; k++) w |= 1 << (top - k === 1 ? 1 : top - k);
+      const missing = w & ~bm;
+      let m = 0;
+      for (let b = missing; b; b &= b - 1) m++;
+      if (m > 2 || (missing & ~holeMask) !== 0) continue;
+      let h = 0;
+      for (let b = holeMask & w; b; b &= b - 1) h++;
+      if (h >= 2) return true;
+    }
+    return false;
+  };
+  const out = [];
+  if (made(boardMask)) return out;
+  for (let r = 2; r <= 14; r++) {
+    const bit = (1 << r) | (r === 14 ? 2 : 0);
+    if (boardMask & (1 << r)) continue;
+    if (made(boardMask | bit)) out.push(r);
+  }
+  return out;
+}
+/** rank mask: bit r = rank value r (2..14), the ace also bit 1 */
+export function rankMask(cards) {
+  let m = 0;
+  for (const c of cards) {
+    const v = (c >> 2) + 2;
+    m |= 1 << v;
+    if (v === 14) m |= 2;
+  }
+  return m;
+}
+export function comboDrawForRaise(hole, board) {
+  if (board.length !== 3 && board.length !== 4) return false;
+  // engine catOf >= 3 (its scale starts at 1) = two pair or better; this evaluator's scale starts at 0
+  if (category(omaha(hole, board)) >= 2) return false;
+  const deck = deckWithout([...hole, ...board]);
+  let flushOuts = 0;
+  for (const c of deck) if (category(omaha(hole, [...board, c])) === 5) flushOuts++;
+  if (flushOuts < 5) return false;
+  const ranks = new Set(straightOutRanks(rankMask(hole), rankMask(board)));
+  let straight = 0;
+  for (const c of deck) if (ranks.has((c >> 2) + 2)) straight++;
+  return straight >= 8;
+}
 /** cards that improve the hand to a straight or better on the next card (outs), for "draw" typing */
 export function outsToStraightPlus(hole, board) {
   if (board.length >= 5) return 0;

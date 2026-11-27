@@ -10,6 +10,7 @@ import {
   rng,
   isNutsExact,
   nutClass,
+  comboDrawForRaise,
   outsToStraightPlus,
   preflopScore,
 } from './omaha.mjs';
@@ -352,11 +353,16 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
   const madeCat = sc === null ? null : category(sc);
   // the engine's own nut class ('nuts' | 'effective' | null), read only where the owner rule reads it
   const nutCls = st === 'turn' || st === 'river' ? (nuts ? 'nuts' : nutClass(hero, board)) : null;
+  // the owner's 12:30 exception the engine keeps (omahaTurnComboDrawRaisePermitted): on the turn, in position, the
+  // combo draw (comboDrawForRaise = omahaComboDrawForRaise) may raise; hand 13456d61
+  const turnComboIp =
+    st === 'turn' && !d.oop && nutCls === null && comboDrawForRaise(hero, board.slice(0, 4));
   const mtype =
     verdict === 'MISTAKE'
       ? mistakeType(hand, d, actTaken, best, {
           nuts,
           nutCls,
+          turnComboIp,
           outs,
           madeCat,
           eqNow: eqNow.eq,
@@ -376,7 +382,8 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
     // raise by its own nut-class test. The audit used the exact nuts here, so the two disagreed on every top full
     // house on a paired board (hand 0bf48e08: tens full on 8-T-8-3, quad eights possible). Now the same test;
     // "nut class but not the exact nuts" is counted on its own line, not as a breach.
-    if (nutCls === null) breach.push('non-nut raise turn/river');
+    if (turnComboIp) notes.push('turn in-position combo-draw raise (owner 12:30 exception)');
+    else if (nutCls === null) breach.push('non-nut raise turn/river');
     else if (nutCls === 'effective') notes.push('nut-class raise turn/river, not the exact nuts');
   }
   if (
@@ -453,6 +460,7 @@ export function mistakeType(hand, d, actTaken, best, x) {
   if (actTaken === 'raise') {
     if (
       (st === 'turn' || st === 'river') &&
+      x.turnComboIp !== true &&
       (x.nutCls === undefined ? x.nuts === false : x.nutCls === null)
     )
       return 'raised a non-nut hand on turn/river';
