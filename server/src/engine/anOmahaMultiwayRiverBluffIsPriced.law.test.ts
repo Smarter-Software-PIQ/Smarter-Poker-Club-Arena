@@ -8,6 +8,8 @@
  *     bluffs; against opponents who always fold every size is worth at least what it is worth with no record.
  *  4. Identity never enters: another user id, name or person/Horse flag with the same public record decides the same.
  *  5. An opponent who is all in, PLO6, a tournament and a bomb pot are out of the spot.
+ *  7. Each field has its own switch (three-way; four-way and wider) and its own people cells; a thin four-way cell
+ *     stays at the equilibrium anchor. A size that mostly folds out worse hands is not a bluff and is never the bet.
  *  6. The people table is people-only and public: a Horse's answer never enters a cell, a hole-card column changes
  *     nothing, and every cell's multiplier is read against the multiway equilibrium (B / (P + B)) ^ (1 / N).
  */
@@ -28,6 +30,7 @@ import tables from './HorseOmahaMultiwayRiverFoldTables.json' with { type: 'json
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHECK = { action: 'check', amount: 0 } as HorseDecision;
 const legal = (d: HorseDecision) => d;
+const BOTH = { threeWay: true, fourWayPlus: true };
 type Rec = { foldSmall: { folds: number; opps: number }; foldBig: { folds: number; opps: number } };
 const none = () => null;
 const always = (): Rec => ({
@@ -60,7 +63,16 @@ const run = (
   rec: () => Rec | null,
   on = true,
   d: HorseDecision = CHECK
-) => omahaMultiwayRiverBluffRule(d, x.player, x.gs, on, 0.04, legal, rec);
+) =>
+  omahaMultiwayRiverBluffRule(
+    d,
+    x.player,
+    x.gs,
+    { threeWay: on, fourWayPlus: on },
+    0.04,
+    legal,
+    rec
+  );
 
 describe('LAW: the multiway river opening bluff is math and blockers, priced on people', () => {
   it('has real three-way river nodes to decide', () => {
@@ -74,7 +86,7 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
       expect(run(x, always, true, bet).decision).toBe(bet);
       const facing = { ...structuredClone(x.gs), toCall: 5, currentBet: 5 } as HorseGameStateV2;
       expect(
-        omahaMultiwayRiverBluffRule(CHECK, x.player, facing, true, 0.04, legal, always).decision
+        omahaMultiwayRiverBluffRule(CHECK, x.player, facing, BOTH, 0.04, legal, always).decision
       ).toBe(CHECK);
     }
     for (const n of RIVER_OPENING_FIXTURE.nodes.slice(0, 20)) {
@@ -84,7 +96,7 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
           CHECK,
           n.player,
           n.gs as HorseGameStateV2,
-          true,
+          BOTH,
           0.04,
           legal,
           always
@@ -108,7 +120,7 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
         const b = r.verdict!.best!;
         expect(b.ev - r.verdict!.evCheck).toBeGreaterThan(b.margin);
         expect(b.fold).toBeGreaterThan(b.fold0);
-        expect(b.value).toBe(false);
+        expect(b.bluff).toBe(true);
         expect(r.verdict!.opponents).toBeGreaterThanOrEqual(2);
       }
     expect(bets).toBeGreaterThan(0);
@@ -131,6 +143,51 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
     expect(folder).toBeGreaterThan(0);
   });
 
+  it('each field has its own switch, and a thin four-way cell stays at the equilibrium anchor', () => {
+    let three = 0;
+    for (const x of NODES) {
+      // the nodes are three-way: the four-way switch alone never acts on them
+      const four = omahaMultiwayRiverBluffRule(
+        CHECK,
+        x.player,
+        x.gs,
+        { threeWay: false, fourWayPlus: true },
+        0.04,
+        legal,
+        none
+      );
+      expect(four.decision).toBe(CHECK);
+      const r = omahaMultiwayRiverBluffRule(
+        CHECK,
+        x.player,
+        x.gs,
+        { threeWay: true, fourWayPlus: false },
+        0.04,
+        legal,
+        none
+      );
+      if (r.changed) {
+        three++;
+        expect(r.field).toBe('w3');
+      }
+    }
+    expect(three).toBeGreaterThan(0);
+    const cells = (tables as unknown as { cells: Record<string, { n: number }> }).cells;
+    // PLO4 four-way: a handful of people answers; the multiplier stays within a tenth of the anchor
+    expect(cells['plo4|w4|all|c70-110']!.n).toBeLessThan(50);
+    expect(Math.abs(omahaMultiwayRiverPeopleFold('plo4', 'w4', 'chk', 0.9).m - 1)).toBeLessThan(
+      0.1
+    );
+  });
+
+  it('a bluff folds out better hands: a size that mostly folds out worse hands is never the bet', () => {
+    for (const x of NODES)
+      for (const rec of [none, always]) {
+        const r = run(x, rec);
+        if (r.verdict?.best) expect(r.verdict.best.bluff).toBe(true);
+      }
+  });
+
   it('identity never enters', () => {
     for (const x of NODES.slice(0, 20)) {
       const a = run(x, none);
@@ -141,7 +198,7 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
           p.username = `name-${p.seat}`;
           (p as { is_horse?: boolean }).is_horse = !(p as { is_horse?: boolean }).is_horse;
         }
-      const b = omahaMultiwayRiverBluffRule(CHECK, x.player, gs, true, 0.04, legal, none);
+      const b = omahaMultiwayRiverBluffRule(CHECK, x.player, gs, BOTH, 0.04, legal, none);
       expect(b.decision.action).toBe(a.decision.action);
       expect(b.decision.amount).toBe(a.decision.amount);
     }
@@ -180,16 +237,16 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
       expect(c.eq).toBeGreaterThan(0);
       expect(c.eq).toBeLessThan(c.n);
     }
-    expect(omahaMultiwayRiverPeopleFold('plo6', 'chk', 0.8)).toEqual({ m: 1, n: 0 });
-    const big = omahaMultiwayRiverPeopleFold('plo5', 'chk', 0.9);
-    expect(big.n).toBe(T.cells['plo5|all|c70-110']!.n);
+    expect(omahaMultiwayRiverPeopleFold('plo6', 'w3', 'chk', 0.8)).toEqual({ m: 1, n: 0 });
+    const big = omahaMultiwayRiverPeopleFold('plo5', 'w3', 'chk', 0.9);
+    expect(big.n).toBe(T.cells['plo5|w3|all|c70-110']!.n);
     expect(big.m).toBeGreaterThan(1);
     const mod = (await import(
       join(__dirname, '../../../scripts/ops/omaha-multiway-river-fold-fit.mjs')
     )) as {
       multiwayRiverAnswers: (
         row: unknown
-      ) => Array<{ fold: boolean; eq: number; line: string; size: string }>;
+      ) => Array<{ fold: boolean; eq: number; line: string; size: string; field: string }>;
     };
     const row = (horseAnswers: boolean, extra: Record<string, unknown> = {}) => ({
       id: 'h',
@@ -216,6 +273,7 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
     expect(people.map((x) => x.fold)).toEqual([true, false]);
     expect(people[0]!.eq).toBeCloseTo(Math.sqrt(0.5), 6);
     expect(people[0]!.line).toBe('chk');
+    expect(people[0]!.field).toBe('w3');
     expect(people[0]!.size).toBe('c70-110');
     // the Horse's answer never enters; a hole-card column changes nothing
     expect(mod.multiwayRiverAnswers(row(true)).map((x) => x.fold)).toEqual([false]);

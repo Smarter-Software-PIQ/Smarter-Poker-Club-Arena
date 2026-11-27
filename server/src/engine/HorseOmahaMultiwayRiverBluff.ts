@@ -1,9 +1,12 @@
 /**
  * THE MULTIWAY RIVER OPENING BLUFF: MATH AND BLOCKERS (PLO-OWNER lead-9 lane underbluff, 2026-11-27).
- * One option, default OFF (read `=== true`), switchable live, scopable per game (horse.omahaGameScope):
+ * Two options, each default OFF (read `=== true`), switchable live, scopable per game (horse.omahaGameScope), one
+ * per field so each can be trialled alone (lead-9 ruling 2026-11-27: three-way first):
  *
- *  omahaMultiwayRiverBluffIsPricedOnBlockers   PLO4/PLO5 cash river, nothing to call, nobody has wagered on the
- *     river, two or more opponents live: a final CHECK becomes the best-priced bet only when BOTH (math) the bet,
+ *  omahaMultiwayRiverBluffIsPricedOnBlockers     exactly TWO opponents live (three-way);
+ *  omahaFourWayPlusRiverBluffIsPricedOnBlockers  THREE OR MORE opponents live (four-way and wider).
+ *
+ *  The same rule: PLO4/PLO5 cash river, nothing to call, nobody has wagered on the river: a final CHECK becomes the best-priced bet only when BOTH (math) the bet,
  *     scored as losing every time anybody continues, is worth more than the check by more than the error of their
  *     fold rates, AND (blockers) the Horse's cards take more of their continuing hands than of their folding hands
  *     (the share of the field that folds given the Horse's cards is above the share without them).
@@ -35,8 +38,14 @@
  *   EV(bet B) = F x P x (1 - rake) - (1 - F) x B          (anybody continues: the Horse is scored as losing the bet;
  *                                                           a raise costs the same, the Horse folds)
  *   margin    = (P x (1 - rake) + B) x F x sqrt( sum_i (1 - f_i) / (f_i x (n_i + k)) )   (binomial error of each fold)
- * The bet is made only when EV(bet) - EV(check) > margin and F > F0, on the best such size; a hand that beats more
- * than half of every opponent's continuing hands is a value bet and is not this file's.
+ * The bet is made only when EV(bet) - EV(check) > margin and F > F0, on the best such size, and only when it is a
+ * BLUFF: the Horse beats less than half of the hands each opponent folds to that size (its share against his whole
+ * range less the part that continues), so the folds it buys are of better hands. A bet that mostly folds out worse
+ * hands is value or protection and is not this file's (lead-9 ruling 2026-11-27: a bluff option does not move
+ * medium or value-class checks).
+ * THE FIELDS ARE MEASURED APART: people's cells are by field (w3 three-way, w4 four-way and wider); each size cell
+ * shrinks to the equilibrium anchor by k, so a thin four-way cell stays at the anchor, where a bet scored as lost
+ * when continued is never worth more than the check.
  *
  * It changes only a check into a bet; never a raise (owner rule: a hand that is not nut class never raises the turn
  * or river), never a fold. PLO4/PLO5 cash, high only, one board, no bomb pot; heads-up spots, PLO6, hold'em and
@@ -73,6 +82,10 @@ const WAGERS = new Set(['bet', 'raise', 'all_in']);
 const ORDER = ['d>110', 'c70-110', 'b40-70', 'a<40'];
 
 export type OmahaMultiwayRiverTurnLine = 'chk' | 'bet';
+/** The field: w3 two opponents (three-way), w4 three or more (four-way and wider). Measured and switched apart. */
+export type OmahaMultiwayRiverField = 'w3' | 'w4';
+export const omahaMultiwayRiverFieldOf = (opponents: number): OmahaMultiwayRiverField =>
+  opponents <= 2 ? 'w3' : 'w4';
 
 function shrink(cell: PeopleCell | undefined, k: number, parent: number): number {
   if (!cell || !(cell.n > 0) || !(cell.eq > 0)) return parent;
@@ -87,6 +100,7 @@ function shrink(cell: PeopleCell | undefined, k: number, parent: number): number
  */
 export function omahaMultiwayRiverPeopleFold(
   variant: string,
+  field: OmahaMultiwayRiverField,
   line: OmahaMultiwayRiverTurnLine,
   ratio: number
 ): { m: number; n: number } {
@@ -95,12 +109,16 @@ export function omahaMultiwayRiverPeopleFold(
   const k = OMAHA_STRONG_HAND_CHECK_FOLD_PRIOR_OPPS.river;
   let size = omahaPeopleFoldSizeCell(ratio);
   // a size above every measured cell reads the biggest measured one
-  for (let i = ORDER.indexOf(size); i < ORDER.length && !T.cells[`${game}|all|${size}`]; i++)
+  for (
+    let i = ORDER.indexOf(size);
+    i < ORDER.length && !T.cells[`${game}|${field}|all|${size}`];
+    i++
+  )
     size = ORDER[i];
-  const all = T.cells[`${game}|all|${size}`];
+  const all = T.cells[`${game}|${field}|all|${size}`];
   if (!all) return { m: 1, n: 0 };
   const mSize = shrink(all, k, 1);
-  return { m: shrink(T.cells[`${game}|${line}|${size}`], k, mSize), n: all.n };
+  return { m: shrink(T.cells[`${game}|${field}|${line}|${size}`], k, mSize), n: all.n };
 }
 
 export interface OmahaMultiwayRiverBluffSpot {
@@ -162,8 +180,11 @@ export interface OmahaMultiwayRiverBluffRow {
   fold: number;
   ev: number;
   margin: number;
-  /** the Horse beats more than half of every opponent's continuing hands: a value bet, not a bluff */
-  value: boolean;
+  /**
+   * a bluff: the Horse beats less than half of the hands EACH opponent folds to this size, so the folds it buys are
+   * of better hands. A bet that mostly folds out worse hands is value or protection, not this file's.
+   */
+  bluff: boolean;
 }
 export interface OmahaMultiwayRiverBluffVerdict {
   opponents: number;
@@ -197,6 +218,7 @@ export function omahaMultiwayRiverBluffPrice(
   const per: Array<{
     rows: Map<number, { fold0: number; fold: number; eqCall: number }>;
     n: number[];
+    eq: number;
   }> = [];
   for (const o of opponents) {
     const ns: number[] = [];
@@ -209,7 +231,7 @@ export function omahaMultiwayRiverBluffPrice(
           { cell: o.record?.foldSmall, eq: OMAHA_RIVER_OPENING_EQ_FOLD.small },
           { cell: o.record?.foldBig, eq: OMAHA_RIVER_OPENING_EQ_FOLD.big },
         ],
-        omahaMultiwayRiverPeopleFold(variant, line, B / pot).m,
+        omahaMultiwayRiverPeopleFold(variant, omahaMultiwayRiverFieldOf(N), line, B / pot).m,
         OMAHA_RIVER_OPENING_EQ_FOLD.mean,
         k
       );
@@ -221,7 +243,7 @@ export function omahaMultiwayRiverBluffPrice(
     const rows = new Map<number, { fold0: number; fold: number; eqCall: number }>();
     for (const row of v.rows) rows.set(row.amount, row);
     for (const B of sizes) ns.push(foldAt(B).n);
-    per.push({ rows, n: ns });
+    per.push({ rows, n: ns, eq: v.eq });
   }
   const evCheck = eqAll * pot * (1 - r);
   const rows: OmahaMultiwayRiverBluffRow[] = [];
@@ -229,14 +251,16 @@ export function omahaMultiwayRiverBluffPrice(
     let F0 = 1;
     let F = 1;
     let rel = 0;
-    let value = true;
+    let bluff = true;
     for (const p of per) {
       const row = p.rows.get(B);
       if (!row) return;
       F0 *= row.fold0;
       F *= row.fold;
       rel += (1 - row.fold0) / (Math.max(row.fold0, 1e-6) * (p.n[si] + k));
-      if (!(row.eqCall > 0.5)) value = false;
+      // the Horse's share against the hands this opponent folds: his whole range less the part that continues
+      const eqFold = row.fold > 1e-9 ? (p.eq - (1 - row.fold) * row.eqCall) / row.fold : 1;
+      if (!(eqFold < 0.5)) bluff = false;
     }
     const ev = F * pot * (1 - r) - (1 - F) * B;
     rows.push({
@@ -245,14 +269,14 @@ export function omahaMultiwayRiverBluffPrice(
       fold: round4(F),
       ev: round4(ev),
       margin: round4((pot * (1 - r) + B) * F * Math.sqrt(rel)),
-      value,
+      bluff,
     });
   });
   if (!rows.length) return null;
   let best: OmahaMultiwayRiverBluffRow | null = null;
   for (const row of rows)
     if (
-      !row.value &&
+      row.bluff &&
       row.ev - evCheck > row.margin &&
       row.fold > row.fold0 &&
       (!best || row.ev > best.ev)
@@ -264,6 +288,7 @@ export function omahaMultiwayRiverBluffPrice(
 export interface OmahaMultiwayRiverBluffResult {
   decision: HorseDecision;
   changed: boolean;
+  field?: OmahaMultiwayRiverField;
   verdict?: OmahaMultiwayRiverBluffVerdict;
 }
 
@@ -275,16 +300,18 @@ export function omahaMultiwayRiverBluffRule(
   decision: HorseDecision,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  on: boolean,
+  on: { threeWay: boolean; fourWayPlus: boolean },
   rake: number,
   legalize: (d: HorseDecision) => HorseDecision,
   recordOf: (opponent: SeatPlayer, opponents: number) => OmahaRiverOpeningFoldRecord | null
 ): OmahaMultiwayRiverBluffResult {
   const same: OmahaMultiwayRiverBluffResult = { decision, changed: false };
-  if (!on || decision.action !== 'check') return same;
+  if ((!on.threeWay && !on.fourWayPlus) || decision.action !== 'check') return same;
   try {
     const spot = omahaMultiwayRiverBluffSpot(hero, gs);
     if (!spot) return same;
+    const field = omahaMultiwayRiverFieldOf(spot.opponents.length);
+    if (field === 'w3' ? !on.threeWay : !on.fourWayPlus) return same;
     const bins = omahaRiverOpeningBins(
       hero.cards,
       gs.communityCards ?? [],
@@ -333,6 +360,7 @@ export function omahaMultiwayRiverBluffRule(
     return {
       decision: { ...decision, action: legal.action, amount: round2(legal.amount as number) },
       changed: true,
+      field,
       verdict,
     };
   } catch {

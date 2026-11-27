@@ -12,7 +12,7 @@
  * opponents live, and each answer (fold, call, raise) given by a person before anybody raises. An answer by a Horse
  * never enters a cell (the pull marks each seat from profiles.is_horse; an answer whose recorded origin is
  * 'horse_policy' is dropped too); the stored HUD population rows are not read. The bettor may be a Horse or a person.
- * Cells: game | the turn line (chk: the turn was checked through; bet: the turn had a wager) | size (a<40, b40-70,
+ * Cells: game | the field (w3: two opponents, three-way; w4: three or more opponents) | the turn line (chk: the turn was checked through; bet: the turn had a wager) | size (a<40, b40-70,
  * c70-110, d>110 per cent of the pot), and the same without the line ("all"). Each cell keeps n answers, folds,
  * raises, and eq = the sum over its answers of the multiway equilibrium fold of one opponent of N: the bettor is
  * indifferent when all N fold B / (P + B) of the time, so each folds (B / (P + B)) ^ (1 / N).
@@ -91,6 +91,7 @@ export function multiwayRiverAnswers(row) {
         if (horse.get(u) !== true && a[4] !== 'horse_policy')
           out.push({
             gv,
+            field: open.field,
             line: turnWager ? 'bet' : 'chk',
             size: sizeCell(open.ratio),
             eq: open.eq,
@@ -103,7 +104,13 @@ export function multiwayRiverAnswers(row) {
         const p0 = a[6] !== null && a[6] !== undefined ? Number(a[6]) : pot;
         const b = amt - c;
         if (live >= 2 && p0 > 0 && b > 0)
-          open = { u, ratio: b / p0, eq: Math.pow(b / (p0 + b), 1 / live), closed: false };
+          open = {
+            u,
+            ratio: b / p0,
+            eq: Math.pow(b / (p0 + b), 1 / live),
+            field: live === 2 ? 'w3' : 'w4',
+            closed: false,
+          };
         else open = { u, ratio: 1, eq: 0.5, closed: true };
       }
     }
@@ -148,8 +155,8 @@ export function multiwayRiverFoldFit(rows, version) {
     if (!from || t < from) from = t;
     if (!to || t > to) to = t;
     for (const x of multiwayRiverAnswers(row)) {
-      add(`${x.gv}|${x.line}|${x.size}`, x);
-      add(`${x.gv}|all|${x.size}`, x);
+      add(`${x.gv}|${x.field}|${x.line}|${x.size}`, x);
+      add(`${x.gv}|${x.field}|all|${x.size}`, x);
     }
   }
   const sorted = {};
@@ -157,7 +164,7 @@ export function multiwayRiverFoldFit(rows, version) {
     sorted[k] = { ...cells[k], eq: Math.round(cells[k].eq * 1e4) / 1e4 };
   return {
     version,
-    note: 'People-only answers (responder not a Horse) to the first wager of a PLO4/PLO5 cash river made with two or more opponents live, by game, turn line (chk: turn checked through; bet: the turn had a wager) and size; eq = sum of the multiway equilibrium fold of one opponent of N, (B/(P+B))^(1/N). Public actions only. scripts/ops/omaha-multiway-river-fold-fit.mjs.',
+    note: 'People-only answers (responder not a Horse) to the first wager of a PLO4/PLO5 cash river made with two or more opponents live, by game, field (w3 three-way, w4 four-way and wider), turn line (chk: turn checked through; bet: the turn had a wager) and size; eq = sum of the multiway equilibrium fold of one opponent of N, (B/(P+B))^(1/N). Public actions only. scripts/ops/omaha-multiway-river-fold-fit.mjs.',
     source: { from, to, handsRead },
     sizes: { 'a<40': [0, 0.4], 'b40-70': [0.4, 0.7], 'c70-110': [0.7, 1.1], 'd>110': [1.1, null] },
     cells: sorted,

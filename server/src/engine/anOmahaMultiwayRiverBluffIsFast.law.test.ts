@@ -1,6 +1,7 @@
 /**
  * LAW: THE MULTIWAY RIVER BLUFF PRICE IS CHEAP WHERE IT APPLIES (PLO-OWNER lead-9 lane underbluff, 2026-11-27;
- * omahaMultiwayRiverBluffIsPricedOnBlockers, default OFF). Its work is the exact card-removal bins of the board
+ * omahaMultiwayRiverBluffIsPricedOnBlockers and
+ * omahaFourWayPlusRiverBluffIsPricedOnBlockers, each default OFF). Its work is the exact card-removal bins of the board
  * (once, the same call the heads-up river opening price makes) and one arithmetic price per opponent. Measured the
  * way theServerSuiteAssertsNoTightWallClockBound requires (src/testing/relativeCost.ts): on three-way and six-way
  * river nodes the whole rule costs at most RATIO times the bins alone on the same nodes.
@@ -47,7 +48,7 @@ describe('LAW: the multiway river bluff price is cheap where it applies', () => 
             CHECK,
             x.player,
             x.gs,
-            true,
+            { threeWay: true, fourWayPlus: true },
             0.04,
             (d) => d,
             () => null

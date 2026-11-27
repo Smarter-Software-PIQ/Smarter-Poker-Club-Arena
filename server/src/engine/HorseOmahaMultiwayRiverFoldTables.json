@@ -1,6 +1,6 @@
 {
-  "version": "v1-2026-11-27-people",
-  "note": "People-only answers (responder not a Horse) to the first wager of a PLO4/PLO5 cash river made with two or more opponents live, by game, turn line (chk: turn checked through; bet: the turn had a wager) and size; eq = sum of the multiway equilibrium fold of one opponent of N, (B/(P+B))^(1/N). Public actions only. scripts/ops/omaha-multiway-river-fold-fit.mjs.",
+  "version": "v2-2026-11-27-people-by-field",
+  "note": "People-only answers (responder not a Horse) to the first wager of a PLO4/PLO5 cash river made with two or more opponents live, by game, field (w3 three-way, w4 four-way and wider), turn line (chk: turn checked through; bet: the turn had a wager) and size; eq = sum of the multiway equilibrium fold of one opponent of N, (B/(P+B))^(1/N). Public actions only. scripts/ops/omaha-multiway-river-fold-fit.mjs.",
   "source": {
     "from": "2026-10-28 06:35:54.1186+00",
     "to": "2026-11-27 04:51:40.548265+00",
@@ -13,113 +13,203 @@
     "d>110": [1.1, null]
   },
   "cells": {
-    "plo4|all|a<40": {
+    "plo4|w3|all|a<40": {
       "n": 11,
       "fold": 11,
       "raise": 0,
       "eq": 5.5856
     },
-    "plo4|all|b40-70": {
-      "n": 40,
-      "fold": 31,
-      "raise": 3,
-      "eq": 24.0489
+    "plo4|w3|all|b40-70": {
+      "n": 35,
+      "fold": 28,
+      "raise": 2,
+      "eq": 20.4645
     },
-    "plo4|all|c70-110": {
-      "n": 57,
-      "fold": 53,
+    "plo4|w3|all|c70-110": {
+      "n": 50,
+      "fold": 46,
       "raise": 0,
-      "eq": 39.7702
+      "eq": 34.3629
     },
-    "plo4|bet|a<40": {
+    "plo4|w3|bet|a<40": {
       "n": 6,
       "fold": 6,
       "raise": 0,
       "eq": 3.0328
     },
-    "plo4|bet|b40-70": {
-      "n": 21,
-      "fold": 16,
-      "raise": 3,
-      "eq": 12.5747
+    "plo4|w3|bet|b40-70": {
+      "n": 19,
+      "fold": 15,
+      "raise": 2,
+      "eq": 11.175
     },
-    "plo4|bet|c70-110": {
-      "n": 22,
-      "fold": 20,
+    "plo4|w3|bet|c70-110": {
+      "n": 20,
+      "fold": 18,
       "raise": 0,
-      "eq": 15.2873
+      "eq": 13.7453
     },
-    "plo4|chk|a<40": {
+    "plo4|w3|chk|a<40": {
       "n": 5,
       "fold": 5,
       "raise": 0,
       "eq": 2.5528
     },
-    "plo4|chk|b40-70": {
-      "n": 19,
-      "fold": 15,
-      "raise": 0,
-      "eq": 11.4742
-    },
-    "plo4|chk|c70-110": {
-      "n": 35,
-      "fold": 33,
-      "raise": 0,
-      "eq": 24.4829
-    },
-    "plo5|all|a<40": {
-      "n": 38,
-      "fold": 27,
-      "raise": 5,
-      "eq": 18.614
-    },
-    "plo5|all|b40-70": {
-      "n": 96,
-      "fold": 78,
-      "raise": 3,
-      "eq": 60.3992
-    },
-    "plo5|all|c70-110": {
-      "n": 177,
-      "fold": 158,
-      "raise": 6,
-      "eq": 129.3389
-    },
-    "plo5|bet|a<40": {
+    "plo4|w3|chk|b40-70": {
       "n": 16,
-      "fold": 10,
-      "raise": 2,
-      "eq": 6.6938
-    },
-    "plo5|bet|b40-70": {
-      "n": 45,
-      "fold": 34,
-      "raise": 3,
-      "eq": 26.9343
-    },
-    "plo5|bet|c70-110": {
-      "n": 84,
-      "fold": 67,
-      "raise": 5,
-      "eq": 59.0648
-    },
-    "plo5|chk|a<40": {
-      "n": 22,
-      "fold": 17,
-      "raise": 3,
-      "eq": 11.9202
-    },
-    "plo5|chk|b40-70": {
-      "n": 51,
-      "fold": 44,
+      "fold": 13,
       "raise": 0,
-      "eq": 33.4648
+      "eq": 9.2895
     },
-    "plo5|chk|c70-110": {
-      "n": 93,
-      "fold": 91,
+    "plo4|w3|chk|c70-110": {
+      "n": 30,
+      "fold": 28,
+      "raise": 0,
+      "eq": 20.6176
+    },
+    "plo4|w4|all|b40-70": {
+      "n": 5,
+      "fold": 3,
       "raise": 1,
-      "eq": 70.2741
+      "eq": 3.5844
+    },
+    "plo4|w4|all|c70-110": {
+      "n": 7,
+      "fold": 7,
+      "raise": 0,
+      "eq": 5.4074
+    },
+    "plo4|w4|bet|b40-70": {
+      "n": 2,
+      "fold": 1,
+      "raise": 1,
+      "eq": 1.3997
+    },
+    "plo4|w4|bet|c70-110": {
+      "n": 2,
+      "fold": 2,
+      "raise": 0,
+      "eq": 1.542
+    },
+    "plo4|w4|chk|b40-70": {
+      "n": 3,
+      "fold": 2,
+      "raise": 0,
+      "eq": 2.1848
+    },
+    "plo4|w4|chk|c70-110": {
+      "n": 5,
+      "fold": 5,
+      "raise": 0,
+      "eq": 3.8653
+    },
+    "plo5|w3|all|a<40": {
+      "n": 29,
+      "fold": 21,
+      "raise": 3,
+      "eq": 12.5869
+    },
+    "plo5|w3|all|b40-70": {
+      "n": 68,
+      "fold": 55,
+      "raise": 3,
+      "eq": 39.9424
+    },
+    "plo5|w3|all|c70-110": {
+      "n": 123,
+      "fold": 107,
+      "raise": 5,
+      "eq": 85.6057
+    },
+    "plo5|w3|bet|a<40": {
+      "n": 15,
+      "fold": 9,
+      "raise": 2,
+      "eq": 6.0488
+    },
+    "plo5|w3|bet|b40-70": {
+      "n": 39,
+      "fold": 30,
+      "raise": 3,
+      "eq": 22.757
+    },
+    "plo5|w3|bet|c70-110": {
+      "n": 77,
+      "fold": 62,
+      "raise": 5,
+      "eq": 53.5759
+    },
+    "plo5|w3|chk|a<40": {
+      "n": 14,
+      "fold": 12,
+      "raise": 1,
+      "eq": 6.5381
+    },
+    "plo5|w3|chk|b40-70": {
+      "n": 29,
+      "fold": 25,
+      "raise": 0,
+      "eq": 17.1854
+    },
+    "plo5|w3|chk|c70-110": {
+      "n": 46,
+      "fold": 45,
+      "raise": 0,
+      "eq": 32.0298
+    },
+    "plo5|w4|all|a<40": {
+      "n": 9,
+      "fold": 6,
+      "raise": 2,
+      "eq": 6.0271
+    },
+    "plo5|w4|all|b40-70": {
+      "n": 28,
+      "fold": 23,
+      "raise": 0,
+      "eq": 20.4568
+    },
+    "plo5|w4|all|c70-110": {
+      "n": 54,
+      "fold": 51,
+      "raise": 1,
+      "eq": 43.7331
+    },
+    "plo5|w4|bet|a<40": {
+      "n": 1,
+      "fold": 1,
+      "raise": 0,
+      "eq": 0.645
+    },
+    "plo5|w4|bet|b40-70": {
+      "n": 6,
+      "fold": 4,
+      "raise": 0,
+      "eq": 4.1774
+    },
+    "plo5|w4|bet|c70-110": {
+      "n": 7,
+      "fold": 5,
+      "raise": 0,
+      "eq": 5.4888
+    },
+    "plo5|w4|chk|a<40": {
+      "n": 8,
+      "fold": 5,
+      "raise": 2,
+      "eq": 5.3821
+    },
+    "plo5|w4|chk|b40-70": {
+      "n": 22,
+      "fold": 19,
+      "raise": 0,
+      "eq": 16.2794
+    },
+    "plo5|w4|chk|c70-110": {
+      "n": 47,
+      "fold": 46,
+      "raise": 1,
+      "eq": 38.2443
     }
   }
 }

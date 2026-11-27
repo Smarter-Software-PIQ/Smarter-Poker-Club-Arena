@@ -4023,6 +4023,12 @@ export interface HorseDecideOpts {
    */
   omahaMultiwayRiverBluffIsPricedOnBlockers?: boolean;
   /**
+   * PLO-OWNER lead-9 lane underbluff 2026-11-27 (default off, read `=== true`): the same rule and price as
+   * omahaMultiwayRiverBluffIsPricedOnBlockers (which acts three-way only: exactly two opponents) for THREE OR MORE
+   * opponents, on its own switch and its own people cells (HorseOmahaMultiwayRiverBluff.ts). Only a check into a bet.
+   */
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers?: boolean;
+  /**
    * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up,
    * nothing to call: the price of omahaRiverBluffIsPricedOnBlockers with the range advantage as the second leg
    * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
@@ -20938,13 +20944,18 @@ export class HorseLogic {
       // scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold
       // rates AND the Horse's cards raise the field's fold share (HorseOmahaMultiwayRiverBluff.ts). Off: the same
       // object. It changes only a check into a bet.
-      const multiwayRiverBluffOn = opts.omahaMultiwayRiverBluffIsPricedOnBlockers === true;
+      const multiwayRiverBluffOn = {
+        threeWay: opts.omahaMultiwayRiverBluffIsPricedOnBlockers === true,
+        fourWayPlus: opts.omahaFourWayPlusRiverBluffIsPricedOnBlockers === true,
+      };
+      const multiwayRiverBluffAny =
+        multiwayRiverBluffOn.threeWay || multiwayRiverBluffOn.fourWayPlus;
       const multiwayRiverBluff = omahaMultiwayRiverBluffRule(
         openingBluff.decision,
         player,
         gs,
         multiwayRiverBluffOn,
-        multiwayRiverBluffOn ? omahaPricedDeps(player, gs).rake : 0,
+        multiwayRiverBluffAny ? omahaPricedDeps(player, gs).rake : 0,
         (d) => this.legalize(d, player, gs, vi),
         (opponent, opponents) =>
           HorseMind.omahaStrongHandCheckRecordsOf(
@@ -20955,12 +20966,21 @@ export class HorseLogic {
           )
       );
       if (multiwayRiverBluff.changed && tele) {
-        noteFire('omaha_multiway_river_bluff_priced_on_blockers');
-        noteDecisionRuleReceipt(
-          'omaha_multiway_river_bluff_priced_on_blockers',
-          openingBluff.decision,
-          multiwayRiverBluff.decision
-        );
+        if (multiwayRiverBluff.field === 'w4') {
+          noteFire('omaha_four_way_plus_river_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_four_way_plus_river_bluff_priced_on_blockers',
+            openingBluff.decision,
+            multiwayRiverBluff.decision
+          );
+        } else {
+          noteFire('omaha_multiway_river_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_multiway_river_bluff_priced_on_blockers',
+            openingBluff.decision,
+            multiwayRiverBluff.decision
+          );
+        }
       }
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise

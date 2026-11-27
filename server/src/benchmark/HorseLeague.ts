@@ -3589,16 +3589,22 @@ const PLO_OPENING_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as cons
  * multiway river opening bluff (omahaMultiwayRiverBluffIsPricedOnBlockers) alone, 6-max: b is the live set of
  * 2026-11-26, a adds the option. Same seeds both sides (duplicate pairs).
  */
-const PLO_MULTIWAY_RIVER_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).map(
-  (variant) => ({
-    name: `${variant}_omaha_multiway_river_bluff_blockers_6max`,
-    variant,
-    seats: 6,
-    pairs: 6000,
-    productionStyles: true,
-    a: { ...OMAHA_LIVE_OPTIONS_20261126, omahaMultiwayRiverBluffIsPricedOnBlockers: true },
-    b: { ...OMAHA_LIVE_OPTIONS_20261126 },
-  })
+const PLO_MULTIWAY_RIVER_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    (
+      [
+        ['three_way', { omahaMultiwayRiverBluffIsPricedOnBlockers: true }],
+        ['four_way_plus', { omahaFourWayPlusRiverBluffIsPricedOnBlockers: true }],
+      ] as ReadonlyArray<readonly [string, HorseDecideOpts]>
+    ).map(([part, on]) => ({
+      name: `${variant}_omaha_multiway_river_bluff_${part}_6max`,
+      variant,
+      seats: 6,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+      b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+    }))
 );
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...PLO_RIVER_OPENING_GRADE_CARDS,
