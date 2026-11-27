@@ -15,7 +15,17 @@ game.
   `aListedOptionInShadowStageNeverChangesTheActedDecision.test.ts`, held for PLO4 cash, NLH cash, NLH Lightning and
   NLH tournament decisions, scripted and production brain over every recorded FAST decision).
 - Nothing of the re-decision runs before the answer; work queued behind the decision drops it.
-- One shadow row globally (`scripts/ops/horse-option-switch.mjs preflight` refuses a second `shadow`/`on_shadow` row).
+- Up to three rows in shadow at once (since 2026-11-27; `OPTION_SHADOW_STAGE_MAX_ROWS`). A decision re-decides at most
+  ONE of the shadow options in its game and street (picked by decision key), so per-decision cost, the budgets and each
+  option's breaker do not grow with the number of rows; two options on the same street split its samples. The stage's
+  skips, slow re-decisions, trips and time are also counted per option (`option_shadow_<option>_stage_skipped_<reason>_seen`,
+  `_stage_slow_seen`, `_stage_self_disabled_seen`, latency scope `option_shadow_stage_redecide_opt_<option>`).
+  `scripts/ops/horse-option-switch.mjs preflight` admits a second or third non-style row only when every serving release
+  has been seen timing per-option re-decisions in the last 30 minutes; a style option, or no such proof, keeps one row.
+- What a changed re-decision would have done: hold'em and (since 2026-11-27) PLO count
+  `option_shadow_<option>_dir_<from>_to_<to>_seen`; PLO also counts the street x size cell faced,
+  `option_shadow_<option>_cell_<street>_<facing_lt40|facing_40to70|facing_70plus|facing_raise|facing_unread|unopened|any>_<from>_to_<to>_seen`,
+  and on Lightning every PLO receipt counter again under `fmt_l_`. `scripts/ops/shadow-read-report.mjs` prints them.
 - Acted-time budget 50 ms, Horse-only cap 2 per worker per minute, the shared per-minute budget
   (`HORSE_OPTION_SHADOW_PER_MINUTE`, default 12), people first.
 - Latency breaker per option and worker: one re-decision charged over 150 ms, or three over 50 ms in the last 20,
