@@ -12,7 +12,9 @@
  *     a tournament copy is never touched; a calling station's own river record turns the same bet back into a check
  *     and an over-folder's keeps it; a bet that neither blockers nor the range advantage support stays a check; a
  *     river check the audit judged correct stays a check.
- *  3. COST: an applicable decision with the option on costs a bounded multiple of the same decision off
+ *  3. THE RECORD'S ROUTE: the provider the decision worker installs serves his NLH heads-up river cells by size from
+ *     the installed NLH packet; no packet, another game's packet or another player is no record.
+ *  4. COST: an applicable decision with the option on costs a bounded multiple of the same decision off
  *     (src/testing/relativeCost.ts; theServerSuiteAssertsNoTightWallClockBound forbids a millisecond limit).
  */
 import { readFileSync } from 'node:fs';
@@ -38,6 +40,9 @@ import {
 import { restoreFastRandom, saveFastRandom } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
 import { measureRelativeCost } from '../testing/relativeCost.js';
+import { buildHudPacket, clearDecisionHud, installDecisionHud } from './opponentHud/OpponentHud.js';
+import { emptyHudProfile } from './opponentHud/OpponentHudProfile.js';
+import { omahaLifetimeStreetRecordHudProvider } from './opponentHud/OmahaTurn4bHudProviders.js';
 
 const OPTION = 'holdemRiverBluffIsPricedOnPeople';
 const RATIO_DECISION = 16;
@@ -298,6 +303,46 @@ describe('the river bluff is priced on people: real audited nodes', () => {
       }
     });
   }
+});
+
+describe('his lifetime river record reaches the decision through the installed NLH packet', () => {
+  it('the worker provider serves the NLH heads-up river cells by size; no packet or another family is no record', () => {
+    const OPP = '50000000-0000-4000-8000-0000000000e1';
+    const AT = Date.UTC(2099, 0, 1, 0, 0, 30);
+    const packet = (family: 'nlh' | 'plo5') => {
+      const profile = emptyHudProfile(OPP, family);
+      profile.hands = 400;
+      profile.recAt = AT;
+      profile.life['r.fb.sm.hu'] = [60, 42];
+      profile.life['r.fb.bg.hu'] = [50, 35];
+      // a multiway cell and a turn cell are never read for it
+      profile.life['r.fb.sm.mw'] = [90, 9];
+      profile.life['t.fb.sm.hu'] = [80, 8];
+      return buildHudPacket(family, [profile], {}, AT, 'river');
+    };
+    const none = { foldSmall: null, foldBig: null };
+    try {
+      // no provider installed: no record
+      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
+      installDecisionHud(packet('nlh'));
+      expect(HorseMind.holdemRiverFirstWagerFoldRecordOf(OPP)).toEqual(none);
+      // the provider the decision worker installs (installOmahaTurn4bHudProviders)
+      HorseMind.setOmahaLifetimeStreetRecordProvider(omahaLifetimeStreetRecordHudProvider);
+      expect(HorseMind.holdemRiverFirstWagerFoldRecordOf(OPP)).toEqual({
+        foldSmall: { folds: 42, opps: 60 },
+        foldBig: { folds: 35, opps: 50 },
+      });
+      expect(HorseMind.holdemRiverFirstWagerFoldRecordOf('somebody-else')).toEqual(none);
+      // a packet of another game is not his NLH record; no packet is no record
+      installDecisionHud(packet('plo5'));
+      expect(HorseMind.holdemRiverFirstWagerFoldRecordOf(OPP)).toEqual(none);
+      clearDecisionHud();
+      expect(HorseMind.holdemRiverFirstWagerFoldRecordOf(OPP)).toEqual(none);
+    } finally {
+      clearDecisionHud();
+      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
+    }
+  });
 });
 
 describe('LAW: the people-priced river bluff is cheap where it applies', () => {
