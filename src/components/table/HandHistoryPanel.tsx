@@ -57,7 +57,12 @@ import type { HeroHandFacts } from '../../services/HandHistoryService';
 import { gameTypeLabel, money, stamp } from '../../utils/handFormat';
 import { handNotesService, type HandNote } from '../../services/HandNotesService';
 import { handFlagService, type HandFlag } from '../../services/HandFlagService';
-import { checkSavedHandsBatch, type SavedHandsBatchMap } from '../../services/SavedHandsService';
+import {
+  checkSavedHandsBatch,
+  isCanonicalUuid,
+  subscribeSavedHandsUpdates,
+  type SavedHandsBatchMap,
+} from '../../services/SavedHandsService';
 import { filterBySubjects, handSearchSubject } from '../../lib/handSearch';
 import { formatTableChips } from '../../utils/format';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -370,7 +375,12 @@ function HandEntry({
   const tone = heroNet > 0 ? 'up' : heroNet < 0 ? 'down' : 'flat';
   const variant = gameTypeLabel(hand.replay.gameVariant) || hand.gameType;
   const runs = hand.replay.boards.length;
-  const isHero = hand.players.some((p) => p.id === heroId);
+  const isHero =
+    Boolean(heroId && heroId !== 'guest') &&
+    ((Array.isArray(hand?.players) && hand.players.some((p) => p?.id === heroId)) ||
+      (Array.isArray(hand?.replay?.players) &&
+        hand.replay.players.some((p) => p?.userId === heroId)));
+  const heroParticipated = isHero;
 
   return (
     <div
@@ -445,12 +455,14 @@ function HandEntry({
             noteKnown={noteKnown}
             onSaved={onNoteSaved}
           />
-          <LogThisHandControl
-            handId={hand.id}
-            accountId={heroId}
-            initialSavedHandId={savedHandId}
-            compact
-          />
+          {heroParticipated && (
+            <LogThisHandControl
+              handId={hand.id}
+              accountId={heroId}
+              initialSavedHandId={savedHandId}
+              compact
+            />
+          )}
           {(onReplay || onOpenDetail) && (
             <div className="hh-entry__actions-row">
               {onOpenDetail && (
@@ -518,7 +530,22 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
   const [flags, setFlags] = useState<Map<string, HandFlag>>(new Map());
   const [flagsKnown, setFlagsKnown] = useState(false);
   const [savedByHandId, setSavedByHandId] = useState<SavedHandsBatchMap>({});
+  const checkedSavedIdsRef = useRef<Set<string>>(new Set());
+  const savedBatchUserRef = useRef<string | null>(null);
   const noteIdKey = hands.map((h) => h.id).join('|');
+  const heroHandIdKey = useMemo(() => {
+    if (!heroId || heroId === 'guest') return '';
+    return hands
+      .filter(
+        (h) =>
+          isCanonicalUuid(h.id) &&
+          ((Array.isArray(h?.players) && h.players.some((p) => p?.id === heroId)) ||
+            (Array.isArray(h?.replay?.players) &&
+              h.replay.players.some((p) => p?.userId === heroId)))
+      )
+      .map((h) => h.id)
+      .join('|');
+  }, [hands, heroId]);
   useEffect(() => {
     const ids = noteIdKey ? noteIdKey.split('|') : [];
     if (ids.length === 0) return;
@@ -539,30 +566,88 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
   }, [noteIdKey]);
 
   useEffect(() => {
-    if (!heroId || !isOpen) {
-      if (!heroId) setSavedByHandId({});
+    if (!heroId || heroId === 'guest') return;
+    return subscribeSavedHandsUpdates((event) => {
+      if (event.type === 'deleted') {
+        if (event.userId && event.userId !== heroId) return;
+        const targetLower = event.handId ? event.handId.toLowerCase() : null;
+        const targetSavedId = event.savedHandId ?? null;
+        setSavedByHandId((prev) => {
+          let changed = false;
+          const next: SavedHandsBatchMap = { ...prev };
+          for (const [key, entry] of Object.entries(prev)) {
+            if (
+              (targetLower !== null && key.toLowerCase() === targetLower) ||
+              (targetSavedId !== null && entry.id === targetSavedId)
+            ) {
+              delete next[key];
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+        return;
+      }
+      if (event.userId !== heroId) return;
+      const lowerKey = event.handId.toLowerCase();
+      setSavedByHandId((prev) => ({
+        ...prev,
+        [lowerKey]: {
+          id: event.entry.savedHandId,
+          savedAt: event.entry.savedAt ?? null,
+          status: event.entry.status,
+          reviewUrl: event.entry.reviewUrl,
+        },
+      }));
+    });
+  }, [heroId]);
+
+  useEffect(() => {
+    if (!heroId || heroId === 'guest') {
+      savedBatchUserRef.current = null;
+      checkedSavedIdsRef.current.clear();
+      setSavedByHandId({});
       return;
     }
-    const ids = noteIdKey ? noteIdKey.split('|') : [];
-    if (ids.length === 0) {
+    if (savedBatchUserRef.current !== heroId) {
+      savedBatchUserRef.current = heroId;
+      checkedSavedIdsRef.current.clear();
       setSavedByHandId({});
+    }
+    if (!isOpen) {
+      checkedSavedIdsRef.current.clear();
+      return;
+    }
+    const ids = heroHandIdKey ? heroHandIdKey.split('|') : [];
+    const uncheckedIds = ids.filter((id) => !checkedSavedIdsRef.current.has(id.toLowerCase()));
+    if (uncheckedIds.length === 0) {
       return;
     }
     const controller = new AbortController();
     let alive = true;
-    setSavedByHandId({});
-    void checkSavedHandsBatch(ids, {
+    void checkSavedHandsBatch(uncheckedIds, {
       signal: controller.signal,
       userId: heroId,
     }).then((map) => {
       if (!alive) return;
-      setSavedByHandId(map);
+      for (const id of uncheckedIds) {
+        checkedSavedIdsRef.current.add(id.toLowerCase());
+      }
+      const normalizedEntries = Object.entries(map);
+      if (normalizedEntries.length === 0) return;
+      setSavedByHandId((prev) => {
+        const next: SavedHandsBatchMap = { ...prev };
+        for (const [k, v] of normalizedEntries) {
+          next[k.toLowerCase()] = v;
+        }
+        return next;
+      });
     });
     return () => {
       alive = false;
       controller.abort();
     };
-  }, [isOpen, heroId, noteIdKey]);
+  }, [isOpen, heroId, heroHandIdKey]);
 
   const onNoteSaved = useCallback((handId: string, saved: HandNote | null) => {
     setNotes((prev) => {
@@ -890,7 +975,7 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
                     flag={flags.get(hand.id) ?? null}
                     flagKnown={flagsKnown}
                     onFlagFiled={onFlagFiled}
-                    savedHandId={savedByHandId[hand.id]?.id ?? null}
+                    savedHandId={savedByHandId[hand.id.toLowerCase()]?.id ?? null}
                   />
                 </div>
               ))

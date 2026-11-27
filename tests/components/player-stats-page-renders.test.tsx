@@ -334,13 +334,21 @@ describe('PlayerStatsPage mounts', () => {
     };
     render(<PlayerStatsPage />);
     expect(
-      await screen.findByRole('tab', { name: 'Tournaments', exact: true }, { timeout: 6000 })
+      await screen.findByRole('heading', { name: 'Playing Statistics' }, { timeout: 6000 })
     ).toBeVisible();
+    // One section: no single-pill "Tournaments" bar repeats the mode switch
+    // (Dan, 2026-11-27), and the panel still has an accessible name.
+    expect(screen.queryByRole('tablist', { name: 'Statistics Sections' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Tournaments' })).toBeVisible();
     expect(
-      await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
-    ).toBeVisible();
+      screen.queryByText(
+        'Tournament Hands And Results Only. Tournament Stacks Are Not Cash Profit.'
+      )
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Tutorial' }));
+    expect(screen.getByText(/Tournament Stacks Are Not Cash Profit/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByRole('heading', { name: 'Tournament Window' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Close Help' }));
@@ -358,9 +366,7 @@ describe('PlayerStatsPage mounts', () => {
     try {
       render(<PlayerStatsPage />);
       expect(await screen.findByText("Couldn't Load Your Stats")).toBeVisible();
-      expect(
-        screen.queryByRole('heading', { name: 'Tournament Playing Statistics' })
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Playing Statistics' })).not.toBeInTheDocument();
     } finally {
       errors.mockRestore();
     }
@@ -399,9 +405,7 @@ describe('PlayerStatsPage mounts', () => {
     await act(async () => {
       resolveTournament({ data: tournament, error: null });
     });
-    expect(
-      await screen.findByRole('heading', { name: 'Tournament Playing Statistics' })
-    ).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Playing Statistics' })).toBeVisible();
     expect(screen.queryByText('111')).not.toBeInTheDocument();
   });
 

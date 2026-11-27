@@ -95,6 +95,9 @@ export function useLogHandToAssistant({
   const [entriesByKey, setEntriesByKey] = useState<Record<string, LogHandEntryState>>({});
   const entriesByKeyRef = useRef<Record<string, LogHandEntryState>>(entriesByKey);
   entriesByKeyRef.current = entriesByKey;
+  const [deletedInitialByKey, setDeletedInitialByKey] = useState<Record<string, string | true>>({});
+  const deletedInitialByKeyRef = useRef<Record<string, string | true>>(deletedInitialByKey);
+  deletedInitialByKeyRef.current = deletedInitialByKey;
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
@@ -138,15 +141,82 @@ export function useLogHandToAssistant({
     };
   }, []);
 
-  // Keep same-tab surfaces (Table HUD, HandDetailModal, HandHistoryPanel) in sync
-  // whenever any surface saves or hydrates a hand for the active account.
+  // Align the shared per-user cache when mounted with an authenticated user so
+  // incoming BroadcastChannel messages know the active account immediately.
+  useEffect(() => {
+    if (normalizedAccountId) {
+      setActiveSavedHandsUser(normalizedAccountId);
+    }
+  }, [normalizedAccountId]);
+
+  // Keep same-tab and cross-tab surfaces (Table HUD, HandDetailModal,
+  // HandHistoryPanel, World Hub Review) in sync whenever any surface saves,
+  // hydrates, or deletes a hand for the active account.
   useEffect(() => {
     return subscribeSavedHandsUpdates((event) => {
       if (!mountedRef.current) return;
       const currentAccount = activeAccountRef.current;
-      if (!currentAccount || event.userId !== currentAccount) return;
+      if (!currentAccount) return;
+
+      if (event.type === 'deleted') {
+        if (event.userId && event.userId !== currentAccount) return;
+        const targetHandLower = event.handId ? event.handId.toLowerCase() : null;
+        const targetSavedId = event.savedHandId ?? null;
+
+        setEntriesByKey((prev) => {
+          let changed = false;
+          const next: Record<string, LogHandEntryState> = { ...prev };
+          for (const [key, existing] of Object.entries(prev)) {
+            const sep = key.indexOf('::');
+            const keyAccount = sep > 0 ? key.slice(0, sep) : '';
+            const keyHandLower = sep > 0 ? key.slice(sep + 2) : '';
+            if (keyAccount !== currentAccount) continue;
+            const matchesHand = targetHandLower !== null && keyHandLower === targetHandLower;
+            const matchesSavedRow =
+              targetSavedId !== null && existing.savedHandId === targetSavedId;
+            if (matchesHand || matchesSavedRow) {
+              delete next[key];
+              changed = true;
+            }
+          }
+          if (!changed) return prev;
+          entriesByKeyRef.current = next;
+          return next;
+        });
+
+        const currentKey = activeKeyRef.current;
+        const currentHand = activeHandRef.current;
+        const currentInitialSaved = initialSavedIdRef.current;
+        const matchesActiveHand =
+          targetHandLower !== null &&
+          currentHand !== null &&
+          currentHand.toLowerCase() === targetHandLower;
+        const matchesActiveInitial =
+          targetSavedId !== null &&
+          currentInitialSaved !== null &&
+          currentInitialSaved === targetSavedId;
+        if (currentKey && (matchesActiveHand || matchesActiveInitial)) {
+          setDeletedInitialByKey((prev) => {
+            const marker: string | true = targetSavedId ?? true;
+            if (prev[currentKey] === marker) return prev;
+            const next = { ...prev, [currentKey]: marker };
+            deletedInitialByKeyRef.current = next;
+            return next;
+          });
+        }
+        return;
+      }
+
+      if (event.userId !== currentAccount) return;
       const key = makeKey(event.userId, event.handId);
       if (!key) return;
+      setDeletedInitialByKey((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        deletedInitialByKeyRef.current = next;
+        return next;
+      });
       setEntriesByKey((prev) => {
         const existing = prev[key];
         if (
@@ -193,6 +263,8 @@ export function useLogHandToAssistant({
       setActiveSavedHandsUser(normalizedAccountId);
       entriesByKeyRef.current = {};
       setEntriesByKey({});
+      deletedInitialByKeyRef.current = {};
+      setDeletedInitialByKey({});
       return;
     }
 
@@ -227,6 +299,10 @@ export function useLogHandToAssistant({
 
       const localEntry = entriesByKeyRef.current[capturedKey];
       const cached = getCachedSavedHand(capturedAccountId, capturedHandId);
+      const deletedMarker = deletedInitialByKeyRef.current[capturedKey];
+      const initialWasDeleted =
+        deletedMarker === true ||
+        (typeof deletedMarker === 'string' && deletedMarker === initialSavedIdRef.current);
       const hydratedEntry: LogHandEntryState | null = cached
         ? {
             status: cached.status,
@@ -234,7 +310,7 @@ export function useLogHandToAssistant({
             errorMessage: null,
             needsReconcile: false,
           }
-        : initialSavedIdRef.current
+        : initialSavedIdRef.current && !initialWasDeleted
           ? {
               status: initialSavedStatusRef.current,
               savedHandId: initialSavedIdRef.current,
@@ -397,6 +473,10 @@ export function useLogHandToAssistant({
     activeKey && normalizedAccountId && normalizedHandId
       ? getCachedSavedHand(normalizedAccountId, normalizedHandId)
       : null;
+  const activeDeletedMarker = activeKey ? deletedInitialByKey[activeKey] : undefined;
+  const activeInitialWasDeleted =
+    activeDeletedMarker === true ||
+    (typeof activeDeletedMarker === 'string' && activeDeletedMarker === normalizedInitialSavedId);
 
   let activeEntry: LogHandEntryState = IDLE_ENTRY;
   if (localEntry && localEntry.status !== 'idle') {
@@ -408,7 +488,7 @@ export function useLogHandToAssistant({
       errorMessage: null,
       needsReconcile: false,
     };
-  } else if (activeKey && normalizedInitialSavedId) {
+  } else if (activeKey && normalizedInitialSavedId && !activeInitialWasDeleted) {
     activeEntry = {
       status: initialSavedStatus,
       savedHandId: normalizedInitialSavedId,
