@@ -1236,6 +1236,53 @@ export interface SubscriptionCheckoutOfferConfirmation {
   quantity: 1;
   unitCents: number;
   totalCents: number;
+  /** Present only for the first-month offer: the amount due today. */
+  introCents?: number;
+}
+
+/**
+ * VIP FIRST MONTH FOR ONE DOLLAR (Dan, 2026-11-26): "the first month should be
+ * $1 and then $20 a month after that, they can cancel anytime, but all first
+ * month subscriptions are just a dollar."
+ *
+ * Mirrors src/lib/store/vipIntroOffer.mjs in the World Hub, which owns the
+ * terms and charges them. Monthly Card subscription only, once per account:
+ * yearly, Lifetime and a Diamond-funded month are unchanged. Whether an
+ * account qualifies is the server's answer (fetchVipIntroEligibility); the
+ * checkout route decides again and refuses when its answer differs.
+ */
+export const VIP_INTRO_OFFER = Object.freeze({
+  planKey: 'monthly' as const,
+  firstPeriodCents: 100,
+  regularCents: 2000,
+});
+
+/**
+ * true = the server says this account has never held a Card subscription,
+ * false = it has, null = unknown. Unknown shows and confirms the regular price.
+ */
+export async function fetchVipIntroEligibility(
+  userId: string,
+  signal?: AbortSignal
+): Promise<boolean | null> {
+  if (!isUuid(userId)) return null;
+  try {
+    const body = await storeFetch<{
+      introOffer?: { eligible?: unknown; firstPeriodCents?: unknown; regularCents?: unknown };
+    }>('/api/store/vip-membership-status', { signal, expectedUserId: userId });
+    const offer = body?.introOffer;
+    if (
+      !offer ||
+      typeof offer.eligible !== 'boolean' ||
+      offer.firstPeriodCents !== VIP_INTRO_OFFER.firstPeriodCents ||
+      offer.regularCents !== VIP_INTRO_OFFER.regularCents
+    ) {
+      return null;
+    }
+    return offer.eligible;
+  } catch {
+    return null;
+  }
 }
 
 export interface VipDiamondOfferConfirmation {
@@ -1313,6 +1360,11 @@ function isCheckoutOfferConfirmation(
             'quantity',
             'unitCents',
             'totalCents',
+            ...(raw !== null &&
+            typeof raw === 'object' &&
+            Object.prototype.hasOwnProperty.call(raw, 'introCents')
+              ? ['introCents']
+              : []),
           ]
     )
   ) {
@@ -1335,7 +1387,12 @@ function isCheckoutOfferConfirmation(
       raw.quantity === 1 &&
       Number.isSafeInteger(raw.unitCents) &&
       Number(raw.unitCents) > 0 &&
-      raw.totalCents === raw.unitCents
+      (Object.prototype.hasOwnProperty.call(raw, 'introCents')
+        ? plan === VIP_INTRO_OFFER.planKey &&
+          raw.introCents === VIP_INTRO_OFFER.firstPeriodCents &&
+          raw.unitCents === VIP_INTRO_OFFER.regularCents &&
+          raw.totalCents === raw.introCents
+        : raw.totalCents === raw.unitCents)
     );
   }
 
@@ -1424,7 +1481,9 @@ export function diamondCheckoutOfferConfirmation(
 
 export function subscriptionCheckoutOfferConfirmation(
   userId: string,
-  plan: VipPlan
+  plan: VipPlan,
+  /** Pass true only when the server said this account gets the first-month offer. */
+  firstMonthOffer = false
 ): SubscriptionCheckoutOfferConfirmation | null {
   if (!plan || typeof plan !== 'object') return null;
   const planKey = plan.planKey;
@@ -1450,6 +1509,13 @@ export function subscriptionCheckoutOfferConfirmation(
     unitCents: Number(unitCents),
     totalCents: Number(unitCents),
   };
+  if (firstMonthOffer) {
+    if (planKey !== VIP_INTRO_OFFER.planKey || Number(unitCents) !== VIP_INTRO_OFFER.regularCents) {
+      return null;
+    }
+    offer.introCents = VIP_INTRO_OFFER.firstPeriodCents;
+    offer.totalCents = VIP_INTRO_OFFER.firstPeriodCents;
+  }
   return isCheckoutOfferConfirmation(offer, 'subscription', userId) ? offer : null;
 }
 
