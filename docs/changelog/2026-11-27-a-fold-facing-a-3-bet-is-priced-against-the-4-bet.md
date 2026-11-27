@@ -8,7 +8,7 @@ Every re-raised-pot rule priced a standing fold against the CALL only (`HorseOma
 
 ## What changed
 
-- `omahaReraisedPotFoldReraiseIsPriced` (default OFF, read `=== true`). PLO4/PLO5 cash, preflop, facing exactly a 3-bet, out of position and heads-up against the 3-bettor: the standing fold becomes the pot-size re-raise (the all-in when that is the whole stack) when EV(re-raise) > max(EV(call), 0) + deadband + the sampling error of the price, on the existing verdict of `HorseOmahaReraisedPotPriced`. The 3-bettor's width and his fold to the 4-bet are read from his own public record, then the people-only person-level prior (`RERAISED_POT_PEOPLE_PRIOR`).
+- `omahaReraisedPotFoldReraiseIsPriced` (default OFF, read `=== true`). PLO4/PLO5 cash, preflop, the Horse made the first raise of the hand and faces exactly a cold 3-bet of it (the 3-bettor's first voluntary action; a limp-re-raise is not priced), out of position and heads-up against the 3-bettor: the standing fold becomes the pot-size re-raise (the all-in when that is the whole stack) when EV(re-raise) > max(EV(call), 0) + deadband + the sampling error of the price, on the existing verdict of `HorseOmahaReraisedPotPriced`. The 3-bettor's width and his fold to the 4-bet are read from his own public record, then the people-only person-level prior (`RERAISED_POT_PEOPLE_PRIOR`).
 - It never makes a call, changes no standing call or re-raise, and does nothing in position, multiway or facing a 4-bet or more.
 - Receipts `omaha_reraised_pot_priced_fold_reraised`, `omaha_reraised_pot_priced_fold_reraise_kept`.
 - The receipt validator admits a fold that became the largest legal re-raise in the rule's own spot.
