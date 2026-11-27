@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { spinActivationApi, type SpinOwnerState } from '../services/SpinActivationService';
 import { useUserStore } from '../stores/useUserStore';
+import { isUUID } from '../utils/clubIdResolver';
 import {
   walletCacheKey,
   readWalletCacheEntry,
@@ -82,7 +83,9 @@ export function useSpinsWallet(ownerKey: string | null | undefined, enabled = tr
   useEffect(() => {
     const setState = (next: SpinOwnerState | null) =>
       setSnapshot({ ownerKey, userId, state: next });
-    if (!enabled || !ownerKey) {
+    /* An owner key that is not an id (an unresolved route slug) is never
+       sent: the route keys a uuid column. Same outcome as no owner. */
+    if (!enabled || !ownerKey || !isUUID(ownerKey)) {
       setState(null);
       /* AND CLEAR loading. Without this a request in flight when the club
          joined a union - the exact transition this hook exists for - left the
@@ -162,7 +165,7 @@ export function useSpinsWallet(ownerKey: string | null | undefined, enabled = tr
 
   return {
     state,
-    loading: Boolean(enabled && ownerKey && (loading || !matchesScope)),
+    loading: Boolean(enabled && ownerKey && isUUID(ownerKey) && (loading || !matchesScope)),
     active: Boolean(state?.is_active),
     balance: Number(state?.balance ?? 0),
     reload,

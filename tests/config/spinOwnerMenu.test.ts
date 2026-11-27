@@ -102,7 +102,7 @@ describe('the panel tells the owner the truth about whose money it is', () => {
 
   it('does not take a permission prop at all, so a page cannot override truth', () => {
     expect(panelCode).not.toMatch(/canManage: boolean;/);
-    expect(settings).toMatch(/<SpinActivationPanel clubId=\{clubId\} \/>/);
+    expect(settings).toMatch(/<SpinActivationPanel clubId=\{clubUUID\} \/>/);
   });
 
   it('fails closed while the route has not answered yet', () => {
@@ -175,7 +175,7 @@ describe('it is wired into the owner menu', () => {
     expect(settings).toMatch(
       /import SpinActivationPanel from '\.\.\/components\/club\/SpinActivationPanel'/
     );
-    expect(settings).toMatch(/<SpinActivationPanel clubId=\{clubId\} \/>/);
+    expect(settings).toMatch(/<SpinActivationPanel clubId=\{clubUUID\} \/>/);
   });
 
   it('is also on the UNION dashboard -- the half that was missing', () => {

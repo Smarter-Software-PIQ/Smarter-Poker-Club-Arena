@@ -282,6 +282,16 @@ interface OverviewReading {
 }
 const inflight = new Map<string, Promise<OverviewReading>>();
 const shared = new Map<string, OverviewReading>();
+/**
+ * A REFUSAL IS AN ANSWER (2026-11-26). Scopes the database has already
+ * refused (42501, not authorized for this club). The refusal cannot change
+ * until the viewer's identity or club role does, and both of those invalidate
+ * the scope (observeScope), so until then the poll, the visibility refresh
+ * and the bus nudges answer from here instead of asking again. Before this
+ * set existed a non-staff viewer's open tab re-sent the refused read every
+ * minute: 454 refusals in 24 hours, one iPhone alone for ten hours.
+ */
+const deniedScopes = new Set<string>();
 let scopeVersion = 0;
 const scopeListeners = new Set<() => void>();
 let scopeSubscriptionsStarted = false;
@@ -290,6 +300,7 @@ function invalidateScope() {
   scopeVersion += 1;
   inflight.clear();
   shared.clear();
+  deniedScopes.clear();
   scopeListeners.forEach((listener) => listener());
 }
 
@@ -300,6 +311,28 @@ function observeScope() {
   masterBus.subscribe('AUTH_STATE_CHANGED', invalidateScope);
   masterBus.subscribe('MEMBER_ROLE_CHANGED', invalidateScope);
   masterBus.subscribe('GAME_MANAGEMENT_ACCESS_CHANGED', invalidateScope);
+}
+
+/** What a scope the database already refused answers, without asking again. */
+const OVERVIEW_ALREADY_REFUSED = Object.freeze({
+  code: '42501',
+  message: 'not authorized for this club',
+});
+
+/**
+ * Who may ask for the overview: the rule ca_club_operations_overview itself
+ * applies (platform staff, or the club roles owner, co_owner and admin), which
+ * is `canControlClub` in the shared navigation vocabulary. NOT `isClubStaff`:
+ * that also admits managers and agents, who see the rail and the operations
+ * page but whom the RPC refuses, so gating on it sent a read that could only
+ * ever be told no.
+ */
+export function mayReadClubOperationsOverview(access: {
+  canControlClub: boolean;
+  loading?: boolean;
+  error?: unknown;
+}): boolean {
+  return Boolean(access.canControlClub && !access.loading && !access.error);
 }
 
 /** Exported for tests: forget every shared answer. */
@@ -313,6 +346,7 @@ async function readOverview(
   force: boolean
 ): Promise<OverviewReading> {
   const version = scopeVersion;
+  if (deniedScopes.has(scope)) throw OVERVIEW_ALREADY_REFUSED;
   if (!force) {
     const cached = shared.get(scope);
     if (cached && Date.now() - cached.at < SHARE_MS) return cached;
@@ -325,7 +359,10 @@ async function readOverview(
       p_club_id: clubUUID,
     });
     if (rpcError) {
-      if (isAuthzError(rpcError)) shared.delete(scope);
+      if (isAuthzError(rpcError)) {
+        shared.delete(scope);
+        if (version === scopeVersion) deniedScopes.add(scope);
+      }
       throw rpcError;
     }
     const next = normalise(data, clubUUID);

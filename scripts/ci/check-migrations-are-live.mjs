@@ -140,6 +140,19 @@ const WINDOW_QUEUE_GRACE_HOURS = 7 * 24;
  * MERGED BUT NOT LIVE, and `Installed and merged migrations agree` went red on
  * main and on every pull request for as long as the freeze lasted.
  */
+/**
+ * A FILE WHOSE OWN OBJECTS ARE MISSING IS ALREADY ANSWERED (2026-11-26).
+ * Step 2 proves it not live, and its proofs almost always name exactly those
+ * objects, so asking them can only make Postgres raise: from the merge of
+ * #12044 at 07:28 UTC until its migration installed at 10:17 UTC this check
+ * sent `'public.fn_cashier_mint_scope(uuid)'::regprocedure` 64 times and
+ * production logged 64 ERRORs (42883) that were this check, not a player.
+ * The verdict is the same without the query: not live (or in flight).
+ */
+export function hasMissingObject(m, missing) {
+  return (m.objects || []).some((o) => missing.has(`${o.kind}\t${o.name}`));
+}
+
 export function matchedByName(file, recorded, recordedPrefixes) {
   const stem = String(file).replace(/\.sql$/, '');
   const slug = stem.slice(stem.indexOf('_') + 1);
@@ -851,6 +864,9 @@ function main() {
         );
     }
   }
+
+  // A file step 2 already proved not live is not asked again (hasMissingObject).
+  for (const m of unmatched) if (hasMissingObject(m, missing)) m.runnableProofs = [];
 
   const proofChecks = unmatched.flatMap((m) => m.runnableProofs.map((p) => ({ m, p })));
   if (proofChecks.length > 0) {

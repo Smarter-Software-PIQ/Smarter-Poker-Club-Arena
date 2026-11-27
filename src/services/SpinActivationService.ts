@@ -26,6 +26,7 @@ import { supabase } from '../lib/supabase';
 import { uuid } from '../utils/uuid';
 import { requiredSeed } from '../config/spinSpec';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
+import { isUUID } from '../utils/clubIdResolver';
 
 /** The Spin board's price points. Mirrors SPIN_BOARD_BUYINS in the engine. */
 export const SPIN_BOARD_STAKES = [1, 2, 3, 5, 10, 20, 50, 100] as const;
@@ -102,6 +103,14 @@ async function call<T>(
   signal?: AbortSignal,
   actorId?: string
 ): Promise<T> {
+  /* THE ROUTE KEYS A UUID COLUMN (2026-11-26). /api/club-arena/spin-activation
+     reads clubs.id = clubId, so a route slug sent here (`kings-club`,
+     `crest-cert-*`) was Postgres 22P02 at the database on every open, a long
+     way from the screen that sent it. An owner this client cannot name by id
+     is not asked about at all: the panel shows nothing it cannot prove. */
+  if (typeof body.clubId !== 'string' || !isUUID(body.clubId)) {
+    throw new Error('The Spin Wallet Owner Could Not Be Identified.');
+  }
   const {
     data: { session },
   } = await supabase.auth.getSession();
