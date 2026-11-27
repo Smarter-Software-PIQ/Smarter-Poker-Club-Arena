@@ -2433,6 +2433,17 @@
       "prefixes": [],
       "unlessOn": ["holdemOpeningValueBetIsPriced"]
     },
+    "holdemRiverBluffIsPricedOnPeople": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_people_bluff_below_check",
+        "holdem_river_people_bluff_bet",
+        "holdem_river_people_bluff_no_edge"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "cashDefenceTrimColdCalls": {
       "releaseDefault": "off",
       "source": "ledger",

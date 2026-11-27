@@ -68,6 +68,7 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // Hold'em: the opening side (cash, heads-up) and the tournament bluff
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemOpeningBluffIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
+  holdemRiverBluffIsPricedOnPeople: 'engine/aHoldemRiverBluffIsPricedOnPeople.law.test.ts',
   holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
 });
