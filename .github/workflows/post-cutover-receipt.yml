@@ -25,7 +25,9 @@ concurrency:
 jobs:
   receipt:
     name: Audit Production And Answer The Cutover Comment
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'repository_dispatch'
+    # A job-token dispatch or re-run never reaches the secret (tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts),
+    # and only this repository's own receiver file, on main, started by a cutover, can trigger it.
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 10
