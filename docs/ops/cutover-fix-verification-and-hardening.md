@@ -372,6 +372,25 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Lesson for Step 1:** a live replay of a workflow-run reader is run with the runner's tool versions, or its first run log is read before the fix is called proven.
 - **Live proof:** pending the readiness posts of the 19:00 CST cycle.
 
+### Readiness Sees Every Install (2026-11-27)
+
+An independent review compared `scripts/release/three-hourly-readiness.py` (O36, O36a) with the real selector. Eight findings, all confirmed against the code and against Stage run `45963036602` (created 02:05:43 CST, window installer job `140421831827` done 04:00:30 CST, run closed 04:25:25 CST).
+
+- **Why each broke:**
+  1. Stage runs were listed from one hour before the copy, but a Stage run reserves its cycle up to five hours before it installs. A copy restored between a run's creation and its install read fresh.
+  2. Run lists, jobs reads and certificate archives were read again for every judged certificate (59 calls, about 35 s per stale candidate; the post allows 120 s).
+  3. More than one page of 100 runs was a read error, so a copy older than about 15 h stayed UNKNOWN through a stall.
+  4. An open run was skipped as if it had installed nothing, though the installer job finishes about 25 minutes before its run.
+  5. Only `[apply] APPLIED` counted; the applier is durable from `[apply] committed in <n>ms` and can exit UNKNOWN between the two.
+  6. The engine-inert carve-out judged the file alone, wider than the selector's `inert_versions(control, target)` and `bounded_inert`.
+  7. The certificate was the last artifact by name, not the one of the run's attempt.
+  8. "copy current as of" implied a comparison of contents that readiness never makes.
+- **Root-cause fix:** the Stage list reaches six hours behind the copy and the Apply list 48 hours (a re-run keeps its creation time); lists are read page by page, at most ten; a job is judged by its own state and a running installer or unfinished Apply run is UNKNOWN; the committed line is the applier's own and an UNKNOWN outcome before it is UNKNOWN; the carve-out is the helper's two functions for the exact target; the certificate is `backup-certificate-<sha>-<run_attempt>`, exactly one; every freshness read is made once per report and installs are kept per copy time; fresh says `no install seen in the applier's job logs since the copy was restored`.
+- **Hardening:** in `CopyFreshnessTests` of `tests/operations/three-hourly-readiness.test.py` (49 cases in all, pinned by `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`): `test_a_stage_run_reserved_hours_before_the_copy_still_shows_its_install`, `test_the_stage_lookback_covers_the_longest_reservation_the_workflow_allows`, `test_a_re_run_of_an_old_apply_run_is_seen_by_its_new_attempt`, `test_a_run_not_touched_since_the_copy_costs_no_further_read`, `test_a_second_certificate_on_the_same_copy_reads_only_its_own_certificate`, `test_three_stale_certificates_on_one_copy_cost_one_read_of_the_installs`, `test_a_stall_long_enough_for_a_second_page_of_runs_is_read_page_by_page`, `test_more_pages_than_the_bound_is_unread`, `test_the_window_install_counts_while_its_run_is_still_open`, `test_an_installer_or_an_apply_run_still_running_is_unread`, `test_a_commit_whose_history_read_back_failed_is_still_committed`, `test_an_unknown_outcome_before_the_commit_is_unread`, `test_the_markers_are_the_strings_the_applier_and_the_installer_print`, `test_the_inert_carve_out_is_the_helpers_for_the_exact_target`, `test_the_certificate_read_is_the_one_named_for_the_runs_attempt`, `test_fresh_says_no_install_was_seen_in_the_job_logs`. All 16 fail against main's tool (21 of the 49 in all, the judge's parameters having changed). Also "no twin is disabled" in `tests/the-pull-request-builds-what-ships.law.test.ts`. Changelog `docs/changelog/2026-11-27-readiness-sees-every-install.md`.
+- **Cost measured:** one fresh candidate at about 17:00 CST on 2026-11-27 took 35 `gh api` calls before and 35 after.
+- **Not read still:** a re-run of an Apply run older than 48 hours before the copy; contents (the selector compares those).
+- **Live proof:** pending the first readiness posts on `#11599` after the merge.
+
 ### Decided Against Or Deferred (2026-11-27)
 
 - **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.

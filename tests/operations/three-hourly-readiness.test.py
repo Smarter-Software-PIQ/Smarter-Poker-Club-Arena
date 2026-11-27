@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -1597,31 +1598,46 @@ class JobLogReaderTests(unittest.TestCase):
 class CopyFreshnessTests(unittest.TestCase):
     """O36 (2026-11-27): at 05:30 CST readiness called 7c301a85a5e4 READY; its Backup copy lacked
     20261124195144, 20261126191910 and 20261127043816, which the 04:15 window had installed, so the
-    selector refused it at 06:30 and the 07:00 cycle kept serving."""
+    selector refused it at 06:30 and the 07:00 cycle kept serving.
+
+    O36b (2026-11-27): an independent review found the installs readiness could still not see. The
+    fake GitHub below honours the list's created filter and its pages, as the real one does."""
 
     REPO = "o/r"
     COPY_AT = "2026-11-27T10:05:00Z"
 
     SHA = "7" * 40
 
-    def _gh(self, apply_runs, stage_runs, logs, artifacts=None):
+    def _gh(self, apply_runs, stage_runs, logs, artifacts=None, attempt=1, calls=None):
         artifacts = artifacts if artifacts is not None else [
             {"id": 5, "name": f"backup-certificate-{self.SHA}-1", "expired": False}
         ]
+        calls = calls if calls is not None else []
+
+        def listed(path, runs):
+            since = re.search(r"created=%3E%3D([0-9TZ:-]+)", path).group(1)
+            page = int((re.search(r"&page=(\d+)", path) or [0, "1"])[1])
+            size = int(re.search(r"per_page=(\d+)", path).group(1))
+            kept = [r for r, _ in runs if r.get("created_at", "9999") >= since]
+            return {"total_count": len(kept), "workflow_runs": kept[(page - 1) * size : page * size]}
 
         def gh_get(path):
-            if path.startswith(f"repos/{self.REPO}/actions/runs/700/artifacts"):
+            calls.append(path)
+            if re.fullmatch(rf"repos/{self.REPO}/actions/runs/7\d\d", path):
+                return {"id": int(path[-3:]), "run_attempt": attempt}
+            if re.fullmatch(rf"repos/{self.REPO}/actions/runs/7\d\d/artifacts\?per_page=100", path):
                 return {"artifacts": artifacts}
             if f"/workflows/{mod.APPLY_WORKFLOW}/runs" in path:
-                return {"total_count": len(apply_runs), "workflow_runs": [r for r, _ in apply_runs]}
+                return listed(path, apply_runs)
             if f"/workflows/{mod.STAGE_WORKFLOW}/runs" in path:
-                return {"total_count": len(stage_runs), "workflow_runs": [r for r, _ in stage_runs]}
+                return listed(path, stage_runs)
             for run, jobs in apply_runs + stage_runs:
                 if path.startswith(f"repos/{self.REPO}/actions/runs/{run['id']}/jobs"):
                     return {"jobs": jobs}
             raise AssertionError(f"unexpected gh api path: {path}")
 
         def gh_text(path):
+            calls.append(path)
             for job_id, text in logs.items():
                 if path == f"repos/{self.REPO}/actions/jobs/{job_id}/logs":
                     return text
@@ -1637,19 +1653,69 @@ class CopyFreshnessTests(unittest.TestCase):
             zf.writestr("certificate.json", json.dumps(cert))
         return buf.getvalue()
 
-    def _judge(self, gh_get, gh_text, inert=lambda _t: False, git_text="BEGIN;\nCOMMIT;", cert=None):
+    def _helper(self, inert=(), seen=None):
+        """A stand-in for the installed-migrations helper: its inert_versions answers `inert`,
+        its bounded_inert is the real helper's."""
+        real = mod.load_inert_helper(ROOT)
+        self.assertIsNotNone(real)
+
+        def inert_versions(repo, control, *others):
+            if seen is not None:
+                seen.append((repo, control, others))
+            return frozenset(inert)
+
+        return types.SimpleNamespace(inert_versions=inert_versions, bounded_inert=real.bounded_inert)
+
+    def _judge(self, gh_get, gh_text, helper=None, cert=None, archives=None, run_id=700, cache=None, attempts=None):
         cert = cert if cert is not None else {"database": {"restoredAt": self.COPY_AT}}
-        archive = self._zip(cert)
+        archives = archives if archives is not None else {5: self._zip(cert)}
 
         def gh_bytes(path):
-            if path == f"repos/{self.REPO}/actions/artifacts/5/zip":
-                return archive
+            for artifact_id, archive in archives.items():
+                if path == f"repos/{self.REPO}/actions/artifacts/{artifact_id}/zip":
+                    return archive
             raise mod.ReadError(path)
 
-        cand = {"sha": self.SHA, "backup": {"runId": 700}}
+        cand = {"sha": self.SHA, "backup": {"runId": run_id}}
         return mod.judge_copy_freshness(
-            cand, self.REPO, "/repo", "c" * 40, gh_get, gh_text, lambda _r, *_a: git_text, inert, gh_bytes
+            cand, self.REPO, "/repo", "c" * 40, gh_get, gh_text, helper, gh_bytes, cache, attempts
         )
+
+    def _apply(self, run_id, job_id, done, **run):
+        return (
+            {"id": run_id, "status": "completed", **run},
+            [{"id": job_id, "name": "Apply", "status": "completed", "conclusion": "success", "completed_at": done}],
+        )
+
+    # The window run of 2026-11-27 as GitHub reported it (run 45963036602, job 140421831827).
+    WINDOW_RUN = {
+        "id": 45963036602,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-11-27T08:05:43Z",
+        "updated_at": "2026-11-27T10:25:25Z",
+    }
+    WINDOW_JOB = {
+        "id": 140421831827,
+        "name": mod.WINDOW_INSTALL_JOB,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-27T09:30:10Z",
+        "completed_at": "2026-11-27T10:00:30Z",
+    }
+    WINDOW_LOG = "\n".join(
+        [
+            "2026-11-27T10:00:21.9228156Z [apply] 20261124195144_exact_profile_keeps_how_an_opener_answers_a_3_bet.sql",
+            "2026-11-27T10:00:21.9234003Z [apply]   not present in schema_migrations; applying the migration as ONE transaction",
+            "2026-11-27T10:00:24.8616654Z [apply] committed in 2817ms",
+            "2026-11-27T10:00:24.9065210Z [apply] recorded version=20261124195144 name=exact_profile_keeps_how_an_opener_answers_a_3_bet",
+            "2026-11-27T10:00:24.9067245Z [apply] APPLIED",
+            "2026-11-27T10:00:26.1027593Z [apply] 20261126191910_club_member_held_and_locked_chips_never_go_below_zero.sql",
+            "2026-11-27T10:00:27.9186963Z [apply] committed in 1693ms",
+            "2026-11-27T10:00:27.9605306Z [apply] APPLIED",
+            "2026-11-27T10:00:28.0055962Z [window] result: INSTALLED 2 migration(s) inside the daily maintenance freeze",
+        ]
+    )
 
     def test_the_window_install_that_cost_07_00_makes_the_certificate_stale(self):
         window_log = "\n".join(
@@ -1687,39 +1753,47 @@ class CopyFreshnessTests(unittest.TestCase):
                 "[apply] QUEUED: 20261127000003_z.sql",
             ]
         )
-        apply_runs = [({"id": 900, "status": "completed"}, [{"id": 91, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T11:00:00Z"}])]
-        gh_get, gh_text = self._gh(apply_runs, [], {91: log})
+        gh_get, gh_text = self._gh([self._apply(900, 91, "2026-11-27T11:00:00Z")], [], {91: log})
         self.assertEqual(self._judge(gh_get, gh_text)[0], "fresh")
 
     def test_a_reused_copy_is_dated_by_its_restore_not_by_the_run(self):
         # 4f2a8bcc269e's run refreshed at 03:49 CST but certified a copy restored 01:25 CST.
-        after = [({"id": 904, "status": "completed"}, [{"id": 95, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T08:30:00Z"}])]
-        gh_get, gh_text = self._gh(after, [], {95: "[apply] 20261124195144_a.sql\n[apply] APPLIED"})
+        gh_get, gh_text = self._gh(
+            [self._apply(904, 95, "2026-11-27T08:30:00Z")], [], {95: "[apply] 20261124195144_a.sql\n[apply] APPLIED"}
+        )
         verdict, detail = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T07:25:01Z"}})
         self.assertEqual(verdict, "stale")
         self.assertIn("01:25", detail)
 
     def test_an_install_before_the_copy_or_an_engine_inert_one_is_not_missing(self):
-        before = [({"id": 901, "status": "completed"}, [{"id": 92, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T10:00:00Z"}])]
-        gh_get, gh_text = self._gh(before, [], {92: "[apply] 20261127000004_w.sql\n[apply] APPLIED"})
+        gh_get, gh_text = self._gh(
+            [self._apply(901, 92, "2026-11-27T10:00:00Z")], [], {92: "[apply] 20261127000004_w.sql\n[apply] APPLIED"}
+        )
         self.assertEqual(self._judge(gh_get, gh_text)[0], "fresh")
-        after = [({"id": 902, "status": "completed"}, [{"id": 93, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T11:00:00Z"}])]
-        gh_get, gh_text = self._gh(after, [], {93: "[apply] 20261127000005_v.sql\n[apply] APPLIED"})
-        self.assertEqual(self._judge(gh_get, gh_text, inert=lambda _t: True)[0], "fresh")
-        self.assertEqual(self._judge(gh_get, gh_text, inert=lambda _t: False)[0], "stale")
+        gh_get, gh_text = self._gh(
+            [self._apply(902, 93, "2026-11-27T11:00:00Z")], [], {93: "[apply] 20261127000005_v.sql\n[apply] APPLIED"}
+        )
+        verdict, detail = self._judge(gh_get, gh_text, helper=self._helper({"20261127000005"}))
+        self.assertEqual(verdict, "fresh")
+        self.assertIn("left out as engine-inert: 20261127000005", detail)
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper())[0], "stale")
         # No carve-out helper: every install counts.
-        self.assertEqual(self._judge(gh_get, gh_text, inert=None)[0], "stale")
+        self.assertEqual(self._judge(gh_get, gh_text, helper=None)[0], "stale")
 
     def test_unreadable_is_unread_never_fresh(self):
-        after = [({"id": 903, "status": "completed"}, [{"id": 94, "name": "Apply", "conclusion": "success", "completed_at": "2026-11-27T11:00:00Z"}])]
+        after = [self._apply(903, 94, "2026-11-27T11:00:00Z")]
         gh_get, gh_text = self._gh(after, [], {})  # the log cannot be read
         self.assertEqual(self._judge(gh_get, gh_text)[0], "unread")
         gh_get, gh_text = self._gh([], [], {}, artifacts=[])  # no certificate kept
         self.assertEqual(self._judge(gh_get, gh_text)[0], "unread")
         gh_get, gh_text = self._gh([], [], {})
         self.assertEqual(self._judge(gh_get, gh_text, cert={"database": {}})[0], "unread")
+        gh_get, gh_text = self._gh([], [], {}, attempt=None)  # the run names no attempt
+        self.assertEqual(self._judge(gh_get, gh_text)[0], "unread")
 
         def truncated(path):
+            if path.endswith("/runs/700"):
+                return {"id": 700, "run_attempt": 1}
             if "/artifacts" in path:
                 return {"artifacts": [{"id": 5, "name": f"backup-certificate-{self.SHA}-1"}]}
             return {"total_count": 101, "workflow_runs": []}
@@ -1735,6 +1809,316 @@ class CopyFreshnessTests(unittest.TestCase):
         self.assertIsNone(sha)
         self.assertIn("could not be read", summary)
         self.assertEqual(mod.EXIT_CODES[mod.VERDICT_UNKNOWN], 3)
+
+    # --- O36b finding 1: an install by a run created long before the copy ---
+
+    def test_a_stage_run_reserved_hours_before_the_copy_still_shows_its_install(self):
+        # Run 45963036602 was created 08:05:43Z and installed at 10:00:30Z. A copy restored at
+        # 09:40Z lies between: one hour of lookback never listed the run.
+        gh_get, gh_text = self._gh([], [(self.WINDOW_RUN, [self.WINDOW_JOB])], {140421831827: self.WINDOW_LOG})
+        verdict, detail = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T09:40:00Z"}})
+        self.assertEqual(verdict, "stale", detail)
+        self.assertIn("20261124195144", detail)
+        self.assertIn("20261126191910", detail)
+
+    def test_the_stage_lookback_covers_the_longest_reservation_the_workflow_allows(self):
+        stage = (ROOT / ".github/workflows/stage-engine-release.yml").read_text()
+        bound = re.search(r'\[ "\$remaining" -le (\d+) \] \|\| \{ echo \'::error::Reservation exceeds five hours', stage)
+        self.assertIsNotNone(bound, "the reservation bound moved; re-derive STAGE_RESERVATION_LOOKBACK")
+        default = re.search(r"lookback_seconds=\$\{lookback_seconds:-(\d+)\}", stage)
+        self.assertIsNotNone(default)
+        longest = max(int(bound.group(1)), int(default.group(1)))
+        self.assertGreaterEqual(mod.STAGE_RESERVATION_LOOKBACK.total_seconds(), longest + 3600)
+
+    def test_a_re_run_of_an_old_apply_run_is_seen_by_its_new_attempt(self):
+        # A re-run keeps the run's created_at; its job completes now.
+        old = self._apply(905, 96, "2026-11-27T11:00:00Z", created_at="2026-11-25T15:00:00Z", updated_at="2026-11-27T11:00:05Z")
+        gh_get, gh_text = self._gh([old], [], {96: "[apply] 20261125150000_r.sql\n[apply] committed in 40ms\n[apply] APPLIED"})
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "stale", detail)
+        self.assertIn("20261125150000", detail)
+
+    # --- O36b finding 2: what a report costs ---
+
+    def test_a_run_not_touched_since_the_copy_costs_no_further_read(self):
+        calls = []
+        quiet = [
+            ({"id": 810 + i, "status": "completed", "created_at": "2026-11-27T06:00:00Z", "updated_at": "2026-11-27T06:30:00Z"}, [])
+            for i in range(40)
+        ]
+        old_apply = [
+            ({"id": 910 + i, "status": "completed", "created_at": "2026-11-26T06:00:00Z", "updated_at": "2026-11-26T06:02:00Z"}, [])
+            for i in range(40)
+        ]
+        gh_get, gh_text = self._gh(old_apply, quiet + [(self.WINDOW_RUN, [self.WINDOW_JOB])], {140421831827: self.WINDOW_LOG}, calls=calls)
+        verdict, _ = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T09:40:00Z"}})
+        self.assertEqual(verdict, "stale")
+        # run, artifacts, two lists, one jobs read and one log: nothing per untouched run.
+        self.assertEqual(len(calls), 6, calls)
+
+    def test_a_second_certificate_on_the_same_copy_reads_only_its_own_certificate(self):
+        calls, cache = [], {}
+        gh_get, gh_text = self._gh([], [(self.WINDOW_RUN, [self.WINDOW_JOB])], {140421831827: self.WINDOW_LOG}, calls=calls)
+        cert = {"database": {"restoredAt": "2026-11-27T09:40:00Z"}}
+        first = self._judge(gh_get, gh_text, cert=cert, cache=cache)
+        spent = len(calls)
+        second = self._judge(gh_get, gh_text, cert=cert, run_id=701, cache=cache)
+        self.assertEqual((first[0], second[0]), ("stale", "stale"))
+        self.assertEqual(calls[spent:], ["repos/o/r/actions/runs/701", "repos/o/r/actions/runs/701/artifacts?per_page=100"])
+        # Another copy time is another question.
+        third = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T10:05:00Z"}}, run_id=702, cache=cache)
+        self.assertEqual(third[0], "fresh")
+        self.assertEqual(len(cache), 2)
+
+    def test_three_stale_certificates_on_one_copy_cost_one_read_of_the_installs(self):
+        serving = _sha("0")
+        shas = [_sha("a"), _sha("b"), _sha("d")]
+        now = datetime(2026, 11, 27, 11, 30, tzinfo=timezone.utc)
+        tree = "100644 blob 1111111111111111111111111111111111111111\tscripts/ci/select-daily-engine.py"
+        calls = []
+        archive = self._zip({"database": {"restoredAt": "2026-11-27T09:40:00Z"}})
+        runs = {sha: 701 + i for i, sha in enumerate(shas)}
+        stage_list = [dict(self.WINDOW_RUN, display_title="cycle", event="workflow_run", head_sha=shas[0], html_url="")]
+
+        def gh_get(path):
+            calls.append(path)
+            if "created=%3E%3D" in path:
+                if mod.STAGE_WORKFLOW in path:
+                    return {"total_count": 1, "workflow_runs": [self.WINDOW_RUN]}
+                return {"total_count": 0, "workflow_runs": []}
+            if "stage-engine-release.yml/runs" in path:
+                return {"workflow_runs": stage_list}
+            if "backup-engine.yml/runs" in path:
+                return {"workflow_runs": []}
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": shas[0]}}
+            if "engine-release-prequalification.yml/runs" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 8100 + i, "status": "completed", "conclusion": "success", "event": "push",
+                            "head_branch": "main", "path": mod.PREQUAL_PATH, "head_sha": sha, "run_attempt": 1,
+                            "updated_at": "2026-11-27T09:00:00Z", "html_url": f"https://github.com/o/r/actions/runs/{8100 + i}",
+                        }
+                        for i, sha in enumerate(shas)
+                    ]
+                }
+            for sha, run_id in runs.items():
+                if f"/commits/{sha}/status" in path:
+                    return {
+                        "statuses": [
+                            {
+                                "context": "backup-engine/certified", "state": "success",
+                                "target_url": f"https://github.com/o/r/actions/runs/{run_id}",
+                                "updated_at": "2026-11-27T09:50:00Z",
+                            }
+                        ]
+                    }
+                if path == f"repos/o/r/actions/runs/{run_id}":
+                    return {"id": run_id, "run_attempt": 1}
+                if path == f"repos/o/r/actions/runs/{run_id}/artifacts?per_page=100":
+                    return {"artifacts": [{"id": run_id, "name": f"backup-certificate-{sha}-1", "expired": False}]}
+            if path.startswith(f"repos/o/r/actions/runs/{self.WINDOW_RUN['id']}/jobs"):
+                return {"jobs": [self.WINDOW_JOB]}
+            raise AssertionError(f"unexpected gh api path: {path}")
+
+        def gh_text(path):
+            calls.append(path)
+            return self.WINDOW_LOG
+
+        def gh_bytes(path):
+            calls.append(path)
+            return archive
+
+        report = mod.collect_readiness(
+            repo="o/r", limit=10, now_utc=now, health_fn=lambda: _health(release_sha=serving),
+            gh_get_fn=gh_get, gh_text_fn=gh_text, gh_bytes_fn=gh_bytes,
+            git_fn=_make_git_stub(shas[0], serving, [(sha, f"fix: {i}") for i, sha in enumerate(shas)]),
+            projection_fn=lambda _sha: tree, inert_helper=self._helper(),
+        )
+        self.assertEqual([c.get("copyFreshness") for c in report["candidates"]], ["stale"] * 3, report["summary"])
+        self.assertEqual(report["verdict"], "NO_CANDIDATE")
+        installs = [c for c in calls if "created=%3E%3D" in c or "/jobs" in c]
+        # Two lists, one jobs read and one log for the copy, however many certificates share it.
+        self.assertEqual(len(installs), 4, installs)
+        self.assertEqual(len([c for c in calls if c.endswith("/zip")]), 3)
+
+    # --- O36b finding 3: more runs than one page ---
+
+    def _many_stage_runs(self, count):
+        return [
+            ({"id": 100000 + i, "status": "completed", "created_at": "2026-11-27T06:00:00Z", "updated_at": "2026-11-27T06:30:00Z"}, [])
+            for i in range(count)
+        ]
+
+    def test_a_stall_long_enough_for_a_second_page_of_runs_is_read_page_by_page(self):
+        # Stage held about 156 runs in 24 h on 2026-11-27. The install is on the second page.
+        calls = []
+        stage = self._many_stage_runs(155) + [(self.WINDOW_RUN, [self.WINDOW_JOB])]
+        gh_get, gh_text = self._gh([], stage, {140421831827: self.WINDOW_LOG}, calls=calls)
+        verdict, detail = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T09:40:00Z"}})
+        self.assertEqual(verdict, "stale", detail)
+        self.assertTrue(any(c.endswith("&page=2") and mod.STAGE_WORKFLOW in c for c in calls))
+        gh_get, gh_text = self._gh([], self._many_stage_runs(155), {})
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "fresh", detail)
+
+    def test_more_pages_than_the_bound_is_unread(self):
+        gh_get, gh_text = self._gh([], self._many_stage_runs(mod.RUN_PAGE_SIZE * mod.RUN_PAGE_LIMIT + 1), {})
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "unread")
+        self.assertIn("pages", detail)
+
+    # --- O36b finding 4: a job is judged by its own state, not its run's ---
+
+    def test_the_window_install_counts_while_its_run_is_still_open(self):
+        # 10:00:30Z to 10:25:25Z on 2026-11-27: the installer had finished, the run had not.
+        open_run = dict(self.WINDOW_RUN, status="in_progress", conclusion=None, updated_at="2026-11-27T10:00:31Z")
+        gh_get, gh_text = self._gh([], [(open_run, [self.WINDOW_JOB])], {140421831827: self.WINDOW_LOG})
+        verdict, detail = self._judge(gh_get, gh_text, cert={"database": {"restoredAt": "2026-11-27T09:40:00Z"}})
+        self.assertEqual(verdict, "stale", detail)
+
+    def test_an_installer_or_an_apply_run_still_running_is_unread(self):
+        cert = {"database": {"restoredAt": "2026-11-27T09:40:00Z"}}
+        open_run = dict(self.WINDOW_RUN, status="in_progress", conclusion=None)
+        running = dict(self.WINDOW_JOB, status="in_progress", conclusion=None, completed_at=None)
+        gh_get, gh_text = self._gh([], [(open_run, [running])], {})
+        verdict, detail = self._judge(gh_get, gh_text, cert=cert)
+        self.assertEqual(verdict, "unread", detail)
+        self.assertIn("window installer", detail)
+        # Not started yet: nothing was sent, and the next read sees it.
+        queued = dict(self.WINDOW_JOB, status="queued", conclusion=None, completed_at=None)
+        gh_get, gh_text = self._gh([], [(open_run, [queued])], {})
+        self.assertEqual(self._judge(gh_get, gh_text, cert=cert)[0], "fresh")
+        apply_open = ({"id": 906, "status": "in_progress", "created_at": "2026-11-27T10:30:00Z"}, [])
+        gh_get, gh_text = self._gh([apply_open], [], {})
+        verdict, detail = self._judge(gh_get, gh_text, cert=cert)
+        self.assertEqual(verdict, "unread", detail)
+        self.assertIn("906", detail)
+
+    # --- O36b finding 5: committed is the applier's "committed", not only "APPLIED" ---
+
+    def test_a_commit_whose_history_read_back_failed_is_still_committed(self):
+        log = "\n".join(
+            [
+                "[apply] 20261127000006_u.sql",
+                "[apply] committed in 812ms",
+                "[apply] UNKNOWN: migration sent; read durable atomic history before another attempt",
+                "[apply] Inspect the retained operation and durable state before another attempt.",
+            ]
+        )
+        self.assertEqual(mod.committed_files_in_log(log), ["20261127000006_u.sql"])
+        self.assertEqual(mod.committed_files_in_log(self.WINDOW_LOG), [
+            "20261124195144_exact_profile_keeps_how_an_opener_answers_a_3_bet.sql",
+            "20261126191910_club_member_held_and_locked_chips_never_go_below_zero.sql",
+        ])
+
+    def test_an_unknown_outcome_before_the_commit_is_unread(self):
+        for tail in (
+            "[apply] UNKNOWN after 5003ms",
+            "[apply] UNKNOWN: could not bound the owning migration transaction: timeout",
+            "[window] result: UNKNOWN `20261127000007_t.sql` (exit SIGTERM) - read schema_migrations for it before anything else.",
+        ):
+            with self.assertRaises(mod.ReadError, msg=tail):
+                mod.committed_files_in_log("[apply] 20261127000007_t.sql\n" + tail)
+        gh_get, gh_text = self._gh(
+            [self._apply(907, 97, "2026-11-27T11:00:00Z")], [], {97: "[apply] 20261127000007_t.sql\n[apply] UNKNOWN after 5003ms"}
+        )
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "unread")
+        self.assertIn("20261127000007_t.sql", detail)
+        # A definite refusal or a dry run sent nothing durable.
+        self.assertEqual(mod.committed_files_in_log("[apply] 20261127000008_s.sql\n[apply] REFUSED after 1002ms\n[apply] UNKNOWN: later"), [])
+        self.assertEqual(mod.committed_files_in_log("[apply] 20261127000008_s.sql\n[apply] DRY RUN: nothing sent."), [])
+
+    def test_the_markers_are_the_strings_the_applier_and_the_installer_print(self):
+        applier = (ROOT / "scripts/ci/apply-recorded-migration.mjs").read_text()
+        installer = (ROOT / "scripts/ci/install-window-migrations.mjs").read_text()
+        for printed in (
+            "console.log(`[apply] ${file}`);",
+            "console.log(`[apply] committed in ${Date.now() - started}ms`);",
+            "console.log('[apply] APPLIED');",
+            "console.error(`[apply] UNKNOWN: ${msg}`);",
+            "console.error(`[apply] REFUSED: ${msg}`);",
+            "`[apply] ${definiteRefusal ? 'REFUSED' : 'UNKNOWN'} after ${Date.now() - started}ms`",
+            "console.log('[apply] DRY RUN: nothing sent.');",
+        ):
+            self.assertIn(printed, applier, "the applier renamed a line readiness reads")
+        self.assertLess(applier.index("[apply] committed in"), applier.index("'[apply] APPLIED'"))
+        self.assertIn("console.log(`[window] ${line}`);", installer)
+        self.assertIn("say(`result: ${verdict}`);", installer)
+        self.assertRegex(installer, r"finish\(\s*3,\s*`UNKNOWN \\`\$\{f\}\\` \(exit")
+        self.assertTrue(mod.APPLY_FILE_LINE_RE.match("[apply] 20261127000009_r.sql"))
+        self.assertTrue(mod.APPLY_COMMITTED_RE.match("[apply] committed in 2817ms"))
+        self.assertEqual(mod.APPLY_COMMITTED_LINE, "[apply] APPLIED")
+        self.assertTrue("[apply] UNKNOWN: x".startswith(mod.APPLY_UNKNOWN_PREFIX))
+        self.assertTrue("[apply] UNKNOWN after 3ms".startswith(mod.APPLY_UNKNOWN_PREFIX))
+        self.assertTrue("[apply] REFUSED after 3ms".startswith(mod.APPLY_REFUSED_PREFIX))
+        self.assertTrue("[apply] DRY RUN: nothing sent.".startswith(mod.APPLY_DRY_RUN_PREFIX))
+        self.assertTrue("[window] result: UNKNOWN `f.sql` (exit 3)".startswith(mod.WINDOW_UNKNOWN_PREFIX))
+
+    # --- O36b finding 6: the carve-out is the selector's own ---
+
+    def test_the_inert_carve_out_is_the_helpers_for_the_exact_target(self):
+        gh_get, gh_text = self._gh(
+            [self._apply(908, 98, "2026-11-27T11:00:00Z")], [], {98: "[apply] 20261127000005_v.sql\n[apply] committed in 9ms"}
+        )
+        seen = []
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper({"20261127000005"}, seen))[0], "fresh")
+        self.assertEqual(seen, [("/repo", "c" * 40, (self.SHA,))])
+        # A version the candidate itself ships is never inert: the helper leaves it out of its answer.
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper(set()))[0], "stale")
+        # Above the helper's limit nothing is left out anywhere.
+        real = mod.load_inert_helper(ROOT)
+        many = {f"202611270001{i:02d}" for i in range(real.INERT_SUBSET_LIMIT + 1)} | {"20261127000005"}
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper(many))[0], "stale")
+        within = {f"202611270001{i:02d}" for i in range(real.INERT_SUBSET_LIMIT - 1)} | {"20261127000005"}
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper(within))[0], "fresh")
+        # The real helper, asked about SHAs it cannot list, leaves nothing out.
+        self.assertEqual(mod.inert_carve_out(real, ROOT, "c" * 40, self.SHA), frozenset())
+        self.assertFalse(hasattr(mod, "load_engine_inert"))
+
+    # --- O36b finding 7: the certificate of the run's own attempt ---
+
+    def test_the_certificate_read_is_the_one_named_for_the_runs_attempt(self):
+        artifacts = [
+            {"id": 5, "name": f"backup-certificate-{self.SHA}-1", "expired": False},
+            {"id": 6, "name": f"backup-certificate-{self.SHA}-2", "expired": False},
+        ]
+        archives = {
+            5: self._zip({"database": {"restoredAt": "2026-11-27T07:25:01Z"}}),
+            6: self._zip({"database": {"restoredAt": "2026-11-27T10:05:00Z"}}),
+        }
+        gh_get, gh_text = self._gh([], [], {}, artifacts=artifacts, attempt=1)
+        self.assertIn("01:25", self._judge(gh_get, gh_text, archives=archives)[1])
+        gh_get, gh_text = self._gh([], [], {}, artifacts=artifacts, attempt=2)
+        self.assertIn("04:05", self._judge(gh_get, gh_text, archives=archives)[1])
+        gh_get, gh_text = self._gh([], [], {}, artifacts=artifacts[:1], attempt=2)
+        verdict, detail = self._judge(gh_get, gh_text, archives=archives)
+        self.assertEqual(verdict, "unread")
+        self.assertIn(f"backup-certificate-{self.SHA}-2", detail)
+        # A run the report already listed is not read a second time for its attempt.
+        calls = []
+        gh_get, gh_text = self._gh([], [], {}, artifacts=artifacts, attempt=1, calls=calls)
+        self.assertIn("04:05", self._judge(gh_get, gh_text, archives=archives, attempts={700: 2})[1])
+        self.assertNotIn("repos/o/r/actions/runs/700", calls)
+        selector = (ROOT / "scripts/ci/select-daily-engine.py").read_text()
+        self.assertIn("""name = f'backup-certificate-{sha}-{run["run_attempt"]}'""", selector)
+
+    # --- O36b finding 8: fresh says what was read, not that contents were compared ---
+
+    def test_fresh_says_no_install_was_seen_in_the_job_logs(self):
+        gh_get, gh_text = self._gh([], [], {})
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "fresh")
+        self.assertIn("no install seen in the applier's job logs since the copy was restored", detail)
+        self.assertNotIn("current", detail)
+        health = {"phase": "idle"}
+        git_info = {"totalCommitsSinceServing": 1, "controlSha": "c" * 40, "servingSha": "s" * 40}
+        cand = [{"sha": "a" * 40, "subject": "x", "status": "SELECTABLE", "reason": "", "copyFreshness": "fresh", "copyFreshnessDetail": detail}]
+        verdict, sha, summary = mod.determine_verdict(health, cand, [], git_info)
+        self.assertEqual((verdict, sha), (mod.VERDICT_READY, "a" * 40))
+        self.assertIn("no install seen in the applier's job logs", summary)
 
 
 if __name__ == "__main__":
