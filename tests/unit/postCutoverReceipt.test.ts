@@ -18,6 +18,10 @@ import {
   findOrphanCycle,
   RECEIPTS_START,
   RECORDS_REPAIR,
+  RECEIPT_LATE_MS,
+  NOTE_MAX,
+  clipNote,
+  minutesAfterResult,
   findCutoverComment,
   formatReceipt,
   receiptAlreadyPosted,
@@ -63,6 +67,7 @@ describe('post-cutover receipt', () => {
       result: 'SEALED',
       sealedSha: SHA,
       expectSha: SHA,
+      postedAt: null,
     });
     expect(findCutoverComment(comments, 1000)).toMatchObject({
       result: 'REFUSED',
@@ -80,6 +85,7 @@ describe('post-cutover receipt', () => {
       result: 'KEEP-SERVING',
       sealedSha: null,
       expectSha: 'c'.repeat(40),
+      postedAt: null,
     });
     // A readiness line from the same Stage run is not a cycle result.
     const readiness = `Cycle: 2026-11-26 19:00 CST | Readiness at T-45m: READY | Stage: ${RUN}/45913871888`;
@@ -114,16 +120,22 @@ describe('post-cutover receipt', () => {
     expect(CYCLE_RESULT_LINE.test(body)).toBe(false);
     expect(SEAL_LINE.test(body)).toBe(false);
     expect(/^Result:/m.test(body)).toBe(false);
+    // A check note is flattened onto its own check line, so it can never start a Sealed SHA line (and a
+    // multi-line failure no longer crashes the receipt and leaves the cycle unanswered).
+    const flattened = formatReceipt({
+      cycle: 'c',
+      result: 'SEALED',
+      runId: 1,
+      report: {
+        ...REPORT,
+        checks: [{ name: 'x', status: 'fail', failures: ['\nSealed SHA: `' + SHA + '`'] }],
+      },
+    });
+    expect(SEAL_LINE.test(flattened)).toBe(false);
+    expect(flattened).toContain('- x: FAIL (Sealed SHA: `');
+    // Anything else that would put a cycle or result line on the log still refuses to format.
     expect(() =>
-      formatReceipt({
-        cycle: 'c',
-        result: 'SEALED',
-        runId: 1,
-        report: {
-          ...REPORT,
-          checks: [{ name: 'x', status: 'fail', failures: ['\nSealed SHA: `' + SHA + '`'] }],
-        },
-      })
+      formatReceipt({ cycle: 'c\nResult: SEALED', result: 'SEALED', runId: 1, report: REPORT })
     ).toThrow(/never read as a cutover-log cycle result/);
   });
 
@@ -242,6 +254,68 @@ describe('the sweep answers a cycle whose receipt never came', () => {
     });
     expect(clean).not.toContain('Late receipt');
     expect(clean).not.toContain('Records repair');
+  });
+
+  // 2026-11-27: every overnight receipt came through the sweep 15 to 26 minutes after its result and every one
+  // said "Late receipt", so the word stopped meaning anything.
+  it('a sweep receipt within 30 minutes of the result says it is on time, not late', () => {
+    const body = formatReceipt({
+      cycle: 'c',
+      result: 'SEALED',
+      runId: 3,
+      report: { ...REPORT, auditedAt: '2026-11-27T07:18:38Z' },
+      late: true,
+      resultAt: '2026-11-27T07:02:09Z',
+    });
+    expect(body).toContain('Posted by the sweep 16 min after the cycle result (on time).');
+    expect(body).not.toContain('Late receipt');
+    expect(RECEIPT_LATE_MS).toBe(30 * 60_000);
+  });
+
+  it('a sweep receipt more than 30 minutes after the result is late and says by how much', () => {
+    const body = formatReceipt({
+      cycle: 'c',
+      result: 'KEEP-SERVING',
+      runId: 3,
+      report: { ...REPORT, auditedAt: '2026-11-27T13:15:18Z' },
+      late: true,
+      resultAt: '2026-11-27T12:30:54Z',
+    });
+    expect(body).toContain('Late receipt (the sweep): posted 44 min after the cycle result');
+    expect(/^(Result|Sealed SHA|Cycle):/m.test(body)).toBe(false);
+  });
+
+  it('measures lateness from the cycle comment the receipt answers', () => {
+    const c = { ...sealedAt(7, '2026-11-27T07:02:09Z'), id: 5 };
+    expect(findCutoverComment([c], 7)?.postedAt).toBe('2026-11-27T07:02:09Z');
+    expect(minutesAfterResult('2026-11-27T07:02:09Z', '2026-11-27T07:18:38Z')).toBe(16);
+    expect(minutesAfterResult(null, '2026-11-27T07:18:38Z')).toBeNull();
+    expect(minutesAfterResult('2026-11-27T08:00:00Z', '2026-11-27T07:00:00Z')).toBeNull();
+  });
+
+  // 2026-11-27 07:00 receipt: the switch_records note was cut at 300 characters, mid-word ("a wa)"), and lost
+  // the instruction to wait for the shadow row to settle.
+  it('keeps a long switch_records note whole, and cuts only past NOTE_MAX, at a word', () => {
+    const note =
+      'docs/horse-option-switch-state.json holds audit max 200, production 205; rows differ: ' +
+      'omahaFacingBetPriorIsPeopleMeasured default -> on, omahaRiverBluffIsPricedOnBlockers default -> on, ' +
+      'omahaRiverBluffIsPricedOnRangeAdvantage default -> shadow (omahaRiverBluffIsPricedOnRangeAdvantage in ' +
+      'shadow: a watch in progress, record it when it settles). Run: node scripts/ops/horse-option-switch.mjs records';
+    const body = formatReceipt({
+      cycle: 'c',
+      result: 'SEALED',
+      runId: 3,
+      report: {
+        ...REPORT,
+        checks: [{ name: 'switch_records', status: 'warn', failures: [], warnings: [note] }],
+      },
+    });
+    expect(body).toContain('record it when it settles');
+    expect(body).toContain(`(${note})`);
+    const long = clipNote('word '.repeat(400));
+    expect(long.length).toBeLessThanOrEqual(NOTE_MAX);
+    expect(long.endsWith('word ... (cut)')).toBe(true);
+    expect(clipNote('a\n b')).toBe('a b');
   });
 });
 
