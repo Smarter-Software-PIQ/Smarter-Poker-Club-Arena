@@ -5555,6 +5555,29 @@ export class TournamentManager extends TournamentManagerEliminations {
    * (2026-11-27), and the caller waits for the next balance pass. A read that fails keeps the planned chair: the
    * database door stays the authority and refuses a taken chair cleanly.
    */
+  private pickDoorChairFromTables(
+    move: MoveInstruction,
+    tables: BalancerTable[] | null
+  ): number | null {
+    // A failed read keeps the planned chair; the door decides.
+    if (!tables) return move.toSeat;
+    // A complete read without the destination means a pending break holds it
+    // (loadBalancerTables leaves out every table a break is moving players
+    // to). Its chairs are promised to that break's members, so this move
+    // waits for the next pass instead of taking one of them.
+    const table = tables.find((t) => t.tableId === move.toTableId);
+    if (!table) return null;
+    const taken = new Set<number>([
+      ...table.players.map((p) => p.seat),
+      ...(table.reservedSeats ?? []),
+    ]);
+    if (move.toSeat >= 1 && move.toSeat <= table.maxSeats && !taken.has(move.toSeat)) {
+      return move.toSeat;
+    }
+    const choice = chooseOpenSeat(table, { sourceHops: move.sourceHops ?? null });
+    return choice.seat >= 1 ? choice.seat : null;
+  }
+
   private async chairFreeAtTheDoor(move: MoveInstruction): Promise<number | null> {
     return runWithEventDbPriority('high', async () => {
       let tables: BalancerTable[] | null = null;
@@ -5563,23 +5586,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       } catch {
         tables = null;
       }
-      // A failed read keeps the planned chair; the door decides.
-      if (!tables) return move.toSeat;
-      // A complete read without the destination means a pending break holds it
-      // (loadBalancerTables leaves out every table a break is moving players
-      // to). Its chairs are promised to that break's members, so this move
-      // waits for the next pass instead of taking one of them.
-      const table = tables.find((t) => t.tableId === move.toTableId);
-      if (!table) return null;
-      const taken = new Set<number>([
-        ...table.players.map((p) => p.seat),
-        ...(table.reservedSeats ?? []),
-      ]);
-      if (move.toSeat >= 1 && move.toSeat <= table.maxSeats && !taken.has(move.toSeat)) {
-        return move.toSeat;
-      }
-      const choice = chooseOpenSeat(table, { sourceHops: move.sourceHops ?? null });
-      return choice.seat >= 1 ? choice.seat : null;
+      return this.pickDoorChairFromTables(move, tables);
     });
   }
 
@@ -5623,15 +5630,38 @@ export class TournamentManager extends TournamentManagerEliminations {
       if (!boundary) continue;
       let sourceMoved = false;
       try {
-        for (const move of batch) {
-          if (move.fromTableId !== sourceTableId) continue;
+        const sourceMoves = batch.filter((move) => move.fromTableId === sourceTableId);
+        // When a parked source sheds players to 2+ distinct destination tables,
+        // read every distinct destination's door chairs in ONE high-priority
+        // moveChairAtTheDoor batch instead of paying N serial door reads while
+        // the source stays frozen between hands. Same-destination repeats and
+        // lost-chair retries still read fresh via chairFreeAtTheDoor.
+        const uniqueDestIds = [...new Set(sourceMoves.map((move) => move.toTableId))];
+        let prefetchedDoorTables: BalancerTable[] | null | undefined = undefined;
+        if (sourceMoves.length > 1 && uniqueDestIds.length > 1) {
+          prefetchedDoorTables = await runWithEventDbPriority('high', async () => {
+            try {
+              return await this.loadBalancerTables(uniqueDestIds, 'moveChairAtTheDoor');
+            } catch {
+              return null;
+            }
+          });
+        }
+        const consumedPrefetchedDest = new Set<string>();
+        for (const move of sourceMoves) {
           if (!this.eliminationMutationAllowed() || refusedSources.has(sourceTableId)) break;
           // The chair is chosen at the door, not at planning time (2026-11-25).
           // Late registrants and other movers fill the same destination
           // between the snapshot and this request; a chair taken meanwhile
           // is replaced by one that is free now. One definite "occupied"
           // refusal (a clean rollback) gets one fresh read and a new request.
-          let chair = await this.chairFreeAtTheDoor(move);
+          let chair: number | null;
+          if (prefetchedDoorTables !== undefined && !consumedPrefetchedDest.has(move.toTableId)) {
+            consumedPrefetchedDest.add(move.toTableId);
+            chair = this.pickDoorChairFromTables(move, prefetchedDoorTables);
+          } else {
+            chair = await this.chairFreeAtTheDoor(move);
+          }
           if (chair === null) {
             refusedSources.add(sourceTableId);
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
