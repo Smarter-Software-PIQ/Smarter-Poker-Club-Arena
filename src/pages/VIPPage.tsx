@@ -33,6 +33,12 @@ import RewardsOverlayPortal from '../components/rewards/RewardsOverlayPortal';
 import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { formatPopupText } from '../utils/popupStyle';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { appNavigate } from '../lib/routerBridge';
+import {
+  VIP_MEMBERSHIP_PURCHASE_PATH,
+  useVipIntroEligibility,
+  vipMembershipPurchaseHref,
+} from '../hooks/useVipIntroEligibility';
 
 const FEATURE_ACRONYMS: Record<string, string> = {
   ai: 'AI',
@@ -459,7 +465,13 @@ export default function VIPPage() {
     }
   };
 
-  if (loading || stateUserId !== user?.id) {
+  /* THE FIRST-MONTH PRICE, WHERE A NON-MEMBER DECIDES (Dan, 2026-11-26). Asked
+     only once this page knows the account is not a member; no answer prints no
+     price, and the native app never prints one. */
+  const pageReady = !loading && stateUserId === user?.id;
+  const vipIntro = useVipIntroEligibility(pageReady && !isVIP);
+
+  if (!pageReady) {
     return (
       <div className="vip-page">
         <RewardsSurfaceHeader
@@ -618,7 +630,18 @@ export default function VIPPage() {
         <section className="vip-section">
           <h3>Buy Features</h3>
           <p className="section-desc">
-            Not A Member? Purchase Features Individually With Diamonds.
+            Not A Member? Purchase Features Individually With Diamonds, Or{' '}
+            <a
+              href={vipMembershipPurchaseHref()}
+              onClick={(event) => {
+                event.preventDefault();
+                appNavigate(VIP_MEMBERSHIP_PURCHASE_PATH);
+              }}
+            >
+              Get VIP Membership
+            </a>
+            .{vipIntro.priceLine ? ` ${vipIntro.priceLine}` : ''}
+            {vipIntro.reasonLine ? ` ${vipIntro.reasonLine}.` : ''}
           </p>
 
           <div className="purchase-grid">
