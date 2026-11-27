@@ -796,7 +796,8 @@ describe('CashierTradePage club load ordering', () => {
     const panel = await openHistory();
     const totals = within(panel).getByLabelText('Club Totals For These Filters');
     await waitFor(() => expect(totals).toHaveTextContent('123,456,789,012,345,678.91'));
-    expect(totals).toHaveTextContent('0.000000001');
+    // Two decimals on screen, cut (Dan 2026-11-27); the text twin stays exact.
+    expect(totals).not.toHaveTextContent('0.000000001');
   });
 
   it('stops a late incomplete total from scheduling reads after history closes', async () => {

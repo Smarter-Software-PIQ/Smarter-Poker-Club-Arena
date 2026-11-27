@@ -35,8 +35,8 @@ it('opens the selected receipt with its exact ledger ID, amount, timestamp, part
   expect(receipt.getByText('Recipient')).toBeVisible();
   expect(receipt.getByText('Promo Wallet To Player Wallet')).toBeVisible();
   expect(receipt.getByText(/:26:42/)).toHaveAttribute('dateTime', row.created_at);
-  expect(receipt.getByText('30.123 Chips')).toBeVisible();
-  expect(receipt.getByText('30.123 Added · 50.00 Of 50 Used After This Send')).toBeVisible();
+  expect(receipt.getByText('30.12 Chips')).toBeVisible();
+  expect(receipt.getByText('30.12 Added · 50.00 Of 50 Used After This Send')).toBeVisible();
   expect(receipt.getByText(row.id)).toBeVisible();
   vi.mocked(copyToClipboard).mockResolvedValueOnce(true);
   fireEvent.click(receipt.getByRole('button', { name: 'Copy Transaction ID' }));
