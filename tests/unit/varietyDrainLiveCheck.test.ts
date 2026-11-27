@@ -98,7 +98,7 @@ describe('the variety drain live check', () => {
     /* both wait rows read the same waits; a still-waiting game is one on the last beat */
     expect(body).toContain('FROM waits WHERE started_at IS NOT NULL');
     expect(body).toContain(
-      'FROM waits WHERE started_at IS NULL AND last_beat = (SELECT max(beat_at) FROM hb)'
+      'FROM waits WHERE started_at IS NULL\n   AND last_beat = (SELECT max(beat_at) FROM hb WHERE why IS DISTINCT FROM'
     );
   });
 
@@ -112,8 +112,20 @@ describe('the variety drain live check', () => {
   it('2026-11-27: says why the drain released what it did, over the beats with a start owed', () => {
     expect(body).toContain("h.detail ->> 'variety_drain_why' AS why");
     expect(body).toContain(
-      "SELECT coalesce(why, 'not recorded') AS why, count(*) AS n FROM hb WHERE owed > 0 GROUP BY 1"
+      "SELECT coalesce(why, 'not recorded') AS why, count(*) AS n FROM hb WHERE owed > 0 OR why = 'withheld' GROUP BY 1"
     );
+  });
+
+  it('review 2026-11-27: a withheld newest beat is not read as nothing waiting', () => {
+    /* A withheld beat publishes no owed games. Judged on it, "owed now" was 0
+       and owed_waiting_now said "0 waiting" while every game still waited. */
+    expect(body).toContain(
+      "(SELECT owed FROM hb WHERE why IS DISTINCT FROM 'withheld' ORDER BY beat_at DESC LIMIT 1)"
+    );
+    expect(body).toMatch(
+      /FROM waits WHERE started_at IS NULL\s+AND last_beat = \(SELECT max\(beat_at\) FROM hb WHERE why IS DISTINCT FROM 'withheld'\)/
+    );
+    expect(body).not.toContain('last_beat = (SELECT max(beat_at) FROM hb)');
   });
 
   it('is the R11 read the regression method names', () => {
