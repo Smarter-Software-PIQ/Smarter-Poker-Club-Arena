@@ -5117,6 +5117,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFlopPressureCapIsPriced: true,
     },
   })),
+  // 2026-11-27 lead-9 lane RV (default OFF, PLO4/PLO5 cash): the bettor's river record counts his mucked called bets
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_record_counts_mucked_bets`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaRiverRecordCountsMuckedBets: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_multiway_field_is_people_measured`,
     variant,

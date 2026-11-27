@@ -1217,6 +1217,7 @@ import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import {
   omahaPeoplePriorHiddenKeyOf,
   omahaPeoplePriorRecordCountsHidden,
+  omahaRiverRecordCountsMuckedBets,
 } from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
@@ -3937,6 +3938,14 @@ export interface HorseDecideOpts {
    * own record counts his hidden bets the same way. River untouched (every called river bettor is shown).
    */
   omahaPeoplePriorCountsHiddenBets?: boolean;
+  /**
+   * PLO-OWNER lead-9 lane RV 2026-11-27 (HorseOmahaPeoplePriorHidden.ts omahaRiverRecordCountsMuckedBets). Default
+   * OFF, read `=== true`. PLO4/PLO5 cash, heads-up, a RIVER bet (not a raise, not in a re-raised pot), inside
+   * omahaFacingBetPriorIsPeopleMeasured's record step: the bettor's own river record also counts the river bets of
+   * his that were called and mucked at the showdown (public: the showdown list) as bets that were not value. The
+   * people cell, the turn, the flop, raises, multiway, PLO6 and tournaments are untouched; calls and folds only.
+   */
+  omahaRiverRecordCountsMuckedBets?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -15360,6 +15369,16 @@ function omahaFacingBetEvCount(
             ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
+        // omahaRiverRecordCountsMuckedBets (default off): his own river record also counts the river bets he had
+        // called and then mucked at the showdown as not value (a bet, outside re-raised pots; the people cell stands)
+        const riverMucked =
+          opts.omahaRiverRecordCountsMuckedBets === true &&
+          omahaRiverRecordCountsMuckedBets(
+            variant,
+            spot.street,
+            spot.isRaise === true,
+            gs.actionHistory
+          );
         const anchored = omahaPeoplePriorShare({
           hidden: hiddenKey,
           street: spot.street,
@@ -15379,10 +15398,27 @@ function omahaFacingBetEvCount(
                   spot.potFrac,
                   omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
                     'agg',
-                  omahaPeoplePriorRecordCountsHidden(hiddenKey)
+                  omahaPeoplePriorRecordCountsHidden(hiddenKey) || riverMucked
                 )
               : null,
         });
+        // receipt: his river record held mucked called bets and the option read them
+        if (
+          riverMucked &&
+          anchored &&
+          mind &&
+          bettor &&
+          telemetryOn(opts) &&
+          anchored.shown >
+            (omahaBetReadOwnCellOf(
+              bettor.user_id,
+              variant,
+              spot.street,
+              spot.potFrac,
+              omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) === 'agg'
+            )?.shown ?? 0)
+        )
+          noteFire('omaha_river_mucked_bets_record_read');
         if (anchored) {
           readBeforeAnchor = read;
           read = {

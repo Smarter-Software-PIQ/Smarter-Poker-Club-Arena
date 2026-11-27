@@ -126,6 +126,27 @@ export function omahaPeoplePriorRecordCountsHidden(
   return !!key && key.split !== 'reraised';
 }
 
+/**
+ * omahaRiverRecordCountsMuckedBets (default OFF; PLO-OWNER lead-9 lane RV 2026-11-27). Whether the bettor's own RIVER
+ * record counts, for this decision, the river bets of his that were called and never shown (he reached the showdown
+ * and mucked: HorseOmahaBetRead's `hidden` counter, public events only) as shown bets that were not value. PLO4 / PLO5,
+ * a river BET (never a raise), and not in a re-raised pot (two or more preflop raises: the shown-only record stands
+ * there, as it does for omahaPeoplePriorCountsHiddenBets). The people cell is NOT changed: on this platform a called
+ * river bettor is always tabled (HandController's reveal rules), so people's shown river bets are all of their called
+ * river bets and the people share is already in this unit.
+ */
+export function omahaRiverRecordCountsMuckedBets(
+  variant: string,
+  street: string,
+  isRaise: boolean,
+  history: Hist
+): boolean {
+  const game = String(variant ?? '').toLowerCase();
+  if (game !== 'plo4' && game !== 'plo5') return false;
+  if (street !== 'river' || isRaise) return false;
+  return omahaPeoplePriorFlopPotOf(history) !== 'reraised';
+}
+
 /** The key for this decision, or null outside PLO4 / PLO5 and in a RE-RAISED pot (two or more preflop raises): there
  *  the option does not act on the flop or the turn (today's people cell and shown-only record stand). Re-raised pots
  *  are value-heavy and the Horses already fold under the pure-bluff break-even there (PLO5 flop 30.7% vs 46.1%);

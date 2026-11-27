@@ -1264,6 +1264,13 @@
       "prefixes": ["omaha_hidden_bets_prior_"],
       "unlessOn": []
     },
+    "omahaRiverRecordCountsMuckedBets": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": ["omaha_river_mucked_bets_record_read"],
+      "prefixes": ["omaha_river_mucked_bets_record_"],
+      "unlessOn": []
+    },
     "omahaMultiwayFieldIsPeopleMeasured": {
       "releaseDefault": "off",
       "source": "declared",

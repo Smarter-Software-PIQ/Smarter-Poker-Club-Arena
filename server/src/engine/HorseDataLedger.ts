@@ -1372,6 +1372,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverRecordCountsMuckedBets',
+    "PLO-OWNER lead-9 lane RV 2026-11-27 (plo-lead7-01TLQer8/l9-river/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside the people-measured heads-up river price the bettor's own river record also counts the river bets he had called and then mucked at the showdown as not value (a bet only, never in a re-raised pot); the people cell is unchanged; public events only.",
+    'V94'
+  ),
+  flag(
     'omahaMultiwayFieldIsPeopleMeasured',
     "PLO-OWNER lead-7 2026-11-27 (plo-lead7-01TLQer8/plo4-audit/FINDINGS.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with each caller holding the PEOPLE-measured caller width and each player still to act continuing at the PEOPLE-measured multiway continue rate, both anchored to equilibrium; heads-up untouched; Horse play never enters. HorseOmahaMultiwayPeopleField.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
     'V94'
@@ -6372,6 +6377,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_river_mucked_bets_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaPeoplePriorHidden omahaRiverRecordCountsMuckedBets)',
+    "the bettor's river record held river bets he had called and mucked and the river price counted them as not value (omahaRiverRecordCountsMuckedBets)",
+    'V94'
+  ),
+  receipt(
     'omaha_mw_people_field_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
     'the facing-bet verdict priced a multiway turn or river call on the people-measured caller width and multiway continue rate (omahaMultiwayFieldIsPeopleMeasured)',
@@ -11118,6 +11129,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaMultiwayFieldIsPeopleMeasured: { prefixes: ['omaha_mw_people_field_'] },
   // the hidden-bet people cells name their own receipt in its description
   omahaPeoplePriorCountsHiddenBets: { prefixes: ['omaha_hidden_bets_prior_'] },
+  // the river record's mucked bets name their own receipt in its description
+  omahaRiverRecordCountsMuckedBets: { prefixes: ['omaha_river_mucked_bets_record_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'

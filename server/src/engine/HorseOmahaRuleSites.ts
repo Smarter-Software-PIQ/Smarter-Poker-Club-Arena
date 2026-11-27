@@ -540,6 +540,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPeoplePriorCountsHiddenBets: priced(
     "the people-only flop (per pot type) and turn (per the bettor's flop line) non-value shares of the facing-bet price, per game, count the bets people never showed although they did not win them uncontested (folded later in the hand, mucked at showdown) as non-value; a thin split cell is blended toward the equilibrium anchor, never the pooled cell; the bettor's own record counts his hidden bets the same way; public events only, no unshown card, Horse play never enters (default OFF; lead-8 lane OFA 2026-11-27)"
   ),
+  omahaRiverRecordCountsMuckedBets: priced(
+    "inside the people-measured heads-up river price, the bettor's own river record also counts the river bets of his that were called and then mucked at the showdown (public: the showdown list) as bets that were not value, in the record's unit against the unchanged people share; a bet only, never a raise, never in a re-raised pot; public events only, no unshown card, no identity (default OFF; lead-9 lane RV 2026-11-27)"
+  ),
   omahaMultiwayFieldIsPeopleMeasured: priced(
     "a multiway turn or river call is priced with each caller holding the PEOPLE-measured caller width and each player still to act continuing at the PEOPLE-measured multiway continue rate, both anchored to equilibrium (1 / (1 + s); the field's joint break-even); heads-up untouched; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-27)"
   ),

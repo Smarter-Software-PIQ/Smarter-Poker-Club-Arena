@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaRiverRecordMuckedBetsIsFast.law.test.ts
+
+The river record's mucked bets (omahaRiverRecordCountsMuckedBets) inside the PLO4/PLO5 facing-bet price, decided by the engine's own decide on the committed real heads-up river facing-bet states where the option actually reads mucked called bets, cost at most 4 times the same decisions with the people prior alone, telemetry off and on, measured in alternating rounds on the same machine (src/testing/relativeCost.ts). It is the option's entry in OPTION_COST_LAWS, so the option cost gate (aPricedOptionProvesItsDecisionCost) holds for it.
