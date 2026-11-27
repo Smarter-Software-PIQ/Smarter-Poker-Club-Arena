@@ -6190,6 +6190,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "PLO-OWNER lead-7 2026-11-26 (owner order: the stats are used against people, not Horses). PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the answer curve those rules price a river bet with is re-measured on PEOPLE's answers for the Horse's line and the size (HorseOmahaPeopleFold.omahaPeopleRiverCurve, people answers only, shrunk to equilibrium by k = 75.9); with omahaRiverBetFoldIsHisRecord on his own record is shrunk to that people curve. One formula for every opponent; never PLO6. HorseOmahaPeopleFold.ts",
     'V94'
   ),
+  flag(
+    'omahaRiverBetCheckIsHisRecord',
+    "PLO-OWNER lead-7 lane river-station 2026-11-26 (root cause of the PLO5 calling-station loss of the two river bet rules). PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the card-impact range those rules price a river bet against reads his checks (what a check of his caps, and his bet after the Horse checks; his bets as before) through his own lifetime PUBLIC heads-up unopened turn and river bet record (OPPONENT-HUD hudFirstWagerRecord via HorseMind.omahaStabDefenceRecordOf, the two streets pooled) shrunk to PEOPLE's rate on the same counter by n / (n + k) (people only: PLO4 212/713, PLO5 989/2684; k = 23.2): the share his checks are read with = betCheckedTo x his shrunk rate / people's. A player who never bets unopened has checks that do not cap his range. With no record the read object is unchanged. One formula for every opponent; never PLO6. HorseOmahaRiverBetFoldRecord.ts (omahaRiverBetCheckRead)",
+    'V94'
+  ),
   receipt(
     'omaha_river_bet_fold_his_record_read',
     'HorseLogic wager_rules (omahaRiverBetFoldRecordCurve, omahaRiverBetFoldIsHisRecord)',
@@ -11053,6 +11058,11 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   ),
   // the people curve acts only through the two river bet rules; their receipts, legitimate while either is on
   omahaRiverBetFoldIsPeopleMeasured: {
+    prefixes: ['omaha_river_first_to_act_bet_priced', 'omaha_river_checked_to_bet_measured'],
+    unlessOn: ['omahaRiverFirstToActBetIsPriced', 'omahaRiverCheckedToBetIsMeasured'],
+  },
+  // his check read acts only through the two river bet rules; their receipts, legitimate while either is on
+  omahaRiverBetCheckIsHisRecord: {
     prefixes: ['omaha_river_first_to_act_bet_priced', 'omaha_river_checked_to_bet_measured'],
     unlessOn: ['omahaRiverFirstToActBetIsPriced', 'omahaRiverCheckedToBetIsMeasured'],
   },

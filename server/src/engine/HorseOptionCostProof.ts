@@ -67,6 +67,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   omahaRiverBluffIsPricedOnRangeAdvantage: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
   omahaTurnBluffIsPricedOnBlockers: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
   omahaTurnBluffIsPricedOnRangeAdvantage: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
+  // his check read inside the two river bet rules (river-station, 2026-11-26): on against the river rules alone
+  omahaRiverBetCheckIsHisRecord: 'engine/HorseOmahaRiverBetCheckRecord.law.test.ts',
   omahaRiverTripsBoardBoatIsNotNutClass: 'engine/anOmahaTripsBoardBoatIsFast.law.test.ts',
   // Hold'em: the opening side (cash, heads-up) and the tournament bluff
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',

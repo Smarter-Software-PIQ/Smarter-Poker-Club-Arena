@@ -119,6 +119,19 @@ export interface OmahaCardImpactRead {
   riverCallRate: number | null;
   betCheckedTo: number;
   bluffShare: number;
+  /**
+   * omahaRiverBetCheckIsHisRecord (PLO-OWNER lead-7 2026-11-26; default absent): HIS share of bets on unopened action,
+   * used in place of betCheckedTo for what a check of his says (the top share of his range he would have bet) and for
+   * how often he bets after the Horse checks. His bets are still read with betCheckedTo. Absent: exactly as before
+   * (HorseOmahaRiverBetFoldRecord.omahaRiverBetCheckRead).
+   */
+  checkBetShare?: number;
+}
+
+/** The share his checks are read with: checkBetShare when given, else betCheckedTo. */
+function checkBetShareOf(read: OmahaCardImpactRead): number {
+  const v = read.checkBetShare;
+  return typeof v === 'number' && Number.isFinite(v) ? clamp(v, 0, 1) : read.betCheckedTo;
 }
 
 export function omahaCardImpactRead(read: OmahaReadConditional | null): OmahaCardImpactRead {
@@ -776,7 +789,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
       const m = topMask(c, read.betCheckedTo);
       for (let k = 0; k < K; k++) w[k] *= m[k] ? 1 : 0.25;
     } else {
-      const m = topMask(c, read.betCheckedTo * 0.7);
+      const m = topMask(c, checkBetShareOf(read) * 0.7);
       for (let k = 0; k < K; k++) w[k] *= m[k] ? 0.35 : 1;
     }
   }
@@ -889,7 +902,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
   let evCheck: number;
   if (heroCloses) evCheck = pot * showdown;
   else {
-    const beta = clamp(read.betCheckedTo, 0, 1);
+    const beta = clamp(checkBetShareOf(read), 0, 1);
     const value = beta * (1 - read.bluffShare);
     const bluff = beta * read.bluffShare;
     const stabSize =
