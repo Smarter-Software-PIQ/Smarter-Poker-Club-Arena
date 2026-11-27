@@ -89,7 +89,7 @@ function makeJwt(sub: string): string {
     btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({
     sub,
-    exp: Math.floor(Date.now() / 1000) + 3600,
+    exp: 1_900_000_000,
   })}.sig`;
 }
 
