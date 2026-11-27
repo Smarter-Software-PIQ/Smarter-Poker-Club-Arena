@@ -39,6 +39,7 @@ import DiamondWalletModal from '../wallet/DiamondWalletModal';
 import { DiamondTopUpModal } from '../vip/DiamondTopUpModal';
 import CashierModal from './CashierModal';
 import BuyInModal, { type BuyInConfirmation } from './BuyInModal';
+import { SecondsUntil } from './SecondsUntil';
 
 import LeaderboardPanel from './LeaderboardPanel';
 import LeaveTableConfirm from './LeaveTableConfirm';
@@ -364,11 +365,13 @@ export interface TableModalsLayerProps {
   /** External purchase activity also disables the cash rebuy controls. */
   bustRebuyProcessing: boolean;
   /**
-   * Seconds left of the engine's bust rebuy window (Dan 2026-11-09: twenty
-   * seconds to rebuy, then the seat is released), or null when the engine has
-   * not announced one. TablePage owns the clock; this only displays it.
+   * Local instant (epoch ms) the engine's bust rebuy window ends (Dan
+   * 2026-11-09: twenty seconds to rebuy, then the seat is released), or null
+   * when the engine has not announced one. TablePage owns the deadline; the
+   * rebuy sheet counts the seconds itself (SecondsUntil), so the countdown
+   * re-renders the sheet and not the whole table.
    */
-  bustRebuySecondsLeft?: number | null;
+  bustRebuyDeadlineAt?: number | null;
   onCancelBustRebuy: () => void;
   onRetryBustBalance: () => void;
   onConfirmBustRebuy: (amount: number) => Promise<void>;
@@ -697,7 +700,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     bustRebuyOpen,
     bustWalletBalance,
     bustRebuyProcessing,
-    bustRebuySecondsLeft,
+    bustRebuyDeadlineAt = null,
     onCancelBustRebuy,
     onRetryBustBalance,
     onConfirmBustRebuy,
@@ -1235,35 +1238,39 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         maxStack={maxBuyIn}
         unlimitedStack={!isTournament && isFixedLimitVariant(gameType)}
       />
-      <BuyInModal
-        /* A Diamond cash seat is felted the same way and re-enters through
-           `fn_poker_diamond_top_up`, so the prompt is no longer chip-only.
-           `currency` is what makes the slider, the cap and the balance read in
-           whole Diamonds, exactly as the ordinary buy-in sheet does. */
-        purchaseKind="rebuy"
-        externalProcessing={bustRebuyProcessing}
-        isOpen={bustRebuyOpen && (arenaAsset === 'chips' || arenaAsset === 'diamonds')}
-        currency={arenaAsset === 'diamonds' ? 'diamonds' : ''}
-        onClose={onCancelBustRebuy}
-        onConfirm={async (amount: number) => {
-          await onConfirmBustRebuy(amount);
-        }}
-        tableName={tableName}
-        minBuyIn={minBuyIn}
-        maxBuyIn={bustRebuyMaxBuyIn ?? maxBuyIn}
-        onLeave={onLeaveBustRebuy}
-        /* NULL STAYS NULL, here too (Dan 2026-09-04). The 2026-08-27 fix
-           made TablePage keep "unknown" as null; this `?? 0` turned it back
-           into "you have nothing" one file later, and the bust rebuy read as
-           INSUFFICIENT BALANCE for a player holding 495k. */
-        accountBalance={bustWalletBalance}
-        onRetryBalance={onRetryBustBalance}
-        bigBlind={safeBB(blinds)}
-        countdown={bustRebuySecondsLeft ?? undefined}
-        onTopUp={onTopUpAccount}
-        diamondGamesClubId={diamondGamesClubId}
-        onPlayDiamonds={onPlayDiamonds}
-      />
+      <SecondsUntil localDeadlineMs={bustRebuyDeadlineAt}>
+        {(bustRebuySecondsLeft) => (
+          <BuyInModal
+            /* A Diamond cash seat is felted the same way and re-enters through
+               `fn_poker_diamond_top_up`, so the prompt is no longer chip-only.
+               `currency` is what makes the slider, the cap and the balance read in
+               whole Diamonds, exactly as the ordinary buy-in sheet does. */
+            purchaseKind="rebuy"
+            externalProcessing={bustRebuyProcessing}
+            isOpen={bustRebuyOpen && (arenaAsset === 'chips' || arenaAsset === 'diamonds')}
+            currency={arenaAsset === 'diamonds' ? 'diamonds' : ''}
+            onClose={onCancelBustRebuy}
+            onConfirm={async (amount: number) => {
+              await onConfirmBustRebuy(amount);
+            }}
+            tableName={tableName}
+            minBuyIn={minBuyIn}
+            maxBuyIn={bustRebuyMaxBuyIn ?? maxBuyIn}
+            onLeave={onLeaveBustRebuy}
+            /* NULL STAYS NULL, here too (Dan 2026-09-04). The 2026-08-27 fix
+               made TablePage keep "unknown" as null; this `?? 0` turned it back
+               into "you have nothing" one file later, and the bust rebuy read as
+               INSUFFICIENT BALANCE for a player holding 495k. */
+            accountBalance={bustWalletBalance}
+            onRetryBalance={onRetryBustBalance}
+            bigBlind={safeBB(blinds)}
+            countdown={bustRebuySecondsLeft ?? undefined}
+            onTopUp={onTopUpAccount}
+            diamondGamesClubId={diamondGamesClubId}
+            onPlayDiamonds={onPlayDiamonds}
+          />
+        )}
+      </SecondsUntil>
 
       {/* Buy-In Modal */}
       <BuyInModal

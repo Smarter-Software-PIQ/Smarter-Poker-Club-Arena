@@ -61,6 +61,7 @@ import { matchesClubParam, withClubContext } from '../utils/clubScopedPath';
    Outside that tab this IS useNavigate, unchanged. See InTabLobbyContext.tsx. */
 import { useAppNavigate } from '../context/InTabLobbyContext';
 import { supabase, getAuthUser } from '../lib/supabase';
+import { watchGameWaitlistCounts } from '../lib/gameWaitlistWatch';
 import { sizedStorageUrl } from '../utils/avatarGenerator';
 import { masterBus } from '../core/MasterBus';
 import { watchBbjPool } from '../lib/bbjPoolFeed';
@@ -4990,40 +4991,12 @@ function ClubHomePageContent({
         if (!cancelled && counts !== null) setGameWaitCounts(counts);
       });
     load();
-    /* LIVE (2026-11-07). Every change to a game's list sends one broadcast,
-       {game_id} only, on 'cash-game-waitlist' (trg_cash_game_waitlist_broadcast,
-       20261107140215). A change to a game on this board re-reads the counts,
-       coalesced over 750 ms, so "Waitlist 2" becomes 3 as the name goes down.
-       The poll stays as the net for a dropped socket, at a minute. */
-    const watched = new Set(ids);
-    let pending: number | null = null;
-    /* A client with no realtime (a stub, an old SDK) keeps the poll alone at
-       the old 20 s; the subscription is a speed-up, never a dependency. */
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    try {
-      if (typeof supabase.channel === 'function') {
-        channel = supabase
-          .channel('cash-game-waitlist')
-          .on('broadcast', { event: 'changed' }, (message: { payload?: { game_id?: unknown } }) => {
-            const gameId = message?.payload?.game_id;
-            if (typeof gameId !== 'string' || !watched.has(gameId) || pending !== null) return;
-            pending = window.setTimeout(() => {
-              pending = null;
-              load();
-            }, 750);
-          })
-          .subscribe();
-      }
-    } catch (e) {
-      reportError(e, 'ClubHomePage.gameWaitlistChannel');
-      channel = null;
-    }
-    const timer = window.setInterval(load, channel ? 60_000 : 20_000);
+    /* Live on the list's own broadcast, with the poll as the net
+       (lib/gameWaitlistWatch.ts). */
+    const stopWatch = watchGameWaitlistCounts(ids, load);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      if (pending !== null) window.clearTimeout(pending);
-      if (channel) void supabase.removeChannel(channel);
+      stopWatch();
     };
   }, [clusterGameKey]);
   const waitingFor = useCallback(
