@@ -3,7 +3,8 @@
  * HorseOmahaFacingBetPeoplePrior.data.ts). Do not edit by hand: re-run the fit. Read by HorseOmahaPeoplePriorHidden.ts
  * (omahaPeoplePriorCountsHiddenBets). Key: street|game|hu or mw|size bucket|split (flop: limped / single / reraised
  * pot; turn: x the flop checked through, b he made the flop wager, c another player did). shown / hidden: the bets
- * counted; share / nonTop20: non-value shares with every hidden bet counted as non-value; shownShare: shown only.
+ * counted; hiddenCounted: whether the cell counts them (re-raised flop pots do not); share / nonTop20: non-value shares
+ * (hidden bets as non-value where counted); shownShare: shown only.
  */
 export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   Record<
@@ -11,6 +12,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
     {
       shown: number;
       hidden: number;
+      hiddenCounted: boolean;
       share: number | null;
       nonTop20: number | null;
       shownShare: number | null;
@@ -20,6 +22,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|big|limped': {
     shown: 2,
     hidden: 5,
+    hiddenCounted: true,
     share: 0.857,
     nonTop20: 0.857,
     shownShare: 0.5,
@@ -27,13 +30,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|big|reraised': {
     shown: 42,
     hidden: 3,
-    share: 0.333,
-    nonTop20: 0.489,
+    hiddenCounted: false,
+    share: 0.286,
+    nonTop20: 0.452,
     shownShare: 0.286,
   },
   'flop|plo4|hu|big|single': {
     shown: 31,
     hidden: 19,
+    hiddenCounted: true,
     share: 0.62,
     nonTop20: 0.76,
     shownShare: 0.387,
@@ -41,6 +46,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|mid|limped': {
     shown: 5,
     hidden: 5,
+    hiddenCounted: true,
     share: 0.7,
     nonTop20: 0.9,
     shownShare: 0.4,
@@ -48,13 +54,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|mid|reraised': {
     shown: 11,
     hidden: 3,
-    share: 0.214,
-    nonTop20: 0.571,
+    hiddenCounted: false,
+    share: 0,
+    nonTop20: 0.455,
     shownShare: 0,
   },
   'flop|plo4|hu|mid|single': {
     shown: 29,
     hidden: 18,
+    hiddenCounted: true,
     share: 0.511,
     nonTop20: 0.745,
     shownShare: 0.207,
@@ -62,6 +70,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|raise|limped': {
     shown: 6,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.625,
     nonTop20: 0.625,
     shownShare: 0.5,
@@ -69,13 +78,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|raise|reraised': {
     shown: 19,
     hidden: 1,
-    share: 0.45,
-    nonTop20: 0.3,
+    hiddenCounted: false,
+    share: 0.421,
+    nonTop20: 0.263,
     shownShare: 0.421,
   },
   'flop|plo4|hu|raise|single': {
     shown: 22,
     hidden: 4,
+    hiddenCounted: true,
     share: 0.423,
     nonTop20: 0.346,
     shownShare: 0.318,
@@ -83,6 +94,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|under40|limped': {
     shown: 1,
     hidden: 0,
+    hiddenCounted: true,
     share: 0,
     nonTop20: 0,
     shownShare: 0,
@@ -90,13 +102,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|hu|under40|reraised': {
     shown: 17,
     hidden: 1,
-    share: 0.333,
-    nonTop20: 0.667,
+    hiddenCounted: false,
+    share: 0.294,
+    nonTop20: 0.647,
     shownShare: 0.294,
   },
   'flop|plo4|hu|under40|single': {
     shown: 22,
     hidden: 9,
+    hiddenCounted: true,
     share: 0.484,
     nonTop20: 0.742,
     shownShare: 0.273,
@@ -104,6 +118,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|big|limped': {
     shown: 0,
     hidden: 0,
+    hiddenCounted: true,
     share: null,
     nonTop20: null,
     shownShare: null,
@@ -111,13 +126,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|big|reraised': {
     shown: 18,
     hidden: 1,
-    share: 0.421,
-    nonTop20: 0.526,
+    hiddenCounted: false,
+    share: 0.389,
+    nonTop20: 0.5,
     shownShare: 0.389,
   },
   'flop|plo4|mw|big|single': {
     shown: 43,
     hidden: 16,
+    hiddenCounted: true,
     share: 0.458,
     nonTop20: 0.627,
     shownShare: 0.256,
@@ -125,6 +142,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|mid|limped': {
     shown: 2,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.667,
     nonTop20: 1,
     shownShare: 0.5,
@@ -132,13 +150,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|mid|reraised': {
     shown: 5,
     hidden: 5,
-    share: 0.6,
-    nonTop20: 0.8,
+    hiddenCounted: false,
+    share: 0.2,
+    nonTop20: 0.6,
     shownShare: 0.2,
   },
   'flop|plo4|mw|mid|single': {
     shown: 14,
     hidden: 10,
+    hiddenCounted: true,
     share: 0.625,
     nonTop20: 0.833,
     shownShare: 0.357,
@@ -146,6 +166,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|raise|limped': {
     shown: 1,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.5,
     nonTop20: 0.5,
     shownShare: 0,
@@ -153,13 +174,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|raise|reraised': {
     shown: 5,
     hidden: 1,
-    share: 0.5,
-    nonTop20: 0.5,
+    hiddenCounted: false,
+    share: 0.4,
+    nonTop20: 0.4,
     shownShare: 0.4,
   },
   'flop|plo4|mw|raise|single': {
     shown: 7,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.429,
     nonTop20: 0.429,
     shownShare: 0.429,
@@ -167,6 +190,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|under40|limped': {
     shown: 1,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.5,
     nonTop20: 0.5,
     shownShare: 0,
@@ -174,13 +198,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo4|mw|under40|reraised': {
     shown: 5,
     hidden: 1,
-    share: 0.167,
-    nonTop20: 0.667,
+    hiddenCounted: false,
+    share: 0,
+    nonTop20: 0.6,
     shownShare: 0,
   },
   'flop|plo4|mw|under40|single': {
     shown: 20,
     hidden: 7,
+    hiddenCounted: true,
     share: 0.481,
     nonTop20: 0.741,
     shownShare: 0.3,
@@ -188,6 +214,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|big|limped': {
     shown: 3,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.4,
     nonTop20: 0.6,
     shownShare: 0,
@@ -195,13 +222,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|big|reraised': {
     shown: 245,
     hidden: 46,
-    share: 0.509,
-    nonTop20: 0.691,
+    hiddenCounted: false,
+    share: 0.416,
+    nonTop20: 0.633,
     shownShare: 0.416,
   },
   'flop|plo5|hu|big|single': {
     shown: 70,
     hidden: 49,
+    hiddenCounted: true,
     share: 0.571,
     nonTop20: 0.739,
     shownShare: 0.271,
@@ -209,6 +238,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|mid|limped': {
     shown: 0,
     hidden: 0,
+    hiddenCounted: true,
     share: null,
     nonTop20: null,
     shownShare: null,
@@ -216,13 +246,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|mid|reraised': {
     shown: 131,
     hidden: 17,
-    share: 0.426,
-    nonTop20: 0.676,
+    hiddenCounted: false,
+    share: 0.351,
+    nonTop20: 0.634,
     shownShare: 0.351,
   },
   'flop|plo5|hu|mid|single': {
     shown: 17,
     hidden: 10,
+    hiddenCounted: true,
     share: 0.444,
     nonTop20: 0.815,
     shownShare: 0.118,
@@ -230,6 +262,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|raise|limped': {
     shown: 3,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.833,
     nonTop20: 0.833,
     shownShare: 0.667,
@@ -237,13 +270,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|raise|reraised': {
     shown: 138,
     hidden: 9,
-    share: 0.463,
-    nonTop20: 0.456,
+    hiddenCounted: false,
+    share: 0.428,
+    nonTop20: 0.42,
     shownShare: 0.428,
   },
   'flop|plo5|hu|raise|single': {
     shown: 54,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.4,
     nonTop20: 0.4,
     shownShare: 0.333,
@@ -251,6 +286,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|under40|limped': {
     shown: 1,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.667,
     nonTop20: 1,
     shownShare: 0,
@@ -258,13 +294,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|hu|under40|reraised': {
     shown: 62,
     hidden: 4,
-    share: 0.273,
-    nonTop20: 0.727,
+    hiddenCounted: false,
+    share: 0.226,
+    nonTop20: 0.71,
     shownShare: 0.226,
   },
   'flop|plo5|hu|under40|single': {
     shown: 6,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.444,
     nonTop20: 0.556,
     shownShare: 0.167,
@@ -272,6 +310,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|big|limped': {
     shown: 5,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.5,
     nonTop20: 0.625,
     shownShare: 0.2,
@@ -279,13 +318,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|big|reraised': {
     shown: 92,
     hidden: 13,
-    share: 0.467,
-    nonTop20: 0.61,
+    hiddenCounted: false,
+    share: 0.391,
+    nonTop20: 0.554,
     shownShare: 0.391,
   },
   'flop|plo5|mw|big|single': {
     shown: 144,
     hidden: 104,
+    hiddenCounted: true,
     share: 0.633,
     nonTop20: 0.73,
     shownShare: 0.368,
@@ -293,6 +334,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|mid|limped': {
     shown: 6,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.429,
     nonTop20: 0.714,
     shownShare: 0.333,
@@ -300,13 +342,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|mid|reraised': {
     shown: 56,
     hidden: 9,
-    share: 0.415,
-    nonTop20: 0.554,
+    hiddenCounted: false,
+    share: 0.321,
+    nonTop20: 0.482,
     shownShare: 0.321,
   },
   'flop|plo5|mw|mid|single': {
     shown: 31,
     hidden: 31,
+    hiddenCounted: true,
     share: 0.597,
     nonTop20: 0.742,
     shownShare: 0.194,
@@ -314,6 +358,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|raise|limped': {
     shown: 2,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.6,
     nonTop20: 0.6,
     shownShare: 0,
@@ -321,13 +366,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|raise|reraised': {
     shown: 28,
     hidden: 1,
-    share: 0.448,
-    nonTop20: 0.448,
+    hiddenCounted: false,
+    share: 0.429,
+    nonTop20: 0.429,
     shownShare: 0.429,
   },
   'flop|plo5|mw|raise|single': {
     shown: 23,
     hidden: 8,
+    hiddenCounted: true,
     share: 0.516,
     nonTop20: 0.516,
     shownShare: 0.348,
@@ -335,6 +382,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|under40|limped': {
     shown: 1,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.5,
     nonTop20: 1,
     shownShare: 0,
@@ -342,13 +390,15 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'flop|plo5|mw|under40|reraised': {
     shown: 27,
     hidden: 1,
-    share: 0.321,
-    nonTop20: 0.75,
+    hiddenCounted: false,
+    share: 0.296,
+    nonTop20: 0.741,
     shownShare: 0.296,
   },
   'flop|plo5|mw|under40|single': {
     shown: 12,
     hidden: 9,
+    hiddenCounted: true,
     share: 0.571,
     nonTop20: 0.619,
     shownShare: 0.25,
@@ -356,6 +406,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|big|b': {
     shown: 33,
     hidden: 10,
+    hiddenCounted: true,
     share: 0.512,
     nonTop20: 0.535,
     shownShare: 0.364,
@@ -363,6 +414,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|big|c': {
     shown: 8,
     hidden: 8,
+    hiddenCounted: true,
     share: 0.625,
     nonTop20: 0.625,
     shownShare: 0.25,
@@ -370,6 +422,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|big|x': {
     shown: 8,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.643,
     nonTop20: 0.643,
     shownShare: 0.375,
@@ -377,6 +430,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|mid|b': {
     shown: 18,
     hidden: 9,
+    hiddenCounted: true,
     share: 0.519,
     nonTop20: 0.556,
     shownShare: 0.278,
@@ -384,6 +438,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|mid|c': {
     shown: 13,
     hidden: 8,
+    hiddenCounted: true,
     share: 0.571,
     nonTop20: 0.667,
     shownShare: 0.308,
@@ -391,6 +446,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|mid|x': {
     shown: 14,
     hidden: 11,
+    hiddenCounted: true,
     share: 0.68,
     nonTop20: 0.92,
     shownShare: 0.429,
@@ -398,6 +454,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|raise|b': {
     shown: 9,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.444,
     nonTop20: 0.222,
     shownShare: 0.444,
@@ -405,6 +462,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|raise|c': {
     shown: 32,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.242,
     nonTop20: 0.152,
     shownShare: 0.219,
@@ -412,6 +470,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|raise|x': {
     shown: 8,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.545,
     nonTop20: 0.545,
     shownShare: 0.375,
@@ -419,6 +478,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|under40|b': {
     shown: 44,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.46,
     nonTop20: 0.78,
     shownShare: 0.386,
@@ -426,6 +486,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|under40|c': {
     shown: 7,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.7,
     nonTop20: 0.9,
     shownShare: 0.571,
@@ -433,6 +494,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|hu|under40|x': {
     shown: 11,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.471,
     nonTop20: 0.941,
     shownShare: 0.182,
@@ -440,6 +502,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|big|b': {
     shown: 8,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.125,
     nonTop20: 0.125,
     shownShare: 0.125,
@@ -447,6 +510,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|big|c': {
     shown: 5,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.2,
     nonTop20: 0.2,
     shownShare: 0.2,
@@ -454,6 +518,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|big|x': {
     shown: 8,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.364,
     nonTop20: 0.545,
     shownShare: 0.125,
@@ -461,6 +526,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|mid|b': {
     shown: 4,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.333,
     nonTop20: 0.333,
     shownShare: 0,
@@ -468,6 +534,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|mid|c': {
     shown: 4,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.2,
     nonTop20: 0.6,
     shownShare: 0,
@@ -475,6 +542,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|mid|x': {
     shown: 15,
     hidden: 13,
+    hiddenCounted: true,
     share: 0.607,
     nonTop20: 0.893,
     shownShare: 0.267,
@@ -482,6 +550,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|raise|c': {
     shown: 7,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.143,
     nonTop20: 0.143,
     shownShare: 0.143,
@@ -489,6 +558,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|raise|x': {
     shown: 5,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.333,
     nonTop20: 0.167,
     shownShare: 0.2,
@@ -496,6 +566,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|under40|b': {
     shown: 13,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.4,
     nonTop20: 0.533,
     shownShare: 0.308,
@@ -503,6 +574,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|under40|c': {
     shown: 4,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.4,
     nonTop20: 0.4,
     shownShare: 0.25,
@@ -510,6 +582,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo4|mw|under40|x': {
     shown: 17,
     hidden: 7,
+    hiddenCounted: true,
     share: 0.375,
     nonTop20: 0.875,
     shownShare: 0.118,
@@ -517,6 +590,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|big|b': {
     shown: 160,
     hidden: 43,
+    hiddenCounted: true,
     share: 0.493,
     nonTop20: 0.512,
     shownShare: 0.356,
@@ -524,6 +598,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|big|c': {
     shown: 43,
     hidden: 15,
+    hiddenCounted: true,
     share: 0.552,
     nonTop20: 0.638,
     shownShare: 0.395,
@@ -531,6 +606,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|big|x': {
     shown: 45,
     hidden: 17,
+    hiddenCounted: true,
     share: 0.677,
     nonTop20: 0.726,
     shownShare: 0.556,
@@ -538,6 +614,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|mid|b': {
     shown: 71,
     hidden: 22,
+    hiddenCounted: true,
     share: 0.484,
     nonTop20: 0.559,
     shownShare: 0.324,
@@ -545,6 +622,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|mid|c': {
     shown: 22,
     hidden: 11,
+    hiddenCounted: true,
     share: 0.636,
     nonTop20: 0.727,
     shownShare: 0.455,
@@ -552,6 +630,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|mid|x': {
     shown: 18,
     hidden: 11,
+    hiddenCounted: true,
     share: 0.69,
     nonTop20: 0.931,
     shownShare: 0.5,
@@ -559,6 +638,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|raise|b': {
     shown: 27,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.25,
     nonTop20: 0.179,
     shownShare: 0.222,
@@ -566,6 +646,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|raise|c': {
     shown: 55,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.443,
     nonTop20: 0.311,
     shownShare: 0.382,
@@ -573,6 +654,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|raise|x': {
     shown: 19,
     hidden: 4,
+    hiddenCounted: true,
     share: 0.522,
     nonTop20: 0.435,
     shownShare: 0.421,
@@ -580,6 +662,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|under40|b': {
     shown: 93,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.379,
     nonTop20: 0.621,
     shownShare: 0.366,
@@ -587,6 +670,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|under40|c': {
     shown: 11,
     hidden: 2,
+    hiddenCounted: true,
     share: 0.462,
     nonTop20: 0.769,
     shownShare: 0.364,
@@ -594,6 +678,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|hu|under40|x': {
     shown: 7,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.571,
     nonTop20: 0.714,
     shownShare: 0.571,
@@ -601,6 +686,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|big|b': {
     shown: 27,
     hidden: 6,
+    hiddenCounted: true,
     share: 0.424,
     nonTop20: 0.455,
     shownShare: 0.296,
@@ -608,6 +694,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|big|c': {
     shown: 12,
     hidden: 9,
+    hiddenCounted: true,
     share: 0.667,
     nonTop20: 0.667,
     shownShare: 0.417,
@@ -615,6 +702,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|big|x': {
     shown: 61,
     hidden: 59,
+    hiddenCounted: true,
     share: 0.708,
     nonTop20: 0.783,
     shownShare: 0.426,
@@ -622,6 +710,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|mid|b': {
     shown: 11,
     hidden: 5,
+    hiddenCounted: true,
     share: 0.625,
     nonTop20: 0.625,
     shownShare: 0.455,
@@ -629,6 +718,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|mid|c': {
     shown: 13,
     hidden: 4,
+    hiddenCounted: true,
     share: 0.294,
     nonTop20: 0.412,
     shownShare: 0.077,
@@ -636,6 +726,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|mid|x': {
     shown: 35,
     hidden: 16,
+    hiddenCounted: true,
     share: 0.569,
     nonTop20: 0.667,
     shownShare: 0.371,
@@ -643,6 +734,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|raise|b': {
     shown: 1,
     hidden: 0,
+    hiddenCounted: true,
     share: 1,
     nonTop20: 0,
     shownShare: 1,
@@ -650,6 +742,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|raise|c': {
     shown: 11,
     hidden: 1,
+    hiddenCounted: true,
     share: 0.167,
     nonTop20: 0.167,
     shownShare: 0.091,
@@ -657,6 +750,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|raise|x': {
     shown: 10,
     hidden: 8,
+    hiddenCounted: true,
     share: 0.667,
     nonTop20: 0.667,
     shownShare: 0.4,
@@ -664,6 +758,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|under40|b': {
     shown: 10,
     hidden: 3,
+    hiddenCounted: true,
     share: 0.615,
     nonTop20: 0.846,
     shownShare: 0.5,
@@ -671,6 +766,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|under40|c': {
     shown: 5,
     hidden: 0,
+    hiddenCounted: true,
     share: 0.2,
     nonTop20: 0.8,
     shownShare: 0.2,
@@ -678,6 +774,7 @@ export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
   'turn|plo5|mw|under40|x': {
     shown: 20,
     hidden: 10,
+    hiddenCounted: true,
     share: 0.533,
     nonTop20: 0.8,
     shownShare: 0.3,

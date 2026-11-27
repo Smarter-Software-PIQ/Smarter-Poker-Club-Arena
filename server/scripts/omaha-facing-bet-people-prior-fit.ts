@@ -499,16 +499,26 @@ writeFileSync(out, ts);
 const hiddenCells = Object.fromEntries(
   [...splitCells.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, c]) => [
-      key,
-      {
-        shown: c.n,
-        hidden: c.h,
-        share: c.n + c.h > 0 ? r3((c.k + c.h) / (c.n + c.h)) : null,
-        nonTop20: c.n + c.h > 0 ? r3((c.kTop20 + c.h) / (c.n + c.h)) : null,
-        shownShare: c.n > 0 ? r3(c.k / c.n) : null,
-      },
-    ])
+    .map(([key, c]) => {
+      // RE-RAISED FLOP POTS keep the shown-only share (hidden bets reported, not counted): the public evidence does not
+      // separate their give-ups and mucks from value (they are deep, SPR 4+, like single-raised pots, so the low-SPR
+      // stack-off reading is refuted), the serving engine already folds there under the pure-bluff break-even
+      // (PLO5 30.7% vs 46.1%), and the calls the correction added there lost (OFC: -40.6 +/- 17.2 bb, n 5).
+      // l8-ofa/BUILD.md "re-raised pots". A fit decision on the counts, not a bound on the output.
+      const count = !key.endsWith('|reraised');
+      const h = count ? c.h : 0;
+      return [
+        key,
+        {
+          shown: c.n,
+          hidden: c.h,
+          hiddenCounted: count,
+          share: c.n + h > 0 ? r3((c.k + h) / (c.n + h)) : null,
+          nonTop20: c.n + h > 0 ? r3((c.kTop20 + h) / (c.n + h)) : null,
+          shownShare: c.n > 0 ? r3(c.k / c.n) : null,
+        },
+      ];
+    })
 );
 const cellsOut = out.replace(/[^/]*$/, 'HorseOmahaPeoplePriorHidden.data.ts');
 writeFileSync(
@@ -518,10 +528,21 @@ writeFileSync(
  * HorseOmahaFacingBetPeoplePrior.data.ts). Do not edit by hand: re-run the fit. Read by HorseOmahaPeoplePriorHidden.ts
  * (omahaPeoplePriorCountsHiddenBets). Key: street|game|hu or mw|size bucket|split (flop: limped / single / reraised
  * pot; turn: x the flop checked through, b he made the flop wager, c another player did). shown / hidden: the bets
- * counted; share / nonTop20: non-value shares with every hidden bet counted as non-value; shownShare: shown only.
+ * counted; hiddenCounted: whether the cell counts them (re-raised flop pots do not); share / nonTop20: non-value shares
+ * (hidden bets as non-value where counted); shownShare: shown only.
  */
 export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
-  Record<string, { shown: number; hidden: number; share: number | null; nonTop20: number | null; shownShare: number | null }>
+  Record<
+    string,
+    {
+      shown: number;
+      hidden: number;
+      hiddenCounted: boolean;
+      share: number | null;
+      nonTop20: number | null;
+      shownShare: number | null;
+    }
+  >
 > = ${JSON.stringify(hiddenCells, null, 2)};
 `
 );

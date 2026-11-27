@@ -12,7 +12,9 @@
  * WHAT. The same fit, split per game and per cell where the composition differs (the flop by pot type: limped /
  * single-raised / re-raised, 3-bet pots being value-heavy; the turn by line: the flop checked through / he made the
  * flop wager / another player did), counts each hidden bet as non-value in both units (the price's value region and
- * the record's top-20% unit). A bet won with no showdown keeps the shown mix. A thin split cell is NEVER replaced by
+ * the record's top-20% unit). A bet won with no showdown keeps the shown mix. Re-raised flop pots keep the shown-only
+ * share (hidden bets reported, not counted; the reason is in the fit and l8-ofa/BUILD.md), and the bettor's record
+ * stays shown-only there too (omahaPeoplePriorRecordCountsHidden). A thin split cell is NEVER replaced by
  * the pooled cell (the pooled flop sample is mostly re-raised pots, value-heavy): the caller blends the split cell's
  * own counts toward the equilibrium anchor by its n (omahaPeoplePriorBlend, 30 pseudo-bets); a split with no bets at
  * all is the anchor alone. No clamp on the output: a cell is a fit, not a rule.
@@ -43,7 +45,7 @@ export function omahaPeoplePriorHiddenCell(
     OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[
       `${street}|${key.game}|${multiway ? 'mw' : 'hu'}|${b}|${key.split}`
     ];
-  const n = c ? c.shown + c.hidden : 0;
+  const n = c ? c.shown + (c.hiddenCounted ? c.hidden : 0) : 0;
   if (!c || !(n > 0) || c.share === null || !Number.isFinite(c.share))
     return { n: 0, share: null, nonTop20: null };
   const nt = c.nonTop20 !== null && c.nonTop20 > 0 && c.nonTop20 < 1 ? c.nonTop20 : null;
@@ -92,6 +94,14 @@ export function omahaPeoplePriorTurnLineOf(
     other = true;
   }
   return other ? 'c' : 'x';
+}
+
+/** Whether the bettor's own record counts his hidden bets for this key: exactly where the people cell does (a
+ *  re-raised flop pot keeps the shown-only cell, so his record stays shown-only there too: the same unit). */
+export function omahaPeoplePriorRecordCountsHidden(
+  key: OmahaPeoplePriorHiddenKey | null | undefined
+): boolean {
+  return !!key && key.split !== 'reraised';
 }
 
 /** The key for this decision, or null outside PLO4 / PLO5. */

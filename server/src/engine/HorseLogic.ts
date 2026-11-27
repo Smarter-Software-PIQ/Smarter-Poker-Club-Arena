@@ -1214,7 +1214,10 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
-import { omahaPeoplePriorHiddenKeyOf } from './HorseOmahaPeoplePriorHidden.js';
+import {
+  omahaPeoplePriorHiddenKeyOf,
+  omahaPeoplePriorRecordCountsHidden,
+} from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
@@ -15373,7 +15376,7 @@ function omahaFacingBetEvCount(
                   spot.potFrac,
                   omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
                     'agg',
-                  hiddenKey !== null
+                  omahaPeoplePriorRecordCountsHidden(hiddenKey)
                 )
               : null,
         });
@@ -32086,7 +32089,7 @@ export class HorseLogic {
                   'flop',
                   spotP.potFrac,
                   false,
-                  hiddenKeyP !== null
+                  omahaPeoplePriorRecordCountsHidden(hiddenKeyP)
                 )
               : null,
             hiddenKeyP
