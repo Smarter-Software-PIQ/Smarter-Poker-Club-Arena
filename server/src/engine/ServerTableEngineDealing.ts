@@ -219,17 +219,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       authority.scope !== 'cash'
     )
       return false;
-    // Fast-skip fn_cash_hourly_table_close when no hourly-close operation is
-    // in flight and the freshly loaded roster confirms an active non-horse
-    // human seat: the authoritative SQL door unconditionally returns
-    // { closed: false, reason: 'within_cap_or_human' } for any human-seated
-    // table (incident 1e532243).
-    if (
-      this.hourlyCashOperationId === null &&
-      this.seatedPlayers.some((p) => p.is_horse === false && !p.is_sitting_out)
-    ) {
-      return false;
-    }
     const releaseBoundary = await this.acquireSeatBoundary();
     try {
       if (!this.lifecycleCanMutate() || !this.isBetweenHands() || isMaintenanceFrozen())
@@ -2739,10 +2728,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // (startRestBlindRead deduplicates against awaitNextHandRestLead; 1e532243).
       if (
         this.reservesPermitUnderTheRest() &&
-        this.nextHandNotBeforeMs !== null &&
-        !this.isNextHandPaused() &&
+        typeof this.nextHandNotBeforeMs === 'number' &&
         !this.terminalCloseoutPaused &&
-        this.tournamentMovePauseOwners.size === 0
+        (this.tournamentMovePauseOwners?.size ?? 0) === 0 &&
+        !this.isNextHandPaused()
       ) {
         this.startRestBlindRead();
       }
