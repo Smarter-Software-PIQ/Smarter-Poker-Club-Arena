@@ -19,6 +19,11 @@
 --                         (catches the 2026-11-26 churn, also after the last naming)
 --   named_tables_closed   named tables that are now closed or empty (INFO)
 --   tables_within_cap     occupied counted tables do not exceed the hour's cap now
+--   cap_every_cycle       no heartbeat read more counted tables than its cap
+--                         (detail.cash_room; INFO until a build that writes it)
+--   owed_starts_made      owed games that started since the release, with the
+--                         median and longest wait (heartbeats with an owed list)
+--   owed_waiting_now      owed games still waiting, and the longest wait so far
 --   horse_error_log       zero rows in the window
 WITH rel AS (
   SELECT at FROM public.ca_engine_deploy_attempts WHERE shipped ORDER BY at DESC LIMIT 1
@@ -28,7 +33,9 @@ hb AS (
          coalesce(h.detail -> 'variety_drain_tables',
                   CASE WHEN h.detail ->> 'variety_drain_table' IS NOT NULL
                        THEN jsonb_build_array(h.detail ->> 'variety_drain_table') ELSE '[]'::jsonb END) AS named,
-         jsonb_array_length(coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb)) AS owed
+         jsonb_array_length(coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb)) AS owed,
+         coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb) AS owed_games,
+         h.detail -> 'cash_room' AS room
     FROM public.ca_horse_fleet_heartbeat h, rel
    WHERE h.beat_at > rel.at
 ),
@@ -47,6 +54,19 @@ fresh AS (
      SELECT 1 FROM naming p
       WHERE p.table_id = n.table_id
         AND p.beat_at = (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at < n.beat_at))
+),
+owing_beats AS (
+  SELECT beat_at, owed_games, row_number() OVER (ORDER BY beat_at) AS rn
+    FROM hb WHERE jsonb_array_length(owed_games) > 0
+),
+owing AS (
+  SELECT b.beat_at, b.rn, g AS game,
+         b.rn - row_number() OVER (PARTITION BY g ORDER BY b.rn) AS grp
+    FROM owing_beats b, jsonb_array_elements_text(b.owed_games) g
+),
+spans AS (
+  SELECT game, grp, min(beat_at) AS s, max(beat_at) AS e, max(rn) AS last_rn
+    FROM owing GROUP BY game, grp
 ),
 cap AS (SELECT table_cap FROM public.fn_cash_hourly_table_range()),
 census AS (SELECT count(*) AS counted FROM public.fn_cash_hourly_table_capacity_census())
@@ -95,6 +115,25 @@ UNION ALL
 SELECT 'tables_within_cap',
        CASE WHEN (SELECT counted FROM census) <= (SELECT table_cap FROM cap) THEN 'PASS' ELSE 'FAIL' END,
        (SELECT counted FROM census) || ' counted, cap ' || (SELECT table_cap FROM cap) || ' (now)'
+UNION ALL
+SELECT 'cap_every_cycle',
+       CASE WHEN count(*) = 0 THEN 'INFO'
+            WHEN count(*) FILTER (WHERE (room ->> 'counted')::int > (room ->> 'cap')::int) = 0 THEN 'PASS'
+            ELSE 'FAIL' END,
+       count(*) FILTER (WHERE (room ->> 'counted')::int > (room ->> 'cap')::int) || ' of ' || count(*) ||
+         ' heartbeat(s) over the cap they read'
+  FROM hb WHERE jsonb_typeof(room) = 'object'
+UNION ALL
+SELECT 'owed_starts_made', 'INFO',
+       count(*) || ' started; median wait ' ||
+         coalesce(round(extract(epoch FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY e - s)) / 60)::text, '-') ||
+         ' min, longest ' || coalesce(round(extract(epoch FROM max(e - s)) / 60)::text, '-') || ' min'
+  FROM spans WHERE last_rn < (SELECT max(rn) FROM owing_beats)
+UNION ALL
+SELECT 'owed_waiting_now', 'INFO',
+       count(*) || ' waiting; longest so far ' ||
+         coalesce(round(extract(epoch FROM max(e - s)) / 60)::text, '-') || ' min'
+  FROM spans WHERE last_rn = (SELECT max(rn) FROM owing_beats)
 UNION ALL
 SELECT 'horse_error_log',
        CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END,

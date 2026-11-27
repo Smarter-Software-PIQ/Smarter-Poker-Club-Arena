@@ -41,6 +41,9 @@ describe('the variety drain live check', () => {
       'fresh_releases_in_window',
       'tables_within_cap',
       'horse_error_log',
+      'cap_every_cycle',
+      'owed_starts_made',
+      'owed_waiting_now',
     ]) {
       expect(body).toContain(`'${check}'`);
     }
@@ -66,6 +69,16 @@ describe('the variety drain live check', () => {
       "CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END"
     );
     expect(body).not.toMatch(/first_named AND|BETWEEN n\.first_named/);
+  });
+
+  it('2026-11-26: judges the cap at every beat that carries it and measures how long owed games wait', () => {
+    expect(body).toContain("h.detail -> 'cash_room' AS room");
+    expect(body).toMatch(/WHEN count\(\*\) = 0 THEN 'INFO'/);
+    expect(body).toContain("(room ->> 'counted')::int > (room ->> 'cap')::int");
+    /* waits are islands over heartbeats that carry an owed list, so a withheld
+       cycle (an empty list) never splits or ends a wait */
+    expect(body).toContain('FROM hb WHERE jsonb_array_length(owed_games) > 0');
+    expect(body).toContain('b.rn - row_number() OVER (PARTITION BY g ORDER BY b.rn) AS grp');
   });
 
   it('is the R11 read the regression method names', () => {
