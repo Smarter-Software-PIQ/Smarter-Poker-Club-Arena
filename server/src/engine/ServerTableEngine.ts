@@ -810,7 +810,8 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     const now = Date.now();
     const next = this.seatArrivals.nextExpiry(now);
     if (next === null) return;
-    const timer = setTimeout(
+    const timer = this.tableTimeout(
+      'seat_arrival_expiry',
       () => {
         this.seatArrivalExpiryTimer = null;
         if (this.running) this.publishSeatArrivals();

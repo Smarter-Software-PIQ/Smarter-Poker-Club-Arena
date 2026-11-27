@@ -340,6 +340,9 @@ describe('observe-only horse readers bind to process root outside tournament dat
           rabbitHuntInFlight: new Set<string>(),
           getRabbitHuntOffer: () => offers.get(42),
           callerHasActiveVip: async () => true,
+          detachTableWork: (_label: string, work: Promise<unknown>) => {
+            void work.catch(() => undefined);
+          },
         },
         '10000000-0000-4000-8000-000000000001',
         42
@@ -355,10 +358,8 @@ describe('observe-only horse readers bind to process root outside tournament dat
       resolve(process.cwd(), 'src/engine/ServerTableEngineSettlement.ts'),
       'utf8'
     );
-    const offerIdx = settlementSrc.indexOf("from('rabbit_hunt_offers').upsert");
-    expect(offerIdx).toBeGreaterThan(-1);
-    expect(settlementSrc.slice(Math.max(0, offerIdx - 220), offerIdx)).toContain(
-      'bindToProcessRoot(async () =>'
+    expect(settlementSrc).toMatch(
+      /bindToProcessRoot\(async \(\) => \{\s*try \{\s*const \{ error: offerPersistError \} = await supabase\s*\.from\('rabbit_hunt_offers'\)\s*\.upsert\(/
     );
   });
 });
