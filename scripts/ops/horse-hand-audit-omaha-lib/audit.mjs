@@ -187,6 +187,7 @@ export function runAudit(
             hero_pf_q: g.heroPf,
             act_taken: g.actTaken,
             options: g.options.map((o) => `${o.a}:${o.ev.toFixed(2)}`).join(' '),
+            size_band: g.sizeBand ? `${g.sizeBand.min.toFixed(2)}-${g.sizeBand.max.toFixed(2)}` : '',
           });
           hr.tierA++;
           if (g.verdict === 'MISTAKE') {

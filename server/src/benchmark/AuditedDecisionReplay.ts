@@ -45,6 +45,13 @@
  *    each; scripts/hvh48-audit-nodes.py writes them for the six HVH48 sets).
  *    Scored verdict-only, and where the audit names the better action a change
  *    counts as fixed only when it is a change to that action.
+ *  - SIZE-AWARE placed nodes (2026-11-27): a placed line may carry sizeBand {min, max}, the amounts of the recorded
+ *    bet or raise the audit judges CORRECT (in the replay rows' amount unit). A resize (same kind, another amount) is
+ *    then judged in or out of the band and counted as a change (fixed, newly wrong, still wrong, ok to ok; also
+ *    resizeJudged). Without a band a resize stays unchanged, exactly as before. The band is the audit's model: the PLO
+ *    hand audit prices a postflop raise with one size-independent fold rate, so read it with that limit. A placed line
+ *    may also carry equivalent [kinds]: kinds the audit prices as the recorded action (a raise over an opponent who is
+ *    already all in is a call); a change to one keeps the recorded verdict (ok to ok or still wrong).
  *  - Every count is also split per rule receipt the replayed arm carried
  *    (the per-decision rule receipts of BrainTelemetry.noteDecisionRuleReceipt
  *    or the decision's fired receipt keys), so a reviewer sees which rule made
@@ -128,6 +135,19 @@ export interface AuditedDecision {
    * judged-bad action is fixed only when it is a change to one of these; any other change is still wrong.
    */
   better?: readonly string[];
+  /**
+   * placed only (2026-11-27): the amounts of the recorded action kind the audit judges CORRECT, in the replay rows'
+   * amount unit (the harness's: big blinds, the street total a raise goes to). With it a RESIZE (same kind, another
+   * amount) is judged: in the band ok, outside bad, so a resized raise can be fixed or newly wrong. Without it a resize
+   * is unchanged, as before (verdict-only reads action kinds only).
+   */
+  sizeBand?: { min: number; max: number };
+  /**
+   * placed only (2026-11-27): action kinds the audit prices as the SAME action as the recorded one, e.g. a raise over
+   * an opponent who is already all in, which the audit prices as a call (nobody can put another chip in). A change to
+   * one of them keeps the recorded action's verdict (ok to ok, or still wrong), never fixed or newly wrong.
+   */
+  equivalent?: readonly string[];
 }
 
 export interface ReplayArm {
@@ -718,6 +738,24 @@ export function placedDecisions(nodesJsonl: string): AdapterResult {
     if (seen.has(nodeKey(node))) return refuse('the node is given twice');
     seen.add(nodeKey(node));
     const better = Array.isArray(o.better) ? o.better.map(String) : [];
+    let sizeBand: { min: number; max: number } | undefined;
+    if (o.sizeBand !== undefined && o.sizeBand !== null) {
+      const sb = o.sizeBand as { min?: unknown; max?: unknown };
+      if (
+        typeof sb.min !== 'number' ||
+        typeof sb.max !== 'number' ||
+        !Number.isFinite(sb.min) ||
+        !Number.isFinite(sb.max) ||
+        sb.min > sb.max
+      )
+        return refuse('sizeBand needs finite min <= max');
+      if (rec.action !== 'bet' && rec.action !== 'raise')
+        return refuse('sizeBand is for a recorded bet or raise only');
+      sizeBand = { min: sb.min, max: sb.max };
+    }
+    const equivalent = Array.isArray(o.equivalent) ? o.equivalent.map(String) : [];
+    if (equivalent.some((x) => !VOLUNTARY_ACTIONS.has(x)))
+      return refuse('equivalent names an action kind that is not a voluntary decision');
     decisions.push({
       node,
       source: 'placed',
@@ -726,6 +764,8 @@ export function placedDecisions(nodesJsonl: string): AdapterResult {
       cls: o.cls,
       ...(typeof o.finding === 'string' ? { finding: o.finding } : {}),
       ...(better.length ? { better } : {}),
+      ...(sizeBand ? { sizeBand } : {}),
+      ...(equivalent.length ? { equivalent } : {}),
     });
   });
   return { decisions, unplaced };
@@ -786,6 +826,8 @@ export interface OutcomeCounts {
   moreAggressive: number;
   morePassive: number;
   resized: number;
+  /** Resizes judged against the audit's size band (counted in changed and in fixed / newly wrong / still wrong / ok to ok). */
+  resizeJudged: number;
   illegal: number;
   refused: number;
   errors: number;
@@ -837,6 +879,7 @@ const emptyCounts = (): OutcomeCounts & { _ev: number[] } => ({
   moreAggressive: 0,
   morePassive: 0,
   resized: 0,
+  resizeJudged: 0,
   illegal: 0,
   refused: 0,
   errors: 0,
@@ -955,6 +998,42 @@ export function scoreReplay(
         }
         // Where the audit names the better action, only a change to it is a fix (placed sources).
         const toBetter = !d.better?.length || d.better.includes(a.action);
+        // The audit prices the arm's action as the recorded one (e.g. a raise over an all-in = a call).
+        const sameAsRecorded =
+          reproduced && !!d.equivalent?.includes(a.action) && b.action === d.recorded.action;
+        // A resize judged by the audit's size band: same kind as recorded, another amount (2026-11-27).
+        const band = d.sizeBand;
+        const inBand = (x: number | null | undefined) =>
+          band !== undefined &&
+          typeof x === 'number' &&
+          x >= band.min - 0.005 &&
+          x <= band.max + 0.005;
+        const sizeJudged =
+          band !== undefined &&
+          reproduced &&
+          a.action === b.action &&
+          !sameAmount(a.amount, b.amount) &&
+          typeof a.amount === 'number';
+        if (sizeJudged) {
+          // Both sides by the band: the band prices every size, the audit's verdict only its pot raise and the taken one.
+          const baseCls: VerdictClass = inBand(b.amount) ? 'ok' : 'bad';
+          const armCls: VerdictClass = inBand(a.amount) ? 'ok' : 'bad';
+          for (const c of buckets) {
+            if (a.legal === false) c.illegal++;
+            if (a.refusal) c.refused++;
+            c.resized++;
+            c.resizeJudged++;
+            c.changed++;
+            if (baseCls === 'unjudged') c.changedUnjudged++;
+            else if (baseCls === 'bad' && armCls === 'ok') c.fixed++;
+            else if (baseCls === 'ok' && armCls === 'bad') c.newlyWrong++;
+            else if (baseCls === 'bad') c.stillWrong++;
+            else c.okToOk++;
+          }
+          if (baseCls === 'bad' && armCls === 'ok') slot.fixedNodes.push(key);
+          if (baseCls === 'ok' && armCls === 'bad') slot.newlyWrongNodes.push(key);
+          continue;
+        }
         const newJ = verdictOnly
           ? {
               cls: (a.action === b.action ? baseJ.cls : 'unjudged') as VerdictClass,
@@ -974,7 +1053,11 @@ export function scoreReplay(
           c.changed++;
           if ((RANK[a.action] ?? 0) > (RANK[b.action] ?? 0)) c.moreAggressive++;
           else c.morePassive++;
-          if (verdictOnly) {
+          if (verdictOnly && sameAsRecorded) {
+            if (baseJ.cls === 'bad') c.stillWrong++;
+            else if (baseJ.cls === 'ok') c.okToOk++;
+            else c.changedUnjudged++;
+          } else if (verdictOnly) {
             if (baseJ.cls === 'bad') {
               if (toBetter) c.fixed++;
               else c.stillWrong++;
@@ -989,9 +1072,11 @@ export function scoreReplay(
         }
         if (a.action !== b.action) {
           const fixed = verdictOnly
-            ? baseJ.cls === 'bad' && toBetter
+            ? baseJ.cls === 'bad' && toBetter && !sameAsRecorded
             : baseJ.cls === 'bad' && newJ.cls === 'ok';
-          const neww = verdictOnly ? baseJ.cls === 'ok' : baseJ.cls === 'ok' && newJ.cls === 'bad';
+          const neww = verdictOnly
+            ? baseJ.cls === 'ok' && !sameAsRecorded
+            : baseJ.cls === 'ok' && newJ.cls === 'bad';
           if (fixed) slot.fixedNodes.push(key);
           if (neww) slot.newlyWrongNodes.push(key);
         }
@@ -1064,7 +1149,7 @@ export function replayBarLine(report: ReplayReport, arm: string): string {
           ([r, c]) => `${r} ${c.changed} changed / ${c.fixed} fixed / ${c.newlyWrong} newly wrong`
         )
         .join('; ');
-      return `${head}: arm ${arm} changed ${a.changed} (${a.moreAggressive} more aggressive, ${a.morePassive} more passive), resized ${a.resized}, illegal ${a.illegal}, refused ${a.refused}, errors ${a.errors}; fixed ${a.fixed}, newly wrong ${a.newlyWrong}, still wrong ${a.stillWrong}, ok to ok ${a.okToOk}, unjudged ${a.changedUnjudged}; judged bad left unchanged ${a.unchangedBad}${ev}${receipts ? `; per receipt: ${receipts}` : ''}.`;
+      return `${head}: arm ${arm} changed ${a.changed} (${a.moreAggressive} more aggressive, ${a.morePassive} more passive${a.resizeJudged ? `, ${a.resizeJudged} resizes judged by the audit's size band` : ''}), resized ${a.resized}, illegal ${a.illegal}, refused ${a.refused}, errors ${a.errors}; fixed ${a.fixed}, newly wrong ${a.newlyWrong}, still wrong ${a.stillWrong}, ok to ok ${a.okToOk}, unjudged ${a.changedUnjudged}; judged bad left unchanged ${a.unchangedBad}${ev}${receipts ? `; per receipt: ${receipts}` : ''}.`;
     })
     .join(' ');
 }
@@ -1354,7 +1439,7 @@ export function replayBarRows(
   const lines = report.sources.map((s) => {
     const a = s.arms.find((x) => x.arm === arm);
     if (!a) throw new Error(`replay row: arm ${arm} is absent from source ${s.source}`);
-    return `${REPLAY_BAR_ROW_PREFIX}fixed ${a.fixed}; newlyWrong ${a.newlyWrong}; changed ${a.changed}; unchanged ${a.unchanged}; unjudged ${a.changedUnjudged}; set ${o.set.trim()}; scorer ${o.scorer}; source ${s.source} ${s.method}; arm ${arm} vs ${report.base}; replayed ${s.replayed} of ${s.audited}`;
+    return `${REPLAY_BAR_ROW_PREFIX}fixed ${a.fixed}; newlyWrong ${a.newlyWrong}; changed ${a.changed}; unchanged ${a.unchanged}; unjudged ${a.changedUnjudged}; set ${o.set.trim()}; scorer ${o.scorer}; source ${s.source} ${s.method}${a.resizeJudged ? ` size-aware; resizeJudged ${a.resizeJudged}` : ''}; arm ${arm} vs ${report.base}; replayed ${s.replayed} of ${s.audited}`;
   });
   for (const line of lines)
     if (parseReplayBarRows(line).rows.length !== 1)

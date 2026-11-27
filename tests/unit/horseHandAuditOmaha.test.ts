@@ -17,7 +17,7 @@ import {
 import { auditSql } from '../../scripts/ops/horse-hand-audit-omaha-lib/sql.mjs';
 import { parseHand, shownCards } from '../../scripts/ops/horse-hand-audit-omaha-lib/hand.mjs';
 import { nodeFoldCost } from '../../scripts/ops/horse-hand-audit-omaha-lib/rangetier.mjs';
-import { mistakeClass } from '../../scripts/ops/horse-hand-audit-omaha-lib/grade.mjs';
+import { mistakeClass, mistakeType } from '../../scripts/ops/horse-hand-audit-omaha-lib/grade.mjs';
 import { omahaNutClassNow } from '../../server/src/engine/HorseOmahaMadeHandDefense';
 import { aggregate } from '../../scripts/ops/horse-hand-audit-omaha-lib/aggregate.mjs';
 import {
@@ -155,6 +155,48 @@ describe('grading from saved hands', () => {
     expect(mistakeClass('missed value bet', 'river', { eqc: 0.6 }, true)).toBe('OPPORTUNITY');
     expect(mistakeClass('missed value bet', 'river', { eqc: 0.6 }, false)).toBe('HARD');
     expect(mistakeClass('called too light', 'river', { eqc: 0 })).toBe('HARD');
+  });
+});
+
+describe('a raise whose only fault is its size is a size class, not "raise without price"', () => {
+  // 2026-11-27 (W8): 33 of the 37 HARD flop "raise without price" rows of Nov 20-27 had the audit's own pot raise as
+  // the best action: the raise was right, the size was below it. The audit prices a postflop raise with one
+  // size-independent fold rate, so that gap is a model upper bound (OPPORTUNITY), like "bet too small".
+  const flop = { street: 'flop', oop: true };
+  const x = {
+    nuts: false,
+    nutCls: undefined,
+    outs: 0,
+    madeCat: 4,
+    eqNow: 0.79,
+    taken: {},
+    hcost: null,
+  };
+  it('best = the pot raise -> "raise too small", OPPORTUNITY', () => {
+    const t = mistakeType({}, flop, 'raise', { a: 'raise' }, x);
+    expect(t).toBe('raise too small');
+    expect(mistakeClass(t, 'flop', { a: 'raise', eqc: 0.7 }, true)).toBe('OPPORTUNITY');
+  });
+  it('best = call or fold -> still "raise without price", HARD', () => {
+    for (const a of ['call', 'fold']) {
+      const t = mistakeType({}, flop, 'raise', { a }, x);
+      expect(t).toBe('raise without price');
+      expect(mistakeClass(t, 'flop', { a }, true)).toBe('HARD');
+    }
+  });
+  it('the owner-rule labels come first: a non-nut turn raise and an OOP draw raise keep their names', () => {
+    expect(
+      mistakeType(
+        {},
+        { street: 'turn', oop: false },
+        'raise',
+        { a: 'raise' },
+        { ...x, nutCls: null }
+      )
+    ).toBe('raised a non-nut hand on turn/river');
+    expect(mistakeType({}, flop, 'raise', { a: 'raise' }, { ...x, madeCat: 1, outs: 8 })).toBe(
+      'raised a draw out of position'
+    );
   });
 });
 

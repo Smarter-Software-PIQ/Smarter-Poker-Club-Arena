@@ -345,6 +345,45 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
     const bestH = hb.reduce((a, b) => (hv(b) > hv(a) ? b : a));
     hcost = (hv(bestH) - hv(taken)) / bbv;
   }
+  // SIZE BAND of a postflop raise (2026-11-27, W8): the raise-to levels (street totals, big blinds) the audit would judge
+  // CORRECT, so a replay scorer can judge a RESIZED raise. A postflop raise is priced with one size-independent fold
+  // rate and a caller range truncated by it, so only the all-in kink and the chips added change with the size: the band
+  // is the pot raise's own pricing (its fold share and its equity when called, no new equity sample: the seeded
+  // stream the rest of the audit reads is untouched) evaluated on 41 sizes from the minimum raise (call + the bet) to
+  // the pot raise or the stack. Null when no raise is legal, when no size is within the tolerance of the best option
+  // (calling or folding priced higher), or when the CORRECT sizes are not one interval.
+  let sizeBand = null;
+  const potOpt = d.toCall > 0 && st !== 'preflop' ? options.find((x) => x.a === 'raise') : null;
+  if (potOpt && C < myStack) {
+    const callerStack = d.stacks?.[caller] ?? 1e9;
+    const evAt = (add) => {
+      const target = d.myCom + add;
+      const oAdd = Math.max(0, Math.min(target - d.streetLevel, callerStack));
+      const allin = add >= myStack - 1e-9 || oAdd >= callerStack - 1e-9;
+      const Rr = final || allin ? 1 : R;
+      return potOpt.fe * P + (1 - potOpt.fe) * (Rr * potOpt.eqc * (P + add + oAdd) - add);
+    };
+    const lo = Math.min(2 * C, myStack);
+    const hi = Math.min(potOpt.add, myStack);
+    const grid = [];
+    for (let i = 0; i <= 40; i++) grid.push(lo + ((hi - lo) * i) / 40);
+    const evs = grid.map(evAt);
+    const passiveBest = Math.max(
+      ...options.filter((x) => x.a === 'fold' || x.a === 'call').map((x) => x.ev)
+    );
+    const top = Math.max(passiveBest, ...evs);
+    const tolB = Math.max(TOL_BB * bbv, TOL_POT * (P + C));
+    const ok = evs.map((v) => top - v <= tolB);
+    const first = ok.indexOf(true);
+    const last = ok.lastIndexOf(true);
+    if (first >= 0 && ok.slice(first, last + 1).every(Boolean))
+      sizeBand = {
+        min: (d.myCom + grid[first]) / bbv,
+        max: (d.myCom + grid[last]) / bbv,
+        legalMin: (d.myCom + lo) / bbv,
+        legalMax: (d.myCom + hi) / bbv,
+      };
+  }
   const heroStr = st === 'preflop' ? pfQuantile(hero) : null;
   const sc = st === 'preflop' ? null : omaha(hero, board);
   const nuts = st === 'preflop' ? null : isNutsExact(hero, board);
@@ -409,6 +448,7 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
     breach,
     notes,
     nutClass: nutCls,
+    sizeBand,
     pos,
     into,
     specs: opps.map((o) => specLabel(specs.get(o))),
@@ -457,6 +497,12 @@ export function mistakeType(hand, d, actTaken, best, x) {
     )
       return 'raised a non-nut hand on turn/river';
     if (d.oop && x.madeCat <= 1 && x.outs >= 4) return 'raised a draw out of position';
+    // The raise itself was right and only its size was not: the audit's best is its own priced (pot) raise, which beat
+    // the taken raise. That is a size class, not "raised where calling or folding priced higher" (2026-11-27, W8: 33 of
+    // the 37 HARD flop "raise without price" rows of Nov 20-27 were this). The postflop raise is priced with one
+    // size-independent fold rate, so the bigger raise wins by construction whenever the equity when called is high
+    // enough: a model-dependent upper bound, OPPORTUNITY like "bet too small".
+    if (b === 'raise') return 'raise too small';
     return 'raise without price';
   }
   if (actTaken === 'bet') {
@@ -488,6 +534,7 @@ export function mistakeClass(mtype, street, best, oop = false) {
     'missed value bet',
     'bet too small',
     'bet too big',
+    'raise too small',
     'slow-played into a free card',
     'preflop: missed squeeze',
     'preflop: flat instead of 3-bet',
