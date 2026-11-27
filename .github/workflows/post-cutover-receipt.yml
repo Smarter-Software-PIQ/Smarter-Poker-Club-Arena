@@ -1,0 +1,63 @@
+name: Post-Cutover Audit Receipt
+
+# THE CUTOVER POSTS ITS OWN AUDIT RECEIPT (Horse SWITCH lane, 2026-11-26).
+# When the engine receiver finishes (it seals or refuses a release and posts the cycle on issue #11599), this
+# runs the read-only post-cutover audit against production and answers that cycle's comment once
+# (scripts/ops/post-cutover-receipt.mjs). Reporting only: it never dispatches, retries or advances a release,
+# writes nothing to the database (read-only transaction) and posts one comment. It is not a release control:
+# no release workflow reads it and none waits for it.
+on:
+  workflow_run:
+    workflows: ['Auto-Deploy Hetzner Engine (on server/ changes)']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      receiver_run_id:
+        description: 'Run id of the Auto-Deploy Hetzner Engine receiver to audit'
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: post-cutover-receipt-${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  receipt:
+    name: Audit Production And Answer The Cutover Comment
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch the audited release for the ancestry check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RECEIVER_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          sha=$(curl -fsS --max-time 15 https://engine.smarter.poker/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("releaseSha") or "")') || sha=''
+          if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then git fetch -q --depth=1 origin "$sha" || true; fi
+
+      - name: Audit and post the receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+          AUDIT_DB_URL_ENV: AUDIT_DATABASE_URL
+          AUDIT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/ops/post-cutover-receipt.mjs
