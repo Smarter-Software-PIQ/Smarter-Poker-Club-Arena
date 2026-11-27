@@ -129,6 +129,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the balanced non-value share for a price (PLO-OWNER lead-7 2026-11-26): the weight behind a thin people cell in omahaFacingBetPriorIsPeopleMeasured',
     'src/engine/HorseOmahaFacingBetPeoplePrior.ts':
       "the default-off people-measured bettor prior (PLO-OWNER lead-7 2026-11-26, omahaFacingBetPriorIsPeopleMeasured): inside omahaFacingBetEv in PLO4/PLO5 cash, heads-up, a turn or river bet or raise priced on people-only measured shares (river: three regions), moved by the bettor's own shown bets",
+    'src/engine/HorseOmahaPeoplePriorHidden.ts':
+      "the default-off hidden-bet people cells (lead-8 lane OFA 2026-11-27, omahaPeoplePriorCountsHiddenBets): inside omahaFacingBetEv (turn) and the priced flop pressure cap (flop) in PLO4/PLO5 cash, the people-only cell per game and split counts people's hidden bets (folded later, mucked) as non-value; public events only; and the default-off river record read (lead-9 lane RV 2026-11-27, omahaRiverRecordCountsMuckedBets): the bettor's own river record counts the river bets he had called and mucked as not value",
+    'src/engine/HorseOmahaPeoplePriorHidden.data.ts':
+      'the generated hidden-bet split cells read by HorseOmahaPeoplePriorHidden.ts (people-only export, same fit as HorseOmahaFacingBetPeoplePrior.data.ts)',
     'src/engine/HorseOmahaMultiwayPeopleField.ts':
       'the default-off people-measured multiway field (PLO-OWNER lead-7 2026-11-27, omahaMultiwayFieldIsPeopleMeasured): inside omahaFacingBetEv in PLO4/PLO5 cash, a multiway turn or river call priced with callers at the people-measured caller width and players behind at the people multiway continue rate, each anchored to equilibrium',
     'src/engine/HorseOmahaFlopPressureCapPriced.ts':

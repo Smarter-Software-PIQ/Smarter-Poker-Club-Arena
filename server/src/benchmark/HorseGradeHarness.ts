@@ -184,6 +184,11 @@ export class GradeWorld {
               showdown.push({ user_id: uid(i), mucked: false });
             }
           });
+        // a seat that mucked at the showdown is listed as mucked, as production lists it (a scripted seat's
+        // observer wrapper passes muckedSeats; its cards never enter `shown`)
+        if (!e.endedByFolds)
+          for (const i of (e as { muckedSeats?: number[] }).muckedSeats ?? [])
+            showdown.push({ user_id: uid(i), mucked: true });
         omahaBetReadLearn({
           handKey: `${this.tag}-${++GradeWorld.handNo}`,
           variant,

@@ -54,6 +54,10 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the people-measured multiway field inside the facing-bet price (2026-11-27): two cell lookups, one more top-share
   // count and, with telemetry on, the second verdict that names omaha_mw_people_field_changed
   omahaMultiwayFieldIsPeopleMeasured: 'engine/anOmahaMultiwayPeopleFieldIsFast.law.test.ts',
+  // the hidden-bet people cells (2026-11-27): one keyed lookup and one preflop / flop history scan where it prices
+  omahaPeoplePriorCountsHiddenBets: 'engine/anOmahaPeoplePriorHiddenIsFast.law.test.ts',
+  // the river record's mucked bets (2026-11-27): one preflop history scan and one more record lookup on the river
+  omahaRiverRecordCountsMuckedBets: 'engine/anOmahaRiverRecordMuckedBetsIsFast.law.test.ts',
   // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
   omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
   // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)

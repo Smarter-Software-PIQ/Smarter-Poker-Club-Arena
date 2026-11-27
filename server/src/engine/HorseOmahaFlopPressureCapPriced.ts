@@ -31,6 +31,7 @@
  *
  * Identity never enters: the same arithmetic for every bettor; only the population data is people-only.
  */
+import type { OmahaPeoplePriorHiddenKey } from './HorseOmahaPeoplePriorHidden.js';
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import {
@@ -112,13 +113,14 @@ export const OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION = 0.2;
 export function omahaFlopPressureCapRegion(
   valueShare: number,
   potFrac: number,
-  record: { shown: number; value: number } | null
+  record: { shown: number; value: number } | null,
+  hidden?: OmahaPeoplePriorHiddenKey | null
 ): number {
   const floor = OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION;
   if (!(valueShare > floor) || !record) return valueShare;
   const shown = Number.isFinite(record.shown) && record.shown > 0 ? record.shown : 0;
   if (!(shown > 0)) return valueShare;
-  const pNT = omahaPeopleFlopCell(potFrac, false, false).nonTop20;
+  const pNT = omahaPeopleFlopCell(potFrac, false, false, hidden).nonTop20;
   if (pNT === null) return valueShare;
   const value = Math.max(0, Math.min(shown, Number.isFinite(record.value) ? record.value : 0));
   const k = OMAHA_PEOPLE_PRIOR_RECORD_BETS;
@@ -145,7 +147,9 @@ export function omahaFlopPressureCapPricedEquity(
   board: Card[],
   dead: Card[],
   rake: number,
-  record: { shown: number; value: number } | null
+  record: { shown: number; value: number } | null,
+  /** omahaPeoplePriorCountsHiddenBets: the hidden-corrected people cell (the record then counts his hidden bets) */
+  hidden?: OmahaPeoplePriorHiddenKey | null
 ): OmahaFlopPressureCapPricedEquity | null {
   const prior = omahaFlopPeoplePriorShare({
     potFrac: spot.potFrac,
@@ -156,13 +160,14 @@ export function omahaFlopPressureCapPricedEquity(
     rake,
     final: spot.final,
     record,
+    hidden,
   });
   if (!prior) return null;
   const counts = omahaFlopEvCounts(
     hole,
     board,
     dead,
-    omahaFlopPressureCapRegion(spot.valueShare, spot.potFrac, record),
+    omahaFlopPressureCapRegion(spot.valueShare, spot.potFrac, record, hidden),
     undefined,
     0,
     OMAHA_FLOP_PRESSURE_CAP_RIVERS

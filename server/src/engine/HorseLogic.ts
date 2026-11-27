@@ -1214,6 +1214,11 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
+import {
+  omahaPeoplePriorHiddenKeyOf,
+  omahaPeoplePriorRecordCountsHidden,
+  omahaRiverRecordCountsMuckedBets,
+} from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
@@ -3925,6 +3930,22 @@ export interface HorseDecideOpts {
    * fold can change. Turn, river, multiway, raises, PLO6 and tournaments untouched.
    */
   omahaFlopPressureCapIsPriced?: boolean;
+  /**
+   * lead-8 lane OFA 2026-11-27 (HorseOmahaPeoplePriorHidden.ts). Default OFF, read `=== true`. PLO4/PLO5 cash: where
+   * omahaFlopPressureCapIsPriced (flop) and omahaFacingBetPriorIsPeopleMeasured (turn) read the people-only cell,
+   * they read the split cell (flop: pot type; turn: the bettor's flop line; per game) that counts the bets people
+   * never showed although they did not win them uncontested (folded later, mucked) as non-value, and the bettor's
+   * own record counts his hidden bets the same way. River untouched (every called river bettor is shown).
+   */
+  omahaPeoplePriorCountsHiddenBets?: boolean;
+  /**
+   * PLO-OWNER lead-9 lane RV 2026-11-27 (HorseOmahaPeoplePriorHidden.ts omahaRiverRecordCountsMuckedBets). Default
+   * OFF, read `=== true`. PLO4/PLO5 cash, heads-up, a RIVER bet (not a raise, not in a re-raised pot), inside
+   * omahaFacingBetPriorIsPeopleMeasured's record step: the bettor's own river record also counts the river bets of
+   * his that were called and mucked at the showdown (public: the showdown list) as bets that were not value. The
+   * people cell, the turn, the flop, raises, multiway, PLO6 and tournaments are untouched; calls and folds only.
+   */
+  omahaRiverRecordCountsMuckedBets?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -15339,7 +15360,27 @@ function omahaFacingBetEvCount(
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
         const variant = String(gs.gameVariant ?? '').toLowerCase();
+        // omahaPeoplePriorCountsHiddenBets (default off): the turn's hidden-corrected split cell and record, for a bet
+        // (a raise keeps today's people raise cell: the option corrects bets only)
+        const hiddenKey =
+          opts.omahaPeoplePriorCountsHiddenBets === true &&
+          spot.street === 'turn' &&
+          spot.isRaise !== true
+            ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
+            : null;
+        if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
+        // omahaRiverRecordCountsMuckedBets (default off): his own river record also counts the river bets he had
+        // called and then mucked at the showdown as not value (a bet, outside re-raised pots; the people cell stands)
+        const riverMucked =
+          opts.omahaRiverRecordCountsMuckedBets === true &&
+          omahaRiverRecordCountsMuckedBets(
+            variant,
+            spot.street,
+            spot.isRaise === true,
+            gs.actionHistory
+          );
         const anchored = omahaPeoplePriorShare({
+          hidden: hiddenKey,
           street: spot.street,
           potFrac: spot.potFrac,
           isRaise: spot.isRaise === true,
@@ -15356,10 +15397,28 @@ function omahaFacingBetEvCount(
                   spot.street,
                   spot.potFrac,
                   omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
-                    'agg'
+                    'agg',
+                  omahaPeoplePriorRecordCountsHidden(hiddenKey) || riverMucked
                 )
               : null,
         });
+        // receipt: his river record held mucked called bets and the option read them
+        if (
+          riverMucked &&
+          anchored &&
+          mind &&
+          bettor &&
+          telemetryOn(opts) &&
+          anchored.shown >
+            (omahaBetReadOwnCellOf(
+              bettor.user_id,
+              variant,
+              spot.street,
+              spot.potFrac,
+              omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) === 'agg'
+            )?.shown ?? 0)
+        )
+          noteFire('omaha_river_mucked_bets_record_read');
         if (anchored) {
           readBeforeAnchor = read;
           read = {
@@ -32045,6 +32104,17 @@ export class HorseLogic {
         const spotP = omahaFlopPressureCapPricedSpot(player, gs);
         if (spotP) {
           const bettorP = gs.players.find((p) => p.seat === spotP.bettorSeat);
+          // omahaPeoplePriorCountsHiddenBets (default off): the flop's hidden-corrected split cell and record
+          const hiddenKeyP =
+            opts.omahaPeoplePriorCountsHiddenBets === true
+              ? omahaPeoplePriorHiddenKeyOf(
+                  String(gs.gameVariant ?? ''),
+                  'flop',
+                  gs.actionHistory,
+                  spotP.bettorSeat
+                )
+              : null;
+          if (hiddenKeyP && tele15) noteFire('omaha_hidden_bets_prior_read');
           const priced = omahaFlopPressureCapPricedEquity(
             spotP,
             player.cards,
@@ -32057,9 +32127,11 @@ export class HorseLogic {
                   String(gs.gameVariant ?? '').toLowerCase(),
                   'flop',
                   spotP.potFrac,
-                  false
+                  false,
+                  omahaPeoplePriorRecordCountsHidden(hiddenKeyP)
                 )
-              : null
+              : null,
+            hiddenKeyP
           );
           if (priced) pricedCap38 = Math.min(eq15, priced.equity);
         }
