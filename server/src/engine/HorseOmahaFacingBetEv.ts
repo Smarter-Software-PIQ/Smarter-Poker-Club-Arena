@@ -835,8 +835,15 @@ export interface OmahaEvHandCounts {
   runout?: Float64Array;
   /** river only: against three disjoint regions of holdings: core = the value region (no thin band), bottom = the
    *  weakest OMAHA_EV_BLUFF_POOL, middle = between (empty when the value region reaches the pool). Read only when a
-   *  priced read carries region weights (omahaFacingBetPriorIsPeopleMeasured). */
-  regions?: { core: OmahaEvShares; middle: OmahaEvShares; bottom: OmahaEvShares };
+   *  priced read carries region weights (omahaFacingBetPriorIsPeopleMeasured). A method, not a getter: the six-card
+   *  guard copies the counts with a spread, which would evaluate a getter on every PLO6 river hand. */
+  regionsOf?: () => {
+    core: OmahaEvShares;
+    middle: OmahaEvShares;
+    bottom: OmahaEvShares;
+    /** the value region reaches the weakest pool: no holding lies between them */
+    middleEmpty?: boolean;
+  };
 }
 
 /**
@@ -1027,12 +1034,13 @@ function evHandCounts(
         return { win: part(core0.win, all.win), tie: part(core0.tie, all.tie) };
       })(),
       other: againstBelow(pool.t, pool.above),
-      get regions() {
+      regionsOf() {
         const coreS = againstAbove(v.t, v.above);
         const botN = total - pool.above;
         const bottom = againstBelow(pool.t, pool.above);
         const midN = pool.above - v.above;
-        if (!(midN > 0)) return { core: coreS, middle: { win: 0, tie: 0 }, bottom };
+        if (!(midN > 0))
+          return { core: coreS, middle: { win: 0, tie: 0 }, bottom, middleEmpty: true };
         const allWin = noBT;
         const allTie = noB - noBT;
         const midWin = (allWin - coreS.win * v.above - bottom.win * botN) / midN;
@@ -1651,12 +1659,16 @@ export function omahaFacingBetEvVerdict(
   // omahaFacingBetPriorIsPeopleMeasured (default off): on the river the bettor is three measured regions, not a
   // value region plus a bluff pool; the middle (hands a strong bluff-catcher beats) is no longer counted as value.
   const reg = spot.street === 'river' ? read?.pricedRegions : null;
-  if (reg && counted.regions) {
-    const r = counted.regions;
+  const r = reg && counted.regionsOf ? counted.regionsOf() : null;
+  if (reg && r) {
     const w = reg.core + reg.middle + reg.bottom;
     if (w > 0) {
-      pWin = (reg.core * r.core.win + reg.middle * r.middle.win + reg.bottom * r.bottom.win) / w;
-      pTie = (reg.core * r.core.tie + reg.middle * r.middle.tie + reg.bottom * r.bottom.tie) / w;
+      // no holding between the value region and the weakest pool on this board: the measured middle share is
+      // priced with the value region (the conservative side), never as hands the Horse loses to by default
+      const cw = r.middleEmpty ? reg.core + reg.middle : reg.core;
+      const mw = r.middleEmpty ? 0 : reg.middle;
+      pWin = (cw * r.core.win + mw * r.middle.win + reg.bottom * r.bottom.win) / w;
+      pTie = (cw * r.core.tie + mw * r.middle.tie + reg.bottom * r.bottom.tie) / w;
     }
   }
   // The field: each must be beaten too. A player already in is always there;

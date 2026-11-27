@@ -33,6 +33,7 @@ import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
 import {
   OMAHA_PEOPLE_PRIOR_ANCHOR_BETS,
   OMAHA_PEOPLE_PRIOR_RECORD_BETS,
+  omahaPeopleNonTop20,
   omahaPeoplePriorCell,
   omahaPeoplePriorShare,
 } from './HorseOmahaFacingBetPeoplePrior.js';
@@ -96,7 +97,7 @@ function rowOf(s: PricedState): Row | null {
   if (!a || !p) return null;
   let onlyBeatsBottom: boolean | undefined;
   if (gs.stage === 'river') {
-    const r = omahaEvHandCounts(hole, board, [], spot.valueShare)?.regions;
+    const r = omahaEvHandCounts(hole, board, [], spot.valueShare)?.regionsOf?.();
     if (r) onlyBeatsBottom = r.core.win + r.core.tie <= 1e-9 && r.middle.win + r.middle.tie <= 1e-9;
   }
   return {
@@ -223,6 +224,12 @@ describe('LAW: a heads-up bettor is priced on the people-only measured share, an
     expect(at(4, 0).share).toBeGreaterThan(q0);
     expect(at(40, 20).share).toBeGreaterThan(q0);
     expect(at(40, 20).share).toBeLessThanOrEqual(0.65);
+    // the record is read in its own unit: a bettor whose not-value rate (not beating 80% of holdings) equals
+    // people's in that unit leaves the share where people put it, whatever the price's value region is
+    const pNT = omahaPeopleNonTop20('river', 0.9, false, false)!;
+    expect(pNT).toBeGreaterThan(0);
+    const same = at(100, Math.round(100 * (1 - pNT)));
+    expect(Math.abs(same.share - q0)).toBeLessThan(0.02);
     // a raise reads the people raise cell and no record
     const r = at(40, 0, true);
     expect(r.shown).toBe(0);
@@ -309,6 +316,26 @@ describe('LAW: a heads-up bettor is priced on the people-only measured share, an
         expect(on.receipts.omaha_people_prior_priced ?? 0).toBeGreaterThan(0);
         if (want === 'call') expect(on.receipts.omaha_people_prior_changed ?? 0).toBeGreaterThan(0);
       }, 120_000);
+  });
+
+  it('the three-region count is lazy: a six-card count (PLO6, outside the option) never computes it', () => {
+    const c = (t: string) =>
+      ({
+        rank: t[0],
+        suit: ({ c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as const)[t[1] as 'c'],
+      }) as never;
+    const hole = ['Ah', 'Kd', 'Qc', 'Js', 'Th', '9d'].map(c);
+    const board = ['2c', '7h', '8d', '3s', '4c'].map(c);
+    const six = omahaEvHandCounts(hole, board, [], 0.2)!;
+    expect(six).not.toBeNull();
+    expect(typeof six.regionsOf).toBe('function');
+    const four = omahaEvHandCounts(hole.slice(0, 4), board, [], 0.2)!;
+    expect(typeof four.regionsOf).toBe('function');
+    const r = four.regionsOf!();
+    for (const k of ['core', 'middle', 'bottom'] as const) {
+      expect(r[k].win).toBeGreaterThanOrEqual(0);
+      expect(r[k].win + r[k].tie).toBeLessThanOrEqual(1 + 1e-9);
+    }
   });
 
   it('a multiway spot, PLO6 and tournaments are never priced by it; no identity input (source: the one call site)', () => {
