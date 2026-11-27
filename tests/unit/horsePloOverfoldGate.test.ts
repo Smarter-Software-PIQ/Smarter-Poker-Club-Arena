@@ -321,7 +321,7 @@ describe('the gate, every cell (counts only)', () => {
     expect(col.ftZ!).toBeGreaterThan(10);
     expect(foldThroughTable(hu.foldThrough)).toHaveLength(2);
     expect(foldThroughTable(one.foldThrough).join('\n')).toMatch(
-      /\| PLO5 cash \| turn \| 3-way \| 0\.7\+ pot \| 126 \| 61\.1% \| 42\.9% \| 4\.\d\d \| 0\.\d\d \| - \(0\) \| no owner yet \| OVER, no owner \|/
+      /\| PLO5 cash \| turn \| 3-way \| 0\.7\+ pot \| 126 \| 61\.1% \| 42\.9% \| 4\.\d\d \| 0\.\d\d \| - \| - \(0\) \| no owner yet \| OVER, no owner \|/
     );
   });
 

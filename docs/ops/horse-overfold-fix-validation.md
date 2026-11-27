@@ -51,4 +51,4 @@ tool for each (`overfold-fix-validation-<option>.json`). SUMMARY.md lists each v
 Validation"; a REGRESSED cell is a breach-class regression (the fix is ON and the cell got worse).
 
 Limits: realized bb per call carries the full luck of the runout (no all-in adjustment); watch cells only see the
-showdowns the Horse showed, so they are a lower bound on the calls in each class.
+showdowns the Horse showed, so they are a lower bound on the calls in each class.| fold-through | the person's bet took the pot (heads-up: its own; multiway: the 3-way row), against the pure-bluff break-even s/(1+s); beside it the bb-weighted value of a zero-equity bluff, fold-through x pot - (1 - fold-through) x bet in real pots, mean +/- SE (information only: a cell can be over the break-even in pot units and worth about 0 bb when the fold-throughs come in the smaller pots) |

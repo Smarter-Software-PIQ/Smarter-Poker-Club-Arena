@@ -236,10 +236,13 @@ export function validate({ option, owner, S, prior = null, ownerMap = null }) {
       (a.group === 'plo' ? true : x.gv === a.group) &&
       (x.field ?? 'hu') === a.field;
     const callsOf = (side) => meanSe(S[side].calls.filter(inCell).map((x) => x.bb));
+    // heads-up: its own fold-through; multiway: the 3-way fold-through row (the cell's people-first bets)
     const ftOf = (G) =>
-      a.field === 'hu'
-        ? G.foldThrough.find((x) => x.key === `foldthru|${a.group}|${a.street}|hu|${a.bucket}`)
-        : null;
+      G.foldThrough.find(
+        (x) =>
+          x.key ===
+          `foldthru|${a.group}|${a.street}|${a.field === 'hu' ? 'hu' : '3way'}|${a.bucket}`
+      );
     const v = cellVerdict(b ?? { n: 0 }, a, zBar);
     cells.push({
       key: a.key,
@@ -289,6 +292,11 @@ export function validate({ option, owner, S, prior = null, ownerMap = null }) {
 
 const pct = (x) => (Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : '-');
 const f2 = (x) => (Number.isFinite(x) ? x.toFixed(2) : '-');
+/** The bb-weighted value of a zero-equity bluff (fold-through x pot - (1 - fold-through) x bet, real pots). */
+const bbOf = (ft) =>
+  Number.isFinite(ft?.evBb)
+    ? `${f2(ft.evBb)}${Number.isFinite(ft.evBbSe) ? ` +/- ${f2(ft.evBbSe)}` : ''}`
+    : '-';
 const pm = (m) => (m && m.n ? `${f2(m.mean)}${m.se ? ` +/- ${f2(m.se)}` : ''} (n ${m.n})` : '-');
 
 /** The page (markdown). */
@@ -304,12 +312,12 @@ export function formatPage(r, { onIso, untilIso, beforeText, hands }) {
     ''
   );
   L.push(
-    '| cell | before n | before fold | after n | after fold | ceiling | z after vs ceiling | z after vs before | fold-through before / after (break-even) | bb per call before | bb per call after | verdict |'
+    '| cell | before n | before fold | after n | after fold | ceiling | z after vs ceiling | z after vs before | fold-through before / after (break-even; zero-equity bluff bb per bet) | bb per call before | bb per call after | verdict |'
   );
   L.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const c of r.cells)
     L.push(
-      `| ${c.game} ${c.street} ${c.field === 'hu' ? 'heads-up' : 'multiway'} ${c.size} | ${c.before.n} | ${pct(c.before.rate)} | ${c.after.n} | ${pct(c.after.rate)} | ${pct(c.after.ceiling)} | ${f2(c.after.z)} (bar ${f2(c.zBar)}) | ${f2(c.zWorse)} | ${c.before.ft ? `${pct(c.before.ft.rate)} (${pct(c.before.ft.breakEven)}, n ${c.before.ft.n})` : '-'} / ${c.after.ft ? `${pct(c.after.ft.rate)} (${pct(c.after.ft.breakEven)}, n ${c.after.ft.n})` : '-'} | ${pm(c.before.calls)} | ${pm(c.after.calls)} | ${c.verdict}${c.verdict === 'NOT YET' && c.need ? ` (n needed ~${c.need})` : ''} |`
+      `| ${c.game} ${c.street} ${c.field === 'hu' ? 'heads-up' : 'multiway'} ${c.size} | ${c.before.n} | ${pct(c.before.rate)} | ${c.after.n} | ${pct(c.after.rate)} | ${pct(c.after.ceiling)} | ${f2(c.after.z)} (bar ${f2(c.zBar)}) | ${f2(c.zWorse)} | ${c.before.ft ? `${pct(c.before.ft.rate)} (${pct(c.before.ft.breakEven)}, n ${c.before.ft.n}; bluff ${bbOf(c.before.ft)} bb)` : '-'} / ${c.after.ft ? `${pct(c.after.ft.rate)} (${pct(c.after.ft.breakEven)}, n ${c.after.ft.n}; bluff ${bbOf(c.after.ft)} bb)` : '-'} | ${pm(c.before.calls)} | ${pm(c.after.calls)} | ${c.verdict}${c.verdict === 'NOT YET' && c.need ? ` (n needed ~${c.need})` : ''} |`
     );
   if (!r.cells.length)
     L.push('| (no decision in any owned cell in either window) | | | | | | | | | | | |');

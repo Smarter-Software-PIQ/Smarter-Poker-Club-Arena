@@ -244,6 +244,8 @@ export function foldThroughBets(hand, { known = null } = {}) {
       s,
       bucket: bucketOf(s),
       through,
+      // bb-weighted value of a zero-equity bluff here (information only): the pot if it folds through, else -bet
+      bluffBb: hand.bb > 0 ? (through ? d.pot : -(d.amt - (d.myCom ?? 0))) / hand.bb : null,
     });
   }
   return out;
@@ -541,6 +543,9 @@ export function gateCells({
             let be = 0;
             let v = 0;
             let ev = 0;
+            let nb = 0;
+            let sb = 0;
+            let sb2 = 0;
             for (const x of rows) {
               if (!inCell(x)) continue;
               n++;
@@ -549,7 +554,13 @@ export function gateCells({
               be += c;
               v += c * (1 - c);
               ev += x.through ? 1 : -x.s;
+              if (Number.isFinite(x.bluffBb)) {
+                nb++;
+                sb += x.bluffBb;
+                sb2 += x.bluffBb * x.bluffBb;
+              }
             }
+            const mb = nb ? sb / nb : null;
             return {
               n,
               through,
@@ -557,6 +568,8 @@ export function gateCells({
               breakEven: n ? be / n : null,
               z: v > 0 ? (through - be) / Math.sqrt(v) : null,
               evPot: n ? ev / n : null,
+              evBb: mb,
+              evBbSe: nb > 1 ? Math.sqrt(Math.max(0, sb2 / nb - mb * mb) / nb) : null,
             };
           };
           const w = stat(bets);
@@ -578,6 +591,8 @@ export function gateCells({
             breakEven: w.breakEven,
             z: w.z,
             evPot: w.evPot,
+            evBb: w.evBb,
+            evBbSe: w.evBbSe,
             rangeN: r.n,
             rangeRate: r.rate,
             // heads-up fold-through is the second column of the heads-up cells: shown, never a gate of its own
@@ -609,7 +624,8 @@ export function gateCells({
     c.line =
       `Fold-through ${c.game} ${c.street} ${c.playersLabel} ${c.size} (a person's first bet into Horses, everyone ` +
       `folds): n ${c.n} over ${FT_DAYS} days, folded through ${pct(c.rate)} vs the pure-bluff break-even ` +
-      `${pct(c.breakEven)}, z ${z2(c.z)} (a zero-equity bet earns ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} pot); ` +
+      `${pct(c.breakEven)}, z ${z2(c.z)} (a zero-equity bet earns ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} pot, ` +
+      `${Number.isFinite(c.evBb) ? `${c.evBb.toFixed(2)}${Number.isFinite(c.evBbSe) ? ` +/- ${c.evBbSe.toFixed(2)}` : ''}` : '-'} bb per bet weighted by real pots); ` +
       `in the range n ${c.rangeN}, ${pct(c.rangeRate)}; ` +
       `${c.gating ? 'OVER THE BREAK-EVEN on' : c.tested ? 'against' : 'not tested against'} bar ${z2(ftZBar)} (${ftTests} tests); ${fix}`;
   }
@@ -701,13 +717,13 @@ const ftWord = (c) =>
 /** Markdown rows of the multiway fold-through cells (all = true: heads-up and empty cells too). */
 export function foldThroughTable(ft, { all = false } = {}) {
   const L = [
-    '| game | street | players | size | bets (7 days) | folded through | pure-bluff break-even | z | zero-equity bet earns (pot) | in the range (n) | owner option (state) | gate |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| game | street | players | size | bets (7 days) | folded through | pure-bluff break-even | z | zero-equity bet earns (pot) | zero-equity bet earns (bb per bet, real pots) | in the range (n) | owner option (state) | gate |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const c of ft ?? []) {
     if (!all && (c.players === 'hu' || !(c.n > 0))) continue;
     L.push(
-      `| ${c.game} | ${c.street} | ${c.playersLabel} | ${c.size} | ${c.n} | ${pct(c.rate)} | ${pct(c.breakEven)} | ${z2(c.z)} | ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} | ${pct(c.rangeRate)} (${c.rangeN}) | ${c.owner ? `${c.owner} (${c.ownerState})` : c.ownerState} | ${ftWord(c)} |`
+      `| ${c.game} | ${c.street} | ${c.playersLabel} | ${c.size} | ${c.n} | ${pct(c.rate)} | ${pct(c.breakEven)} | ${z2(c.z)} | ${Number.isFinite(c.evPot) ? c.evPot.toFixed(2) : '-'} | ${Number.isFinite(c.evBb) ? `${c.evBb.toFixed(2)}${Number.isFinite(c.evBbSe) ? ` +/- ${c.evBbSe.toFixed(2)}` : ''}` : '-'} | ${pct(c.rangeRate)} (${c.rangeN}) | ${c.owner ? `${c.owner} (${c.ownerState})` : c.ownerState} | ${ftWord(c)} |`
     );
   }
   return L;
