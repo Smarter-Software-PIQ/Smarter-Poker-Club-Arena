@@ -1243,6 +1243,13 @@
         "omahaFlopRealizationIsPriced"
       ]
     },
+    "omahaFlopPressureCapIsPriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_pressure_cap_priced"],
+      "unlessOn": []
+    },
     "omahaFacingBetPriorIsPeopleMeasured": {
       "releaseDefault": "off",
       "source": "declared",

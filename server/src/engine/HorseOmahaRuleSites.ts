@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetMinimumDefencePrior: priced(
     "a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24)"
   ),
+  omahaFlopPressureCapIsPriced: priced(
+    "heads-up on the flop facing one bet, where the V40 class cap prices a weak made hand, the reference call-or-fold check reads the Horse's equity against the bettor's range (value region plus the PEOPLE-ONLY measured flop non-value share, the balanced share weighting a thin cell, moved by his own shown flop bets) in place of the class ceiling; call vs fold only (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
   omahaFacingBetPriorIsPeopleMeasured: priced(
     'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
   ),

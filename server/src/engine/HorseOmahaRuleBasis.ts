@@ -275,6 +275,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   },
   omahaFacingBetMinimumDefencePrior: FACING_BET_EV,
   omahaFacingBetPriorIsPeopleMeasured: FACING_BET_EV,
+  omahaFlopPressureCapIsPriced: FACING_BET_EV,
   omahaFacingBetFieldIsJoint: {
     kind: 'priced',
     range:
@@ -932,6 +933,9 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_people_prior_priced: FACING_BET_EV,
   omaha_people_prior_record_read: FACING_BET_EV,
   omaha_people_prior_changed: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced_call: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced_fold: FACING_BET_EV,
   omaha_flop_call_tree_call: FACING_BET_EV,
   omaha_flop_call_tree_fold: FACING_BET_EV,
   omaha_flop_call_tree_changed: FACING_BET_EV,
