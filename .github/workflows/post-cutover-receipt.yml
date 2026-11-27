@@ -1,0 +1,98 @@
+name: Post-Cutover Audit Receipt
+
+# THE CUTOVER POSTS ITS OWN AUDIT RECEIPT (Horse SWITCH lane, 2026-11-26).
+# When the engine receiver finishes (it seals or refuses a release and posts the cycle on issue #11599), or Stage
+# finishes (it posts KEEP-SERVING), a secret-free gate asks whether that run posted a cycle result; only then does
+# this run the read-only post-cutover audit against production and answers that cycle's comment once
+# (scripts/ops/post-cutover-receipt.mjs). Reporting only: it never dispatches, retries or advances a release,
+# writes nothing to the database (read-only transaction) and posts one comment. It is not a release control:
+# no release workflow reads it and none waits for it.
+on:
+  workflow_run:
+    workflows:
+      - 'Auto-Deploy Hetzner Engine (on server/ changes)'
+      - 'Stage Exact Club Arena Engine Release'
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      receiver_run_id:
+        description: 'Run id of the receiver or Stage run whose cycle comment to answer'
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: post-cutover-receipt-${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Did This Run Post A Cycle Result
+    # No secret here. Only this repository's own receiver (started by a cutover) or Stage file, on main, by hand.
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && ((github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.event == 'repository_dispatch') || github.event.workflow_run.path == '.github/workflows/stage-engine-release.yml'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      needed: ${{ steps.find.outputs.needed }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Find the cycle comment this run posted
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+        run: node scripts/ops/post-cutover-receipt.mjs --find
+
+  receipt:
+    name: Audit Production And Answer The Cutover Comment
+    needs: gate
+    # A job-token dispatch or re-run never reaches the secret (tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts).
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && needs.gate.outputs.needed == 'true' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch the live release and enough history for the ancestry check
+        env:
+          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RECEIVER_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          sha=$(curl -fsS --max-time 15 https://engine.smarter.poker/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("releaseSha") or "")') || sha=''
+          # A sealed or serving commit can sit a few hundred commits below the live one; fetch that much.
+          if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then git fetch -q --depth=500 origin "$sha" || true; fi
+
+      - name: Audit and post the receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_RUN_ID: ${{ github.event.workflow_run.id || inputs.receiver_run_id }}
+          AUDIT_DB_URL_ENV: AUDIT_DATABASE_URL
+          AUDIT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/ops/post-cutover-receipt.mjs
