@@ -317,6 +317,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    */
   protected ritOfferDeadlineTs = 0;
 
+  protected override activeRitOfferDeadlineMs(): number {
+    return this.runItTwiceEngine?.isDecisionPending?.(this.tableId) ? this.ritOfferDeadlineTs : 0;
+  }
+
   /**
    * HORSES RUN IT TWICE SOMETIMES (Dan 2026-11-13): what a Horse reads at
    * this hand's run-it-twice offer, keyed by hand number (only the live hand
@@ -4174,20 +4178,33 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       250
     ); // Check every 250ms
 
-    // Safety timeout: if insurance engine's own timeouts somehow fail, force continue after 20s
+    // Safety timeout: strictly longer than InsuranceEngine's own offer timer
+    // (default 25s + 5s slack = 30s, matching waitForRITResponse), so a live
+    // offer is never cut short at 22s while the client clock still shows 3s.
+    const offerTimeoutSec =
+      typeof this.insuranceEngine.getOfferTimeoutSeconds === 'function'
+        ? this.insuranceEngine.getOfferTimeoutSeconds(this.tableId)
+        : 25;
+    const safetyTimeoutMs = Math.max(10, offerTimeoutSec) * 1000 + 5_000;
     const safetyTimeout = this.setHandTimeout(() => {
       if (!this.insuranceEngine.allResponded(this.tableId)) {
         console.warn(
           `[ServerTableEngine:${this.tableId}] Insurance safety timeout - forcing continue`
         );
-        // Decline any remaining offers
+        // Decline any remaining offers while preserving preflop street-only
+        // vs flop/turn hand-finality parity.
         for (const offer of this.insuranceEngine.getOffers(this.tableId)) {
           if (offer.status === 'offered') {
-            this.insuranceEngine.decline(this.tableId, offer.playerId);
+            this.insuranceEngine.decline(
+              this.tableId,
+              offer.playerId,
+              (offer.boardLength ?? 3) >= 3,
+              'timeout'
+            );
           }
         }
       }
       finish();
-    }, 22_000);
+    }, safetyTimeoutMs);
   }
 }

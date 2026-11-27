@@ -170,6 +170,11 @@ export class TimeBankEngine {
     this.tableConfigs.set(tableId, { ...this.DEFAULT_CONFIG, ...config });
   }
 
+  /** Configured seconds granted per time-bank activation for this table. */
+  getSecondsPerUse(tableId: string): number {
+    return (this.tableConfigs.get(tableId) || this.DEFAULT_CONFIG).secondsPerUse;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PLAYER MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
