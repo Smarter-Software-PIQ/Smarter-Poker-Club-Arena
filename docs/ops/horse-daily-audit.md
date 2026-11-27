@@ -67,10 +67,13 @@ first).
 **Ceiling of a cell**, in this order, named in every row:
 
 1. **People prior table**: `server/src/engine/HorseOmahaFacingBetPeoplePrior.data.ts` (must say
-   `source: 'people-only'`) has people's measured bluff share for the cell with at least 30 bets: turn and river
-   under `bluff.<street>.<hu|mw>`, the flop under `flop.<hu|mw>` when the table has it (it arrives with the flop
-   fit; until then flop cells use the next ceiling). PLO only. Per decision: the minimum-defence fold while people
-   bluff at least the balanced share s/(1+2s), rising linearly to 1 as their measured bluff share falls to 0.
+   `source: 'people-only'`; PLO only), where it has the cell with at least 30 people decisions. Heads-up: people's
+   measured bluff share (turn and river under `bluff.<street>.hu`, the flop under `flop.hu` when the table has it;
+   it arrives with the flop fit, until then flop cells use the next ceiling). Per decision: the minimum-defence fold
+   while people bluff at least the balanced share s/(1+2s), rising linearly to 1 as their measured bluff share falls
+   to 0 (the first alarm's ceiling, unchanged). Multiway: the table's measured people fold share of the cell
+   (`fold.<street>.mw`, turn and river); the bluff-share price is one caller's break-even and is not a per-player
+   ceiling with players behind.
 2. **People's own folds**: people's fold rate in the same cell over the trailing 14 days that end with the range,
    with its sample size, when it has at least 30 decisions. People only: `profiles.is_horse = false`, a profile row
    found, not acting on Horse policy; the bettor may be anyone (people almost never face a person's bet). The test

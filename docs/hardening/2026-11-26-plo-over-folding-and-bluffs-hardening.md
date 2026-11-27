@@ -100,9 +100,10 @@ Every option ships default OFF with a flag-off check (0 differences), a shadow w
 - **Root fix (scripts only, no decision code):** `scripts/ops/horse-plo-overfold-gate*.mjs` now has 120 cells: PLO5
   cash, PLO4 cash, the two pooled, Hold'em cash, Hold'em tournaments x flop / turn / river x heads-up / multiway x
   three bet sizes and an all-sizes row. Each cell's ceiling is, in order and named in the row: the people prior
-  table's cell; else people's own fold rate in the cell over the trailing 14 days with its sample (people only, no
-  HUD row); else minimum defence (s/(1+s) heads-up, (s/(1+s))^(1/k) for each of k players left multiway). Tested on
-  the range and on the range pooled with the 3 days before, against one multiple-comparison-corrected bar.
+  table's cell (heads-up its bluff share as a price, multiway its measured people fold share); else people's own
+  fold rate in the cell over the trailing 14 days with its sample (people only, no HUD row); else minimum defence
+  (s/(1+s) heads-up, (s/(1+s))^(1/k) for each of k players left multiway). Tested on the range and on the range
+  pooled with the 3 days before, against one multiple-comparison-corrected bar.
 - **The regression signal:** `scripts/ops/horse-overfold-owner-map.json` names the option that owns each cell; the
   alarm reads that option's live state. A cell over its ceiling WITH ITS FIX ON for the whole tested window is
   breach-class: first in the alarm, first under Regressions in the daily summary, and never folded into the

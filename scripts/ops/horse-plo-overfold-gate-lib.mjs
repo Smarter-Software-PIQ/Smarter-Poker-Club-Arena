@@ -15,11 +15,15 @@
 //   and an "all sizes" row per game, street and players (each decision against the ceiling of its own size cell:
 //   a multiway cell holds a handful of decisions a day, and a leak spread over three sizes is seen there first).
 // Each cell's fold rate is held against a CEILING, taken in this order and named in every row:
-//   1. PEOPLE PRIOR TABLE: server/src/engine/HorseOmahaFacingBetPeoplePrior.data.ts (source 'people-only') has
-//      people's measured bluff share b for the cell with at least PRIOR_MIN_N bets (PLO only; turn and river under
-//      bluff.<street>.<hu|mw>, the flop under flop.<hu|mw> once that fit is on main). Per decision: the
-//      minimum-defence fold while b is at least the balanced share s/(1+2s) a bluff-catcher's call pays, rising
-//      linearly to 1 as b falls to 0 (people who bluff less may be folded to more).
+//   1. PEOPLE PRIOR TABLE: server/src/engine/HorseOmahaFacingBetPeoplePrior.data.ts (source 'people-only'; PLO
+//      only), where it has the cell with at least PRIOR_MIN_N people decisions.
+//      Heads-up: people's measured bluff share b (turn and river under bluff.<street>.hu, the flop under flop.hu
+//      once that fit is on main). Per decision: the minimum-defence fold while b is at least the balanced share
+//      s/(1+2s) a bluff-catcher's call pays, rising linearly to 1 as b falls to 0 (people who bluff less may be
+//      folded to more). This is the ceiling of the first alarm, unchanged.
+//      Multiway: the table's measured people fold share of the cell (fold.<street>.mw; turn and river). The
+//      bluff-share price is one caller's break-even; with players behind it is not a per-player ceiling, so the
+//      measured cell is used and the bluff cell is not.
 //   2. PEOPLE'S OWN FOLDS: people's measured fold rate in the same cell over the trailing PEOPLE_DAYS days, with
 //      its sample (people only: profiles.is_horse = false and not acting on Horse policy; never a HUD '*' row),
 //      at least PEOPLE_MIN_N decisions (bettor: anyone; people almost never face a person's bet). The test
@@ -110,10 +114,18 @@ export function foldCeiling(s, b = null, k = 1) {
   return f + (1 - f) * (1 - Math.max(0, b) / bs);
 }
 
-/** People's measured bluff share for a cell of the people prior table, or null. field: 'hu' | 'mw'. */
-export function peoplePriorCell(prior, street, field, bucket) {
+/**
+ * A cell of the people prior table, or null: people's measured bluff share (kind 'bluff': bluff.<street>.<field>,
+ * the flop under flop.<field>) or their measured fold share (kind 'fold': fold.<street>.<field>). field: 'hu' | 'mw'.
+ */
+export function peoplePriorCell(prior, street, field, bucket, kind = 'bluff') {
   if (!prior || prior.source !== PEOPLE_ONLY_SOURCE) return null;
-  const table = street === 'flop' ? prior?.flop?.[field] : prior?.bluff?.[street]?.[field];
+  const table =
+    kind === 'fold'
+      ? prior?.fold?.[street]?.[field]
+      : street === 'flop'
+        ? prior?.flop?.[field]
+        : prior?.bluff?.[street]?.[field];
   const keys = BUCKETS.find((x) => x.key === bucket)?.prior ?? [];
   let n = 0;
   let sum = 0;
@@ -247,7 +259,7 @@ function measure(spots, specOf) {
     if (x.fold) folds++;
     const spec = specOf(x.bucket);
     let c;
-    if (spec.tier === 'people-14d') {
+    if (typeof spec.p === 'number') {
       c = spec.p;
       held.set(x.bucket, (held.get(x.bucket) ?? 0) + 1);
     } else c = foldCeiling(x.s, spec.tier === 'people-prior' ? spec.share : null, x.opponents ?? 1);
@@ -308,14 +320,23 @@ export function gateCells({
           const ppl = people.filter((x) => x.who === 'person' && inField(x) && x.bucket === b.key);
           const pn = ppl.length;
           const pf = ppl.filter((x) => x.fold).length;
-          const pc = g.prior ? peoplePriorCell(prior, street, f.key, b.key) : null;
+          // heads-up: the bluff cell (a price); multiway: the measured fold cell (a rate)
+          const kind = f.key === 'hu' ? 'bluff' : 'fold';
+          const pc = g.prior ? peoplePriorCell(prior, street, f.key, b.key, kind) : null;
           specs[b.key] = pc
-            ? {
-                tier: 'people-prior',
-                share: pc.share,
-                n: pc.n,
-                source: `people prior table (bluff share ${pct(pc.share)}, n ${pc.n})`,
-              }
+            ? kind === 'bluff'
+              ? {
+                  tier: 'people-prior',
+                  share: pc.share,
+                  n: pc.n,
+                  source: `people prior table (bluff share ${pct(pc.share)}, n ${pc.n})`,
+                }
+              : {
+                  tier: 'people-prior',
+                  p: pc.share,
+                  n: pc.n,
+                  source: `people prior table (people's fold share ${pct(pc.share)}, n ${pc.n})`,
+                }
             : pn >= PEOPLE_MIN_N
               ? {
                   tier: 'people-14d',

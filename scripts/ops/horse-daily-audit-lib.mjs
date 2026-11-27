@@ -182,6 +182,7 @@ export const OVERFOLD_HEADING =
   "## Over-Fold Gate (PLO4, PLO5, Hold'em cash and tournaments; flop, turn, river; facing a person's first bet)";
 const n1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(1) : '-');
 const arr = (x) => (Array.isArray(x) ? x : []);
+const pc1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : '-');
 
 /**
  * The top leaks: the NLH audit's ranked leaks (format, street, type, bb lost), the PLO audit's HARD leaks versus
@@ -412,7 +413,11 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
     const list = (title, rows) => {
       if (!rows.length) return;
       L.push(`**${title}**`, '');
-      for (const c of rows) L.push(`- ${c.line}`);
+      // the full line of each is under Regressions: here one short line a cell
+      for (const c of rows)
+        L.push(
+          `- ${c.game} ${c.street} ${c.fieldLabel} ${c.size}: Horse folds ${pc1(c.rate)} (n ${c.n}; with the previous 3 days ${pc1(c.pooledRate)}, n ${c.pooledN}) vs ceiling ${pc1(c.ceiling)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+        );
       L.push('');
     };
     list('Over its ceiling WITH ITS FIX ON (regression, breach-class)', cls('fix-on'));

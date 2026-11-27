@@ -92,6 +92,14 @@ const PEOPLE = (share: number, n = 150, flop = false) => ({
   },
   ...(flop ? { flop: { hu: bluffCells(share, n), mw: bluffCells(share, n) } } : {}),
 });
+/** The table's measured people fold cells (multiway turn and river). */
+const withFold = <T extends object>(prior: T, share: number, n = 400) => ({
+  ...prior,
+  fold: {
+    turn: { mw: bluffCells(share, n) },
+    river: { mw: bluffCells(share, n) },
+  },
+});
 const OWNER_MAP = loadOwnerMap().ownerMap!;
 const SINGLE_GROUPS = GROUPS.filter((g) => g.gv.length === 1);
 
@@ -133,6 +141,15 @@ describe('the fold ceiling', () => {
       share: (150 * 0.2 + 50 * 0.4) / 200,
     });
     expect(peoplePriorCell(p, 'turn', 'mw', 'small')).toEqual({ n: 150, share: 0.2 });
+    // the measured fold cells are read apart from the bluff cells
+    expect(peoplePriorCell(p, 'turn', 'mw', 'small', 'fold')).toBeNull();
+    expect(peoplePriorCell(withFold(p, 0.55), 'turn', 'mw', 'large', 'fold')).toEqual({
+      n: 400,
+      share: 0.55,
+    });
+    expect(
+      peoplePriorCell({ ...withFold(p, 0.55), source: 'population' }, 'turn', 'mw', 'large', 'fold')
+    ).toBeNull();
     // no flop cells in the table (main before the flop fit): absent, not an error
     expect(peoplePriorCell(p, 'flop', 'hu', 'large')).toBeNull();
     expect(peoplePriorCell(PEOPLE(0.3, 150, true), 'flop', 'mw', 'mid')).toEqual({
@@ -167,7 +184,7 @@ describe('the gate, every cell (counts only)', () => {
     expect(all.exitCode).toBe(2);
     // with the prior, people's folds and neither, every cell of a run still names one of the three
     const rich = gateCells({
-      prior: PEOPLE(0.3, 150, true),
+      prior: withFold(PEOPLE(0.3, 150, true), 0.55),
       people: SINGLE_GROUPS.flatMap((g) => cell(g.key, 'turn', 'mw', 'mid', 60, 30, 'person')),
     });
     for (const c of rich.cells) expect(c.ceilingSource.length).toBeGreaterThan(10);
@@ -210,8 +227,13 @@ describe('the gate, every cell (counts only)', () => {
               expect(over.gating, key).toContain(key);
               expect(over.exitCode, key).toBe(1);
               const c = over.cells.find((x) => x.key === key)!;
+              // this prior has bluff cells only: they are the heads-up ceiling, never the multiway one
               expect(c.ceilingTier, key).toBe(
-                g.prior ? 'people-prior' : withPeople ? 'people-14d' : 'minimum-defence'
+                g.prior && f.key === 'hu'
+                  ? 'people-prior'
+                  : withPeople
+                    ? 'people-14d'
+                    : 'minimum-defence'
               );
               expect(c.line, key).toContain('OVER ITS CEILING');
               // at the ceiling (folds = the ceiling's share of 200, rounded down): quiet
@@ -371,6 +393,22 @@ describe('the gate, every cell (counts only)', () => {
     expect(one.ceilingSource).toBe('people prior table (bluff share 10.0%, n 150)');
     expect(one.gating).toBe(false);
     expect(gateCells({ current, prior: PEOPLE(0.45) }).gating).toContain(key);
+    // multiway: the table's measured people fold share is the ceiling (a rate with its n), not the bluff cell
+    const mwCur = cell('plo5', 'turn', 'mw', 'large', 60, 52);
+    const mwKey = 'overfold|plo5|turn|mw|large';
+    const mwBluffOnly = gateCells({ current: mwCur, prior: PEOPLE(0.05) });
+    expect(mwBluffOnly.cells.find((x) => x.key === mwKey)!.ceilingTier).toBe('minimum-defence');
+    const mw = gateCells({ current: mwCur, prior: withFold(PEOPLE(0.05), 0.6) });
+    const mwCell = mw.cells.find((x) => x.key === mwKey)!;
+    expect(mwCell.ceilingSource).toBe("people prior table (people's fold share 60.0%, n 400)");
+    expect(mwCell.ceiling).toBeCloseTo(0.6, 12);
+    expect(mw.gating).toContain(mwKey);
+    expect(
+      gateCells({
+        current: cell('plo5', 'turn', 'mw', 'large', 60, 36),
+        prior: withFold(PEOPLE(0.05), 0.6),
+      }).gating
+    ).toEqual([]);
     // the prior is PLO's: a Hold'em cell never reads it
     expect(
       gateCells({ prior: PEOPLE(0.1) }).cells.find(
