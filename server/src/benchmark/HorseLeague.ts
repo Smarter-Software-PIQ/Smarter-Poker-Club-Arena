@@ -9087,12 +9087,25 @@ async function claimProducedRows(job: string, date: string): Promise<boolean | n
 export async function claimNightlyJob(job: string, date: string): Promise<boolean> {
   const me = process.env.HOSTNAME ?? 'engine';
   try {
-    const { error } = await supabase
+    // THE CLAIM ASKS, IT DOES NOT COLLIDE (2026-11-26). A plain INSERT made
+    // every losing claim a Postgres unique_violation: five ERROR lines and five
+    // PostgREST 409s on horse_job_runs_pkey in the 24 hours to 2026-11-26
+    // 21:45 UTC, each one the designed "somebody owns it" answer. ON CONFLICT
+    // DO NOTHING keeps the primary key as the lock (exactly one INSERT wins)
+    // and reports the loss as zero returned rows instead of an error.
+    const { data: claimed, error } = await supabase
       .from('horse_job_runs')
-      .insert({ job, run_date: date, claimed_by: me });
-    if (!error) return true;
-    const code = (error as { code?: string }).code;
-    if (code !== '23505') throw new Error(error.message);
+      .upsert(
+        { job, run_date: date, claimed_by: me },
+        { onConflict: 'job,run_date', ignoreDuplicates: true }
+      )
+      .select('job');
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== '23505') throw new Error(error.message);
+    } else if ((claimed?.length ?? 0) > 0) {
+      return true;
+    }
 
     // Somebody owns it. Is that owner alive?
     const { data: existing, error: readErr } = await supabase
