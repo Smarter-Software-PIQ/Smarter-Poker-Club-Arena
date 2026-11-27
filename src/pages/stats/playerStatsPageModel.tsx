@@ -62,7 +62,7 @@ export const CLUB_SORTS: Array<{ key: ClubComparisonSort; label: string }> = [
   { key: 'club', label: 'Club' },
   { key: 'hands', label: 'Hands' },
   { key: 'profit', label: 'Profit' },
-  { key: 'bb100', label: 'BB/100' },
+  { key: 'bb100', label: 'BB/100 Hands' },
   { key: 'vpip', label: 'VPIP' },
   { key: 'pfr', label: 'PFR' },
   { key: 'rake', label: 'Rake' },

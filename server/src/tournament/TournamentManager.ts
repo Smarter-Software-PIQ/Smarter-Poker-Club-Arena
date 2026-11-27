@@ -93,6 +93,7 @@ import {
   recordGapBalanceParkDwell,
   type GapBalanceParkOutcome,
 } from '../observability/gapBalanceMetrics.js';
+import { runWithEventDbPriority } from '../services/supabase/eventDatabaseBulkhead.js';
 
 /** Lease owns the implementation and the actual global registry. */
 interface BreakRetirementBinding {
@@ -5217,12 +5218,21 @@ export class TournamentManager extends TournamentManagerEliminations {
           // the scheduler gap must not immediately reacquire the manager.
           this.boundaryBalanceAwaitingSweep = true;
           if (this.running) this.requestEliminationSweep('boundary_balance_settled');
+        } else if (this.running && this.boundaryPlanAwaitingPark.size > 0) {
+          // Twin of onEliminationSweepSettled: a fenced source that settled its
+          // hand while this boundary drain held boundaryBalanceInFlight skipped
+          // preparation. Prepare its board now while it is still in its hold.
+          this.prepareBoundaryBalancePlan();
         }
       }
     })();
   }
 
   private async balanceParkedGapSources(): Promise<void> {
+    return runWithEventDbPriority('high', () => this.balanceParkedGapSourcesHighPriority());
+  }
+
+  private async balanceParkedGapSourcesHighPriority(): Promise<void> {
     const parked = this.collectParkedGapSources();
     if (parked.size === 0) return;
 
@@ -5546,29 +5556,31 @@ export class TournamentManager extends TournamentManagerEliminations {
    * database door stays the authority and refuses a taken chair cleanly.
    */
   private async chairFreeAtTheDoor(move: MoveInstruction): Promise<number | null> {
-    let tables: BalancerTable[] | null = null;
-    try {
-      tables = await this.loadBalancerTables([move.toTableId], 'moveChairAtTheDoor');
-    } catch {
-      tables = null;
-    }
-    // A failed read keeps the planned chair; the door decides.
-    if (!tables) return move.toSeat;
-    // A complete read without the destination means a pending break holds it
-    // (loadBalancerTables leaves out every table a break is moving players
-    // to). Its chairs are promised to that break's members, so this move
-    // waits for the next pass instead of taking one of them.
-    const table = tables.find((t) => t.tableId === move.toTableId);
-    if (!table) return null;
-    const taken = new Set<number>([
-      ...table.players.map((p) => p.seat),
-      ...(table.reservedSeats ?? []),
-    ]);
-    if (move.toSeat >= 1 && move.toSeat <= table.maxSeats && !taken.has(move.toSeat)) {
-      return move.toSeat;
-    }
-    const choice = chooseOpenSeat(table, { sourceHops: move.sourceHops ?? null });
-    return choice.seat >= 1 ? choice.seat : null;
+    return runWithEventDbPriority('high', async () => {
+      let tables: BalancerTable[] | null = null;
+      try {
+        tables = await this.loadBalancerTables([move.toTableId], 'moveChairAtTheDoor');
+      } catch {
+        tables = null;
+      }
+      // A failed read keeps the planned chair; the door decides.
+      if (!tables) return move.toSeat;
+      // A complete read without the destination means a pending break holds it
+      // (loadBalancerTables leaves out every table a break is moving players
+      // to). Its chairs are promised to that break's members, so this move
+      // waits for the next pass instead of taking one of them.
+      const table = tables.find((t) => t.tableId === move.toTableId);
+      if (!table) return null;
+      const taken = new Set<number>([
+        ...table.players.map((p) => p.seat),
+        ...(table.reservedSeats ?? []),
+      ]);
+      if (move.toSeat >= 1 && move.toSeat <= table.maxSeats && !taken.has(move.toSeat)) {
+        return move.toSeat;
+      }
+      const choice = chooseOpenSeat(table, { sourceHops: move.sourceHops ?? null });
+      return choice.seat >= 1 ? choice.seat : null;
+    });
   }
 
   private async executePlayerMovesOwned(moves: MoveInstruction[]): Promise<number> {
@@ -5609,6 +5621,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       if (!this.eliminationMutationAllowed()) break;
       const boundary = await this.claimTournamentMoveBoundary(plan.move, plan.sourceMode);
       if (!boundary) continue;
+      let sourceMoved = false;
       try {
         for (const move of batch) {
           if (move.fromTableId !== sourceTableId) continue;
@@ -5639,6 +5652,7 @@ export class TournamentManager extends TournamentManagerEliminations {
             try {
               const receipt = await this.requestTournamentSeatMoveAtBoundary(input, boundary);
               moved++;
+              sourceMoved = true;
               // The destination may be waiting below its deal minimum on a
               // backed-off roster read; it looks now rather than in a minute.
               this.tableEngines.get(move.toTableId)?.wakeWaitingForPlayers();
@@ -5692,6 +5706,7 @@ export class TournamentManager extends TournamentManagerEliminations {
           !retainedUnknownSources.has(sourceTableId) &&
           !this.retainsTournamentBreakSource(sourceTableId, boundary.engine)
         ) {
+          this.finishGapBalancePark(sourceTableId, sourceMoved ? 'moved' : 'released');
           boundary.engine.releaseTournamentMovePause(this.tournamentMoveBoundaryOwner);
         }
       }

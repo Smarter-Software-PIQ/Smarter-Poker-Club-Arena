@@ -16,7 +16,7 @@ import { playerDisplayName } from '../../utils/playerDisplayName';
 import { compactChips } from '../../utils/format';
 import { enumToTitleCase } from '../../utils/titleCase';
 import { StatRow } from './StatRow';
-import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured, aggressionFactorLabel } from './format';
+import { NOT_YET_MEASURED, ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import { RANGES, type FullStats, type OverallStats, type HandEvidenceFilter } from './types';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
 
@@ -81,18 +81,17 @@ export default function OverviewTab({
           </div>
           <span>{RANGES.find((r) => r.key === rangeKey)?.label ?? 'All'} Window</span>
         </div>
-        {/* STATS CONTRACT TRUTH (2026-09-20). One grid, two populations: the
-          scope tag says which hands each row counts (see StatRow `scope`),
-          and a rate over an empty sample says Not Yet Measured instead of a
-          confident zero (see ratioOrUnmeasured). Rows whose label already
-          names the population ("Cash Hands") are not tagged twice. */}
+        {/* MODE-SCOPED READOUTS (Dan, 2026-11-27). The separated RPC returns
+          one population per game mode, and the Cash Games / Tournaments
+          switch at the top of the page already names it, so no box repeats
+          "Cash". A rate over an empty sample still says Not Yet Measured
+          instead of a confident zero (see ratioOrUnmeasured). */}
         <div className="stats-rate-grid stats-overview-grid">
           <StatRow
-            label="BB/100"
+            label="BB/100 Hands"
             value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
             color="#c0e7ff"
             highlight
-            scope={SCOPE_CASH}
           />
           <StatRow
             label="VPIP"
@@ -102,7 +101,6 @@ export default function OverviewTab({
               (v) => `${(v * 100).toFixed(1)}%`
             )}
             color="#c0e7ff"
-            scope={SCOPE_CASH}
           />
           <StatRow
             label="PFR"
@@ -112,7 +110,6 @@ export default function OverviewTab({
               (v) => `${(v * 100).toFixed(1)}%`
             )}
             color="#c0e7ff"
-            scope={SCOPE_CASH}
           />
           {/* Aggressive actions over CALL actions. The payload does not carry
             call_actions, and with none the SQL returns the raw aggressive
@@ -129,7 +126,6 @@ export default function OverviewTab({
                   )
             }
             color="#c0e7ff"
-            scope={SCOPE_CASH}
           />
           <StatRow
             label="Hours Played"
@@ -139,15 +135,9 @@ export default function OverviewTab({
                 : `${overall.hours_played.toFixed(1)}h`
             }
             color="#c0e7ff"
-            scope={SCOPE_CASH}
           />
-          <StatRow
-            label="Showdown Win %"
-            value={showdownWinRate}
-            color="#c0e7ff"
-            scope={SCOPE_CASH}
-          />
-          <StatRow label="Cash Hands" value={overall.cash_hands.toLocaleString()} color="#c0e7ff" />
+          <StatRow label="Showdown Win %" value={showdownWinRate} color="#c0e7ff" />
+          <StatRow label="Hands" value={overall.cash_hands.toLocaleString()} color="#c0e7ff" />
         </div>
       </section>
       <div className="stats-ledger-grid">
@@ -164,7 +154,7 @@ export default function OverviewTab({
               <span>Hands</span>
               <span>Won</span>
               <span>Profit</span>
-              <span>BB/100</span>
+              <span>BB/100 Hands</span>
             </div>
             {(full?.variants || []).map((v) => (
               <button
@@ -201,7 +191,7 @@ export default function OverviewTab({
               <span>Hands</span>
               <span>Won</span>
               <span>Profit</span>
-              <span>BB/100</span>
+              <span>BB/100 Hands</span>
             </div>
             {(full?.stakes || []).map((st) => (
               <button

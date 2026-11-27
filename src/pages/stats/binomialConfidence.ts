@@ -44,7 +44,8 @@ export function formatRateEvidence(
   if (!confidence) return 'No Measured Opportunities';
 
   const noun = confidence.opportunities === 1 ? 'Opportunity' : 'Opportunities';
-  return `${compactChips(confidence.opportunities)} ${noun} · 95% Confidence ${confidence.lowerPercent.toFixed(1)}% To ${confidence.upperPercent.toFixed(1)}%`;
+  // The words "95% Confidence" live behind the page's "?" (Dan, 2026-11-27).
+  return `${compactChips(confidence.opportunities)} ${noun} · ${confidence.lowerPercent.toFixed(1)}% To ${confidence.upperPercent.toFixed(1)}%`;
 }
 
 export function formatSampleEvidence(

@@ -327,13 +327,14 @@ test.describe('Player Stats production experience', () => {
     });
     const modes = page.getByRole('group', { name: 'Statistics Game Mode', exact: true });
     await modes.getByRole('button', { name: 'Tournaments', exact: true }).click();
-    await expect(page.getByRole('tab', { name: 'Tournaments', exact: true })).toBeVisible();
+    await expect(page.getByRole('tabpanel', { name: 'Tournaments', exact: true })).toBeVisible();
+    await expect(page.getByRole('tablist', { name: 'Statistics Sections' })).toHaveCount(0);
     await expect
       .poll(() => receipts.some((r) => r.mode === 'tournament' && r.cash === 0))
       .toBe(true);
     await expect(page.getByRole('tab', { name: 'Analysis', exact: true })).toHaveCount(0);
     await expectStatsPanelLayout(page.getByRole('tabpanel', { name: 'Tournaments', exact: true }));
-    const review = page.getByRole('button', { name: 'Review Tournament Hands', exact: true });
+    const review = page.getByRole('button', { name: 'Review Hands', exact: true });
     if (await review.count()) {
       await review.click();
       await expect.poll(() => new URL(page.url()).searchParams.get('gameMode')).toBe('tournament');
