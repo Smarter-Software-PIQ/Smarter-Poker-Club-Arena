@@ -1,6 +1,6 @@
 # holdemRiverBluffIsPricedOnPeople: Authority For The Live Switch
 
-\***\*Evidence NOT MET (2026-11-27, interim): every bar run so far passed, but the read against a responder calibrated to people's measured river fold by size is still running and the cost was not read on the compiled build, so no switch-on is claimed.** Passed so far: league mirror heads-up +10.52 +/- 3.25 bb/100 per seat (48,000 hands, two seeds; +25.30 +/- 6.35 at 300 bb) and 6-max +6.99 +/- 0.95 (36,000 hands, three seeds); exploit probes calling station -0.02 +/- 0.11 and river station +5.50 +/- 4.40 with their record live (direct cost with the opponent's memory held still -0.04 +/- 0.02: a handful of bluffs until his record prices him), over-folder +31.73 +/- 5.63, balanced bluffer +12.89 +/- 7.04; scored real-hand replay on 882 audited decisions 15 fixed / 3 newly wrong (13 of the 61 audited river missed bluffs become bets; the audit's strict size rule reads it 4 fixed / 2 newly wrong / 14 right action at another size); the audits' Horse strengths unchanged; flag-off 0 differences in 28,000 decisions; decision cost p95 2.1 ms, max 3.7 ms on 1,254 applicable spots.\*\* Default OFF in source (`OPTION_SWITCH_RELEASE_DEFAULT_OFF`, read `=== true`), registered (migration `20261127053906_horse_option_register_holdem_river_bluff_on_people`), switchable `off / shadow / on_shadow / on`, scoped to NLH cash tables and Lightning. Built 2026-11-27 by PLO-OWNER + Hold'em owner lead-8, lane nlhriver.
+**Evidence MET (2026-11-27): every bar of the lane passed and the scored replay rows below are 8 fixed / 1 newly wrong and 7 fixed / 2 newly wrong.** League mirror heads-up +10.52 +/- 3.25 bb/100 per seat (48,000 hands, two seeds; +25.30 +/- 6.35 at 300 bb) and 6-max +6.99 +/- 0.95 (36,000 hands, three seeds); a responder that answers river bets at people's measured fold by size +3.50 +/- 1.78 direct (two seeds, 24,000 hands; +7.91 +/- 3.19 over three seeds with the opponent's memory on); exploit probes calling station -0.02 +/- 0.11 and river station +5.50 +/- 4.40 with their record live (direct cost with the opponent's memory held still -0.04 +/- 0.02: one to eight bluffs until his record prices him), over-folder +23.41 +/- 3.87, balanced bluffer +17.39 +/- 4.80 (two seeds each); scored real-hand replay on 882 audited decisions 15 fixed / 3 newly wrong (13 of the 61 audited river missed bluffs become bets; the audit's strict size rule reads the same replay 4 fixed / 2 newly wrong / 14 right action at another size); the audits' Horse strengths unchanged; flag-off 0 differences in 28,000 decisions; decision cost on the compiled build p95 2.3 ms, max 8.5 ms on 1,254 applicable spots. What the evidence does not hold: the mirror is against today's Horses, a calling station nobody has a record of and whose record never builds loses -16 to -18 bb/100 (the lifetime record by size is what protects it), and no live decision has run it: the next step is the live shadow stage, not on. Default OFF in source (`OPTION_SWITCH_RELEASE_DEFAULT_OFF`, read `=== true`), registered (migration `20261127053906_horse_option_register_holdem_river_bluff_on_people`), switchable `off / shadow / on_shadow / on`, scoped to NLH cash tables and Lightning. Built 2026-11-27 by PLO-OWNER + Hold'em owner lead-8, lane nlhriver.
 
 Owner orders it rests on: Hold'em late-street bluffs are never random: a bluff is math dependent AND blocker dependent, or the range advantage is the Horse's; no blanket rules, every threshold is a price; and of 2026-11-26 12:21 PM Chicago, "the stats need to be used against human players, not horses": opponent's own record, then people-only population, then the equilibrium anchor.
 
@@ -89,6 +89,11 @@ Exploit probes (heads-up, 100 bb, 12,000 deals per arm on the same deals, the sc
 | caller       | opponent memory on, NO lifetime record           | 11   | +376.1 +/- 20.7  | +380.9 +/- 20.9 | +4.82 +/- 8.37  | 55                  | 0/597, 0/973                                              |
 | riverstation | opponent memory on, NO lifetime record           | 11   | +20.9 +/- 9.4    | +18.4 +/- 9.5   | -2.56 +/- 5.40  | 192                 | 0/545, 0/175                                              |
 | riverstation | opponent memory on, lifetime record live, 300 bb | 13   | +21.5 +/- 13.0   | +21.9 +/- 13.1  | +0.47 +/- 5.15  | 4                   | 0/345, 0/158                                              |
+| people       | opponent memory on, lifetime record live         | 11   | +6.7 +/- 8.8     | +4.3 +/- 9.2    | -2.34 +/- 6.05  | 447                 | 396/802, 163/281                                          |
+| people       | opponent memory on, lifetime record live         | 12   | +11.6 +/- 9.2    | +22.9 +/- 9.3   | +11.35 +/- 5.03 | 461                 | 419/813, 176/323                                          |
+| people       | opponent memory on, lifetime record live         | 13   | +3.5 +/- 8.5     | +16.0 +/- 9.2   | +12.47 +/- 5.62 | 409                 | 348/708, 191/317                                          |
+| people       | opponent memory held still, lifetime record live | 11   | +19.2 +/- 9.0    | +22.7 +/- 9.2   | +3.48 +/- 2.60  | 762                 | 648/1249, 170/300                                         |
+| people       | opponent memory held still, lifetime record live | 12   | +10.0 +/- 9.7    | +13.5 +/- 10.1  | +3.52 +/- 2.45  | 755                 | 652/1237, 175/333                                         |
 
 - caller (opponent memory on, lifetime record live), 2 seeds pooled: -0.02 +/- 0.11
 - riverstation (opponent memory on, lifetime record live), 2 seeds pooled: +3.47 +/- 3.33
@@ -96,9 +101,12 @@ Exploit probes (heads-up, 100 bb, 12,000 deals per arm on the same deals, the sc
 - bluffer (opponent memory on, lifetime record live), 2 seeds pooled: +17.39 +/- 4.80
 - caller (opponent memory held still, lifetime record live), 2 seeds pooled: -0.04 +/- 0.02
 - riverstation (opponent memory held still, lifetime record live), 2 seeds pooled: -0.04 +/- 0.02
+- people (opponent memory on, lifetime record live), 3 seeds pooled: +7.91 +/- 3.19
+- people (opponent memory held still, lifetime record live), 2 seeds pooled: +3.50 +/- 1.78
 
 Reading the probes:
 
+- People (`people`): a responder that answers a river bet at PEOPLE's measured fold frequency for its size (33.0% under 0.4 pot, 50.0% at 0.4 to 0.7, 55.6% at 0.7 to 1.1, 58.3% above), folding its weakest hands first, calling the rest, never raising; everything else is the production Horse (`grade2.mts`). It is the nearest harness stand-in for the people the table was measured on. Direct effect (opponent memory held still, so both arms stay on the same hands): +3.48 +/- 2.60 and +3.52 +/- 2.45 bb/100 (762 and 755 bluffs in 12,000 hands; pooled +3.50 +/- 1.78). With memory on: -2.34 +/- 6.05, +11.35 +/- 5.03, +12.47 +/- 5.62 (pooled +7.91 +/- 3.19).
 - Calling stations (the caller never folds to a postflop bet; the river station never folds to a river bet). With the lifetime record live the option fires 1 to 8 river bluffs in 12,000 hands and then his record prices him as what he is. With the opponent Horse's memory held still (so the two arms stay on the same hands) that direct cost is -0.22 +/- 0.11 and -0.03 +/- 0.02 bb/100 against the caller and -0.27 +/- 0.11 and -0.03 +/- 0.02 against the river station: a one-off learning cost of a few bluffs, not a rate. With memory on, the arms part after the first changed hand and the difference is the noise of two different matches (-0.02 +/- 0.11 and -8.85 +/- 9.50 on 6 and 3 bluffs; +5.50 +/- 4.40, +0.74 +/- 5.11, and +0.47 +/- 5.15 at 300 bb).
 - The worst case, a station nobody has any record of and whose record never builds (no lifetime record, no memory): -17.87 +/- 1.99 (caller) and -15.97 +/- 1.63 (river station) bb/100. The record is what protects it; it is by size, lifetime, and reaches the decision whenever the option is switched. With the decayed window record alone (no lifetime record): +4.82 +/- 8.37 (55 bluffs) and -2.56 +/- 5.40 (192 bluffs).
 - Over-folder +31.73 +/- 5.63 and +15.96 +/- 5.33; balanced bluffer (the production Horse that also bets the river at a balanced share) +12.89 +/- 7.04 and +21.30 +/- 6.56.
@@ -125,14 +133,16 @@ Existing options on the same replay (lane harness, as-of memory; fixed / newly w
 
 ## Speed
 
-Per-decision cost of the engine's own decide (`horseDecide`, the production options) at every heads-up river spot of league hands where the production decision is a check with nothing to call (the spots the option prices), OFF and ON on the same state (`l8-nlhriver/src/latency.mjs`; source build through tsx, on the shared Mac while a flag-off replay ran):
+Per-decision cost of the engine's own decide (`horseDecide`, the production options) at every heads-up river spot of league hands where the production decision is a check with nothing to call (the spots the option prices), OFF and ON on the same state (`l8-nlhriver/src/latency.mjs`), on the shared Mac under load (load average about 15):
 
-| stacks | spots | ON p50 / p95 / p99 / max ms | OFF p50 / p95 / p99 / max ms | added p50 / p95 / max ms |
-| ------ | ----- | --------------------------- | ---------------------------- | ------------------------ |
-| 100 bb | 628   | 1.17 / 2.05 / 2.34 / 2.83   | 0.74 / 1.66 / 1.86 / 2.11    | 0.16 / 1.17 / 2.17       |
-| 300 bb | 626   | 1.17 / 2.13 / 2.61 / 3.73   | 0.73 / 1.67 / 1.94 / 2.68    | 0.16 / 1.11 / 3.00       |
+| build                                                                   | stacks | spots | ON p50 / p95 / p99 / max ms | OFF p50 / p95 / p99 / max ms | added p50 / p95 / max ms |
+| ----------------------------------------------------------------------- | ------ | ----- | --------------------------- | ---------------------------- | ------------------------ |
+| compiled (the engine image compile, `tsc --project tsconfig.emit.json`) | 100 bb | 628   | 1.17 / 2.23 / 3.05 / 5.12   | 0.66 / 1.74 / 2.43 / 3.53    | 0.21 / 1.27 / 3.47       |
+| compiled                                                                | 300 bb | 626   | 1.17 / 2.31 / 3.36 / 8.50   | 0.66 / 1.77 / 3.09 / 3.76    | 0.21 / 1.22 / 6.32       |
+| source (tsx)                                                            | 100 bb | 628   | 1.17 / 2.05 / 2.34 / 2.83   | 0.74 / 1.66 / 1.86 / 2.11    | 0.16 / 1.17 / 2.17       |
+| source (tsx)                                                            | 300 bb | 626   | 1.17 / 2.13 / 2.61 / 3.73   | 0.73 / 1.67 / 1.94 / 2.68    | 0.16 / 1.11 / 3.00       |
 
-The stage bar is p95 at most 10 ms, max at most 25 ms, nothing over 50 ms: met on 1,254 applicable spots. Relative-cost law: `aHoldemRiverBluffIsPricedOnPeople.law.test.ts` (an applicable decision on costs 5.8 to 6.0 times the same decision off on the fixture's real nodes: 1.3 ms against 0.22 ms; limit 16). Not measured on the compiled (tsc outDir) build.
+The stage bar is p95 at most 10 ms, max at most 25 ms, nothing over 50 ms: met on 1,254 applicable spots on each build (worst p95 2.31 ms, worst single decision 8.50 ms). Relative-cost law: `aHoldemRiverBluffIsPricedOnPeople.law.test.ts` (an applicable decision on costs 5.8 to 6.0 times the same decision off on the fixture's real nodes: 1.3 ms against 0.22 ms; limit 16).
 
 ## Limits
 
@@ -140,7 +150,7 @@ The stage bar is p95 at most 10 ms, max at most 25 ms, nothing over 50 ms: met o
 - Cash only: tournaments are out of scope (people's tournament river fold is measured in the same pull, 1.33 times equilibrium on 428 answers, but no tournament grade was run and no payout risk is priced here).
 - The people table holds 494 answers from 2026-10-01 to 2026-11-26; its line cells are thin (the opponent-bet-the-turn line has 26 answers and reads its size cell almost unchanged). It is refit with `scripts/ops/holdem-people-river-fold-fit.mjs` as hands accrue.
 - The size it bets is the size of highest priced margin on people's fold by size (usually about half pot). The audits' own model prefers a pot-size bluff (its fold prior is the fitted late-street prior, not people's measured curve by size), so by the audit's strict size rule most of the option's bets are "right action, other size".
-- Against a player nobody has a river record of, it prices people's fold. A new calling station is paid until his record builds (the direct cost measured below); the record is live and by size.
+- Against a player nobody has a river record of, it prices people's fold. A new calling station is paid one to eight bluffs until his record prices him (the direct cost in Grades); the record is lifetime, by size, and reaches the decision whenever the option is switched.
 - The check's value is its showdown value (his bet behind an out-of-position check is not priced), as in `holdemOpeningBluffIsPriced`.
 
 ## Rollback
