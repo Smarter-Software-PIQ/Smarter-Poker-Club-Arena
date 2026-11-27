@@ -301,6 +301,15 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - What decided it: O34 freed the Backup host (22:15 CST); `ecebbc212831` certified at 23:39 CST on a copy restored at 22:58 CST, and `f2b854319ea9` certified after it before the 00:30 CST cutoff. `e21eb7d915ed`, certified at 22:53 CST on a copy two installed migrations had passed, was correctly not selected (see O35).
 - The operator fallback cron ran for the first time at 00:33 CST and followed the existing owner (Stage run `45942274643`); it sent nothing.
 
+### 2026-11-27: Backup Thresholds Measured, Not Yet Re-Derived
+
+- **What was read:** all 15 completed `certify` jobs of `backup-engine.yml` in runs created since 2026-11-26T21:00Z (11 pass, 4 fail; 14 judged 900 s memory soaks; 10 reclaim lines, from O34's first run onward). Series and rules: `docs/changelog/2026-11-27-backup-thresholds-from-measurements.md`.
+- **Memory gate (141 MiB/min):** judged slope min 1.48, median 5.93, max 12.90 MiB/min; largest half slope 27.01 against a half threshold of 70.5. The gate is 10.9 times the largest healthy slope and refuses no healthy build. Kept.
+- **Disk floor (12 GiB):** free space before each certification 93 to 114 GiB; one certification consumes at most 4 GiB net (median 3). The floor is three times that. Kept.
+- **Retention (24 h):** every rehearsal found the serving release's image on disk (no rebuild in any of the 15 logs). Kept. A serving release older than 24 h would be rebuilt by `cmd_build` from the same commit rather than refused.
+- **Rule:** each value is re-derived only once its own series holds 15 observations, and only with the measurement written beside it. No value changed; no gate loosened. This is also the first live proof of item H: 14 certifications ran the 900 s soak with the memory gate judging, 11 of them certified.
+- **Open:** keep the serving release's image by name in `reclaim_backup_disk`; log free space after (or at the peak of) a certification so the floor's transient can be measured; the container memory series has read about twice the engine RSS slope since row 13 of the series.
+
 ## Open Items
 
 | Item                                                                                                       | Owner Lane                               | State                                                                                                                                                                                                                                                                                                                             |
