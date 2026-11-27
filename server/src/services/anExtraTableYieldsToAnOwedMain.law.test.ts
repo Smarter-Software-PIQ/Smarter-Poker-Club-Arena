@@ -208,6 +208,102 @@ describe('which extra table yields', () => {
     ).toEqual([]);
   });
 
+  it('2026-11-26: among new candidates the table whose Horses owe fewest hands goes first (it empties in one sweep)', () => {
+    const floor = [
+      ...gameA(),
+      t('b-m1', 'B', 'main', 1, 6, 0),
+      t('b-f', 'B', 'feeder', null, 2, 10),
+      t('c-m1', 'C', 'main', 1, 6, 0),
+      t('c-f', 'C', 'feeder', null, 3, 45),
+    ];
+    const many = (owingAt?: (id: string) => number) =>
+      varietyDrainTables<T>({
+        tables: floor,
+        seatedAt: (id) => floor.find((x) => x.id === id)?.seated ?? 0,
+        personSeatedAt: () => false,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(),
+        owedGames: ['short-deck'],
+        shortfall: 1,
+        current: [],
+        ...(owingAt ? { owingAt } : {}),
+      });
+    /* no read: the fewest Horses (b-f, two seated) */
+    expect(many()).toEqual(['b-f']);
+    /* b-f has a Horse owing hands, c-f none: c-f goes first */
+    expect(many((id) => (id === 'b-f' ? 1 : 0))).toEqual(['c-f']);
+    /* a nonsense count is no preference */
+    expect(many(() => Number.NaN)).toEqual(['b-f']);
+    /* kept tables never change because of the count */
+    expect(
+      varietyDrainTables<T>({
+        tables: floor,
+        seatedAt: (id) => floor.find((x) => x.id === id)?.seated ?? 0,
+        personSeatedAt: () => false,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(),
+        owedGames: ['short-deck'],
+        shortfall: 1,
+        current: ['b-f'],
+        owingAt: () => 9,
+      })
+    ).toEqual(['b-f']);
+  });
+
+  it('2026-11-26: the owed-hands read runs only when a new table may be added, and the beat carries the cap it read', async () => {
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet).toContain(
+      'mayAddNew && shortfall > 0\n            ? await readHandsOwedByTable('
+    );
+    expect(fleet).toContain('owingAt: owing ? (tableId) => owing.get(tableId) ?? 0 : undefined,');
+    expect(fleet).toContain('beat.cashRoom = room;');
+    expect(fleet).toContain('cash_room: beat.cashRoom,');
+    const { readHandsOwedByTable } = await import('./supabase/cashHourlyTables.js');
+    fakeDb({
+      cash_player_session: [
+        {
+          table_id: 'x',
+          hr_hands_required: 10,
+          hr_hands_played: 2,
+          hr_completed: false,
+          closed_at: null,
+        },
+        {
+          table_id: 'x',
+          hr_hands_required: 10,
+          hr_hands_played: 10,
+          hr_completed: false,
+          closed_at: null,
+        },
+        {
+          table_id: 'y',
+          hr_hands_required: 10,
+          hr_hands_played: 1,
+          hr_completed: true,
+          closed_at: null,
+        },
+        {
+          table_id: 'y',
+          hr_hands_required: 10,
+          hr_hands_played: 1,
+          hr_completed: false,
+          closed_at: '2026-11-26T00:00:00Z',
+        },
+        {
+          table_id: 'z',
+          hr_hands_required: 10,
+          hr_hands_played: 0,
+          hr_completed: false,
+          closed_at: null,
+        },
+      ],
+    });
+    const owed = await readHandsOwedByTable(['x', 'y']);
+    expect(owed && Object.fromEntries(owed)).toEqual({ x: 1 });
+    expect(await readHandsOwedByTable([])).toEqual(new Map());
+    vi.restoreAllMocks();
+  });
+
   it('the shortfall is every owed start at a cap with no free slot, and zero whenever the starts fit', () => {
     const full = {
       cap: 16,
@@ -261,7 +357,7 @@ describe('which extra table yields', () => {
     expect(rotator).toMatch(/const CYCLE_MS = 90_000;/);
     const fleet = read('./HorseFleetManager.ts');
     expect(fleet).toContain(
-      'mayAddNew: Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS,'
+      'const mayAddNew = Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS;'
     );
   });
 
