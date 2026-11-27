@@ -16,14 +16,21 @@ import LogThisHandControl from '@/components/handdetail/LogThisHandControl';
 import { useTableKeyboard } from '@/hooks/useTableKeyboard';
 import { adaptServiceHandToPanel } from '@/lib/handHistoryAdapter';
 import {
+  MAX_SAVED_HANDS_BATCH_TOTAL,
   SAVED_HANDS_BROADCAST_CHANNEL,
+  SAVED_HANDS_TAB_ID,
   buildPersonalAssistantReviewUrl,
   checkSavedHandsBatch,
   clearSavedHandsCache,
   findSavedClubArenaHand,
   getCachedSavedHand,
   logClubArenaHand,
+  setCachedSavedHand,
 } from '@/services/SavedHandsService';
+import {
+  handHistorySavedEventIdentity,
+  resolveNextLastCompletedHand,
+} from '@/lib/lastCompletedHandGate';
 
 const authMocks = vi.hoisted(() => ({
   getFreshAccessToken: vi.fn<() => Promise<string | null>>(),
@@ -204,6 +211,9 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
 
   it('HandDetailModal logs a hand via POST /api/poker/saved-hands, stays at the table, and links to Personal Assistant Review', async () => {
     const postDeferred = deferred<Response>();
+    // 1. Direct-open hydration GET -> not yet saved
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
+    // 2. Click Log This Hand -> POST
     fetchMock.mockReturnValueOnce(postDeferred.promise);
     const onClose = vi.fn();
 
@@ -216,6 +226,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       />
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const logBtn = screen.getByRole('button', { name: 'Log This Hand' });
     fireEvent.click(logBtn);
 
@@ -223,8 +234,8 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
     expect((savingBtn as HTMLButtonElement).disabled).toBe(true);
     expect(savingBtn.getAttribute('aria-busy')).toBe('true');
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('/api/poker/saved-hands');
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
@@ -304,6 +315,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
 
   it('prevents double-click duplicate POSTs with a single-flight guard', async () => {
     const postDeferred = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     fetchMock.mockReturnValue(postDeferred.promise);
 
     render(
@@ -315,34 +327,52 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       />
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const logBtn = screen.getByRole('button', { name: 'Log This Hand' });
     fireEvent.click(logBtn);
     fireEvent.click(logBtn);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       postDeferred.resolve(jsonResponse({ success: true, hand: { id: SAVED_ROW_ID_1 } }, 201));
     });
 
     expect(await screen.findByText('Hand Saved')).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('discards stale in-flight response and resets state when the active account changes mid-flight', async () => {
     const postDeferred = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     fetchMock.mockReturnValueOnce(postDeferred.promise);
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, savedByHandId: {} }, 200));
 
     const hand = makeHandRecord(HAND_ID_1, 101, HERO_A);
+    // Include HERO_B as a participant too so HERO_B sees the button after switching accounts.
+    const sharedHand = {
+      ...hand,
+      players: [
+        ...hand.players,
+        {
+          id: HERO_B,
+          name: 'HeroB',
+          seat: 3,
+          stack: 200,
+          position: 'CO',
+        },
+      ],
+    };
     const { rerender } = render(
-      <HandDetailModal isOpen onClose={() => {}} hands={[hand]} heroId={HERO_A} />
+      <HandDetailModal isOpen onClose={() => {}} hands={[sharedHand]} heroId={HERO_A} />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     // Switch account mid-flight
-    rerender(<HandDetailModal isOpen onClose={() => {}} hands={[hand]} heroId={HERO_B} />);
+    rerender(<HandDetailModal isOpen onClose={() => {}} hands={[sharedHand]} heroId={HERO_B} />);
 
     // State immediately resets for Account B
     expect(screen.getByRole('button', { name: 'Log This Hand' })).toBeTruthy();
@@ -361,16 +391,19 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
 
   it('discards stale in-flight response when paging to another hand in HandDetailModal', async () => {
     const postDeferred = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     fetchMock.mockReturnValueOnce(postDeferred.promise);
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, savedByHandId: {} }, 200));
 
     const newest = makeHandRecord(HAND_ID_1, 202, HERO_A);
     const older = makeHandRecord(HAND_ID_2, 201, HERO_A);
 
     render(<HandDetailModal isOpen onClose={() => {}} hands={[newest, older]} heroId={HERO_A} />);
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     // Start saving Hand #202
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     // Page to older Hand #201 mid-flight
     fireEvent.click(screen.getByRole('button', { name: 'Older Hand' }));
@@ -389,13 +422,16 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
 
   it('aborts cleanly without issuing POST when auth resolves late after hand change', async () => {
     const authDeferred = deferred<string | null>();
-    authMocks.getFreshAccessToken.mockReturnValueOnce(authDeferred.promise);
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, savedByHandId: {} }, 200));
 
     const newest = makeHandRecord(HAND_ID_1, 302, HERO_A);
     const older = makeHandRecord(HAND_ID_2, 301, HERO_A);
 
     render(<HandDetailModal isOpen onClose={() => {}} hands={[newest, older]} heroId={HERO_A} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fetchMock.mockClear();
 
+    authMocks.getFreshAccessToken.mockReturnValueOnce(authDeferred.promise);
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
     expect(await screen.findByRole('button', { name: 'Saving' })).toBeTruthy();
 
@@ -409,13 +445,16 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
     });
 
     // No POST was ever sent
-    expect(fetchMock).not.toHaveBeenCalled();
+    const postCalls = fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
     expect(screen.getByRole('button', { name: 'Log This Hand' })).toBeTruthy();
   });
 
   it('aborts cleanly without issuing POST when auth resolves with a different user JWT subject', async () => {
     const authDeferred = deferred<string | null>();
-    authMocks.getFreshAccessToken.mockReturnValueOnce(authDeferred.promise);
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, savedByHandId: {} }, 200));
 
     render(
       <HandDetailModal
@@ -425,7 +464,10 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
         heroId={HERO_A}
       />
     );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fetchMock.mockClear();
 
+    authMocks.getFreshAccessToken.mockReturnValueOnce(authDeferred.promise);
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
     expect(await screen.findByRole('button', { name: 'Saving' })).toBeTruthy();
 
@@ -441,6 +483,8 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
   });
 
   it('reconciles uncertain POST failures via GET readback on Retry and avoids duplicate POST if already persisted', async () => {
+    // 0. Direct-open hydration GET -> not yet saved
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     // 1. Initial POST fails with HTTP 503 (uncertain / possibly committed)
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ success: false, error: 'Upstream Gateway Timeout' }, 503)
@@ -465,6 +509,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       />
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
 
     const alert = await screen.findByRole('alert');
@@ -479,16 +524,18 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_1}`
     );
 
-    // Exactly 2 calls total: 1st POST, 2nd GET readback — NO duplicate POST!
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('POST');
-    expect(fetchMock.mock.calls[1][0]).toBe(
+    // 3 calls total: 0th batch GET, 1st POST, 2nd GET readback — NO duplicate POST!
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('POST');
+    expect(fetchMock.mock.calls[2][0]).toBe(
       `/api/poker/saved-hands?sourceHandId=${encodeURIComponent(HAND_ID_1)}`
     );
-    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('GET');
+    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe('GET');
   });
 
   it('re-issues POST on Retry only after GET readback confirms the hand was not persisted', async () => {
+    // 0. Direct-open hydration GET -> not yet saved
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     // 1. Initial POST rejects with network error (uncertain)
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     // 2. Retry calls GET readback -> confirms not saved
@@ -507,6 +554,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       />
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Error');
@@ -514,13 +562,14 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Hand Saved')).toBeTruthy();
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('POST');
-    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('GET');
-    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe('POST');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('POST');
+    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe('GET');
+    expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('POST');
   });
 
   it('rejects malformed 201 receipts (missing hand.id) into Error state and never fabricates success', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
     fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, hand: {} }, 201));
 
     render(
@@ -532,6 +581,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       />
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Log This Hand' }));
 
     const alert = await screen.findByRole('alert');
@@ -592,7 +642,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
     }
   });
 
-  it('checkSavedHandsBatch filters invalid UUIDs, caps at 50 IDs, sends Bearer auth, and degrades fail-open', async () => {
+  it('checkSavedHandsBatch filters invalid UUIDs, chunks >50 IDs cleanly, sends Bearer auth, and degrades fail-open', async () => {
     const validUuids = Array.from({ length: 62 }, (_, i) => {
       const hex = (i + 1).toString(16).padStart(12, '0');
       return `10000000-0000-4000-8000-${hex}`;
@@ -624,36 +674,66 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
         200
       )
     );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          success: true,
+          savedByHandId: {
+            [validUuids[55]]: {
+              id: SAVED_ROW_ID_2,
+              savedAt: '2026-11-27T11:05:00.000Z',
+              status: 'unreviewed',
+              reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_2}`,
+            },
+          },
+        },
+        200
+      )
+    );
 
     const map = await checkSavedHandsBatch(noisyInput, {
       accessToken: makeJwt(HERO_A),
       userId: HERO_A,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const parsedUrl = new URL(url, 'https://smarter.poker');
-    expect(parsedUrl.pathname).toBe('/api/poker/saved-hands');
-    expect(parsedUrl.searchParams.get('source')).toBe('club-arena');
-    const sentIds = (parsedUrl.searchParams.get('handIds') || '').split(',');
-    expect(sentIds).toHaveLength(50);
-    expect(sentIds[0]).toBe(validUuids[0]);
-    expect(sentIds[49]).toBe(validUuids[49]);
-    expect((init.headers as Record<string, string>).Authorization).toBe(
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url1, init1] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const parsedUrl1 = new URL(url1, 'https://smarter.poker');
+    expect(parsedUrl1.pathname).toBe('/api/poker/saved-hands');
+    expect(parsedUrl1.searchParams.get('source')).toBe('club-arena');
+    const sentIds1 = (parsedUrl1.searchParams.get('handIds') || '').split(',');
+    expect(sentIds1).toHaveLength(50);
+    expect(sentIds1[0]).toBe(validUuids[0]);
+    expect(sentIds1[49]).toBe(validUuids[49]);
+    expect((init1.headers as Record<string, string>).Authorization).toBe(
       `Bearer ${makeJwt(HERO_A)}`
     );
+
+    const [url2] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const parsedUrl2 = new URL(url2, 'https://smarter.poker');
+    const sentIds2 = (parsedUrl2.searchParams.get('handIds') || '').split(',');
+    expect(sentIds2).toHaveLength(12);
+    expect(sentIds2[0]).toBe(validUuids[50]);
+    expect(sentIds2[11]).toBe(validUuids[61]);
+
     expect(map[validUuids[0]]).toEqual({
       id: SAVED_ROW_ID_1,
       savedAt: '2026-11-27T11:00:00.000Z',
       status: 'unreviewed',
       reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_1}`,
     });
+    expect(map[validUuids[55]]).toEqual({
+      id: SAVED_ROW_ID_2,
+      savedAt: '2026-11-27T11:05:00.000Z',
+      status: 'unreviewed',
+      reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_2}`,
+    });
 
     // Empty / invalid-only input never touches fetch
     expect(await checkSavedHandsBatch(['bad', '', null], { accessToken: makeJwt(HERO_A) })).toEqual(
       {}
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // Graceful fail-open on 401, 500, and offline network error
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Unauthorized' }, 401));
@@ -755,6 +835,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       handId: HAND_ID_1,
       savedRowId: SAVED_ROW_ID_1,
       reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_1}`,
+      tabId: SAVED_HANDS_TAB_ID,
       at: expect.any(Number),
     });
     expect(posted[1].channel).toBe(SAVED_HANDS_BROADCAST_CHANNEL);
@@ -764,9 +845,13 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       handId: HAND_ID_2,
       savedRowId: SAVED_ROW_ID_2,
       reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_2}`,
+      tabId: SAVED_HANDS_TAB_ID,
       at: expect.any(Number),
     });
-    expect(closeSpy).toHaveBeenCalledTimes(2);
+
+    // Clearing the cache closes the persistent singleton cleanly.
+    clearSavedHandsCache();
+    expect(closeSpy).toHaveBeenCalledTimes(1);
 
     // Restricted context where BroadcastChannel constructor throws must never break save
     vi.stubGlobal(
@@ -830,6 +915,9 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
 
   it('LogThisHandControl variant="hud" renders compact HUD states, syncs across same-tab surfaces, and reconciles Retry', async () => {
     const postDeferred = deferred<Response>();
+    // 1. HandDetailModal direct-open hydration GET -> not yet saved
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
+    // 2. HUD Log Last Hand click -> POST
     fetchMock.mockReturnValueOnce(postDeferred.promise);
 
     // Mount HUD control and HandDetailModal side-by-side in the same tab
@@ -845,6 +933,7 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
       </>
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const hudBtn = screen.getByRole('button', { name: 'Log Last Hand' });
     expect(hudBtn.getAttribute('aria-keyshortcuts')).toBe('Shift+L');
     fireEvent.click(hudBtn);
@@ -998,5 +1087,547 @@ describe('Previous Hands -> Log This Hand -> Review My Play', () => {
     expect(tablePage).toContain('registerHotkey={registerLogLastHandHotkey}');
     expect(tablePage).toContain('onLogLastHand: () => logLastHandHotkeyRef.current?.()');
     expect(tablePage.match(/^\s*window\.addEventListener\('keydown'/gm) ?? []).toHaveLength(0);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PERMANENT ANTI-REGRESSION HARDENING LAWS (Forensic Audit)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('[P0 Law] spectators, sitting-out non-participants, Lightning observers, and includeObserved non-hero rows NEVER render Log This Hand or stamp lastCompletedHand', async () => {
+    // 1. Observed-only hand (HERO_A is NOT in hand.players or hand.replay.players)
+    const observedHand = makeHandRecord(HAND_ID_1, 801, HERO_B);
+
+    // HandHistoryPanel expanded row MUST NOT render Log This Hand or query batch lookup for observed-only hand
+    render(<HandHistoryPanel isOpen onClose={() => {}} hands={[observedHand]} heroId={HERO_A} />);
+    fireEvent.click(document.querySelector('.hh-entry__summary') as Element);
+    expect(screen.queryByRole('button', { name: 'Log This Hand' })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // HandDetailModal MUST NOT render Log This Hand or query batch lookup for observed-only hand
+    cleanup();
+    render(<HandDetailModal isOpen onClose={() => {}} hands={[observedHand]} heroId={HERO_A} />);
+    expect(screen.queryByRole('button', { name: 'Log This Hand' })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // 2. TablePage lastCompletedHand gate rejects spectators, guests, Lightning observers, and sitting-out non-participants
+    const baseGateInput = {
+      event: {
+        type: 'hand_history_saved',
+        table_id: 'table-1',
+        hand_id: HAND_ID_1,
+        hand_number: 50,
+        timestamp: 1_700_000_000_000,
+      },
+      alreadyProcessed: false,
+      userId: HERO_A,
+      tableId: 'table-1',
+      poolSessionId: null,
+      currentScope: `${HERO_A}:table-1::cash`,
+      heroAtTable: true,
+      lightningObserver: false,
+      heroDealtHands: new Set<number>([50]),
+      heroCardsHandNumber: 50,
+      heroHandOutcome: { dealtIn: true, handNumber: 50 },
+      previous: null,
+    };
+
+    // Spectator (heroAtTable: false)
+    expect(resolveNextLastCompletedHand({ ...baseGateInput, heroAtTable: false })).toBeNull();
+    // Guest user
+    expect(resolveNextLastCompletedHand({ ...baseGateInput, userId: 'guest' })).toBeNull();
+    // Lightning observer
+    expect(resolveNextLastCompletedHand({ ...baseGateInput, lightningObserver: true })).toBeNull();
+    // Seated player who sat out / waited for BB / was NOT dealt into hand #50
+    expect(
+      resolveNextLastCompletedHand({
+        ...baseGateInput,
+        heroDealtHands: new Set<number>(),
+        heroCardsHandNumber: 0,
+        heroHandOutcome: { dealtIn: false, handNumber: 50 },
+      })
+    ).toBeNull();
+    // Seated player who WAS dealt into hand #50 -> allowed
+    expect(resolveNextLastCompletedHand(baseGateInput)).toEqual({
+      scope: `${HERO_A}:table-1::cash`,
+      handId: HAND_ID_1,
+      handNumber: 50,
+    });
+
+    // 3. TablePage.tsx source pins HUD rendering strictly on heroAtTable && !lightningObserver && lastCompletedHandId && authenticated non-guest
+    const tablePage = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    expect(tablePage).toMatch(
+      /heroAtTable\s*&&\s*!lightningObserver\s*&&\s*Boolean\(lastCompletedHandId\)\s*&&\s*Boolean\(userId\)\s*&&\s*userId !== 'guest'\s*&&\s*\(\s*<LogThisHandControl/
+    );
+  });
+
+  it('[P1 Law] cross-table / cross-account hand_history_saved and out-of-order lower handNumber Lightning settlements NEVER contaminate lastCompletedHandId', () => {
+    const scopeT2 = `${HERO_A}:table-2::cash`;
+    const eventT1 = {
+      type: 'hand_history_saved',
+      table_id: 'table-1',
+      hand_id: HAND_ID_1,
+      hand_number: 10,
+      timestamp: 1000,
+    };
+
+    // 1. Same-commit stale event deduplication (alreadyProcessed: true) never stamps into new table/account
+    expect(
+      resolveNextLastCompletedHand({
+        event: { ...eventT1, table_id: 'table-2' },
+        alreadyProcessed: true,
+        userId: HERO_A,
+        tableId: 'table-2',
+        poolSessionId: null,
+        currentScope: scopeT2,
+        heroAtTable: true,
+        lightningObserver: false,
+        heroDealtHands: new Set([10]),
+        heroCardsHandNumber: 10,
+        heroHandOutcome: { dealtIn: true, handNumber: 10 },
+        previous: null,
+      })
+    ).toBeNull();
+
+    // 2. Mismatched table_id (T1 event while active on T2) is rejected
+    expect(
+      resolveNextLastCompletedHand({
+        event: eventT1,
+        alreadyProcessed: false,
+        userId: HERO_A,
+        tableId: 'table-2',
+        poolSessionId: null,
+        currentScope: scopeT2,
+        heroAtTable: true,
+        lightningObserver: false,
+        heroDealtHands: new Set([10]),
+        heroCardsHandNumber: 10,
+        heroHandOutcome: { dealtIn: true, handNumber: 10 },
+        previous: null,
+      })
+    ).toBeNull();
+
+    // 3. Mismatched player_id (U1 event while active user is U2) is rejected
+    const poolScope = `${HERO_B}:pool-1:pool-1:cash`;
+    expect(
+      resolveNextLastCompletedHand({
+        event: {
+          type: 'hand_history_saved',
+          table_id: 'pool-1',
+          pool_session_id: 'pool-1',
+          player_id: HERO_A,
+          hand_id: HAND_ID_1,
+          hand_number: 20,
+        },
+        alreadyProcessed: false,
+        userId: HERO_B,
+        tableId: 'pool-1',
+        poolSessionId: 'pool-1',
+        currentScope: poolScope,
+        heroAtTable: true,
+        lightningObserver: false,
+        heroDealtHands: new Set([20]),
+        heroCardsHandNumber: 20,
+        heroHandOutcome: { dealtIn: true, handNumber: 20 },
+        previous: null,
+      })
+    ).toBeNull();
+
+    // 4. Lightning out-of-order lower handNumber NEVER overwrites a newer completed hand in the same scope
+    const newer = resolveNextLastCompletedHand({
+      event: {
+        type: 'hand_history_saved',
+        table_id: 'pool-1',
+        pool_session_id: 'pool-1',
+        player_id: HERO_A,
+        hand_id: HAND_ID_2,
+        hand_number: 25,
+      },
+      alreadyProcessed: false,
+      userId: HERO_A,
+      tableId: 'pool-1',
+      poolSessionId: 'pool-1',
+      currentScope: `${HERO_A}:pool-1:pool-1:cash`,
+      heroAtTable: true,
+      lightningObserver: false,
+      heroDealtHands: new Set([24, 25]),
+      heroCardsHandNumber: 25,
+      heroHandOutcome: { dealtIn: true, handNumber: 25 },
+      previous: null,
+    });
+    expect(newer).toEqual({
+      scope: `${HERO_A}:pool-1:pool-1:cash`,
+      handId: HAND_ID_2,
+      handNumber: 25,
+    });
+
+    const afterLateOlder = resolveNextLastCompletedHand({
+      event: {
+        type: 'hand_history_saved',
+        table_id: 'pool-1',
+        pool_session_id: 'pool-1',
+        player_id: HERO_A,
+        hand_id: HAND_ID_1,
+        hand_number: 24,
+      },
+      alreadyProcessed: false,
+      userId: HERO_A,
+      tableId: 'pool-1',
+      poolSessionId: 'pool-1',
+      currentScope: `${HERO_A}:pool-1:pool-1:cash`,
+      heroAtTable: true,
+      lightningObserver: false,
+      heroDealtHands: new Set([24, 25]),
+      heroCardsHandNumber: 25,
+      heroHandOutcome: { dealtIn: true, handNumber: 25 },
+      previous: newer,
+    });
+    expect(afterLateOlder).toEqual(newer);
+
+    // Event identity helper produces stable non-empty keys
+    expect(handHistorySavedEventIdentity(eventT1)).toContain(HAND_ID_1);
+
+    // TablePage wires deduplication ref and resolveNextLastCompletedHand
+    const tablePage = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    expect(tablePage).toContain('lastProcessedHandSavedEventRef');
+    expect(tablePage).toContain('resolveNextLastCompletedHand(');
+  });
+
+  it('[P1 Law] Shift+L is strictly blocked when [aria-modal="true"] or dialog[open] is present (useTableKeyboard & standalone LogThisHandControl) and TablePage lists all modals', () => {
+    const onLogLastHand = vi.fn();
+    renderHook(() =>
+      useTableKeyboard({
+        isActive: true,
+        isHeroTurn: false,
+        isSpectator: false,
+        isModalOpen: false,
+        isSizingOpen: false,
+        onLogLastHand,
+      })
+    );
+
+    // 1. aria-modal="true" blocks Shift+L in useTableKeyboard even if isModalOpen prop wasn't wired
+    const ariaModal = document.createElement('div');
+    ariaModal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(ariaModal);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'L', shiftKey: true, bubbles: true }));
+    expect(onLogLastHand).not.toHaveBeenCalled();
+    ariaModal.remove();
+
+    // 2. Native <dialog open> blocks Shift+L in useTableKeyboard
+    const openDialog = document.createElement('dialog');
+    openDialog.setAttribute('open', '');
+    document.body.appendChild(openDialog);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'L', shiftKey: true, bubbles: true }));
+    expect(onLogLastHand).not.toHaveBeenCalled();
+    openDialog.remove();
+
+    // Once modal is closed, Shift+L works again
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'L', shiftKey: true, bubbles: true }));
+    expect(onLogLastHand).toHaveBeenCalledTimes(1);
+
+    // 3. Standalone LogThisHandControl (no registerHotkey) ALSO respects [aria-modal="true"] and dialog[open]
+    render(<LogThisHandControl variant="hud" handId={HAND_ID_1} accountId={HERO_A} />);
+    const standaloneModal = document.createElement('div');
+    standaloneModal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(standaloneModal);
+    fireEvent.keyDown(window, { key: 'L', shiftKey: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    standaloneModal.remove();
+
+    const standaloneDialog = document.createElement('dialog');
+    standaloneDialog.setAttribute('open', '');
+    document.body.appendChild(standaloneDialog);
+    fireEvent.keyDown(window, { key: 'L', shiftKey: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    standaloneDialog.remove();
+
+    // 4. TablePage.tsx isModalOpen includes all 8 review/table modals
+    const tablePage = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    const modalBlock = tablePage.slice(
+      tablePage.indexOf('isModalOpen:'),
+      tablePage.indexOf('onFold:', tablePage.indexOf('isModalOpen:'))
+    );
+    for (const flag of [
+      'showHandDetail',
+      'showHandReplay',
+      'showShareHand',
+      'showTimeBankStore',
+      'showSessionHUD',
+      'showGameRules',
+      'showIdentityModal',
+      'showHandRevealModal',
+    ]) {
+      expect(modalBlock, `TablePage isModalOpen missing ${flag}`).toMatch(
+        new RegExp(`\\b${flag}\\b`)
+      );
+    }
+  });
+
+  it('[P1/P2 Law] BroadcastChannel saved-hand-deleted resets cache & UI back to Log This Hand, suppresses self-echo, findSavedClubArenaHand stays silent, and batch chunks/preserves already_saved', async () => {
+    type Listener = (ev: MessageEvent) => void;
+    const channels: Array<{ name: string; listeners: Set<Listener>; onmessage: Listener | null }> =
+      [];
+    const posted: Array<{ channel: string; payload: unknown }> = [];
+
+    class BidirectionalBroadcastChannel {
+      name: string;
+      listeners = new Set<Listener>();
+      onmessage: Listener | null = null;
+      constructor(name: string) {
+        this.name = name;
+        channels.push(this);
+      }
+      addEventListener(type: string, fn: Listener) {
+        if (type === 'message') this.listeners.add(fn);
+      }
+      postMessage(payload: unknown) {
+        posted.push({ channel: this.name, payload });
+      }
+      close() {
+        this.listeners.clear();
+        this.onmessage = null;
+      }
+    }
+
+    const emitFromWorldHub = (data: unknown) => {
+      for (const ch of channels) {
+        const event = { data } as MessageEvent;
+        ch.onmessage?.(event);
+        for (const fn of ch.listeners) fn(event);
+      }
+    };
+
+    vi.stubGlobal('BroadcastChannel', BidirectionalBroadcastChannel);
+
+    // 1. Read-only findSavedClubArenaHand MUST NOT broadcast saved-hand-updated
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ success: true, hand: { id: SAVED_ROW_ID_1, source_hand_id: HAND_ID_1 } }, 200)
+    );
+    const readback = await findSavedClubArenaHand(HAND_ID_1, {
+      accessToken: makeJwt(HERO_A),
+      userId: HERO_A,
+    });
+    expect(readback).toEqual({ found: true, savedHandId: SAVED_ROW_ID_1 });
+    expect(posted).toHaveLength(0);
+    expect(getCachedSavedHand(HERO_A, HAND_ID_1)?.status).toBe('already_saved');
+
+    // 2. checkSavedHandsBatch MUST preserve 'already_saved' status (never downgrade to 'saved')
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          success: true,
+          savedByHandId: {
+            [HAND_ID_1]: {
+              id: SAVED_ROW_ID_1,
+              savedAt: '2026-11-27T11:00:00.000Z',
+              status: 'unreviewed',
+              reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_1}`,
+            },
+          },
+        },
+        200
+      )
+    );
+    await checkSavedHandsBatch([HAND_ID_1], { accessToken: makeJwt(HERO_A), userId: HERO_A });
+    expect(getCachedSavedHand(HERO_A, HAND_ID_1)?.status).toBe('already_saved');
+
+    // 3. Mount LogThisHandControl showing Already Saved (even with initialSavedHandId prop)
+    render(
+      <LogThisHandControl
+        handId={HAND_ID_1}
+        accountId={HERO_A}
+        initialSavedHandId={SAVED_ROW_ID_1}
+      />
+    );
+    expect(screen.getByText('Already Saved')).toBeTruthy();
+
+    // Self-echo with our own SAVED_HANDS_TAB_ID must be ignored
+    act(() => {
+      emitFromWorldHub({
+        type: 'saved-hand-deleted',
+        savedRowId: SAVED_ROW_ID_1,
+        sourceHandId: HAND_ID_1,
+        tabId: SAVED_HANDS_TAB_ID,
+      });
+    });
+    expect(screen.getByText('Already Saved')).toBeTruthy();
+    expect(getCachedSavedHand(HERO_A, HAND_ID_1)?.savedHandId).toBe(SAVED_ROW_ID_1);
+
+    // 4. World Hub deletion broadcast (matching savedRowId) immediately evicts cache and resets button to Log This Hand
+    act(() => {
+      emitFromWorldHub({
+        type: 'saved-hand-deleted',
+        savedRowId: SAVED_ROW_ID_1,
+        tabId: 'wh-tab-999',
+      });
+    });
+    expect(getCachedSavedHand(HERO_A, HAND_ID_1)).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Log This Hand' })).toBeTruthy();
+
+    // 5. Cross-tab saved-hand-updated from World Hub updates cache & UI instantaneously
+    act(() => {
+      emitFromWorldHub({
+        type: 'saved-hand-updated',
+        source: 'world-hub',
+        sourceHandId: HAND_ID_1,
+        savedRowId: SAVED_ROW_ID_2,
+        tabId: 'wh-tab-999',
+      });
+    });
+    expect(getCachedSavedHand(HERO_A, HAND_ID_1)?.savedHandId).toBe(SAVED_ROW_ID_2);
+    expect(await screen.findByText('Hand Saved')).toBeTruthy();
+
+    // 6. checkSavedHandsBatch caps safely at MAX_SAVED_HANDS_BATCH_TOTAL (250) in 50-ID chunks
+    const manyUuids = Array.from({ length: 270 }, (_, i) => {
+      const hex = (i + 1).toString(16).padStart(12, '0');
+      return `20000000-0000-4000-8000-${hex}`;
+    });
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, savedByHandId: {} }, 200));
+    await checkSavedHandsBatch(manyUuids, { accessToken: makeJwt(HERO_A), userId: HERO_A });
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_SAVED_HANDS_BATCH_TOTAL / 50);
+
+    // 7. HandDetailModal hydrates saved state directly on open and normalizes uppercase hand.id lookup
+    cleanup();
+    clearSavedHandsCache();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          success: true,
+          savedByHandId: {
+            [HAND_ID_2.toLowerCase()]: {
+              id: SAVED_ROW_ID_2,
+              savedAt: '2026-11-27T12:00:00.000Z',
+              status: 'unreviewed',
+              reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_2}`,
+            },
+          },
+        },
+        200
+      )
+    );
+    render(
+      <HandDetailModal
+        isOpen
+        onClose={() => {}}
+        hands={[makeHandRecord(HAND_ID_2.toUpperCase(), 901, HERO_A)]}
+        heroId={HERO_A}
+      />
+    );
+    expect(await screen.findByText('Hand Saved')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open In Assistant' }).getAttribute('href')).toBe(
+      `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_2}`
+    );
+
+    // 8. HandHistoryPanel merges batch hydration incrementally without wiping previously hydrated hands
+    cleanup();
+    clearSavedHandsCache();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          success: true,
+          savedByHandId: {
+            [HAND_ID_1]: {
+              id: SAVED_ROW_ID_1,
+              savedAt: '2026-11-27T12:00:00.000Z',
+              status: 'unreviewed',
+              reviewUrl: `/hub/personal-assistant/review?hand=${SAVED_ROW_ID_1}`,
+            },
+          },
+        },
+        200
+      )
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, savedByHandId: {} }, 200));
+    const h1 = makeHandRecord(HAND_ID_1.toUpperCase(), 910, HERO_A);
+    const h2 = makeHandRecord(HAND_ID_2, 911, HERO_A);
+    const { rerender } = render(
+      <HandHistoryPanel isOpen onClose={() => {}} hands={[h1]} heroId={HERO_A} />
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // New hand arrives -> only HAND_ID_2 is fetched, HAND_ID_1 stays hydrated!
+    rerender(<HandHistoryPanel isOpen onClose={() => {}} hands={[h2, h1]} heroId={HERO_A} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(String(fetchMock.mock.calls[1][0])).toContain(HAND_ID_2);
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain(HAND_ID_1);
+    const summaries = document.querySelectorAll('.hh-entry__summary');
+    fireEvent.click(summaries[1] as Element);
+    expect(await screen.findByText('Hand Saved')).toBeTruthy();
+
+    // Ensure setCachedSavedHand preserves 'already_saved'
+    setCachedSavedHand(HERO_A, HAND_ID_2, { savedHandId: SAVED_ROW_ID_2, status: 'already_saved' });
+    setCachedSavedHand(HERO_A, HAND_ID_2, { savedHandId: SAVED_ROW_ID_2, status: 'saved' });
+    expect(getCachedSavedHand(HERO_A, HAND_ID_2)?.status).toBe('already_saved');
+  });
+
+  it('[P1/P2 Law] mobile HUD uses compact @media (max-width: 640px) tile sizing, visible error text, 0 :hover, 0 CSS leaks, and raisePanelOpen never aborts in-flight POST', async () => {
+    // 1. CSS laws on LogThisHandControl.css
+    const cssRaw = readFileSync(
+      resolve(__dirname, '../../src/components/handdetail/LogThisHandControl.css'),
+      'utf8'
+    );
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toContain(':hover');
+    expect(css).toMatch(/@media\s*\(max-width:\s*640px\)/);
+    expect(css).toContain('var(--sp-hud-tile-size, 44px)');
+    expect(css).toContain('.lth--hud.lth--hud-hidden');
+    // Every top-level bare class selector must be strictly `.lth*`-scoped
+    const selectorRe = /(^|\}|@media[^{]+\{)\s*([^{}@]+?)\s*\{/g;
+    let m: RegExpExecArray | null;
+    while ((m = selectorRe.exec(css))) {
+      for (const sel of m[2].split(',').map((s) => s.trim())) {
+        if (!sel || sel.startsWith('@')) continue;
+        expect(sel, `Unscoped CSS selector leaked: ${sel}`).toMatch(/^\.lth/);
+      }
+    }
+
+    // 2. HUD error state renders a VISIBLE error pill (not .lth__sr-only) so mobile touch users see failure reason
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Rate Limited' }, 429));
+    render(<LogThisHandControl variant="hud" handId={HAND_ID_1} accountId={HERO_A} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Log Last Hand' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Rate Limited');
+    expect(alert.classList.contains('lth__sr-only')).toBe(false);
+    expect(alert.classList.contains('lth__error-pill--hud')).toBe(true);
+
+    // 3. Opening raise slider hides HUD control via CSS (hidden={true}) without unmounting or aborting in-flight POST
+    cleanup();
+    clearSavedHandsCache();
+    fetchMock.mockReset();
+    const postDeferred = deferred<Response>();
+    fetchMock.mockReturnValueOnce(postDeferred.promise);
+
+    const { rerender, container } = render(
+      <LogThisHandControl variant="hud" handId={HAND_ID_1} accountId={HERO_A} hidden={false} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Log Last Hand' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const sentSignal = (fetchMock.mock.calls[0][1] as RequestInit).signal;
+    expect(sentSignal?.aborted).toBe(false);
+
+    // Simulate raisePanelOpen becoming true
+    rerender(
+      <LogThisHandControl variant="hud" handId={HAND_ID_1} accountId={HERO_A} hidden={true} />
+    );
+    const rootEl = container.querySelector('.lth--hud');
+    expect(rootEl?.classList.contains('lth--hud-hidden')).toBe(true);
+    expect(rootEl?.getAttribute('aria-hidden')).toBe('true');
+    expect(sentSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      postDeferred.resolve(jsonResponse({ success: true, hand: { id: SAVED_ROW_ID_1 } }, 201));
+    });
+
+    // Raise panel closes -> saved state is intact!
+    rerender(
+      <LogThisHandControl variant="hud" handId={HAND_ID_1} accountId={HERO_A} hidden={false} />
+    );
+    expect(await screen.findByText('Saved')).toBeTruthy();
+
+    // TablePage passes hidden={raisePanelOpen} instead of unmounting LogThisHandControl
+    const tablePage = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    expect(tablePage).toContain('hidden={raisePanelOpen}');
   });
 });

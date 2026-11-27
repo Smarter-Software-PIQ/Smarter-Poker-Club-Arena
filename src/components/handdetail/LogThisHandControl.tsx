@@ -35,6 +35,16 @@ export interface LogThisHandControlProps {
    * to `true` for `variant="hud"` without `registerHotkey`.
    */
   enableShortcut?: boolean;
+  /**
+   * Visually hide the HUD control (e.g. while the bet/raise sizing slider is open)
+   * WITHOUT unmounting it, so any in-flight save POST is never aborted.
+   */
+  hidden?: boolean;
+}
+
+export function hasOpenModalInDocument(): boolean {
+  if (typeof document === 'undefined') return false;
+  return Boolean(document.querySelector('[aria-modal="true"], dialog[open]'));
 }
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
@@ -90,6 +100,24 @@ function BookmarkCheckIcon() {
   );
 }
 
+function RetryIcon() {
+  return (
+    <svg
+      className="lth__icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M13 8a5 5 0 1 1-1.4-3.5L13 6" />
+      <path d="M13 2.8V6H9.8" />
+    </svg>
+  );
+}
+
 export default function LogThisHandControl({
   handId,
   accountId,
@@ -98,6 +126,7 @@ export default function LogThisHandControl({
   initialSavedHandId = null,
   registerHotkey,
   enableShortcut,
+  hidden = false,
 }: LogThisHandControlProps) {
   const resolvedVariant: LogThisHandVariant = variant ?? (compact ? 'compact' : 'default');
   const isHud = resolvedVariant === 'hud';
@@ -109,11 +138,11 @@ export default function LogThisHandControl({
   });
 
   const validHand = isCanonicalUuid(handId) && canLog;
-  const canTriggerHotkey = validHand && (status === 'idle' || status === 'error');
+  const canTriggerHotkey = validHand && !hidden && (status === 'idle' || status === 'error');
 
   const triggerRef = useRef<() => void>(() => {});
   triggerRef.current = () => {
-    if (!validHand) return;
+    if (!validHand || hidden) return;
     if (status === 'error') {
       void retry();
     } else if (status === 'idle') {
@@ -148,6 +177,7 @@ export default function LogThisHandControl({
         return;
       }
       if (typeof event.key !== 'string' || event.key.toLowerCase() !== 'l') return;
+      if (hasOpenModalInDocument()) return;
       if (
         isEditableShortcutTarget(event.target) ||
         isEditableShortcutTarget(typeof document !== 'undefined' ? document.activeElement : null)
@@ -179,17 +209,21 @@ export default function LogThisHandControl({
 
   if (isHud) {
     return (
-      <div className="lth lth--hud">
+      <div
+        className={`lth lth--hud${hidden ? ' lth--hud-hidden' : ''}`}
+        aria-hidden={hidden || undefined}
+      >
         {status === 'idle' && (
           <button
             type="button"
             className="lth__btn lth__btn--hud"
             aria-keyshortcuts="Shift+L"
             title="Log Last Hand (Shift+L)"
+            tabIndex={hidden ? -1 : undefined}
             onClick={() => void logThisHand()}
           >
             <BookmarkIcon />
-            <span>Log Last Hand</span>
+            <span className="lth__hud-label">Log Last Hand</span>
           </button>
         )}
 
@@ -199,9 +233,11 @@ export default function LogThisHandControl({
             className="lth__btn lth__btn--hud lth__btn--saving"
             disabled
             aria-busy="true"
+            tabIndex={hidden ? -1 : undefined}
           >
             <BookmarkIcon />
-            <span>Saving</span>
+            <span className="lth__hud-dot lth__hud-dot--saving" aria-hidden="true" />
+            <span className="lth__hud-label">Saving</span>
           </button>
         )}
 
@@ -211,7 +247,7 @@ export default function LogThisHandControl({
               className={`lth__badge lth__badge--hud${status === 'already_saved' ? ' lth__badge--existing' : ''}`}
             >
               <BookmarkCheckIcon />
-              <span>Saved</span>
+              <span className="lth__hud-label">Saved</span>
             </span>
             {reviewUrl && (
               <a
@@ -220,6 +256,7 @@ export default function LogThisHandControl({
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Open In Assistant"
+                tabIndex={hidden ? -1 : undefined}
                 onClick={handleOpenReview}
               >
                 Open
@@ -230,17 +267,19 @@ export default function LogThisHandControl({
 
         {status === 'error' && (
           <div className="lth__error-row lth__error-row--hud">
-            <span className="lth__sr-only" role="alert">
-              Error: {errorMessage || 'Could Not Save Hand'}
+            <span className="lth__error-pill lth__error-pill--hud" role="alert">
+              {errorMessage || 'Could Not Save Hand'}
             </span>
             <button
               type="button"
               className="lth__retry lth__retry--hud"
               title={errorMessage || 'Could Not Save Hand'}
+              tabIndex={hidden ? -1 : undefined}
               onClick={() => void retry()}
             >
-              <BookmarkIcon />
-              <span>Retry</span>
+              <RetryIcon />
+              <span className="lth__hud-dot lth__hud-dot--error" aria-hidden="true" />
+              <span className="lth__hud-label">Retry</span>
             </button>
           </div>
         )}
