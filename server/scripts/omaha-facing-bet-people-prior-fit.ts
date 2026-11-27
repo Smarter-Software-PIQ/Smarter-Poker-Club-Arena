@@ -155,8 +155,14 @@ for (const f of files) {
       river: new Set(),
     };
     const answered = new Set<string>();
-    const pending: { seat: number; street: 'turn' | 'river'; cell: Cell; V: number; reg: Reg }[] =
-      [];
+    const pending: {
+      seat: number;
+      street: 'turn' | 'river';
+      cell: Cell;
+      V: number;
+      reg: Reg;
+      nt: Cell;
+    }[] = [];
     const calls: { seat: number; street: 'turn' | 'river' }[] = [];
     let ok = true;
     for (const a of h.actions ?? []) {
