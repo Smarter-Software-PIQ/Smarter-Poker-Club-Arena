@@ -3209,7 +3209,8 @@ function LiveTablePage({
           if (
             !lightningObserver &&
             Number.isSafeInteger(cardHoldNextHand) &&
-            cardHoldNextHand > 0
+            cardHoldNextHand > 0 &&
+            typeof recordHeroDealtHandRef !== 'undefined'
           ) {
             recordHeroDealtHandRef.current(cardHoldNextHand);
           }
@@ -14161,7 +14162,9 @@ function LiveTablePage({
         /* Stamped for every accepted delivery, audible or not: this is what
            HAND_STARTED and the snapshot hold ask (heroCardCustody.ts). */
         heroCardsHandRef.current = dealtHandNumber;
-        recordHeroDealtHandRef.current(dealtHandNumber);
+        if (typeof recordHeroDealtHandRef !== 'undefined') {
+          recordHeroDealtHandRef.current(dealtHandNumber);
+        }
         if (
           heroDealSoundHandRef.current !== dealtHandNumber &&
           lightningHoldsHeroDealSound({
@@ -14568,8 +14571,13 @@ function LiveTablePage({
             if (parsedCards.length >= 2) {
               heroHandOutcomeRef.current.dealtIn = true;
               const recoveredHand = Number(data.hand_number);
-              if (Number.isSafeInteger(recoveredHand) && recoveredHand > 0) {
+              if (Number.isSafeInteger(recoveredHand) && recoveredHand > 0)
                 heroCardsHandRef.current = recoveredHand;
+              if (
+                Number.isSafeInteger(recoveredHand) &&
+                recoveredHand > 0 &&
+                typeof recordHeroDealtHandRef !== 'undefined'
+              ) {
                 recordHeroDealtHandRef.current(recoveredHand);
               }
             }
