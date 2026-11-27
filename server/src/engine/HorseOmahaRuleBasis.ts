@@ -165,6 +165,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaReraisedPotCallIsPriced: RERAISED_POT_PRICED,
   omahaReraisedPotReraiseIsPriced: RERAISED_POT_PRICED,
   omahaReraisedPotFoldReraiseIsPriced: RERAISED_POT_PRICED,
+  omahaLimpReraiseVsIsoRaiser: RERAISED_POT_PRICED,
   omahaOopReraiseRangeHoldsVsReraise: {
     kind: 'priced',
     range:
@@ -962,6 +963,10 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_reraised_pot_priced_call_reraised: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_reraised: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_reraise_kept: RERAISED_POT_PRICED,
+  omaha_limp_reraise_limped: RERAISED_POT_PRICED,
+  omaha_limp_reraise_open_kept: RERAISED_POT_PRICED,
+  omaha_limp_reraise_reraised: RERAISED_POT_PRICED,
+  omaha_limp_reraise_reraise_kept: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_called: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_kept: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_reraise_kept: RERAISED_POT_PRICED,
