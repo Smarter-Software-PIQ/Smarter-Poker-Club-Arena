@@ -295,6 +295,12 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **What stops it returning:** the "mid-soak yield" cases of `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`.
 - **Live proof:** pending. Record: `docs/changelog/2026-11-26-o35-an-unselectable-soak-yields-at-once.md`.
 
+### 2026-11-27: The 01:00 CST Cycle Sealed
+
+- Sealed `f2b854319ea9` at 01:02 CST (receiver run `45952351979`), the first seal since 16:00 CST on 11-26. `/health` at 01:06 CST: 0 stalled tables, settlement ok, 79 tables dealing. No commit on main after it touched `server/` or `supabase/migrations`, so every engine and database change held back by the three kept-serving cycles shipped.
+- What decided it: O34 freed the Backup host (22:15 CST); `ecebbc212831` certified at 23:39 CST on a copy restored at 22:58 CST, and `f2b854319ea9` certified after it before the 00:30 CST cutoff. `e21eb7d915ed`, certified at 22:53 CST on a copy two installed migrations had passed, was correctly not selected (see O35).
+- The operator fallback cron ran for the first time at 00:33 CST and followed the existing owner (Stage run `45942274643`); it sent nothing.
+
 ## Open Items
 
 | Item                                                                                                       | Owner Lane                               | State                                                                                                                                                                                                                                                                                                                             |
