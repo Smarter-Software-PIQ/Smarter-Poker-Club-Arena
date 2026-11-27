@@ -28,6 +28,7 @@ import {
   classifyEventDbOutcome,
   classifyEventDbPriority,
   eventDatabaseBulkhead,
+  getEventDbPriorityOverride,
   type EventDbOutcome,
   type EventDbPermit,
 } from './eventDatabaseBulkhead.js';
@@ -209,7 +210,7 @@ function createBoundedServiceClient(
               const admitted = eventDatabaseBulkhead.acquire(
                 eventKey,
                 ctl.signal,
-                classifyEventDbPriority(attemptInput)
+                getEventDbPriorityOverride() ?? classifyEventDbPriority(attemptInput)
               );
               // Under the bound the permit is returned synchronously: no await.
               permit = admitted instanceof Promise ? await admitted : admitted;

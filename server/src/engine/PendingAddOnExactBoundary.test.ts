@@ -121,6 +121,93 @@ describe('protocol-2 pending add-ons have one pre-deal owner', () => {
     expect(engine.fenceForEngineLeaseLoss).toHaveBeenCalledWith('pending_addon_lease_lost', true);
     expect(from).not.toHaveBeenCalled();
   });
+
+  it('skips the redundant table_seats re-read when attempt 1 resolves zero rows cleanly', async () => {
+    const engine = new ServerTableEngine(TABLE, {
+      scope: 'cash',
+      verified: true,
+      generation: GENERATION,
+      proofDeadlineMonotonicMs: performance.now() + 60_000,
+    }) as any;
+    engine.running = true;
+    engine.isCurrentEngine = () => true;
+    engine.tableInfo = { id: TABLE, tournament_id: null };
+    engine.pendingAddOnSweepNeeded = true;
+    engine.getMaxBuyIn = () => 500;
+    engine.broadcastCurrentState = vi.fn();
+    const hero = { user_id: 'hero', seat_number: 2, stack: 350 };
+
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
+      data: {
+        ok: true,
+        table_id: TABLE,
+        lease_generation: GENERATION,
+        resolved: 0,
+        rows: [],
+      },
+      error: null,
+    } as never);
+    const from = vi.spyOn(supabase, 'from');
+
+    await engine.processPendingAddOns([hero]);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(from).not.toHaveBeenCalled();
+    expect(hero.stack).toBe(350);
+    expect(engine.pendingAddOnSweepNeeded).toBe(false);
+    expect(engine.broadcastCurrentState).not.toHaveBeenCalled();
+  });
+
+  it('still re-reads absolute table_seats truth when attempt 2 resolves zero rows after an attempt 1 transport error', async () => {
+    const engine = new ServerTableEngine(TABLE, {
+      scope: 'cash',
+      verified: true,
+      generation: GENERATION,
+      proofDeadlineMonotonicMs: performance.now() + 60_000,
+    }) as any;
+    engine.running = true;
+    engine.isCurrentEngine = () => true;
+    engine.tableInfo = { id: TABLE, tournament_id: null };
+    engine.pendingAddOnSweepNeeded = true;
+    engine.getMaxBuyIn = () => 500;
+    engine.broadcastCurrentState = vi.fn();
+    vi.spyOn(engine, 'sleep').mockResolvedValue(undefined);
+    const hero = { user_id: 'hero', seat_number: 2, stack: 350 };
+
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: 'lost response after commit' },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          table_id: TABLE,
+          lease_generation: GENERATION,
+          resolved: 0,
+          rows: [],
+        },
+        error: null,
+      } as never);
+    const stackRead = vi
+      .fn()
+      .mockResolvedValue({ data: [{ user_id: 'hero', stack: 500 }], error: null });
+    vi.spyOn(supabase, 'from').mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          is: stackRead,
+        }),
+      }),
+    } as never);
+
+    await engine.processPendingAddOns([hero]);
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(stackRead).toHaveBeenCalledTimes(1);
+    expect(hero.stack).toBe(500);
+    expect(engine.pendingAddOnSweepNeeded).toBe(false);
+  });
 });
 
 describe('the database boundary excludes accepted-hand rows', () => {

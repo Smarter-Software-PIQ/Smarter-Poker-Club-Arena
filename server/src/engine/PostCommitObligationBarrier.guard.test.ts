@@ -91,8 +91,11 @@ describe('an accepted hand cannot outrun its durable post-commit obligations', (
     expect(drain).toContain('this.lifecycleCanMutate() || Date.now() < drainDeadline');
     // The regression itself, named so it cannot come back quietly.
     expect(drain).not.toContain('while (!obligationsApplied && this.lifecycleCanMutate())');
-    // The backoff runs post-fence too, or the budget buys exactly one attempt.
+    // The backoff runs post-fence too, or the budget buys exactly one attempt,
+    // and applies bounded jitter so concurrent tables do not retry in lockstep.
     expect(drain).toMatch(/this\.markProgress\(\);\s*const backoffMs/);
+    expect(drain).toContain('Math.random()');
+    expect(drain).toContain('5_000');
     // Only the drain loses the lease term. The reflection fence is untouched.
     expect(barrier).toContain('postCommitStateCanReflect = this.lifecycleCanMutate();');
 

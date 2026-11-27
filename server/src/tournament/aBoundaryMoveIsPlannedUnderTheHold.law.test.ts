@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TournamentManager } from './TournamentManager.js';
 import type { BalancerTable } from '../engine/TableBalancer.js';
 import { supabase } from '../services/supabase.js';
+import { getEventDbPriorityOverride } from '../services/supabase/eventDatabaseBulkhead.js';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const EVENT = id(1);
@@ -1015,6 +1016,82 @@ describe('a boundary move is planned under the hold', () => {
       queriedRelations.length = 0;
       await m.loadBalancerTables(liveIds, 'balanceFresh');
       expect(queriedRelations.sort()).toEqual(['table_seats', 'tables', 'tournament_players']);
+    });
+
+    it('re-prepares the boundary plan in drainBoundaryBalance finally when another fenced source settled while a boundary drain was in flight', async () => {
+      const a = table(0, 9);
+      const b = table(1, 9);
+      const c = table(2, 5);
+      const { m, park, settleHand } = manager([a, b, c]);
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(a.tableId)).toBe(true);
+      expect(m.gapBalanceFencedSources.has(b.tableId)).toBe(true);
+
+      let finishRead!: () => void;
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      m.loadBalancerTables.mockImplementation(
+        (...args: unknown[]) =>
+          new Promise((resolve) => {
+            if (args[1] === 'balanceAtBoundary') {
+              finishRead = () => resolve(baseLoad(...args));
+            } else {
+              resolve(baseLoad(...args));
+            }
+          })
+      );
+
+      // Table `a` parks and enters drainBoundaryBalance (boundaryBalanceInFlight = true).
+      park(a.tableId);
+      expect(m.claimGapBalanceAtBoundary(a.tableId)).toBe(true);
+      await settle();
+
+      // Table `b` settles its hand while `boundaryBalanceInFlight` is true:
+      // prepareBoundaryBalancePlan skips immediately, leaving `b` in boundaryPlanAwaitingPark.
+      m.loadBalancerTables.mockClear();
+      settleHand(b);
+      await settle();
+      expect(m.boundaryPlanAwaitingPark.has(b.tableId)).toBe(true);
+      expect(m.loadBalancerTables).not.toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+
+      // When `a`'s boundary drain finishes without owing a sweep, finally MUST
+      // prepare the board under `b`'s remaining hold instead of leaving it absent.
+      finishRead();
+      await settle();
+      expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+    });
+
+    it('runs parked boundary board reads and door chair checks under high EventDb priority while keeping hold-time preparation normal', async () => {
+      const big = table(0, 8);
+      const short = table(1, 3);
+      const { m, park, settleHand } = manager([big, short]);
+      const priorityByTag = new Map<string, string | undefined>();
+      const baseLoad = m.loadBalancerTables.getMockImplementation();
+      m.loadBalancerTables.mockImplementation(async (ids: string[], tag: string) => {
+        priorityByTag.set(tag, getEventDbPriorityOverride());
+        return baseLoad(ids, tag);
+      });
+
+      await m.checkTableBalance();
+      // Hold-time background preparation runs at normal (no override) priority.
+      settleHand(big);
+      await settle();
+      expect(priorityByTag.get('balancePrepared')).toBeUndefined();
+
+      // Invalidate prepared plan so parked boundary must read fresh under high priority.
+      m.balanceBoardEpoch++;
+      park(big.tableId);
+      await m.balanceParkedGapSources();
+      expect(priorityByTag.get('balanceAtBoundary')).toBe('high');
+
+      // Door chair check for a parked source also runs under high priority.
+      const chair = await m.chairFreeAtTheDoor({
+        fromTableId: big.tableId,
+        toTableId: short.tableId,
+        playerId: big.players[0].userId,
+        toSeat: 4,
+      });
+      expect(chair).toBe(4);
+      expect(priorityByTag.get('moveChairAtTheDoor')).toBe('high');
     });
   });
 });
