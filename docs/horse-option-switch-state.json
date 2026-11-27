@@ -1,7 +1,7 @@
 {
   "schema": "horse-option-switch-state/v1",
-  "asOfUtc": "2026-11-27T17:27:13.078Z",
-  "auditMax": 208,
+  "asOfUtc": "2026-11-27T18:13:05.797Z",
+  "auditMax": 209,
   "rows": {
     "cashDefenceTrimColdCalls": {
       "state": "on",
@@ -144,9 +144,9 @@
       "changedAt": "2026-11-24T07:08:52.774Z"
     },
     "omahaFlopPressureCapIsPriced": {
-      "state": "shadow",
-      "auditId": 208,
-      "changedAt": "2026-11-27T16:33:28.541Z"
+      "state": "on",
+      "auditId": 209,
+      "changedAt": "2026-11-27T18:13:05.797Z"
     },
     "omahaMadeHandDefenseVsValueLeader": {
       "state": "on",
