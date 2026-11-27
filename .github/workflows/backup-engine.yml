@@ -1567,8 +1567,22 @@ jobs:
           #   (b) projection(SHA) on origin/main already differs from SHA, or
           #       supabase/migrations differs AND production now holds a migration
           #       (or required definition) the soaking copy lacks (O16),
-          #   (c) < 75 minutes (4500 s) remain until the next scheduled 3-hourly/daily cutoff,
+          #   (c) the time to the next scheduled 3-hourly/daily cutoff could be read
+          #       (it is reported; since O35 it no longer has to be under 75 minutes),
           #   (d) every read succeeded (unreadable -> keep soaking, CLAUDE.md 10.86).
+          #
+          # AN UNSELECTABLE SOAK YIELDS AT ONCE, HOWEVER FAR THE CUTOFF (2026-11-26, O35).
+          # Until O35 the yield also required fewer than 75 minutes to the next
+          # cutoff. Backup 45938154669 began soaking e21eb7d915ed at 22:09 Chicago
+          # on a copy read at 22:08; migrations 20261127005018 and 20261126222226
+          # merged in the 22:10 merge window and installed at 22:13 and 22:16,
+          # so from 22:16 that certificate could never be selected. The cutoff was
+          # 134 minutes away, so the soak ran to 22:54 and the run for the
+          # selectable commit (45940769729) waited 38 minutes for the host: one
+          # attempt was left for the 01:00 cycle instead of two. A copy production
+          # has moved past, or a diverged release-control projection, never
+          # becomes selectable again by waiting, so with (a), (b) and (d) the
+          # soak stops whatever the clock says.
           #
           # A NEW MIGRATION FILE IS NOT A NEW INSTALL (2026-11-23, O16). At
           # 02:44:02Z Backup 45099104481 stopped certifying a9fde5791f0a sixteen
@@ -1596,7 +1610,7 @@ jobs:
             fi
             verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
               --copy-evidence o1-copy-evidence.json --copy-evidence-sha "$evidence_sha" \
-              --control "${CONTROL_SHA:-}" 2> o1-copy-reason.txt) || verdict=''
+              --control "${CONTROL_SHA:-}" --sha "$SHA" 2> o1-copy-reason.txt) || verdict=''
             due_answer=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
             production_digest=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p')
             if ! [[ "$production_digest" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1646,7 +1660,7 @@ jobs:
                   raise SystemExit(0)
           raise SystemExit(1)
           ' 2>/dev/null) || secs_to_cutoff=unreadable
-              if ! [[ "$secs_to_cutoff" =~ ^[0-9]+$ ]] || [ "$secs_to_cutoff" -ge 4500 ]; then
+              if ! [[ "$secs_to_cutoff" =~ ^[0-9]+$ ]]; then
                 continue
               fi
               newer_waiting=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
