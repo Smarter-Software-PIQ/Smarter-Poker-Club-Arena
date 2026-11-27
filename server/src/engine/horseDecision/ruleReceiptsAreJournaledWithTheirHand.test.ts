@@ -21,7 +21,6 @@
  */
 import { afterEach, expect, it, vi } from 'vitest';
 import { HandController } from '../HandController.js';
-import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../HorseEval.js';
 import { HorseMind } from '../HorseMind.js';
 import { Deck, RANKS, SUITS } from '../PokerEngine.js';
 import { enableBrainTelemetry, type DecisionRuleReceipt } from '../BrainTelemetry.js';
@@ -172,75 +171,69 @@ async function decideAt(
 const receiptsOf = (j: Journaled) => j.payload.ruleReceipts as DecisionRuleReceipt[] | undefined;
 
 it('journals the set pound on the record of the turn decision it sized, and on no other', async () => {
-  // Deterministic RNG so Monte Carlo equity on the A-6-T-8 PLO5 turn never
-  // drifts below the set-pound threshold (prequalification flakes 44858061669 &
-  // 45745715882; sibling HorseOmahaRuleReceiptsNameTheirDecision pins seeds too).
-  const savedFastRandom = saveFastRandom();
-  seedFastRandom(1);
-  vi.spyOn(Math, 'random').mockReturnValue(0.5);
-  try {
-    enableBrainTelemetry();
-    const messages: HorseDecisionWorkerResponse[] = [];
-    const journal: Journaled[] = [];
-    const worker = workerWith(messages, journal);
-    await worker.start();
-    const { controller, config } = riggedHand();
+  // HandController.performAction stamps every action with Date.now(), which is
+  // hashed into buildHorseDecisionKey -> workerRuntime.requestRngSeed -> fastRandom.
+  // Pinning Date.now() makes actionHistory, decisionKey, and the worker's RNG
+  // seed bit-for-bit identical across runs (fixes prequal flakes 44858061669,
+  // 45745715882, and 46067054367). Restored in afterEach via vi.restoreAllMocks().
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 14, 18, 0, 0));
+  enableBrainTelemetry();
+  const messages: HorseDecisionWorkerResponse[] = [];
+  const journal: Journaled[] = [];
+  const worker = workerWith(messages, journal);
+  await worker.start();
+  const { controller, config } = riggedHand();
 
-    // Preflop: the Horse on the button completes; the big blind checks.
-    const preflop = await decideAt(worker, messages, controller, config, 201);
-    expect(controller.performAction(1, 'call')).toBe(true);
-    expect(controller.performAction(2, 'check')).toBe(true);
-    // Flop A-6-T: checked to the Horse, which checks back.
-    expect(controller.performAction(2, 'check')).toBe(true);
-    const flop = await decideAt(worker, messages, controller, config, 202);
-    expect(controller.performAction(1, 'check')).toBe(true);
-    // Turn 8: checked to the Horse again.
-    expect(controller.performAction(2, 'check')).toBe(true);
-    const turn = await decideAt(worker, messages, controller, config, 203);
+  // Preflop: the Horse on the button completes; the big blind checks.
+  const preflop = await decideAt(worker, messages, controller, config, 201);
+  expect(controller.performAction(1, 'call')).toBe(true);
+  expect(controller.performAction(2, 'check')).toBe(true);
+  // Flop A-6-T: checked to the Horse, which checks back.
+  expect(controller.performAction(2, 'check')).toBe(true);
+  const flop = await decideAt(worker, messages, controller, config, 202);
+  expect(controller.performAction(1, 'check')).toBe(true);
+  // Turn 8: checked to the Horse again.
+  expect(controller.performAction(2, 'check')).toBe(true);
+  const turn = await decideAt(worker, messages, controller, config, 203);
 
-    expect(journal.map((j) => j.request.requestId)).toEqual([201, 202, 203]);
-    const [preflopRecord, flopRecord, turnRecord] = journal;
+  expect(journal.map((j) => j.request.requestId)).toEqual([201, 202, 203]);
+  const [preflopRecord, flopRecord, turnRecord] = journal;
 
-    // The turn record carries the set pound, under this table and hand.
-    expect((turnRecord.payload.snapshot as FastHorseDecisionRequest).fence).toBe(
-      turn.request.fence
-    );
-    expect(turn.request.fence.startsWith(`${TABLE}:${HAND}:1:`)).toBe(true);
-    expect(turn.request.gameState.stage).toBe('turn');
-    const receipts = receiptsOf(turnRecord)!;
-    expect(receipts, JSON.stringify(turn.decision)).toBeDefined();
-    const pound = receipts.find((r) => r.receipt === 'omaha_turn_set_pound')!;
-    expect(pound, JSON.stringify(receipts)).toBeDefined();
-    expect(pound.before).toBeNull();
-    expect(pound.after.action).toBe('bet');
-    // The reference node produced the pound's bet, and the receipts end at the decision the worker answered.
-    const reference = turn.decision.policyGraph!.transitions.find((t) => t.node === 'reference')!;
-    expect(reference.after).toEqual(pound.after);
-    expect(receipts.at(-1)!.after).toEqual({
-      action: turn.decision.action,
-      amount: turn.decision.amount ?? null,
+  // The turn record carries the set pound, under this table and hand.
+  expect((turnRecord.payload.snapshot as FastHorseDecisionRequest).fence).toBe(turn.request.fence);
+  expect(turn.request.fence.startsWith(`${TABLE}:${HAND}:1:`)).toBe(true);
+  expect(turn.request.gameState.stage).toBe('turn');
+  const receipts = receiptsOf(turnRecord)!;
+  expect(receipts, JSON.stringify(turn.decision)).toBeDefined();
+  const pound = receipts.find((r) => r.receipt === 'omaha_turn_set_pound')!;
+  expect(pound, JSON.stringify(receipts)).toBeDefined();
+  expect(pound.before).toBeNull();
+  expect(pound.after.action).toBe('bet');
+  // The reference node produced the pound's bet, and the receipts end at the decision the worker answered.
+  const reference = turn.decision.policyGraph!.transitions.find((t) => t.node === 'reference')!;
+  expect(reference.after).toEqual(pound.after);
+  expect(receipts.at(-1)!.after).toEqual({
+    action: turn.decision.action,
+    amount: turn.decision.amount ?? null,
+  });
+  expect(turnRecord.payload.decision).toEqual(turn.decision);
+  // The journaled bytes carry them (the writer serializes the payload with horseJournalJson).
+  expect(
+    (JSON.parse(horseJournalJson(turnRecord.payload)) as { ruleReceipts: unknown }).ruleReceipts
+  ).toEqual(receipts);
+
+  // Preflop no receipted rule acts: the record has no such key, in memory or in bytes.
+  expect(preflop.request.gameState.stage).toBe('preflop');
+  expect(Object.keys(preflopRecord.payload)).not.toContain('ruleReceipts');
+  expect(horseJournalJson(preflopRecord.payload)).not.toContain('ruleReceipts');
+  // The flop's own record holds only what changed the flop decision, never the turn's pound.
+  expect(flop.request.gameState.stage).toBe('flop');
+  expect((receiptsOf(flopRecord) ?? []).map((r) => r.receipt)).not.toContain(
+    'omaha_turn_set_pound'
+  );
+  for (const r of receiptsOf(flopRecord) ?? [])
+    expect(r.after).toEqual({
+      action: flop.decision.action,
+      amount: flop.decision.amount ?? null,
     });
-    expect(turnRecord.payload.decision).toEqual(turn.decision);
-    // The journaled bytes carry them (the writer serializes the payload with horseJournalJson).
-    expect(
-      (JSON.parse(horseJournalJson(turnRecord.payload)) as { ruleReceipts: unknown }).ruleReceipts
-    ).toEqual(receipts);
-
-    // Preflop no receipted rule acts: the record has no such key, in memory or in bytes.
-    expect(preflop.request.gameState.stage).toBe('preflop');
-    expect(Object.keys(preflopRecord.payload)).not.toContain('ruleReceipts');
-    expect(horseJournalJson(preflopRecord.payload)).not.toContain('ruleReceipts');
-    // The flop's own record holds only what changed the flop decision, never the turn's pound.
-    expect(flop.request.gameState.stage).toBe('flop');
-    expect((receiptsOf(flopRecord) ?? []).map((r) => r.receipt)).not.toContain(
-      'omaha_turn_set_pound'
-    );
-    for (const r of receiptsOf(flopRecord) ?? [])
-      expect(r.after).toEqual({
-        action: flop.decision.action,
-        amount: flop.decision.amount ?? null,
-      });
-  } finally {
-    restoreFastRandom(savedFastRandom);
-  }
 });
