@@ -1250,6 +1250,13 @@
       "prefixes": ["omaha_people_prior_"],
       "unlessOn": []
     },
+    "omahaRiverBettorRangeIsTextureMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_texture_classes_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",
