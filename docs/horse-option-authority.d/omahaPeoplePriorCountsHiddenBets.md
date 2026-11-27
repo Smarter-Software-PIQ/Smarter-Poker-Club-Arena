@@ -42,7 +42,10 @@ Grades: pending (see Known Limits). They must include the first-encounter / muck
 
 ## Replay
 
-- Replay: NOT RUN (grades pending at the time of the first push, 2026-11-27)
+- Replay: fixed 0; newlyWrong 0; changed 1; unchanged 868; unjudged 1; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm HB vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 2; unchanged 2695; unjudged 2; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm HB vs off; replayed 2697 of 2697
+
+The audited replay runs with no bettor record (verdict-only, memory off), so it tests only the split people cells. It changes 3 of 3,566 audited decisions, all folds that become calls, none judged. It neither supports nor refutes the option.
 
 ## Known Limits
 
