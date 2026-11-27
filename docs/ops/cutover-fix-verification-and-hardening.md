@@ -372,6 +372,16 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Lesson for Step 1:** a live replay of a workflow-run reader is run with the runner's tool versions, or its first run log is read before the fix is called proven.
 - **Live proof:** pending the readiness posts of the 19:00 CST cycle.
 
+### A One-Shot Sweep Never Opens A Window; The Reclaim Keeps An Unknown Serving Image (2026-11-27)
+
+- **Why the keeper broke.** `nextMergeWindow` rounded the clock up a minute before looking, so in a window's last minute it answered with the next window: `keep()` did "one sweep", wrote its verdict and left, and `pushAction` answered `sweep` (run 46056717952, 1:26:57 PM CST). A hand dispatch of the default `mode=sweep` inside a window did the same for every held pull request. The closing write used heads read 25 s earlier, so a head pushed in between and turned green by its own run was missed. One pass had no deadline: 427 status writes in the 4:10 PM window (215 at the open, 212 at the close, run 46074283399) against 500 content-creating requests an hour, each refused write retried for 19 s, and the close took 2 min 36 s of a 3-minute margin.
+- **Root-cause fix.** An open window is its own next window. Every mode goes through `keep()`; a run with no window near is one sweep that stops writing before the next window. The close is confirmed by a read taken at or after it. `publish()` has a deadline, a rate-limited write ends the pass without a retry, and every `gh` call has a timeout. A draft is never opened (58 of the 212 held), so a boundary is about 154 writes, not 212.
+- **What the review had wrong.** Unaffected pull requests were never rewritten; all 212 closing writes were real flips (189 migration, 23 release-control). Holding the 195 with no update in 7 days is deferred: `merge-window-watch.mjs` reads exactly those and must change with it.
+- **Why the reclaim broke.** With `/health` unreadable the serving sha was empty and the age rule removed the serving image, so the rehearsal rebuilt it. The qualification-image loop was a pipeline whose last command was the removal: under `set -Eeuo pipefail` a refusal of the last image ended the certification (reproduced in isolation).
+- **Root-cause fix.** Serving unknown removes no engine image by age and says so; `backup_disk_low` still refuses by name. The log names the image kept (`kept serving <sha12>`). A refused removal is logged and skipped.
+- **Hardening tests.** "a one-shot sweep never opens a window (2026-11-27)" in `tests/a-migration-merges-only-inside-its-install-window.law.test.ts` (11 cases); the unknown-serving and refused-removal cases of `tests/the-backup-host-reclaims-its-disk.law.test.ts` (the old "still reclaims when serving is unknown" pin is replaced in the same commit).
+- **Live proof.** Pending the first window held by this code and the first certify log reading `kept serving`.
+
 ### Decided Against Or Deferred (2026-11-27)
 
 - **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.
