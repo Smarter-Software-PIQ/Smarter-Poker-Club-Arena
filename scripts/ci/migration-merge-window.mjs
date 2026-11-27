@@ -187,7 +187,7 @@ function gh(args, input) {
 // files), and only a head it has not seen costs a file read. 369 open pull
 // requests made each minute of a window cost ten file-heavy pages.
 const filesByHead = new Map();
-const PR_FIELDS_SLIM = `number state headRefOid baseRefName body
+const PR_FIELDS_SLIM = `number state isDraft updatedAt headRefOid baseRefName body
   labels(first:30){nodes{name}}
   commits(last:1){nodes{commit{status{contexts{context state description}}}}}`;
 
@@ -201,7 +201,7 @@ const PR_QUERY = `query($owner:String!,$name:String!,$after:String,$number:Int!,
   }
 }
 fragment pr on PullRequest{
-  number state headRefOid baseRefName body
+  number state isDraft updatedAt headRefOid baseRefName body
   labels(first:30){nodes{name}}
   files(first:100){totalCount nodes{path changeType}}
   commits(last:1){nodes{commit{status{contexts{context state description}}}}}
@@ -271,59 +271,127 @@ function currentStatus(pr) {
   return contexts.find((c) => c.context === MERGE_WINDOW_CONTEXT) ?? null;
 }
 
-/** Sweeps every open pull request (or one); writes a status only where it changed. Returns the verdicts. */
-export function sweep({ repo, number = null, nowMs = Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
-  const results = [];
+/**
+ * THE WINDOW OPENS ON TIME (2026-11-27, release custody). At 04:15 Chicago on
+ * 2026-11-27 the keeper (run 45978922451, dispatched 04:04 by OpenClaw) was
+ * alive and swept on the minute, yet #12191 read failure until 04:18:15. Three
+ * causes, each fixed at its line:
+ *   1. The pass wrote each changed status in turn, about 0.86 s per write,
+ *      oldest pull request first: 217 flipped, 04:15:12 to 04:18:18, so the
+ *      newest (the ones being merged) waited three minutes. GitHub allows
+ *      about 80 status writes a minute, so writing faster is not the answer;
+ *      ORDER is. publish() writes ready pull requests first (not a draft),
+ *      most recently updated first.
+ *   2. A pass computed every verdict with the clock it started on, so a pass
+ *      that crossed a boundary wrote the old answer: the push keeper's cold
+ *      read started 04:11:40 and wrote "failure (unchanged)" for #12191 at
+ *      04:15:14. Each verdict is now taken at the moment of its own write.
+ *   3. The read (about 10 s for 360 pull requests) sat between the boundary
+ *      and the first write. The keeper now reads PREFETCH_LEAD_MS before each
+ *      minute and writes on the minute itself.
+ * The workflow runs one keeper at a time (one concurrency group, never
+ * cancelled), so a push or a hand dispatch no longer cancels the keeper or
+ * doubles the writes into the rate limit.
+ */
+export const PREFETCH_LEAD_MS = 25_000;
+
+/** Write order: ready before draft, then most recently updated, then newest number. */
+export function publishOrder(prs) {
+  const ts = (p) => Date.parse(p.updatedAt ?? '') || 0;
+  return [...prs].sort((a, b) => Number(Boolean(a.isDraft)) - Number(Boolean(b.isDraft)) || ts(b) - ts(a) || b.number - a.number);
+}
+
+/** Reads every open pull request (or one) and its migration text: everything a verdict needs except the clock. */
+export function prepare({ repo, number = null }) {
   const slim = number === null && sweepState.fullPassDone;
+  const prepared = [];
   for (const pr of readPullRequests(repo, number, slim)) {
-    let verdict;
+    let files = null;
+    let error = null;
     try {
-      const files = allFiles(repo, pr).map((f) =>
+      files = allFiles(repo, pr).map((f) =>
         MIGRATION_PATH.test(f.path) && f.changeType !== 'DELETED'
           ? { ...f, sql: headText(repo, pr.headRefOid, f.path) }
           : f
       );
+    } catch (e) {
+      error = e;
+    }
+    prepared.push({ pr, files, error });
+  }
+  if (number === null) sweepState.fullPassDone = true;
+  return prepared;
+}
+
+/** Writes each prepared pull request's status where it changed, in publishOrder, each verdict at its own write time. */
+export function publish(prepared, { repo, now = () => Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
+  const results = [];
+  const byNumber = new Map(prepared.map((p) => [p.pr.number, p]));
+  for (const pr of publishOrder(prepared.map((p) => p.pr))) {
+    const { files, error } = byNumber.get(pr.number);
+    let verdict;
+    try {
+      if (error) throw error;
       verdict = mergeWindowVerdict({
-        nowMs,
+        nowMs: now(),
         cadence,
         baseRef: pr.baseRefName,
         files,
         labels: pr.labels.nodes.map((l) => l.name),
         body: pr.body,
       });
-    } catch (error) {
-      verdict = { state: 'failure', description: `Merge window could not be computed: ${String(error?.message ?? error).slice(0, 90)}` };
+    } catch (e) {
+      verdict = { state: 'failure', description: `Merge window could not be computed: ${String(e?.message ?? e).slice(0, 90)}` };
     }
-    const now = currentStatus(pr);
-    const changed = !now || now.state.toLowerCase() !== verdict.state || now.description !== verdict.description;
+    const current = currentStatus(pr);
+    const changed = !current || current.state.toLowerCase() !== verdict.state || current.description !== verdict.description;
     if (changed) {
       const args = ['api', '-X', 'POST', `repos/${repo}/statuses/${pr.headRefOid}`, '-f', `state=${verdict.state}`, '-f', `context=${MERGE_WINDOW_CONTEXT}`, '-f', `description=${verdict.description}`];
       if (targetUrl) args.push('-f', `target_url=${targetUrl}`);
       gh(args);
+      // A later pass of this keeper before its next read must not rewrite it.
+      const contexts = pr.commits?.nodes?.[0]?.commit?.status?.contexts;
+      if (Array.isArray(contexts)) {
+        const kept = contexts.filter((c) => c.context !== MERGE_WINDOW_CONTEXT);
+        kept.push({ context: MERGE_WINDOW_CONTEXT, state: verdict.state.toUpperCase(), description: verdict.description });
+        pr.commits.nodes[0].commit.status.contexts = kept;
+      }
     }
     log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
     results.push({ number: pr.number, ...verdict, changed });
   }
-  if (number === null) sweepState.fullPassDone = true;
   return results;
 }
 
-/** Keeper: sweeps every minute while a window is open or opens within the horizon, then a closing sweep. */
-export async function keep({ repo, number = null, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+/** Sweeps every open pull request (or one) once: read, then write where changed. Returns the verdicts. */
+export function sweep({ repo, number = null, now = () => Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
+  return publish(prepare({ repo, number }), { repo, now, cadence, targetUrl, log });
+}
+
+/**
+ * Keeper: while a window is open or opens within the horizon, reads
+ * PREFETCH_LEAD_MS before every minute and writes on the minute, then a
+ * closing pass. The first pass writes as soon as it has read.
+ */
+export async function keep({ repo, number = null, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, read = prepare, write = publish }) {
   const started = now();
   const next = nextMergeWindow(started, cadence);
   if (next === null || next - started > KEEPER_HORIZON_MINUTES * MINUTE) {
     log(`No merge window opens within ${KEEPER_HORIZON_MINUTES} minutes; one sweep.`);
-    return sweep({ repo, number, nowMs: started, cadence, targetUrl, log });
+    return write(read({ repo, number }), { repo, now, cadence, targetUrl, log });
   }
   const closes = mergeWindowCloses(Math.max(next, started), cadence);
   log(`Merge window ${chicagoTime(next)} to ${chicagoTime(closes)}; keeping it.`);
+  let tick = null; // the minute this pass writes on; null for the first pass
   for (;;) {
+    const prepared = read({ repo, number });
+    while (tick !== null && now() < tick) await sleep(tick - now());
     const t = now();
-    sweep({ repo, number, nowMs: t, cadence, targetUrl, log });
+    write(prepared, { repo, now, cadence, targetUrl, log });
     if (t >= closes || t - started > KEEPER_MAX_MINUTES * MINUTE) break;
-    const wait = Math.min(MINUTE - (t % MINUTE) + 2_000, Math.max(closes - t, 1_000));
-    await sleep(wait);
+    tick = Math.floor(now() / MINUTE) * MINUTE + MINUTE;
+    const lead = tick - PREFETCH_LEAD_MS - now();
+    if (lead > 0) await sleep(lead);
   }
   log('Window closed; closing sweep done.');
   return true;

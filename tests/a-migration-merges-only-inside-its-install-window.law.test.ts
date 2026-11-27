@@ -15,6 +15,9 @@
  *     written outage override. Everything else in it is success.
  *  2. A held dispatch re-reads each file from the default branch after its
  *     wait and sends nothing for a file that left it.
+ *  3. (2026-11-27) The window opens ON TIME: a keeper reads before each minute
+ *     and writes on it, ready and recently updated pull requests first, each
+ *     verdict at its own write time, and only one keeper runs at a time.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -39,7 +42,11 @@ import {
   nextMergeWindow,
   ordinaryMigrations,
   outageOverride,
+  PREFETCH_LEAD_MS,
+  publish,
+  publishOrder,
   pushAction,
+  keep,
 } from '../scripts/ci/migration-merge-window.mjs';
 import { releaseFreezeAdmission } from '../scripts/ci/release-freeze-admission.mjs';
 import {
@@ -148,7 +155,7 @@ describe('a migration merges only inside its install window', () => {
   it('no window depends on the schedule: a held run closes its own window, for one pull request or all', async () => {
     const src = read('scripts/ci/migration-merge-window.mjs');
     expect(src).toContain('export async function keep({ repo, number = null,');
-    expect(src).toContain('sweep({ repo, number, nowMs: t, cadence, targetUrl, log });');
+    expect(src).toContain('write(prepared, { repo, now, cadence, targetUrl, log });');
     expect(src).toMatch(
       /if \(t >= closes \|\| t - started > KEEPER_MAX_MINUTES \* MINUTE\) break;/
     );
@@ -471,6 +478,120 @@ describe('a window pass reads each head once (2026-11-26)', () => {
     // A head it has not seen still costs a file read: a cache hit is keyed by the head commit.
     expect(src).toMatch(
       /const known = filesByHead\.get\(pr\.headRefOid\);\s+if \(known\) return known;/
+    );
+  });
+});
+
+describe('the window opens on time (2026-11-27)', () => {
+  // 04:15 Chicago on 2026-11-27 = 10:15Z. The keeper (run 45978922451) swept on
+  // the minute but wrote 217 statuses one by one, oldest first, and #12191
+  // turned green at 04:18:15; the push keeper wrote "failure" for it at
+  // 04:15:14 from a verdict taken at 04:11:40.
+  const OPEN = at('2026-11-27T10:15:00Z');
+  const CLOSE = at('2026-11-27T10:27:00Z');
+  const pr = (
+    number: number,
+    updatedAt: string,
+    isDraft = false,
+    state = 'FAILURE',
+    description = 'x'
+  ) => ({
+    number,
+    isDraft,
+    updatedAt,
+    headRefOid: `${number}`.padStart(12, '0') + 'a'.repeat(28),
+    baseRefName: 'main',
+    body: '',
+    labels: { nodes: [] },
+    commits: {
+      nodes: [
+        {
+          commit: { status: { contexts: [{ context: MERGE_WINDOW_CONTEXT, state, description }] } },
+        },
+      ],
+    },
+  });
+
+  it('writes ready, recently updated pull requests first: #12191 before the 2023 backlog', () => {
+    const backlog = Array.from({ length: 216 }, (_, i) => pr(2303 + i, '2026-09-01T00:00:00Z'));
+    const order = publishOrder([
+      ...backlog,
+      pr(12191, '2026-11-27T09:50:00Z'),
+      pr(12201, '2026-11-27T09:40:00Z', true),
+    ]).map((p) => p.number);
+    expect(order[0]).toBe(12191);
+    expect(order[order.length - 1]).toBe(12201); // a draft cannot merge: last
+  });
+
+  it('takes each verdict at its own write time, so a pass crossing the boundary never writes the old answer', () => {
+    const box = mkdtempSync(join(tmpdir(), 'merge-window-publish-'));
+    const calls = join(box, 'calls');
+    writeFileSync(join(box, 'gh'), `#!/usr/bin/env bash\necho "$*" >> '${calls}'\n`);
+    chmodSync(join(box, 'gh'), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${box}:${oldPath}`;
+    try {
+      // Each verdict reads the clock once: the first at 04:14:59, the second at 04:15:00.
+      const clock = [OPEN - 1_000, OPEN];
+      const now = () => clock.shift() ?? OPEN;
+      const files = [mig(ORDINARY)];
+      const out = publish(
+        [
+          { pr: pr(12191, '2026-11-27T09:50:00Z'), files, error: null },
+          { pr: pr(2303, '2026-09-01T00:00:00Z'), files, error: null },
+        ],
+        { repo: 'o/r', now, cadence: C, log: () => {} }
+      );
+      expect(out.map((r) => [r.number, r.state])).toEqual([
+        [12191, 'failure'],
+        [2303, 'success'],
+      ]);
+      const posted = readFileSync(calls, 'utf8').trim().split('\n');
+      expect(posted[0]).toContain('statuses/');
+      expect(posted[1]).toContain('state=success');
+    } finally {
+      process.env.PATH = oldPath;
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  it('reads before the minute and writes ON it, for every minute from opening to close', async () => {
+    let clock = at('2026-11-27T10:04:01Z'); // the OpenClaw dispatch
+    const reads: number[] = [];
+    const writes: number[] = [];
+    await keep({
+      repo: 'o/r',
+      cadence: C,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+      log: () => {},
+      read: () => {
+        reads.push(clock);
+        clock += 10_000; // a slim read of 360 pull requests
+        return [];
+      },
+      write: () => {
+        writes.push(clock);
+        return [];
+      },
+    });
+    expect(writes).toContain(OPEN); // the opening write lands at 04:15:00 exactly
+    expect(writes).toContain(CLOSE); // and the closing one at 04:27:00
+    expect(writes[writes.length - 1]).toBe(CLOSE);
+    for (const w of writes.slice(1)) expect(w % 60_000).toBe(0);
+    const openRead = reads[writes.indexOf(OPEN)];
+    expect(OPEN - openRead).toBe(PREFETCH_LEAD_MS);
+  });
+
+  it('runs one keeper at a time: push, schedule and dispatch share a group that is never cancelled', () => {
+    const wf = parse(read('.github/workflows/migration-merge-window.yml')) as Record<string, any>;
+    expect(wf.concurrency.group).toBe(
+      "migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || 'keeper' }}"
+    );
+    expect(wf.concurrency['cancel-in-progress']).toBe(
+      "${{ github.event_name == 'pull_request_target' }}"
     );
   });
 });
