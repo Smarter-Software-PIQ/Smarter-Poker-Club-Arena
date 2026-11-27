@@ -57,6 +57,11 @@ import type { TournamentLifecycleToken } from './TournamentLifecycleEpoch.js';
 import type { AbandonedRetirement } from '../services/TournamentRetirementCustody.js';
 import { requestSatelliteSettlementReceipt } from './satelliteSettlementRpc.js';
 import { compareBreakSourceRoster, type BreakSourceRegistration } from './breakSourceRoster.js';
+import {
+  boardWithHeldChairs,
+  chairHeldByEarlierUnlandedMember,
+  chairsHeldByUnlandedBreakMembers,
+} from './breakChairReservations.js';
 import type { VerifiedSatelliteSettlementReceipt } from './satelliteSettlementReceipt.js';
 import {
   moveTournamentPlayerAtomically,
@@ -864,6 +869,8 @@ export class TournamentManager extends TournamentManagerEliminations {
   private rememberTournamentBreak(state: TournamentTableBreakState): void {
     if (state.state !== 'park_requested') this.breakPreparationRefusals.delete(state.break_id);
     if (state.state === 'acknowledged') {
+      for (const [requestId, breakId] of this.unsentBreakAttemptIds)
+        if (breakId === state.break_id) this.unsentBreakAttemptIds.delete(requestId);
       this.durableTournamentBreaks.delete(state.break_id);
       this.breakDispatchRefusals.delete(state.break_id);
       this.breakRetirementRefusals.delete(state.break_id);
@@ -1131,8 +1138,14 @@ export class TournamentManager extends TournamentManagerEliminations {
           destinationSeatNumber: member.destination_seat_number,
           sourceMode: 'live_source',
         };
+        // Never sent from here: the first refusal is final for this id.
+        const neverSent = this.unsentBreakAttemptIds.delete(input.requestId);
         try {
-          const receipt = await this.requestTournamentSeatMoveAtBoundary(input, boundary, true);
+          const receipt = await this.requestTournamentSeatMoveAtBoundary(
+            input,
+            boundary,
+            !neverSent
+          );
           if (
             receipt.sourceSeatId !== member.source_seat_id ||
             receipt.sourceSeatNumber !== member.source_seat_number
@@ -1369,7 +1382,8 @@ export class TournamentManager extends TournamentManagerEliminations {
         request_id:
           this.rejectedTournamentBreakBegins
             .get(state.break_id)
-            ?.find((member) => member.user_id === row.user_id)?.request_id ?? randomUUID(),
+            ?.find((member) => member.user_id === row.user_id)?.request_id ??
+          this.mintUnsentBreakAttemptId(state.break_id),
         destination_table_id: move.toTableId,
         destination_seat_number: move.toSeat,
       };
@@ -1383,6 +1397,23 @@ export class TournamentManager extends TournamentManagerEliminations {
       return refuse('source_engine_replaced');
     if (receiptOwned) this.mixedRecovery!.assertCurrent();
     return this.beginTournamentBreak(state.break_id, state.source_table_id, members);
+  }
+
+  /**
+   * ATTEMPT IDS THIS MANAGER MINTED AND HAS NOT YET SENT TO THE MOVE DOOR
+   * (2026-11-27). A break member's attempt is dispatched as an outcome that may
+   * already be unknown, because another process or an earlier pass may have
+   * sent it; that makes moveTournamentPlayerAtomically send a refused request a
+   * second time and read its receipt. An id minted here and never sent cannot
+   * have an earlier outcome, so its first refusal is the door's verdict and is
+   * sent once (aMoveVerdictIsSentOnce). Every other id keeps the replay.
+   */
+  private readonly unsentBreakAttemptIds = new Map<string, string>();
+
+  private mintUnsentBreakAttemptId(breakId: string): string {
+    const requestId = randomUUID();
+    this.unsentBreakAttemptIds.set(requestId, breakId);
+    return requestId;
   }
 
   private readonly pendingTournamentBreakAmendments = new Map<
@@ -1407,7 +1438,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         userId,
         expectedRequestId: member.active_request_id,
         amendmentId: randomUUID(),
-        newRequestId: randomUUID(),
+        newRequestId: this.mintUnsentBreakAttemptId(state.break_id),
         destinationTableId,
         destinationSeatNumber,
         reason: 'original destination unavailable',
@@ -2443,10 +2474,18 @@ export class TournamentManager extends TournamentManagerEliminations {
       const destination = destinations.find(
         (table) => table.tableId === member.destination_table_id
       );
+      // A chair an earlier unlanded member of this same break already holds
+      // is taken too: the door seats only one of them (breakChairReservations).
       const occupied =
         destination?.players.some((player) => player.seat === member.destination_seat_number) ||
         (member.destination_seat_number !== null &&
-          destination?.reservedSeats?.includes(member.destination_seat_number));
+          destination?.reservedSeats?.includes(member.destination_seat_number)) ||
+        chairHeldByEarlierUnlandedMember(
+          current.members,
+          member.user_id,
+          member.destination_table_id,
+          member.destination_seat_number
+        );
       if (
         destination &&
         !occupied &&
@@ -2456,6 +2495,9 @@ export class TournamentManager extends TournamentManagerEliminations {
         continue;
       // The existing balancer chooses legal available space; SQL revalidates it
       // atomically when fencing the predecessor and installing the new UUID.
+      // The board shows seated players and roster chairs only, so the chairs
+      // this break's other unlanded members hold are added before choosing:
+      // without them every member replaced in one pass got the same chair.
       const replacement = this.tableBalancer.breakTable(
         {
           tableId: state.source_table_id,
@@ -2463,7 +2505,10 @@ export class TournamentManager extends TournamentManagerEliminations {
           playerCount: 1,
           players: [{ userId: member.user_id, seat: member.source_seat_number, stack: 1 }],
         },
-        destinations
+        boardWithHeldChairs(
+          destinations,
+          chairsHeldByUnlandedBreakMembers(current.members, member.user_id)
+        )
       )[0];
       if (!replacement) {
         this.noteBreakDispatchRefusal(
@@ -3323,6 +3368,11 @@ export class TournamentManager extends TournamentManagerEliminations {
    * never releases a live scheduler promise while work remains.
    */
   private static readonly LIVE_BOARD_PREFETCH_MAX_AGE_MS = 2_000;
+  /** Board reads that choose a chair the move door must accept now. */
+  private static readonly DOOR_READ_LABELS: ReadonlySet<string> = new Set([
+    'moveChairAtTheDoor',
+    'breakReplacement',
+  ]);
 
   private consumeLiveBoardPrefetch(tableIds: string[]): {
     tables: Array<{ id: string; max_players: number | null }>;
@@ -3393,7 +3443,12 @@ export class TournamentManager extends TournamentManagerEliminations {
     // selectInChunks read with a 100-table chunk ceiling (<= 900 seat rows,
     // staying strictly below PostgREST's 1,000-row db-max-rows cap).
     const BALANCER_SEAT_CHUNK = Math.min(IN_LIST_CHUNK, 100);
-    const prefetched = this.consumeLiveBoardPrefetch(tableIds);
+    // A door read (the chair a move asks for now, or a break member's
+    // replacement) must see the seats as they are, never the board captured
+    // before this pass's own moves landed, so it does not take the prefetch.
+    const prefetched = TournamentManager.DOOR_READ_LABELS.has(label)
+      ? null
+      : this.consumeLiveBoardPrefetch(tableIds);
     const [tableRead, seatRead, rosterRead] = await Promise.all([
       prefetched
         ? Promise.resolve({ complete: true as const, rows: prefetched.tables })
@@ -5486,8 +5541,8 @@ export class TournamentManager extends TournamentManagerEliminations {
    *
    * Keeps the planned chair when it is still free; otherwise picks a free
    * chair by the same blind-position rule the planner uses. Returns null only
-   * when the read shows the destination full, and the caller waits for the
-   * next balance pass. A read that fails keeps the planned chair: the
+   * when the read shows the destination full or held by a pending break
+   * (2026-11-27), and the caller waits for the next balance pass. A read that fails keeps the planned chair: the
    * database door stays the authority and refuses a taken chair cleanly.
    */
   private async chairFreeAtTheDoor(move: MoveInstruction): Promise<number | null> {
@@ -5497,8 +5552,14 @@ export class TournamentManager extends TournamentManagerEliminations {
     } catch {
       tables = null;
     }
-    const table = tables?.find((t) => t.tableId === move.toTableId);
-    if (!table) return move.toSeat;
+    // A failed read keeps the planned chair; the door decides.
+    if (!tables) return move.toSeat;
+    // A complete read without the destination means a pending break holds it
+    // (loadBalancerTables leaves out every table a break is moving players
+    // to). Its chairs are promised to that break's members, so this move
+    // waits for the next pass instead of taking one of them.
+    const table = tables.find((t) => t.tableId === move.toTableId);
+    if (!table) return null;
     const taken = new Set<number>([
       ...table.players.map((p) => p.seat),
       ...(table.reservedSeats ?? []),

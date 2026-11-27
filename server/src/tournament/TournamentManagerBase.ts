@@ -5827,6 +5827,10 @@ export abstract class TournamentManagerBase {
    */
   protected async countLiveTablesWithPlayers(): Promise<number | null> {
     const ids = await this.liveTournamentTableIdsWithPlayers();
+    // A count plans nothing, so it leaves no board behind: the prefetch it
+    // captured would otherwise be taken, up to 2 s later, by whichever board
+    // read came next, after seats had moved (2026-11-27).
+    this.lastLiveBoardPrefetch = null;
     return ids === null ? null : ids.length;
   }
 
