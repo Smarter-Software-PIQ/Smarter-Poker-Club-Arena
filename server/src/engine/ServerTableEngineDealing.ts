@@ -248,7 +248,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           timestamp: Date.now(),
         });
       }
-      void this.broadcastCurrentState();
+      this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
       console.log(
         `[CashHourlyCap] Closed ${this.tableId} after its hand; ${departed.length} occupancy receipts`
       );
@@ -563,13 +563,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // more may greet the arrival, human or horse alike. The module
             // decides who and whether (gate, cadence, claim); the loop never
             // waits for it. handCount is the last hand this table dealt.
-            void greetArrival(
-              buildArrivalInput(
-                p,
-                this.seatedPlayers,
-                this.tableInfo,
-                this.handCount,
-                this.isTournamentTable()
+            this.detachTableWork(
+              'greetArrival',
+              greetArrival(
+                buildArrivalInput(
+                  p,
+                  this.seatedPlayers,
+                  this.tableInfo,
+                  this.handCount,
+                  this.isTournamentTable()
+                )
               )
             );
           }
@@ -1563,7 +1566,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
-          void this.broadcastCurrentState(); // Sends clean state (no hand in progress)
+          this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState()); // Sends clean state (no hand in progress)
           // Phase 3: THE REST (Dan 2026-09-07: "THE NEXT HAND 2 SECONDS AFTER
           // THE HAND IS COMPLETED"). One number, HAND_COMPLETION.NEXT_HAND_REST_MS,
           // between completion and the next deal. The board clear
@@ -2257,11 +2260,15 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       if (wokeByBoundary || !(ms > 0)) return Promise.resolve();
       return new Promise<void>((resolve) => {
         resolveCurrentSleep = resolve;
-        timer = setTimeout(() => {
-          timer = null;
-          resolveCurrentSleep = null;
-          resolve();
-        }, ms);
+        timer = this.tableTimeout(
+          'interruptible_sleep',
+          () => {
+            timer = null;
+            resolveCurrentSleep = null;
+            resolve();
+          },
+          ms
+        );
       });
     };
     try {
@@ -3975,8 +3982,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
          collected on the next pass of `evictExpiredSitOuts({ countOrbit:
          false })` at the top of the loop, which runs between hands and takes
          the seat lock. Said out loud because a bare discarded `string[]` of
-         evictable players reads like a dropped result. */
-        void this.disconnectEngine.tickSitOutsAndCollectEvictions(
+         evictable players reads like a dropped result (it is synchronous, so it
+         is a plain statement: no promise is dropped here). */
+        this.disconnectEngine.tickSitOutsAndCollectEvictions(
           this.tableId,
           this.seatedPlayers.map((p) => p.user_id),
           { countOrbit: true }
@@ -5445,7 +5453,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // loop waits only on cooperative owners, the write serializes on
             // presenceSave, and readiness reads its own completion
             // (parkedBankSaveComplete / presenceSavePending).
-            if (this.maintenancePaused) void this.persistPresenceForRestart('parked');
+            if (this.maintenancePaused)
+              this.detachTableWork(
+                'persistPresenceForRestart',
+                this.persistPresenceForRestart('parked')
+              );
             await this.awaitPauseGate();
             if (!this.running || !this.isCurrentEngine() || !this.lifecycleCanMutate()) return;
             continue;
@@ -5739,7 +5751,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                   await this.awaitNextHandRest();
                   this.handPreparedUnderTheRest = false;
                   this.snapshotDirty = true;
-                  void this.flushSnapshot();
+                  this.detachTableWork('flushSnapshot', this.flushSnapshot());
                 }
               : undefined
           );
@@ -5776,24 +5788,27 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               // Replay the one retained pending event batch through the original
               // consumers. It contains no invented action or replacement deal.
               const lane = this.handContinuation!;
-              void this.runOwnedReadContinuation(async () => {
-                try {
-                  await lane.join();
-                  if (
-                    this.handController === controllerForHand &&
-                    this.running &&
-                    this.isCurrentEngine() &&
-                    this.lifecycleCanMutate()
-                  )
-                    await this.broadcastCurrentState();
-                } catch (error) {
-                  if (this.running && this.isCurrentEngine())
-                    reportError(
-                      error,
-                      `ServerTableEngine.${this.tableId}.original_ready_publication_failed`
-                    );
-                }
-              });
+              this.detachTableWork(
+                'runOwnedReadContinuation',
+                this.runOwnedReadContinuation(async () => {
+                  try {
+                    await lane.join();
+                    if (
+                      this.handController === controllerForHand &&
+                      this.running &&
+                      this.isCurrentEngine() &&
+                      this.lifecycleCanMutate()
+                    )
+                      await this.broadcastCurrentState();
+                  } catch (error) {
+                    if (this.running && this.isCurrentEngine())
+                      reportError(
+                        error,
+                        `ServerTableEngine.${this.tableId}.original_ready_publication_failed`
+                      );
+                  }
+                })
+              );
             };
             if (publicationStart) publicationStart.start(resumeExactOriginal);
             else resumeExactOriginal();
@@ -5805,7 +5820,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // every later delta is read against, so it is worth one guaranteed write.
           if (!finishRestBeforeFirstDispatch) {
             this.snapshotDirty = true;
-            void this.flushSnapshot();
+            this.detachTableWork('flushSnapshot', this.flushSnapshot());
           }
         } catch (err) {
           if (persistenceGeneration !== undefined) {
@@ -6211,7 +6226,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private armBustRebuyExpiry(occupancyId: string, delayMs: number): void {
     const timers = (this.bustExpiryTimerMap ??= new Map());
     if (timers.has(occupancyId)) return;
-    const timer = setTimeout(
+    const timer = this.tableTimeout(
+      'bust_rebuy_expiry',
       () => {
         timers.delete(occupancyId);
         void this.releaseExpiredBustWindows().catch((err) =>

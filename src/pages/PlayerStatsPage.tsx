@@ -815,14 +815,26 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     ]
   );
   const openLeakFinder = useCallback(() => {
-    const formatQuery =
-      gameMode === 'cash' || gameMode === 'tournament' ? `&format=${gameMode}` : '';
-    const path = `/hub/personal-assistant/leaks?source=club-arena-stats${formatQuery}`;
-    if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
-      masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
-      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
-    } else {
-      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
+    try {
+      const formatQuery =
+        gameMode === 'cash' || gameMode === 'tournament' ? `&format=${gameMode}` : '';
+      const path = `/hub/personal-assistant/leaks?source=club-arena-stats${formatQuery}`;
+      if (Number(document.body?.dataset.caLiveTables ?? '0') > 0) {
+        masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: user?.id ?? targetUserId });
+        toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
+      } else {
+        const url = `${WEB_ORIGIN}${path}`;
+        const opened = openInBrowser(url, 'noopener,noreferrer') as unknown;
+        if (opened === null) {
+          window.location.assign(url);
+          toast.info('Opening Personal Assistant Leak Finder (Opened In Current Tab)');
+        } else {
+          toast.info('Opening Personal Assistant Leak Finder');
+        }
+      }
+    } catch (error) {
+      reportError(error, 'PlayerStatsPage.open_leak_finder_failed');
+      toast.error('Could Not Open Personal Assistant Leak Finder');
     }
   }, [user?.id, targetUserId, gameMode, toast]);
   // The index refresh is a WRITE. Un-throttled it fired on every bus refresh and

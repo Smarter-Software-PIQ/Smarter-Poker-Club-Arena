@@ -146,6 +146,8 @@ export interface HandDetailModalProps {
   onReplay?: (hand: HandRecord) => void;
   /** Open the share modal for THE HAND PASSED IN. */
   onShare?: (hand: HandRecord) => void;
+  /** Open Personal Assistant Leak Finder analysis for THE HAND PASSED IN. */
+  onAnalyze?: (hand: HandRecord) => void;
   /** Fetch the next canonical page when the reader reaches the oldest loaded hand. */
   onLoadOlder?: () => Promise<string | null>;
   hasOlderHands?: boolean;
@@ -545,6 +547,7 @@ export function HandDetailModal({
   viewerSeated = true,
   onReplay,
   onShare,
+  onAnalyze,
   onRabbitHunt,
   onRabbitHuntReceipt,
   rabbitUserId,
@@ -1254,6 +1257,17 @@ export function HandDetailModal({
             >
               Replay
             </button>
+            {onAnalyze && (
+              <button
+                type="button"
+                className="hdm-actions__analyze"
+                aria-label="Analyze Hand In Personal Assistant Leak Finder"
+                title="Analyze In Personal Assistant Leak Finder"
+                onClick={() => onAnalyze(hand)}
+              >
+                Analyze
+              </button>
+            )}
           </div>
           {/* The sender's own view of a hand they sent: how many people opened
               it, and the way to take it back. A stopped link opens nothing;

@@ -1,0 +1,3 @@
+# tests/the-backup-host-reclaims-its-disk.law.test.ts
+
+Before every certification `standby-engine.sh` (`reclaim_backup_disk`) removes the engine images it built more than 24 hours ago (never the candidate, never forced, so an image a container uses stays), every qualification image, dangling images and build cache older than 24 hours, and qualification folders, witness folders and build contexts it left behind; it then refuses by name (`backup_disk_low:<n>GiB`, or `backup_disk_unreadable`) when the smallest free space of Docker's data root and the state folder is under 12 GiB, so a full disk is a fast, named refusal instead of an unexplained failure 40 minutes in (2026-11-26, runs 45921051609, 45923483257, 45930467830).

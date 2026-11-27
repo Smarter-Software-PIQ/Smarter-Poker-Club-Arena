@@ -16,7 +16,11 @@ name: Migration merge window
 # GitHub's schedule, which drops most ticks here. A pull request event holds
 # its own pull request; every push to main holds all when a window is near
 # (merges land many times an hour, so this is the reliable opener); mode=keep
-# by hand holds all. The :10 keeper and :40 sweep are best-effort backstops.
+# by hand holds all. THE CLOCK (2026-11-26): an OpenClaw cron on the Mac Studio
+# dispatches mode=keep at :04 of every cycle hour (ops/openclaw/
+# ca-migration-merge-window-open.json; a replay of every merge since 11-20 showed
+# pushes alone miss 9 of 56 windows). The :10 keeper and :40 sweep are
+# best-effort backstops.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
@@ -80,3 +84,51 @@ jobs:
             workflow_dispatch) node scripts/ci/migration-merge-window.mjs "${MODE:-sweep}" ;;
             *) echo "unexpected event $EVENT"; exit 1 ;;
           esac
+
+  # A MISSED WINDOW IS PAGED (2026-11-26): after each window, read whether any
+  # database-change pull request turned green inside it; a window nobody held
+  # fires MigrationMergeWindowNotOpened to the fleet, the next held one resolves
+  # it (scripts/ci/merge-window-watch.mjs). Rides pushes and the backstop
+  # schedule, never the OpenClaw host it watches.
+  watch:
+    name: A missed merge window is paged
+    if: github.event_name != 'pull_request_target' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    steps:
+      - name: Check out the default branch only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            server/src/maintenance/maintenanceSchedulePolicy.json
+            package-lock.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read the last window
+        id: verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/merge-window-watch.mjs verdict
+      - name: Install the pinned database client
+        if: steps.verdict.outputs.needs_db == 'true'
+        run: |
+          set -euo pipefail
+          PG=$(node -p "require('./package-lock.json').packages['node_modules/pg'].version")
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/pgc" "pg@$PG"
+      - name: Record or resolve the missed-window alert
+        if: steps.verdict.outputs.needs_db == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_PATH: ${{ runner.temp }}/pgc/node_modules
+        run: node scripts/ci/merge-window-watch.mjs record

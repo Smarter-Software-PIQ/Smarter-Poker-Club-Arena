@@ -68,7 +68,7 @@ describe('process shutdown has one ownership certificate', () => {
     const shutdown = windowBetween('async function performShutdown()', 'const shutdown =');
     const fatal = INDEX.slice(
       INDEX.indexOf('const fatal ='),
-      INDEX.indexOf("process.on('uncaughtException'")
+      INDEX.indexOf('installProcessFaultHandlers(process, fatal);')
     );
 
     expect(shutdown).toContain("beginShutdownStep('HTTP server', closeHttpServer)");

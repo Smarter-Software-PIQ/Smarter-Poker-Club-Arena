@@ -33,6 +33,7 @@
 
 import { reportError } from '../services/errorReporter.js';
 import { bindToProcessRoot } from '../services/supabase/dataActorContext.js';
+import { containTableFault, detachTableWork, tableFaultSinkFor } from './TableFaultBoundary.js';
 
 /*
  * THE CLOCK BELONGS TO NO TOURNAMENT (2026-09-11). This scheduler is one
@@ -550,8 +551,9 @@ export class DeadlineScheduler {
       // single slow callback can never starve the queue completely.
       if (fired > 0 && this.now() >= budgetEndsAt) break;
       this.heap.pop();
+      let result: unknown;
       try {
-        top.callback();
+        result = (top.callback as () => unknown)();
       } catch (err) {
         // Scheduler stays up even on throwing callbacks. Route through
         // reportError so error reporting captures it alongside the console log.
@@ -560,10 +562,40 @@ export class DeadlineScheduler {
           eventId: top.eventId,
           deadlineMs: top.deadlineMs,
         });
+        this.containToTable(top, err);
+      }
+      // A callback that returns a promise (the type says it should not, and
+      // no-misused-promises refuses an async one, but nothing else does) is
+      // observed: its rejection belongs to its table, not to the process.
+      if (result instanceof Promise) {
+        const sink = tableFaultSinkFor(top.tableId);
+        if (sink) detachTableWork(sink, 'deadline:' + top.eventId, result);
       }
       fired++;
     }
     return fired;
+  }
+
+  /**
+   * ONE TABLE'S DEADLINE IS THAT TABLE'S (2026-11-27). A callback that threw
+   * was left half done: a turn clock that never acted, a heartbeat that never
+   * re-armed. The scheduler stays up for every other table, and the table
+   * whose callback threw is handed to its engine's fault sink, which restarts
+   * that one generation (TableFaultBoundary). A tableId with no engine sink
+   * (an isolated test scheduler, or no live engine) keeps the report above.
+   */
+  private containToTable(deadline: Deadline, error: unknown): void {
+    const sink = tableFaultSinkFor(deadline.tableId);
+    if (!sink) return;
+    try {
+      containTableFault(sink, 'deadline:' + deadline.eventId, error);
+    } catch (containError) {
+      // Containment that fails is not containment: let it reach the process
+      // handlers unattributed (fatal), after the scheduler finishes this tick.
+      queueMicrotask(() => {
+        throw containError;
+      });
+    }
   }
 }
 

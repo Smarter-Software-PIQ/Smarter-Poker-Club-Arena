@@ -62,7 +62,10 @@ describe('LAW: the next hand deals two seconds after completion (Dan 2026-09-07)
 
   it('the engine ARMS the rest at the hand-free broadcast and AWAITS it right before dealHand', () => {
     const hold = DEALING.indexOf("this.setLoopPhase('post_hand_hold')");
-    const broadcast = DEALING.indexOf('this.broadcastCurrentState();', hold);
+    const broadcast = DEALING.indexOf(
+      "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());",
+      hold
+    );
     const arm = DEALING.indexOf('this.armNextHandRest(', broadcast);
     expect(hold).toBeGreaterThan(-1);
     expect(broadcast).toBeGreaterThan(-1);

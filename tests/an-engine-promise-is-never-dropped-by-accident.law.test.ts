@@ -57,11 +57,18 @@ describe('an engine promise is never dropped by accident', () => {
     expect(Number(heap![1])).toBeGreaterThanOrEqual(4096);
   });
 
-  it('the process still treats an unhandled rejection as fatal', () => {
+  it('the process still treats an unattributed unhandled rejection as fatal', () => {
+    // Since 2026-11-27 both process handlers go through routeProcessFault
+    // (engine/TableFaultBoundary.ts): a rejection that one table's wrapper
+    // already attributed stays with that table, and every other rejection
+    // still calls fatal(). The behaviour itself is proven by
+    // server/src/engine/oneTablesErrorStaysOnItsTable.test.ts.
     const index = read('server/src/index.ts');
-    expect(index).toContain(
-      "process.on('unhandledRejection', (err) => fatal(err, 'GameServer.Unhandled_rejection'));"
-    );
+    expect(index).toContain('installProcessFaultHandlers(process, fatal);');
+    expect(index).not.toMatch(/process\.on\('unhandledRejection'/);
+    const boundary = read('server/src/engine/TableFaultBoundary.ts');
+    expect(boundary).toContain("target.on('unhandledRejection'");
+    expect(boundary).toContain("'GameServer.Unhandled_rejection'");
   });
 
   it('the request listener still catches its own errors', () => {

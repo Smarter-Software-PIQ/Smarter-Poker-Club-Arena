@@ -45,7 +45,7 @@ import { horseDailyRollupContract } from '../HorseDailyRollupContract.js';
 import { horseHoleCardsBasisContract } from '../HorseStatsBasisContract.js';
 import { readScopeOf } from '../../engine/HorseMind.js';
 import { getLiveHorseDecisionWorker } from '../../engine/horseDecision/index.js';
-import { wakeHandProjection } from './handProjection.js';
+import { claimLocalPostCommitEnvelope, wakeHandProjection } from './handProjection.js';
 import { countLoggedHandMemoryDomain } from './handMemoryDomainSignal.js';
 import { countHandedOffHandMemoryDomain } from './handMemoryDomainReadback.js';
 import { bindHorseObservationIdentity } from '../../engine/HorseObservationIdentity.js';
@@ -1558,6 +1558,10 @@ async function insertHandHistoryRow(
         // The authoritative transaction is already committed. Projection
         // is work-triggered and deliberately outside the dealing barrier;
         // its outbox row remains the crash/lost-notification authority.
+        // This engine applies the hand's envelope next: the drain yields the
+        // row to it instead of racing it for the table mutex (claim before
+        // the wake; processHandPostCommitObligations releases it).
+        if (hasPostCommitObligations) claimLocalPostCommitEnvelope(historyId);
         void wakeHandProjection().catch((err) =>
           reportError(err, 'HandProjection.commit_wake_failed', {
             handId: historyId,

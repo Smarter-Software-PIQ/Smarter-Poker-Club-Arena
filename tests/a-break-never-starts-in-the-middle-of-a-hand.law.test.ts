@@ -35,7 +35,10 @@ describe('LAW: a break never starts in the middle of a hand (Dan 2026-11-06)', (
   const deal = DEALING.indexOf('await this.dealHand(activePlayers);');
   const hold = DEALING.indexOf("this.setLoopPhase('post_hand_hold');", deal);
   const display = DEALING.indexOf('await this.awaitHandCompletionDisplay(', hold);
-  const broadcast = DEALING.indexOf('this.broadcastCurrentState();', display);
+  const broadcast = DEALING.indexOf(
+    "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());",
+    display
+  );
   const arm = DEALING.indexOf('this.armNextHandRest(', broadcast);
 
   it('the dealing loop deals, holds for the completion display, clears the felt and arms the rest in that order', () => {
