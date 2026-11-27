@@ -4502,6 +4502,15 @@ export interface HorseDecideOpts {
   /** PLO lead-6 2026-11-24 (default OFF, read `=== true`): the same spot; a standing re-raise (a 4-bet or more)
    * stands only when priced above the call and the fold, else it becomes the priced call or the fold. */
   omahaReraisedPotReraiseIsPriced?: boolean;
+  /** Lead-8 lane preflop 2026-11-27 (default OFF, read `=== true`; HorseOmahaReraisedPotPricedRule
+   * .reraisedPotFoldReraise): the same spot facing exactly a 3-bet, heads-up against the re-raiser: a standing FOLD is
+   * priced against the
+   * pot-size re-raise (every earlier rule priced a fold against the call only, so a Horse that opened and met a
+   * 3-bet out of position folded without asking what the 4-bet was worth) and becomes it when EV(re-raise) >
+   * max(EV(call), 0) + deadband + the sampling error of the price, the re-raiser's width and his fold to the
+   * re-raise read from his own public record, then the people-only person-level prior. It never makes a call and changes no call or
+   * re-raise. */
+  omahaReraisedPotFoldReraiseIsPriced?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -11533,7 +11542,11 @@ function omahaReraisedPotRulesThenCallVsRaise(
   // omahaReraisedPotCallIsPriced / omahaReraisedPotReraiseIsPriced (default OFF): the call, fold or re-raise left
   // standing facing a 3-bet or more, priced against the whole field (HorseOmahaReraisedPotPricedRule). Both off:
   // `priced` itself.
-  if (opts.omahaReraisedPotCallIsPriced !== true && opts.omahaReraisedPotReraiseIsPriced !== true)
+  if (
+    opts.omahaReraisedPotCallIsPriced !== true &&
+    opts.omahaReraisedPotReraiseIsPriced !== true &&
+    opts.omahaReraisedPotFoldReraiseIsPriced !== true
+  )
     return priced;
   return omahaReraisedPotPricedRule(
     priced,
@@ -11542,6 +11555,7 @@ function omahaReraisedPotRulesThenCallVsRaise(
     {
       call: opts.omahaReraisedPotCallIsPriced === true,
       reraise: opts.omahaReraisedPotReraiseIsPriced === true,
+      ...(opts.omahaReraisedPotFoldReraiseIsPriced === true ? { foldReraise: true } : {}),
     },
     {
       mind: opts.mind !== false,

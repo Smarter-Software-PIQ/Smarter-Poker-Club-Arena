@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaReraisedPotFoldReraiseIsPriced.law.test.ts
+
+With omahaReraisedPotFoldReraiseIsPriced on (default OFF), a PLO4/PLO5 cash fold left standing facing a 3-bet or more, heads-up against the re-raiser, becomes the largest legal re-raise only where EV(re-raise) is above max(EV(call), 0) by more than the deadband, the re-raiser read from his own record, then the people-only prior, then the indifference anchor; it is never a call, a standing call or re-raise is never touched, multiway and tournaments are outside it, off is byte-identical, and the applicable decisions cost a bounded multiple of the sibling re-raised-pot price on the same spots.

@@ -1392,6 +1392,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraisedPotFoldReraiseIsPriced',
+    'Lead-8 lane preflop 2026-11-27 (public actions of PLO4/PLO5 cash hands with a person, 2026-11-19 to 11-27: a Horse that opened and met a 3-bet out of position folded 72% of the time in PLO5 (495 decisions against people) while those people re-raised 43% of opens and folded 0 of 265 4-bets; every re-raised-pot rule priced a standing fold against the call only, never against the re-raise). PLO4/PLO5 cash, preflop facing exactly a 3-bet, heads-up against the re-raiser; default off (read === true). A standing fold becomes the pot-size re-raise (the all-in when that is the whole stack) when EV(re-raise) is above max(EV(call), 0) by more than the deadband plus the sampling error of the price on the verdict of HorseOmahaReraisedPotPriced, the re-raiser width and his fold to the re-raise read from his own public record, then the people-only person-level prior (RERAISED_POT_PEOPLE_PRIOR: people folded 1 of 277 4-bets). It never makes a call (a call of a 3-bet or 4-bet out of position stays priced out) and changes no standing call or re-raise.',
+    'V94'
+  ),
+  flag(
     'omahaStabDefenceIsPriced',
     "EMERG lane STAB-DEFENCE 2026-11-20. PLO4/PLO5 cash (table and Lightning), turn and river; default off (read === true). Where the facing-bet verdict prices the FIRST wager of the street (never a raise), the bettor's non-value share is priced from his own lifetime PUBLIC frequency of first wagers on unopened action of that street (per game, street, heads-up / multiway) against the population's, shrunk n / (n + k) with the measured k of the cell (turn heads-up 43, river heads-up 33, turn multiway 62, river multiway 45): a player who bets more often than the population's value density allows is priced with the extra bets as non-value. One provider and one formula for every opponent (HorseMind.setOmahaLifetimeStreetRecordProvider; OPPONENT-HUD's lifetime counts through HorseOmahaLifetimeHudAdapter); no record = the population prior exactly, so without lifetime counts the option changes nothing. No identity, no hand class, no size band as the decision. HorseOmahaStabDefence.ts",
     'V94'
@@ -6405,6 +6410,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_pot_priced_call_reraised',
     'HorseLogic re-raised-pot rules (HorseOmahaReraisedPotPricedRule, omahaReraisedPotCallIsPriced, omahaReraisedPotReraiseIsPriced)',
     'the same spot in which the standing call became the pot-size re-raise (EV(re-raise) above max(EV(call), 0) by more than the deadband; omahaReraisedPotReraiseIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_priced_fold_reraised',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedPotPricedRule, omahaReraisedPotFoldReraiseIsPriced)',
+    'facing exactly a 3-bet heads-up against the re-raiser, the standing fold became the pot-size re-raise (EV(re-raise) above max(EV(call), 0) by more than the deadband and the sampling error of the price; his width and his fold to the re-raise from his own record against the people prior)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_priced_fold_reraise_kept',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedPotPricedRule, omahaReraisedPotFoldReraiseIsPriced)',
+    'the same spot in which the pot-size re-raise was priced and the fold stood',
     'V94'
   ),
   receipt(
