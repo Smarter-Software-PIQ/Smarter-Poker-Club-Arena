@@ -15216,7 +15216,7 @@ function omahaFacingBetEvCount(
     }
     // omahaRiverBettorRangeIsTextureMeasured (default off): heads-up river, a bet of 0.4 pot or more or a raise:
     // the bettor is people's measured weights on the board's five absolute hand classes (by texture, size bucket
-    // and bet-or-raise), the balanced share weighting thin cells, his own shown bets moving the weakest class
+    // and bet-or-raise), the balanced share weighting thin cells, his own shown bets moving the classes under the key category
     // (HorseOmahaRiverTextureClasses); the verdict counts each class on the holdings the Horse's cards leave.
     if (riverTexture && spot.street === 'river' && spot.callers + spot.allIns + spot.behind === 0) {
       try {

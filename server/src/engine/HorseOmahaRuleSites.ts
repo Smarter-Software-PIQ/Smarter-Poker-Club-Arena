@@ -535,7 +535,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
   ),
   omahaRiverBettorRangeIsTextureMeasured: priced(
-    "a heads-up river bettor (a bet of 0.4 pot or more, or a raise) is priced on PEOPLE's measured weights on the board's five absolute hand classes by texture, size and bet-or-raise, the balanced share weighting thin cells, his own shown bets moving the weakest class, each class counted on the holdings the Horse's own cards leave in it; Horse play never enters (default OFF; PLO-OWNER lead-8 2026-11-27)"
+    "a heads-up river bettor (a bet of 0.4 pot or more, or a raise) is priced on PEOPLE's measured weights on the board's five absolute hand classes by texture, size and bet-or-raise, the balanced share weighting thin cells, his own shown bets moving the classes under the key category, each class counted on the holdings the Horse's own cards leave in it; Horse play never enters (default OFF; PLO-OWNER lead-8 2026-11-27)"
   ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'

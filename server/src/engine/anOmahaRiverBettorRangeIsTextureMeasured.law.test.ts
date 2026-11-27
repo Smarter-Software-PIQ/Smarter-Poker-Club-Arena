@@ -11,7 +11,7 @@
  *  4. Every answer is a price: the same hand against the same bettor is a call at a small price and a fold at a
  *     large one; no hand class is folded or called whatever the price.
  *  5. The weights are a distribution; an unmeasured cell is people pooled over textures behind the balanced share;
- *     his own record moves only the weakest class.
+ *     his own record moves the classes under the key category.
  *  6. A bet under 0.4 pot, a six-card hand and a board that is not a river are never priced by it.
  */
 import { readFileSync } from 'node:fs';
@@ -180,7 +180,9 @@ describe('LAW: the river bettor by board texture is people-measured and counts b
     expect(Math.abs(raise.weights[0] - pooled.w[0])).toBeLessThan(
       Math.abs(cell.w[0] - pooled.w[0]) + 0.1
     );
-    // his record: a bettor shown weak more often than people gets a larger weakest class, the rest keep their split
+    // his record: a bettor shown weak more often than people gets more weight under the key category, a bettor
+    // shown value gets less; the classes keep their split on each side
+    const under = (x: { weights: number[] }): number => x.weights[2] + x.weights[3] + x.weights[4];
     const loose = omahaRiverTextureClasses({
       board: b,
       holeCount: 5,
@@ -189,8 +191,22 @@ describe('LAW: the river bettor by board texture is people-measured and counts b
       balanced: 0.32,
       recordRatio: 1.5,
     })!;
-    expect(loose.weights[4]).toBeCloseTo(Math.min(0.65, base.weights[4] * 1.5), 10);
-    expect(loose.weights[0] / loose.weights[1]).toBeCloseTo(base.weights[0] / base.weights[1], 10);
+    const tight = omahaRiverTextureClasses({
+      board: b,
+      holeCount: 5,
+      potFrac: 0.9,
+      isRaise: false,
+      balanced: 0.32,
+      recordRatio: 0.25,
+    })!;
+    expect(under(loose)).toBeGreaterThan(under(base));
+    expect(under(loose)).toBeLessThanOrEqual(0.65 + 1e-9);
+    expect(under(tight)).toBeCloseTo(under(base) * 0.25, 10);
+    for (const x of [loose, tight]) {
+      expect(x.weights.reduce((p, q) => p + q, 0)).toBeCloseTo(1, 10);
+      expect(x.weights[0] / x.weights[1]).toBeCloseTo(base.weights[0] / base.weights[1], 10);
+      expect(x.weights[2] / x.weights[4]).toBeCloseTo(base.weights[2] / base.weights[4], 10);
+    }
   });
 
   it('6. a small bet, a six-card hand and a board that is not a river are not priced', () => {
