@@ -9,6 +9,7 @@ import {
   HUD_CATCHUP_PAGE_ROWS,
   HUD_CATCHUP_PAUSE_MS,
   HUD_NLH_RIVER_CONSUMERS,
+  HUD_NLH_TURN_CONSUMERS,
   HUD_READY_DEADLINE_MS,
   HUD_RECONCILE_PAGE_ROWS,
   HUD_RING_MS,
@@ -888,6 +889,62 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       // disarmed, the consumer attaches nothing
       store.setArmed(false);
       expect(river(two)).toEqual({});
+    } finally {
+      setOpponentHudStoreForTest(null);
+    }
+  });
+
+  it('an NLH turn consumer opts in the heads-up NLH cash turn decision only, and only while it is switched', () => {
+    const store = new OpponentHudStore(fakeDeps(new Map()));
+    store.setArmed(true);
+    setOpponentHudStoreForTest(store);
+    try {
+      const two = [{ user_id: U(1) }, { user_id: U(2) }];
+      const three = [...two, { user_id: U(3) }];
+      const at = (stage: string, players: typeof three, extra: Record<string, unknown> = {}) =>
+        opponentHudSnapshotField(
+          { gameVariant: 'nlh', gameMode: 'cash', stage, players, bigBlind: 2, ...extra },
+          U(1),
+          T0
+        );
+      // no consumer switched: nothing, as before
+      expect(at('turn', two)).toEqual({});
+      // the river consumer alone never attaches the turn, and the turn consumer alone never attaches the river
+      store.setNlhRiverConsumer(true);
+      expect(at('turn', two)).toEqual({});
+      expect(at('river', two).opponentHud?.family).toBe('nlh');
+      store.setNlhRiverConsumer(false);
+      for (const [state, attached] of [
+        ['on', true],
+        ['shadow', true],
+        ['on_shadow', true],
+        ['off', false],
+      ] as const) {
+        store.setNlhTurnConsumer(false);
+        armOpponentHudFromSwitch({
+          status: 'ok',
+          config: {
+            version: 2,
+            style: { version: 1, options: {} },
+            options: { omahaOpponentLifetimeHud: 'on', [HUD_NLH_TURN_CONSUMERS[0]]: state },
+          },
+        });
+        expect(store.nlhTurnConsumer(), state).toBe(attached);
+        expect(store.nlhRiverConsumer(), state).toBe(false);
+      }
+      store.setNlhTurnConsumer(true);
+      expect(at('turn', two).opponentHud?.family).toBe('nlh');
+      expect(at('turn', [...two, { user_id: U(3), is_folded: true }]).opponentHud?.family).toBe(
+        'nlh'
+      );
+      // not multiway, not another street, not a tournament
+      expect(at('turn', three)).toEqual({});
+      for (const stage of ['preflop', 'flop', 'river']) expect(at(stage, two)).toEqual({});
+      expect(at('turn', two, { gameMode: 'tournament' })).toEqual({});
+      expect(at('turn', two, { tournament: { id: 't1' } })).toEqual({});
+      // disarmed, the consumer attaches nothing
+      store.setArmed(false);
+      expect(at('turn', two)).toEqual({});
     } finally {
       setOpponentHudStoreForTest(null);
     }

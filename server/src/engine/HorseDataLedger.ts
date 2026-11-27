@@ -2952,6 +2952,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemTurnBluffIsPricedOnPeople',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits, NLH cash against people: missed turn bluffs are a top Hold'em chip leak; measured on people's answers: a heads-up turn barrel is not a profitable pure bluff, people fold 34% where break-even is 36%, while a small bet after a checked flop is, 39% where break-even is 22%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn, not facing a wager: the brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the bluff prices above the check by more than the error of his fold, and the Horse's cards block his calling part or its line range outscores his. His fold is read size by size: his own lifetime turn record of that size, shrunk to people's measured turn fold for the Horse's line and that size (answers by people only), shrunk to equilibrium (HorseHoldemPeopleTurnFold). Off never runs it.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -10552,6 +10557,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_bluff_below_check',
     'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
     "no river bluff size cleared the check by more than the error of his fold on his own record and people's measured river fold: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_bet',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "not facing a wager heads-up (NLH cash), turn, a check became a bluff: priced on his own turn record by size and people's measured turn fold for the Horse's line and the bet's size it clears the check by more than the error of his fold, and the Horse's cards block his calling part or its range outscores his",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_no_edge',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "a turn bluff priced above the check on people's fold but neither blockers nor the range advantage were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_below_check',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "no turn bluff size cleared the check by more than the error of his fold on his own record and people's measured turn fold: the check stands",
     "Hold'em Strategy"
   ),
   receipt(
