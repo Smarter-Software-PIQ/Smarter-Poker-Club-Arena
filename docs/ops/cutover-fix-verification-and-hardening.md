@@ -358,6 +358,19 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **What stops it returning:** O37 workflow execution tests in `tests/a-held-migration-does-not-block-the-commit-below-it.law.test.ts` (direct prequal-failed step-down, 2026-11-27 held-migration + failed-prequal chain replay, O10 already-certified hand-back on fallback, no-shippable-below deferral, `unknown`/`pending`/`absent`/`passed` fail-safes, and exemptions) and `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts` (`late_retarget` refusal on prequal-failed head, mid-soak `YIELDED_OBSOLETE: prequalification_failed` even with zero waiting push runs, `o1_copy_state` passing `--control ${mainSha}` rather than old `CONTROL_SHA`, and Shard-2 scheduling); plus `tests/unit/retainedOwnerQualificationScheduling.test.ts`, `tests/a-sparse-checkout-holds-what-its-scripts-load.law.test.ts`, `tests/the-pull-request-builds-what-ships.law.test.ts`, and `tests/unit/deployAndPublishAreHonest.test.ts`.
 - **Live proof:** pending merge in the `16:10–16:27 CST` release-control merge window and first live prequal-failed Backup run + Shard-2 prequalification run.
 
+### 2026-11-27: 13:00 Kept Serving, 16:00 Sealed
+
+- **13:00 CST kept serving `3aa21caa9f7d`:** `f81b848fe8cc` was still in its Backup certification at the 12:30 cutoff and 9 newer commits had none. Post-cutover audit OVERALL PASS. Cause: one serial Backup host against a steady stream of merges. Answered by another lane the same afternoon (`#12238` faster certification, O37 `#12246`).
+- **16:00 CST SEALED** `a044fa5660441e56fa6ca9b058109991aa1f4cee`: Receiver `46070790157` success; `#11599` comment `22:02:05Z`; included `#12172`, `#12208`-`#12211`, `#12213`-`#12215`, `#12218`, `#12219`, `#12222`. Post-cutover audit OVERALL PASS at 16:18 CST, `switch_records` PASS (the horse switch-record drift flagged at 10:00 and 13:00 was repaired by `#12232`).
+- **Both readiness posts of the 16:00 cycle said UNKNOWN.** Record below.
+
+### Readiness Reads A Job Log On Every gh (2026-11-27)
+
+- **Why it broke:** O36 reads the applier's job logs with `gh api`. The hosted runner's gh (2.97 or newer) refuses to print a non-JSON body holding terminal colour codes without `--allow-escape-sequences`; the Mac's gh 2.86, where O36 was replayed, prints them. So at T-90m and T-45m of the 16:00 cycle readiness said UNKNOWN for `a044fa566044`, which was fresh and sealed.
+- **Root-cause fix:** `gh_api_get_text` always passes the flag (the log is data, never shown on a terminal) and falls back only on gh's own `unknown flag` answer; `committed_files_in_log` strips colour codes. Any other failure stays UNKNOWN.
+- **Hardening:** `JobLogReaderTests` (4 cases; 33 in total, pinned by `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`). Changelog `docs/changelog/2026-11-27-readiness-reads-a-job-log-on-every-gh.md`.
+- **Lesson for Step 1:** a live replay of a workflow-run reader is run with the runner's tool versions, or its first run log is read before the fix is called proven.
+- **Live proof:** pending the readiness posts of the 19:00 CST cycle.
 ### The Apply Run Reports Its Own Refusal (2026-11-27)
 
 - **Why it broke:** `Migration Apply Refusal Alert` listened for `workflow_run` of `Apply Merged Migration`. The merge dispatcher starts the applier with the Actions job token, and GitHub raises no `workflow_run` event for a run the job token started. Apply run `46054847104` refused `20261127172908` (statement timeout) at 13:13 CST and nothing was posted on #12217 or on #11599; the alert workflow's whole history was one manual dispatch (`45943016172`). Separately, the script read the job log with plain `gh api`, which the hosted runner's gh (2.97 and later) refuses for a body holding terminal escape sequences, and it swallowed that into an empty log.

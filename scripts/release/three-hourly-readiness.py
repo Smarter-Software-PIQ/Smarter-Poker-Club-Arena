@@ -717,15 +717,33 @@ def gh_api_get(path, timeout=30):
         raise ReadError(f"gh api GET {path} returned invalid JSON: {exc}") from exc
 
 
-def gh_api_get_text(path, timeout=60):
-    """Read-only GitHub REST GET returning raw text (job logs)."""
+GH_ALLOW_ESCAPES_FLAG = "--allow-escape-sequences"
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*\x07?|[@-Z^_])")
+
+
+def _gh_refused_the_flag(proc):
+    """True when this gh is too old to know GH_ALLOW_ESCAPES_FLAG. cobra refuses an
+    unknown flag before any request is made, so asking again without it repeats nothing."""
+    err = proc.stderr or ""
+    return proc.returncode != 0 and "unknown flag" in err and GH_ALLOW_ESCAPES_FLAG in err
+
+
+def gh_api_get_text(path, timeout=60, run=subprocess.run):
+    """Read-only GitHub REST GET returning raw text (job logs).
+
+    A job log carries terminal colour codes. gh from 2.97 refuses to print a
+    non-JSON body that holds them unless told the reader is not a terminal
+    (GH_ALLOW_ESCAPES_FLAG); older gh prints them and does not know the flag.
+    On 2026-11-27 the hosted runner's gh refused both readiness posts of the
+    16:00 cycle (T-90m, T-45m), which therefore said UNKNOWN for a044fa566044,
+    a candidate that was fresh and sealed. The log is parsed here as data and
+    never written to a terminal, so the flag is always asked for, and the one
+    answer "unknown flag" selects the old form."""
+    base = ["gh", "api", "--method", "GET", path]
     try:
-        proc = subprocess.run(
-            ["gh", "api", "--method", "GET", path],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        proc = run(base + [GH_ALLOW_ESCAPES_FLAG], capture_output=True, text=True, timeout=timeout)
+        if _gh_refused_the_flag(proc):
+            proc = run(base, capture_output=True, text=True, timeout=timeout)
     except (subprocess.SubprocessError, OSError) as exc:
         raise ReadError(f"gh api GET {path} failed: {exc}") from exc
     if proc.returncode != 0:
@@ -1235,7 +1253,7 @@ def committed_files_in_log(text):
     committed = []
     current = None
     for raw in (text or "").splitlines():
-        line = LOG_TIMESTAMP_RE.sub("", raw.strip())
+        line = LOG_TIMESTAMP_RE.sub("", ANSI_ESCAPE_RE.sub("", raw).strip()).strip()
         m = APPLY_FILE_LINE_RE.match(line)
         if m:
             current = m.group(1)
