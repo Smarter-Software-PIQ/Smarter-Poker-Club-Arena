@@ -167,9 +167,111 @@ export interface HandPostCommitOptions {
   shouldContinue?: () => boolean;
 }
 
+/**
+ * THE DRAIN YIELDS TO AN ENVELOPE THIS PROCESS IS ABOUT TO APPLY (2026-11-27).
+ *
+ * The settlement RPC commits the hand and its outbox row in one transaction,
+ * and the engine that committed it applies the hand's post-commit envelope
+ * itself straight after (ServerTableEngineSettlement, Lightning's backend).
+ * The drain runs almost continuously under load, so it read the new outbox
+ * row in that same instant and sent fn_project_hand_side_effects for the hand
+ * while the engine's own envelope call was still on the wire. Whichever took
+ * 'hand-post-commit:<table>' first decided the cost:
+ *
+ *   engine first      projection waits up to 250 ms, finds the envelope done,
+ *                     projects: 1 call (2 for a raked hand, by design).
+ *   projection first  projection applies the envelope inside its own call and
+ *                     answers predecessor_pending
+ *                     (post_commit_completed_in_this_transaction): a second
+ *                     full call is owed (a third for a raked hand), and the
+ *                     engine's call on the dealing path waits on the mutex.
+ *
+ * Measured on production 2026-11-27 02:46:44Z to 02:50:33Z (pg_stat_statements
+ * and pg_stat_user_tables deltas): 838 hands committed, 1,212
+ * fn_project_hand_side_effects calls (1.45 a hand), 148 hands with a stored
+ * rake/BBJ obligation (the designed second pass, 0.18 a hand), and 227 calls
+ * (0.27 a hand) left over, the projection-first race above.
+ *
+ * So the drain now skips, without a round trip, a row whose envelope this
+ * process has claimed: from the commit reply (handHistory.ts claims it before
+ * it wakes the drain) until processHandPostCommitObligations settles for that
+ * hand, bounded by LOCAL_ENVELOPE_CLAIM_TTL_MS. The skip is a deferral exactly
+ * like predecessor_pending: the outbox row is untouched, the table's later
+ * rows wait behind it, and the release wakes the drain. Nothing about who may
+ * apply an envelope changes: the claim is process-local scheduling, the
+ * database row lock and receipt stay the authority, and a claim that is never
+ * released (an engine that stopped before its envelope) expires so the drain
+ * remains the crash successor.
+ */
+export const LOCAL_ENVELOPE_CLAIM_TTL_MS = 3_000;
+const localEnvelopeClaims = new Map<string, { expiresAt: number; yielded: boolean }>();
+let localEnvelopeYields = 0;
+
+/** The engine that committed `handId` will apply its envelope itself now. */
+export function claimLocalPostCommitEnvelope(handId: string): void {
+  const now = Date.now();
+  if (localEnvelopeClaims.size >= 256) {
+    for (const [id, claim] of localEnvelopeClaims)
+      if (claim.expiresAt <= now) localEnvelopeClaims.delete(id);
+  }
+  const yielded = localEnvelopeClaims.get(handId)?.yielded ?? false;
+  localEnvelopeClaims.set(handId, { expiresAt: now + LOCAL_ENVELOPE_CLAIM_TTL_MS, yielded });
+}
+
+/**
+ * This process's attempt at `handId`'s envelope settled (applied, refused or
+ * failed). A drain that yielded to it is woken: the row is its again.
+ */
+export function releaseLocalPostCommitEnvelope(handId: string): void {
+  const claim = localEnvelopeClaims.get(handId);
+  if (!claim) return;
+  localEnvelopeClaims.delete(handId);
+  if (claim.yielded)
+    void wakeHandProjection('local_envelope').catch((err) =>
+      reportError(err, 'HandProjection.local_envelope_wake_failed')
+    );
+}
+
+/** The drain's check, at the moment it would send the hand's projection. */
+function yieldsToLocalEnvelope(handId: string): boolean {
+  const claim = localEnvelopeClaims.get(handId);
+  if (!claim) return false;
+  if (claim.expiresAt <= Date.now()) {
+    localEnvelopeClaims.delete(handId);
+    return false;
+  }
+  claim.yielded = true;
+  localEnvelopeYields++;
+  return true;
+}
+
+/** Read-only view for /metrics and specs. */
+export function handProjectionLocalEnvelopeYields(): number {
+  return localEnvelopeYields;
+}
+
+/** Claims held right now (specs). */
+export function localPostCommitEnvelopeClaims(): number {
+  return localEnvelopeClaims.size;
+}
+
 export async function processHandPostCommitObligations(
   handId: string,
   options: HandPostCommitOptions = {}
+): Promise<HandPostCommitResult> {
+  // Lightning's callers and every retry reach here without the commit-time
+  // claim; the call holds one for its own duration either way.
+  claimLocalPostCommitEnvelope(handId);
+  try {
+    return await applyHandPostCommitObligations(handId, options);
+  } finally {
+    releaseLocalPostCommitEnvelope(handId);
+  }
+}
+
+async function applyHandPostCommitObligations(
+  handId: string,
+  options: HandPostCommitOptions
 ): Promise<HandPostCommitResult> {
   const started = Date.now();
   const remainingMs = () =>
@@ -411,6 +513,7 @@ export type HandProjectionWakeSource =
   | 'listen' // NOTIFY hand_projection_outbox via handOutboxListener.ts
   | 'listen_resync' // one drain after every LISTEN (re)connect
   | 'poll' // the 5 s safety timer
+  | 'local_envelope' // this process settled an envelope the drain yielded to
   | 'startup'; // startHandProjectionWorker
 
 const wakeCounts: Record<HandProjectionWakeSource, number> = {
@@ -419,6 +522,7 @@ const wakeCounts: Record<HandProjectionWakeSource, number> = {
   listen: 0,
   listen_resync: 0,
   poll: 0,
+  local_envelope: 0,
   startup: 0,
 };
 
@@ -481,6 +585,9 @@ export function handProjectionWakesToPrometheus(): string[] {
     '# HELP poker_hand_projection_drain_deadline_cuts_total Drain passes cancelled at HAND_PROJECTION_DRAIN_DEADLINE_MS. A pass cut here settled and queued a continuation; a rising rate means the budget is too small for the arriving load.',
     '# TYPE poker_hand_projection_drain_deadline_cuts_total counter',
     `poker_hand_projection_drain_deadline_cuts_total ${drainDeadlineCuts}`,
+    '# HELP poker_hand_projection_local_envelope_yields_total Outbox rows the drain deferred without a call because this process was applying the hand envelope itself.',
+    '# TYPE poker_hand_projection_local_envelope_yields_total counter',
+    `poker_hand_projection_local_envelope_yields_total ${localEnvelopeYields}`,
     '# HELP poker_hand_projection_drain_concurrency Per-table chains the drain projects at once (HAND_PROJECTION_DRAIN_CONCURRENCY).',
     '# TYPE poker_hand_projection_drain_concurrency gauge',
     `poker_hand_projection_drain_concurrency ${handProjectionDrainConcurrency()}`,
@@ -560,6 +667,16 @@ async function projectChain(
        to test `stopping` and nothing else, so a chain that started before the
        deadline ran every one of its up-to-DRAIN_PAGE rows after it. */
     if (budget.aborted || Date.now() >= deadlineAt) return deferRest(i);
+    /* This process's engine is applying this hand's envelope right now
+       (claimLocalPostCommitEnvelope). Sending the projection would race it for
+       the table mutex and, winning, cost a second full call. Defer it like
+       predecessor_pending, without a round trip; the release wakes the drain. */
+    if (yieldsToLocalEnvelope(row.hand_id)) {
+      summary.deferred++;
+      drainResultCounts.deferred++;
+      blockedTables.add(key);
+      continue;
+    }
     let failureReceiptRecorded = false;
     try {
       // The projection function calls the envelope inside this request, so it
@@ -1135,6 +1252,7 @@ export async function stopHandProjectionWorker(): Promise<void> {
   resetSweep();
   wakeAfterDrain = false;
   cancelCausalRetry(true);
+  localEnvelopeClaims.clear();
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   const ch = channel;
