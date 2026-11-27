@@ -23,6 +23,9 @@ import {
 } from './HorseOmahaTurnLinePeoplePrior.test-support.js';
 
 const LIVE = { omahaFacingBetPriorIsPeopleMeasured: true };
+/** how many of the real states the off and the identity-flip checks decide (a sample of the fixture, not a source window) */
+const OFF_SAMPLE = 200;
+const FLIP_SAMPLE = 120;
 const kind = (d: { action?: string }) =>
   d.action === 'fold' ? 'fold' : d.action === 'call' || d.action === 'check' ? 'call' : 'raise';
 
@@ -82,7 +85,7 @@ describe('LAW: the turn bettor is priced on the people cell of his flop line', (
   });
 
   it('off, it never acts', () => {
-    for (const s of states.slice(0, 200)) {
+    for (const s of states.slice(0, OFF_SAMPLE)) {
       const fired = withDecisionFireScope(() =>
         decideTurnLine(s.player, s.gs, false, true, LIVE)
       ).fired;
@@ -115,7 +118,7 @@ describe('LAW: the turn bettor is priced on the people cell of his flop line', (
   }, 600_000);
 
   it('flipping every other seat between person and Horse changes nothing', () => {
-    for (const s of states.slice(0, 120)) {
+    for (const s of states.slice(0, FLIP_SAMPLE)) {
       const gs2 = structuredClone(s.gs);
       for (const p of gs2.players ?? [])
         if (p.seat !== s.player.seat)
