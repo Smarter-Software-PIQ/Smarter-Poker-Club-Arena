@@ -1,0 +1,384 @@
+/* THE BOTTOM OF PLAYER MANAGEMENT, IN #SMARTERDESIGN (Dan 2026-11-27).
+   The case, the section title, the readout tiles and the chrome-stat buttons
+   come from ArenaWorkspace.css, exactly as the Find A Player console and the
+   Cashier wear them. This sheet only lays them out and dresses the pieces the
+   workspace has no rule for (the disclosures, the history fields and the
+   audit records), using the workspace's own chrome art and inks. */
+
+.arena-workspace .roster-records {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+
+/* Everything inside the case paints above its chrome border-image. */
+.arena-workspace .roster-records > * {
+  position: relative;
+  z-index: 2;
+}
+
+.arena-workspace .roster-records > .arena-section-title {
+  margin: 0;
+}
+
+.arena-workspace .roster-records > .arena-section-title small {
+  color: #9fbacc;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  white-space: nowrap;
+}
+
+/* Read aloud, not shown: the tiles below already print these counts. */
+.arena-workspace .roster-records__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Readouts: three chrome tiles in a row ───────────────────────────── */
+.arena-workspace .roster-records__meters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+.arena-workspace .roster-records__meters dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.arena-workspace .roster-records__meters dd {
+  margin: 2px 0 0;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .roster-records__meters [data-tone='live'] dd {
+  color: #74dfff;
+}
+
+/* ── Actions: the workspace's chrome-stat switch; the primary is lit ──── */
+.arena-workspace .roster-records__actions {
+  margin: 0;
+}
+
+.arena-workspace .roster-records__actions > button {
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.arena-workspace .roster-records__actions > .roster-records__primary {
+  color: white;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+}
+
+.arena-workspace .roster-records__actions > .roster-records__primary::after {
+  border-image-source: var(--arena-active);
+}
+
+.arena-workspace .roster-records__actions > button:active {
+  filter: brightness(0.86);
+}
+
+.arena-workspace .roster-records__actions > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.arena-workspace .roster-records__actions > button:focus-visible,
+.arena-workspace .roster-records summary:focus-visible,
+.arena-workspace .roster-records--history button:focus-visible,
+.arena-workspace .roster-records--history :is(input, select):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+/* ── Copy ─────────────────────────────────────────────────────────────── */
+.arena-workspace .roster-records__note,
+.arena-workspace .roster-records > [aria-label='Export Operation'] {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace .roster-records__note strong {
+  color: #74dfff;
+}
+
+.arena-workspace .roster-records__note span {
+  color: #dce5ef;
+}
+
+.arena-workspace .roster-records > [aria-label='Export Operation'] {
+  padding: 6px 8px;
+  background: #040d17;
+  border-left: 2px solid #35d95a;
+  color: #c8ffd2;
+}
+
+.arena-workspace
+  .roster-records
+  > [aria-label='Export Operation'][data-operation-state='preparing'] {
+  border-left-color: #ffd700;
+  color: #ffe98a;
+}
+
+.arena-workspace .roster-records > [aria-label='Export Operation'][data-operation-state='error'] {
+  border-left-color: #f02849;
+  color: #ff5b6e;
+}
+
+/* ── A disclosure is a chrome ledger row with a chevron ───────────────── */
+.arena-workspace .roster-records__disclosure > summary,
+.arena-workspace .roster-records--history .player-history > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  color: #dce5ef;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  list-style: none;
+  cursor: pointer;
+}
+
+.arena-workspace .roster-records__disclosure > summary::-webkit-details-marker,
+.arena-workspace .roster-records--history .player-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The chevron: two strokes of the workspace's light blue, turned when open. */
+.arena-workspace .roster-records__disclosure > summary::after,
+.arena-workspace .roster-records--history .player-history > summary::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid #74dfff;
+  border-bottom: 2px solid #74dfff;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 120ms ease;
+}
+
+.arena-workspace .roster-records__disclosure[open] > summary::after,
+.arena-workspace .roster-records--history .player-history[open] > summary::after {
+  transform: rotate(225deg) translate(-2px, -1px);
+}
+
+.arena-workspace .roster-records__definitions {
+  display: grid;
+  gap: 6px;
+  padding: 8px 4px 2px;
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .roster-records__definitions p {
+  margin: 0;
+}
+
+/* ── The change history ──────────────────────────────────────────────── */
+.arena-workspace .roster-records--history .player-history {
+  color: #dce5ef;
+}
+
+.arena-workspace .roster-records--history .player-history__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .roster-records--history .player-history__body > p {
+  margin: 0;
+}
+
+.arena-workspace .roster-records--history .player-history__body > p[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace .roster-records--history .player-history__body > p[role='status'] {
+  color: #9fbacc;
+}
+
+.arena-workspace .roster-records--history .player-history__controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: end;
+}
+
+.arena-workspace .roster-records--history .player-history__controls label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+/* Fields wear the roster search well: dark glass, one steel hairline. */
+.arena-workspace .roster-records--history .player-history__controls :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 8px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+/* Apply Dates and Refresh History: the chrome-stat button, Refresh lit. */
+.arena-workspace .roster-records--history .player-history button {
+  position: relative;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#152639, #06111e 65%);
+  color: #dce5ef;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
+}
+
+.arena-workspace .roster-records--history .player-history__controls button:last-of-type,
+.arena-workspace .roster-records--history .player-history__body > button {
+  border-image-source: var(--arena-active);
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+  color: white;
+}
+
+.arena-workspace .roster-records--history .player-history button:active {
+  filter: brightness(0.86);
+}
+
+.arena-workspace .roster-records--history .player-history button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.arena-workspace .roster-records--history .player-history__controls button:first-of-type {
+  grid-column: 2;
+}
+
+/* One audit record per chrome ledger row. */
+.arena-workspace .roster-records--history .player-history__entries {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arena-workspace .roster-records--history .player-history__entries li {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace .roster-records--history .player-history__entries strong {
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .roster-records--history .player-history__entries time {
+  display: block;
+  color: #74dfff;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .roster-records--history .player-history__entries p {
+  margin: 0;
+  color: #dce5ef;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.arena-workspace .roster-records--history .player-history__entries small {
+  display: block;
+  color: #7f95a8;
+  font:
+    10px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace .roster-records--history .player-history__body > button {
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .arena-workspace .roster-records--history .player-history__controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .arena-workspace .roster-records--history .player-history__controls label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .arena-workspace .roster-records--history .player-history__controls button:first-of-type {
+    grid-column: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arena-workspace .roster-records__disclosure > summary::after,
+  .arena-workspace .roster-records--history .player-history > summary::after {
+    transition: none;
+  }
+}
