@@ -511,7 +511,11 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // ring reset / over-ran) and DisconnectEngine.onPlayerTurn could start
         // a spurious 30s countdown against the OLD player. Only the handler
         // whose seat is still on the clock may proceed.
-        if (this.handController?.getState().currentPlayerSeat !== event.seat) {
+        const currentSeat =
+          typeof this.handController?.getCurrentPlayerSeat === 'function'
+            ? this.handController.getCurrentPlayerSeat()
+            : this.handController?.getState().currentPlayerSeat;
+        if (currentSeat !== event.seat) {
           break;
         }
 

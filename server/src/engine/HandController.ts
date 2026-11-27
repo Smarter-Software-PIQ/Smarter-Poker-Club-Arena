@@ -4377,6 +4377,15 @@ export class HandController {
       });
   }
 
+  /** O(1) scalar accessors for hot-path fences that do not need a cloned GameState (1e532243). */
+  getCurrentPlayerSeat(): number {
+    return this.state.currentPlayerSeat;
+  }
+
+  getStage(): HandStage {
+    return this.state.stage;
+  }
+
   getState(options?: { includeActionOrigins?: boolean }): GameState {
     return {
       ...this.state,

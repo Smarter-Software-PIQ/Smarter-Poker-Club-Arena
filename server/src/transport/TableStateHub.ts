@@ -245,10 +245,78 @@ interface TableRoom {
   tableId: string;
   subscribers: Set<HubSubscriber>;
   lastSnapshot: GameStateSnapshot | null;
+  lastSnapshotJson: string | null;
   lastSeq: number;
   lastPublishedAt: number;
   /** State loss belongs to this room, even on a socket shared by several tables. */
   missingState: WeakSet<HubSubscriber>;
+}
+
+/**
+ * Normalize a value to the exact JSON wire shape that `JSON.parse(JSON.stringify(x))`
+ * produces, in a single pass without encoding/parsing a multi-KB JSON string on
+ * every publish (incident 1e532243).
+ */
+function cloneJsonWire(value: unknown): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (typeof value !== 'object') return undefined;
+  const withToJson = value as { toJSON?: unknown };
+  if (typeof withToJson.toJSON === 'function') {
+    return cloneJsonWire((withToJson.toJSON as () => unknown).call(value));
+  }
+  if (Array.isArray(value)) {
+    const out = new Array(value.length);
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      if (item === undefined || typeof item === 'function' || typeof item === 'symbol') {
+        out[i] = null;
+      } else {
+        const cloned = cloneJsonWire(item);
+        out[i] = cloned === undefined ? null : cloned;
+      }
+    }
+    return out;
+  }
+  const src = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(src);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const item = src[key];
+    if (item === undefined || typeof item === 'function' || typeof item === 'symbol') continue;
+    const cloned = cloneJsonWire(item);
+    if (cloned !== undefined) out[key] = cloned;
+  }
+  return out;
+}
+
+/** Short-circuit structural equality on JSON-wire-normalized values (0 allocations). */
+function wireStateEquals(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!wireStateEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  const recA = a as Record<string, unknown>;
+  const recB = b as Record<string, unknown>;
+  const keysA = Object.keys(recA);
+  const keysB = Object.keys(recB);
+  if (keysA.length !== keysB.length) return false;
+  for (let i = 0; i < keysA.length; i++) {
+    const key = keysA[i];
+    if (!Object.prototype.hasOwnProperty.call(recB, key)) return false;
+    if (!wireStateEquals(recA[key], recB[key])) return false;
+  }
+  return true;
 }
 
 // ─── Hub ──────────────────────────────────────────────────────────────────────
@@ -301,11 +369,27 @@ export class TableStateHub {
     // Diff the same JSON shape clients actually receive. structuredClone
     // retains undefined object keys which JSON omits, causing later DELTAs
     // to replace/remove paths absent from the client's SNAPSHOT. Normalize
-    // once per publish, before touching room state, not once per subscriber.
-    const wireState = JSON.parse(JSON.stringify(state)) as GameStateSnapshot;
+    // in one pass (cloneJsonWire) before touching room state, avoiding a
+    // full JSON.stringify + JSON.parse round trip on every publish.
+    const wireState = cloneJsonWire(state) as GameStateSnapshot;
     const room = this.getOrCreateRoom(tableId);
     const prev = room.lastSeq;
     const next = prev + 1;
+
+    if (room.subscribers.size === 0) {
+      // Unwatched table fast-path: preserve exact Round 25 no-op seq semantics
+      // and late-join SNAPSHOT state without building RFC-6902 patch arrays or
+      // stringifying a message nobody is subscribed to receive (1e532243).
+      if (room.lastSnapshot && wireStateEquals(room.lastSnapshot, wireState)) {
+        room.lastPublishedAt = Date.now();
+        return prev;
+      }
+      room.lastSnapshot = wireState;
+      room.lastSnapshotJson = null;
+      room.lastSeq = next;
+      room.lastPublishedAt = Date.now();
+      return next;
+    }
 
     let message: HubMessage;
     if (!room.lastSnapshot) {
@@ -327,11 +411,25 @@ export class TableStateHub {
     }
 
     room.lastSnapshot = wireState;
+    room.lastSnapshotJson = null;
     room.lastSeq = next;
     room.lastPublishedAt = Date.now();
 
     this.broadcast(room, message);
     return next;
+  }
+
+  private snapshotPayload(room: TableRoom): string {
+    if (room.lastSnapshotJson === null) {
+      const snap: SnapshotMessage = {
+        type: 'SNAPSHOT',
+        tableId: room.tableId,
+        seq: room.lastSeq,
+        state: room.lastSnapshot!,
+      };
+      room.lastSnapshotJson = JSON.stringify(snap);
+    }
+    return room.lastSnapshotJson;
   }
 
   /**
@@ -344,13 +442,7 @@ export class TableStateHub {
     const room = this.getOrCreateRoom(tableId);
     room.subscribers.add(sub);
     if (room.lastSnapshot) {
-      const snap: SnapshotMessage = {
-        type: 'SNAPSHOT',
-        tableId,
-        seq: room.lastSeq,
-        state: room.lastSnapshot,
-      };
-      this.sendSnapshot(room, sub, JSON.stringify(snap));
+      this.sendSnapshot(room, sub, this.snapshotPayload(room));
     }
     // D3: a client that connects DURING the reveal window still gets the
     // reveal. The snapshot above cannot carry it (Law 1.16 — a snapshot must
@@ -452,12 +544,15 @@ export class TableStateHub {
     // A physical observer projection never receives private cash-engine frames.
     if (!this.acceptsPublisher(tableId)) return 0;
     const room = this.rooms.get(tableId);
-    if (!room || !userId) return 0;
-    const message: UserEventMessage = { type: 'USER_EVENT', tableId, payload };
-    const data = JSON.stringify(message);
+    if (!room || !userId || room.subscribers.size === 0) return 0;
+    let data: string | undefined;
     let delivered = 0;
     for (const sub of room.subscribers) {
       if (sub.userId !== userId) continue;
+      if (data === undefined) {
+        const message: UserEventMessage = { type: 'USER_EVENT', tableId, payload };
+        data = JSON.stringify(message);
+      }
       // Private cards are recovery data, like snapshots: exempt from SOFT,
       // but never allowed to keep growing a socket that has crossed HARD.
       if (sub.sendPrivate) {
@@ -478,13 +573,7 @@ export class TableStateHub {
     const room = this.rooms.get(tableId);
     const snapshot = room?.lastSnapshot ?? null;
     if (room && snapshot) {
-      const snap: SnapshotMessage = {
-        type: 'SNAPSHOT',
-        tableId,
-        seq: room?.lastSeq ?? 0,
-        state: snapshot,
-      };
-      this.sendSnapshot(room, sub, JSON.stringify(snap));
+      this.sendSnapshot(room, sub, this.snapshotPayload(room));
     }
     // D3: a RESYNC is the recovery path for a client that MISSED messages, and
     // until now it recovered only state. The snapshot carries no multiplier, so
@@ -529,6 +618,7 @@ export class TableStateHub {
       return;
     }
     room.lastSnapshot = null;
+    room.lastSnapshotJson = null;
     room.lastSeq = 0;
     try {
       this.broadcast(room, {
@@ -655,6 +745,7 @@ export class TableStateHub {
         tableId,
         subscribers: new Set(),
         lastSnapshot: null,
+        lastSnapshotJson: null,
         lastSeq: 0,
         lastPublishedAt: 0,
         missingState: new WeakSet(),
@@ -680,12 +771,17 @@ export class TableStateHub {
      */
     delivered?: WeakSet<HubSubscriber>
   ): void {
+    if (room.subscribers.size === 0) return;
+
     // C16: serialize ONCE for the whole room. This used to sit inside safeSend,
     // i.e. inside the per-subscriber loop, so a table with a dozen spectators
     // re-stringified the same full-state payload a dozen times per publish. The
     // message is identical for every subscriber — the Hub publishes the already
     // public-scrubbed shape — so there is nothing per-subscriber to serialize.
-    const payload = JSON.stringify(message);
+    const payload =
+      message.type === 'SNAPSHOT' && room.lastSnapshot === message.state
+        ? this.snapshotPayload(room)
+        : JSON.stringify(message);
 
     // B12: a SNAPSHOT is the recovery path for a client that has missed
     // messages, so it is never dropped. DELTA and EVENT are catch-up-able.
@@ -707,12 +803,7 @@ export class TableStateHub {
           this.canSend(room.tableId, sub);
           continue;
         }
-        recoverySnapshot ??= JSON.stringify({
-          type: 'SNAPSHOT',
-          tableId: room.tableId,
-          seq: room.lastSeq,
-          state: room.lastSnapshot,
-        } satisfies SnapshotMessage);
+        recoverySnapshot ??= this.snapshotPayload(room);
         // Like RESYNC, one current snapshot is recovery data, exempt from SOFT.
         // Its decision must follow even if that snapshot crosses SOFT. HARD is
         // still checked before each send and can evict instead of queueing it.

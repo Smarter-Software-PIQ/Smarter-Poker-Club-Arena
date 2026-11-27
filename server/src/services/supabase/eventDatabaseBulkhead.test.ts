@@ -3,12 +3,15 @@ import {
   ALL_EVENTS_DB_MAX_IN_FLIGHT,
   DB_POOL_SIZE,
   EVENT_DB_BACKOFF_MAX_MS,
+  EVENT_DB_HIGH_PRIORITY_BURST_LIMIT,
   EVENT_DB_MAX_IN_FLIGHT,
   EVENT_DB_MIN_IN_FLIGHT,
   EventDatabaseBulkhead,
   classifyEventDbFailure,
   classifyEventDbOutcome,
+  classifyEventDbPriority,
   type EventDbPermit,
+  type EventDbPriority,
 } from './eventDatabaseBulkhead.js';
 
 const STUCK = 'stuck-event';
@@ -17,13 +20,18 @@ const now = () => Date.now();
 const quiet = () => new EventDatabaseBulkhead({ log: () => {}, random: () => 1, now });
 
 /** Take a slot the way the fetch wrapper does, recording when it is admitted. */
-function ask(bulkhead: EventDatabaseBulkhead, key: string, signal?: AbortSignal) {
+function ask(
+  bulkhead: EventDatabaseBulkhead,
+  key: string,
+  signal?: AbortSignal,
+  priority?: EventDbPriority
+) {
   const call: { permit: EventDbPermit | null; error: unknown; sync: boolean } = {
     permit: null,
     error: null,
     sync: false,
   };
-  const admitted = bulkhead.acquire(key, signal);
+  const admitted = bulkhead.acquire(key, signal, priority);
   if (admitted instanceof Promise) {
     admitted.then(
       (permit) => {
@@ -407,5 +415,193 @@ describe('Prometheus exposition', () => {
     const afterOpen = bulkhead.toPrometheusLines().join('\n');
     expect(afterOpen).toContain('poker_event_db_bulkhead_open 1');
     expect(afterOpen).toContain('poker_event_db_bulkhead_in_flight 0');
+  });
+});
+
+describe('priority queueing for hand-path and seat-move RPCs (1e532243)', () => {
+  it('classifies hand-lifecycle, settlement, and atomic seat-move RPCs as high priority and table scans as normal', () => {
+    const base = 'https://example.supabase.co';
+    for (const rpc of [
+      'fn_f06_allocate_hand_number',
+      'fn_f06_hand_number_state',
+      'fn_f06_begin_hand',
+      'fn_f06_retain_hand_continuation',
+      'fn_f06_claim_hand_continuation',
+      'fn_f06_finish_hand',
+      'insert_hole_cards',
+      'save_hand_state_snapshot',
+      'complete_hand_snapshot',
+      'fn_ca_commit_hand_settlement',
+      'fn_ca_process_hand_post_commit_obligations',
+      'fn_move_tournament_player',
+    ]) {
+      expect(classifyEventDbPriority(`${base}/rest/v1/rpc/${rpc}`), rpc).toBe('high');
+      expect(classifyEventDbPriority(new URL(`${base}/rest/v1/rpc/${rpc}?select=*`)), rpc).toBe(
+        'high'
+      );
+      expect(classifyEventDbPriority(new Request(`${base}/rest/v1/rpc/${rpc}`)), rpc).toBe('high');
+    }
+
+    for (const url of [
+      `${base}/rest/v1/tables?tournament_id=eq.123`,
+      `${base}/rest/v1/table_seats?left_at=is.null`,
+      `${base}/rest/v1/tournament_players?status=eq.playing`,
+      `${base}/rest/v1/rpc/fn_f06_discover_breaks`,
+      `${base}/rest/v1/rpc/process_tournament_rebuy`,
+      `${base}/rest/v1/rpc/fn_ensure_late_registration_capacity`,
+    ]) {
+      expect(classifyEventDbPriority(url), url).toBe('normal');
+    }
+  });
+
+  it('admits high-priority hand/move calls ahead of queued normal background scans while preserving FIFO per tier', async () => {
+    const bulkhead = new EventDatabaseBulkhead({ log: () => {}, maxPerEvent: 1, minPerEvent: 1 });
+    const order: string[] = [];
+    const holder = ask(bulkhead, STUCK);
+
+    const enqueue = (label: string, priority: EventDbPriority) =>
+      (bulkhead.acquire(STUCK, undefined, priority) as Promise<EventDbPermit>).then((permit) => {
+        order.push(label);
+        return permit;
+      });
+
+    const n1 = enqueue('normal-1', 'normal');
+    const n2 = enqueue('normal-2', 'normal');
+    const h1 = enqueue('high-1', 'high');
+    const h2 = enqueue('high-2', 'high');
+
+    bulkhead.release(holder.permit!, 'ok');
+    bulkhead.release(await h1, 'ok');
+    bulkhead.release(await h2, 'ok');
+    bulkhead.release(await n1, 'ok');
+    bulkhead.release(await n2, 'ok');
+
+    expect(order).toEqual(['high-1', 'high-2', 'normal-1', 'normal-2']);
+  });
+
+  it('enforces bounded anti-starvation so normal sweeps always advance after EVENT_DB_HIGH_PRIORITY_BURST_LIMIT high calls', async () => {
+    const bulkhead = new EventDatabaseBulkhead({ log: () => {}, maxPerEvent: 1, minPerEvent: 1 });
+    const order: string[] = [];
+    const holder = ask(bulkhead, STUCK);
+
+    const waiters: Array<Promise<EventDbPermit>> = [];
+    const enqueue = (label: string, priority: EventDbPriority) => {
+      const p = (bulkhead.acquire(STUCK, undefined, priority) as Promise<EventDbPermit>).then(
+        (permit) => {
+          order.push(label);
+          return permit;
+        }
+      );
+      waiters.push(p);
+      return p;
+    };
+
+    const n1 = enqueue('normal-1', 'normal');
+    const n2 = enqueue('normal-2', 'normal');
+    const highs = Array.from({ length: EVENT_DB_HIGH_PRIORITY_BURST_LIMIT + 2 }, (_, i) =>
+      enqueue(`high-${i + 1}`, 'high')
+    );
+
+    // Release one permit at a time in the exact order waiters are admitted.
+    let nextPermit: EventDbPermit = holder.permit!;
+    const releaseNext = async (p: Promise<EventDbPermit>) => {
+      bulkhead.release(nextPermit, 'ok');
+      nextPermit = await p;
+    };
+    for (let i = 0; i < EVENT_DB_HIGH_PRIORITY_BURST_LIMIT; i++) await releaseNext(highs[i]);
+    // After EVENT_DB_HIGH_PRIORITY_BURST_LIMIT consecutive high admissions, normal-1 MUST go next.
+    await releaseNext(n1);
+    await releaseNext(highs[EVENT_DB_HIGH_PRIORITY_BURST_LIMIT]);
+    await releaseNext(highs[EVENT_DB_HIGH_PRIORITY_BURST_LIMIT + 1]);
+    await releaseNext(n2);
+    bulkhead.release(nextPermit, 'ok');
+
+    expect(order).toEqual([
+      'high-1',
+      'high-2',
+      'high-3',
+      'high-4',
+      'normal-1',
+      'high-5',
+      'high-6',
+      'normal-2',
+    ]);
+  });
+
+  it('aborts a parked high-priority call cleanly, counts combined queue capacity, and drains both queues on shutdown', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      maxPerEvent: 1,
+      minPerEvent: 1,
+      maxParked: 2,
+    });
+    const holder = ask(bulkhead, STUCK);
+    const ac = new AbortController();
+    const parkedHigh = ask(bulkhead, STUCK, ac.signal, 'high');
+    const parkedNormal = ask(bulkhead, STUCK, undefined, 'normal');
+
+    // Combined high(1) + normal(1) hits maxParked(2).
+    expect(() => bulkhead.acquire(STUCK, undefined, 'high')).toThrow('supabase_timeout');
+
+    ac.abort(new Error('supabase_timeout'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(parkedHigh.error).toBeInstanceOf(Error);
+    expect(bulkhead.snapshot().parkTimeoutsTotal).toBe(1);
+    expect(bulkhead.snapshot().events[0].parked).toBe(1);
+
+    const secondHigh = ask(bulkhead, STUCK, undefined, 'high');
+    bulkhead.openForShutdown();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(secondHigh.permit?.key).toBeNull();
+    expect(parkedNormal.permit?.key).toBeNull();
+    bulkhead.release(holder.permit!, 'ok');
+  });
+
+  it('exposes zero-seeded per-priority queue-wait histograms, parked counts, and oldest-parked gauges on /metrics', async () => {
+    const bulkhead = new EventDatabaseBulkhead({
+      log: () => {},
+      now,
+      maxPerEvent: 1,
+      minPerEvent: 1,
+    });
+    const cold = bulkhead.toPrometheusLines().join('\n');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_by_priority{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_parked_by_priority{priority="normal"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="normal"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="high"} 0');
+    expect(cold).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="normal"} 0');
+
+    const holder = ask(bulkhead, STUCK);
+    const n1 = ask(bulkhead, STUCK, undefined, 'normal');
+    await vi.advanceTimersByTimeAsync(40);
+    const h1 = ask(bulkhead, STUCK, undefined, 'high');
+    await vi.advanceTimersByTimeAsync(15);
+
+    const parked = bulkhead.toPrometheusLines().join('\n');
+    expect(parked).toContain('poker_event_db_bulkhead_parked_by_priority{priority="high"} 1');
+    expect(parked).toContain('poker_event_db_bulkhead_parked_by_priority{priority="normal"} 1');
+    expect(parked).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="high"} 15');
+    expect(parked).toContain('poker_event_db_bulkhead_oldest_parked_ms{priority="normal"} 55');
+
+    // High is admitted after 15 ms; normal is admitted 25 ms later (80 ms total wait).
+    bulkhead.release(holder.permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(25);
+    bulkhead.release(h1.permit!, 'ok');
+    await vi.advanceTimersByTimeAsync(0);
+    bulkhead.release(n1.permit!, 'ok');
+
+    const after = bulkhead.toPrometheusLines().join('\n');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="high"} 1');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_sum{priority="high"} 15');
+    expect(after).toContain(
+      'poker_event_db_bulkhead_queue_wait_ms_bucket{priority="high",le="25"} 1'
+    );
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_count{priority="normal"} 1');
+    expect(after).toContain('poker_event_db_bulkhead_queue_wait_ms_sum{priority="normal"} 80');
+    expect(after).toContain(
+      'poker_event_db_bulkhead_queue_wait_ms_bucket{priority="normal",le="100"} 1'
+    );
+    expect(after).not.toContain(STUCK);
   });
 });

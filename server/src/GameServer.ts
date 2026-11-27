@@ -82,6 +82,7 @@ import {
   eventDatabaseBulkhead,
   eventDbBulkheadPrometheusLines,
 } from './services/supabase/eventDatabaseBulkhead.js';
+import { gapBalancePrometheusLines } from './observability/gapBalanceMetrics.js';
 import {
   F06DrainedCustodyUnprovenError,
   f06CustodyRefusalKey,
@@ -7242,6 +7243,18 @@ export class GameServer {
       // Per-event & fleet database concurrency protection (PR #11926). Read by
       // EventDbBulkheadSaturated / EventDbBulkheadOpen in alert-rules.yml.
       ...eventDbBulkheadPrometheusLines(),
+      // ── TOURNAMENT GAP-BALANCE PARK & BOUNDARY-PLAN TELEMETRY ────────
+      ...(() => {
+        let parked = 0;
+        let oldestMs = 0;
+        for (const tm of this.tournamentEngines.values()) {
+          const s = tm.getGapBalanceParkedSummary?.(now);
+          if (!s) continue;
+          parked += s.parked;
+          if (s.oldestMs > oldestMs) oldestMs = s.oldestMs;
+        }
+        return gapBalancePrometheusLines({ parked, oldestMs });
+      })(),
       // ── REPLICATION OBSERVABILITY (2026-09-04) ───────────────────────
       // How far behind the realtime replication slot is, in bytes, per slot.
       // See services/ReplicationMetrics.ts.
