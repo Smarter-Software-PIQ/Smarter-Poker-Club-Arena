@@ -511,10 +511,12 @@ describe("the released table's Horses go home through the ordinary door", () => 
     live: ReadonlySet<string> = new Set()
   ) => {
     fakeDb(db);
-    const leaves: Array<{ tableId: string; userId: string }> = [];
+    const leaves: Array<{ tableId: string; userId: string; confirm?: true }> = [];
     const engine = (tableId: string): RotatorEngine => ({
-      leaveTable: (userId: string) => {
-        leaves.push({ tableId, userId });
+      leaveTable: (userId: string, opts?: { confirmHandCount?: boolean }) => {
+        leaves.push(
+          opts?.confirmHandCount ? { tableId, userId, confirm: true } : { tableId, userId }
+        );
         return { success: true };
       },
       hitRunHandsOwed: (userId: string) => owed[userId] ?? 0,
@@ -602,6 +604,42 @@ describe("the released table's Horses go home through the ordinary door", () => 
         .sort()
     ).toEqual([...HORSES.slice(6, 12)].sort());
     expect(leaves.filter((l) => l.tableId === M1)).toEqual([]);
+  });
+
+  it('the last Horse at a released table leaves alone with its count confirmed; never one in the hand, never while others stay', async () => {
+    publishVarietyDrain(F, Date.now());
+    const lone = () => {
+      const db = floor();
+      db.table_seats = db.table_seats
+        .filter((x) => x.table_id !== F || x.user_id === HORSES[17])
+        .map((x) =>
+          x.table_id === F ? { ...x, joined_at: new Date(NOW - 3 * 60_000).toISOString() } : x
+        );
+      return db;
+    };
+    /* alone and owing eight hands in profit: it goes now, confirming its count */
+    const owed = { [HORSES[17]]: 8 };
+    expect((await run(lone(), owed)).filter((l) => l.tableId === F)).toEqual([
+      { tableId: F, userId: HORSES[17], confirm: true },
+    ]);
+    /* alone but still holding cards: it stays */
+    expect((await run(lone(), owed, new Set([HORSES[17]]))).filter((l) => l.tableId === F)).toEqual(
+      []
+    );
+    /* two Horses owing: they play their hands heads-up; nobody is confirmed out */
+    const two = floor();
+    two.table_seats = two.table_seats.filter(
+      (x) => x.table_id !== F || x.user_id === HORSES[16] || x.user_id === HORSES[17]
+    );
+    expect(
+      (await run(two, { [HORSES[16]]: 3, [HORSES[17]]: 3 })).filter((l) => l.tableId === F)
+    ).toEqual([]);
+    /* the sweep takes every free Horse; the one left owing is alone and goes too */
+    const sweep = (await run(floor(), { [HORSES[17]]: 4 })).filter((l) => l.tableId === F);
+    expect(sweep.filter((l) => l.confirm)).toEqual([
+      { tableId: F, userId: HORSES[17], confirm: true },
+    ]);
+    expect(sweep).toHaveLength(6);
   });
 
   it('a stale publication releases nothing', async () => {

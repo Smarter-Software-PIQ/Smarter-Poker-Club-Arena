@@ -1554,6 +1554,52 @@ export class HorseSessionRotator {
           reportError(err, 'HorseSessionRotator.varietyDrainLeave');
         }
       }
+      /* THE LAST HORSE AT A RELEASED TABLE IS ALONE (2026-11-26). Measured on
+         the 4 PM CST seal: the released PLO6 Classic Feeder held its slot for
+         26 minutes with one Horse seated alone. It was ahead and owed eight
+         hands in profit, so the sweep above passed it over, and alone it
+         could never be dealt a hand to play them; only the lone-table rule
+         (ten minutes without a hand) stood it up. A released table takes no
+         new player, so nobody is coming: the last Horse there leaves through
+         the lone-table door now, confirming its count (alone, there is nobody
+         to have hit and run from; the engine still ends the hold only if
+         nobody else is left). Never a Horse holding cards, never one inside a
+         stay clock the door named. */
+      if (horsesOnly && engine && this.lifecycleIsCurrent(generation)) {
+        const staying = drainSeats.filter((x) => {
+          const uid = String(x.user_id ?? '');
+          return (
+            !HorseSessionRotator.isLeaving(x) &&
+            !rosterLeft.has(`${drainTableId}:${uid}`) &&
+            !departedThisCycle.has(`${drainTableId}:${uid}`)
+          );
+        });
+        const last = staying.length === 1 ? String(staying[0].user_id ?? '') : '';
+        if (
+          last &&
+          engine.liveInHand?.(last) !== true &&
+          !this.isLeaveHeld(drainTableId, last, Date.now(), false)
+        ) {
+          try {
+            const result = await engine.leaveTable(
+              last,
+              ...this.confirmIfOwed(drainTableId, last, engine)
+            );
+            if (!this.lifecycleIsCurrent(generation)) return;
+            this.noteLeaveResult(drainTableId, last, result);
+            if (result.success) {
+              departedThisCycle.add(`${drainTableId}:${last}`);
+              this.breaks.delete(HorseSessionRotator.breakKey(drainTableId, last));
+              console.log(
+                `[SessionRotator] horse=${last.slice(0, 8)} leaving table=${drainTableId.slice(0, 8)} ` +
+                  `- the last Horse at a released table (alone, its count confirmed)`
+              );
+            }
+          } catch (err) {
+            reportError(err, 'HorseSessionRotator.varietyDrainLastLeave');
+          }
+        }
+      }
     }
 
     /**

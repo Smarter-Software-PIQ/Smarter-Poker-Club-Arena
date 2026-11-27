@@ -27,3 +27,13 @@ The review also proposed that an empty live feeder should stop being the top of 
 
 - `server/src/services/anExtraTableYieldsToAnOwedMain.law.test.ts`: three new review cases (emptied table and the paced ramp with the rotator's `CYCLE_MS` pinned; no Horse moved onto a released table, a person and a break move never wait; the undecided-cycle hold sits before any seating and no early clear exists), and the staleness tests now use `VARIETY_DRAIN_FRESH_MS`.
 - `tests/unit/varietyDrainLiveCheck.test.ts`: the per-heartbeat re-join window, the Horse filter, the person tolerance and the fail-closed verdicts are pinned.
+
+## Found Live After The 4 PM Seal: The Last Horse At A Released Table
+
+**What was wrong.** The released PLO6 0.10/0.25 Classic Feeder held its slot for 26 minutes (4:12 to 4:38 PM CST) with one Horse seated alone. That Horse was ahead (50 to 84.23) and owed eight more hands in profit, so the one-sweep leave passed it over.
+
+**Why it broke.** The sweep rightly lets a Horse owing hands play them first, but once every other Horse had gone it was alone, and a table of one deals no hand, so the count could never complete. Only the lone-table rule (ten minutes without a hand, then its own checks) stood it up.
+
+**The fix.** A released table takes no new player, so nobody is coming. The last Horse at a released table leaves through the lone-table door at once, confirming its count, exactly as the lone-table rule does (alone there is nobody to have hit and run from; the engine still ends the hold only if nobody else is left). Never a Horse holding cards, never one inside a stay clock the door named; two Horses owing hands still play them heads-up first.
+
+**Hardening.** `anExtraTableYieldsToAnOwedMain.law.test.ts`: "the last Horse at a released table leaves alone with its count confirmed": alone and owing goes now with the count confirmed; alone holding cards stays; two owing Horses stay; after a full sweep the one left owing goes in the same cycle. Fails on the old code.

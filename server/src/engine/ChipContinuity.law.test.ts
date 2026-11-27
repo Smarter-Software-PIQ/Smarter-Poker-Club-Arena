@@ -318,8 +318,10 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     // (2026-11-24) A sixth: the variety drain, a Horse leaving a Horse-only
     // extra table at hand end so the slot goes to an owed Main 1
     // (anExtraTableYieldsToAnOwedMain.law.test.ts), never forced.
+    // (2026-11-26) A seventh: the last Horse at a released table, alone, leaves
+    // through the lone-table door with its count confirmed.
     // Every one of them is engine.leaveTable.
-    expect((ROTATOR.match(/await engine\.leaveTable\(/g) ?? []).length).toBe(6);
+    expect((ROTATOR.match(/await engine\.leaveTable\(/g) ?? []).length).toBe(7);
     expect(ROTATOR).toContain('private async leaveCashForTournaments(');
   });
 
