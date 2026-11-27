@@ -31,6 +31,49 @@ export const RECEIPT_PREFIX = 'Post-cutover audit';
 const CYCLE_RE = /^Cycle: ([^\n]+)\r?\nResult: ([A-Z][A-Z-]*(?: [A-Z][A-Z-]*)*)/;
 const SEALED_RE = /^Sealed SHA: `([0-9a-f]{40})`/m;
 const SERVING_RE = /^Serving SHA: `([0-9a-f]{40})`/m;
+const RUN_LINE_RE =
+  /^(?:Receiver|Stage): https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/actions\/runs\/([1-9][0-9]*)/m;
+
+// THE SWEEP (2026-11-26). GitHub can skip or delay a workflow_run event, and then a cycle silently gets no
+// receipt. Stage completes about four times an hour, so every gate also looks back over the log: the oldest cycle
+// result that is at least ORPHAN_AGE_MS old and still has no receipt is audited and answered late. No timer and
+// no release control is involved; the sweep rides the runs that already happen. Cycles posted before the
+// workflow existed (RECEIPTS_START) are never swept.
+export const RECEIPTS_START = '2026-11-27T02:30:00Z';
+export const ORPHAN_AGE_MS = 15 * 60_000;
+
+/** Pure. The run a cycle comment names on its "Receiver:" or "Stage:" line, or null. */
+export function cycleRunId(body) {
+  return typeof body === 'string' && CYCLE_RE.test(body)
+    ? (RUN_LINE_RE.exec(body)?.[1] ?? null)
+    : null;
+}
+
+/** Pure. The oldest swept-window cycle result that is old enough and has no receipt yet: its run id, or null. */
+export function findOrphanCycle(comments, nowMs) {
+  const start = Date.parse(RECEIPTS_START);
+  const list = [...(comments ?? [])].sort(
+    (a, b) => Date.parse(a?.created_at ?? '') - Date.parse(b?.created_at ?? '')
+  );
+  for (const c of list) {
+    const at = Date.parse(c?.created_at ?? '');
+    if (!Number.isFinite(at) || at < start || nowMs - at < ORPHAN_AGE_MS) continue;
+    const runId = cycleRunId(c?.body);
+    if (runId && !receiptAlreadyPosted(comments, runId)) return runId;
+  }
+  return null;
+}
+
+/**
+ * Pure. Which run the audit job answers: this run when it posted a cycle with no receipt, otherwise the oldest
+ * orphan the sweep finds, otherwise none.
+ */
+export function chooseReceiptRun(comments, runId, nowMs) {
+  const own = findCutoverComment(comments, runId);
+  if (own && !receiptAlreadyPosted(comments, runId)) return { runId: String(runId), late: false };
+  const orphan = findOrphanCycle(comments, nowMs);
+  return orphan ? { runId: orphan, late: true } : null;
+}
 
 /**
  * Pure. The cutover-log comment a run posted: a "Cycle:/Result:" comment naming the run. The receiver names
@@ -86,8 +129,30 @@ export function chicagoTime(iso) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
 }
 
+/** Pure. The report a receipt carries when the audit itself could not run. */
+export function auditErrorReport(err, now) {
+  const msg = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+  return {
+    overallStatus: 'ERROR',
+    passed: false,
+    releaseSha: null,
+    auditedAt: now.toISOString(),
+    checks: [
+      {
+        name: 'audit',
+        status: 'error',
+        failures: [`the audit could not run: ${msg}`],
+        warnings: [],
+      },
+    ],
+  };
+}
+
 /** Pure. The receipt text. One line per check, its first failure or warning beside it. */
-export function formatReceipt({ cycle, result, runId, report }) {
+export const RECORDS_REPAIR =
+  'Records repair: node scripts/ops/horse-option-switch.mjs records (opens the docs-only records PR).';
+
+export function formatReceipt({ cycle, result, runId, report, late = false }) {
   const lines = [
     `${RECEIPT_PREFIX} for run ${runId} (cycle ${cycle}, ${result}): OVERALL ${report.overallStatus}`,
     `Audited release: \`${report.releaseSha ?? 'unknown'}\` at ${chicagoTime(report.auditedAt)}`,
@@ -98,6 +163,13 @@ export function formatReceipt({ cycle, result, runId, report }) {
       `- ${check.name}: ${String(check.status).toUpperCase()}${note ? ` (${String(note).slice(0, 300)})` : ''}`
     );
   }
+  if (late) {
+    lines.push(
+      'Late receipt (the sweep): no receipt followed this cycle in time, so this audits production as it is now.'
+    );
+  }
+  const records = (report.checks ?? []).find((c) => c.name === 'switch_records');
+  if (records && records.status !== 'pass') lines.push(RECORDS_REPAIR);
   lines.push(
     'Read-only: scripts/ops/post-cutover-audit.mjs, run by .github/workflows/post-cutover-receipt.yml.'
   );
@@ -116,6 +188,23 @@ function gh(args, input) {
     timeout: 60_000,
     maxBuffer: 32 * 1024 * 1024,
   });
+}
+
+/** The last 12 hours of the cutover log, every page (at most 10 pages of 100). */
+function readLogComments(repo) {
+  const since = new Date(Date.now() - 12 * 3_600_000).toISOString();
+  const all = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const batch = JSON.parse(
+      gh([
+        'api',
+        `repos/${repo}/issues/${LOG_ISSUE}/comments?since=${since}&per_page=100&page=${page}`,
+      ])
+    );
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -153,17 +242,21 @@ async function main(argv) {
   const dbUrl = dbUrlEnv ? process.env[dbUrlEnv] || '' : '';
   if (dbUrlEnv && !dbUrl) throw new Error(`AUDIT_DB_URL_ENV names ${dbUrlEnv}, which is empty`);
 
-  const since = new Date(Date.now() - 12 * 3_600_000).toISOString();
-  const comments = JSON.parse(
-    gh(['api', `repos/${repo}/issues/${LOG_ISSUE}/comments?since=${since}&per_page=100`])
-  );
-  const cut = findCutoverComment(comments, runId);
-  const needed = !!cut && !receiptAlreadyPosted(comments, runId);
+  const comments = readLogComments(repo);
   if (findOnly) {
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `needed=${needed}\n`);
-    process.stdout.write(`receipt needed for run ${runId}: ${needed}\n`);
+    const pick = chooseReceiptRun(comments, runId, Date.now());
+    const out = pick ? `needed=true\nrun_id=${pick.runId}\nlate=${pick.late}\n` : 'needed=false\n';
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, out);
+    process.stdout.write(
+      pick
+        ? `receipt needed for run ${pick.runId}${pick.late ? ' (late, found by the sweep)' : ''}\n`
+        : `no receipt needed (run ${runId}, sweep clear)\n`
+    );
     return 0;
   }
+  const late = process.env.RECEIPT_LATE === 'true';
+  const cut = findCutoverComment(comments, runId);
+  const needed = !!cut && !receiptAlreadyPosted(comments, runId);
   if (!cut) {
     process.stdout.write(`No cutover-log comment names run ${runId}: nothing to audit.\n`);
     return 0;
@@ -173,11 +266,17 @@ async function main(argv) {
     return 0;
   }
   const deps = createRealDeps({ cwd: REPO_ROOT, dbUrl: dbUrl || null });
-  const report = await auditWithOneSettleRetry(
-    { expectShas: cut.expectSha ? [cut.expectSha] : [] },
-    deps
-  );
-  const body = formatReceipt({ cycle: cut.cycle, result: cut.result, runId, report });
+  let report;
+  try {
+    report = await auditWithOneSettleRetry(
+      { expectShas: cut.expectSha ? [cut.expectSha] : [] },
+      deps
+    );
+  } catch (err) {
+    // A crashed audit still answers the cycle, so the sweep never retries it on every Stage run.
+    report = auditErrorReport(err, new Date());
+  }
+  const body = formatReceipt({ cycle: cut.cycle, result: cut.result, runId, report, late });
   process.stdout.write(body);
   if (!dryRun) {
     gh(
