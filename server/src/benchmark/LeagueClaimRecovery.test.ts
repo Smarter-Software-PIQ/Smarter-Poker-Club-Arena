@@ -49,16 +49,28 @@ vi.mock('../services/supabase.js', () => {
     from(table: string) {
       if (table === 'horse_job_runs') {
         return {
-          insert(row: Partial<Row>) {
-            const dup = state.jobRuns.find((r) => r.job === row.job && r.run_date === row.run_date);
-            if (dup) return Promise.resolve({ error: { code: '23505', message: 'dup' } });
-            state.jobRuns.push({
-              job: row.job!,
-              run_date: row.run_date!,
-              claimed_at: new Date().toISOString(),
-              claimed_by: row.claimed_by!,
-            });
-            return Promise.resolve({ error: null });
+          // INSERT ... ON CONFLICT (job, run_date) DO NOTHING RETURNING job:
+          // a lost claim is zero rows, never a 23505 (2026-11-26).
+          upsert(row: Partial<Row>, opts: { onConflict?: string; ignoreDuplicates?: boolean }) {
+            return {
+              select() {
+                if (opts?.onConflict !== 'job,run_date' || opts?.ignoreDuplicates !== true) {
+                  return Promise.resolve({ data: null, error: { code: '42P10', message: 'bad upsert' } });
+                }
+                const dup = state.jobRuns.find((r) => r.job === row.job && r.run_date === row.run_date);
+                if (dup) return Promise.resolve({ data: [], error: null });
+                state.jobRuns.push({
+                  job: row.job!,
+                  run_date: row.run_date!,
+                  claimed_at: new Date().toISOString(),
+                  claimed_by: row.claimed_by!,
+                });
+                return Promise.resolve({ data: [{ job: row.job }], error: null });
+              },
+            };
+          },
+          insert() {
+            throw new Error('a claim never collides on the primary key: use upsert ignoreDuplicates');
           },
           select() {
             const q: Record<string, unknown> = {};

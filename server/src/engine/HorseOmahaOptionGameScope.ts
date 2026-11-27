@@ -127,9 +127,13 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaStrongHandCheckIsPriced',
   // EMERG lane STAB-DEFENCE-5 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaRiverBetFoldIsHisRecord',
+  'omahaRiverBetFoldIsPeopleMeasured',
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaRiverValueBetInPositionIsPriced',
   'omahaRiverBluffIsPricedOnBlockers',
+  'omahaTurnBluffIsPricedOnBlockers',
+  'omahaTurnBluffIsPricedOnRangeAdvantage',
+  'omahaRiverBluffIsPricedOnRangeAdvantage',
   'omahaRiverTripsBoardBoatIsNotNutClass',
   'omahaFlopRaiseIsPriced',
   // PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-21: PLO4/PLO5 cash, default OFF (replaces #18 omahaBigBetIsPotShare)

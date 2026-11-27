@@ -9,6 +9,7 @@ import {
 import { useClubWorkspace } from '../../contexts/ClubWorkspaceContext';
 import { useCommunityOverview } from '../../hooks/useCommunityOverview';
 import {
+  mayReadClubOperationsOverview,
   useClubOperationsOverview,
   type ClubOperationsAlert,
   type ClubOperationsOverviewState,
@@ -201,9 +202,7 @@ function useClubWorkspaceGroup(group: ClubOperationGroupId) {
   const { clubId = '' } = useParams();
   const access = useClubWorkspace();
   const readingState = useClubOperationsOverview(
-    access.isClubStaff &&
-      !access.loading &&
-      !access.error &&
+    mayReadClubOperationsOverview(access) &&
       (access.routeClubId === clubId || access.clubUUID === clubId)
       ? access.clubUUID
       : null

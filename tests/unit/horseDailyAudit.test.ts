@@ -82,12 +82,15 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
     expect(runs.map((r) => r.name)).toEqual([
       'holdem-audit',
       'omaha-audit',
+      'plo-overfold',
       'exploit-report-1',
       'exploit-report-2',
       'person-vs-horse-1',
     ]);
-    expect(runs[2]!.args).toContain('--gate=regression');
-    expect(runs[4]!.args.join(' ')).toMatch(/--split-at (\S+,){5}\S+ --gate --json/);
+    expect(runs.find((r) => r.name === 'exploit-report-1')!.args).toContain('--gate=regression');
+    expect(runs.find((r) => r.name === 'person-vs-horse-1')!.args.join(' ')).toMatch(
+      /--split-at (\S+,){5}\S+ --gate --json/
+    );
     // no boundary: the exploit report gates absolute, people vs Horses reports
     const none = planRuns(S, U, []);
     expect(none.find((r) => r.name === 'exploit-report-1')!.args).toContain('--gate=absolute');
@@ -154,6 +157,32 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
           }) + '\nGATE 1',
       },
       'person-vs-horse-results.mjs': { status: 0, stdout: '{}' },
+      'horse-plo-overfold-gate.mjs': {
+        status: 0,
+        stdout:
+          JSON.stringify({
+            prior: 'no people prior',
+            previousSince: '2026-11-22T05:00:00Z',
+            gate: { exitCode: 0, line: 'PLO over-fold: clean (1 cells tested, bar z 3.00)' },
+            cells: [
+              {
+                key: 'overfold|river|large',
+                street: 'river',
+                size: '0.7+ pot',
+                n: 25,
+                rate: 0.4,
+                ceiling: 0.45,
+                ceilingSource: 'break-even s/(1+s)',
+                previousN: 60,
+                previousRate: 0.42,
+                zPrevious: -0.2,
+                zCeiling: -0.5,
+                tested: true,
+                gating: false,
+              },
+            ],
+          }) + '\nPLO over-fold: clean',
+      },
     };
     const code = runDailyAudit(['--out-root', root, '--until', '2026-11-26T05:00:00Z'], {
       stdout: () => {},
@@ -175,6 +204,7 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
     expect(calls.map((c) => c[0]!.split('/').at(-1))).toEqual([
       'horse-hand-audit-holdem.mjs',
       'horse-hand-audit-omaha.mjs',
+      'horse-plo-overfold-gate.mjs',
       'horse-exploit-report.mjs',
       'person-vs-horse-results.mjs',
     ]);
@@ -195,6 +225,13 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
     expect(summary).toContain('- NLH cash river: river overfold (n 30, 12.5 bb, 4.0 bb/100)');
     expect(summary).toContain(
       '- PLO turn IP: turn stab defence over-fold (n 12, 40.0 bb, 3.2 bb/100 people)'
+    );
+    expect(summary).toContain(
+      "## PLO Over-Fold Gate (heads-up turn and river, facing a person's first bet)"
+    );
+    expect(summary).toContain('| plo-overfold | 0 | clean |');
+    expect(summary).toContain(
+      '| river | 0.7+ pot | 25 | 40.0% | 45.0% | break-even s/(1+s) | 42.0% (60) | -0.20 | -0.50 | clean |'
     );
     expect(JSON.parse(readFileSync(join(dir, 'plan.json'), 'utf8')).splits).toHaveLength(1);
   });

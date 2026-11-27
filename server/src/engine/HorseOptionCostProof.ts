@@ -61,6 +61,9 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the PLO river opening bet (value in position, bluff on blockers) and the trips-board full house
   omahaRiverValueBetInPositionIsPriced: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
   omahaRiverBluffIsPricedOnBlockers: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
+  omahaRiverBluffIsPricedOnRangeAdvantage: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
+  omahaTurnBluffIsPricedOnBlockers: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
+  omahaTurnBluffIsPricedOnRangeAdvantage: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
   omahaRiverTripsBoardBoatIsNotNutClass: 'engine/anOmahaTripsBoardBoatIsFast.law.test.ts',
   // Hold'em: the opening side (cash, heads-up) and the tournament bluff
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
@@ -72,7 +75,10 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
 });
 
 /** Option -> why it cannot add a decision cost worth a law. */
-export const OPTION_COST_EXEMPT: Readonly<Record<string, string>> = Object.freeze({});
+export const OPTION_COST_EXEMPT: Readonly<Record<string, string>> = Object.freeze({
+  omahaRiverBetFoldIsPeopleMeasured:
+    'replaces each point of the river response curve the price already builds with a lookup in the generated people fold table (omahaPeopleRiverCurve): one multiply per bet size, no sampling, no equity, no new loop',
+});
 
 /** An exemption reason is at least this long: a sentence, not a word. */
 export const OPTION_COST_EXEMPT_MIN_REASON = 24;

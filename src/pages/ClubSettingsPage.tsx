@@ -1990,7 +1990,11 @@ export default function ClubSettingsPage() {
         {/* Spins — the owner's switch and the wallet behind it.
             Placed here, after Buy-In Limits, because it is the only other
             setting on this page that commits the club's own money. */}
-        {clubId && <SpinActivationPanel clubId={clubId} />}
+        {/* The resolved uuid, never the route segment: the panel's route
+            (/api/club-arena/spin-activation) keys clubs.id, a uuid column,
+            and a slug there was Postgres 22P02 on every Settings open
+            (`kings-club`, `crest-cert-*`, 2026-11-26). */}
+        {clubUUID && <SpinActivationPanel clubId={clubUUID} />}
 
         {/* Audit Log — visible to anyone the audit_trail RLS lets read it:
             the owner, plus club admins/agents via is_club_admin(). It was

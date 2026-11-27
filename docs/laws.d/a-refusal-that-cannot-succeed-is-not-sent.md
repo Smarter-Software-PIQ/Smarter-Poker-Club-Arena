@@ -1,0 +1,3 @@
+# tests/a-refusal-that-cannot-succeed-is-not-sent.law.test.ts
+
+CLAUDE.md 10.10 rule 4 and 10.11, applied to the 2026-11-26 production errors the Club Arena browser caused: a route slug is never sent to a uuid argument (Club Settings Spin panel, the Spin route, fn_game_creation_access, the multi-table home lookup), the club operations overview is asked only under the RPC's own rule (canControlClub) and a refused scope is not asked again until identity or role changes, a closed account or revoked session stops the presence heartbeat, a browser never upserts horse_bug_reports, and check-migrations-are-live never sends a proof for a migration whose own objects are already missing.

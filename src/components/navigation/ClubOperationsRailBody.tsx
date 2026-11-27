@@ -7,7 +7,10 @@ import {
 } from '../../config/clubOperationsNavigation';
 import type { ClubNavigationAccess } from '../../hooks/useClubNavigationAccess';
 import { useClubWorkspace } from '../../contexts/ClubWorkspaceContext';
-import { useClubOperationsOverview } from '../../hooks/useClubOperationsOverview';
+import {
+  mayReadClubOperationsOverview,
+  useClubOperationsOverview,
+} from '../../hooks/useClubOperationsOverview';
 import { formatInt } from '../../utils/clubDashboard';
 import styles from './ClubOperationsRail.module.css';
 
@@ -46,7 +49,10 @@ export default function ClubOperationsRailBody({
      badge earns the most. It reads through the same shared cache the
      operations page uses, so mounting both costs one query, not two. */
   const { overview } = useClubOperationsOverview(
-    clubId === workspace.routeClubId || clubId === workspace.clubUUID ? workspace.clubUUID : null
+    mayReadClubOperationsOverview(access) &&
+      (clubId === workspace.routeClubId || clubId === workspace.clubUUID)
+      ? workspace.clubUUID
+      : null
   );
 
   const items = getClubOperationRailItems(clubId, access);

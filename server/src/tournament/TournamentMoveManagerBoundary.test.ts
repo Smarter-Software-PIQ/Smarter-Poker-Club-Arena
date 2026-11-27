@@ -106,9 +106,18 @@ describe('TournamentManager source move ownership', () => {
     expect(moveRpc).not.toHaveBeenCalled();
   });
 
-  it.each(['PGRST202', '55P03', '40001', '40P01', '42501'])(
+  // Contention and routing failures read nothing and are sent again once; a
+  // definite refusal (42501) is the door's own verdict and is asked once
+  // (law: aMoveVerdictIsSentOnce). Either way the source boundary is released.
+  it.each([
+    ['PGRST202', 2],
+    ['55P03', 2],
+    ['40001', 2],
+    ['40P01', 2],
+    ['42501', 1],
+  ] as const)(
     'releases the source boundary when the actual RPC proves refusal with %s',
-    async (code) => {
+    async (code, expectedCalls) => {
       const { manager, engine } = liveHarness();
       const actual = await vi.importActual<typeof import('./tournamentSeatMoveRpc.js')>(
         './tournamentSeatMoveRpc.js'
@@ -131,7 +140,7 @@ describe('TournamentManager source move ownership', () => {
         await expect(manager.executePlayerMoves([move()])).resolves.toBe(0);
         expect(manager.pendingTournamentSeatMoveOutcomes.size).toBe(0);
         expect(engine.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
-        expect(rpcSpy).toHaveBeenCalledTimes(2);
+        expect(rpcSpy).toHaveBeenCalledTimes(expectedCalls);
       } finally {
         rpcSpy.mockRestore();
       }

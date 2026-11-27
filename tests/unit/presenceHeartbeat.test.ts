@@ -12,6 +12,7 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
 import { reportError } from '../../src/utils/errorReporter';
 import {
+  isTerminalPresenceRefusal,
   PRESENCE_HEARTBEAT_MS,
   resetPresenceHeartbeatForTests,
   signalOffline,
@@ -266,5 +267,40 @@ describe('signalLeave: leaving is the last beat (2026-11-12)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     window.dispatchEvent(new Event('pageshow'));
     expect(beats()).toHaveLength(2);
+  });
+});
+
+describe('a refusal that can never succeed stops the beats (2026-11-26)', () => {
+  it('ACCOUNT_CLOSED silences the account: no more online beats, no leave beat', async () => {
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: 'ACCOUNT_CLOSED: this account was closed and cannot be changed' },
+    });
+    renderHook(() => usePresenceHeartbeat('closed-user'));
+    await flush();
+    expect(beats()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(PRESENCE_HEARTBEAT_MS * 10);
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('pageshow'));
+    await flush();
+    // Production: one closed account was refused 164 times in four hours.
+    expect(beats()).toHaveLength(1);
+    // A terminal refusal is the answer, not a failure to report.
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it('a transient failure keeps beating (a bad link is not a closed account)', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: '503', message: 'upstream timeout' } });
+    renderHook(() => usePresenceHeartbeat('u1'));
+    await vi.advanceTimersByTimeAsync(PRESENCE_HEARTBEAT_MS * 2);
+    expect(beats()).toHaveLength(3);
+  });
+
+  it('classifies the two terminal refusals and nothing else', () => {
+    expect(isTerminalPresenceRefusal({ message: 'ACCOUNT_CLOSED: x' })).toBe(true);
+    expect(isTerminalPresenceRefusal({ code: 'PT401', message: 'SESSION_REVOKED: sign in again' })).toBe(true);
+    expect(isTerminalPresenceRefusal({ code: '28000', message: 'x' })).toBe(true);
+    expect(isTerminalPresenceRefusal({ code: '57014', message: 'canceling statement' })).toBe(false);
+    expect(isTerminalPresenceRefusal(null)).toBe(false);
   });
 });

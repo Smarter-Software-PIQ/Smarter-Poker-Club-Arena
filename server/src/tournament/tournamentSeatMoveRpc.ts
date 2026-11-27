@@ -1,6 +1,6 @@
 import { supabase } from '../services/supabase.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
-import { isRolledBackStatementError } from './settlementRefusal.js';
+import { isLaneContention, isRolledBackStatementError } from './settlementRefusal.js';
 
 export type TournamentSeatMoveSourceMode = 'live_source' | 'closed_orphan';
 
@@ -232,6 +232,25 @@ export async function moveTournamentPlayerAtomically(
         knownRefusal =
           isRolledBackStatementError(error) || code === 'PGRST202' || code === 'PGRST203';
         if (!knownRefusal) sawAmbiguousAttempt = true;
+        // A VERDICT IS NOT ASKED TWICE (2026-11-26). The door checks this
+        // identity's receipt before it refuses, so a definite refusal of a
+        // first attempt (nothing ambiguous before it) is the door's reading of
+        // the event: an occupied chair, an inexact source, a closed table. The
+        // identical request a moment later reads the same rows, takes the
+        // event lane and both tables again, and logs a second ERROR: all 72
+        // "destination seat is occupied" lines of 2026-11-25/26 came in such
+        // pairs. Only lock contention and routing failures, which read
+        // nothing, are worth sending again unchanged.
+        if (
+          knownRefusal &&
+          !sawAmbiguousAttempt &&
+          options.outcomeWasAlreadyUnknown !== true &&
+          !isLaneContention(error) &&
+          code !== 'PGRST202' &&
+          code !== 'PGRST203'
+        ) {
+          break;
+        }
       }
     } catch (error) {
       lastFailure = message(error);

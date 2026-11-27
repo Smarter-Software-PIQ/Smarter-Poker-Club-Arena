@@ -22,7 +22,7 @@ it.each([
       })
     );
     const result = await spinActivationApi
-      .activate('club-a', 200, 1, 'chip_treasury', 'key')
+      .activate('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 200, 1, 'chip_treasury', 'key')
       .catch((error) => error);
     expect(result instanceof SpinCommandRefusedError).toBe(definite);
   }
@@ -44,7 +44,7 @@ it.each(['session', 'response', 'body'])(
     else if (stage === 'response') vi.mocked(fetch).mockImplementation(never);
     else vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, json: never } as any);
     let settled = false;
-    const result = spinActivationApi.getState('club-a').then(
+    const result = spinActivationApi.getState('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').then(
       () => {
         settled = true;
         return 'success';
@@ -66,19 +66,19 @@ it.each([
   { status: 200, success: 'false' },
 ])('rejects a contradictory HTTP receipt $status/$success', async ({ status, success }) => {
   vi.mocked(fetch).mockResolvedValue(
-    new Response(JSON.stringify({ success, state: { owner_id: 'club-a' } }), { status })
+    new Response(JSON.stringify({ success, state: { owner_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } }), { status })
   );
-  await expect(spinActivationApi.getState('club-a')).rejects.toThrow();
+  await expect(spinActivationApi.getState('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).rejects.toThrow();
 });
 it('accepts the actual successful read envelope once', async () => {
   const data = {
     success: true,
-    state: { owner_id: 'club-a' },
+    state: { owner_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
     canManage: false,
     ownerKind: 'club',
   };
   vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(data), { status: 200 }));
-  await expect(spinActivationApi.getState('club-a')).resolves.toEqual(data);
+  await expect(spinActivationApi.getState('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).resolves.toEqual(data);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
@@ -89,7 +89,7 @@ it('does not send a late read after session acquisition exceeded its deadline', 
       release = resolve;
     })
   );
-  const result = spinActivationApi.getState('club-a').catch((error) => error);
+  const result = spinActivationApi.getState('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').catch((error) => error);
   await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_DEADLINE_MS + 1);
   expect(await result).toBeInstanceOf(Error);
   release({ data: { session: { access_token: 'synthetic-late-token' } } });
@@ -106,7 +106,7 @@ it('preserves the financial request identity and does not introduce a timed auto
   );
   let settled = false;
   const result = spinActivationApi
-    .activate('club-a', 2000, 10, 'chip_treasury', 'original-operation')
+    .activate('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 2000, 10, 'chip_treasury', 'original-operation')
     .then((value) => {
       settled = true;
       return value;
@@ -130,7 +130,7 @@ it('refuses a saved command when session acquisition returns another actor', asy
     data: { session: { access_token: 'synthetic', user: { id: 'other' } } },
   });
   await expect(
-    spinActivationApi.activate('club', 200, 1, 'chip_treasury', 'request', {
+    spinActivationApi.activate('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 200, 1, 'chip_treasury', 'request', {
       actorId: 'original',
       ownerId: 'owner',
     })
@@ -144,11 +144,11 @@ it('forwards the saved owner and request identity with the current matching acto
   vi.mocked(fetch).mockResolvedValue(
     new Response(JSON.stringify({ success: true, result: { ok: true } }))
   );
-  await spinActivationApi.deactivate('club', 'request', { actorId: 'actor', ownerId: 'owner' });
+  await spinActivationApi.deactivate('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'request', { actorId: 'actor', ownerId: 'owner' });
   const init = vi.mocked(fetch).mock.calls[0][1]!;
   expect(JSON.parse(String(init.body))).toEqual({
     action: 'deactivate',
-    clubId: 'club',
+    clubId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     expectedOwnerId: 'owner',
   });
   expect((init.headers as Record<string, string>)['X-Idempotency-Key']).toBe('request');
@@ -161,7 +161,7 @@ it.each([undefined, null, 'true', false])(
       new Response(JSON.stringify({ success: true, result: { ok } }))
     );
     await expect(
-      spinActivationApi.activate('club', 200, 1, 'chip_treasury', 'request')
+      spinActivationApi.activate('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 200, 1, 'chip_treasury', 'request')
     ).rejects.toThrow('Receipt Could Not Be Verified');
   }
 );
@@ -172,8 +172,8 @@ it.each(['activate', 'deactivate'] as const)(
     vi.mocked(fetch).mockImplementation(never);
     const result = (
       action === 'activate'
-        ? spinActivationApi.activate('club', 200, 1, 'chip_treasury', 'same-request')
-        : spinActivationApi.deactivate('club', 'same-request')
+        ? spinActivationApi.activate('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 200, 1, 'chip_treasury', 'same-request')
+        : spinActivationApi.deactivate('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'same-request')
     ).catch((error) => error);
     await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_DEADLINE_MS + 1);
     expect(await result).toBeInstanceOf(Error);

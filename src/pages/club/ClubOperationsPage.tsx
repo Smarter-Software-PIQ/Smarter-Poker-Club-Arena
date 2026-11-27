@@ -8,7 +8,10 @@ import {
 import { ErrorState, LoadingState, PermissionState } from '../../components/common/EmptyState';
 import { useClubNavigationAccess } from '../../hooks/useClubNavigationAccess';
 import { useClubWorkspace } from '../../contexts/ClubWorkspaceContext';
-import { useClubOperationsOverview } from '../../hooks/useClubOperationsOverview';
+import {
+  mayReadClubOperationsOverview,
+  useClubOperationsOverview,
+} from '../../hooks/useClubOperationsOverview';
 import { roleLabel } from '../../types/clubRoles';
 import { formatInt } from '../../utils/clubDashboard';
 import { compactChips } from '../../utils/format';
@@ -59,9 +62,12 @@ export default function ClubOperationsPage() {
     denied: overviewDenied,
     refreshedAt,
     refresh,
-  } = useClubOperationsOverview(
-    access.isClubStaff && !access.loading && !access.error ? clubUUID : null
-  );
+  } = useClubOperationsOverview(mayReadClubOperationsOverview(access) ? clubUUID : null);
+  /* A settled role the RPC refuses (agent, super agent, manager) is told so
+     on screen, the same words a refusal from the database would produce,
+     instead of waiting on a reading that is never asked for (2026-11-26). */
+  const readingsDenied =
+    overviewDenied || (!access.loading && !access.error && !access.canControlClub);
 
   /* The freshness line is a relative time, so it has to be re-rendered by
      something other than the next read or it silently ages on screen. */
@@ -185,7 +191,7 @@ export default function ClubOperationsPage() {
             type="button"
             className={styles.refresh}
             onClick={refresh}
-            disabled={overviewLoading || overviewDenied || !clubUUID}
+            disabled={overviewLoading || readingsDenied || !clubUUID}
             aria-label="Refresh Club Readings"
           >
             {overviewLoading ? 'Reading' : 'Refresh'}
@@ -193,7 +199,7 @@ export default function ClubOperationsPage() {
           <span className={styles.freshnessNote} role="status">
             {freshnessLabel({
               error: !!overviewError,
-              denied: overviewDenied,
+              denied: readingsDenied,
               loading: overviewLoading,
               refreshedAt,
               now: tick,
