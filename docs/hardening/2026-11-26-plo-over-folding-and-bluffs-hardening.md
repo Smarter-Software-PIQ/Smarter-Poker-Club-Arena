@@ -103,6 +103,7 @@ tournaments are untouched.
   cells it already served are byte-identical.
 - **Lesson:** confirm which switch is live, and split the audit by the switch periods, before attributing a rate to
   an option.
+- **Probe harness null drift (2026-11-27):** the scripted probe (`flop-pp/src/gradeF.mts` and its copies) differs between two identical worlds (no-op -0.77 +/- 1.56 and -0.65 +/- 1.69 bb/100). Each world's memory drifts once any result differs, and the OFF world reads the shared bet-read store one deal ahead. The fix is the forked harness (`l8-of-flop/src/forkF.mts`): the OFF world plays each deal first, from a copy of the ON world's memory (no-op +0.03 +/- 0.10). Grades run tonight on the old harness are noisier than their SE says.
 
 ## Release Discipline For All Of The Above
 

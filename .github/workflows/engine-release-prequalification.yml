@@ -47,6 +47,9 @@ jobs:
         working-directory: server
         env:
           RELEASE_TEST_SHARD: ${{ matrix.shard }}
+          # npm run build is a full tsc over server/src: over Node's default heap on this runner since 2026-11-27
+          # (4,314 MB on main 84749b1c). tests/a-full-server-typecheck-gets-the-heap-it-needs.law.test.ts
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           set -euo pipefail
           [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
