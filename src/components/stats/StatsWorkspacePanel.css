@@ -68,6 +68,18 @@
   font-size: 0.85rem;
   font-weight: 700;
   text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.stats-workspace__word-action:active {
+  transform: translateY(1px);
+  filter: brightness(1.15);
+}
+
+.stats-workspace__word-action:focus-visible {
+  outline: 2px solid #56d8ff;
+  outline-offset: 2px;
 }
 
 .stats-workspace__sr {

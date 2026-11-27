@@ -23,6 +23,12 @@ import {
   SUPERSEDED_STEP,
   // @ts-expect-error untyped CI module
 } from '../../scripts/ci/certification-failure-streak.mjs';
+import {
+  assertReceiptOrigins,
+  retainedRuntimeSupersededBy,
+  // @ts-expect-error untyped CI module
+} from '../../scripts/ci/client-runtime-retention.mjs';
+import { createHash } from 'node:crypto';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 type Step = { name?: string; run?: string; if?: string; env?: Record<string, string> };
@@ -418,6 +424,114 @@ describe('a newer publish is not a failed certificate (2026-11-25)', () => {
     expect(certify.outputs?.superseded).toBe('${{ steps.live.outputs.superseded }}');
     expect(wf.jobs['certification-verdict'].if).toContain(
       "needs.certify.outputs.superseded != 'true'"
+    );
+  });
+});
+
+/* A RETAINED RUNTIME A NEWER PUBLISH REPLACED IS NOT RED (2026-11-26).
+   Runs 45758383418, 45770507484 (wait step, `harness`) and 45774223349,
+   45892509266 (Resolve step, `receive`) failed with "The actual origin no
+   longer serves retained runtime ..." although both endpoints already served a
+   protected-main descendant of it (8db042af -> a5e97180, abf538c6 -> 14bd55d8,
+   73243beb -> cc88b0de, 2238a163 -> ffbc3e3d): the retained-runtime check ran
+   before the wait's supersede rule. It now stands down the same way. */
+describe('a retained runtime replaced by a newer main publish stands down as superseded', () => {
+  const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const info = (sha: string, run: string) =>
+    Buffer.from(JSON.stringify({ ca_sha: sha, run_id: run, built_by: 'publish-club-arena.yml' }));
+  const manifest = Buffer.from('retained manifest');
+  const retained = info('8'.repeat(40), '45755697806');
+  const receipt = {
+    runtimeSha: '8'.repeat(40),
+    verificationSha: 'c'.repeat(40),
+    originalPublisherRunId: '45755697806',
+    buildInfoSHA256: sha256(retained),
+    manifestSHA256: sha256(manifest),
+  };
+  const movedTo = (a: Buffer, b: Buffer) => {
+    try {
+      assertReceiptOrigins(receipt, [a, b], [Buffer.from('newer'), Buffer.from('newer')]);
+    } catch (error) {
+      return error;
+    }
+    throw new Error('origin did not move');
+  };
+  const newer = 'a'.repeat(40);
+  const onMainAbove = (ancestor: string, descendant: string) =>
+    descendant === newer && [receipt.runtimeSha, receipt.verificationSha].includes(ancestor);
+
+  it('both endpoints on one main descendant of the runtime and its source: superseded by it', () => {
+    const error = movedTo(info(newer, '45757794102'), info(newer, '45757794102'));
+    expect(retainedRuntimeSupersededBy(error, receipt, onMainAbove)).toBe(newer);
+  });
+
+  it('endpoints that disagree, one endpoint still on the runtime, or garbage: still a failure', () => {
+    const other = 'b'.repeat(40);
+    expect(
+      retainedRuntimeSupersededBy(movedTo(info(newer, '1'), info(other, '2')), receipt, () => true)
+    ).toBeNull();
+    expect(
+      retainedRuntimeSupersededBy(movedTo(info(newer, '1'), retained), receipt, () => true)
+    ).toBeNull();
+    expect(
+      retainedRuntimeSupersededBy(
+        movedTo(Buffer.from('{}'), Buffer.from('{}')),
+        receipt,
+        () => true
+      )
+    ).toBeNull();
+  });
+
+  it('a revision that is not a main descendant of BOTH the runtime and its source: still a failure', () => {
+    const error = movedTo(info(newer, '1'), info(newer, '1'));
+    expect(retainedRuntimeSupersededBy(error, receipt, () => false)).toBeNull();
+    expect(
+      retainedRuntimeSupersededBy(error, receipt, (a: string) => a === receipt.runtimeSha)
+    ).toBeNull();
+    expect(
+      retainedRuntimeSupersededBy(error, receipt, (a: string) => a === receipt.verificationSha)
+    ).toBeNull();
+  });
+
+  it('any other receipt failure is never called superseded', () => {
+    expect(
+      retainedRuntimeSupersededBy(
+        new Error('The complete client backlog differs from its receipt.'),
+        receipt,
+        () => true
+      )
+    ).toBeNull();
+  });
+
+  it('the retention script stands down only when the caller opts in', () => {
+    const body = readFileSync(
+      join(process.cwd(), 'scripts/ci/client-runtime-retention.mjs'),
+      'utf8'
+    );
+    expect(body).toContain("process.env.RETAINED_RUNTIME_SUPERSEDE !== 'stand-down'");
+    expect(body.match(/await requireCurrentOrSuperseded\(receipt\)/g)?.length).toBe(2);
+    // Other workflows that receive or harness a retained runtime keep the strict refusal.
+    for (const file of readdirSync(DIR).filter((f) => f !== 'club-create-certification.yml'))
+      expect(readFileSync(join(DIR, file), 'utf8'), file).not.toContain(
+        'RETAINED_RUNTIME_SUPERSEDE'
+      );
+  });
+
+  it('club-create-certification.yml opts in on Resolve and the wait, and carries a Resolve stand-down', () => {
+    const wf = parse(readFileSync(join(DIR, 'club-create-certification.yml'), 'utf8')) as Workflow;
+    const steps = (wf.jobs?.certify.steps || []) as (Step & { id?: string })[];
+    const resolve = steps.find((step) => step.id === 'published') as Step;
+    const wait = steps.find((step) => step.id === 'live') as Step;
+    expect(resolve.env?.RETAINED_RUNTIME_SUPERSEDE).toBe('stand-down');
+    expect(wait.env?.RETAINED_RUNTIME_SUPERSEDE).toBe('stand-down');
+    expect(resolve.run).toContain('client-runtime-retention.mjs receive');
+    const run = wait.run || '';
+    const standDown = run.indexOf("'${{ steps.published.outputs.superseded }}' = 'true'");
+    expect(standDown).toBeGreaterThan(-1);
+    expect(standDown).toBeLessThan(run.indexOf('client-runtime-retention.mjs harness'));
+    expect(run).toContain('echo "superseded_by=${{ steps.published.outputs.superseded_by }}"');
+    expect(run).toMatch(
+      /harness[^\n]*\n\s*if grep -qx 'superseded=true' "\$GITHUB_OUTPUT"; then exit 0; fi/
     );
   });
 });

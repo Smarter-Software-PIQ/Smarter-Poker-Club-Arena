@@ -3,7 +3,7 @@
  *
  * SCOPE, DELIBERATELY: this lives next to the stats components rather than in
  * `src/lib/`. A global animations module used to exist and was deleted on
- * 2026-08-19 in favour of framer-motion (see the note in src/lib/index.ts) —
+ * 2026-08-19 in favour of framer-motion (lib/animations.ts had no importers) —
  * resurrecting one under a new name would walk straight back into the thing
  * that was just removed. If a second page ever wants these, promote them then,
  * on purpose.

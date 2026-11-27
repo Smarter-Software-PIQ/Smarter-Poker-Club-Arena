@@ -1217,3 +1217,38 @@
   -webkit-text-fill-color: #8dd7ff;
   text-shadow: 0 1px 2px #020811;
 }
+
+[role='dialog'] .hdm-panel .hdm-actions > button.hdm-actions__analyze {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  height: auto;
+  aspect-ratio: auto;
+  padding: 0 14px;
+  border: 1px solid #56d8ff !important;
+  border-top-color: #b3eaff !important;
+  border-radius: 6px !important;
+  background: linear-gradient(180deg, #152639 0%, #06111e 65%) !important;
+  background-image: linear-gradient(180deg, #152639 0%, #06111e 65%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(179, 234, 255, 0.28),
+    0 0 0 1px rgba(8, 124, 250, 0.35) !important;
+  color: #b3eaff !important;
+  font:
+    700 clamp(12px, 2.8cqw, 14px) 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+[role='dialog'] .hdm-panel .hdm-actions > button.hdm-actions__analyze:active {
+  transform: translateY(1px);
+  filter: brightness(1.12);
+}
+
+[role='dialog'] .hdm-panel .hdm-actions > button.hdm-actions__analyze:focus-visible {
+  outline: 2px solid #56d8ff;
+  outline-offset: 2px;
+}
