@@ -86,6 +86,11 @@ const PRESUME_ROSTER =
   'humanUserIds (Dan 2026-10-25, "TAG THEM ALL FROM THE START, UNLESS OTHERWISE PROVEN DIFFERENTLY", PLO only) hands the horse brain the roster of seats a person plays, so presumedAggressorRead can read each PERSON as an aggressive raiser until their own hands prove otherwise. It is IDENTIFICATION passed as data to the brain\'s opponent read: no horse is denied, paid, timed or treated differently by it, and it is recorded as the owner exception in CLAUDE.md 10.5. See docs/changelog/2026-10-25-plo-every-person-is-an-aggressive-raiser-until-proven-otherwise.md.';
 
 const REGISTER = {
+  'server/src/engine/anOmahaFacingBetPriorIsPeopleMeasured.law.test.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: "The law of omahaFacingBetPriorIsPeopleMeasured (2026-11-26) checks that the generated PLO4/PLO5 facing-bet population is fitted on PEOPLE's play only (owner order 2026-11-26: \"the stats need to be used against human players, not horses\"): it reads the fit script's filter text. The filter chooses whose hands a population statistic is measured from; every bettor, person or Horse, is priced by the same function, and no horse is seated, paid, timed or denied anything by it. It is a test: it decides nothing.",
+  },
   'server/src/engine/anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts': {
     allowed: 1,
     kind: 'EQUAL OUTCOME',

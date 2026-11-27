@@ -13,6 +13,17 @@ export async function expectStatsPanelLayout(panel: Locator) {
     for (const track of root.querySelectorAll<HTMLElement>(
       '.stats-data-table__scroll, .stats-club-table-wrap, .heatmap-scroll'
     )) {
+      if (track.matches('.heatmap-scroll') && track.clientWidth) {
+        const grid = track.querySelector('[role="grid"]')?.getBoundingClientRect();
+        const row = track.querySelector('[role="row"]');
+        if (grid && row) {
+          const cells = Array.from(row.querySelectorAll('[role="gridcell"]'));
+          const last = cells.at(-1)?.getBoundingClientRect();
+          if (last && last.right > grid.right + 0.5) {
+            issues.push('The last hand-class control extends beyond its grid');
+          }
+        }
+      }
       if (track.clientWidth && track.scrollWidth > track.clientWidth + 1) {
         issues.push(
           `${track.className} needs ${track.scrollWidth - track.clientWidth}px of sideways scrolling`

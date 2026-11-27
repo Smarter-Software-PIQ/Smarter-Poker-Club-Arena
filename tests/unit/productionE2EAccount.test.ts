@@ -25,6 +25,7 @@ import {
   RABBIT_HUNT_CLUB_NAME_PREFIX,
   STALE_RESIDUE_SWEEP_HINT,
   participantOfRetiredFixtureHistory,
+  provenPlayerOfRetiredFixtureHistory,
 } from '../../scripts/ci/production-e2e-account.mjs';
 
 const USER_ID = '00000000-0000-4000-8000-000000000099';
@@ -2084,6 +2085,9 @@ describe('a certification fixture that leaked must not wedge the next certificat
         'clubs-read',
         'retire',
         'clubs-read',
+        // provenPlayerOfRetiredFixtureHistory reads ownership before the door
+        // (2026-11-26); an owner is no player of record, so the door decides.
+        'clubs-read',
         'account-sweep',
       ]);
       expect(model.retireBodies).toEqual([
@@ -3153,18 +3157,66 @@ describe("the stale sweep keeps a player of a retired fixture's finished game (2
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const run = sweep(terminal());
     await expect(run.outcome).resolves.toBe(0);
-    // The door is still asked first: the keeping is its refusal plus the proof.
-    expect(run.doors).toHaveLength(1);
+    // A DOOR THAT CAN ONLY REFUSE IS NOT ASKED (2026-11-26): the proof runs
+    // first, and a proven player is kept without sending the refused call.
+    expect(run.doors).toHaveLength(0);
     expect(log.mock.calls.flat().join('\n')).toContain(
       `kept stale identity ${player.id} as a player of record of retired fixture(s) ${HU}`
     );
   });
 
+  it('a kept player is never sent to the door on any later run either', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    for (let run = 0; run < 3; run += 1) {
+      const swept = sweep(terminal());
+      await expect(swept.outcome).resolves.toBe(0);
+      expect(swept.doors).toHaveLength(0);
+    }
+  });
+
+  it('a proof that cannot be read first leaves the door to decide', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const built = build(terminal());
+    let walletReads = 0;
+    const flaky = vi.fn(async (input: string | URL | Request) => {
+      if (decodeURIComponent(String(input)).includes('/rest/v1/wallets?') && walletReads++ === 0)
+        return new Response('{"message":"upstream timeout"}', { status: 504 });
+      return built.fetchImpl(input);
+    });
+    await expect(
+      cleanupStaleProductionE2EAccounts({
+        environment: {
+          ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+          DATABASE_URL: 'postgres://synthetic',
+        },
+        fetchImpl: flaky as typeof fetch,
+        now: NOW,
+        wait: vi.fn().mockResolvedValue(undefined),
+        databaseClientFactory: async () => ({
+          query: vi.fn(async () => ({ rows: [] })),
+          connect: vi.fn(),
+          end: vi.fn(),
+        }),
+      })
+    ).resolves.toBe(0);
+    // The first proof failed, so the door was asked once; its refusal plus the
+    // second proof keep the identity exactly as before.
+    expect(built.doors).toHaveLength(1);
+  });
+
+  it('the row proof stands without a refusal to start from', async () => {
+    const built = build(terminal());
+    await expect(
+      provenPlayerOfRetiredFixtureHistory({
+        environment: environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+        fetchImpl: built.fetchImpl as typeof fetch,
+        account: player,
+      })
+    ).resolves.toEqual([HU]);
+    expect(built.doors).toHaveLength(0);
+  });
+
   const refusedWhen: [string, (world: World) => void][] = [
-    [
-      'the door refused for another reason',
-      (w) => (w.refusal = 'CERTIFICATION_RETIREMENT_PROFILE_REFUSED'),
-    ],
     ['it owns a club', (w) => (w.owned = [{ id: HU }])],
     ['it is an agent', (w) => (w.agents = [{ user_id: player.id }])],
     ['it has no membership at all', (w) => (w.memberships = [])],
@@ -3221,6 +3273,19 @@ describe("the stale sweep keeps a player of a retired fixture's finished game (2
     ).rejects.toThrow(REFUSAL);
   });
 
+  it('the refusal-led wrapper keeps nothing for a refusal other than authority or custody', async () => {
+    const built = build(terminal());
+    await expect(
+      participantOfRetiredFixtureHistory({
+        environment: environment(mkdtempSync(join(tmpdir(), 'production-e2e-hu-player-'))),
+        fetchImpl: built.fetchImpl as typeof fetch,
+        account: player,
+        error: new Error('CERTIFICATION_RETIREMENT_PROFILE_REFUSED'),
+      })
+    ).resolves.toBeNull();
+    expect(built.fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('is never asked about an identity outside the reserved namespace', async () => {
     const built = build(terminal());
     await expect(
@@ -3241,5 +3306,11 @@ describe("the stale sweep keeps a player of a retired fixture's finished game (2
     );
     expect(source).toContain('participantOfRetiredFixtureHistory({');
     expect(source).toContain('kept as a player of record of retired club');
+    // The proof runs before the door, so the door is never asked about a
+    // player of the completed match (2026-11-26).
+    const proof = source.indexOf('provenPlayerOfRetiredFixtureHistory({');
+    const door = source.indexOf('await cleanupProductionE2EAccount({');
+    expect(proof).toBeGreaterThan(-1);
+    expect(door).toBeGreaterThan(proof);
   });
 });

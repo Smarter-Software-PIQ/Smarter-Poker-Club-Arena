@@ -299,6 +299,34 @@ describe('a newer publish is not a failed certificate (2026-11-25)', () => {
     expect(certificateConclusion({ jobs: [superseded] }, 'certify')).toBeNull();
   });
 
+  it('a GREEN run in which the superseded step ran is no verdict, so it cannot break a streak', () => {
+    const green = {
+      name: 'certify',
+      conclusion: 'success',
+      steps: [
+        { name: 'Wait For This Exact Revision On Both Public Endpoints', conclusion: 'success' },
+        { name: SUPERSEDED_STEP, conclusion: 'success' },
+        { name: 'Certify Authenticated Club Creation And Cleanup', conclusion: 'skipped' },
+      ],
+    };
+    expect(certificateConclusion({ jobs: [green] }, 'certify')).toBeNull();
+    // A real pass (the superseded step skipped) is still a pass.
+    expect(
+      certificateConclusion(
+        {
+          jobs: [
+            {
+              name: 'certify',
+              conclusion: 'success',
+              steps: [{ name: SUPERSEDED_STEP, conclusion: 'skipped' }],
+            },
+          ],
+        },
+        'certify'
+      )
+    ).toBe('success');
+  });
+
   it('every other failure is still a failure, whatever else was skipped', () => {
     expect(
       certificateConclusion(
@@ -373,7 +401,14 @@ describe('a newer publish is not a failed certificate (2026-11-25)', () => {
 
     const stop = steps.find((step) => step.name === SUPERSEDED_STEP) as Step;
     expect(stop.if).toBe("steps.live.outputs.superseded == 'true'");
-    expect(stop.run).toContain('exit 1');
+    // Not red (2026-11-26): it ends green and every fixture step is skipped.
+    expect(stop.run).not.toMatch(/exit [1-9]/);
+    const fixtureSteps = steps
+      .slice(names.indexOf(SUPERSEDED_STEP) + 1)
+      .filter((step) => !String(step.if || '').includes('always()'));
+    expect(fixtureSteps.length).toBeGreaterThanOrEqual(4);
+    for (const step of fixtureSteps)
+      expect(step.if, step.name).toBe("steps.live.outputs.superseded != 'true'");
     // It stops the run before the first fixture, account or club is created.
     expect(names.indexOf(SUPERSEDED_STEP)).toBe(names.indexOf(wait.name) + 1);
     expect(names.indexOf(SUPERSEDED_STEP)).toBeLessThan(

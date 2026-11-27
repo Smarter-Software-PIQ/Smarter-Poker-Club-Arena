@@ -580,6 +580,29 @@ gh() {
       expect(r.out).not.toContain('acquired=1');
       expect(r.calls).not.toContain('/statuses/');
     });
+    // O27 (2026-11-26, run 45883490551): a keep-serving next-candidate run
+    // certifies main for the next cycle exactly like a post-seal run, so it
+    // yields to a newer push run the same way instead of waiting out the
+    // 120-minute ceiling and ending red with an `error` status.
+    it('a waiting keep-serving run yields to a newer active push run without the lease or a status', () => {
+      const r = runTurn({ EVENT: 'workflow_dispatch', POST_SEAL: '', KEEP_SERVING: '1' });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('SUPERSEDED: 1 newer active push run(s)');
+      expect(r.out).toContain('superseded=1');
+      expect(r.out).not.toContain('acquired=1');
+      expect(r.calls).not.toContain('/statuses/');
+    });
+    it('a manual dispatch without after_cycle still waits for its turn', () => {
+      const r = runTurn({ EVENT: 'workflow_dispatch', POST_SEAL: '', KEEP_SERVING: '' });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.out).toContain('acquired=1');
+      expect(r.stdout).not.toContain('SUPERSEDED');
+    });
+    it('KEEP_SERVING is set only for a workflow_dispatch with after_cycle and no sha, on both gated steps', () => {
+      const expr = "${{ github.event_name == 'workflow_dispatch' && inputs.after_cycle != '' && inputs.sha == '' && '1' || '' }}";
+      expect(turn.env.KEEP_SERVING).toBe(expr);
+      expect(certify.env.KEEP_SERVING).toBe(expr);
+    });
     it.each([
       ['the sealed-build fallback', { POST_SEAL: '' }],
       ["tonight's freeze baseline", { POST_SEAL: '', FREEZE_BASELINE: '1' }],
@@ -591,7 +614,7 @@ gh() {
     });
     it('the mid-soak yield (O1/O16) judges a next-candidate run by the push rule', () => {
       const gate =
-        'if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then';
+        'if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then';
       expect(run(certify)).toContain(gate + '\n  while kill -0 "$ssh_pid" 2>/dev/null; do');
       expect(run(turn)).toContain(gate);
     });

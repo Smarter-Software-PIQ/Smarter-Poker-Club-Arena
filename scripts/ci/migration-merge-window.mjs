@@ -26,8 +26,9 @@
  * repository (2026-11-26: an hourly audit ran 4 times in 29 hours), so no
  * window depends on it. Every run that finds a window open, or opening within
  * 25 minutes, HOLDS it: it re-sweeps every minute and closes it itself when it
- * ends. Any pull request event (push, label, edit) runs that hold for its own
- * pull request; `gh workflow run migration-merge-window.yml -f mode=keep`
+ * ends. Every push to main (merges land many times an hour) holds every pull
+ * request when a window is near (pushAction). Any pull request event (push,
+ * label, edit) holds its own pull request; `gh workflow run migration-merge-window.yml -f mode=keep`
  * holds it for all of them, and the failure text says so. The :10 keeper and
  * :40 sweep remain as best-effort backstops. A status this cannot compute (a
  * file it cannot read) is failure: it fails closed.
@@ -79,6 +80,25 @@ export function mergeWindowCloses(nowMs, cadence) {
   let t = Math.floor(nowMs / MINUTE) * MINUTE;
   while (mergeWindowOpen(t + MINUTE, cadence)) t += MINUTE;
   return t + MINUTE;
+}
+
+export const RECENT_CLOSE_MINUTES = 15;
+
+/**
+ * What a push to main does (2026-11-26). Merges land many times an hour, so a
+ * push is the one event that reliably arrives near every window: 'keep' when a
+ * window is open or opens within the keeper horizon; 'sweep' when one closed in
+ * the last RECENT_CLOSE_MINUTES (a newer push may have cancelled the keeper
+ * that was about to close it); otherwise 'none', and the run ends in seconds.
+ */
+export function pushAction(nowMs, cadence) {
+  const next = nextMergeWindow(nowMs, cadence);
+  if (next !== null && next - nowMs <= KEEPER_HORIZON_MINUTES * MINUTE) return 'keep';
+  const start = Math.floor(nowMs / MINUTE) * MINUTE;
+  for (let t = start - RECENT_CLOSE_MINUTES * MINUTE; t < start; t += MINUTE) {
+    if (mergeWindowOpen(t, cadence)) return 'sweep';
+  }
+  return 'none';
 }
 
 /** The written outage justification, when the label and a long enough body line are both present. */
@@ -274,6 +294,13 @@ async function main(argv) {
     sweep({ repo, number, targetUrl });
     return;
   }
+  if (mode === 'on-push') {
+    const action = pushAction(Date.now(), declaredCutoverCadence());
+    console.log(`push: ${action}`);
+    if (action === 'keep') await keep({ repo, targetUrl });
+    if (action === 'sweep') sweep({ repo, targetUrl });
+    return;
+  }
   if (mode === 'keep') {
     const i = rest.indexOf('--pr');
     const number = i >= 0 ? Number(rest[i + 1]) : null;
@@ -281,7 +308,7 @@ async function main(argv) {
     await keep({ repo, number, targetUrl });
     return;
   }
-  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N]');
+  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N] | on-push');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
