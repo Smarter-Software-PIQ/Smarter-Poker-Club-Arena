@@ -188,13 +188,17 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
-  omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
+  omahaPeoplePriorCountsHiddenBets: Object.freeze({
     games: Object.freeze([4, 5] as const),
-    streets: Object.freeze(['turn']),
+    streets: Object.freeze(['flop', 'turn']),
   }),
   omahaMultiwayCallNeedsNutShare: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
   }),
   omahaMultiwayValueBetIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),

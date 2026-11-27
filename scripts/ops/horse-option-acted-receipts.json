@@ -1246,7 +1246,7 @@
     "omahaFlopPressureCapIsPriced": {
       "releaseDefault": "off",
       "source": "declared",
-      "keys": [],
+      "keys": ["omaha_hidden_bets_prior_read"],
       "prefixes": ["omaha_flop_pressure_cap_priced"],
       "unlessOn": []
     },
@@ -1255,6 +1255,13 @@
       "source": "declared",
       "keys": [],
       "prefixes": ["omaha_people_prior_"],
+      "unlessOn": []
+    },
+    "omahaPeoplePriorCountsHiddenBets": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_hidden_bets_prior_"],
       "unlessOn": []
     },
     "omahaMultiwayFieldIsPeopleMeasured": {

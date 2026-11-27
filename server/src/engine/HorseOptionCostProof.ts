@@ -54,11 +54,13 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the people-measured multiway field inside the facing-bet price (2026-11-27): two cell lookups, one more top-share
   // count and, with telemetry on, the second verdict that names omaha_mw_people_field_changed
   omahaMultiwayFieldIsPeopleMeasured: 'engine/anOmahaMultiwayPeopleFieldIsFast.law.test.ts',
+  // the hidden-bet people cells (2026-11-27): one keyed lookup and one preflop / flop history scan where it prices
+  omahaPeoplePriorCountsHiddenBets: 'engine/anOmahaPeoplePriorHiddenIsFast.law.test.ts',
+  // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
+  omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
   // the line-split turn prior inside the facing-bet price (2026-11-27): one line scan, one cell lookup and, with
   // telemetry on, the second verdict that names omaha_turn_line_prior_changed
   omahaTurnFacingBetPriorIsLineSplit: 'engine/anOmahaTurnLinePriorIsFast.law.test.ts',
-  // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
-  omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
   // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)
   omahaMultiwayValueBetIsPriced: 'engine/anOmahaMultiwayValueBetIsFast.law.test.ts',
   // the PLO re-raised pot price (id samplers, #12081)
