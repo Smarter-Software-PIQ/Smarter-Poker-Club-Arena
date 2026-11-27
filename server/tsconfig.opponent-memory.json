@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": ".", "noEmit": true },
-  "include": ["tests/HorseOpponentMemory.postgres.test.ts"]
+  "include": ["src/**/*", "tests/HorseOpponentMemory.postgres.test.ts"]
 }
