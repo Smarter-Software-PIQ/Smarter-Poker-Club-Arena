@@ -57,6 +57,7 @@ import { hasShareSheet, shareLink } from '../../lib/share';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
+import LogThisHandControl from '../handdetail/LogThisHandControl';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
 import {
@@ -1277,6 +1278,7 @@ export function HandDetailModal({
               </button>
             )}
           </div>
+          <LogThisHandControl handId={hand.id} accountId={heroId} />
           {/* The sender's own view of a hand they sent: how many people opened
               it, and the way to take it back. A stopped link opens nothing;
               the next Link or Share makes a new one. */}
