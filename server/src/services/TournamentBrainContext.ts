@@ -1260,6 +1260,11 @@ interface CacheEntry {
   generation: number;
   /** Consecutive refreshes that timed out; reset by a published context. */
   timeoutStreak?: number;
+  /** Cached tournament format flags used to skip irrelevant side-table reads on repeat refreshes. */
+  knownFormat?: {
+    isMysteryBounty: boolean;
+    isSatellite: boolean;
+  };
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -1642,6 +1647,18 @@ async function readTournamentFunding(
   return { complete: true, rebuyAffordableByUser, addOnAffordableByUser };
 }
 
+function tournamentNeedsChestInventory(row: TournamentRowLite): boolean {
+  return row.is_mystery_bounty === true;
+}
+
+function tournamentNeedsSatelliteEntitlements(row: TournamentRowLite): boolean {
+  const type = String(row.tournament_type ?? '').toUpperCase();
+  const variant = String(row.variant ?? '').toLowerCase();
+  const configuredSeats = Math.max(0, Math.floor(Number(row.satellite_seats) || 0));
+  const hasTarget = !!(row.satellite_target_id || row.satellite_target);
+  return configuredSeats > 0 || hasTarget || variant === 'satellite' || type === 'SATELLITE';
+}
+
 /** Complete, counted keyset reads share the owning refresh deadline and generation. */
 async function readTournamentContextRows<T>(
   tournamentId: string,
@@ -1650,62 +1667,70 @@ async function readTournamentContextRows<T>(
   idKey: 'id' | 'position',
   shouldContinue: () => boolean
 ): Promise<{ data: T[] | null; error: { message: string } | null }> {
-  let expected: number | null = null;
-  const seen = new Set<string>();
   const failure = { message: `${relation} inventory is incomplete` };
-  const result = await fetchAllRows<Record<string, unknown>>(
-    async (cursor, limit) => {
-      let query = supabase
-        .from(relation)
-        .select(`${idKey}, ${columns}`, { count: 'exact' })
-        .eq('tournament_id', tournamentId)
-        .order(idKey, { ascending: true })
-        .limit(limit);
-      if (cursor !== null) query = query.gt(idKey, cursor);
-      const { data: responseData, error, count } = await query;
-      // Dynamic projections are runtime-validated below; the query type parser cannot infer them.
-      const data = responseData as unknown as Record<string, unknown>[] | null;
-      if (
-        error ||
-        !Array.isArray(data) ||
-        typeof count !== 'number' ||
-        !Number.isSafeInteger(count) ||
-        count < 0 ||
-        (expected !== null && count !== expected - seen.size) ||
-        data.length !== Math.min(limit, count)
-      ) {
-        return { data: null, error: error ?? failure };
-      }
-      expected ??= count;
-      let previous = cursor;
-      for (const row of data) {
-        const key = row[idKey];
+  // A live mystery bounty chest opening or late registration between two pages
+  // shifts exact count mid-pagination. Retry the full keyset pass once while
+  // the owning refresh is still active, staying 100% fail-closed if the second
+  // pass is also inconsistent or fails.
+  for (let fullAttempt = 1; fullAttempt <= 2; fullAttempt++) {
+    if (!shouldContinue()) break;
+    let expected: number | null = null;
+    const seen = new Set<string>();
+    const result = await fetchAllRows<Record<string, unknown>>(
+      async (cursor, limit) => {
+        let query = supabase
+          .from(relation)
+          .select(`${idKey}, ${columns}`, { count: 'exact' })
+          .eq('tournament_id', tournamentId)
+          .order(idKey, { ascending: true })
+          .limit(limit);
+        if (cursor !== null) query = query.gt(idKey, cursor);
+        const { data: responseData, error, count } = await query;
+        // Dynamic projections are runtime-validated below; the query type parser cannot infer them.
+        const data = responseData as unknown as Record<string, unknown>[] | null;
         if (
-          (idKey === 'position'
-            ? !Number.isSafeInteger(key) || Number(key) < 1
-            : typeof key !== 'string' || !key) ||
-          seen.has(String(key)) ||
-          (previous !== null &&
-            (idKey === 'position' ? Number(key) <= Number(previous) : String(key) <= previous))
+          error ||
+          !Array.isArray(data) ||
+          typeof count !== 'number' ||
+          !Number.isSafeInteger(count) ||
+          count < 0 ||
+          (expected !== null && count !== expected - seen.size) ||
+          data.length !== Math.min(limit, count)
         ) {
-          return { data: null, error: failure };
+          return { data: null, error: error ?? failure };
         }
-        previous = String(key);
-        seen.add(previous);
+        expected ??= count;
+        let previous = cursor;
+        for (const row of data) {
+          const key = row[idKey];
+          if (
+            (idKey === 'position'
+              ? !Number.isSafeInteger(key) || Number(key) < 1
+              : typeof key !== 'string' || !key) ||
+            seen.has(String(key)) ||
+            (previous !== null &&
+              (idKey === 'position' ? Number(key) <= Number(previous) : String(key) <= previous))
+          ) {
+            return { data: null, error: failure };
+          }
+          previous = String(key);
+          seen.add(previous);
+        }
+        return { data, error: null };
+      },
+      {
+        label: `TournamentBrainContext.${relation}`,
+        idKey,
+        pageAttempts: 1,
+        maxRows: Number.MAX_SAFE_INTEGER,
+        shouldContinue,
       }
-      return { data, error: null };
-    },
-    {
-      label: `TournamentBrainContext.${relation}`,
-      idKey,
-      pageAttempts: 1,
-      maxRows: Number.MAX_SAFE_INTEGER,
-      shouldContinue,
+    );
+    if (result.complete && result.rows.length === expected) {
+      return { data: result.rows as T[], error: null };
     }
-  );
-  return result.complete && result.rows.length === expected
-    ? { data: result.rows as T[], error: null }
-    : { data: null, error: failure };
+  }
+  return { data: null, error: failure };
 }
 
 // Read-only horse ICM/field context refreshes are observe-only background reads
@@ -1732,6 +1757,11 @@ async function refresh(
     // but it must not discard a fresh field/payout/blind snapshot and thereby
     // disable every unrelated tournament layer. Generation fencing prevents
     // either timed-out request from publishing over a newer refresh.
+    // On repeat refreshes where format is already known, skip mystery-chest and
+    // satellite-entitlement side-table reads for non-mystery/non-satellite MTTs,
+    // with a fail-closed fallback below if the tournament row reports otherwise.
+    const readChests = !e.knownFormat || e.knownFormat.isMysteryBounty;
+    const readSatellites = !e.knownFormat || e.knownFormat.isSatellite;
     const [tRes, pRes, cRes, entitlementRes] = await withRefreshTimeout(
       Promise.all([
         supabase
@@ -1748,20 +1778,24 @@ async function refresh(
           'id',
           () => ownsEntry() && e.inFlight
         ),
-        readTournamentContextRows<ChestRow>(
-          tournamentId,
-          'tournament_bounty_chests',
-          'status, amount_cents',
-          'id',
-          () => ownsEntry() && e.inFlight
-        ),
-        readTournamentContextRows<SatelliteEntitlementRow>(
-          tournamentId,
-          'tournament_satellite_entitlements',
-          'award_kind, ticket_value, remainder_value',
-          'position',
-          () => ownsEntry() && e.inFlight
-        ),
+        readChests
+          ? readTournamentContextRows<ChestRow>(
+              tournamentId,
+              'tournament_bounty_chests',
+              'status, amount_cents',
+              'id',
+              () => ownsEntry() && e.inFlight
+            )
+          : Promise.resolve({ data: [] as ChestRow[], error: null }),
+        readSatellites
+          ? readTournamentContextRows<SatelliteEntitlementRow>(
+              tournamentId,
+              'tournament_satellite_entitlements',
+              'award_kind, ticket_value, remainder_value',
+              'position',
+              () => ownsEntry() && e.inFlight
+            )
+          : Promise.resolve({ data: [] as SatelliteEntitlementRow[], error: null }),
       ])
     );
 
@@ -1774,6 +1808,48 @@ async function refresh(
       );
       publishFailure('tournament_context_missing');
       return;
+    }
+
+    const actualNeedsChests = tournamentNeedsChestInventory(tRes.data as TournamentRowLite);
+    const actualNeedsSatellites = tournamentNeedsSatelliteEntitlements(
+      tRes.data as TournamentRowLite
+    );
+    if (ownsEntry()) {
+      e.knownFormat = {
+        isMysteryBounty: actualNeedsChests,
+        isSatellite: actualNeedsSatellites,
+      };
+    }
+
+    let finalCRes = cRes;
+    let finalEntitlementRes = entitlementRes;
+    const missingChests = !readChests && actualNeedsChests;
+    const missingSatellites = !readSatellites && actualNeedsSatellites;
+    if (missingChests || missingSatellites) {
+      const [lateCRes, lateEntitlementRes] = await withRefreshTimeout(
+        Promise.all([
+          missingChests
+            ? readTournamentContextRows<ChestRow>(
+                tournamentId,
+                'tournament_bounty_chests',
+                'status, amount_cents',
+                'id',
+                () => ownsEntry() && e.inFlight
+              )
+            : Promise.resolve(finalCRes),
+          missingSatellites
+            ? readTournamentContextRows<SatelliteEntitlementRow>(
+                tournamentId,
+                'tournament_satellite_entitlements',
+                'award_kind, ticket_value, remainder_value',
+                'position',
+                () => ownsEntry() && e.inFlight
+              )
+            : Promise.resolve(finalEntitlementRes),
+        ])
+      );
+      finalCRes = lateCRes;
+      finalEntitlementRes = lateEntitlementRes;
     }
 
     const rows = (pRes.data ?? []) as TournamentPlayerContextRow[];
@@ -1809,22 +1885,22 @@ async function refresh(
     }
 
     const fidelity: TournamentContextFidelity = {
-      mysteryInventory: cRes?.error ? 'read_failed' : 'known',
-      satelliteEntitlements: entitlementRes?.error ? 'read_failed' : 'known',
-      entitlementRows: entitlementRes?.error
+      mysteryInventory: finalCRes?.error ? 'read_failed' : 'known',
+      satelliteEntitlements: finalEntitlementRes?.error ? 'read_failed' : 'known',
+      entitlementRows: finalEntitlementRes?.error
         ? []
-        : ((entitlementRes?.data ?? []) as SatelliteEntitlementRow[]),
+        : ((finalEntitlementRes?.data ?? []) as SatelliteEntitlementRow[]),
     };
-    const chestRows = cRes?.error ? [] : ((cRes?.data ?? []) as ChestRow[]);
-    if (cRes?.error) {
+    const chestRows = finalCRes?.error ? [] : ((finalCRes?.data ?? []) as ChestRow[]);
+    if (finalCRes?.error) {
       reportError(
-        new Error(`chest inventory read failed: ${cRes.error.message}`),
+        new Error(`chest inventory read failed: ${finalCRes.error.message}`),
         'TournamentBrainContext.chests_unavailable'
       );
     }
-    if (entitlementRes?.error) {
+    if (finalEntitlementRes?.error) {
       reportError(
-        new Error(`satellite entitlement read failed: ${entitlementRes.error.message}`),
+        new Error(`satellite entitlement read failed: ${finalEntitlementRes.error.message}`),
         'TournamentBrainContext.satellite_entitlements_unavailable'
       );
     }

@@ -42,6 +42,34 @@ const RUN_LINE_RE =
 export const RECEIPTS_START = '2026-11-27T02:30:00Z';
 export const ORPHAN_AGE_MS = 15 * 60_000;
 
+// HONEST LATENESS (2026-11-27). Stage posts its result at the cutoff and keeps running, so in practice the sweep
+// answers nearly every cycle, about 15 to 25 minutes after its result. Calling all of those "late" made the word
+// mean nothing: a reader who sees it every cycle stops reading it. A receipt is late only when it posts more than
+// RECEIPT_LATE_MS after the cycle result, the same 30 minutes after which a missing receipt is chased by hand.
+export const RECEIPT_LATE_MS = 30 * 60_000;
+// A check note is kept whole up to NOTE_MAX characters (a switch_records note names every drifted row and the
+// shadow row to wait for); past that it is cut at a word, never mid-word, and says it was cut.
+export const NOTE_MAX = 1200;
+
+/** Pure. A check note on one line, whole when it fits, else cut at a word boundary and marked as cut. */
+export function clipNote(note, max = NOTE_MAX) {
+  const text = String(note ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= max) return text;
+  const room = text.slice(0, max - ' ... (cut)'.length);
+  const at = room.lastIndexOf(' ');
+  return `${(at > 0 ? room.slice(0, at) : room).replace(/[\s,;:(]+$/, '')} ... (cut)`;
+}
+
+/** Pure. Whole minutes from the cycle result to the audit, or null when either time is unknown. */
+export function minutesAfterResult(resultAt, auditedAt) {
+  const from = Date.parse(resultAt ?? '');
+  const to = Date.parse(auditedAt ?? '');
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  return Math.round((to - from) / 60_000);
+}
+
 /** Pure. The run a cycle comment names on its "Receiver:" or "Stage:" line, or null. */
 export function cycleRunId(body) {
   return typeof body === 'string' && CYCLE_RE.test(body)
@@ -96,6 +124,8 @@ export function findCutoverComment(comments, runId) {
         result: m[2],
         sealedSha: sealed,
         expectSha: sealed ?? serving,
+        // When the cycle result was posted: how late the receipt is is measured from here.
+        postedAt: c.created_at ?? null,
       };
     }
   }
@@ -152,7 +182,7 @@ export function auditErrorReport(err, now) {
 export const RECORDS_REPAIR =
   'Records repair: node scripts/ops/horse-option-switch.mjs records (opens the docs-only records PR).';
 
-export function formatReceipt({ cycle, result, runId, report, late = false }) {
+export function formatReceipt({ cycle, result, runId, report, late = false, resultAt = null }) {
   const lines = [
     `${RECEIPT_PREFIX} for run ${runId} (cycle ${cycle}, ${result}): OVERALL ${report.overallStatus}`,
     `Audited release: \`${report.releaseSha ?? 'unknown'}\` at ${chicagoTime(report.auditedAt)}`,
@@ -160,13 +190,18 @@ export function formatReceipt({ cycle, result, runId, report, late = false }) {
   for (const check of report.checks ?? []) {
     const note = (check.failures ?? [])[0] ?? (check.warnings ?? [])[0] ?? '';
     lines.push(
-      `- ${check.name}: ${String(check.status).toUpperCase()}${note ? ` (${String(note).slice(0, 300)})` : ''}`
+      `- ${check.name}: ${String(check.status).toUpperCase()}${note ? ` (${clipNote(note)})` : ''}`
     );
   }
-  if (late) {
+  const mins = minutesAfterResult(resultAt, report.auditedAt);
+  if (late && (mins === null || mins * 60_000 > RECEIPT_LATE_MS)) {
     lines.push(
-      'Late receipt (the sweep): no receipt followed this cycle in time, so this audits production as it is now.'
+      mins === null
+        ? 'Late receipt (the sweep): no receipt followed this cycle in time, so this audits production as it is now.'
+        : `Late receipt (the sweep): posted ${mins} min after the cycle result, so this audits production as it is now.`
     );
+  } else if (late) {
+    lines.push(`Posted by the sweep ${mins} min after the cycle result (on time).`);
   }
   const records = (report.checks ?? []).find((c) => c.name === 'switch_records');
   if (records && records.status !== 'pass') lines.push(RECORDS_REPAIR);
@@ -276,7 +311,14 @@ async function main(argv) {
     // A crashed audit still answers the cycle, so the sweep never retries it on every Stage run.
     report = auditErrorReport(err, new Date());
   }
-  const body = formatReceipt({ cycle: cut.cycle, result: cut.result, runId, report, late });
+  const body = formatReceipt({
+    cycle: cut.cycle,
+    result: cut.result,
+    runId,
+    report,
+    late,
+    resultAt: cut.postedAt,
+  });
   process.stdout.write(body);
   if (!dryRun) {
     gh(
