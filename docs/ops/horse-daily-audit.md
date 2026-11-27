@@ -29,6 +29,10 @@ node scripts/ops/horse-daily-audit.mjs --plan [--until <ISO>]     # boundaries a
    - `horse-overfold-fix-validation.mjs --option <name> --until <until> --json` for every option of
      `horse-overfold-owner-map.json` whose switch is `on` (BEFORE vs AFTER its ON instant on the cells it owns:
      [horse-overfold-fix-validation.md](horse-overfold-fix-validation.md)); a REGRESSED cell is a breach-class regression.
+   - `horse-overfold-scoreboard.mjs --since <since> --until <until> --json` (the live over-fold board: PLO4/PLO5,
+     table and Lightning apart, facing a bet, raise or check-raise, facing people or Horses:
+     [horse-overfold-scoreboard.md](horse-overfold-scoreboard.md)); its person cells the alarm does not gate
+     (raises, check-raises, Lightning) are regressions; exit 2 = Horse-only board (information).
 3. Writes `<out-root>/<until as YYYY-MM-DD-HHMMZ>/`: `plan.json` (range, boundaries and why, commands), each tool's
    JSON output and `.err` log, the PLO CSVs, and `SUMMARY.md`.
 
