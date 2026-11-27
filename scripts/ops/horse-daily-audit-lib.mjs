@@ -9,10 +9,13 @@
 //   horse-exploit-report.mjs      (--gate regression split at every switch change and build boundary; at most 4
 //                                  splits a call, so more splits run as consecutive calls over overlapping ranges)
 //   person-vs-horse-results.mjs   (people's results, split at the same instants, at most 8 a call)
-//   horse-plo-overfold-gate.mjs   (PLO4/PLO5 heads-up turn/river folds facing a person's first bet, against the
-//                                  people-measured or break-even fold ceiling and the previous 3 days pooled)
+//   horse-plo-overfold-gate.mjs   (every over-fold cell: PLO4, PLO5, Hold'em cash and tournaments, flop/turn/river,
+//                                  heads-up and multiway, by size, facing a person's first bet, against the people
+//                                  prior, people's own folds or minimum defence; says if the cell's fix is ON)
+//   horse-overfold-fix-validation.mjs (one run per owner-map option whose switch is ON: BEFORE vs AFTER its ON
+//                                  instant on the cells it owns; VALIDATED / NOT YET / REGRESSED per cell)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
-import { cellTable } from './horse-plo-overfold-gate-lib.mjs';
+import { cellTable, foldThroughTable } from './horse-plo-overfold-gate-lib.mjs';
 
 export const RANGE_HOURS = 24;
 /** Two boundaries closer than this are one (a cutover starts the engine and its standby minutes apart). */
@@ -30,6 +33,25 @@ const tsOf = (v) =>
       .replace(' ', 'T')
       .replace(/\+00(:00)?$/, 'Z')
   );
+
+const OPTION_NAME = /^[A-Za-z][A-Za-z0-9]{2,80}$/;
+/** The owner-map options whose switch row is ON now (one SELECT; the fix validation runs for each). */
+export function onOwnersSql(options) {
+  const names = [...new Set(options)].filter((x) => OPTION_NAME.test(x));
+  if (!names.length) return null;
+  return `SELECT option, state FROM public.ca_horse_style_switch WHERE option IN (${names.map((x) => `'${x}'`).join(',')}) AND state = 'on' ORDER BY option`;
+}
+/** The ON options of an onOwnersSql answer, kept to the owner map (rows of any other shape are ignored). */
+export function onOwnersOf(rows, options) {
+  const want = new Set(options);
+  return [
+    ...new Set(
+      (Array.isArray(rows) ? rows : [])
+        .filter((r) => r && want.has(r.option) && String(r.state).toLowerCase() === 'on')
+        .map((r) => r.option)
+    ),
+  ].sort();
+}
 
 /** The read-only SELECTs of the boundaries. */
 export function boundarySql(sinceMs, untilMs) {
@@ -98,7 +120,7 @@ export function splitGroups(sinceMs, untilMs, splits, max) {
 }
 
 /** The tool runs of one daily audit: name, script, argv, output files. */
-export function planRuns(sinceMs, untilMs, splits) {
+export function planRuns(sinceMs, untilMs, splits, onOptions = []) {
   const range = ['--since', iso(sinceMs), '--until', iso(untilMs)];
   const runs = [
     {
@@ -119,6 +141,12 @@ export function planRuns(sinceMs, untilMs, splits) {
       args: [...range, '--json'],
       out: 'plo-overfold.json',
     },
+    ...onOptions.map((option) => ({
+      name: `overfold-fix-validation-${option}`,
+      script: 'horse-overfold-fix-validation.mjs',
+      args: ['--option', option, '--until', iso(untilMs), '--json'],
+      out: `overfold-fix-validation-${option}.json`,
+    })),
   ];
   splitGroups(sinceMs, untilMs, splits, EXPLOIT_MAX_SPLITS).forEach((g, i) => {
     const r = ['--since', iso(g.since), '--until', iso(g.until)];
@@ -166,17 +194,30 @@ export function exitMeaning(name, code) {
       ['clean', 'FINDING (a HARD leak versus people got worse)', 'too few hands'][code] ??
       `exit ${code}`
     );
+  if (name.startsWith('overfold-fix-validation'))
+    return (
+      [
+        'VALIDATED or NOT YET',
+        'FINDING (a cell its fix owns REGRESSED after ON)',
+        'not ON (nothing to validate)',
+      ][code] ?? `exit ${code}`
+    );
   if (name === 'plo-overfold')
     return (
-      ['clean', 'FINDING (Horses fold above the ceiling facing people)', 'too few decisions'][
-        code
-      ] ?? `exit ${code}`
+      [
+        'clean',
+        'FINDING (Horses fold above a ceiling facing people; see whether the fix is ON)',
+        'too few decisions',
+      ][code] ?? `exit ${code}`
     );
   return `exit ${code}`;
 }
 
+export const OVERFOLD_HEADING =
+  "## Over-Fold Gate (PLO4, PLO5, Hold'em cash and tournaments; flop, turn, river; facing a person's first bet)";
 const n1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(1) : '-');
 const arr = (x) => (Array.isArray(x) ? x : []);
+const pc1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : '-');
 
 /**
  * The top leaks: the NLH audit's ranked leaks (format, street, type, bb lost), the PLO audit's HARD leaks versus
@@ -240,10 +281,27 @@ export function regressionRows(results) {
         text: `exploit (${name}): ${j?.gate?.line ?? `gate finding (see ${r.out})`}`,
       });
     }
-    // the over-fold gate: one finding per gating cell (identity: street and size, the same in every run); read from
-    // the tool's JSON, so a run before (whose exit code was not stored) lists the same identities
+    // the over-fold gate: one finding per gating cell (identity: game, street, players and size, the same in every
+    // run); read from the tool's JSON, so a run before (whose exit code was not stored) lists the same identities.
+    // A cell over its ceiling WITH ITS FIX ON is breach-class: it is listed before every other regression.
     if (name === 'plo-overfold')
-      for (const c of arr(j?.cells).filter((x) => x.gating)) out.push({ id: c.key, text: c.line });
+      for (const c of [...arr(j?.cells), ...arr(j?.foldThrough)].filter((x) => x.gating))
+        out.push({
+          id: c.fixClass === 'fix-on' ? `${c.key}|fix-on` : c.key,
+          breachClass: c.fixClass === 'fix-on',
+          text:
+            c.fixClass === 'fix-on'
+              ? `BREACH-CLASS (over-fold with the fix ON): ${c.line}`
+              : c.line,
+        });
+    // the fix validation: a cell its fix owns that REGRESSED after the fix went ON is breach-class
+    if (name.startsWith('overfold-fix-validation'))
+      for (const c of [...arr(j?.cells), ...arr(j?.watch)].filter((x) => x.verdict === 'REGRESSED'))
+        out.push({
+          id: `ofv|${j?.option}|${c.key ?? c.cls}`,
+          breachClass: true,
+          text: `BREACH-CLASS (over-fold fix REGRESSED after ON): ${j?.option} ${c.key ?? c.cls}${c.why ? `: ${c.why}` : ''}`,
+        });
     if (name.startsWith('person-vs-horse') && r.code === 1)
       out.push({
         id: `pvh|${name}`,
@@ -251,6 +309,7 @@ export function regressionRows(results) {
         text: `people vs Horses (${name}): people measurably better after a split (see ${r.out})`,
       });
   }
+  out.sort((a, b) => (b.breachClass ? 1 : 0) - (a.breachClass ? 1 : 0));
   return out;
 }
 
@@ -382,19 +441,65 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
     ownerRuleBreaches(results, listing),
     'None graded in the PLO audit (the NLH audit grades no owner-rule class).'
   );
-  L.push("## PLO Over-Fold Gate (heads-up turn and river, facing a person's first bet)");
+  L.push(OVERFOLD_HEADING);
   L.push('');
   const of = results['plo-overfold']?.json;
   if (!of || !Array.isArray(of.cells))
     L.push('Not measured (the tool failed or did not run: see Tools).');
   else {
     L.push(
-      `${of.gate?.line ?? ''}. Ceiling: ${of.prior ?? 'break-even fold'}; previous window from ${of.previousSince ?? '-'}.`
+      `${of.gate?.line ?? ''}. People prior: ${of.prior ?? 'none'}; ${of.ownerMap ?? 'no owner map'}; previous window from ${of.previousSince ?? '-'}; people's own folds from ${of.peopleSince ?? '-'}.`
     );
     L.push('');
+    const over = [...of.cells, ...arr(of.foldThrough)].filter((c) => c.gating);
+    const cls = (k) => over.filter((c) => (Array.isArray(k) ? k : [k]).includes(c.fixClass));
+    const list = (title, rows) => {
+      if (!rows.length) return;
+      L.push(`**${title}**`, '');
+      // the full line of each is under Regressions: here one short line a cell
+      for (const c of rows)
+        L.push(
+          c.key?.startsWith('foldthru|')
+            ? `- ${c.game} ${c.street} ${c.playersLabel} ${c.size}: a person's first bet into Horses folded through ${pc1(c.rate)} (n ${c.n}, 7 days) vs the pure-bluff break-even ${pc1(c.breakEven)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+            : `- ${c.game} ${c.street} ${c.fieldLabel} ${c.size}: Horse folds ${pc1(c.rate)} (n ${c.n}; with the previous 3 days ${pc1(c.pooledRate)}, n ${c.pooledN}) vs ceiling ${pc1(c.ceiling)}; ${c.owner ? `${c.owner} ${c.ownerState}` : c.ownerState}`
+        );
+      L.push('');
+    };
+    list('Over its ceiling WITH ITS FIX ON (regression, breach-class)', cls('fix-on'));
+    list('Over its ceiling, fix ON for part of the window (mixed)', cls('fix-on-partial'));
+    list('Over its ceiling while its fix is OFF', cls(['fix-off', 'fix-unknown']));
+    list(
+      'Over its ceiling, no owner yet',
+      over.filter((c) => !c.fixClass || c.fixClass === 'no-owner')
+    );
     L.push(...cellTable(of.cells));
+    const empty = of.cells.filter((c) => !(c.n > 0) && !(c.previousN > 0)).length;
+    if (empty)
+      L.push(
+        '',
+        `${empty} of ${of.cells.length} cells had no decision in either window (not shown).`
+      );
+    if (Array.isArray(of.foldThrough)) {
+      L.push(
+        '',
+        `**Multiway fold-through** (a person's first bet into Horses, everyone folds, against the pure-bluff break-even s/(1+s); trailing 7 days from ${of.foldThroughSince ?? '-'}). Multiway gates here; the multiway rows above are information only.`,
+        ''
+      );
+      L.push(...foldThroughTable(of.foldThrough));
+    }
   }
   L.push('');
+  const ofv = Object.entries(results).filter(([n]) => n.startsWith('overfold-fix-validation'));
+  section(
+    'Over-Fold Fix Validation',
+    ofv.map(([n, r]) => {
+      const j = r.json;
+      if (!j) return `${n}: ${exitMeaning(n, r.code)} (see ${r.out})`;
+      const cnt = (v) => [...arr(j.cells), ...arr(j.watch)].filter((c) => c.verdict === v).length;
+      return `${j.option} (ON ${j.on}): **${j.verdict}**: ${cnt('VALIDATED')} validated, ${cnt('NOT YET')} not yet, ${cnt('REGRESSED')} regressed (page: ${r.out})`;
+    }),
+    'No owner-map option is ON.'
+  );
   section(
     'Top Leaks',
     topLeaks(results),

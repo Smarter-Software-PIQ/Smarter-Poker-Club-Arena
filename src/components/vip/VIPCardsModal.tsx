@@ -19,6 +19,12 @@ import {
 } from '../../services/VIPService';
 import type { VipStatus } from '../../utils/vipStatus';
 import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
+import { appNavigate } from '../../lib/routerBridge';
+import {
+  VIP_MEMBERSHIP_PURCHASE_PATH,
+  useVipIntroEligibility,
+  vipMembershipPurchaseHref,
+} from '../../hooks/useVipIntroEligibility';
 import './VIPCardsModal.css';
 
 interface VIPInfoModalProps {
@@ -95,6 +101,9 @@ const FEATURES = [
 export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps) {
   const isVIP = vipStatus !== 'none';
   const isLifetime = vipStatus === 'lifetime';
+  /* The first-month price a non-member is deciding on, from the server. No
+     answer prints no price (src/hooks/useVipIntroEligibility.ts). */
+  const vipIntro = useVipIntroEligibility(isOpen && !isVIP);
   const [visibleItems, setVisibleItems] = useState<Set<number>>(new Set());
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -240,6 +249,14 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
             <div className="vipc__status">
               <p className="vipc__status-line sc-ink--silver">Pay Per Feature</p>
               <p className="sc-copy sc-copy--center">Or Join Club Arena For A Membership</p>
+              {/* The price a non-member decides on is its own line, never run
+                  on from the sentence above. */}
+              {vipIntro.priceLine && (
+                <p className="sc-copy sc-copy--center sc-ink--gold">{vipIntro.priceLine}</p>
+              )}
+              {vipIntro.reasonLine && (
+                <p className="sc-copy sc-copy--center">{vipIntro.reasonLine}</p>
+              )}
             </div>
           )}
 
@@ -253,7 +270,7 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
                 VIP
               </span>
               <span className="sc-label sc-ink--blue vipc__cell--end" role="columnheader">
-                Diamond Cost
+                Diamonds
               </span>
             </div>
             {FEATURES.map((feature, i) => {
@@ -327,8 +344,18 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
               Close
             </button>
             {!isVIP && (
-              <a href="/hub/vip-membership" className="vipc-word sc-ink--white">
-                Join Club Arena For A Membership
+              <a
+                href={vipMembershipPurchaseHref()}
+                className="vipc-word sc-ink--white"
+                onClick={(event) => {
+                  /* One tap to the membership tab with Monthly in view, routed
+                     in-app so the native build keeps its own storefront. */
+                  event.preventDefault();
+                  onClose();
+                  appNavigate(VIP_MEMBERSHIP_PURCHASE_PATH);
+                }}
+              >
+                Get VIP Membership
               </a>
             )}
           </div>

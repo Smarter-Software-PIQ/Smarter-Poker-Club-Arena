@@ -227,11 +227,11 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
       '- PLO turn IP: turn stab defence over-fold (n 12, 40.0 bb, 3.2 bb/100 people)'
     );
     expect(summary).toContain(
-      "## PLO Over-Fold Gate (heads-up turn and river, facing a person's first bet)"
+      "## Over-Fold Gate (PLO4, PLO5, Hold'em cash and tournaments; flop, turn, river; facing a person's first bet)"
     );
     expect(summary).toContain('| plo-overfold | 0 | clean |');
     expect(summary).toContain(
-      '| river | 0.7+ pot | 25 | 40.0% | 45.0% | break-even s/(1+s) | 42.0% (60) | -0.20 | -0.50 | clean |'
+      '| PLO4+PLO5 cash | river | heads-up | 0.7+ pot | 25 | 40.0% | 45.0% | break-even s/(1+s) | -0.50 | 42.0% (60) | -0.20 | - | - | - | - | no owner yet | clean |'
     );
     expect(JSON.parse(readFileSync(join(dir, 'plan.json'), 'utf8')).splits).toHaveLength(1);
   });

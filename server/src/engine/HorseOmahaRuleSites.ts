@@ -531,6 +531,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetMinimumDefencePrior: priced(
     "a bettor with no shown record of the cell is priced with a weak share no lower than the cell's minimum-defence share (whole-range fold at most s / (1 + s) + 5 points); a record is never bounded (default OFF; PLO-OWNER lead-6 2026-11-24)"
   ),
+  omahaFlopPressureCapIsPriced: priced(
+    "heads-up on the flop facing one bet, where the V40 class cap prices a weak made hand, the reference call-or-fold check reads the Horse's equity against the bettor's range (value region plus the PEOPLE-ONLY measured flop non-value share, the balanced share weighting a thin cell, moved by his own shown flop bets) in place of the class ceiling; call vs fold only (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
   omahaFacingBetPriorIsPeopleMeasured: priced(
     'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
   ),
@@ -596,6 +599,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaReraisedPotReraiseIsPriced: priced(
     'preflop facing a 3-bet or more: a standing re-raise stands only where EV(re-raise) is at or above max(EV(call), 0) less the deadband, else it becomes the priced call or the fold; its size is never changed (default OFF; PLO lead-6 2026-11-24)'
+  ),
+  omahaReraisedPotFoldReraiseIsPriced: priced(
+    "preflop facing exactly a 3-bet, heads-up against the re-raiser: a standing fold becomes the pot-size re-raise only where EV(re-raise) is above max(EV(call), 0) by more than the deadband plus the sampling error of the price, the re-raiser's width and his fold to the re-raise read from his own public record, then the people-only person-level prior; it never makes a call and changes no call or re-raise (default OFF; lead-8 lane preflop 2026-11-27)"
   ),
   omahaOopReraiseRangeHoldsVsReraise: priced(
     "an out-of-position preflop 3-bet facing one open stands only when EV(3-bet), priced on the opener's measured answer to a 3-bet (fitted population answer when unread) and the Horse's own answer to the 4-bet at the real depth, is at least the priced call the existing calling rule admits (or 0), and that answer is not a fold except a blocker kept at the seeded frequency that holds the range's fold-to-4-bet share under horse.reraiseFoldShareCap; it only removes 3-bets, as the call or the fold (default OFF; PLO-LEAD-6)"

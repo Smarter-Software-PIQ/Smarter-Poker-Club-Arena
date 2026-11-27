@@ -97,6 +97,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   // PLO lead-6 2026-11-24: PLO4/PLO5 cash, default OFF
   'omahaReraisedPotCallIsPriced',
   'omahaReraisedPotReraiseIsPriced',
+  // lead-8 lane preflop 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaReraisedPotFoldReraiseIsPriced',
   // EMERG lane CBET-DEFENCE 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaCbetRaiseIsPriced',
   // EMERG lane OFFENCE-BUILD 2026-11-20: PLO4/PLO5 cash, default OFF
@@ -122,6 +124,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaFacingBetPriorIsPeopleMeasured',
   'omahaMultiwayFieldIsPeopleMeasured',
+  // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
+  'omahaFlopPressureCapIsPriced',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',

@@ -28,6 +28,8 @@ import {
   retireMarketplacePurchaseIntent,
   startCheckout,
   storeFetch,
+  fetchVipIntroEligibility,
+  VIP_INTRO_OFFER,
   subscriptionCheckoutOfferConfirmation,
   vipDiamondOfferConfirmation,
   nativePurchaseRequestFor,
@@ -176,6 +178,32 @@ export default function MembershipTab({
      web keeps its Stripe copy and its /hub/diamond-store link untouched. */
   const native = isNativeMarketplaceRuntime();
   const cardPaymentAvailable = checkoutProviderReadyForCurrentPlatform('subscription');
+
+  /* VIP FIRST MONTH FOR ONE DOLLAR (Dan, 2026-11-26). The server says whether
+     this account has ever held a Card subscription; until it answers, and
+     whenever it cannot, the regular price is shown and confirmed. Web only:
+     a StoreKit / Play subscription is priced by the store, not by Stripe. */
+  const [introEligible, setIntroEligible] = useState<boolean | null>(null);
+  const refreshIntroEligibility = useCallback(async () => {
+    if (!userId || native) {
+      setIntroEligible(null);
+      return;
+    }
+    const owner = userId;
+    const eligible = await fetchVipIntroEligibility(owner);
+    if (activeOwnerRef.current.userId === owner) setIntroEligible(eligible);
+  }, [userId, native]);
+  useEffect(() => {
+    setIntroEligible(null);
+    void refreshIntroEligibility();
+  }, [refreshIntroEligibility]);
+  const firstMonthOfferFor = (plan: VipPlan) =>
+    !native &&
+    introEligible === true &&
+    !wallet.isVip &&
+    plan.planKey === VIP_INTRO_OFFER.planKey &&
+    cardCheckoutIsReady(plan) &&
+    plan.priceUsd === VIP_INTRO_OFFER.regularCents / 100;
 
   const restorePurchases = async () => {
     if (!cardPaymentAvailable) {
@@ -334,7 +362,12 @@ export default function MembershipTab({
       ) {
         throw new Error('Pricing Was Updated. Review The Current Plan Before Purchasing.');
       }
-      const offerConfirmation = subscriptionCheckoutOfferConfirmation(userId, currentPlan);
+      const firstMonthOffer = firstMonthOfferFor(currentPlan);
+      const offerConfirmation = subscriptionCheckoutOfferConfirmation(
+        userId,
+        currentPlan,
+        firstMonthOffer
+      );
       if (!offerConfirmation) {
         throw new Error('The Checkout Terms Could Not Be Verified. No Payment Was Started.');
       }
@@ -348,6 +381,9 @@ export default function MembershipTab({
           plan: currentPlan.checkoutPlan,
           priceUsd: currentPlan.priceUsd,
           priceDiamonds: currentPlan.priceDiamonds,
+          // Only present for the first-month offer, so a regular-price
+          // intent keeps the identity it had before the offer existed.
+          ...(firstMonthOffer ? { introCents: VIP_INTRO_OFFER.firstPeriodCents } : {}),
         })
       );
       purchaseRequestId = purchaseIntent.requestId;
@@ -378,6 +414,9 @@ export default function MembershipTab({
         }
       }
       toast.error(err instanceof Error ? err.message : 'Could Not Start Checkout');
+      // The server refuses a checkout whose amount due today differs from its
+      // own decision. Read the decision again so the card shows what it charges.
+      void refreshIntroEligibility();
     } finally {
       if (paymentAbortRef.current === controller) {
         paymentAbortRef.current = null;
@@ -615,11 +654,24 @@ export default function MembershipTab({
                 {/* Every term is priced in USD; the Diamond figure uses the same
                     100-per-dollar conversion. A term shows USD only when the
                     server marks its complete Card lifecycle ready. */}
-                {cardCheckoutIsReady(plan)
-                  ? `${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`
-                  : `${fmt(plan.priceDiamonds)} Diamonds`}
+                {firstMonthOfferFor(plan)
+                  ? '1\u00a0USD'
+                  : cardCheckoutIsReady(plan)
+                    ? `${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`
+                    : `${fmt(plan.priceDiamonds)} Diamonds`}
               </div>
-              <div className={styles.planPeriod}>{formatPopupText(plan.period)}</div>
+              {/* The first-month offer is a sentence a player decides on, not a
+                  nine pixel term label: it has its own readable class, and
+                  planPeriod stays as it was for Per Month, Per Year and One
+                  Payment. The amount and its unit never break apart. */}
+              {firstMonthOfferFor(plan) ? (
+                <div className={styles.planOffer}>
+                  {`First Month, Then ${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}\u00a0USD Per Month.`}{' '}
+                  <span className={styles.planOfferTerms}>Cancel Anytime.</span>
+                </div>
+              ) : (
+                <div className={styles.planPeriod}>{formatPopupText(plan.period)}</div>
+              )}
               <ul className={styles.planFeatures}>
                 {plan.features.map((f) => (
                   <li key={f}>{formatPopupText(f)}</li>
@@ -652,7 +704,9 @@ export default function MembershipTab({
                           ? 'Switch To This Plan'
                           : native
                             ? 'Subscribe'
-                            : 'Subscribe With Card'}
+                            : firstMonthOfferFor(plan)
+                              ? 'Subscribe For 1\u00a0USD'
+                              : 'Subscribe With Card'}
                     </button>
                   )}
                   <button
@@ -687,7 +741,9 @@ export default function MembershipTab({
       {native ? (
         <div className={styles.infoNote}>
           Subscriptions Renew Automatically Through Your App Store Account And Can Be Canceled
-          Anytime.{' '}
+          Anytime. Diamond-Paid Plans Do Not Auto-Renew, And Lifetime Never Does.
+          {!cardPaymentAvailable &&
+            ' App Store Checkout And Recovery Stay Paused Until Provider Verification Is Available.'}{' '}
           <button
             type="button"
             className={styles.inlineLink}
@@ -705,17 +761,16 @@ export default function MembershipTab({
           >
             {busy === 'restore' ? 'Restoring' : 'Restore Purchases'}
           </button>
-          . Diamond-Paid Plans Do Not Auto-Renew, And Lifetime Never Does.
-          {!cardPaymentAvailable &&
-            ' App Store Checkout And Recovery Stay Paused Until Provider Verification Is Available.'}
         </div>
       ) : (
         <div className={styles.infoNote}>
-          Card Subscriptions Renew Automatically And Can Be Canceled Anytime.{' '}
+          {/* The sentences come first and the link closes the note, so no
+              sentence ever starts on its own line with a stray full stop. */}
+          Card Subscriptions Renew Automatically And Can Be Canceled Anytime. Diamond-Paid Plans Do
+          Not Auto-Renew, And Lifetime Never Does.{' '}
           <a className={styles.inlineLink} href="/hub/diamond-store?tab=vip">
             Manage Subscription
           </a>
-          . Diamond-Paid Plans Do Not Auto-Renew, And Lifetime Never Does.
         </div>
       )}
     </>

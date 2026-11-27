@@ -1,0 +1,458 @@
+#!/usr/bin/env node
+/**
+ * IMMEDIATE MIGRATION APPLY REFUSAL ALERT (2026-11-26, post-incident 37a45c05).
+ *
+ * WHY. On 2026-11-26, `Apply Merged Migration` refused #12129 (run 45903772035)
+ * at 22:18 UTC with FATAL 25P04 after 12,156 ms. Because nothing listened to
+ * failed applier runs, the refusal went unnoticed until `migration-install-watch`
+ * fired CRITICAL `MergedMigrationNotInstalled` an hour later (23:20 UTC),
+ * stalling the next 3-hourly Backup certification and engine cutover (O7).
+ *
+ * WHAT. `.github/workflows/migration-apply-refusal-alert.yml` runs this on
+ * `workflow_run` (`Apply Merged Migration`, `conclusion == 'failure'`). It:
+ *   1. reads the failed run's metadata, job steps, and error log via the
+ *      GitHub API (using only `github.token`; zero DB secrets, zero DB calls);
+ *   2. resolves the merged PR that introduced/modified the migration on `main`;
+ *   3. posts ONE deduplicated alert comment on the owning PR (if found) and
+ *      ONE deduplicated alert comment on release custody issue #11599.
+ *
+ * SAFETY BOUNDARIES:
+ *   - Reporting only: never retries, dispatches, mutates DB, or advances any release.
+ *   - Never emits a line starting with `Cycle:`, `Result:`, `Sealed SHA:`, or
+ *     `Serving SHA:` on issue #11599, so cutover-log parsers (`cycle-without-outcome.py`,
+ *     `post-cutover-receipt.mjs`) never mistake it for a cutover outcome.
+ *   - Deduplicates by run ID (`<!-- migration-apply-refusal:<runId> -->`) so
+ *     manual re-runs never double-post.
+ */
+import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+export const LOG_ISSUE = '11599';
+export const APPLY_WORKFLOW_PATH = '.github/workflows/apply-merged-migration.yml';
+export const ALERT_PREFIX = 'Migration apply refusal alert';
+const MIGRATION_FILE_RE = /\b(\d{14}_[a-z0-9_]+\.sql)\b/;
+const FORBIDDEN_LOG_LINE_RE = /^(?:Cycle|Result|Sealed SHA|Serving SHA):/i;
+const REVERT_SUBJECT_RE = /^revert(?:\s*\(|:|\s+")/i;
+const PR_NUM_IN_SUBJECT_RE = /\(#(\d+)\)\s*$/;
+
+/** Pure. Deduplication HTML marker embedded in every posted comment. */
+export const dedupMarker = (runId) => `<!-- migration-apply-refusal:${String(runId)} -->`;
+
+/** Pure. True when a comment list already has an alert for this run ID. */
+export function alreadyReported(comments, runId) {
+  const id = String(runId);
+  const marker = dedupMarker(id);
+  const prefix = `${ALERT_PREFIX} for run ${id}`;
+  return (comments ?? []).some(
+    (c) =>
+      typeof c?.body === 'string' && (c.body.includes(marker) || c.body.startsWith(prefix))
+  );
+}
+
+/** Pure. Extract the migration filename from the run title or job names. */
+export function extractMigrationFile(run, jobs = []) {
+  const candidates = [
+    run?.display_title,
+    run?.name,
+    ...(jobs ?? []).map((j) => j?.name),
+  ];
+  for (const text of candidates) {
+    if (typeof text !== 'string') continue;
+    const m = MIGRATION_FILE_RE.exec(text);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** Pure. Strip GitHub Actions ISO timestamp prefix and ANSI codes from a log line. */
+function cleanLogLine(line) {
+  return String(line)
+    .replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+/, '')
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .trim();
+}
+
+/**
+ * Pure. Extract concise verdict, duration, and root error lines from an
+ * `Apply Merged Migration` job log, ignoring shell script source echo lines.
+ */
+export function extractFailureSummary(logText) {
+  const rawLines = String(logText ?? '').split(/\r?\n/);
+  let verdict = 'FAILED';
+  let durationMs = null;
+  const errorLines = [];
+  const seen = new Set();
+
+  for (const raw of rawLines) {
+    const line = cleanLogLine(raw);
+    if (!line) continue;
+    // Skip shell script source echoed by GitHub Actions before execution.
+    if (
+      line.startsWith('#') ||
+      line.startsWith('echo ') ||
+      line.startsWith('1) echo ') ||
+      line.startsWith('3) echo ') ||
+      line.includes('echo "[apply]') ||
+      line.includes('echo "') ||
+      line.includes("echo '")
+    ) {
+      continue;
+    }
+
+    const durMatch = /^\[apply\]\s+(REFUSED|UNKNOWN)\s+after\s+(\d+)ms\b/i.exec(line);
+    if (durMatch) {
+      verdict = durMatch[1].toUpperCase();
+      durationMs = Number(durMatch[2]);
+    } else if (/^\[apply\]\s+REFUSED\b/i.test(line)) {
+      verdict = 'REFUSED';
+    } else if (/^\[apply\]\s+UNKNOWN\b/i.test(line)) {
+      verdict = 'UNKNOWN';
+    }
+
+    const isSignal =
+      /^\[apply\]\s+(?:REFUSED|UNKNOWN|ERROR|FATAL)\b/i.test(line) ||
+      /^(?:psql:.*)?(?:FATAL|ERROR|DETAIL|HINT):\s+/.test(line) ||
+      /^::error::/.test(line) ||
+      /\b(?:transaction_timeout|statement_timeout|lock_timeout|25P04|57014|55P03|migration_adds_a_shared_write|hand_path_door_missing)\b/i.test(
+        line
+      );
+
+    if (isSignal) {
+      const sanitized = line
+        .replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, '<redacted-db-url>')
+        .replace(/(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]+/g, '<redacted-token>')
+        .slice(0, 280);
+      if (!seen.has(sanitized)) {
+        seen.add(sanitized);
+        errorLines.push(sanitized);
+      }
+    }
+  }
+
+  return {
+    verdict,
+    durationMs,
+    // Keep the most diagnostic tail (at most 8 lines) so comments stay crisp.
+    summaryLines: errorLines.slice(-8),
+  };
+}
+
+/** Pure. Format an ISO timestamp in America/Chicago wall time. */
+export function chicagoTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'unknown time';
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      timeZoneName: 'short',
+    })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+}
+
+/** Pure. Ensure no line in a #11599 comment can ever be misread as a cutover receipt. */
+function guardCutoverLogLine(line) {
+  return FORBIDDEN_LOG_LINE_RE.test(line) ? `  ${line}` : line;
+}
+
+/** Pure. Render the comment for the owning merged PR. */
+export function formatPrComment({
+  runId,
+  runUrl,
+  migrationFile,
+  verdict,
+  durationMs,
+  failedSteps = [],
+  summaryLines = [],
+  observedAt,
+}) {
+  const dur = durationMs != null ? ` after ${durationMs}ms` : '';
+  const lines = [
+    `### ${ALERT_PREFIX} — \`${migrationFile ?? 'unknown migration'}\` (${verdict}${dur})`,
+    '',
+    `- **Apply run:** [#${runId}](${runUrl}) (${chicagoTime(observedAt)})`,
+    `- **Failed step(s):** ${failedSteps.length ? failedSteps.join(', ') : 'unknown'}`,
+    `- **Impact:** This merged migration is **NOT installed** on production and will block the next Backup certification and engine cutover (O7) until fixed or reverted.`,
+  ];
+  if (summaryLines.length) {
+    lines.push('', '```text', ...summaryLines, '```');
+  }
+  lines.push(
+    '',
+    'Fix the migration at source (or revert this merge if it cannot fit inside the install budget) and verify `Apply Merged Migration` succeeds.',
+    '',
+    dedupMarker(runId)
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Pure. Render the concise comment for release custody issue #11599.
+ * Never starts any line with `Cycle:`, `Result:`, `Sealed SHA:`, or `Serving SHA:`.
+ */
+export function formatLogIssueComment({
+  runId,
+  runUrl,
+  migrationFile,
+  verdict,
+  durationMs,
+  owningPrNumber = null,
+  owningPrUrl = null,
+  summaryLines = [],
+  observedAt,
+}) {
+  const dur = durationMs != null ? ` after ${durationMs}ms` : '';
+  const prPart =
+    owningPrNumber != null
+      ? owningPrUrl
+        ? ` (PR [#${owningPrNumber}](${owningPrUrl}))`
+        : ` (PR #${owningPrNumber})`
+      : '';
+  const lines = [
+    `${ALERT_PREFIX} for run ${runId}: \`${migrationFile ?? 'unknown migration'}\` ${verdict}${dur}${prPart}`,
+    `- Observed: ${chicagoTime(observedAt)} — [Apply Merged Migration #${runId}](${runUrl})`,
+    `- Custody note: merged migration did not install; upcoming Backup certification / engine cutover is blocked until resolved or reverted.`,
+  ];
+  for (const errLine of summaryLines.slice(0, 4)) {
+    lines.push(`- Detail: \`${errLine.replace(/`/g, "'")}\``);
+  }
+  lines.push(dedupMarker(runId));
+  return lines.map(guardCutoverLogLine).join('\n');
+}
+
+/** Pure. Choose the owning commit for a migration file (skipping revert commits). */
+export function pickOwningCommit(commits) {
+  if (!Array.isArray(commits) || commits.length === 0) return null;
+  for (const c of commits) {
+    const subject = String(c?.commit?.message ?? '').split('\n')[0].trim();
+    if (!REVERT_SUBJECT_RE.test(subject)) return c;
+  }
+  return commits[0];
+}
+
+/** Pure. Resolve PR number from commit pulls list or commit subject `(#12345)`. */
+export function resolveOwningPr(commit, pulls = []) {
+  const merged = (pulls ?? []).filter((p) => p && (p.merged_at || p.state === 'closed'));
+  const chosen = merged[0] ?? (pulls ?? [])[0];
+  if (chosen?.number) {
+    return { number: Number(chosen.number), url: chosen.html_url ?? null };
+  }
+  const subject = String(commit?.commit?.message ?? '').split('\n')[0].trim();
+  const m = PR_NUM_IN_SUBJECT_RE.exec(subject);
+  if (m) return { number: Number(m[1]), url: null };
+  return null;
+}
+
+/** Real GitHub API implementation backed by `gh api` using GH_TOKEN. */
+export function createGhDeps() {
+  const apiJson = (endpoint) => {
+    const out = execFileSync('gh', ['api', endpoint], {
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return JSON.parse(out);
+  };
+  const apiText = (endpoint) =>
+    execFileSync('gh', ['api', endpoint], {
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+  const postComment = (repo, issueNumber, body) => {
+    const out = execFileSync(
+      'gh',
+      ['api', '--method', 'POST', `repos/${repo}/issues/${issueNumber}/comments`, '-f', `body=${body}`],
+      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
+    );
+    return JSON.parse(out);
+  };
+  return {
+    getRun: (repo, runId) => apiJson(`repos/${repo}/actions/runs/${runId}`),
+    getJobs: (repo, runId) => apiJson(`repos/${repo}/actions/runs/${runId}/jobs`).jobs ?? [],
+    getJobLog: (repo, jobId) => apiText(`repos/${repo}/actions/jobs/${jobId}/logs`),
+    getMigrationCommits: (repo, file) =>
+      apiJson(
+        `repos/${repo}/commits?path=${encodeURIComponent(`supabase/migrations/${file}`)}&sha=main&per_page=5`
+      ),
+    getCommitPulls: (repo, sha) => apiJson(`repos/${repo}/commits/${sha}/pulls`),
+    listIssueComments: (repo, issueNumber) =>
+      apiJson(`repos/${repo}/issues/${issueNumber}/comments?per_page=100`),
+    postComment,
+  };
+}
+
+/**
+ * Orchestrate refusal alert reporting for a single Apply Merged Migration run.
+ * Pure with respect to `deps` so unit tests cover every branch without network.
+ */
+export async function reportMigrationApplyRefusal({
+  repo,
+  runId,
+  dryRun = false,
+  logIssue = LOG_ISSUE,
+  deps = createGhDeps(),
+}) {
+  const id = String(runId ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(id)) {
+    throw new Error(`Invalid apply_run_id: ${id || '(empty)'}`);
+  }
+  const run = await deps.getRun(repo, id);
+  if (run?.path !== APPLY_WORKFLOW_PATH) {
+    return {
+      status: 'skipped',
+      reason: `run ${id} belongs to ${run?.path ?? 'unknown'}, not ${APPLY_WORKFLOW_PATH}`,
+    };
+  }
+  if (run?.conclusion !== 'failure') {
+    return {
+      status: 'skipped',
+      reason: `run ${id} conclusion is ${run?.conclusion ?? 'unknown'}, not failure`,
+    };
+  }
+
+  const jobs = (await deps.getJobs(repo, id)) ?? [];
+  const migrationFile = extractMigrationFile(run, jobs);
+  const failedJob = jobs.find((j) => j?.conclusion === 'failure') ?? jobs[0] ?? null;
+  const failedSteps = (failedJob?.steps ?? [])
+    .filter((s) => s?.conclusion === 'failure')
+    .map((s) => s.name);
+
+  let logText = '';
+  if (failedJob?.id) {
+    try {
+      logText = await deps.getJobLog(repo, failedJob.id);
+    } catch {
+      logText = '';
+    }
+  }
+  const { verdict, durationMs, summaryLines } = extractFailureSummary(logText);
+
+  let owningPr = null;
+  if (migrationFile) {
+    try {
+      const commits = await deps.getMigrationCommits(repo, migrationFile);
+      const commit = pickOwningCommit(commits);
+      if (commit?.sha) {
+        let pulls = [];
+        try {
+          pulls = await deps.getCommitPulls(repo, commit.sha);
+        } catch {
+          pulls = [];
+        }
+        owningPr = resolveOwningPr(commit, pulls);
+      }
+    } catch {
+      owningPr = null;
+    }
+  }
+
+  const observedAt = run.updated_at || run.created_at || new Date().toISOString();
+  const runUrl =
+    run.html_url || `https://github.com/${repo}/actions/runs/${id}`;
+  const owningPrUrl =
+    owningPr?.url || (owningPr?.number ? `https://github.com/${repo}/pull/${owningPr.number}` : null);
+
+  const prBody = owningPr
+    ? formatPrComment({
+        runId: id,
+        runUrl,
+        migrationFile,
+        verdict,
+        durationMs,
+        failedSteps,
+        summaryLines,
+        observedAt,
+      })
+    : null;
+  const logBody = formatLogIssueComment({
+    runId: id,
+    runUrl,
+    migrationFile,
+    verdict,
+    durationMs,
+    owningPrNumber: owningPr?.number ?? null,
+    owningPrUrl,
+    summaryLines,
+    observedAt,
+  });
+
+  const actions = { pr: 'none', logIssue: 'none' };
+
+  if (owningPr && prBody) {
+    const existingPrComments = await deps.listIssueComments(repo, owningPr.number);
+    if (alreadyReported(existingPrComments, id)) {
+      actions.pr = 'already_reported';
+    } else if (dryRun) {
+      actions.pr = 'dry_run';
+    } else {
+      await deps.postComment(repo, owningPr.number, prBody);
+      actions.pr = 'posted';
+    }
+  }
+
+  const existingLogComments = await deps.listIssueComments(repo, logIssue);
+  if (alreadyReported(existingLogComments, id)) {
+    actions.logIssue = 'already_reported';
+  } else if (dryRun) {
+    actions.logIssue = 'dry_run';
+  } else {
+    await deps.postComment(repo, logIssue, logBody);
+    actions.logIssue = 'posted';
+  }
+
+  return {
+    status: dryRun ? 'dry_run' : 'reported',
+    runId: id,
+    migrationFile,
+    verdict,
+    durationMs,
+    failedSteps,
+    owningPrNumber: owningPr?.number ?? null,
+    summaryLines,
+    actions,
+    prBody,
+    logBody,
+  };
+}
+
+// CLI entrypoint
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const repo = process.env.REPO || process.env.GITHUB_REPOSITORY;
+  const runId = process.env.APPLY_RUN_ID;
+  const dryRun =
+    process.argv.includes('--dry-run') ||
+    String(process.env.DRY_RUN ?? '').toLowerCase() === 'true';
+
+  if (!repo || !runId) {
+    console.error('REPO (or GITHUB_REPOSITORY) and APPLY_RUN_ID are required');
+    process.exit(2);
+  }
+
+  reportMigrationApplyRefusal({ repo, runId, dryRun })
+    .then((result) => {
+      const summary = [
+        `## Migration Apply Refusal Alert (${result.status})`,
+        `- Run ID: \`${runId}\``,
+        `- Migration: \`${result.migrationFile ?? 'unknown'}\``,
+        `- Verdict: \`${result.verdict ?? result.status}\`${result.durationMs != null ? ` (${result.durationMs}ms)` : ''}`,
+        `- Owning PR: ${result.owningPrNumber ? `#${result.owningPrNumber}` : 'none found'}`,
+        `- Actions: PR=\`${result.actions?.pr ?? 'none'}\`, #${LOG_ISSUE}=\`${result.actions?.logIssue ?? 'none'}\``,
+      ].join('\n');
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+      }
+    })
+    .catch((err) => {
+      console.error(err?.stack || String(err));
+      process.exit(1);
+    });
+}

@@ -27,6 +27,8 @@ import {
   RANGE_HOURS,
   boundarySql,
   formatSummary,
+  onOwnersOf,
+  onOwnersSql,
   iso,
   overallExit,
   planRuns,
@@ -201,10 +203,21 @@ export function runDailyAudit(argv, deps = {}) {
     err(`Failed reading the switch changes and build boundaries: ${e.message}`);
     return 70;
   }
+  // every owner-map option that is ON gets its fix validation (a failed read here skips it, never the audit)
+  let onOptions = [];
+  try {
+    const map = JSON.parse(readFileSync(join(__dirname, 'horse-overfold-owner-map.json'), 'utf8'));
+    const options = (map?.owners ?? []).map((x) => x.option);
+    const sql = onOwnersSql(options);
+    if (sql) onOptions = onOwnersOf(query(sql), options);
+  } catch (e) {
+    err(`[horse-daily-audit] fix validation skipped: ${String(e?.message ?? e).slice(0, 200)}`);
+  }
   const runs = planRuns(
     sinceMs,
     untilMs,
-    plan.splits.map((s) => s.at).map((a) => ({ at: a }))
+    plan.splits.map((s) => s.at).map((a) => ({ at: a })),
+    onOptions
   );
   if (o.plan) {
     out(

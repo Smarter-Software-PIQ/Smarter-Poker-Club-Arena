@@ -34,7 +34,7 @@ export interface OmahaLifetimeHudReads {
   } | null;
   hudLifetimeCount(
     opponentId: string,
-    family: Game,
+    family: Game | 'nlh',
     alias: 'x.foldToBet.small' | 'x.foldToBet.big',
     ctx: { street: Street; players: Players }
   ): { n: number; hits: number };

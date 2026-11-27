@@ -164,6 +164,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaFourBetFoldPricedCall: PREFLOP_PRICED,
   omahaReraisedPotCallIsPriced: RERAISED_POT_PRICED,
   omahaReraisedPotReraiseIsPriced: RERAISED_POT_PRICED,
+  omahaReraisedPotFoldReraiseIsPriced: RERAISED_POT_PRICED,
   omahaOopReraiseRangeHoldsVsReraise: {
     kind: 'priced',
     range:
@@ -276,6 +277,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaFacingBetMinimumDefencePrior: FACING_BET_EV,
   omahaFacingBetPriorIsPeopleMeasured: FACING_BET_EV,
   omahaMultiwayFieldIsPeopleMeasured: FACING_BET_EV,
+  omahaFlopPressureCapIsPriced: FACING_BET_EV,
   omahaFacingBetFieldIsJoint: {
     kind: 'priced',
     range:
@@ -935,6 +937,9 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_people_prior_changed: FACING_BET_EV,
   omaha_mw_people_field_priced: FACING_BET_EV,
   omaha_mw_people_field_changed: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced_call: FACING_BET_EV,
+  omaha_flop_pressure_cap_priced_fold: FACING_BET_EV,
   omaha_flop_call_tree_call: FACING_BET_EV,
   omaha_flop_call_tree_fold: FACING_BET_EV,
   omaha_flop_call_tree_changed: FACING_BET_EV,
@@ -947,6 +952,8 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_reraised_pot_priced_call_kept: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_call_folded: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_call_reraised: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_fold_reraised: RERAISED_POT_PRICED,
+  omaha_reraised_pot_priced_fold_reraise_kept: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_called: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_fold_kept: RERAISED_POT_PRICED,
   omaha_reraised_pot_priced_reraise_kept: RERAISED_POT_PRICED,

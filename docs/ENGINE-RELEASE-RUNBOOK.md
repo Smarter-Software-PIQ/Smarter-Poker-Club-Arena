@@ -544,8 +544,9 @@ conditions hold - (a) a newer active push run of `backup-engine.yml` is queued
 or in progress on `main`, (b) `projection(SHA)` from
 `scripts/ci/read-engine-prequalification.py` or `supabase/migrations` on
 `origin/main` already differs from `SHA` (proving `SHA` can never be selected
-against current `main`), (c) fewer than 75 minutes (`4500` s) remain until the
-next scheduled three-hourly or daily cutoff (`THREE_HOURLY_START_HOURS`), and
+against current `main`), (c) the time to the next scheduled three-hourly or
+daily cutoff (`THREE_HOURLY_START_HOURS`) could be read (since O35, 2026-11-26,
+it no longer has to be under 75 minutes: an unselectable soak yields at once), and
 (d) every read succeeded (any unreadable check keeps soaking per CLAUDE.md
 10.86) - the runner terminates the SSH certify command, stops the standby
 container cleanly via `/usr/local/sbin/standby-engine`'s `stop_for_restore`
@@ -608,6 +609,13 @@ break does not wait for a release.
   supplies no SHA, date, migration or receiver inputs. The 03:30 cutoff still
   applies to every candidate. When an earlier eligible run exists, follow it.
   After 03:50 the next ordinary window is the next opportunity.
+  Since 2026-11-26 this step runs on a real clock: the OpenClaw cron
+  `ops/openclaw/ca-cutover-operator-preparation.json` on the Mac Studio runs
+  `scripts/ops/cutover-operator-preparation.mjs` three and eleven minutes after
+  every cycle's preparation opens. It sends the dispatch below only when no Stage
+  run can own the cycle, and follows an owner that exists
+  (`tests/every-cycle-gets-an-owner.law.test.ts`). A person sends it by hand only
+  when the Mac is off.
 
   ```sh
   gh run list -R Smarter-Software-PIQ/Smarter-Poker-Club-Arena --workflow stage-engine-release.yml --branch main --limit 20 --json databaseId,event,createdAt

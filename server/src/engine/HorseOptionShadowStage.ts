@@ -129,6 +129,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   // PLO lead-6 2026-11-24: preflop facing a 3-bet or more only
   omahaReraisedPotCallIsPriced: PLO4_PLO5,
   omahaReraisedPotReraiseIsPriced: PLO4_PLO5,
+  // lead-8 lane preflop 2026-11-27: preflop facing a 3-bet or more only
+  omahaReraisedPotFoldReraiseIsPriced: PLO4_PLO5,
   // PLO-LEAD-6 2026-11-24: acts only preflop, facing one open out of position
   omahaOopReraiseRangeHoldsVsReraise: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -169,6 +171,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaFacingBetPriorIsPeopleMeasured: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
+  }),
+  omahaFlopPressureCapIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
   }),
   omahaFacingBetFieldIsJoint: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -277,6 +283,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     ['flop', 'turn', 'river']
   ),
   holdemOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
+  holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
 });
 
 /**

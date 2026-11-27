@@ -98,6 +98,7 @@ import {
 } from '../../services/rabbitHuntPricing';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useHandReviewDetails } from '../../hooks/useHandReviewDetails';
+import { useVipIntroEligibility } from '../../hooks/useVipIntroEligibility';
 
 export interface HandDetailModalProps {
   isOpen: boolean;
@@ -359,6 +360,8 @@ function RabbitHuntReplayBlock({
                   ? 'Expired After 24 Hours'
                   : null;
   const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
+  // The first-month price beside the VIP note; no server answer, no price.
+  const vipIntro = useVipIntroEligibility(vipNoteInsteadOfButton && !hidden);
   const showsButton = !settled && !statusNote && !vipNoteInsteadOfButton;
   const wantsPrice = showsButton && !hidden;
   useEffect(() => {
@@ -423,7 +426,12 @@ function RabbitHuntReplayBlock({
           {statusNote}
         </div>
       ) : vipNoteInsteadOfButton ? (
-        <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
+        <>
+          <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
+          {vipIntro.priceLine ? (
+            <div className="hdm-section-count">VIP {vipIntro.priceLine}</div>
+          ) : null}
+        </>
       ) : (
         <>
           <button

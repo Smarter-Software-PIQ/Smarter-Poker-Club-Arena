@@ -1,4 +1,5 @@
 import { ActionControllerSettings } from './ActionControllerSettings';
+import { useVipIntroEligibility } from '../../hooks/useVipIntroEligibility';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import {
   pendingAppearancePatch,
@@ -756,6 +757,8 @@ export function ThemeSettingsModal({
     useState<PendingAssetPurchase | null>(null);
   const pendingAssetPurchase =
     pendingAssetPurchaseState?.userId === userId ? pendingAssetPurchaseState : null;
+  // The first-month price inside the unlock prompt; no answer, no price.
+  const vipIntro = useVipIntroEligibility(!isVip && pendingAssetPurchase !== null);
   const [purchaseBusyUserId, setPurchaseBusyUserId] = useState<string | null>(null);
   const purchaseBusy = purchaseBusyUserId === userId;
   const [diamondStoreUserId, setDiamondStoreUserId] = useState<string | null>(null);
@@ -2884,6 +2887,9 @@ export function ThemeSettingsModal({
                 <p id="theme-purchase-description" className="sc-copy tsc__copy">
                   Purchase This Design For {pendingAssetPurchase.price.toLocaleString()} Diamonds.
                   It Will Unlock Permanently And Apply To The Live Table Immediately.
+                  {vipIntro.priceLine
+                    ? ` VIP Members Use Every Premium Design. VIP ${vipIntro.priceLine}`
+                    : ''}
                 </p>
                 <div className="tsc__row" aria-live="polite">
                   <span className="tsc__label sc-ink--blue">

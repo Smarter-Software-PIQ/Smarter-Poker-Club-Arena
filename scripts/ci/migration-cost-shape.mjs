@@ -52,6 +52,23 @@ export const COST_CHECKED_FROM = '20261107200000';
 export const STATEMENT_TIMEOUT_CHECKED_FROM = '20261127020000';
 
 /**
+ * Migrations at or after this version (and synthetic non-dated test files)
+ * must not define CREATE FUNCTION/PROCEDURE/VIEW bodies containing correlated
+ * scalar aggregate subqueries over multi-million-row hot tables (the O(N*M)
+ * pattern behind bbj_drift_since #12129 and pre-fix v_spin_reserve_health).
+ */
+export const CORRELATED_HOT_SUBQUERY_CHECKED_FROM = '20261127020000';
+
+/** Multi-million-row hot tables where correlated scalar aggregate subqueries blow the budget. */
+export const HOT_QUERY_TABLES = Object.freeze([
+  'bbj_contributions',
+  'rake_records',
+  'chip_ledger',
+  'hand_histories',
+  'spin_reserve_ledger',
+]);
+
+/**
  * Frozen historical exceptions (already installed in production before this
  * guard existed). Closed set: never add a new filename here. Using a closed
  * historical set instead of a future version cutoff guarantees open PRs with
@@ -456,6 +473,9 @@ export function migrationCostRisks(file, sql) {
   for (const problem of overBudgetStatementTimeouts(file, sql)) {
     reasons.push(`${file}: ${problem}`);
   }
+  for (const hit of correlatedHotTableSubqueries(file, sql)) {
+    reasons.push(`${file}: ${hit}`);
+  }
   return reasons;
 }
 
@@ -713,6 +733,217 @@ export function overBudgetStatementTimeouts(file, sql) {
     }
   }
   return problems;
+}
+
+const SQL_ALIAS_STOP_WORDS = new Set([
+  'where',
+  'join',
+  'left',
+  'right',
+  'inner',
+  'outer',
+  'cross',
+  'full',
+  'natural',
+  'group',
+  'order',
+  'limit',
+  'offset',
+  'having',
+  'on',
+  'using',
+  'union',
+  'except',
+  'intersect',
+  'set',
+  'for',
+  'window',
+  'fetch',
+]);
+
+const BUILTIN_QUALIFIERS = new Set([
+  'public',
+  'smarter_private',
+  'pg_catalog',
+  'auth',
+  'extensions',
+  'new',
+  'old',
+]);
+
+/**
+ * Extract every CREATE [OR REPLACE] FUNCTION, PROCEDURE, and VIEW definition
+ * from `sql` (with comments stripped), returning `{ kind, name, body }`.
+ * Shared by correlatedHotTableSubqueries and scripts/ci/explain-migration-queries.mjs.
+ */
+export function extractRoutineAndViewDefinitions(sql) {
+  const text = stripComments(sql);
+  const defs = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "'") {
+      i += 1;
+      while (i < text.length) {
+        if (text[i] === "'") {
+          if (text[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (text[i] === '$') {
+      const m = /^\$[A-Za-z_0-9]*\$/.exec(text.slice(i));
+      if (m) {
+        const close = text.indexOf(m[0], i + m[0].length);
+        if (close >= 0) {
+          i = close + m[0].length;
+          continue;
+        }
+      }
+    }
+    if (/[A-Za-z_]/.test(text[i]) && (i === 0 || !/[A-Za-z_0-9$."]/.test(text[i - 1]))) {
+      const rest = text.slice(i);
+      const routine =
+        /^create\s+(?:or\s+replace\s+)?(function|procedure)\s+([a-z_][a-z0-9_."]*)/i.exec(rest);
+      if (routine) {
+        const end = skipRoutineDefinition(text, i);
+        const stmt = text.slice(i, end);
+        // Extract the dollar-quoted body (if present) and strip inner comments.
+        const bodyMatch = /\bas\s+(\$[A-Za-z_0-9]*\$)([\s\S]*?)\1/i.exec(stmt);
+        const body = bodyMatch ? stripComments(bodyMatch[2]) : stmt;
+        defs.push({ kind: routine[1].toLowerCase(), name: routine[2].replace(/"/g, ''), body });
+        i = end;
+        continue;
+      }
+      const view =
+        /^create\s+(?:or\s+replace\s+)?(?:(?:temp|temporary)\s+)?(?:recursive\s+)?view\s+([a-z_][a-z0-9_."]*)\s*(?:\([^)]*\))?\s+as\b/i.exec(
+          rest
+        );
+      if (view) {
+        const end = skipToStatementEnd(text, i);
+        const body = text.slice(i + view[0].length, end).replace(/;\s*$/, '').trim();
+        defs.push({ kind: 'view', name: view[1].replace(/"/g, ''), body });
+        i = end;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return defs;
+}
+
+/**
+ * Find correlated scalar aggregate subqueries over multi-million-row hot tables
+ * inside CREATE [OR REPLACE] FUNCTION / PROCEDURE / VIEW definitions.
+ *
+ * Pattern caught:
+ *   (SELECT COALESCE(SUM(...), 0) FROM public.bbj_contributions bc
+ *     WHERE bc.pool_id = p.id AND bc.created_at >= ...)
+ * Exempts unique/primary-key point lookups (`id =`, `idempotency_key =`, `hand_id =`)
+ * and non-scalar subqueries (`EXISTS`, `IN`, `FROM (SELECT ...)`, `WITH ... AS (...)`).
+ */
+export function correlatedHotTableSubqueries(file, sql) {
+  const ver = versionOf(file);
+  if (ver !== null && ver < CORRELATED_HOT_SUBQUERY_CHECKED_FROM) return [];
+  const hotSet = new Set(HOT_QUERY_TABLES);
+  const findings = [];
+  const seen = new Set();
+
+  for (const def of extractRoutineAndViewDefinitions(sql)) {
+    const body = def.body;
+    const re = /\(\s*select\b/gi;
+    let m;
+    while ((m = re.exec(body))) {
+      const before = body.slice(Math.max(0, m.index - 48), m.index);
+      if (
+        /(?:\b(?:exists|in|any|some|all|from|join|lateral|as|union|intersect|except|return\s+query)\s*)$/i.test(
+          before
+        )
+      ) {
+        continue;
+      }
+      // Scan to matching closing paren, skipping single-quoted literals.
+      let depth = 0;
+      let j = m.index;
+      let inStr = false;
+      while (j < body.length) {
+        const ch = body[j];
+        if (inStr) {
+          if (ch === "'" && body[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          if (ch === "'") inStr = false;
+          j += 1;
+          continue;
+        }
+        if (ch === "'") {
+          inStr = true;
+          j += 1;
+          continue;
+        }
+        if (ch === '(') depth += 1;
+        else if (ch === ')') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+        j += 1;
+      }
+      if (depth !== 0) continue;
+      const sub = body.slice(m.index + 1, j);
+      if (!/\b(?:sum|count|avg|min|max|array_agg|jsonb_agg)\s*\(/i.test(sub)) continue;
+      const fromMatch =
+        /\bfrom\s+(?:only\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?/i.exec(
+          sub
+        );
+      if (!fromMatch) continue;
+      const primaryTable = fromMatch[1].toLowerCase();
+      if (!hotSet.has(primaryTable)) continue;
+
+      const wIdx = sub.search(/\bwhere\b/i);
+      if (wIdx < 0) continue;
+      const wherePart = sub.slice(wIdx);
+      // Point-key unique/PK equality lookup is O(1) per row.
+      if (/\b(?:[a-z_][a-z0-9_]*\.)?(?:id|idempotency_key|hand_id)\s*=/i.test(wherePart)) {
+        continue;
+      }
+
+      const innerAliases = new Set(BUILTIN_QUALIFIERS);
+      for (const fm of sub.matchAll(
+        /\b(?:from|join)\s+(?:only\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?/gi
+      )) {
+        innerAliases.add(fm[1].toLowerCase());
+        const al = fm[2]?.toLowerCase();
+        if (al && !SQL_ALIAS_STOP_WORDS.has(al)) innerAliases.add(al);
+      }
+
+      // Remove single-quoted literals before inspecting alias.column references.
+      const whereNoStrings = wherePart.replace(/'(?:[^']|'')*'/g, "''");
+      const outerRefs = [
+        ...new Set(
+          [...whereNoStrings.matchAll(/\b([a-z_][a-z0-9_]*)\.[a-z_][a-z0-9_]*/gi)]
+            .map((r) => r[1].toLowerCase())
+            .filter((a) => !innerAliases.has(a))
+        ),
+      ];
+      if (outerRefs.length === 0) continue;
+
+      const key = `${def.name}|${primaryTable}|${outerRefs.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push(
+        `defines ${def.kind} ${def.name} with a correlated scalar aggregate subquery over hot table ${primaryTable} (correlating on outer alias ${outerRefs.join(', ')}) - ` +
+          're-scanning a multi-million-row table per outer row blows the install/runtime budget (incident 37a45c05 / #12129). ' +
+          'Pre-aggregate in a single-pass GROUP BY CTE or LEFT JOIN and verify the plan with `node scripts/ci/explain-migration-queries.mjs`.'
+      );
+    }
+  }
+  return findings;
 }
 
 /** True when this file is judged by migrationCostRisks. */

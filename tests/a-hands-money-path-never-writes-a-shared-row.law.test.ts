@@ -224,6 +224,8 @@ describe("a hand's money path never writes a shared row", () => {
     expect(wrapped.indexOf('$ca_hand_path_check$')).toBeLessThan(wrapped.lastIndexOf('COMMIT;'));
     expect(wrapped).toContain('migration_adds_a_shared_write_to_the_hand_path');
     expect(wrapped).toContain('hand_path_door_missing');
+    expect(wrapped).toContain('ca.hand_path_catalog_fp');
+    expect(wrapped).toContain('ca.hand_path_check_mode');
     const reserved = ddl.replace('COMMIT;', () => "SELECT '$ca_hand_path_check$';\nCOMMIT;");
     expect(() => handPathParts(later, reserved, reserved)).toThrow(/reserved/);
     expect(() => handPathParts(later, 'CREATE TABLE t();', 'CREATE TABLE t();')).toThrow(

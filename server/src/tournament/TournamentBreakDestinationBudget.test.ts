@@ -243,7 +243,11 @@ it('refreshes the board after an amendment before validating the next member', a
   f.occupiedSeats.add(1);
   f.onAmend(() => f.occupiedSeats.add(2));
   await f.manager.recoverTournamentBreak(structuredClone(f.state));
-  expect(f.amendments.map((m) => m.p_destination_seat_number)).toEqual([2, 3]);
+  // Seat 2 is the second member's own chair, so the first member's replacement
+  // never takes it (aBreakNeverOffersTwoMembersOneChair); once seat 2 is taken
+  // after that amendment, the second member's replacement skips seat 3, which
+  // the first member now holds.
+  expect(f.amendments.map((m) => m.p_destination_seat_number)).toEqual([3, 4]);
   expect(f.reads).toHaveLength(8);
   expect(f.receipts.size).toBe(2);
 });

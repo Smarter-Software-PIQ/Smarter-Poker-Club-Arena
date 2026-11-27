@@ -48,6 +48,10 @@ import { useUserStore } from '../stores/useUserStore';
 import { resolveVipStatus, vipStatusLabel, type VipStatus } from '../utils/vipStatus';
 import { VIP_MONTHLY_ALLOWANCES } from '../services/VIPService';
 import {
+  VIP_MEMBERSHIP_PURCHASE_PATH,
+  useVipIntroEligibility,
+} from '../hooks/useVipIntroEligibility';
+import {
   achievementService,
   type Achievement as AchievementDef,
 } from '../services/AchievementService';
@@ -898,6 +902,12 @@ export default function ProfilePage() {
     profileOwnerUserId === activeProfileUserId &&
     (!user || user.id === activeProfileUserId);
 
+  /* The first-month price for a non-member, from the server. No answer prints
+     no price and the membership line keeps its plain wording. */
+  const vipIntro = useVipIntroEligibility(
+    !isLoading && profileStateIsOwnedByActiveAccount && !!user && user.vipStatus === 'none'
+  );
+
   if (isLoading || !profileStateIsOwnedByActiveAccount) {
     return <LoadingState message="Loading profile..." />;
   }
@@ -1079,7 +1089,7 @@ export default function ProfilePage() {
                         year: 'numeric',
                       })}`
                     : 'Active'
-                  : 'Membership Benefits Are Open On The VIP Page'}
+                  : (vipIntro.priceLine ?? 'Membership Benefits Are Open On The VIP Page')}
             </span>
           </div>
           {user.vipStatus !== 'none' && (
@@ -1159,9 +1169,11 @@ export default function ProfilePage() {
           <button
             type="button"
             className={`${styles.editButton} ${styles.vipCta}`}
-            onClick={() => navigate('/vip')}
+            onClick={() =>
+              navigate(user.vipStatus === 'none' ? VIP_MEMBERSHIP_PURCHASE_PATH : '/vip')
+            }
           >
-            {user.vipStatus === 'none' ? 'See VIP Benefits' : 'Open VIP Ledger'}{' '}
+            {user.vipStatus === 'none' ? 'Get VIP Membership' : 'Open VIP Ledger'}{' '}
             <span aria-hidden="true">→</span>
           </button>
         </div>

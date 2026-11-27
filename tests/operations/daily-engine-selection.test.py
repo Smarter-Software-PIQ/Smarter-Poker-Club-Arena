@@ -232,5 +232,57 @@ class DailySelection(unittest.TestCase):
         self.assertEqual([r['state'] for r in rows], ['deferred','blocked','deferred'])
         self.assertEqual(rows[-1]['selectedBlob'], target)
 
+    def test_refused_candidates_are_named_with_their_reason(self):
+        # 2026-11-25: 58227a1b, 6aa61507 and 4d88b3bf carried a FAILURE
+        # certificate and were skipped without a word, so the cutover log never
+        # said a candidate had been refused or why. Every commit with a Backup
+        # status that is not a usable SUCCESS is listed; commits with no status
+        # are counted.
+        failed, pending, late, bare, serving = 'a' * 40, 'b' * 40, 'd' * 40, 'e' * 40, 'c' * 40
+        args = types.SimpleNamespace(repo='o/r', control=failed, serving=serving)
+        cutoff = mod.cutoff('2026-11-25T13')
+        report = {'cutoffEpoch': cutoff, 'deferredCandidates': []}
+        rows = [(failed, {'state': 'FAILURE', 'createdAt': '2026-11-25T18:20:00Z',
+                          'description': 'Backup Engine refused: hand_gap_unintended_delay_exceeded'}),
+                (pending, {'state': 'PENDING', 'createdAt': '2026-11-25T18:00:00Z', 'description': None}),
+                (late, {'state': 'SUCCESS', 'createdAt': '2026-11-25T18:41:00Z'}),
+                (bare, None)]
+        with (patch.object(mod, 'git', side_effect=[failed + '\n' + pending + '\n' + late + '\n' + bare, serving]),
+              patch.object(mod, 'statuses', return_value=rows),
+              patch.object(mod, 'api', side_effect=AssertionError('no certificate is read'))):
+            mod.select(args, report)
+        self.assertNotIn('outcome', report)
+        self.assertEqual(report['deferredCandidates'], [])
+        self.assertEqual([r['sha'] for r in report['refusedCandidates']], [failed, pending, late])
+        self.assertEqual(report['refusedCandidates'][0]['reason'],
+                         'Backup certificate is failure: Backup Engine refused: hand_gap_unintended_delay_exceeded')
+        self.assertEqual(report['refusedCandidates'][1]['reason'], 'Backup certificate is pending')
+        self.assertIn('certified after the selection cutoff (2026-11-25T18:41:00Z)',
+                      report['refusedCandidates'][2]['reason'])
+        self.assertEqual(report['uncertifiedCommits'], 1)
+
+    def test_a_success_whose_run_or_certificate_cannot_be_used_is_named(self):
+        sha, stamp = 'a' * 40, '2026-11-25T18:00:00Z'
+        status = {'state': 'SUCCESS', 'createdAt': stamp, 'targetUrl': 'https://github.com/o/r/actions/runs/42'}
+        base = {'path': '.github/workflows/backup-engine.yml', 'head_branch': 'main', 'id': 42,
+                'run_attempt': 1, 'conclusion': 'success', 'updated_at': stamp}
+        cutoff = mod.cutoff('2026-11-25T13')
+        cases = [({**base, 'conclusion': 'failure'}, None, 'Backup run 42 concluded failure'),
+                 ({**base, 'updated_at': '2026-11-25T18:45:00Z'}, None, 'finished after the selection cutoff'),
+                 (base, {'artifacts': []}, 'retains no unexpired certificate backup-certificate-' + sha + '-1')]
+        for run, artifacts, reason in cases:
+            refused = []
+            replies = [run] + ([artifacts] if artifacts is not None else [])
+            with patch.object(mod, 'api', side_effect=replies):
+                self.assertIsNone(mod.backup('o/r', sha, cutoff, status, refused))
+            self.assertEqual(len(refused), 1)
+            self.assertIn(reason, refused[0])
+        # The caller that passes no list (owner-window-ready.py) is unchanged.
+        with patch.object(mod, 'api', side_effect=AssertionError):
+            self.assertIsNone(mod.backup('o/r', sha, cutoff, {'state': 'FAILURE', 'createdAt': stamp}))
+
+    def test_status_query_reads_the_description(self):
+        self.assertIn('context state description createdAt targetUrl', open(ROOT / 'scripts/ci/select-daily-engine.py').read())
+
 if __name__ == '__main__':
     unittest.main()
