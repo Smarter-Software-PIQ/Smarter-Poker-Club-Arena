@@ -280,7 +280,10 @@ describe('LAW: the flop pressure cap is priced on the bettor range (omahaFlopPre
     const branch = src.slice(mine, v40);
     expect(branch).not.toMatch(/v87|DeepDive|withholdFlopLift/);
     // the V40 block still contains the v87 flop-cap lift withhold, unwrapped
-    expect(src.slice(v40, v40 + 4000)).toContain('opts.v87DeepDiveDiscipline !== false &&');
+    // the V40 block runs to the V20 cap that follows it
+    const v20 = src.indexOf('// ═══ V20 NLH-FAMILY EQUITY CAP', v40);
+    expect(v20).toBeGreaterThan(v40);
+    expect(src.slice(v40, v20)).toContain('opts.v87DeepDiveDiscipline !== false &&');
     for (const v87 of [undefined, false] as const) {
       const extra = v87 === undefined ? {} : { v87DeepDiveDiscipline: v87 };
       for (const [name, set] of outOfScope)

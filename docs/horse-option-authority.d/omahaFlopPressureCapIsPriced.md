@@ -23,7 +23,7 @@ What it does not touch: the V40 block itself still runs, and every other consume
 
 ## What Was Measured
 
-All in `plo-lead7-01TLQer8/flop-pp/` (scripts in `src/`, logs in `out/`, `replay/`, `aud/`; BUILD.md has every table).
+All in `plo-lead7-01TLQer8/flop-pp/` (scripts in its src folder, logs in out, replay and aud; BUILD.md has every table).
 
 Flag-off check (`scripts/ops/horse-flag-off-check.sh 824a7dd1ce5c b4ab71f73f2d --set full`): 0 differences in 28,000 decisions.
 
@@ -37,11 +37,11 @@ Real recorded decisions: the audit's 445 heads-up PLO4 flop facing-bet decisions
 | 0.4 to 0.8         | all    | 195 | 40.0%         | 24.1%               | 23.6%     |             |
 | under 0.4          | all    | 106 | 23.6%         | 6.6%                | 6.6%      | 25.9%       |
 
-Changed decisions: 29 folds become calls, 7 calls become folds. No raise is added or removed (149 raise choices in both arms). Showdown outcomes where cards were shown: 1 changed decision reached a showdown with cards shown (a fold that becomes a call; the live call won 1.8 bb). The others ended without a showdown, and unshown cards are never read. Chips indicator against people's shown flop range, by strength percentile on the same board (`src/chips.mts`; showdown equity over sampled runouts, no later-street betting, so optimistic): all 23 folds-to-calls against people have equity above the price (+120.7 bb at showdown in total); the 3 calls-to-folds give up +3.1 bb.
+Changed decisions: 29 folds become calls, 7 calls become folds. No raise is added or removed (149 raise choices in both arms). Showdown outcomes where cards were shown: 1 changed decision reached a showdown with cards shown (a fold that becomes a call; the live call won 1.8 bb). The others ended without a showdown, and unshown cards are never read. Chips indicator against people's shown flop range, by strength percentile on the same board (`plo-lead7-01TLQer8/flop-pp/src/chips.mts`; showdown equity over sampled runouts, no later-street betting, so optimistic): all 23 folds-to-calls against people have equity above the price (+120.7 bb at showdown in total); the 3 calls-to-folds give up +3.1 bb.
 
 Scored audited replay (`run-aud2.sh`, verdict-only, memory off): 2,697 decisions of the Nov 20 to 24 audit and 869 of the Nov 25 daily audit. 17 changed, all folds that become calls, every one the call the live Horse actually made; the auditors judged 4 of those calls CORRECT and 13 MISTAKE OPPORTUNITY "missed raise for value" (calling was better than folding; the option never raises). The scorer counts them as fixed 0, newly wrong 0, unjudged 17 (it judges a node only where the replayed base repeats the recorded action).
 
-Scripted probes (`src/gradeF.mts probe`, 2 seats, 12,000 deals each; seat 0 bets the flop heads-up first-in at pot by script and is the production Horse elsewhere; the production learner reads its shown hands; Horses ON minus OFF, bb/100 +/- SE):
+Scripted probes (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` probe, 2 seats, 12,000 deals each; seat 0 bets the flop heads-up first-in at pot by script and is the production Horse elsewhere; the production learner reads its shown hands; Horses ON minus OFF, bb/100 +/- SE):
 
 | Bettor                                      | PLO4                                       | PLO5                                        |
 | ------------------------------------------- | ------------------------------------------ | ------------------------------------------- |
@@ -53,14 +53,14 @@ Scripted probes (`src/gradeF.mts probe`, 2 seats, 12,000 deals each; seat 0 bets
 | Calls everything, never bets                | +0.15 +/- 0.12                             | -0.04 +/- 0.23                              |
 | Folds without the top 10%                   | -1.59 +/- 1.49                             | +3.55 +/- 2.73                              |
 
-League mirror (`src/gradeF.mts mirror`: duplicate deals, ON seats against OFF seats swapped every pair, Hybrid cash Horses, live switch rows, 100 bb, 6,000 pairs = 12,000 hands a card; a field of Horses, for completeness):
+League mirror (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` mirror: duplicate deals, ON seats against OFF seats swapped every pair, Hybrid cash Horses, live switch rows, 100 bb, 6,000 pairs = 12,000 hands a card; a field of Horses, for completeness):
 
 | Card     | PLO4           | PLO5           |
 | -------- | -------------- | -------------- |
 | Heads-up | -1.65 +/- 1.59 | +1.71 +/- 2.97 |
 | 6-max    | -0.45 +/- 0.55 | +0.27 +/- 0.72 |
 
-Speed (compiled build, `src/speedc.mjs`; the audited and committed heads-up flop states at 1x, 2x and 4x stacks: 889 applicable of 5,790, 666 of them deep; cold flop sample, best of 3, machine load about 7): ON p50 5.90, p95 9.44, max 13.26 ms; added p50 5.13, p95 8.09, max 8.85 ms; none over 50 ms. Relative-cost law anOmahaFlopPressureCapPriceIsFast: on/off 7.4 under vitest (limit 12).
+Speed (compiled build, `plo-lead7-01TLQer8/flop-pp/src/speedc.mjs`; the audited and committed heads-up flop states at 1x, 2x and 4x stacks: 889 applicable of 5,790, 666 of them deep; cold flop sample, best of 3, machine load about 7): ON p50 5.90, p95 9.44, max 13.26 ms; added p50 5.13, p95 8.09, max 8.85 ms; none over 50 ms. Relative-cost law anOmahaFlopPressureCapPriceIsFast: on/off 7.4 under vitest (limit 12).
 
 ## Prior anchor
 
