@@ -1180,6 +1180,59 @@ os.replace(tmp, path)
 PY_SPENT
 }
 
+# THE BACKUP HOST RECLAIMS ITS DISK BEFORE EVERY CERTIFICATION (O34, 2026-11-26).
+# Every certification builds an engine image (club-arena-engine-standby:<sha>)
+# and two qualification images, and keeps a qualification folder; nothing ever
+# removed them. On 2026-11-26 the host filled and three certifications in a row
+# (8a853e382063, 1ec2ff9d4df8, d88a03fd2e91) were refused with
+# tournament_freeze_qualification_failed: "No space left on device". This runs
+# first in cmd_certify: it removes only what this script itself made and no
+# longer needs, keeps the candidate and every image a container uses (docker
+# refuses those), and then refuses at once, by name, if space is still short.
+BACKUP_DISK_KEEP_HOURS=${BACKUP_DISK_KEEP_HOURS:-24}
+BACKUP_DISK_MIN_FREE_GIB=${BACKUP_DISK_MIN_FREE_GIB:-12}
+
+reclaim_backup_disk() {  # candidate sha
+  local keep="$1" now cutoff tag created_epoch removed=0
+  now=$(date +%s); cutoff=$((now - BACKUP_DISK_KEEP_HOURS * 3600))
+  while read -r tag; do
+    [ -n "$tag" ] || continue
+    [ "$tag" = "$IMAGE_REPO:$keep" ] && continue
+    created_epoch=$(date -d "$(docker image inspect -f '{{.Created}}' "$tag" 2>/dev/null)" +%s 2>/dev/null) || continue
+    [ "$created_epoch" -lt "$cutoff" ] || continue
+    # No -f: an image a container still uses is refused and kept.
+    docker image rm "$tag" >/dev/null 2>&1 && removed=$((removed + 1))
+  done < <(docker image ls --filter "reference=$IMAGE_REPO:*" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null)
+  docker image ls --filter 'reference=standby-freeze-node:*' --filter 'reference=standby-freeze-pg:*' \
+    --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while read -r tag; do
+    [ -n "$tag" ] && docker image rm "$tag" >/dev/null 2>&1
+  done
+  docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -f --filter "until=${BACKUP_DISK_KEEP_HOURS}h" >/dev/null 2>&1 || true
+  if [ -d "$STATE_DIR/qualifications" ]; then
+    find "$STATE_DIR/qualifications" -mindepth 1 -maxdepth 1 -type d -mmin +$((BACKUP_DISK_KEEP_HOURS * 60)) \
+      -exec rm -rf -- {} + 2>/dev/null || true
+  fi
+  find "$STATE_DIR" -maxdepth 1 -type d -name 'player-proof.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
+  find /tmp -maxdepth 1 -type d -name 'standby-ctx.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
+  [ -d "$LOG_DIR" ] && find "$LOG_DIR" -maxdepth 1 -type f -name 'build-*.log' -mtime +7 -delete 2>/dev/null || true
+  log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB"
+}
+
+# The smallest free space, in whole GiB, of the filesystems a certification
+# writes: Docker's data root and the standby state folder.
+backup_disk_free_gib() {
+  local root min='' g
+  root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null) || root=/var/lib/docker
+  for path in "$root" "$STATE_DIR"; do
+    [ -e "$path" ] || continue
+    g=$(df -P -BG "$path" 2>/dev/null | awk 'NR==2 {gsub(/G/,"",$4); print $4}') || continue
+    [[ "$g" =~ ^[0-9]+$ ]] || continue
+    if [ -z "$min" ] || [ "$g" -lt "$min" ]; then min=$g; fi
+  done
+  echo "${min:-unknown}"
+}
+
 cmd_certify() {
   local sha="$1" soak="${2:-900}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
   local restart_before restart_after container_id seats crash_at=0 recovered_at=0
@@ -1188,6 +1241,13 @@ cmd_certify() {
   local result="$CERT_DIR/$sha.json"
   record() { reasons+=("$1"); verdict=fail; log "certify $sha: FAIL $1"; }
 
+  reclaim_backup_disk "$sha"
+  local free_gib; free_gib=$(backup_disk_free_gib)
+  if ! [[ "$free_gib" =~ ^[0-9]+$ ]]; then
+    record 'backup_disk_unreadable'
+  elif [ "$free_gib" -lt "$BACKUP_DISK_MIN_FREE_GIB" ]; then
+    record "backup_disk_low:${free_gib}GiB"
+  fi
   assert_valid_copy || return 1
   # TODAY'S INCIDENTS NEVER COME BACK (2026-11-19): replayed on the restored
   # copy before the engine boots; a regression withholds the certificate.
