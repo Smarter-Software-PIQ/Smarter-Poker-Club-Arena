@@ -261,7 +261,10 @@ describe('the surfaces that ask a non-member to go VIP', () => {
   it('the benefits sheet prints the price and links straight to the membership tab', () => {
     const modal = read('src/components/vip/VIPCardsModal.tsx');
     expect(modal).toContain('useVipIntroEligibility(isOpen && !isVIP)');
-    expect(modal).toContain('`Or Join Club Arena For A Membership. ${vipIntro.priceLine}`');
+    expect(modal).toContain(
+      '<p className="sc-copy sc-copy--center sc-ink--gold">{vipIntro.priceLine}</p>'
+    );
+    expect(modal).toContain('Get VIP Membership');
     expect(modal).toContain('appNavigate(VIP_MEMBERSHIP_PURCHASE_PATH);');
     expect(modal).not.toContain('href="/hub/vip-membership"');
   });
@@ -269,7 +272,9 @@ describe('the surfaces that ask a non-member to go VIP', () => {
   it('the VIP page prints the price only once it knows the account is not a member', () => {
     const page = read('src/pages/VIPPage.tsx');
     expect(page).toContain('useVipIntroEligibility(pageReady && !isVIP)');
-    expect(page).toContain("{vipIntro.priceLine ? ` ${vipIntro.priceLine}` : ''}");
+    expect(page).toContain(
+      '{vipIntro.priceLine && <p className="section-offer">{vipIntro.priceLine}</p>}'
+    );
     expect(page).toContain('appNavigate(VIP_MEMBERSHIP_PURCHASE_PATH);');
     expect(page).toContain('Get VIP Membership');
   });

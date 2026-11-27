@@ -70,3 +70,36 @@ Rendered at 393px and 1280px, two things in the tab were wrong:
 
 Not published: the owner asked for the membership surfaces to be redesigned
 before anything ships, so this branch stays unmerged until he approves pictures.
+
+## Second follow-up: the plan cards print inside their painted glass
+
+Dan rejected the 393px render of the membership tab. Judged against
+#ClubArenaConsole, the plan card was already on approved masters (the
+shark-panel-v1 top, mid and bottom slices, the painted primary and secondary
+plates, and the immutable gold VIP card art); what failed was the zones:
+
+- the shared chassis inset, `clamp(14px, 3vw, 42px)`, is 14px on a phone, and
+  the master's side rail runs x 21-57 of 900 (23px on a 360px card), so the
+  plan name, price, offer, features, the gold VIP art and "Most Popular" all
+  sat on the chrome. `.planCard` now measures every zone in master pixels of
+  its own painted width: content from x 88 of 900, the first line below the
+  143-row top cap, the last plate above the 139-row bottom cap;
+- "Most Popular" prints into the top cap's plain brushed glass, x 78-318 and
+  y 90-136 of the master, in brand gold;
+- every line is centred over the centred plates, and "Cancel Anytime." is its
+  own line so the offer never breaks mid-phrase;
+- the footer note began a line with a stray full stop after its inline link.
+  The sentences now come first and the link closes the note (web and native).
+
+The VIP benefits sheet (`SpadeConsole`, VIP crest): the price line is its own
+line instead of being run on from "Or Join Club Arena For A Membership", the
+"Diamond Cost" header that touched the right rail reads "Diamonds", and the lit
+purchase word that ran into both rails reads "Get VIP Membership" (the same
+words as the VIP page and profile row). The VIP page's Buy Features section
+prints the price on its own line in the schema's brass.
+
+Found, not fixed (art): the `top-vip` head carries a ghost of old text under
+the title, visible on every render of the sheet before and after this change;
+it needs the head repainted from the master, not CSS.
+
+Still not published: nothing merges until Dan approves the pictures.

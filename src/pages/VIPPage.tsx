@@ -640,9 +640,12 @@ export default function VIPPage() {
             >
               Get VIP Membership
             </a>
-            .{vipIntro.priceLine ? ` ${vipIntro.priceLine}` : ''}
-            {vipIntro.reasonLine ? ` ${vipIntro.reasonLine}.` : ''}
+            .
           </p>
+          {/* The first-month price is its own line under the invitation, in
+              the schema's brass, never run on from the sentence above it. */}
+          {vipIntro.priceLine && <p className="section-offer">{vipIntro.priceLine}</p>}
+          {vipIntro.reasonLine && <p className="section-desc">{vipIntro.reasonLine}.</p>}
 
           <div className="purchase-grid">
             {Object.entries(FEATURE_PRICING)

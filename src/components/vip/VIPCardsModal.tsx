@@ -248,11 +248,12 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
           ) : (
             <div className="vipc__status">
               <p className="vipc__status-line sc-ink--silver">Pay Per Feature</p>
-              <p className="sc-copy sc-copy--center">
-                {vipIntro.priceLine
-                  ? `Or Join Club Arena For A Membership. ${vipIntro.priceLine}`
-                  : 'Or Join Club Arena For A Membership'}
-              </p>
+              <p className="sc-copy sc-copy--center">Or Join Club Arena For A Membership</p>
+              {/* The price a non-member decides on is its own line, never run
+                  on from the sentence above. */}
+              {vipIntro.priceLine && (
+                <p className="sc-copy sc-copy--center sc-ink--gold">{vipIntro.priceLine}</p>
+              )}
               {vipIntro.reasonLine && (
                 <p className="sc-copy sc-copy--center">{vipIntro.reasonLine}</p>
               )}
@@ -269,7 +270,7 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
                 VIP
               </span>
               <span className="sc-label sc-ink--blue vipc__cell--end" role="columnheader">
-                Diamond Cost
+                Diamonds
               </span>
             </div>
             {FEATURES.map((feature, i) => {
@@ -354,7 +355,7 @@ export function VIPCardsModal({ isOpen, onClose, vipStatus }: VIPInfoModalProps)
                   appNavigate(VIP_MEMBERSHIP_PURCHASE_PATH);
                 }}
               >
-                Join Club Arena For A Membership
+                Get VIP Membership
               </a>
             )}
           </div>
