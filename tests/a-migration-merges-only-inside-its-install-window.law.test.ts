@@ -15,6 +15,9 @@
  *     written outage override. Everything else in it is success.
  *  2. A held dispatch re-reads each file from the default branch after its
  *     wait and sends nothing for a file that left it.
+ *  3. (2026-11-27) The window opens ON TIME: a keeper reads before each minute
+ *     and writes on it, ready and recently updated pull requests first, each
+ *     verdict at its own write time, and only one keeper runs at a time.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -39,6 +42,10 @@ import {
   nextMergeWindow,
   ordinaryMigrations,
   outageOverride,
+  PREFETCH_LEAD_MS,
+  publish,
+  publishOrder,
+  prepare,
   pushAction,
   GH_RETRY_DELAYS_MS,
   KEEPER_CLOSE_GRACE_MINUTES,
@@ -157,10 +164,9 @@ describe('a migration merges only inside its install window', () => {
   it('no window depends on the schedule: a held run closes its own window, for one pull request or all', async () => {
     const src = read('scripts/ci/migration-merge-window.mjs');
     expect(src).toContain('export async function keep({ repo, number = null,');
-    expect(src).toContain(
-      'const pass = guardedSweep({ repo, number, nowMs: t, cadence, targetUrl, log });'
-    );
-    expect(src).toContain('if (t >= closes && pass.clean) {');
+    expect(src).toContain('prepared = read({ repo, number });');
+    expect(src).toContain('clean = passClean(write(prepared, { repo, now, cadence, targetUrl, log }));');
+    expect(src).toContain('if (t >= closes && clean) {');
     expect(src).toContain(
       'if (t - started > (KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * MINUTE) {'
     );
@@ -487,6 +493,120 @@ describe('a window pass reads each head once (2026-11-26)', () => {
   });
 });
 
+describe('the window opens on time (2026-11-27)', () => {
+  // 04:15 Chicago on 2026-11-27 = 10:15Z. The keeper (run 45978922451) swept on
+  // the minute but wrote 217 statuses one by one, oldest first, and #12191
+  // turned green at 04:18:15; the push keeper wrote "failure" for it at
+  // 04:15:14 from a verdict taken at 04:11:40.
+  const OPEN = at('2026-11-27T10:15:00Z');
+  const CLOSE = at('2026-11-27T10:27:00Z');
+  const pr = (
+    number: number,
+    updatedAt: string,
+    isDraft = false,
+    state = 'FAILURE',
+    description = 'x'
+  ) => ({
+    number,
+    isDraft,
+    updatedAt,
+    headRefOid: `${number}`.padStart(12, '0') + 'a'.repeat(28),
+    baseRefName: 'main',
+    body: '',
+    labels: { nodes: [] },
+    commits: {
+      nodes: [
+        {
+          commit: { status: { contexts: [{ context: MERGE_WINDOW_CONTEXT, state, description }] } },
+        },
+      ],
+    },
+  });
+
+  it('writes ready, recently updated pull requests first: #12191 before the 2023 backlog', () => {
+    const backlog = Array.from({ length: 216 }, (_, i) => pr(2303 + i, '2026-09-01T00:00:00Z'));
+    const order = publishOrder([
+      ...backlog,
+      pr(12191, '2026-11-27T09:50:00Z'),
+      pr(12201, '2026-11-27T09:40:00Z', true),
+    ]).map((p) => p.number);
+    expect(order[0]).toBe(12191);
+    expect(order[order.length - 1]).toBe(12201); // a draft cannot merge: last
+  });
+
+  it('takes each verdict at its own write time, so a pass crossing the boundary never writes the old answer', () => {
+    const box = mkdtempSync(join(tmpdir(), 'merge-window-publish-'));
+    const calls = join(box, 'calls');
+    writeFileSync(join(box, 'gh'), `#!/usr/bin/env bash\necho "$*" >> '${calls}'\n`);
+    chmodSync(join(box, 'gh'), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${box}:${oldPath}`;
+    try {
+      // Each verdict reads the clock once: the first at 04:14:59, the second at 04:15:00.
+      const clock = [OPEN - 1_000, OPEN];
+      const now = () => clock.shift() ?? OPEN;
+      const files = [mig(ORDINARY)];
+      const out = publish(
+        [
+          { pr: pr(12191, '2026-11-27T09:50:00Z'), files, error: null },
+          { pr: pr(2303, '2026-09-01T00:00:00Z'), files, error: null },
+        ],
+        { repo: 'o/r', now, cadence: C, log: () => {} }
+      );
+      expect(out.map((r) => [r.number, r.state])).toEqual([
+        [12191, 'failure'],
+        [2303, 'success'],
+      ]);
+      const posted = readFileSync(calls, 'utf8').trim().split('\n');
+      expect(posted[0]).toContain('statuses/');
+      expect(posted[1]).toContain('state=success');
+    } finally {
+      process.env.PATH = oldPath;
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  it('reads before the minute and writes ON it, for every minute from opening to close', async () => {
+    let clock = at('2026-11-27T10:04:01Z'); // the OpenClaw dispatch
+    const reads: number[] = [];
+    const writes: number[] = [];
+    await keep({
+      repo: 'o/r',
+      cadence: C,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+      log: () => {},
+      read: () => {
+        reads.push(clock);
+        clock += 10_000; // a slim read of 360 pull requests
+        return [];
+      },
+      write: () => {
+        writes.push(clock);
+        return [];
+      },
+    });
+    expect(writes).toContain(OPEN); // the opening write lands at 04:15:00 exactly
+    expect(writes).toContain(CLOSE); // and the closing one at 04:27:00
+    expect(writes[writes.length - 1]).toBe(CLOSE);
+    for (const w of writes.slice(1)) expect(w % 60_000).toBe(0);
+    const openRead = reads[writes.indexOf(OPEN)];
+    expect(OPEN - openRead).toBe(PREFETCH_LEAD_MS);
+  });
+
+  it('runs one keeper at a time: push, schedule and dispatch share a group that is never cancelled', () => {
+    const wf = parse(read('.github/workflows/migration-merge-window.yml')) as Record<string, any>;
+    expect(wf.concurrency.group).toBe(
+      "migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || 'keeper' }}"
+    );
+    expect(wf.concurrency['cancel-in-progress']).toBe(
+      "${{ github.event_name == 'pull_request_target' }}"
+    );
+  });
+});
+
 // 2026-11-27 7:23 AM CST: a keeper died on one 'gh: HTTP 504' reading its first
 // page. Had it been the only keeper, the 7:10 window would have stayed green past
 // 7:27 and a migration could have merged outside its install window.
@@ -599,24 +719,17 @@ describe('one GitHub hiccup never ends a pass or leaves a window open (2026-11-2
   });
 
   it('the keeper outlives a dead pass and does not stop until a closing pass is clean', async () => {
-    // 13:00 CST cycle: window 13:10-13:27 CST = 19:10-19:27Z.
-    const clock = [
-      '2026-11-26T19:15:00Z',
-      '2026-11-26T19:16:02Z',
-      '2026-11-26T19:20:02Z',
-      '2026-11-26T19:28:00Z',
-      '2026-11-26T19:28:15Z',
-    ].map(Date.parse);
-    let tick = 0;
-    let reads = 0;
+    // 13:00 CST cycle: window 13:10-13:27 CST = 19:10-19:27Z. The clock moves
+    // only when the keeper sleeps; each read is one pass.
+    let clock = Date.parse('2026-11-26T19:15:00Z');
+    const CLOSES = Date.parse('2026-11-26T19:27:00Z');
+    const passes: { at: number; failed: boolean }[] = [];
     const real = { exec: ghRunner.exec, pause: ghRunner.pause };
     ghRunner.pause = () => {};
+    let failing = false;
     ghRunner.exec = ((args: string[]) => {
       if (isRead(args)) {
-        reads += 1;
-        // Pass 2 (mid-window) and pass 3 (first closing pass) fail even after every retry.
-        if (reads >= 2 && reads <= 2 + 2 * (GH_RETRY_DELAYS_MS.length + 1) - 1)
-          throw fail('gh: HTTP 504');
+        if (failing) throw fail('gh: HTTP 504');
         return page([21]);
       }
       return '{}';
@@ -626,16 +739,30 @@ describe('one GitHub hiccup never ends a pass or leaves a window open (2026-11-2
       kept = await keep({
         repo: REPO,
         cadence: C,
-        now: () => clock[Math.min(tick++, clock.length - 1)],
-        sleep: async () => {},
+        now: () => clock,
+        sleep: async (ms: number) => {
+          clock += ms;
+        },
         log: () => {},
+        read: (opts: { repo: string; number: number | null }) => {
+          // Pass 2 (mid-window) and the first closing pass fail even after every retry.
+          const n = passes.length + 1;
+          // A read within the prefetch lead of the close feeds the first closing write.
+          const closingRead = clock >= CLOSES - PREFETCH_LEAD_MS;
+          failing = n === 2 || (closingRead && !passes.some((p) => p.at >= CLOSES - PREFETCH_LEAD_MS));
+          passes.push({ at: clock, failed: failing });
+          return prepare(opts);
+        },
       });
     } finally {
       ghRunner.exec = real.exec;
       ghRunner.pause = real.pause;
     }
     expect(kept).toBe(true);
-    expect(reads).toBe(2 + 2 * (GH_RETRY_DELAYS_MS.length + 1));
-    expect(tick).toBe(5); // started + four passes: clean, dead, dead closing, clean closing
+    expect(passes[1].failed).toBe(true);
+    const closing = passes.filter((p) => p.at >= CLOSES - PREFETCH_LEAD_MS);
+    expect(closing.length).toBeGreaterThanOrEqual(2);
+    expect(closing[0].failed).toBe(true);
+    expect(closing[closing.length - 1].failed).toBe(false);
   });
 });
