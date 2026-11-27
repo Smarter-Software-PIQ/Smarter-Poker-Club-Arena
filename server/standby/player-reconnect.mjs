@@ -7,7 +7,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 const [mode, table, user, seat, from, to] = process.argv.slice(2);
 const engine = 'club-arena-engine-standby:8080';
 const kong = 'http://supabase_kong_standby:8000';
-const deadline = Date.now() + 12 * 60_000;
+// THE WITNESS LASTS AS LONG AS THE REHEARSAL IT WATCHES (2026-11-26, O30c).
+// trial_swap (standby-trials.sh) allows the break up to t0 + 1800 s to thaw and
+// then up to 1200 s for the successor to deal. A fixed 12-minute witness gave up
+// first on a 207-seat copy whose last-hand drain alone took 483 s (run
+// 45918356098): the engine thawed and dealt, and the rehearsal was refused.
+export const WITNESS_BUDGET_MS = (1800 + 1200) * 1000;
+const deadline = Date.now() + WITNESS_BUDGET_MS;
 
 async function session() {
   if (process.env.ENGINE_STANDBY_CLONE !== '1' || process.env.SUPABASE_URL !== kong)
@@ -50,9 +56,11 @@ export async function observe({ url, token, predecessor, table, user, seat, conn
     let proved = false;
     let firstHand;
     let lastResync = 0;
+    // One budget for the whole witness: a per-phase cap shorter than the
+    // rehearsal's own waits refuses a swap that is still inside them.
     const timer = setTimeout(
       () => finish(Error('player snapshot deadline')),
-      Math.min(deadline - Date.now(), predecessor ? 600000 : 480000)
+      Math.max(0, deadline - Date.now())
     );
     function finish(error) {
       clearTimeout(timer);

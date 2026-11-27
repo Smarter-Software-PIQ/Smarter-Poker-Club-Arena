@@ -1,6 +1,6 @@
 # omahaRiverValueBetInPositionIsPriced: Authority For The Live Switch
 
-**Evidence NOT MET (2026-11-26, river range refit on people only): on the people-only range the real-hands river law's fixture bar fails (the option bets 4 of the 57 audited nodes, all the audit's bet, against the required 6; was 6), the scored replay is 3 fixed / 1 newly wrong (was 5 / 1), and the league mirror and probes were not re-run on the new range (the cards below are the pooled range's).** This file does not authorize switching the option on.
+**Evidence NOT MET (2026-11-27, river range refit on people only): the league mirror re-run on the people-only range shows no significant loss (heads-up PLO4 -1.92 +/- 1.43, PLO5 -1.71 +/- 2.82; 6-max -0.10 +/- 0.38, -0.79 +/- 0.70) and no exploit probe re-run on it is a significant loss (calling station PLO4 +0.89 +/- 0.62, PLO5 -2.51 +/- 1.39; over-folder +1.17 +/- 1.92, +4.47 +/- 3.62; balanced +0.48 +/- 1.71, +3.18 +/- 3.45), but the real-hands river law's fixture bar fails (the option bets 4 of the 57 audited nodes, all the audit's bet, against the required 6; was 6) and the scored replay is 3 fixed / 1 newly wrong (was 5 / 1); the mirror shows no gain either. The table in What Was Measured is the pooled range's.** This file does not authorize switching the option on.
 
 Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for the audit leak "missed value bet, river, in position, heads-up" (HAND-AUDIT-PLO.md: 7 cases / 245 bb in the first audit; daily audit 2026-11-25T230000Z HARD #5). The option is registered, default off (read `=== true`), switchable live and scopable per game (`horse.omahaGameScope.omahaRiverValueBetInPositionIsPriced`).
 
@@ -33,6 +33,21 @@ All offline (no switch row, no database write); scratch folder `plo-lead7-01TLQe
 | probe trapper PLO4 / PLO5  | +0.13 +/- 3.48 / -4.37 +/- 5.48  |
 
 v2 (his checking range moved by his own public river bet rate: with the measured river range of the player out of position before he acts and the measured first-to-act wager rate b, his bets are (pre - (1 - b) check) / b and a player who bets at b' checks (pre - b' bet) / (1 - b'); b' = his lifetime unopened river wager rate over the population's, shrunk by k = 33, times b; no record = the measured checking range). Audited real decisions, EV on the audits' pricing (shown cards only): daily 2026-11-25 4 changed, 1 fixed / 1 newly wrong, +17.6 bb; 2026-11-20..24 2 changed, 1 fixed / 0 newly wrong, +400.5 bb (one 1 bb bet into a 418 bb pot against an all-in-sized stack carries most of it: the audit's fold-equity model). The grades above are v2's; v1 (population checking range for everyone) is superseded. Real heads-up river states (replayed without records, where v2 decides exactly as v1): 352 of 14,576 checks become bets (2.4%; sizes a quarter pot 148, half 66, three quarters 57, pot 67, smaller 14); the opponent showed down in 313: the Horse held the best hand in 221 (71%), tied 15, was behind 77. Untouched by construction: every call, fold and raise, and every street but the river (the audits' in-position heads-up flop/turn/river calls are unchanged: 0 of them changed).
+
+## 2026-11-27 League Mirror On The People-Only River Range (lead-7)
+
+Re-run on the PR #12127 branch head f138732911ca (river range v3-2026-11-26-people), whose code for these options and for the live base is unchanged on main at d2fe27cb1310, where #12127 merged (main's later engine changes are inside omahaFacingBetPriorIsPeopleMeasured, off in the base), with `/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/grade.mts mirror`, run from that worktree's server/: duplicate deals, ON seats against OFF seats, swapped every pair, Hybrid cash Horses, 100 bb, 6,000 pairs = 12,000 hands a card, seed 20261126; every world learns each seat's public river fold record from its own hands and installs it as the lifetime provider, as live. Base = the live switch rows (`plo-defence/opts-live.json`). Together = omahaRiverBluffIsPricedOnBlockers + omahaRiverBluffIsPricedOnRangeAdvantage + omahaTurnBluffIsPricedOnBlockers + omahaRiverValueBetInPositionIsPriced. Logs: `plo-lead7-01TLQer8/plo-bluffs-mir/out/g-m-*.log` (heads-up) and `g-m6-*.log` (6-max).
+
+| card (bb/100 ON - OFF)                  | PLO4 heads-up  | PLO5 heads-up   | PLO4 6-max     | PLO5 6-max     |
+| --------------------------------------- | -------------- | --------------- | -------------- | -------------- |
+| omahaRiverBluffIsPricedOnBlockers       | +2.54 +/- 2.30 | +8.72 +/- 3.50  | +2.99 +/- 0.92 | +3.79 +/- 0.88 |
+| omahaRiverValueBetInPositionIsPriced    | -1.92 +/- 1.43 | -1.71 +/- 2.82  | -0.10 +/- 0.38 | -0.79 +/- 0.70 |
+| omahaRiverBluffIsPricedOnRangeAdvantage | -0.41 +/- 1.89 | +10.38 +/- 3.54 | +0.71 +/- 0.64 | +3.26 +/- 0.94 |
+| together                                | +8.40 +/- 2.43 | +14.86 +/- 3.86 | +4.20 +/- 0.90 | +5.41 +/- 1.04 |
+
+No card is a significant loss: the lowest is omahaRiverValueBetInPositionIsPriced heads-up PLO4, -1.92 +/- 1.43 (1.3 standard errors below zero; the bar is 2).
+
+Exploit probes, this option alone, on the people-only range (`plo-lead7-01TLQer8/plo-bluffs/src/grade3.mts probe`, 2 seats, 100 bb, 16,000 deals, seed 11, his public answers as his lifetime record; logs `plo-bluffs-mir/out/g-p-val-*.log`): calling station PLO4 +0.89 +/- 0.62, PLO5 -2.51 +/- 1.39; over-folder PLO4 +1.17 +/- 1.92, PLO5 +4.47 +/- 3.62; balanced PLO4 +0.48 +/- 1.71, PLO5 +3.18 +/- 3.45 bb/100. No significant loss (the PLO5 calling station is 1.8 standard errors below zero).
 
 ## Prior anchor
 
