@@ -9,7 +9,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import { sizedStorageUrl, generateAvatarSvg } from '../utils/avatarGenerator';
+import { getAvatarWithFallback, generateAvatarSvg } from '../utils/avatarGenerator';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useDebounce } from '../hooks/useDebounce';
 import {
@@ -82,6 +82,10 @@ import {
   type RosterWorkspace,
 } from '../lib/rosterWorkspace';
 import './ClubMembersPage.css';
+
+/** Largest CSS size a player card portrait is drawn at (ArenaWorkspace.css
+ *  `--member-portrait`, clamp(64px, 12vw, 92px)); the avatar is fetched at 2x. */
+const MEMBER_PORTRAIT_PX = 92;
 
 /* The page's tour. The controls that matter here are a toggle, a search, a
    filter and a list, none of them a section heading, so the generic tour
@@ -2152,7 +2156,17 @@ export const MemberRow = memo(function MemberRow({
   const winLossTone = winLossToneOf(winLoss);
   const secondaryTone = winLossToneOf(secondaryWinLoss);
   const secondaryText = winLossText(secondaryWinLoss, secondaryWinLossUnavailable);
-  const initial = (member.alias || '?')[0]?.toUpperCase() ?? '?';
+  /* The card shows the player's own saved avatar exactly as their seat at the
+     table draws it (Dan, 2026-11-27): the same resolver, so library art comes
+     as its current full 2x revision and an upload is fetched at the size the
+     portrait is drawn, not the 64px thumbnail that blurred at double size.
+     With nothing saved it is the same generated portrait the table shows. */
+  const portrait = getAvatarWithFallback(
+    member.avatar_url,
+    member.user_id,
+    member.alias || '?',
+    MEMBER_PORTRAIT_PX
+  );
   /* The roster's is_online is "seated OR fresh presence"; off a seat it is the
      presence door's answer, re-asked every minute while the row is shown so
      it goes dark when the heartbeat does (presence-has-one-definition law).
@@ -2187,20 +2201,16 @@ export const MemberRow = memo(function MemberRow({
           aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
         />
         <span className="member-avatar">
-          {member.avatar_url ? (
-            <img
-              src={sizedStorageUrl(member.avatar_url, 64)}
-              alt=""
-              loading="lazy"
-              onError={(event) => {
-                const image = event.currentTarget;
-                image.onerror = null;
-                image.src = generateAvatarSvg(member.user_id, member.alias || '?');
-              }}
-            />
-          ) : (
-            <span>{initial}</span>
-          )}
+          <img
+            src={portrait}
+            alt=""
+            loading="lazy"
+            onError={(event) => {
+              const image = event.currentTarget;
+              image.onerror = null;
+              image.src = generateAvatarSvg(member.user_id, member.alias || '?');
+            }}
+          />
         </span>
         <span className="member-main">
           <span className="member-identity">

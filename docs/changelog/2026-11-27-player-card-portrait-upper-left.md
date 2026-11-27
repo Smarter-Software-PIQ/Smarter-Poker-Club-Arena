@@ -30,3 +30,22 @@ names stay on one line.
 stylesheet orders, now asserts the name sits below the portrait, the portrait
 is in the upper left corner, and it is at least 64px square (it previously
 asserted the portrait sat to the LEFT of the name, the layout Dan rejected).
+
+## The saved avatar, exactly
+
+Dan, the same day: "MAKE SURE IT IS USING THE ACTUAL USERS SAVED AVATAR OR
+IMAGE EXACTLY." The card read the right column (`ca_club_roster_rows` returns
+`arena_avatar_url`, then `avatar_url`), but drew it through
+`sizedStorageUrl(url, 64)`: an upload came back as a 128px crop, blurred at the
+new 92px portrait, and library art skipped the art revision the table seat
+asks for, so a cached older drawing could show. The card now resolves the
+saved avatar through `getAvatarWithFallback`, the resolver the table seat
+uses, sized to the portrait (`MEMBER_PORTRAIT_PX = 92`, fetched at 2x). With
+nothing saved it draws the same generated portrait the seat draws.
+`tests/unit/aPlayerCardShowsTheSavedAvatar.test.ts` pins it.
+
+Measured in production while checking: 48 profiles hold a generated initials
+SVG as their saved Club Arena avatar. It is what Complete Profile saves when a
+player enters without choosing one, and the card shows it because it IS their
+saved avatar. It is left as saved: clearing it would put those players back in
+front of the Complete Profile gate.
