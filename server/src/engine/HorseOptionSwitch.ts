@@ -1158,7 +1158,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   holdemRiverBluffIsPricedOnPeople: [
     HOLDEM,
     'NLH cash (table and Lightning), heads-up, river, not facing a wager',
-    "a check becomes a bluff only when it prices above the check on his own river record by size, then people's measured river fold by size, and blockers or the range advantage are the Horse's",
+    "a check becomes a bluff only when it prices above the check on his river record by size, then people's, with blockers or the range advantage",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,
