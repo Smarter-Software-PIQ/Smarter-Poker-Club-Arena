@@ -36,11 +36,23 @@ span.
 `cron.job_run_details` shows no job longer than five minutes since 08:00. No
 auto_explain `duration:` line reaches 20 minutes; the longest is 183 s.
 
-## Native proof
+## Native proof (PG 16.15, final migration, 2026-11-27 12:19-12:24 UTC)
 
 ```
-PASS: uses PostgreSQL 16 or later (postgres (PostgreSQL) 16.15)
+PASS: uses PostgreSQL 16 or later (postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1))
 PASS: the 20261111131639 body is the live body (md5 189b93e13db1ced3dd258aebfc46cd49)
+PASS: both bodies: an open hand writer holds idx_ceil at its start
+PASS: (u) live body: an unrelated open transaction stops the index past its start
+PASS: (u) new body: the index passes an unrelated open transaction
+PASS: (w) the writer's hand is indexed for every player exactly once after commit
+PASS: (w) a further refresh adds nothing
+PASS: (o) idx_ceil is at or before now() - 5 minutes
+PASS: the migration installs over the live body
+PASS: owner, grants, proconfig and SECURITY DEFINER retained
+PASS: the change is exactly the one v_bound line
+PASS: migration replays as a no-op
+PASS: a drifted body is refused and left untouched
+{"passed": true, "checks": 13}
 ```
 
-The full output is in the PR body and the workflow run.
+After the fix, the 12:15:05 refresh had no pin and advanced to 12:09:54 (130 hands).
