@@ -135,10 +135,15 @@ describe('cron watchers materialize their reads and prune without deadlock', () 
     // Every redefined SECURITY DEFINER PL/pgSQL routine must satisfy the probe law.
     expect(missingProbes(SQL)).toEqual([]);
 
-    // Must pass all install-budget cost guards on its own merits (non-grandfathered filename).
+    // Must pass all install-budget cost guards on its own merits (both real filename and synthetic)
+    // and must never rely on GRANDFATHERED_UNBOUNDED_WATCHER_PROBES.
+    expect(migrationCostRisks(FILE, SQL)).toEqual([]);
     expect(
       migrationCostRisks('20261127200000_cron_watchers_install_budget_check.sql', SQL)
     ).toEqual([]);
+    expect(read('scripts/ci/migration-cost-shape.mjs')).not.toContain(
+      "'20261127172908_cron_watchers_materialize_and_prune_without_deadlock.sql'"
+    );
 
     // Install-time statement timeout stays strictly within the 12s ordinary transaction budget.
     expect(SQL).toContain("SET LOCAL statement_timeout = '8s';");

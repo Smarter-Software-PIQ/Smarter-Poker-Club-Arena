@@ -121,7 +121,6 @@ const GRANDFATHERED_UNBOUNDED_WATCHER_PROBES = new Set([
   '20261122145848_cutover_readiness_classification_resolution_and_cron_recover.sql',
   '20261123083752_a_refunded_entry_notifies_the_player_and_successor_grants_st.sql',
   '20261125163000_orphaned_checks_scope_and_sms_registry_scrub.sql',
-  '20261127172908_cron_watchers_materialize_and_prune_without_deadlock.sql',
 ]);
 
 const baseName = (file) => String(file).split('/').pop();
