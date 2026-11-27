@@ -125,11 +125,15 @@ def cycle_label(epoch: int) -> str:
 
 
 # Plain reasons, most specific first. Matched against the selection's deferred
-# candidates and its reason (scripts/ci/select-daily-engine.py wording).
+# and refused candidates plus its reason (scripts/ci/select-daily-engine.py wording).
 PLAIN_REASONS = (
     ('lacks installed migration', 'a database update landed after the new build was tested'),
     ('installed or changed after certification', 'a database update landed after the new build was tested'),
     ('rollback rehearsal unavailable', 'the newest build had been tested against an older engine'),
+    ('backup certificate is pending', 'the newest build was still finishing its test at the cutoff'),
+    ('backup engine refused', 'the newest build failed its safety test before the cutoff'),
+    ('backup certificate is failure', 'the newest build failed its safety test before the cutoff'),
+    ('prequalification unavailable', 'the newest build did not pass pre-release checks before the cutoff'),
     ('no newer protected candidate has complete current evidence', 'no new build passed its test in time'),
 )
 
@@ -138,13 +142,19 @@ def note(cycle: str, selected: bool, selection: dict) -> str:
     start = cycle_start(cycle)
     when, nxt = cycle_label(start), cycle_label(start + 3 * 3600)
     deferred = selection.get('deferredCandidates') or []
+    refused = selection.get('refusedCandidates') or []
     reason = str(selection.get('reason') or '')
     if selected:
         why = 'the new build was chosen but the swap did not complete'
     else:
         if reason == 'current' and not deferred:
             return ''
-        text = ' '.join([str(d.get('reason') or '') for d in deferred if isinstance(d, dict)] + [reason]).lower()
+        candidate_reasons = [
+            str(entry.get('reason') or '')
+            for entry in (*deferred, *refused)
+            if isinstance(entry, dict)
+        ]
+        text = ' '.join(candidate_reasons + [reason]).lower()
         why = next((plain for needle, plain in PLAIN_REASONS if needle in text), 'no new build was ready')
     return (f'Engine cutover at {when} did not happen: {why}. The current engine keeps running, '
             f'and the next build is being tested for the {nxt} cutover.')

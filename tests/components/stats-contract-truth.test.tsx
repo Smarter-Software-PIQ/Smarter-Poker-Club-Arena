@@ -11,11 +11,10 @@
  *   - Notable Hands is all-time on a range-scoped page and did not say so;
  *   - the Rake tab rendered a failed read as an empty ledger.
  *
- * The scope tags are checked against the SQL itself: the test reads the most
- * recent migration that creates ca_player_stats_full (which
- * ca_player_stats_overview_v2 wraps), works out which payload fields are
- * `FILTER (WHERE is_cash)` and which count every hand, and fails if a tag on
- * screen disagrees.
+ * Since 2026-11-27 the grids carry no per-box mode tag: the page reads the
+ * separated RPC, which counts only the selected game mode, and the Cash Games /
+ * Tournaments switch states it once. The SQL scanner below still pins the
+ * legacy ca_player_stats_full split it documented.
  */
 import { Suspense, type ReactNode } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -46,12 +45,7 @@ import PerformanceTab from '../../src/pages/stats/PerformanceTab';
 import TournamentsTab from '../../src/pages/stats/TournamentsTab';
 import AnalysisTab from '../../src/pages/stats/AnalysisTab';
 import RakeTab from '../../src/pages/stats/RakeTab';
-import {
-  NOT_YET_MEASURED,
-  SCOPE_ALL_GAMES,
-  SCOPE_CASH,
-  ratioOrUnmeasured,
-} from '../../src/pages/stats/format';
+import { NOT_YET_MEASURED, ratioOrUnmeasured } from '../../src/pages/stats/format';
 import type { OverallStats, TournamentSummary } from '../../src/pages/stats/types';
 import type { PlayerRakeStats } from '../../src/services/StatsFactsService';
 
@@ -174,18 +168,19 @@ function performance(overall: OverallStats) {
 
 interface Row {
   label: string;
-  tag: string | null;
+  /** Every caption under the label (sample evidence; never a mode tag). */
+  tags: string[];
   value: string;
 }
 
-/** Every StatRow in the container: its label, its scope tag, and its value. */
+/** Every StatRow in the container: its label, its captions, and its value. */
 function rows(container: HTMLElement): Row[] {
   return [...container.querySelectorAll('.stat-row')].map((row) => {
     const labelEl = row.querySelector('.row-label') as HTMLElement;
     const label = labelEl.querySelector('.stat-label-text')?.textContent?.trim() ?? '';
     return {
       label,
-      tag: labelEl.querySelector('.hero-stat-sub')?.textContent ?? null,
+      tags: [...labelEl.querySelectorAll('.hero-stat-sub')].map((el) => el.textContent ?? ''),
       value: row.querySelector('.row-value')?.textContent ?? '',
     };
   });
@@ -279,16 +274,15 @@ const LABEL_TO_KEYS: Record<string, string[]> = {
   'Aggression Factor': ['aggression_factor'],
   'Showdown Win %': ['showdowns_won', 'showdowns_total'],
   'Hours Played': ['hours_played'],
-  'BB/100': ['bb_per_100'],
-  'Cash Profit': ['total_profit'],
+  'BB/100 Hands': ['bb_per_100'],
+  Profit: ['total_profit'],
   'Total Won': ['total_winnings'],
   'Total Invested': ['total_invested'],
   'Biggest Pot Won': ['biggest_pot_won'],
   'Biggest Hand Loss': ['biggest_hand_loss'],
   'Hands Won': ['hands_won'],
   'Hands Lost': ['hands_lost'],
-  'Cash Hands': ['cash_hands'],
-  'Tournament Hands': ['tourney_hands'],
+  Hands: ['cash_hands'],
 };
 
 describe('the SQL scanner is reading the real definition', () => {
@@ -307,42 +301,55 @@ describe('the SQL scanner is reading the real definition', () => {
   }, 90_000);
 });
 
-describe('scope tags match the SQL (defect 4: one grid, two populations)', () => {
-  const pops = overallPopulations(latestStatsFullSql().body);
-  const expectedTag = (label: string): string | null => {
-    const keys = LABEL_TO_KEYS[label];
-    expect(keys, `${label} is mapped to payload keys`).toBeDefined();
-    const found = new Set(keys.map((k) => pops.get(k)));
-    expect(found.size, `${label} counts one population`).toBe(1);
-    const pop = [...found][0];
-    expect(pop, `${label} has a single known population`).toMatch(/^(Cash|All Games|Tournament)$/);
-    // A label that already names its population is not tagged twice.
-    if (/\b(Cash|Tournament)\b/.test(label)) return null;
-    return pop === 'Cash' ? SCOPE_CASH : SCOPE_ALL_GAMES;
-  };
+/* MODE-SCOPED READOUTS (Dan, 2026-11-27): "IT DOESN'T NEED TO SAY CASH INSIDE
+   EACH BOX, AS CASH GAMES IS ALREADY SELECTED AT THE TOP." The 2026-09-20 tags
+   existed because ca_player_stats_full mixed two populations in one payload.
+   The page now reads ca_player_stats_overview_separated, which filters every
+   hand by the selected game mode, so the switch is the one scope statement and
+   a per-box tag would only repeat it. These tests pin both halves: the SQL
+   still separates the modes, and no box repeats the mode. */
+const LATEST_SEPARATED = (() => {
+  const CREATES =
+    /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.ca_player_stats_overview_separated_by_club\s*\(/i;
+  let latest: string | null = null;
+  for (const file of readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()) {
+    const sql = readFileSync(join(MIGRATIONS, file), 'utf8');
+    const at = sql.search(CREATES);
+    if (at >= 0) latest = sql.slice(at);
+  }
+  if (!latest) throw new Error('no migration creates ca_player_stats_overview_separated_by_club');
+  return latest;
+})();
+
+describe('the game-mode switch is the only scope statement (Dan, 2026-11-27)', () => {
+  it('the separated stats RPC counts only the selected mode', () => {
+    expect(LATEST_SEPARATED).toMatch(
+      /\(fact\.tournament_id IS NULL\)\s*=\s*\(p_game_mode\s*=\s*'cash'\)/
+    );
+  });
 
   it.each([
     ['Overview', () => overview(OVERALL)],
     ['Performance', () => performance(OVERALL)],
-  ])('every %s row carries the scope its SQL computes', async (_name, ui) => {
+  ])('no %s box repeats the mode', async (_name, ui) => {
     const container = await mounted(ui());
     const all = rows(container);
     expect(all.length).toBeGreaterThanOrEqual(7);
     for (const r of all) {
-      expect(r.tag, `scope tag on ${r.label}`).toBe(expectedTag(r.label));
+      expect(LABEL_TO_KEYS[r.label], `${r.label} is mapped to payload keys`).toBeDefined();
+      expect(r.label, `label of ${r.label}`).not.toMatch(/\b(Cash|Tournament)\b/);
+      for (const tag of r.tags) {
+        expect(tag, `tag on ${r.label}`).not.toMatch(/^(Cash|All Games|Tournament)$/);
+      }
     }
   });
 
-  it('marks cash money and cash tendencies with the same explicit sample', async () => {
+  it('says what the 100 in BB/100 counts', async () => {
     const perf = await mounted(performance(OVERALL));
-    for (const label of ['BB/100', 'Total Won', 'Total Invested', 'Biggest Pot Won']) {
-      expect(row(perf, label).tag).toBe('Cash');
-    }
-    expect(row(perf, 'Biggest Hand Loss').tag).toBe('Cash');
-    for (const label of ['VPIP', 'PFR', 'WTSD', 'Aggression Factor', 'Hands Won', 'Hands Lost']) {
-      expect(row(perf, label).tag).toBe('Cash');
-    }
-    expect(row(perf, 'Showdown Win %').tag).toBe('Cash');
+    expect(row(perf, 'BB/100 Hands').value).toBe('-22.5');
+    expect(rows(perf).some((r) => r.label === 'BB/100')).toBe(false);
   });
 });
 
@@ -351,7 +358,7 @@ describe('a rate over an empty sample says so (defect 3)', () => {
     const c = await mounted(overview(TOURNAMENT_ONLY));
     expect(row(c, 'VPIP').value).toBe(NOT_YET_MEASURED);
     expect(row(c, 'PFR').value).toBe(NOT_YET_MEASURED);
-    expect(row(c, 'BB/100').value).toBe(NOT_YET_MEASURED);
+    expect(row(c, 'BB/100 Hands').value).toBe(NOT_YET_MEASURED);
     expect(row(c, 'Showdown Win %').value).toBe(NOT_YET_MEASURED);
     expect(row(c, 'Aggression Factor').value).toBe(NOT_YET_MEASURED);
     // The showdown rate arrives display-ready: no "%" is appended to the words.
@@ -360,7 +367,7 @@ describe('a rate over an empty sample says so (defect 3)', () => {
 
   it('Overview: measured rates still print their numbers', async () => {
     const c = await mounted(overview(OVERALL));
-    expect(row(c, 'BB/100').value).toBe('-22.5');
+    expect(row(c, 'BB/100 Hands').value).toBe('-22.5');
     expect(row(c, 'Showdown Win %').value).toBe('35.8%');
     expect(row(c, 'Aggression Factor').value).toBe('0.7');
   });
@@ -369,14 +376,14 @@ describe('a rate over an empty sample says so (defect 3)', () => {
     const empty = await mounted(performance(TOURNAMENT_ONLY));
     expect(row(empty, 'VPIP').value).toBe(NOT_YET_MEASURED);
     expect(row(empty, 'PFR').value).toBe(NOT_YET_MEASURED);
-    expect(row(empty, 'BB/100').value).toBe(NOT_YET_MEASURED);
+    expect(row(empty, 'BB/100 Hands').value).toBe(NOT_YET_MEASURED);
     expect(row(empty, 'Showdown Win %').value).toBe(NOT_YET_MEASURED);
     expect(row(empty, 'Aggression Factor').value).toBe(NOT_YET_MEASURED);
     cleanup();
     const brokeEven = await mounted(performance({ ...OVERALL, vpip: 0, pfr: 0, bb_per_100: 0 }));
     expect(row(brokeEven, 'VPIP').value).toBe('0.0%');
     expect(row(brokeEven, 'PFR').value).toBe('0.0%');
-    expect(row(brokeEven, 'BB/100').value).toBe('0.0');
+    expect(row(brokeEven, 'BB/100 Hands').value).toBe('0.0');
   });
 
   it('Tournaments: ITM % with no entries and ROI with no buy-ins read Not Yet Measured', async () => {

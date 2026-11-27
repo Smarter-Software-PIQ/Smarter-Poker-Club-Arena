@@ -230,6 +230,103 @@ class StepDownPastHeldMigration(unittest.TestCase):
         self.assertEqual(sd.decide(**{**base, 'control_inputs': lambda: []})[0], 3)
         self.assertEqual(sd.decide(**{**base, 'serving': ''})[0], 3)
 
+    def test_o37_held_migration_skips_prequal_failed_commit_below_it(self):
+        # 2026-11-27 13:31 CST incident: f9abf5eb carried an uninstallable migration,
+        # ec879864 below it had already failed Engine release prequalification, and
+        # a044fa56 below that was good. Stepping down skips ec879864 to a044fa56.
+        repo = self.repo
+        serving = repo.commit('serving build', {'server/src/a.ts': 'a\n'})
+        good = repo.commit('good build (a044fa56)', {'server/src/a.ts': 'b\n'})
+        bad_pq = repo.commit('failed prequal (ec879864)', {'server/src/a.ts': 'c\n'})
+        migration = repo.commit('held migration (f9abf5eb)',
+                                {'supabase/migrations/%s_fix.sql' % HELD: 'SELECT 1;\n'})
+
+        def git(*args):
+            result = subprocess.run(['git', '-C', str(repo.path), *args], capture_output=True, text=True, env=ENV)
+            return result.returncode, result.stdout
+
+        res = sd.decide(
+            sha=migration, control=migration, producer=migration, serving=serving, pending=[HELD],
+            input_sha='', git=git, projection=lambda _sha: 'same',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda c: 'failed' if c == bad_pq else 'passed',
+            backup_reader=lambda _c: 'missing',
+        )
+        self.assertEqual(res, (0, good))
+
+    def test_o37_skip_failed_prequal_walks_past_multiple_bad_commits_to_first_good(self):
+        # 2026-11-27 07:00 CST incident: two newest commits failed prequalification
+        # in 4m; stepping down with allow_empty_pending=True lands on the good commit
+        # below them instead of spending 108m certifying unselectable commits.
+        repo = self.repo
+        serving = repo.commit('serving build', {'server/src/a.ts': 'a\n'})
+        good = repo.commit('good build', {'server/src/a.ts': 'b\n'})
+        bad_backup = repo.commit('failed backup', {'server/src/a.ts': 'c\n'})
+        bad_pq_1 = repo.commit('failed prequal 1', {'server/src/a.ts': 'd\n'})
+        bad_pq_2 = repo.commit('failed prequal 2', {'server/src/a.ts': 'e\n'})
+
+        def git(*args):
+            result = subprocess.run(['git', '-C', str(repo.path), *args], capture_output=True, text=True, env=ENV)
+            return result.returncode, result.stdout
+
+        res = sd.decide(
+            sha=bad_pq_2, control=bad_pq_2, producer=bad_pq_2, serving=serving, pending=[],
+            input_sha='', git=git, projection=lambda _sha: 'same',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda c: 'failed' if c in (bad_pq_1, bad_pq_2) else 'passed',
+            backup_reader=lambda c: 'failure' if c == bad_backup else 'missing',
+            allow_empty_pending=True,
+        )
+        self.assertEqual(res, (0, good))
+
+        # Unknown prequalification (API unreadable) is NEVER treated as failed (CLAUDE.md 10.86).
+        res_unknown = sd.decide(
+            sha=bad_pq_2, control=bad_pq_2, producer=bad_pq_2, serving=serving, pending=[],
+            input_sha='', git=git, projection=lambda _sha: 'same',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda _c: 'unknown',
+            backup_reader=lambda _c: 'unknown',
+            allow_empty_pending=True,
+        )
+        self.assertEqual(res_unknown, (0, bad_pq_2))
+
+    def test_o37_walk_stops_at_release_control_mismatch_and_reports_none_when_exhausted(self):
+        repo = self.repo
+        serving = repo.commit('serving build', {'server/src/a.ts': 'a\n',
+                                                '.github/workflows/stage-engine-release.yml': 'v1\n'})
+        old_ctrl = repo.commit('below control change', {'server/src/a.ts': 'b\n'})
+        new_ctrl = repo.commit('control change that failed prequal',
+                               {'.github/workflows/stage-engine-release.yml': 'v2\n'})
+
+        def git(*args):
+            result = subprocess.run(['git', '-C', str(repo.path), *args], capture_output=True, text=True, env=ENV)
+            return result.returncode, result.stdout
+
+        code, reason = sd.decide(
+            sha=new_ctrl, control=new_ctrl, producer=new_ctrl, serving=serving, pending=[],
+            input_sha='', git=git,
+            projection=lambda c: 'v2' if c == new_ctrl else 'v1',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda c: 'failed' if c == new_ctrl else 'passed',
+            allow_empty_pending=True,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn('failed prequalification', reason)
+        self.assertIn('different release controls', reason)
+        self.assertNotIn(old_ctrl, reason)
+
+    def test_o37_check_prequal_only_mode_reports_unknown_without_network(self):
+        sha = 'a' * 40
+        result = subprocess.run(
+            [sys.executable, '-B', SCRIPT, '--check-prequal-only', '--sha', sha, '--repo', ''],
+            cwd=self.repo.path, capture_output=True, text=True, env=ENV)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'prequal=unknown')
+
 
 if __name__ == '__main__':
     unittest.main()

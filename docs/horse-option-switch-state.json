@@ -1,7 +1,7 @@
 {
   "schema": "horse-option-switch-state/v1",
-  "asOfUtc": "2026-11-27T17:27:13.078Z",
-  "auditMax": 209,
+  "asOfUtc": "2026-11-27T19:22:40.685Z",
+  "auditMax": 210,
   "rows": {
     "cashDefenceTrimColdCalls": {
       "state": "on",
@@ -249,9 +249,9 @@
       "changedAt": "2026-11-27T10:30:49.983Z"
     },
     "omahaRiverBluffIsPricedOnRangeAdvantage": {
-      "state": "off",
-      "auditId": 207,
-      "changedAt": "2026-11-27T16:33:12.884Z"
+      "state": "on",
+      "auditId": 210,
+      "changedAt": "2026-11-27T19:13:47.555Z"
     },
     "omahaRiverCurrentNutsCallFloor": {
       "state": "on",

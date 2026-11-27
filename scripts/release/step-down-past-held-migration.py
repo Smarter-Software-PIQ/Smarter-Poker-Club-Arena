@@ -51,34 +51,104 @@ HEX = re.compile(r'[0-9a-f]{40}')
 VERSION = re.compile(r'\d{14}')
 MIGRATIONS = 'supabase/migrations'
 HEALTH_URL = 'https://engine.smarter.poker/health'
+PREQUAL_WORKFLOW = 'engine-release-prequalification.yml'
+BACKUP_STATUS_CONTEXT = 'backup-engine/certified'
+MAX_CANDIDATE_WALK = 60
 
 
 class Unreadable(Exception):
     """A read failed. Never an answer about the commit."""
 
 
+def prequal_state(repo, commit):
+    """Read the latest main Engine release prequalification state for `commit`.
+
+    Returns (state, run_id, conclusion) where state is one of:
+      'passed'  completed with conclusion == 'success'
+      'failed'  completed with any non-success conclusion (unselectable)
+      'pending' active / in_progress / queued / waiting
+      'absent'  no prequalification run exists for this commit
+      'unknown' API unreadable or unexpected payload (CLAUDE.md 10.86)
+    """
+    if not repo or not HEX.fullmatch(commit or ''):
+        return 'unknown', '', ''
+    try:
+        proc = subprocess.run(
+            ['gh', 'api', f'repos/{repo}/actions/workflows/{PREQUAL_WORKFLOW}/runs?branch=main&head_sha={commit}&per_page=1'],
+            capture_output=True, text=True, timeout=30)
+        if proc.returncode != 0:
+            return 'unknown', '', ''
+        payload = json.loads(proc.stdout)
+        runs = payload.get('workflow_runs')
+        if not isinstance(runs, list):
+            return 'unknown', '', ''
+        if not runs:
+            return 'absent', '', ''
+        run = runs[0]
+        if run.get('head_sha') != commit:
+            return 'unknown', '', ''
+        status = str(run.get('status') or '')
+        conclusion = str(run.get('conclusion') or '')
+        run_id = str(run.get('id') or '')
+        if status == 'completed':
+            return ('passed' if conclusion == 'success' else 'failed'), run_id, conclusion
+        if status in ('queued', 'in_progress', 'waiting', 'pending', 'requested'):
+            return 'pending', run_id, conclusion
+        return 'unknown', run_id, conclusion
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return 'unknown', '', ''
+
+
+def backup_status_state(repo, commit):
+    """Read the newest backup-engine/certified commit status for `commit`.
+
+    Returns 'success' | 'failure' | 'error' | 'pending' | 'missing' | 'unknown'.
+    """
+    if not repo or not HEX.fullmatch(commit or ''):
+        return 'unknown'
+    try:
+        proc = subprocess.run(
+            ['gh', 'api', f'repos/{repo}/commits/{commit}/statuses?per_page=100'],
+            capture_output=True, text=True, timeout=30)
+        if proc.returncode != 0:
+            return 'unknown'
+        rows = json.loads(proc.stdout)
+        if not isinstance(rows, list):
+            return 'unknown'
+        for row in rows:
+            if isinstance(row, dict) and row.get('context') == BACKUP_STATUS_CONTEXT:
+                state = str(row.get('state') or '')
+                return state if state in ('success', 'failure', 'error', 'pending') else 'unknown'
+        return 'missing'
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return 'unknown'
+
+
 def decide(*, sha, control, producer, serving, pending, input_sha, git, projection, control_inputs,
-           pending_reader):
+           pending_reader, prequal_reader=None, backup_reader=None, allow_empty_pending=False):
     """(code, fallback_or_reason). Readers raise Unreadable when they cannot tell.
 
     git(*args) -> (returncode, stdout); projection(sha) -> str;
-    control_inputs() -> list of paths; pending_reader(sha) -> list of versions.
+    control_inputs() -> list of paths; pending_reader(sha) -> list of versions;
+    prequal_reader(sha) -> 'passed'|'failed'|'pending'|'absent'|'unknown' (optional);
+    backup_reader(sha) -> 'success'|'failure'|'error'|'pending'|'missing'|'unknown' (optional).
     """
     try:
         return _decide(sha, control, producer, serving, pending, input_sha, git, projection,
-                       control_inputs, pending_reader)
+                       control_inputs, pending_reader, prequal_reader=prequal_reader,
+                       backup_reader=backup_reader, allow_empty_pending=allow_empty_pending)
     except Unreadable as exc:
         return UNKNOWN, str(exc) or 'a read failed'
 
 
 def _decide(sha, control, producer, serving, pending, input_sha, git, projection, control_inputs,
-            pending_reader):
+            pending_reader, *, prequal_reader=None, backup_reader=None, allow_empty_pending=False):
     if input_sha:
         return NONE, 'an explicit sha input is certified exactly as named'
     if not (HEX.fullmatch(sha or '') and HEX.fullmatch(control or '') and HEX.fullmatch(producer or '')):
         return UNKNOWN, 'the target, control or producer commit is not an exact sha'
     versions = [v for v in (pending or []) if v]
-    if not versions:
+    if not versions and not allow_empty_pending:
         return NONE, 'no pending migration was named'
     if any(not VERSION.fullmatch(v) for v in versions):
         return UNKNOWN, 'a pending migration version is not 14 digits'
@@ -106,43 +176,95 @@ def _decide(sha, control, producer, serving, pending, input_sha, git, projection
         return NONE, 'the serving build %s is not behind this run\'s control' % serving[:12]
     line = out('rev-list', '--first-parent', '%s..%s' % (serving, control)).split()
     order = {commit: index for index, commit in enumerate(line)}  # 0 is the newest
-    first = None
-    for version in versions:
-        added = out('log', '--first-parent', '--diff-filter=A', '--format=%H', '%s..%s' % (serving, control),
-                    '--', '%s/%s_*.sql' % (MIGRATIONS, version)).split()
-        if not added:
-            return NONE, ('migration %s was not added between the serving build and this run\'s control; '
-                          'there is no commit below it to certify' % version)
-        oldest = added[-1]
-        if oldest not in order:
-            raise Unreadable('the commit adding %s is not on the first-parent line' % version)
-        if first is None or order[oldest] > order[first]:
-            first = oldest
-    base = out('rev-parse', '--verify', '--quiet', first + '^1^{commit}')
-    if not HEX.fullmatch(base):
-        raise Unreadable('the parent of %s could not be read' % first[:12])
-    if ancestor(sha, base):
-        start = sha  # the target already sits below the held migration
-    elif ancestor(base, sha):
-        start = base
+    if versions:
+        first = None
+        for version in versions:
+            added = out('log', '--first-parent', '--diff-filter=A', '--format=%H', '%s..%s' % (serving, control),
+                        '--', '%s/%s_*.sql' % (MIGRATIONS, version)).split()
+            if not added:
+                return NONE, ('migration %s was not added between the serving build and this run\'s control; '
+                              'there is no commit below it to certify' % version)
+            oldest = added[-1]
+            if oldest not in order:
+                raise Unreadable('the commit adding %s is not on the first-parent line' % version)
+            if first is None or order[oldest] > order[first]:
+                first = oldest
+        base = out('rev-parse', '--verify', '--quiet', first + '^1^{commit}')
+        if not HEX.fullmatch(base):
+            raise Unreadable('the parent of %s could not be read' % first[:12])
+        if ancestor(sha, base):
+            start = sha  # the target already sits below the held migration
+        elif ancestor(base, sha):
+            start = base
+        else:
+            return NONE, 'the target is not on the line below %s' % first[:12]
+        anchor = first[:12]
     else:
-        return NONE, 'the target is not on the line below %s' % first[:12]
+        # O37: stepping down past a commit whose own prequalification or Backup
+        # certification already failed, so good commits below it still ship.
+        if sha == serving or not ancestor(serving, sha):
+            return NONE, 'the target %s is not ahead of the serving build %s; nothing to ship' % (sha[:12], serving[:12])
+        start = sha
+        anchor = sha[:12]
     paths = [p for p in control_inputs() if p]
     if not paths:
         raise Unreadable('CONTROL_INPUTS could not be read')
-    fallback = out('log', '-1', '--first-parent', '--format=%H', start, '--', 'server', *paths)
-    if not HEX.fullmatch(fallback):
-        return NONE, 'no server or release-control commit exists below %s' % first[:12]
-    if fallback == serving or not ancestor(serving, fallback):
-        return NONE, ('the newest server or release-control commit below %s is %s, which is not ahead of the '
-                      'serving build %s; nothing to ship' % (first[:12], fallback[:12], serving[:12]))
-    if projection(fallback) != projection(control):
-        return NONE, ('%s, the newest commit below %s, carries release controls that differ from the '
-                      'control\'s; it could never be selected' % (fallback[:12], first[:12]))
-    still = [v for v in pending_reader(fallback) if v]
-    if still:
-        return NONE, '%s itself carries uninstalled migration(s) %s' % (fallback[:12], ','.join(still[:5]))
-    return STEP, fallback
+    walk_enabled = prequal_reader is not None or backup_reader is not None or allow_empty_pending
+    if not walk_enabled:
+        fallback = out('log', '-1', '--first-parent', '--format=%H', start, '--', 'server', *paths)
+        if not HEX.fullmatch(fallback):
+            return NONE, 'no server or release-control commit exists below %s' % anchor
+        if fallback == serving or not ancestor(serving, fallback):
+            return NONE, ('the newest server or release-control commit below %s is %s, which is not ahead of the '
+                          'serving build %s; nothing to ship' % (anchor, fallback[:12], serving[:12]))
+        if projection(fallback) != projection(control):
+            return NONE, ('%s, the newest commit below %s, carries release controls that differ from the '
+                          'control\'s; it could never be selected' % (fallback[:12], anchor))
+        still = [v for v in pending_reader(fallback) if v]
+        if still:
+            return NONE, '%s itself carries uninstalled migration(s) %s' % (fallback[:12], ','.join(still[:5]))
+        return STEP, fallback
+
+    # O37: walk first-parent server/control commits below `start` down to
+    # `serving`, skipping commits that carry uninstalled migrations or already
+    # failed Engine release prequalification or Backup certification. Never
+    # cross a release-control projection mismatch (older commits are unselectable).
+    candidates = [
+        c for c in out('log', '--first-parent', f'-{MAX_CANDIDATE_WALK}', '--format=%H',
+                       '%s..%s' % (serving, start), '--', 'server', *paths).split()
+        if HEX.fullmatch(c)
+    ]
+    if not candidates:
+        return NONE, ('no server or release-control commit ahead of the serving build %s exists at or below %s; '
+                      'nothing to ship' % (serving[:12], anchor))
+    control_proj = projection(control)
+    skipped = []
+    for cand in candidates:
+        if projection(cand) != control_proj:
+            if not skipped:
+                return NONE, ('%s, the newest commit below %s, carries release controls that differ from the '
+                              'control\'s; it could never be selected' % (cand[:12], anchor))
+            skipped.append('%s has different release controls' % cand[:12])
+            break
+        still = [v for v in pending_reader(cand) if v]
+        if still:
+            skipped.append('%s carries uninstalled migration(s) %s' % (cand[:12], ','.join(still[:3])))
+            continue
+        if prequal_reader is not None:
+            pq = prequal_reader(cand)
+            if pq == 'failed':
+                skipped.append('%s failed prequalification' % cand[:12])
+                continue
+        if backup_reader is not None:
+            bk = backup_reader(cand)
+            if bk == 'failure':
+                skipped.append('%s failed Backup certification' % cand[:12])
+                continue
+        return STEP, cand
+    summary = '; '.join(skipped[:5])
+    if len(skipped) > 5:
+        summary += f' (+{len(skipped) - 5} more)'
+    return NONE, ('no shippable commit remains ahead of serving %s (%s)' % (serving[:12], summary))
 
 
 def serving_release(url=HEALTH_URL, timeout=15):
@@ -167,16 +289,31 @@ def real_git(*args):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--sha', required=True)
-    parser.add_argument('--control', required=True)
-    parser.add_argument('--producer', required=True, help='the commit this run started on (GITHUB_SHA)')
+    parser.add_argument('--control', default='')
+    parser.add_argument('--producer', default='', help='the commit this run started on (GITHUB_SHA)')
     parser.add_argument('--serving', default='', help='the sealed build after a seal; empty reads /health')
     parser.add_argument('--health-url', default=HEALTH_URL)
     parser.add_argument('--pending', default='', help='comma-separated pending migration versions')
     parser.add_argument('--input-sha', default='', help='the workflow_dispatch sha input, when one was given')
+    parser.add_argument('--repo', default='', help='owner/repo for O37 prequalification and Backup status checks')
+    parser.add_argument('--skip-failed-prequal', action='store_true',
+                        help='allow stepping down even when --pending is empty (e.g. target failed prequalification)')
+    parser.add_argument('--check-prequal-only', action='store_true',
+                        help='print prequal/run_id/conclusion for --sha in --repo and exit 0')
     parser.add_argument('--prequal', default='scripts/ci/read-engine-prequalification.py')
     parser.add_argument('--installed-tool', default='server/scripts/engine-release-installed-migrations.py')
     parser.add_argument('--production', default='', help='a production JSON file (tests); default: DATABASE_URL')
     args = parser.parse_args(argv)
+    if args.check_prequal_only:
+        state, run_id, conclusion = prequal_state(args.repo, args.sha)
+        print('prequal=' + state)
+        if run_id:
+            print('run_id=' + run_id)
+        if conclusion:
+            print('conclusion=' + conclusion)
+        return 0
+    if not args.control or not args.producer:
+        parser.error('--control and --producer are required unless --check-prequal-only is set')
     module = {}
 
     def prequal():
@@ -218,10 +355,14 @@ def main(argv=None):
             raise Unreadable('production\'s installed migrations could not be read for %s' % commit[:12])
         return [v for v in lines[0][len('pending='):].split(',') if v]
 
+    prequal_reader = (lambda commit: prequal_state(args.repo, commit)[0]) if args.repo else None
+    backup_reader = (lambda commit: backup_status_state(args.repo, commit)) if args.repo else None
     serving = args.serving if HEX.fullmatch(args.serving or '') or args.input_sha else serving_release(args.health_url)
     code, value = decide(sha=args.sha, control=args.control, producer=args.producer, serving=serving,
                          pending=args.pending.split(','), input_sha=args.input_sha, git=real_git,
-                         projection=projection, control_inputs=control_inputs, pending_reader=pending_reader)
+                         projection=projection, control_inputs=control_inputs, pending_reader=pending_reader,
+                         prequal_reader=prequal_reader, backup_reader=backup_reader,
+                         allow_empty_pending=args.skip_failed_prequal)
     print(('fallback=' if code == STEP else 'reason=') + value)
     return code
 

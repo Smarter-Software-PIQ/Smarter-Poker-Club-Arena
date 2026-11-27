@@ -196,7 +196,7 @@ export default function EVLuckChart({
           <p className="evluck-sub">
             You Are Running{' '}
             <strong className={luck >= 0 ? 'is-up' : 'is-down'}>
-              {fmtBB(luck)} BB ({fmtBB(luckPer100)} BB/100)
+              {fmtBB(luck)} BB ({fmtBB(luckPer100)} BB/100 Hands)
             </strong>{' '}
             {running} Expectation Across {(summary?.hands ?? 0).toLocaleString()} Cash Hands,
             Measured Over {allIns.toLocaleString()} All-In {allIns === 1 ? 'Spot' : 'Spots'}.

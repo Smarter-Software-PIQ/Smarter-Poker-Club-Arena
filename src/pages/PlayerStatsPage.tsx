@@ -1637,11 +1637,9 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
         showHelp={false}
         status={statsScope === DIAMOND_STATS ? 'Figures In Diamonds' : undefined}
       />
-      <div className="stats-notice" role="status">
-        {gameMode === 'cash'
-          ? 'Cash Games Only. Tournament Hands And Stacks Are Excluded.'
-          : 'Tournament Hands And Results Only. Tournament Stacks Are Not Cash Profit.'}
-      </div>
+      {/* The mode notice ("Cash Games Only...") moved behind the header's "?"
+          (Dan, 2026-11-27): the Cash Games / Tournaments switch already says
+          which hands every figure below counts. */}
       {gameMode === 'cash' && (
         <StatsHeadlineDeck
           refreshing={refreshing}
@@ -1674,58 +1672,65 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
           ))}
         </div>
       )}
-      <div
-        className="stats-pill-tabs"
-        role="tablist"
-        aria-label="Statistics Sections"
-        onKeyDown={(e) => {
-          /* A ROVING TABINDEX MUST ACTUALLY MOVE FOCUS.
-             Each tab is `tabIndex={category === cat ? 0 : -1}`, so selecting a
-             new one drops the OLD button to -1. Without the focus() below, focus
-             stayed on that old button - now removed from the tab order - so a
-             keyboard user got no announcement of the new tab, and their next Tab
-             press jumped somewhere unrelated. The ARIA tablist pattern requires
-             focus to follow selection; selection alone is only half of it.
-             focus() is safe to call before React re-renders: programmatic focus
-             works on a tabIndex={-1} element, and the attribute updates to 0 in
-             the same commit. */
-          const KEYS = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
-          if (!KEYS.includes(e.key)) return;
-          e.preventDefault();
-          const i = TABS.indexOf(category);
-          const next =
-            e.key === 'Home'
-              ? TABS[0]
-              : e.key === 'End'
-                ? TABS[TABS.length - 1]
-                : e.key === 'ArrowRight'
-                  ? TABS[(i + 1) % TABS.length]
-                  : TABS[(i - 1 + TABS.length) % TABS.length];
-          changeCategory(next);
-          document.getElementById(`stats-tab-${next}`)?.focus();
-        }}
-      >
-        {TABS.map((cat) => (
-          <button
-            key={cat}
-            role="tab"
-            id={`stats-tab-${cat}`}
-            aria-selected={category === cat}
-            aria-controls={`stats-panel-${cat}`}
-            tabIndex={category === cat ? 0 : -1}
-            className={category === cat ? 'active' : ''}
-            onClick={() => changeCategory(cat)}
-          >
-            {TAB_LABELS[cat]}
-          </button>
-        ))}
-      </div>
+      {/* ONE SECTION, NO BAR (Dan, 2026-11-27). Tournament mode has a single
+          section, and a full-width "Tournaments" pill under the Tournaments
+          switch said the same word twice. The bar renders only when there is
+          more than one section to choose. */}
+      {TABS.length > 1 && (
+        <div
+          className="stats-pill-tabs"
+          role="tablist"
+          aria-label="Statistics Sections"
+          onKeyDown={(e) => {
+            /* A ROVING TABINDEX MUST ACTUALLY MOVE FOCUS.
+               Each tab is `tabIndex={category === cat ? 0 : -1}`, so selecting a
+               new one drops the OLD button to -1. Without the focus() below, focus
+               stayed on that old button - now removed from the tab order - so a
+               keyboard user got no announcement of the new tab, and their next Tab
+               press jumped somewhere unrelated. The ARIA tablist pattern requires
+               focus to follow selection; selection alone is only half of it.
+               focus() is safe to call before React re-renders: programmatic focus
+               works on a tabIndex={-1} element, and the attribute updates to 0 in
+               the same commit. */
+            const KEYS = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
+            if (!KEYS.includes(e.key)) return;
+            e.preventDefault();
+            const i = TABS.indexOf(category);
+            const next =
+              e.key === 'Home'
+                ? TABS[0]
+                : e.key === 'End'
+                  ? TABS[TABS.length - 1]
+                  : e.key === 'ArrowRight'
+                    ? TABS[(i + 1) % TABS.length]
+                    : TABS[(i - 1 + TABS.length) % TABS.length];
+            changeCategory(next);
+            document.getElementById(`stats-tab-${next}`)?.focus();
+          }}
+        >
+          {TABS.map((cat) => (
+            <button
+              key={cat}
+              role="tab"
+              id={`stats-tab-${cat}`}
+              aria-selected={category === cat}
+              aria-controls={`stats-panel-${cat}`}
+              tabIndex={category === cat ? 0 : -1}
+              className={category === cat ? 'active' : ''}
+              onClick={() => changeCategory(cat)}
+            >
+              {TAB_LABELS[cat]}
+            </button>
+          ))}
+        </div>
+      )}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={category}
           role="tabpanel"
           id={`stats-panel-${category}`}
-          aria-labelledby={`stats-tab-${category}`}
+          aria-labelledby={TABS.length > 1 ? `stats-tab-${category}` : undefined}
+          aria-label={TABS.length > 1 ? undefined : TAB_LABELS[category]}
           className="stats-content stats-workbench"
           variants={reduceMotion ? undefined : tabTransition}
           initial="initial"
