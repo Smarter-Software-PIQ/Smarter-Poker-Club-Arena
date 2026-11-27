@@ -5156,6 +5156,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaRiverBetFoldIsHisRecord: true,
     },
   })),
+  // 2026-11-26 PLO-OWNER lead-7 lane river-station (default OFF, PLO4/PLO5 cash): omahaRiverBetCheckIsHisRecord over
+  // the two river bet rules with his record and the people curve; a on, b the same set without it (his checks read
+  // through his own unopened bet record).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_check_his_record`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+      omahaRiverBetFoldIsPeopleMeasured: true,
+      omahaRiverBetCheckIsHisRecord: true,
+    },
+    b: {
+      omahaRiverFirstToActBetIsPriced: true,
+      omahaRiverCheckedToBetIsMeasured: true,
+      omahaRiverBetFoldIsHisRecord: true,
+      omahaRiverBetFoldIsPeopleMeasured: true,
+    },
+  })),
   // 2026-11-21 PLO-OWNER lead-4 lane LEAKS-RULES (default OFF, PLO4/PLO5 cash): #18 omahaBigBetSizeIsPriced
   // (replaces #18 omahaBigBetIsPotShare with continuous pot-share/HUD aggressor range + priced limped-pot bet sizing).
   ...(['plo4', 'plo5'] as const).map((variant) => ({

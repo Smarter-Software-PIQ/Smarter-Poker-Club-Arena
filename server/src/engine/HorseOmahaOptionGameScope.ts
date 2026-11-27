@@ -128,6 +128,7 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   // EMERG lane STAB-DEFENCE-5 2026-11-21: PLO4/PLO5 cash, default OFF
   'omahaRiverBetFoldIsHisRecord',
   'omahaRiverBetFoldIsPeopleMeasured',
+  'omahaRiverBetCheckIsHisRecord',
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaRiverValueBetInPositionIsPriced',
   'omahaRiverBluffIsPricedOnBlockers',

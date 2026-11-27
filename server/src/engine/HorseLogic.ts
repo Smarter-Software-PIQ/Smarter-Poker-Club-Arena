@@ -130,6 +130,7 @@ import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
 import {
   omahaRiverBetFoldRecordCurve,
   type OmahaRiverBetAnswerPoint,
+  omahaRiverBetCheckRead,
 } from './HorseOmahaRiverBetFoldRecord.js';
 import { omahaStrongHandCheckRule } from './HorseOmahaStrongHandCheck.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
@@ -191,7 +192,11 @@ import {
   omahaFlopBetAndCallFaced,
   omahaUnderpairFlopCell,
 } from './HorseOmahaUnderpair.js';
-import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
+import {
+  omahaCardImpactDecision,
+  omahaCardImpactScope,
+  type OmahaCardImpactRead,
+} from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import {
   OMAHA_EV_UNKNOWN_READ,
@@ -4004,6 +4009,14 @@ export interface HorseDecideOpts {
    * Horse's line and the size (HorseOmahaPeopleFold.omahaPeopleRiverCurve); their own curve pools every player.
    */
   omahaRiverBetFoldIsPeopleMeasured?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane river-station 2026-11-26 (default off, read `=== true`): the range model of
+   * omahaRiverFirstToActBetIsPriced and omahaRiverCheckedToBetIsMeasured reads his checks (and bets) through his own
+   * lifetime public heads-up unopened turn/river bet record shrunk to PEOPLE's rate
+   * (HorseOmahaRiverBetFoldRecord.omahaRiverBetCheckRead): a player who never bets unopened has checks that do not cap his range. It does
+   * nothing unless one of those two rules is on; with no record the model is exactly as before. Never PLO6.
+   */
+  omahaRiverBetCheckIsHisRecord?: boolean;
   /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
    * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
    * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
@@ -20498,6 +20511,18 @@ export class HorseLogic {
               return his.curve;
             }
           : undefined;
+      // omahaRiverBetCheckIsHisRecord (PLO-OWNER lead-7 lane river-station 2026-11-26, default off): the two rules'
+      // range model reads his turn and river checks through his own unopened bet record (HorseOmahaRiverBetFoldRecord.omahaRiverBetCheckRead).
+      const riverReadOf =
+        opts.omahaRiverBetCheckIsHisRecord === true
+          ? (opponent: SeatPlayer, read: OmahaCardImpactRead): OmahaCardImpactRead => {
+              const variant = String(gs.gameVariant ?? '');
+              return omahaRiverBetCheckRead(variant, read, [
+                HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'turn', 1),
+                HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'river', 1),
+              ]);
+            }
+          : undefined;
       const firstToAct = omahaRiverFirstToActBetRule(
         openMeasured,
         player,
@@ -20505,7 +20530,8 @@ export class HorseLogic {
         firstToActOn,
         firstToActOn ? omahaPricedDeps(player, gs).rake : 0,
         (d) => this.legalize(d, player, gs, vi),
-        riverResponseOf
+        riverResponseOf,
+        riverReadOf
       );
       if (firstToAct.changed && tele) {
         noteFire('omaha_river_first_to_act_bet_priced');
@@ -20526,7 +20552,8 @@ export class HorseLogic {
         checkedToOn,
         checkedToOn ? omahaPricedDeps(player, gs).rake : 0,
         (d) => this.legalize(d, player, gs, vi),
-        riverResponseOf
+        riverResponseOf,
+        riverReadOf
       );
       if (riverFoldRecordWeight > 0 && tele) noteFire('omaha_river_bet_fold_his_record_read');
       if (checkedTo2.changed && tele) {
