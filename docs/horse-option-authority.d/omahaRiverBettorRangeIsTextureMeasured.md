@@ -1,6 +1,6 @@
 # omahaRiverBettorRangeIsTextureMeasured: Authority For The Live Switch
 
-Built 2026-11-27 by PLO-OWNER lead-8 (session 013U37ba), lane payoff, on Dan's order of 2026-11-26 10:57 PM Chicago (finish the unfinished work, then build and fix the leads of the outside WooWoo dossier after review). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game. Evidence NOT MET: the audited-decision replay is 1 fixed against 1 newly wrong, the option does not remove the river pay-off it was built for (second-nut flush), and the value-only bettor probe is not yet inside its bar. It stays OFF. This file states what was measured.
+Built 2026-11-27 by PLO-OWNER lead-8 (session 013U37ba), lane payoff, on Dan's order of 2026-11-26 10:57 PM Chicago (finish the unfinished work, then build and fix the leads of the outside WooWoo dossier after review). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game. Evidence NOT MET. CLOSED 2026-11-27, never merged: the pre-registered value-only bettor bar failed in both games (seeds 11 to 14 pooled, PLO4 -1.94 +/- 0.99 bb/100, PLO5 -3.42 +/- 1.77, each about 1.9 SE below zero against a bar of 1 SE), the audited-decision replay is 1 fixed against 1 newly wrong, and the river pay-off it was built for (second-nut flush) is priced right today (lane L5). A narrower flush/paired-board version failed its pre-registered build gate; see "## Closed". It stays OFF. This file states what was measured.
 
 ## The Defect It Answers
 
@@ -85,3 +85,12 @@ Speed (replay seam, engine decide, min of 3, telemetry on): 731 applicable river
 - Cells are small (5 to 61 shown bets); raise cells on flush boards hold 5 bets each and are mostly the pooled raise cell.
 - A shown bet is a called bet: the composition is that of bets that were called.
 - The line (how many streets the bettor bet) is not an input; the second-nut flush result suggests it matters when the flush was out on the turn.
+
+## Closed
+
+Closed 2026-11-27 by lead-8 lane W6 (`plo-lead7-01TLQer8/l8-payoff2/BUILD.md`, bars written before any measurement).
+
+- The option as built fails its own pre-registered bar: against a bettor who only bets big with value, seeds 11, 12, 13 and 14 pooled by inverse variance, PLO4 -1.94 +/- 0.99 bb/100 and PLO5 -3.42 +/- 1.77 (bar: not below zero by more than one SE in both games).
+- The second-nut flush pay-off is not a leak once it is priced on what was known at the time: by the bettor's own shown record and by people's turn-line cell those calls won 43% to 57% against 33% needed (lane L5, `l8-riverline/BUILD.md`). On shown showdowns Oct 22 to Nov 27, heads-up river calls of a person's bet of 0.4 pot or more or a raise with the second-nut flush: 16 calls, +701 bb against folding.
+- A narrower piece (texture only on flush and paired boards, the bettor's own record first) was pre-registered to be built only if its target cells lose by 2 SE or more as a whole. They do not: 58 calls, -559 bb, -9.6 +/- 22.7 bb per call (z -0.42). Not built.
+- Left open, for a fresh pre-registered test on new hands only: a flush on a paired board (non-nut and nut flush) called against a person's big river bet lost 21 calls, 4 won, -969 bb (z about -2.9, found after the fact, so not evidence). `omahaFacingBetPriorIsPeopleMeasured` (ON since 2026-11-27 08:39Z) calls there more often in replay (non-nut 1 to 9 of 15, nut 2 to 6 of 7). No PLO cash hand with a person reached a showdown between that switch and this closure, so no live call has been seen yet.
