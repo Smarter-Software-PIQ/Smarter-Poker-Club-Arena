@@ -594,6 +594,99 @@ describe('post-cutover-audit-lib', () => {
       expect(future.checks.find((c) => c.name === 'horse_exploit_report')?.status).toBe('fail');
     });
   });
+
+  describe('live /health nextHandGap and eventDbBulkhead SLO checks', () => {
+    it('passes cleanly and formats summary lines when nextHandGap and eventDbBulkhead are healthy', () => {
+      const check = evaluateLiveHealth(
+        {
+          ...HEALTHY_BODY,
+          nextHandGap: {
+            samples: 1000,
+            restMs: 1500,
+            slackMs: 500,
+            p50Ms: 1500,
+            p90Ms: 1508,
+            maxMs: 1950,
+            over: 2,
+          },
+          eventDbBulkhead: {
+            open: false,
+            totalInFlight: 8,
+            parkedTotal: 12,
+            parkTimeoutsTotal: 0,
+            refusedFullTotal: 0,
+            events: [{ key: 'ev-1', inFlight: 5, cooling: 0, limit: 24, parked: 0 }],
+          },
+        },
+        200,
+        { strictLatency: true }
+      );
+      expect(check.status).toBe('pass');
+      expect(check.warnings).toEqual([]);
+      expect(check.failures).toEqual([]);
+      expect(check.details?.nextHandGap).toMatchObject({
+        samples: 1000,
+        p90Ms: 1508,
+        budgetMs: 2000,
+        over: 2,
+        overPct: 0.2,
+      });
+      expect(check.details?.eventDbBulkhead).toMatchObject({
+        parkTimeoutsTotal: 0,
+        refusedFullTotal: 0,
+        throttledEvents: 0,
+        idleThrottledEvents: 0,
+      });
+      const text = formatAuditReportText({
+        auditedAt: '2026-11-27T19:00:00Z',
+        healthUrl: 'https://engine.smarter.poker/health',
+        releaseSha: HEALTHY_BODY.releaseSha,
+        overallStatus: 'PASS',
+        checks: [check],
+      });
+      expect(text).toContain('live /health nextHandGap: samples=1000 p50=1500ms p90=1508ms');
+      expect(text).toContain('live /health eventDbBulkhead: inFlight=8 parkedTotal=12');
+    });
+
+    it('warns by default and fails under --strict-latency when nextHandGap or eventDbBulkhead breaches SLO', () => {
+      const degraded = {
+        ...HEALTHY_BODY,
+        nextHandGap: {
+          samples: 200,
+          restMs: 1500,
+          slackMs: 500,
+          p50Ms: 1524,
+          p90Ms: 2342,
+          maxMs: 5727,
+          over: 36,
+        },
+        eventDbBulkhead: {
+          open: false,
+          totalInFlight: 10,
+          parkedTotal: 4639,
+          parkTimeoutsTotal: 2,
+          refusedFullTotal: 1,
+          events: [
+            { key: 'stuck-idle', inFlight: 0, cooling: 0, limit: 12, parked: 0 },
+            { key: 'active-ok', inFlight: 5, cooling: 0, limit: 24, parked: 0 },
+          ],
+        },
+      };
+
+      const soft = evaluateLiveHealth(degraded, 200, { strictLatency: false });
+      expect(soft.status).toBe('pass');
+      expect(soft.warnings).toHaveLength(5);
+      expect(soft.warnings.join('\n')).toContain('nextHandGap p90=2342ms exceeds budget 2000ms');
+      expect(soft.warnings.join('\n')).toContain('nextHandGap over-budget rate 18% exceeds 5%');
+      expect(soft.warnings.join('\n')).toContain('parkTimeoutsTotal=2');
+      expect(soft.warnings.join('\n')).toContain('refusedFullTotal=1');
+      expect(soft.warnings.join('\n')).toContain('1 idle throttled event(s)');
+
+      const strict = evaluateLiveHealth(degraded, 200, { strictLatency: true });
+      expect(strict.status).toBe('fail');
+      expect(strict.failures).toHaveLength(5);
+    });
+  });
 });
 
 // 2026-11-26: a switch written through a private wrapper opens no records PR, so the committed snapshot went

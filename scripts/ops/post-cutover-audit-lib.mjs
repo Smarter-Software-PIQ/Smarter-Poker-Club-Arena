@@ -571,6 +571,115 @@ export function evaluateLiveHealth(health, httpStatus = 200, { strictLatency = f
     }
   }
 
+  const rawGap =
+    health.nextHandGap &&
+    typeof health.nextHandGap === 'object' &&
+    !Array.isArray(health.nextHandGap)
+      ? health.nextHandGap
+      : null;
+  let nextHandGapDetails = null;
+  if (rawGap) {
+    const samples = Number(rawGap.samples ?? 0);
+    const restMs = Number(rawGap.restMs);
+    const slackMs = Number(rawGap.slackMs);
+    const p50Ms = rawGap.p50Ms != null ? Number(rawGap.p50Ms) : null;
+    const p90Ms = rawGap.p90Ms != null ? Number(rawGap.p90Ms) : null;
+    const maxMs = rawGap.maxMs != null ? Number(rawGap.maxMs) : null;
+    const over = Number(rawGap.over ?? 0);
+    const overPct =
+      Number.isFinite(samples) && samples > 0 && Number.isFinite(over)
+        ? Number(((over / samples) * 100).toFixed(2))
+        : 0;
+    const budgetMs = Number.isFinite(restMs) && Number.isFinite(slackMs) ? restMs + slackMs : null;
+    nextHandGapDetails = {
+      samples: Number.isFinite(samples) ? samples : 0,
+      restMs: Number.isFinite(restMs) ? restMs : null,
+      slackMs: Number.isFinite(slackMs) ? slackMs : null,
+      budgetMs,
+      p50Ms: p50Ms !== null && Number.isFinite(p50Ms) ? p50Ms : null,
+      p90Ms: p90Ms !== null && Number.isFinite(p90Ms) ? p90Ms : null,
+      maxMs: maxMs !== null && Number.isFinite(maxMs) ? maxMs : null,
+      over: Number.isFinite(over) ? over : 0,
+      overPct,
+    };
+    if (nextHandGapDetails.samples >= 20) {
+      if (
+        nextHandGapDetails.p90Ms !== null &&
+        nextHandGapDetails.budgetMs !== null &&
+        nextHandGapDetails.p90Ms > nextHandGapDetails.budgetMs
+      ) {
+        const msg =
+          `live /health nextHandGap p90=${nextHandGapDetails.p90Ms}ms exceeds budget ${nextHandGapDetails.budgetMs}ms` +
+          ` (samples=${nextHandGapDetails.samples}, over=${nextHandGapDetails.over}, max=${nextHandGapDetails.maxMs ?? '?'}ms)`;
+        warnings.push(msg);
+        if (strictLatency) failures.push(msg);
+      }
+      if (nextHandGapDetails.overPct > 5) {
+        const msg =
+          `live /health nextHandGap over-budget rate ${nextHandGapDetails.overPct}% exceeds 5%` +
+          ` (${nextHandGapDetails.over}/${nextHandGapDetails.samples}, p90=${nextHandGapDetails.p90Ms ?? '?'}ms)`;
+        warnings.push(msg);
+        if (strictLatency) failures.push(msg);
+      }
+    }
+  }
+
+  const rawBulkhead =
+    health.eventDbBulkhead &&
+    typeof health.eventDbBulkhead === 'object' &&
+    !Array.isArray(health.eventDbBulkhead)
+      ? health.eventDbBulkhead
+      : null;
+  let eventDbBulkheadDetails = null;
+  if (rawBulkhead) {
+    const events = Array.isArray(rawBulkhead.events) ? rawBulkhead.events : [];
+    const parkTimeoutsTotal = Number(rawBulkhead.parkTimeoutsTotal ?? 0);
+    const refusedFullTotal = Number(rawBulkhead.refusedFullTotal ?? 0);
+    const parkedTotal = Number(rawBulkhead.parkedTotal ?? 0);
+    const totalInFlight = Number(rawBulkhead.totalInFlight ?? 0);
+    let throttledEvents = 0;
+    let idleThrottledEvents = 0;
+    for (const ev of events) {
+      const limit = Number(ev?.limit);
+      if (Number.isFinite(limit) && limit < 24) {
+        throttledEvents++;
+        if (
+          Number(ev?.inFlight ?? 0) === 0 &&
+          Number(ev?.cooling ?? 0) === 0 &&
+          Number(ev?.parked ?? 0) === 0
+        ) {
+          idleThrottledEvents++;
+        }
+      }
+    }
+    eventDbBulkheadDetails = {
+      open: Boolean(rawBulkhead.open),
+      totalInFlight: Number.isFinite(totalInFlight) ? totalInFlight : 0,
+      parkedTotal: Number.isFinite(parkedTotal) ? parkedTotal : 0,
+      parkTimeoutsTotal: Number.isFinite(parkTimeoutsTotal) ? parkTimeoutsTotal : 0,
+      refusedFullTotal: Number.isFinite(refusedFullTotal) ? refusedFullTotal : 0,
+      throttledEvents,
+      idleThrottledEvents,
+    };
+    if (eventDbBulkheadDetails.parkTimeoutsTotal > 0) {
+      const msg = `live /health eventDbBulkhead.parkTimeoutsTotal=${eventDbBulkheadDetails.parkTimeoutsTotal} (expected 0)`;
+      warnings.push(msg);
+      if (strictLatency) failures.push(msg);
+    }
+    if (eventDbBulkheadDetails.refusedFullTotal > 0) {
+      const msg = `live /health eventDbBulkhead.refusedFullTotal=${eventDbBulkheadDetails.refusedFullTotal} (expected 0)`;
+      warnings.push(msg);
+      if (strictLatency) failures.push(msg);
+    }
+    if (eventDbBulkheadDetails.idleThrottledEvents > 0) {
+      const msg =
+        `live /health eventDbBulkhead has ${eventDbBulkheadDetails.idleThrottledEvents} idle throttled event(s)` +
+        ` (throttled=${eventDbBulkheadDetails.throttledEvents}, parkedTotal=${eventDbBulkheadDetails.parkedTotal})`;
+      warnings.push(msg);
+      if (strictLatency) failures.push(msg);
+    }
+  }
+
   return {
     name: 'live_health',
     status: failures.length === 0 ? 'pass' : 'fail',
@@ -588,6 +697,8 @@ export function evaluateLiveHealth(health, httpStatus = 200, { strictLatency = f
       resumeWavesComplete,
       liveHorseDecision: liveHorseDecisionDetails,
       liveHealthLatency,
+      nextHandGap: nextHandGapDetails,
+      eventDbBulkhead: eventDbBulkheadDetails,
     },
   };
 }
@@ -1135,6 +1246,18 @@ export function formatAuditReportText(report) {
         const hl = d.liveHealthLatency;
         lines.push(
           `          live /health 5m latency: total=${hl.totalDecisions} >100ms=${hl.over100msCount} (${hl.over100msPct}%) max=${hl.maxMs}ms topHotNode=${hl.topHotNode ?? 'none'} starvationAlert=${hl.starvationAlert}`
+        );
+      }
+      if (d.nextHandGap) {
+        const g = d.nextHandGap;
+        lines.push(
+          `          live /health nextHandGap: samples=${g.samples} p50=${g.p50Ms ?? '?'}ms p90=${g.p90Ms ?? '?'}ms max=${g.maxMs ?? '?'}ms over=${g.over} (${g.overPct}%) budget=${g.budgetMs ?? '?'}ms`
+        );
+      }
+      if (d.eventDbBulkhead) {
+        const b = d.eventDbBulkhead;
+        lines.push(
+          `          live /health eventDbBulkhead: inFlight=${b.totalInFlight} parkedTotal=${b.parkedTotal} timeouts=${b.parkTimeoutsTotal} refused=${b.refusedFullTotal} throttled=${b.throttledEvents} (idle=${b.idleThrottledEvents})`
         );
       }
     } else if (check.name === 'serving_registry_freshness' && check.details?.matchedRow) {
