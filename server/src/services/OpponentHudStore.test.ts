@@ -839,6 +839,8 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       const two = [{ user_id: U(1) }, { user_id: U(2) }];
       const three = [...two, { user_id: U(3) }];
       const folded = [...two, { user_id: U(3), is_folded: true }];
+      const sittingOut = [...two, { user_id: U(3), is_sitting_out: true }];
+      const allInThird = [...two, { user_id: U(3), is_sitting_out: true, is_all_in: true }];
       const river = (players: typeof three, extra: Record<string, unknown> = {}) =>
         opponentHudSnapshotField(
           { gameVariant: 'nlh', gameMode: 'cash', stage: 'river', players, bigBlind: 2, ...extra },
@@ -868,6 +870,9 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
       store.setNlhRiverConsumer(true);
       expect(river(two).opponentHud?.family).toBe('nlh');
       expect(river(folded).opponentHud?.family).toBe('nlh');
+      // a seat sitting out holds no cards; a third player all in is still in the hand
+      expect(river(sittingOut).opponentHud?.family).toBe('nlh');
+      expect(river(allInThird)).toEqual({});
       // not multiway, not another street, not a tournament
       expect(river(three)).toEqual({});
       for (const stage of ['preflop', 'flop', 'turn'])

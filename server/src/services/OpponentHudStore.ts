@@ -1640,7 +1640,12 @@ export function opponentHudSnapshotField(
     gameMode?: unknown;
     tournament?: unknown;
     stage?: unknown;
-    players?: readonly { user_id?: string; is_folded?: boolean }[];
+    players?: readonly {
+      user_id?: string;
+      is_folded?: boolean;
+      is_sitting_out?: boolean;
+      is_all_in?: boolean;
+    }[];
     bigBlind?: unknown;
   },
   heroId: string,
@@ -1657,7 +1662,11 @@ export function opponentHudSnapshotField(
     if (!HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) {
       // NLH cash: the heads-up river decision only, and only while an NLH river consumer is switched
       if (family !== 'nlh' || stage !== 'river' || !shared.nlhRiverConsumer()) return {};
-      if ((gs.players ?? []).filter((p) => p && p.is_folded !== true).length !== 2) return {};
+      // two players live in the hand (a seat sitting out that is not all in holds no cards)
+      const live = (gs.players ?? []).filter(
+        (p) => p && p.is_folded !== true && !(p.is_sitting_out === true && p.is_all_in !== true)
+      );
+      if (live.length !== 2) return {};
     }
     const street: HudStreet =
       stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'preflop';
