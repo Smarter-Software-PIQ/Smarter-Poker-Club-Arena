@@ -76,6 +76,12 @@ interface ClubCardPanelProps {
    * union's name when the card carries the separate union activity line.
    */
   floorPlaying?: number | null;
+  /**
+   * Dan 2026-11-26: once a club joins a union, ACTIVE reports what is live in
+   * the union (default, 'union'); Club Settings can choose the club's own
+   * live data ('club'). Absent for a standalone club.
+   */
+  activeSource?: 'union' | 'club';
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -95,6 +101,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   entityType = 'club',
   splitFloorLabel = null,
   floorPlaying = null,
+  activeSource,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -149,7 +156,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
 
   /* "club-measured:" (2026-11-17): figures cached under "club:" before the
      display additions were retired could still hold them; they are not read. */
-  const scope = clubId != null && clubId !== '' ? `club-measured:${clubId}` : '';
+  /* "club-active-source:" (2026-11-26): ACTIVE became the union floor for a
+     member club, so a figure cached when it counted only the club is not read. */
+  const scope = clubId != null && clubId !== '' ? `club-active-source:${clubId}` : '';
   const cached = useMemo(() => readFigures(scope), [scope]);
 
   useEffect(() => {
@@ -165,6 +174,14 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
 
   const isKingsClub = !isUnion && Number(clubId) === SHARK_CLUB_ID;
   const showActivityDetails = !isKingsClub;
+  /* Whose live figure ACTIVE is. Kings Club's comes from its display RPC,
+     which applies the same union-or-club rule server-side. */
+  const activeIsUnion = isKingsClub
+    ? kingsDisplayTotals?.active_source === 'union'
+    : activeSource === 'union';
+  const kingsUnionName = kingsDisplayTotals?.active_union_name
+    ? kingsDisplayTotals.active_union_name.toUpperCase()
+    : null;
   const activityFloorName =
     splitFloorLabel === 'MIDWAY UNION' ? 'THE MIDWAY UNION' : splitFloorLabel;
   const memberDisplay = kingsDisplayTotals?.member_total;
@@ -269,6 +286,13 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           >
             {activeText}
           </span>
+          {isKingsClub && activeIsUnion && (
+            <span className="club-card-stat-split-floor sc-label sc-ink--blue">
+              {kingsUnionName === 'MIDWAY UNION'
+                ? 'LIVE ACROSS THE MIDWAY UNION'
+                : `LIVE ACROSS ${kingsUnionName ?? 'THE UNION'}`}
+            </span>
+          )}
           {showActivityDetails && (
             <>
               {/* Dan 2026-09-09: the split prints under the total, in the same
@@ -276,9 +300,11 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
                   on the floor no longer reads as a wrong number. */}
               {splitFloorLabel ? (
                 <span className="club-card-stat-split-floor sc-label sc-ink--blue">
-                  {floorPlaying != null
-                    ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACTIVE ACROSS ${activityFloorName}`
-                    : splitFloorLabel}
+                  {activeIsUnion
+                    ? `LIVE ACROSS ${activityFloorName}`
+                    : floorPlaying != null
+                      ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACTIVE ACROSS ${activityFloorName}`
+                      : splitFloorLabel}
                 </span>
               ) : null}
               <span

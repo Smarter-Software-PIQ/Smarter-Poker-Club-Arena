@@ -14,11 +14,14 @@ name: Migration merge window
 # Holding: every run that finds a window open (or opening within 25 minutes)
 # holds it minute by minute and closes it itself, so no window depends on
 # GitHub's schedule, which drops most ticks here. A pull request event holds
-# its own pull request; mode=keep by hand holds all. The :10 keeper and :40
-# sweep are best-effort backstops.
+# its own pull request; every push to main holds all when a window is near
+# (merges land many times an hour, so this is the reliable opener); mode=keep
+# by hand holds all. The :10 keeper and :40 sweep are best-effort backstops.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+    branches: [main]
+  push:
     branches: [main]
   schedule:
     - cron: '10 * * * *'
@@ -38,7 +41,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event.schedule || 'dispatch' }}
+  group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event.schedule || github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -73,6 +76,7 @@ jobs:
             schedule)
               if [ "$SCHEDULE" = '10 * * * *' ]; then node scripts/ci/migration-merge-window.mjs keep
               else node scripts/ci/migration-merge-window.mjs sweep; fi ;;
+            push) node scripts/ci/migration-merge-window.mjs on-push ;;
             workflow_dispatch) node scripts/ci/migration-merge-window.mjs "${MODE:-sweep}" ;;
             *) echo "unexpected event $EVENT"; exit 1 ;;
           esac
