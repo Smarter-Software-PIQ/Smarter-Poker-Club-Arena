@@ -5226,18 +5226,9 @@ function LiveTablePage({
      (utils/bustRebuyDeadline). Kept when the window closes, so a frame of
      that bust arriving late is still recognised as old. */
   const bustRebuyServerDeadlineRef = useRef<number | null>(null);
-  const [bustRebuySecondsLeft, setBustRebuySecondsLeft] = useState<number | null>(null);
-  useEffect(() => {
-    if (bustRebuyDeadlineAt === null) {
-      setBustRebuySecondsLeft(null);
-      return;
-    }
-    const tick = () =>
-      setBustRebuySecondsLeft(Math.max(0, Math.ceil((bustRebuyDeadlineAt - Date.now()) / 1000)));
-    tick();
-    const timer = setInterval(tick, 250);
-    return () => clearInterval(timer);
-  }, [bustRebuyDeadlineAt]);
+  /* The seconds left are counted by the rebuy sheet itself (SecondsUntil in
+     TableModalsLayer), not here: a quarter-second clock in this component
+     re-rendered the whole table for every second of the window. */
   /* Lightning transition phase 2: the allowed maximum for a busted Lightning
      player's rebuy, as the database answered it (readLightningTopUp). Set
      only while that prompt is the one open; null at every other table. */
@@ -34315,7 +34306,7 @@ function LiveTablePage({
         bustRebuyOpen={bustRebuyOpen && !isAutoRebuyEnabled}
         bustWalletBalance={bustWalletBalance}
         bustRebuyProcessing={bustRebuyProcessing}
-        bustRebuySecondsLeft={bustRebuySecondsLeft}
+        bustRebuyDeadlineAt={bustRebuyDeadlineAt}
         onCancelBustRebuy={cancelBustRebuy}
         onRetryBustBalance={retryBustBalance}
         onConfirmBustRebuy={confirmBustRebuy}
