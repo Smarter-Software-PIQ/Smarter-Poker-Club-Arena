@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
@@ -1533,6 +1534,65 @@ class ThreeHourlyReadinessTests(unittest.TestCase):
         self.assertIn(f"run 45759269821 certifies {old[:12]}, which cannot be selected (CONTROL_INPUTS mismatch",
                       report["summary"])
         self.assertNotIn(f"{head[:12]} is in flight", report["summary"])
+
+class JobLogReaderTests(unittest.TestCase):
+    """2026-11-27 16:00 CST: both readiness posts said UNKNOWN for a044fa566044 because the runner's
+    gh refused to print a job log holding terminal colour codes. The candidate was fresh and sealed."""
+
+    PATH = "repos/o/r/actions/jobs/9/logs"
+    REFUSAL = "the response contains terminal escape sequences; pass --allow-escape-sequences to print them"
+
+    def _proc(self, code, out="", err=""):
+        return types.SimpleNamespace(returncode=code, stdout=out, stderr=err)
+
+    def test_a_gh_that_refuses_escape_sequences_is_told_the_log_is_data(self):
+        calls = []
+
+        def run(argv, **_kw):
+            calls.append(argv)
+            if mod.GH_ALLOW_ESCAPES_FLAG in argv:
+                return self._proc(0, "\x1b[36m[apply] 20261127043816_c.sql\x1b[0m\n")
+            return self._proc(1, err=self.REFUSAL)
+
+        text = mod.gh_api_get_text(self.PATH, run=run)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ["gh", "api", "--method", "GET", self.PATH, mod.GH_ALLOW_ESCAPES_FLAG])
+        self.assertIn("[apply] 20261127043816_c.sql", text)
+
+    def test_an_older_gh_that_does_not_know_the_flag_is_asked_the_old_way(self):
+        calls = []
+
+        def run(argv, **_kw):
+            calls.append(argv)
+            if mod.GH_ALLOW_ESCAPES_FLAG in argv:
+                return self._proc(1, err=f"unknown flag: {mod.GH_ALLOW_ESCAPES_FLAG}")
+            return self._proc(0, "log text\n")
+
+        self.assertEqual(mod.gh_api_get_text(self.PATH, run=run), "log text\n")
+        self.assertEqual(calls[1], ["gh", "api", "--method", "GET", self.PATH])
+
+    def test_any_other_failure_is_unread_and_is_not_asked_twice(self):
+        calls = []
+
+        def run(argv, **_kw):
+            calls.append(argv)
+            return self._proc(1, err="HTTP 403: rate limit")
+
+        with self.assertRaises(mod.ReadError):
+            mod.gh_api_get_text(self.PATH, run=run)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_coloured_applier_line_is_still_a_committed_file(self):
+        log = "\n".join(
+            [
+                "2026-11-27T10:15:31.1Z \x1b[36;1m[apply] 20261124195144_a.sql\x1b[0m",
+                "2026-11-27T10:15:32.0Z \x1b[32m[apply] APPLIED\x1b[0m",
+                "2026-11-27T10:15:33.0Z [apply] 20261126191910_b.sql",
+                "2026-11-27T10:15:34.0Z [apply] QUEUED",
+            ]
+        )
+        self.assertEqual(mod.committed_files_in_log(log), ["20261124195144_a.sql"])
+
 
 class CopyFreshnessTests(unittest.TestCase):
     """O36 (2026-11-27): at 05:30 CST readiness called 7c301a85a5e4 READY; its Backup copy lacked
