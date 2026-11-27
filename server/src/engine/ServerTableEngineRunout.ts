@@ -1230,7 +1230,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       this.armPineappleDiscardSweep(this.handController);
     }
 
-    void this.broadcastCurrentState();
+    this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
     return { success: true };
   }
 
@@ -1282,7 +1282,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     }
 
     // Broadcast current state so clients see the all-in board
-    void this.broadcastCurrentState();
+    this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
 
     // DOUBLE-BOARD BOMB POT 2026-08-20: a hand already running two boards
     // neither needs a second runout (RIT) nor has a single-board equity to
@@ -1299,7 +1299,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     const requestStandaloneEquity = () => {
       if (standaloneEquityRequested || allInPlayers.length < 2) return;
       standaloneEquityRequested = true;
-      void this.broadcastAllInEquity(allInPlayers, board, pot, this.liveExtraBoards());
+      this.detachTableWork(
+        'broadcastAllInEquity',
+        this.broadcastAllInEquity(allInPlayers, board, pot, this.liveExtraBoards())
+      );
     };
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1482,7 +1485,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
             outcome_reason: 'mandatory',
           });
           requestStandaloneEquity();
-          void this.dealAndResolveRIT(allInPlayers);
+          this.detachTableWork('dealAndResolveRIT', this.dealAndResolveRIT(allInPlayers));
           return;
         }
 
@@ -1534,7 +1537,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
             // Each board is evaluated independently for each pot.
             // ═══════════════════════════════════════════════════════════════
             requestStandaloneEquity();
-            void this.dealAndResolveRIT(allInPlayers);
+            this.detachTableWork('dealAndResolveRIT', this.dealAndResolveRIT(allInPlayers));
           } else if (this.handController) {
             // Declined or unanswered — the hand runs ONCE.
             this.emitRitSingleRun('no_agreement');
@@ -1544,7 +1547,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
             if (insuranceEnabled && allInPlayers.length >= 2) {
               startInsuranceFlow();
             } else {
-              void this.pacedAllInRunout(allInPlayers, pot);
+              this.detachTableWork('pacedAllInRunout', this.pacedAllInRunout(allInPlayers, pot));
             }
           }
         });
@@ -1553,7 +1556,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         // flop, turn and river all landed inside one synchronous while-loop in
         // HandController.runOutCommunityCards, in a single tick, and the hand
         // completed immediately after. Dan item 16 — the run-out is paced now.
-        void this.pacedAllInRunout(allInPlayers, pot);
+        this.detachTableWork('pacedAllInRunout', this.pacedAllInRunout(allInPlayers, pot));
       }
     }
   }
@@ -1645,7 +1648,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         // from three to two. Never price later equity from the stale copies
         // captured by ALL_IN_RUNOUT before that commit.
         allInPlayers = this.refreshAllInPlayersFromController(allInPlayers, controller);
-        void this.broadcastCurrentState();
+        this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
 
         if (controller.getCommunityCards().length === before) {
           // The deck gave us nothing; stop rather than sleep and retry.
@@ -2127,15 +2130,19 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       }
     };
 
-    const checkInterval = setInterval(() => {
-      if (!this.running || !this.isCurrentEngine()) {
-        finish();
-        return;
-      }
-      if (!this.runItTwiceEngine.isDecisionPending(this.tableId)) {
-        finish();
-      }
-    }, 250);
+    const checkInterval = this.tableInterval(
+      'rit_offer_check',
+      () => {
+        if (!this.running || !this.isCurrentEngine()) {
+          finish();
+          return;
+        }
+        if (!this.runItTwiceEngine.isDecisionPending(this.tableId)) {
+          finish();
+        }
+      },
+      250
+    );
 
     // The scheduler owns the decision deadline, including weekly pauses.
     // A fallback must never truncate that authoritative pending window.
@@ -2422,7 +2429,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       // flop, turn and river all land in one tick with no equity updates. A
       // hand that ends up running ONCE must still be watchable, exactly like
       // the ordinary all-in path. Pace it.
-      void this.pacedAllInRunout(allInPlayers, controller.getState().pot);
+      this.detachTableWork(
+        'pacedAllInRunout',
+        this.pacedAllInRunout(allInPlayers, controller.getState().pot)
+      );
       return;
     }
 
@@ -2457,7 +2467,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       this.currentHandRitBoards = 0;
       this.currentHandRitBaseBoardCount = 0;
       this.emitRitSingleRun('deck_too_short');
-      void this.pacedAllInRunout(allInPlayers, controller.getState().pot);
+      this.detachTableWork(
+        'pacedAllInRunout',
+        this.pacedAllInRunout(allInPlayers, controller.getState().pot)
+      );
       return;
     }
 
@@ -3437,7 +3450,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           `[ServerTableEngine:${this.tableId}] All players declined insurance for hand - switching to paced runout`
         );
         if (this.handController === controller) {
-          void this.pacedAllInRunout(allInPlayers, pot);
+          this.detachTableWork('pacedAllInRunout', this.pacedAllInRunout(allInPlayers, pot));
         }
         return;
       }
@@ -3801,7 +3814,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       ...player,
       holeCards: currentById.get(player.playerId)?.cards ?? player.holeCards,
     }));
-    void this.broadcastCurrentState();
+    this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
 
     // RE-BROADCAST EQUITY: all players and observers see updated percentages
     // as each card is dealt — but only ONCE THE CARD IS FACE UP. Same defect
@@ -4147,15 +4160,19 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       }
     };
 
-    const checkInterval = setInterval(() => {
-      if (!this.running || !this.isCurrentEngine()) {
-        finish();
-        return;
-      }
-      if (this.insuranceEngine.allResponded(this.tableId)) {
-        finish();
-      }
-    }, 250); // Check every 250ms
+    const checkInterval = this.tableInterval(
+      'insurance_offer_check',
+      () => {
+        if (!this.running || !this.isCurrentEngine()) {
+          finish();
+          return;
+        }
+        if (this.insuranceEngine.allResponded(this.tableId)) {
+          finish();
+        }
+      },
+      250
+    ); // Check every 250ms
 
     // Safety timeout: if insurance engine's own timeouts somehow fail, force continue after 20s
     const safetyTimeout = this.setHandTimeout(() => {

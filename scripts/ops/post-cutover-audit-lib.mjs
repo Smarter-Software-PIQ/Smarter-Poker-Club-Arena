@@ -62,6 +62,7 @@ export function parseCliArgs(argv) {
   let healthUrl = DEFAULT_HEALTH_URL;
   let maxRegistryAgeSec = DEFAULT_MAX_REGISTRY_AGE_SEC;
   let supabaseWorkdir = null;
+  let dbUrlEnv = null;
   let json = false;
   let strictLatency = false;
   let exploitSplitAt = null;
@@ -118,6 +119,14 @@ export function parseCliArgs(argv) {
         throw new Error('--max-registry-age-sec must be a positive number');
       }
       maxRegistryAgeSec = next;
+    } else if (arg === '--db-url-env') {
+      const next = args[++i];
+      if (!next || !/^[A-Z_][A-Z0-9_]*$/.test(next)) {
+        throw new Error(
+          '--db-url-env requires the NAME of an environment variable holding a database URL'
+        );
+      }
+      dbUrlEnv = next;
     } else if (arg === '--supabase-workdir') {
       const next = args[++i];
       if (!next) throw new Error('--supabase-workdir requires a path argument');
@@ -135,6 +144,7 @@ export function parseCliArgs(argv) {
     healthUrl,
     maxRegistryAgeSec,
     supabaseWorkdir,
+    dbUrlEnv,
     json,
     strictLatency,
     exploitSplitAt,
@@ -250,6 +260,16 @@ export function evaluateSwitchRecords({ committedText, liveRows, strict = false 
   return strict
     ? { ...base, status: 'fail', failures: [msg], details }
     : { ...base, status: 'warn', warnings: [msg], details };
+}
+
+/**
+ * Pure. One read-only audit query as psql runs it against a database URL: the rows come back as one JSON array,
+ * the shape `supabase db query -o json` gives. The inner query is checked by assertReadOnlySql first, and the
+ * caller runs it with default_transaction_read_only=on, so a URL with write rights still cannot write.
+ */
+export function buildPsqlJsonSql(sql) {
+  const inner = assertReadOnlySql(sql).trim();
+  return assertReadOnlySql(`SELECT coalesce(json_agg(q), '[]'::json) FROM (${inner}) q`);
 }
 
 export function resolveLinkedSupabaseWorkdir({

@@ -396,7 +396,20 @@
     border-image: var(--arena-row) 13 / 5px stretch;
     background: linear-gradient(#1b3751, #0b1e30 65%, #102b43);
     font-weight: 700;
+    line-height: 1.25;
+    text-align: center;
     text-decoration: none;
+    white-space: normal;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .stats-page .tournament-study-actions button:active {
+    transform: translateY(1px);
+    filter: brightness(1.12);
+  }
+  .stats-page .tournament-study-actions button:focus-visible {
+    outline: 2px solid #8de6ff;
+    outline-offset: 2px;
   }
   .stats-page .tournament-study-actions button:first-child {
     background: linear-gradient(#146bd4, #063783);

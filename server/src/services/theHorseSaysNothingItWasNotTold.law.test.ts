@@ -69,7 +69,7 @@ describe('LAW: the horse says nothing it was not told', () => {
     // tournaments included, exactly where a person could throw.
     const settlement = code(read('engine/ServerTableEngineSettlement.ts'));
     expect(settlement).toContain(
-      'void gestureAfterHand(buildTableTalkInput(snap, players, this.tableInfo));'
+      "'gestureAfterHand',\n        gestureAfterHand(buildTableTalkInput(snap, players, this.tableInfo))"
     );
   });
 
@@ -241,10 +241,10 @@ describe('LAW: the horse says nothing it was not told', () => {
     const dealing = read('engine/ServerTableEngineDealing.ts');
     expect(settlement).toContain("await runStep('horse_table_talk', false, async () => {");
     expect(settlement).toContain(
-      'void speakAtTheFelt(buildTableTalkInput(snap, players, this.tableInfo));'
+      "'speakAtTheFelt',\n        speakAtTheFelt(buildTableTalkInput(snap, players, this.tableInfo))"
     );
     expect(settlement).toMatch(/horse_table_talk: 'seats'/);
-    expect(dealing).toContain('void greetArrival(');
+    expect(dealing).toMatch(/this\.detachTableWork\(\s*'greetArrival',\s*greetArrival\(/);
     // no horse is ever excluded from anything on either path
     expect(TALK).not.toMatch(/!\s*[\w.?]*\bis_?[Hh]orse\b|is_?[Hh]orse\s*={2,3}\s*false/);
   });

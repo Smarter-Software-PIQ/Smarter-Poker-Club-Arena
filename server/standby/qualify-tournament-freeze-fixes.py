@@ -45,6 +45,19 @@ FROM pg_proc WHERE oid=to_regprocedure('smarter_private.f06_mixed_custody_snapsh
 ROLLBACK;"""
 
 
+LOG_TAIL_LINES = 40
+LOG_TAIL_BYTES = 6000
+
+
+def log_tail(path, lines=LOG_TAIL_LINES, limit=LOG_TAIL_BYTES):
+    """The last lines of a step's log, bounded, for the report and the job log."""
+    try:
+        text = Path(path).read_text(errors='replace')
+    except OSError as error:
+        return f'(log unreadable: {error})'
+    return '\n'.join(text.splitlines()[-lines:])[-limit:]
+
+
 def run(argv, *, cwd=None, log=None, timeout=1800):
     timeout = min(timeout, DEADLINE - time.monotonic())
     if timeout <= 0:
@@ -52,8 +65,16 @@ def run(argv, *, cwd=None, log=None, timeout=1800):
     COMMANDS.append({'argv': argv, 'cwd': str(cwd) if cwd else None})
     if log:
         with open(log, 'w') as stream:
-            subprocess.run(argv, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT,
-                           check=True, timeout=timeout)
+            try:
+                subprocess.run(argv, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT,
+                               check=True, timeout=timeout)
+            except subprocess.CalledProcessError as error:
+                # A FAILED STEP NAMES ITS CAUSE (2026-11-26). The report kept only
+                # "returned non-zero exit status 1" and the log stayed on the
+                # Backup host, so a refused certificate (run 45921051609) said
+                # nothing about which assertion failed.
+                stream.flush()
+                raise RuntimeError(f'{error}; last lines of {Path(log).name}:\n' + log_tail(log)) from error
         return ''
     return subprocess.run(argv, cwd=cwd, text=True, capture_output=True,
                           check=True, timeout=timeout).stdout.strip()

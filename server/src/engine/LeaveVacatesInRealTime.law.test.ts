@@ -96,11 +96,13 @@ describe('every device is told after durable departure', () => {
     ['cash', CASH_LEAVE],
     ['tournament', TOURNAMENT_LEAVE],
   ])('%s departure re-broadcasts state after confirmation', (_name, branch) => {
-    expect(branch).toContain('this.broadcastCurrentState();');
-    expect(branch.indexOf('await requestSeatDeparture(')).toBeGreaterThan(-1);
-    expect(branch.indexOf('this.broadcastCurrentState();')).toBeGreaterThan(
-      branch.indexOf('await requestSeatDeparture(')
+    expect(branch).toContain(
+      "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());"
     );
+    expect(branch.indexOf('await requestSeatDeparture(')).toBeGreaterThan(-1);
+    expect(
+      branch.indexOf("this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());")
+    ).toBeGreaterThan(branch.indexOf('await requestSeatDeparture('));
   });
 });
 

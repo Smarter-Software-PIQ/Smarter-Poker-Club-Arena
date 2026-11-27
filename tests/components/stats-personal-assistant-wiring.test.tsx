@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import LeakPanel from '../../src/components/stats/LeakPanel';
 import StatsWorkspacePanel from '../../src/components/stats/StatsWorkspacePanel';
+import { HandDetailModal } from '../../src/components/table/HandDetailModal';
+import { adaptServiceHandToPanel } from '../../src/lib/handHistoryAdapter';
 import { hubTabTitle } from '../../src/utils/hubTab';
 import type { StatsWorkspaceSnapshot } from '../../src/services/StatsWorkspaceService';
 
@@ -370,5 +372,175 @@ describe('Club Arena <-> Personal Assistant Leak Finder wiring & anti-regression
       rule.selectors.includes('.stats-page.arena-workspace .arena-switch > button')
     );
     expect(declared(buttons!, 'min-height')).toBe('44px');
+  });
+
+  it('HandDetailModal renders a #SmarterDesign Analyze button when onAnalyze is supplied and invokes it with the active hand', () => {
+    const sampleHand = adaptServiceHandToPanel(
+      {
+        id: '11111111-2222-4333-8444-555555555555',
+        serial_number: '991001',
+        table_id: 'table-1',
+        table_name: 'Foundry 1/2',
+        played_at: '2026-11-26T12:00:00.000Z',
+        hand_number: 991001,
+        total_hands: 0,
+        main_pot: 24,
+        side_pots: [],
+        community_cards: ['Ah', 'Kd', '7c', '2s', '9h'],
+        players: [
+          {
+            seat: 1,
+            user_id: 'hero-1',
+            username: 'Hero',
+            avatar_url: null,
+            position: 'BTN',
+            hole_cards: [
+              { rank: 'A', suit: 'spades' },
+              { rank: 'Q', suit: 'spades' },
+            ],
+            result: 12,
+            is_winner: true,
+            showdown_reveal: { reveal_order: 1, mucked: false, hand_name: 'Pair' },
+          },
+          {
+            seat: 2,
+            user_id: 'villain-1',
+            username: 'Villain',
+            avatar_url: null,
+            position: 'BB',
+            hole_cards: [
+              { rank: 'K', suit: 'hearts' },
+              { rank: 'J', suit: 'hearts' },
+            ],
+            result: -12,
+            is_winner: false,
+            showdown_reveal: { reveal_order: 2, mucked: false, hand_name: 'Pair' },
+          },
+        ],
+        actions: [
+          { player_id: 'hero-1', action: 'raise', amount: 6, street: 'preflop', timestamp: 1 },
+          { player_id: 'villain-1', action: 'call', amount: 4, street: 'preflop', timestamp: 2 },
+        ],
+        winners: [{ user_id: 'hero-1', amount: 24, pot_index: 0, hand_name: 'Pair' }],
+        winners_by_board: [],
+        rake: 0,
+        bbj_fee: 0,
+        game_type: 'NLH',
+        stakes: '1/2',
+      } as unknown as Parameters<typeof adaptServiceHandToPanel>[0],
+      'hero-1'
+    );
+
+    const onAnalyze = vi.fn();
+    const { rerender, unmount } = render(
+      <HandDetailModal
+        isOpen
+        onClose={vi.fn()}
+        hands={[sampleHand]}
+        heroId="hero-1"
+        onShare={vi.fn()}
+        onReplay={vi.fn()}
+        onAnalyze={onAnalyze}
+      />
+    );
+    const analyzeBtn = screen.getByRole('button', {
+      name: 'Analyze Hand In Personal Assistant Leak Finder',
+    });
+    expect(analyzeBtn.textContent).toBe('Analyze');
+    fireEvent.click(analyzeBtn);
+    expect(onAnalyze).toHaveBeenCalledTimes(1);
+    expect(onAnalyze).toHaveBeenCalledWith(sampleHand);
+
+    rerender(
+      <HandDetailModal
+        isOpen
+        onClose={vi.fn()}
+        hands={[sampleHand]}
+        heroId="hero-1"
+        onShare={vi.fn()}
+        onReplay={vi.fn()}
+      />
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Analyze Hand In Personal Assistant Leak Finder' })
+    ).toBeNull();
+    unmount();
+
+    const historySource = read('src/pages/HandHistoryPage.tsx');
+    expect(historySource).toContain('onAnalyze={(hand) => analyzeInPersonalAssistant(hand)}');
+
+    const modalCss = read('src/components/table/HandDetailModal.css').replace(
+      /\/\*[\s\S]*?\*\//g,
+      ''
+    );
+    expect(modalCss).not.toContain(':hover');
+    expect(modalCss).toContain('button.hdm-actions__analyze');
+    expect(modalCss).toContain('button.hdm-actions__analyze:active');
+    expect(modalCss).toContain('button.hdm-actions__analyze:focus-visible');
+    const modalRules = cssRules('src/components/table/HandDetailModal.css');
+    const analyzeRule = rulesTouching(modalRules, 'hdm-actions__analyze').find(
+      (rule) => declared(rule, 'min-height') === '44px'
+    );
+    expect(analyzeRule).toBeDefined();
+    expect(declared(analyzeRule!, 'border')).toContain('#56d8ff');
+  });
+
+  it('HandHistoryPage returnToPersonalAssistant preserves format, uses same-tab return when unseated, keeps custom seated toast, and handles popup blocks safely', () => {
+    const source = read('src/pages/HandHistoryPage.tsx');
+    expect(source).toContain("params.set('format', formatParam);");
+    expect(source).toContain('window.location.assign(url)');
+    expect(source).toContain('{ sameTab: true }');
+    expect(source).toContain('if (opened === null)');
+    expect(source).toContain('Opened In Current Tab');
+    expect(source).toContain("toastMessage.includes('Live Detection Locked While Seated')");
+    // Never leak hole cards or opponent names in Personal Assistant query URLs
+    expect(source).not.toMatch(
+      /\/hub\/personal-assistant\/leaks[^`'"\n]*(hole|cards|villain|opponent)/i
+    );
+  });
+
+  it('PlayerStatsPage openLeakFinder catches errors, provides toast feedback when unseated, and handles popup blocks cleanly', () => {
+    const pageSource = read('src/pages/PlayerStatsPage.tsx');
+    expect(pageSource).toContain("reportError(error, 'PlayerStatsPage.open_leak_finder_failed')");
+    expect(pageSource).toContain("toast.error('Could Not Open Personal Assistant Leak Finder')");
+    expect(pageSource).toContain("toast.info('Opening Personal Assistant Leak Finder')");
+    expect(pageSource).toContain(
+      "toast.info('Opening Personal Assistant Leak Finder (Opened In Current Tab)')"
+    );
+    expect(pageSource).toContain('window.location.assign(url)');
+  });
+
+  it('allows .tournament-study-actions buttons to wrap cleanly on narrow phones without :hover', () => {
+    for (const file of ['src/pages/PlayerStatsPage.css', 'src/pages/stats/StatsWorkbench.css']) {
+      const css = read(file).replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(css, file).not.toContain(':hover');
+      const rules = cssRules(file);
+      const wrapRule = rulesTouching(rules, 'tournament-study-actions').find(
+        (rule) =>
+          rule.selectors.some((selector) => selector.includes('button')) &&
+          declared(rule, 'white-space') === 'normal'
+      );
+      expect(wrapRule, `${file} wraps .tournament-study-actions button`).toBeDefined();
+      expect(declared(wrapRule!, 'line-height')).toBe('1.25');
+      expect(declared(wrapRule!, 'text-align')).toBe('center');
+    }
+    const workbenchCss = read('src/pages/stats/StatsWorkbench.css');
+    expect(workbenchCss).toContain('.stats-page .tournament-study-actions button:active');
+    expect(workbenchCss).toContain('.stats-page .tournament-study-actions button:focus-visible');
+  });
+
+  it('gives .stats-workspace__word-action 44px touch height, pointer cursor, :active, and :focus-visible without :hover', () => {
+    const css = read('src/components/stats/StatsWorkspacePanel.css').replace(
+      /\/\*[\s\S]*?\*\//g,
+      ''
+    );
+    expect(css).not.toContain(':hover');
+    expect(css).toContain('.stats-workspace__word-action:active');
+    expect(css).toContain('.stats-workspace__word-action:focus-visible');
+    const rules = cssRules('src/components/stats/StatsWorkspacePanel.css');
+    const base = rules.find((rule) => rule.selectors.includes('.stats-workspace__word-action'));
+    expect(base).toBeDefined();
+    expect(declared(base!, 'min-height')).toBe('44px');
+    expect(declared(base!, 'cursor')).toBe('pointer');
   });
 });

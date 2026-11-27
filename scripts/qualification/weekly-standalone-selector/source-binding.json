@@ -326,8 +326,8 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 147115,
-      "sha256": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+      "bytes": 147564,
+      "sha256": "f03d2753dcdbd0bbc8496675d70fa03fa4ad1794adde1daa5bb3ab53635573b1"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2994,6 +2994,19 @@
         "kind": "sha256",
         "previous": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab",
         "current": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "fullServerTypecheckHeapAccountingShard2_20261126": {
+    "reason": "Required accounting shard 2's opponent-memory step (and the server shards' own server typecheck, outside this projection) gains one env line, NODE_OPTIONS=--max-old-space-size=6144, plus a comment: its tsc over all of server/src aborted with 'heap out of memory' (exit 134) on most runs from 2026-11-27 00:38Z, the defect #12130 fixed for the engine promise lint. No command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d",
+        "current": "f03d2753dcdbd0bbc8496675d70fa03fa4ad1794adde1daa5bb3ab53635573b1"
       }
     ],
     "financialRecertification": false,

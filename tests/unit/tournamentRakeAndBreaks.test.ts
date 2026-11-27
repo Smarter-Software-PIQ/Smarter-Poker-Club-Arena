@@ -587,7 +587,10 @@ describe('a paused table parks whatever it was doing', () => {
   it('it parks after a hand lands only once the completion display and the hand-free broadcast have run', () => {
     const dealAt = loop.indexOf('await this.dealHand(');
     const displayPause = loop.indexOf('await this.awaitHandCompletionDisplay(', dealAt);
-    const cleanState = loop.indexOf('this.broadcastCurrentState();', displayPause);
+    const cleanState = loop.indexOf(
+      "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());",
+      displayPause
+    );
     const postDealGate = loop.indexOf('await this.awaitPauseGate()', dealAt);
     expect(displayPause).toBeGreaterThan(dealAt);
     expect(cleanState).toBeGreaterThan(displayPause);

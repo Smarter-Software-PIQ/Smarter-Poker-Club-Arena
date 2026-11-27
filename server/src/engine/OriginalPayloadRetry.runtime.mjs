@@ -169,6 +169,9 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
       },
     },
     wakeHandProjection: async () => {},
+    // The extracted insertHandHistoryRow claims the hand envelope for this
+    // process before it wakes the drain; the VM has no drain, so it is inert.
+    claimLocalPostCommitEnvelope: () => {},
     getLiveHorseDecisionWorker: () => ({ observeCompletedHand: async () => {} }),
     readScopeOf: () => ({}),
     writeHandFacts: async () => ({ version: 2, facts: [{}], transfers: [] }),
