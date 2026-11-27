@@ -128,4 +128,49 @@ describe('orphan planning reads the complete tournament board', () => {
     await expect(manager.absorbOrphanedSeats()).resolves.toBe(0);
     expect(manager.executePlayerMoves).not.toHaveBeenCalled();
   });
+
+  it('dispatches independent tables and table_seats reads concurrently in absorbOrphanedSeats and liveTournamentTableIdsWithPlayers (1e532243)', async () => {
+    vi.spyOn(errors, 'reportError').mockImplementation(() => {});
+    const pending: Array<{ relation: string; resolve: () => void }> = [];
+    vi.spyOn(supabase, 'from').mockImplementation(((relation: string) => {
+      const q: Record<string, unknown> = {};
+      for (const name of ['select', 'eq', 'in', 'is', 'order', 'gt', 'limit']) q[name] = () => q;
+      q.then = (resolve: (value: unknown) => unknown) =>
+        new Promise<unknown>((res) => {
+          pending.push({
+            relation,
+            resolve: () =>
+              res(
+                relation === 'tables'
+                  ? { data: [open], error: null }
+                  : {
+                      data: [
+                        { id: id(1), table_id: 'open', user_id: 'p1', seat_number: 1, stack: 100 },
+                      ],
+                      error: null,
+                    }
+              ),
+          });
+        }).then(resolve);
+      return q;
+    }) as never);
+
+    const manager = new Harness();
+
+    // 1. absorbOrphanedSeats issues both reads before either resolves.
+    const orphanPromise = manager.absorbOrphanedSeats();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pending.map((p) => p.relation).sort()).toEqual(['table_seats', 'tables']);
+    for (const p of pending.splice(0)) p.resolve();
+    await expect(orphanPromise).resolves.toBe(0);
+
+    // 2. liveTournamentTableIdsWithPlayers issues both reads before either resolves.
+    const livePromise = (
+      manager as unknown as { liveTournamentTableIdsWithPlayers: () => Promise<string[] | null> }
+    ).liveTournamentTableIdsWithPlayers();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pending.map((p) => p.relation).sort()).toEqual(['table_seats', 'tables']);
+    for (const p of pending.splice(0)) p.resolve();
+    await expect(livePromise).resolves.toEqual(['open']);
+  });
 });

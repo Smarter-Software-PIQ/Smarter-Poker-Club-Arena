@@ -91,10 +91,15 @@ const REGISTER = {
     kind: 'EQUAL OUTCOME',
     why: 'The law of the multiway opening bet price (2026-11-26) flips is_horse on every opponent of a recorded audited node and asserts that the decision and its size are the same, which proves a Horse opponent and a person opponent are priced exactly alike. It is a test: it seats, pays, times and decides nothing for any horse.',
   },
+  'server/src/engine/anOmahaFlopPressureCapIsPriced.law.test.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'The law of omahaFlopPressureCapIsPriced (2026-11-26) checks that the PLO4/PLO5 flop population the option prices with is fitted on PEOPLE\'s play only (owner order 2026-11-26: "the stats need to be used against human players, not horses"): it reads the fit script\'s filter text. The filter chooses whose hands a population statistic is measured from; every bettor, person or Horse, is priced by the same function, and no horse is seated, paid, timed or denied anything by it. It is a test: it decides nothing.',
+  },
   'server/src/engine/anOmahaFacingBetPriorIsPeopleMeasured.law.test.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',
-    why: "The law of omahaFacingBetPriorIsPeopleMeasured (2026-11-26) checks that the generated PLO4/PLO5 facing-bet population is fitted on PEOPLE's play only (owner order 2026-11-26: \"the stats need to be used against human players, not horses\"): it reads the fit script's filter text. The filter chooses whose hands a population statistic is measured from; every bettor, person or Horse, is priced by the same function, and no horse is seated, paid, timed or denied anything by it. It is a test: it decides nothing.",
+    why: 'The law of omahaFacingBetPriorIsPeopleMeasured (2026-11-26) checks that the generated PLO4/PLO5 facing-bet population is fitted on PEOPLE\'s play only (owner order 2026-11-26: "the stats need to be used against human players, not horses"): it reads the fit script\'s filter text. The filter chooses whose hands a population statistic is measured from; every bettor, person or Horse, is priced by the same function, and no horse is seated, paid, timed or denied anything by it. It is a test: it decides nothing.',
   },
   'server/src/engine/anOmahaFacingBetPriceNeverKeysOnIdentity.law.test.ts': {
     allowed: 1,

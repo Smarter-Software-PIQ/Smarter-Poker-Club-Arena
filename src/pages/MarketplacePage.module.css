@@ -1162,6 +1162,17 @@
   text-transform: capitalize;
 }
 
+/* The first-month offer line: a full sentence, so it reads at body size in the
+   store's own light ink instead of the 9px term label beside it. */
+.planOffer {
+  margin: 6px 0 12px;
+  color: #d9e4ea;
+  font:
+    700 12.5px/1.35 Inter,
+    sans-serif;
+  letter-spacing: 0.01em;
+}
+
 .planFeatures {
   display: flex;
   flex: 1 1 auto;
@@ -1667,6 +1678,7 @@
 :global([data-theme='light']) .sectionSub,
 :global([data-theme='light']) .itemDesc,
 :global([data-theme='light']) .planFeatures li,
+:global([data-theme='light']) .planOffer,
 :global([data-theme='light']) .emptySubText {
   color: #526773;
 }
@@ -2405,4 +2417,73 @@
 /* Retain the established anchored placement; only the paint clips. */
 .modalClose {
   position: absolute;
+}
+
+/* THE VIP PLAN CARD PRINTS INSIDE ITS GLASS (2026-11-27).
+   The card is the shark-panel-v1 master: a 900 px wide top cap 143 rows tall,
+   a bottom cap 139 rows tall and side rails whose chrome runs x 21-57 of 900 on
+   each side (measured on mid.png; the black glass starts at x 58). The shared
+   chassis inset, clamp(14px, 3vw, 42px), is 14 px on a 393 px phone, narrower
+   than the 23 px rail of a 360 px card, so every printed line, the gold VIP art
+   and the "Most Popular" label sat on the chrome. Every zone below is measured
+   in master pixels of the card's own painted width W. W is the content box
+   (100cqw, this card is the container) plus its inline padding on both sides,
+   the same recovery the rail pseudo-element above uses. */
+.planCard {
+  --plan-w: calc(100cqw + 2 * var(--chassis-inline-padding));
+  padding-block: 0;
+}
+
+/* Glass begins at x 58; 30 more master pixels keep type off the bevel. */
+.planCard > * {
+  margin-inline: calc(var(--plan-w) * 88 / 900 - var(--chassis-inline-padding));
+}
+
+/* The gold VIP art sits below the top cap and inside the glass: never a frame
+   on a frame. The first line of the card clears the 143-row cap. */
+.planCard > .planArt {
+  width: auto;
+  margin-top: calc(var(--plan-w) * 151 / 900);
+}
+
+/* The last control clears the 139-row bottom cap. */
+.planCard > :last-child {
+  margin-bottom: calc(var(--plan-w) * 147 / 900);
+}
+
+/* "Most Popular" prints into the plain brushed glass of the top cap, left of
+   the crest housing: x 78-318, y 90-136 of the master. */
+.planCard > .pkgRibbon {
+  position: absolute;
+  top: calc(var(--plan-w) * 90 / 900);
+  left: calc(var(--plan-w) * 78 / 900);
+  width: calc(var(--plan-w) * 240 / 900);
+  height: calc(var(--plan-w) * 46 / 900);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  white-space: nowrap;
+  font-size: calc(var(--plan-w) * 24 / 900);
+  color: #ffd700;
+}
+
+/* Every printed line is centred in the glass, over the centred plates. */
+.planCard > .planName,
+.planCard > .planPrice,
+.planCard > .planOffer,
+.planCard > .planPeriod {
+  text-align: center;
+}
+
+.planCard > .planFeatures {
+  align-items: center;
+  text-align: center;
+}
+
+/* "Cancel Anytime." is its own line, so the offer never breaks mid-phrase. */
+.planOfferTerms {
+  display: block;
+  color: #9aa5b3;
+  font-weight: 600;
 }

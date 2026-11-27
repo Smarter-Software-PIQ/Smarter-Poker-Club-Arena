@@ -362,6 +362,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-26 plo-lead7: the first bet of the turn or river against two or more opponents priced (ship dark)
   'holdemMultiwayOpeningBluffIsPriced',
   'holdemMultiwayOpeningValueBetIsPriced',
+  // 2026-11-27 PLO-OWNER + Hold'em owner lead-8: the NLH cash heads-up river bluff priced on people's river fold by
+  // size and his own river record by size; blockers or the range advantage required (ship dark)
+  'holdemRiverBluffIsPricedOnPeople',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -388,6 +391,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // field by position, depth and players (ships dark)
   'omahaReraisedPotCallIsPriced',
   'omahaReraisedPotReraiseIsPriced',
+  // 2026-11-27 lead-8 lane preflop: a standing fold facing a 3-bet or more priced against the pot-size re-raise
+  // (ships dark)
+  'omahaReraisedPotFoldReraiseIsPriced',
   // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
@@ -431,6 +437,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetMinimumDefencePrior',
   // 2026-11-26 PLO-OWNER lead-7 lane PLO-DEFENCE: the bettor's non-value share anchored to the balanced share (ships dark)
   'omahaFacingBetPriorIsPeopleMeasured',
+  // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
+  // on people-only flop shares for the call-or-fold check (ships dark)
+  'omahaFlopPressureCapIsPriced',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
@@ -1164,6 +1173,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), two or more opponents, turn/river, the first bet of the street',
     'a check becomes a value bet when the chips the callers add are won on balance (share of the joint calling range beaten) and it prices above the check',
+  ],
+  holdemRiverBluffIsPricedOnPeople: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, river, not facing a wager',
+    "a check becomes a bluff only when it prices above the check on his river record by size, then people's, with blockers or the range advantage",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

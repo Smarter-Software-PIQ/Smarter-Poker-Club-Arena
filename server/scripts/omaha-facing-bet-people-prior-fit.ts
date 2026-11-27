@@ -29,6 +29,11 @@ import type { Card } from '../src/types.js';
 import { scoreOmahaHiPartial } from '../src/engine/HorseEval.js';
 import { OMAHA_BET_READ_VALUE_BEATS } from '../src/engine/HorseOmahaBetRead.js';
 import {
+  OMAHA_FLOP_EV_LEAD,
+  OMAHA_FLOP_EV_STAB,
+  OMAHA_FLOP_EV_VALUE_SHARE,
+} from '../src/engine/HorseOmahaFlopFacingBetEv.js';
+import {
   OMAHA_EV_BLUFF_POOL,
   OMAHA_EV_VALUE_SHARE,
   omahaBetSizeBucket,
@@ -71,8 +76,14 @@ const rnd = (): number => {
   seed = (seed * 1103515245 + 12345) & 0x7fffffff;
   return seed / 0x80000000;
 };
+/** The flop cells' own stream (omahaFlopPressureCapIsPriced): the turn and river cells keep theirs, unchanged. */
+let flopSeed = 67890;
+const rndFlop = (): number => {
+  flopSeed = (flopSeed * 1103515245 + 12345) & 0x7fffffff;
+  return flopSeed / 0x80000000;
+};
 /** Share of random holdings (same card count) that beat this holding on this board: 4000 seeded draws. */
-function beatShare(hole: Card[], board: Card[]): number {
+function beatShare(hole: Card[], board: Card[], draw: () => number = rnd): number {
   const seen = new Set([...hole, ...board].map(k));
   const rest = DECK.filter((c) => !seen.has(k(c)));
   const me = scoreOmahaHiPartial(hole, board);
@@ -82,7 +93,7 @@ function beatShare(hole: Card[], board: Card[]): number {
   const n = hole.length;
   for (let t = 0; t < N; t++) {
     for (let i = 0; i < n; i++) {
-      const j = i + Math.floor(rnd() * (rest.length - i));
+      const j = i + Math.floor(draw() * (rest.length - i));
       const x = rest[i];
       rest[i] = rest[j];
       rest[j] = x;
@@ -126,10 +137,25 @@ const regTab = (): Record<'hu' | 'mw', Record<(typeof BUCKETS)[number], Reg>> =>
 };
 const riverRegions = regTab();
 const callerSum = { turn: { n: 0, s: 0 }, river: { n: 0, s: 0 } };
+/** FLOP (omahaFlopPressureCapIsPriced): of a person's shown flop bets or raises, the share outside the flop
+ *  verdict's value region for that bet (the strongest OMAHA_FLOP_EV_VALUE_SHARE x line of holdings on the flop: a
+ *  lead into the preflop raiser OMAHA_FLOP_EV_LEAD, a bet after he checked OMAHA_FLOP_EV_STAB), and in the record's
+ *  not-value unit (nonTop20). The answer may come from anyone (a heads-up flop bet answered by a person and shown is
+ *  too thin to fit alone: answeredByAPerson counts it per cell). Own random stream: the turn and river cells above
+ *  are byte-identical with or without the flop. */
+type FlopCell = { n: number; k: number; kTop20: number; answeredByAPerson: number };
+const flopTab = (): Record<'hu' | 'mw', Record<(typeof BUCKETS)[number], FlopCell>> => {
+  const o: any = { hu: {}, mw: {} };
+  for (const w of ['hu', 'mw'])
+    for (const b of BUCKETS) o[w][b] = { n: 0, k: 0, kTop20: 0, answeredByAPerson: 0 };
+  return o;
+};
+const flopCells = flopTab();
 
 const [out, ...files] = process.argv.slice(2);
 let hands = 0;
 let used = 0;
+let usedFlop = 0;
 const ids = new Set<string>();
 for (const f of files) {
   const rows: Hand[] = JSON.parse(readFileSync(f, 'utf8'));
@@ -155,6 +181,12 @@ for (const f of files) {
       river: new Set(),
     };
     const answered = new Set<string>();
+    // the flop line: the last preflop raiser, the flop wagers so far, whether he checked before the first one
+    let preLevel = 0;
+    let preAggressor: number | null = null;
+    let flopWagers = 0;
+    let aggressorChecked = false;
+    const pendingFlop: { seat: number; cell: FlopCell; V: number; byPerson: boolean }[] = [];
     const pending: {
       seat: number;
       street: 'turn' | 'river';
@@ -221,6 +253,39 @@ for (const f of files) {
           });
         }
       }
+      if (st === 'preflop' && (act === 'bet' || act === 'raise') && to > preLevel + 1e-9) {
+        preLevel = to;
+        preAggressor = a.seat;
+      }
+      if (st === 'flop') {
+        if (act === 'check' && a.seat === preAggressor && flopWagers === 0) aggressorChecked = true;
+        if (
+          (act === 'bet' || act === 'raise') &&
+          to > cur + 1e-9 &&
+          Number.isFinite(pot) &&
+          pot > 0
+        ) {
+          flopWagers++;
+          const isRaise = flopWagers >= 2;
+          const frac = isRaise ? (to - cur) / (pot + toCall) : (to - mine) / pot;
+          if (person && Number.isFinite(frac) && frac > 0) {
+            const bucket = isRaise ? 'raise' : omahaBetSizeBucket(frac);
+            const into =
+              !isRaise &&
+              preAggressor !== null &&
+              preAggressor !== a.seat &&
+              !folded.has(preAggressor);
+            const line = into ? (aggressorChecked ? OMAHA_FLOP_EV_STAB : OMAHA_FLOP_EV_LEAD) : 1;
+            const others = h.players.filter((p) => p.seat !== a.seat && !folded.has(p.seat));
+            pendingFlop.push({
+              seat: a.seat,
+              cell: flopCells[active > 2 ? 'mw' : 'hu'][bucket],
+              V: OMAHA_FLOP_EV_VALUE_SHARE[bucket] * line,
+              byPerson: others.length === 1 && others[0].isHorse === false,
+            });
+          }
+        }
+      }
       if (st === 'flop' || late) {
         if (act === 'bet' || act === 'raise') aggrOn[st].add(a.seat);
         if (act === 'call') callOn[st].add(a.seat);
@@ -246,6 +311,24 @@ for (const f of files) {
       if (!bs.has(key)) bs.set(key, beatShare(cards, board.slice(0, street === 'turn' ? 4 : 5)));
       return bs.get(key)!;
     };
+    let anyFlop = false;
+    for (const b of pendingFlop) {
+      const p = P.get(b.seat);
+      const cards = p ? shown[p.userId] : undefined;
+      if (
+        !p ||
+        p.isHorse !== false ||
+        !Array.isArray(cards) ||
+        cards.length !== (h.gv === 'plo4' ? 4 : 5)
+      )
+        continue;
+      const s = beatShare(cards, board.slice(0, 3), rndFlop);
+      b.cell.n++;
+      if (s > b.V) b.cell.k++;
+      if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.cell.kTop20++;
+      if (b.byPerson) b.cell.answeredByAPerson++;
+      anyFlop = true;
+    }
     for (const b of pending) {
       const s = strength(b.seat, b.street);
       if (s === null) continue;
@@ -270,6 +353,7 @@ for (const f of files) {
       any = true;
     }
     if (any) used++;
+    if (anyFlop) usedFlop++;
   }
 }
 const r3 = (x: number): number => Math.round(x * 1000) / 1000;
@@ -300,9 +384,29 @@ const data = {
   },
   hands,
   handsWithAShownPersonRead: used,
+  handsWithAShownPersonFlopRead: usedFlop,
   bluff: shape(bluff),
   fold: shape(fold),
   nonTop20: shape(nonTop20),
+  flop: Object.fromEntries(
+    (['hu', 'mw'] as const).map((w) => [
+      w,
+      Object.fromEntries(
+        BUCKETS.map((b) => {
+          const c = flopCells[w][b];
+          return [
+            b,
+            {
+              n: c.n,
+              share: c.n > 0 ? r3(c.k / c.n) : null,
+              nonTop20: c.n > 0 ? r3(c.kTop20 / c.n) : null,
+              answeredByAPerson: c.answeredByAPerson,
+            },
+          ];
+        })
+      ),
+    ])
+  ),
   caller: { turn: callerOf(callerSum.turn), river: callerOf(callerSum.river) },
   riverRegions: Object.fromEntries(
     (['hu', 'mw'] as const).map((w) => [

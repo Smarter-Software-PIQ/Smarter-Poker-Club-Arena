@@ -13,6 +13,7 @@ export const OMAHA_FACING_BET_PEOPLE_PRIOR_DATA = {
   },
   hands: 26823,
   handsWithAShownPersonRead: 2690,
+  handsWithAShownPersonFlopRead: 1390,
   bluff: {
     turn: {
       hu: {
@@ -292,6 +293,72 @@ export const OMAHA_FACING_BET_PEOPLE_PRIOR_DATA = {
           n: 8,
           share: 0.25,
         },
+      },
+    },
+  },
+  flop: {
+    hu: {
+      under40: {
+        n: 109,
+        share: 0.239,
+        nonTop20: 0.661,
+        answeredByAPerson: 1,
+      },
+      mid: {
+        n: 193,
+        share: 0.29,
+        nonTop20: 0.627,
+        answeredByAPerson: 4,
+      },
+      big: {
+        n: 393,
+        share: 0.372,
+        nonTop20: 0.595,
+        answeredByAPerson: 22,
+      },
+      over: {
+        n: 0,
+        share: null,
+        nonTop20: null,
+        answeredByAPerson: 0,
+      },
+      raise: {
+        n: 242,
+        share: 0.401,
+        nonTop20: 0.376,
+        answeredByAPerson: 18,
+      },
+    },
+    mw: {
+      under40: {
+        n: 66,
+        share: 0.258,
+        nonTop20: 0.621,
+        answeredByAPerson: 0,
+      },
+      mid: {
+        n: 114,
+        share: 0.289,
+        nonTop20: 0.535,
+        answeredByAPerson: 0,
+      },
+      big: {
+        n: 302,
+        share: 0.358,
+        nonTop20: 0.53,
+        answeredByAPerson: 0,
+      },
+      over: {
+        n: 0,
+        share: null,
+        nonTop20: null,
+        answeredByAPerson: 0,
+      },
+      raise: {
+        n: 66,
+        share: 0.379,
+        nonTop20: 0.379,
+        answeredByAPerson: 0,
       },
     },
   },

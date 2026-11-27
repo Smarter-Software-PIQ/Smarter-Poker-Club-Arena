@@ -920,6 +920,11 @@ jobs:
             echo "Selection kept serving $serving with deferred candidate(s): $deferred_summary"
             echo "::error title=Engine selection deferred candidate(s) (keep-serving)::Selection kept serving $serving; deferred: $deferred_summary"
           fi
+          if jq -e '.outcome == "keep-serving" and ((.refusedCandidates // []) | length > 0)' daily-selection.json >/dev/null; then
+            refused_summary=$(jq -r '[.refusedCandidates[] | "\((.sha // "unknown")[0:12]): \((.reason // "refused") | tostring | gsub("[\\r\\n]+"; " "))"] | join("; ")' daily-selection.json)
+            echo "Selection kept serving $serving with refused candidate(s): $refused_summary"
+            echo "::error title=Engine selection refused candidate(s) (keep-serving)::Selection kept serving $serving; refused: $refused_summary"
+          fi
       - name: Preserve the daily selection before offering the release
         if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
         uses: actions/upload-artifact@v4
@@ -966,6 +971,14 @@ jobs:
               else
                 echo "- **Deferred candidates:** none"
               fi
+              refused_count=$(jq -r '(.refusedCandidates // []) | length' daily-selection.json)
+              if [ "$refused_count" -gt 0 ]; then
+                echo "- **Refused candidates ($refused_count):**"
+                jq -r '.refusedCandidates[] | "  - `\((.sha // "unknown")[0:12])`: \((.reason // "refused") | tostring | gsub("[\\r\\n]+"; " "))"' daily-selection.json
+              else
+                echo "- **Refused candidates:** none"
+              fi
+              echo "- **Newer commits with no Backup certificate:** $(jq -r '(.uncertifiedCommits // 0) | tostring' daily-selection.json)"
             else
               echo "- **Selection artifact:** \`daily-selection.json\` not produced"
             fi
@@ -1143,8 +1156,13 @@ jobs:
           else:
               dt = datetime.strptime(f"{raw} 04:00", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
           print(dt.strftime("%Y-%m-%d %H:%M %Z"))')
-          body=$(printf 'Cycle: %s\nResult: KEEP-SERVING (the serving engine keeps running)\nServing SHA: `%s`\nReason: %s\nDeferred candidates: %s\nStage: %s\n' \
-            "$cycle" "$serving" "$reason" "$deferred" "$RUN_URL")
+          # THE SELECTOR NAMES WHAT IT REFUSED (2026-11-26): a newer commit whose
+          # Backup certificate failed, is pending, came too late or cannot be
+          # read is listed with its reason; commits with no certificate are counted.
+          refused=$(jq -r 'if ((.refusedCandidates // []) | length) == 0 then "(none)" else [.refusedCandidates[] | "\((.sha // "unknown")[0:12]): \((.reason // "refused") | tostring | gsub("[\\r\\n]+"; " "))"] | join("; ") end' selection-artifact/daily-selection.json)
+          uncertified=$(jq -r '(.uncertifiedCommits // 0) | tostring' selection-artifact/daily-selection.json)
+          body=$(printf 'Cycle: %s\nResult: KEEP-SERVING (the serving engine keeps running)\nServing SHA: `%s`\nReason: %s\nDeferred candidates: %s\nRefused candidates: %s\nNewer commits with no Backup certificate: %s\nStage: %s\n' \
+            "$cycle" "$serving" "$reason" "$deferred" "$refused" "$uncertified" "$RUN_URL")
           gh api --method POST "repos/$REPO/issues/$LOG_ISSUE/comments" -f body="$body" >/dev/null
           echo "Posted keep-serving cycle $cycle to issue #$LOG_ISSUE."
 
