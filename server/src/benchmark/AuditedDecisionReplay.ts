@@ -1024,8 +1024,7 @@ export function scoreReplay(
             c.resized++;
             c.resizeJudged++;
             c.changed++;
-            if (baseCls === 'unjudged') c.changedUnjudged++;
-            else if (baseCls === 'bad' && armCls === 'ok') c.fixed++;
+            if (baseCls === 'bad' && armCls === 'ok') c.fixed++;
             else if (baseCls === 'ok' && armCls === 'bad') c.newlyWrong++;
             else if (baseCls === 'bad') c.stillWrong++;
             else c.okToOk++;
