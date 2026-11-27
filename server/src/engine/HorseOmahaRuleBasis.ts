@@ -267,6 +267,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   },
   omahaFacingBetMinimumDefencePrior: FACING_BET_EV,
   omahaFacingBetPriorIsPeopleMeasured: FACING_BET_EV,
+  omahaMultiwayFieldIsPeopleMeasured: FACING_BET_EV,
   omahaFacingBetFieldIsJoint: {
     kind: 'priced',
     range:

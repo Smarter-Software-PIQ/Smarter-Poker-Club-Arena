@@ -5048,6 +5048,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
   })),
+  // 2026-11-27 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the multiway field of the facing-bet price measured on
+  // people (HorseOmahaMultiwayPeopleField).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_field_is_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaMultiwayFieldIsPeopleMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
     variant,

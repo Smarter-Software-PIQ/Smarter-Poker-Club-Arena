@@ -219,6 +219,7 @@ import {
   omahaPeoplePriorShare,
   type OmahaPeoplePriorShare,
 } from './HorseOmahaFacingBetPeoplePrior.js';
+import { omahaPeopleMultiwayField } from './HorseOmahaMultiwayPeopleField.js';
 import {
   classCapFloorKeepsTheCall,
   classCapRespectingEquity,
@@ -4534,6 +4535,11 @@ export interface HorseDecideOpts {
    *  non-value share is the balanced share for the price (HorseOmahaEquilibriumAnchor), moved only by his own
    *  shown bets; OMAHA_EV_PRIOR_BLUFF and the public field reads do not act. Default OFF, read `=== true`. */
   omahaFacingBetPriorIsPeopleMeasured?: boolean;
+  /** PLO-OWNER lead-7 2026-11-27. PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, a caller or a player
+   *  still to act: a caller holds the people-measured caller width and a player behind continues at the people
+   *  multiway continue rate (HorseOmahaMultiwayPeopleField), each anchored to equilibrium; heads-up untouched.
+   *  Default OFF, read `=== true`. */
+  omahaMultiwayFieldIsPeopleMeasured?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14645,6 +14651,10 @@ function omahaFacingBetEvRule(
         if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
         if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
+      if (ev.peopleField) {
+        noteFire('omaha_mw_people_field_priced');
+        if (ev.peopleField.changed) noteFire('omaha_mw_people_field_changed');
+      }
       // the corrected price (omahaFacingBetRangeIsMeasuredByLine / IndifferenceCalls / FieldIsJoint) decided
       if (ev.priced) {
         const how = ev.priced.priced;
@@ -14692,6 +14702,9 @@ type OmahaFacingBetEvAnswer = {
   /** omahaFacingBetPriorIsPeopleMeasured: the balanced share priced the bettor (his own shown bets read:
    *  shown), and whether the verdict differs from the one the population prior gives */
   anchored?: { shown: number; changed: boolean };
+  /** omahaMultiwayFieldIsPeopleMeasured: the people-measured field priced the call, and whether the verdict differs
+   *  from the one the stated field constants give */
+  peopleField?: { changed: boolean };
 };
 
 /** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
@@ -14736,6 +14749,8 @@ let omahaFacingBetEvCountMemo: {
   valueShareMeasured: boolean;
   /** omahaFacingBetPriorIsPeopleMeasured */
   equilibriumAnchor: boolean;
+  /** omahaMultiwayFieldIsPeopleMeasured */
+  multiwayFieldPeople: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -14957,6 +14972,11 @@ function omahaFacingBetEvCount(
     opts.omahaFacingBetPriorIsPeopleMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaMultiwayFieldIsPeopleMeasured (default off): PLO4/PLO5 cash only.
+  const multiwayFieldPeople =
+    opts.omahaMultiwayFieldIsPeopleMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const pricedOn =
     omahaPricedFacingAnyOn(pricedOpts) &&
     !isTournamentMode(gs) &&
@@ -14985,6 +15005,7 @@ function omahaFacingBetEvCount(
     memo.stabDefence === stabDefence &&
     memo.valueShareMeasured === valueShareMeasured &&
     memo.equilibriumAnchor === equilibriumAnchor &&
+    memo.multiwayFieldPeople === multiwayFieldPeople &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15159,9 +15180,27 @@ function omahaFacingBetEvCount(
         equilibriumAnchored = null;
       }
     }
+    // omahaMultiwayFieldIsPeopleMeasured (default off): the people-measured field, multiway only.
+    const peopleFieldOf = (
+      s: typeof spot
+    ): { callerWidth: number; behindContinue: number } | null => {
+      if (!multiwayFieldPeople || !s || s.callers + s.behind === 0) return null;
+      try {
+        const f = omahaPeopleMultiwayField({
+          street: s.street,
+          potFrac: s.potFrac,
+          behind: s.behind,
+        });
+        return f ? { callerWidth: f.callerWidth, behindContinue: f.behindContinue } : null;
+      } catch {
+        return null;
+      }
+    };
+    let peopleFieldPriced = false;
     const verdictOf = (
       s: typeof spot,
-      r: typeof read
+      r: typeof read,
+      withoutPeopleField = false
     ): ReturnType<typeof omahaFacingBetEvVerdict> =>
       omahaFacingBetEvVerdict(
         s,
@@ -15204,9 +15243,19 @@ function omahaFacingBetEvCount(
                 },
               }
             : {}),
+          ...(() => {
+            const f = withoutPeopleField ? null : peopleFieldOf(s);
+            return f ? { peopleField: f } : {};
+          })(),
         }
       );
     let verdict = verdictOf(spot, read);
+    peopleFieldPriced = verdict !== null && peopleFieldOf(spot) !== null;
+    // Receipt only: the people-measured field changed the verdict the stated field constants give.
+    const peopleFieldChanged =
+      peopleFieldPriced && verdict !== null && telemetryOn(opts)
+        ? verdictOf(spot, read, true)?.call !== verdict.call
+        : false;
     // Receipt only: the anchored share changed the verdict the population prior and the public reads give.
     const anchorChanged =
       equilibriumAnchored !== null && verdict !== null && telemetryOn(opts)
@@ -15377,6 +15426,8 @@ function omahaFacingBetEvCount(
         ...answer,
         anchored: { shown: equilibriumAnchored.shown, changed: anchorChanged },
       };
+    if (answer && peopleFieldPriced)
+      answer = { ...answer, peopleField: { changed: peopleFieldChanged } };
   }
   omahaFacingBetEvCountMemo = {
     player,
@@ -15397,6 +15448,7 @@ function omahaFacingBetEvCount(
     stabDefence,
     valueShareMeasured,
     equilibriumAnchor,
+    multiwayFieldPeople,
     pricedKey,
     answer,
   };
