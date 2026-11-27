@@ -1,0 +1,41 @@
+name: The player index is not held by an unrelated transaction
+
+# Migration 20261127121037. Runs scripts/ci/test-idx-refresh-unrelated-xact.py
+# against a throwaway PostgreSQL 17 cluster, never production: the live
+# ca_refresh_hand_player_index body (md5 189b93e13db1ced3dd258aebfc46cd49 on
+# 2026-11-27) must stop indexing behind an unrelated open transaction before
+# the migration and index past it after, while an open hand writer still holds
+# the ceiling and its hand is indexed exactly once. One real five-minute wait.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261111131639_the_player_index_refresh_leaves_young_hands_alone.sql
+      - supabase/migrations/20261127121037_the_player_index_bound_waits_only_for_hand_writers.sql
+      - scripts/ci/probes/idx-refresh-lag/**
+      - scripts/ci/test-idx-refresh-unrelated-xact.py
+      - tests/the-player-index-is-not-held-by-an-unrelated-transaction.law.test.ts
+      - .github/workflows/the-player-index-is-not-held-by-an-unrelated-transaction.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: the-player-index-is-not-held-by-an-unrelated-transaction-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  the-player-index-is-not-held-by-an-unrelated-transaction:
+    name: The player index is not held by an unrelated transaction
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root): initdb refuses root.
+      - name: The player index is not held by an unrelated transaction
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-idx-refresh-unrelated-xact.py
