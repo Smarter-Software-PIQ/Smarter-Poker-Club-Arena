@@ -1,6 +1,6 @@
 # omahaRiverValueBetInPositionIsPriced: Authority For The Live Switch
 
-**Evidence MET (v2): the audited replay bar passes in both audits (5 fixed / 1 newly wrong), no league card or exploit probe is a significant loss (heads-up PLO4 +0.98 +/- 1.70, PLO5 +1.59 +/- 3.07; 6-max -0.18 +/- 0.35, -0.90 +/- 0.73: neutral), and v2 removes most of v1's lean against players who check strong hands (trapper PLO4 -3.31 -> +0.13, PLO5 -7.88 -> -4.37). Default OFF, not switched on.** This file does not authorize switching the option on.
+**Evidence NOT MET (2026-11-26, river range refit on people only): on the people-only range the real-hands river law's fixture bar fails (the option bets 4 of the 57 audited nodes, all the audit's bet, against the required 6; was 6), the scored replay is 3 fixed / 1 newly wrong (was 5 / 1), and the league mirror and probes were not re-run on the new range (the cards below are the pooled range's).** This file does not authorize switching the option on.
 
 Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for the audit leak "missed value bet, river, in position, heads-up" (HAND-AUDIT-PLO.md: 7 cases / 245 bb in the first audit; daily audit 2026-11-25T230000Z HARD #5). The option is registered, default off (read `=== true`), switchable live and scopable per game (`horse.omahaGameScope.omahaRiverValueBetInPositionIsPriced`).
 
@@ -8,7 +8,7 @@ Built 2026-11-26 by PLO-OWNER lead-7 lane plo-postflop (session 01TLQer8) for th
 
 PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, heads-up river, the opponent checked to the Horse (`server/src/engine/HorseOmahaRiverOpeningBet.ts`). In the wager_rules node, after omahaRiverCheckedToBetIsMeasured and before the river current-nuts floor: a final CHECK becomes the best of the engine's bet sizes when (a) that bet is a value bet, the Horse beating more than half of the hands that continue, and (b) EV(bet) - EV(check) exceeds the binomial error of his fold rate times d EV / d fold. EV(check) = showdown share x pot x (1 - rake); EV(bet B) = f' x pot x (1 - rake) + (1 - f') x (e_c x (pot + 2B) x (1 - rake) - B); a raise is scored as a call the Horse loses. It changes only a check into a bet, never a raise. Receipt `omaha_river_value_bet_priced`.
 
-His range: the measured strength histogram of a heads-up river checker (`HorseOmahaRiverOpeningRangeTables.json`, cell `checkfirst`, split by whether the turn had a wager), fitted by `scripts/ops/omaha-river-opening-range-fit.mjs` from PLO4/PLO5 cash hand_history Nov 17-24 (hole cards of showdown entries with mucked = false only; a checker who later folded or mucked counts as a weak hand). Card removal is exact: the strength bins are cut on the board's holdings, and each bin's weight is moved by the share of its holdings the Horse's cards and the known dead cards leave him. He folds the weakest share of his range.
+His range: the measured strength histogram of a heads-up river checker (`HorseOmahaRiverOpeningRangeTables.json`, cell `checkfirst`, split by whether the turn had a wager), fitted by `scripts/ops/omaha-river-opening-range-fit.mjs --horses` from PEOPLE's shown hands only in PLO4/PLO5 cash hand_history Nov 19 18:00Z to Nov 26 17:48Z (v3-2026-11-26-people; hole cards of showdown entries with mucked = false only; no Horse hand; a checker who later folded or mucked counts as a weak hand; each game cell shrunk by 30 pseudo-hands to a random holding; see omahaRiverBluffIsPricedOnBlockers.md, River Range On People Only). Card removal is exact: the strength bins are cut on the board's holdings, and each bin's weight is moved by the share of its holdings the Horse's cards and the known dead cards leave him. He folds the weakest share of his range.
 
 ## What Was Measured
 
@@ -38,11 +38,11 @@ v2 (his checking range moved by his own public river bet rate: with the measured
 
 - Baseline: with no record, his fold share against a bet B into a pot P is the equilibrium minimum defence, B / (P + B).
 - Own record: his lifetime public river fold record (OPPONENT-HUD `x.foldToBet` small and big, through `HorseMind.omahaStrongHandCheckRecordsOf`) moves it by m = (F + k g) / (E + k g): F his folds, E the folds equilibrium expects on the sizes he faced (1/3 small, 1/2 big), k = 75.9 river answers (the measured between-player prior of HorseOmahaStrongHandCheck), g = 0.4. The record dominates as it grows.
-- Population weight: the range SHAPE (which hands a checker holds) is the measured pooled table; no pooled fold rate enters.
+- Population weight: the range SHAPE (which hands a checker holds) is the measured PEOPLE-only table (no Horse hand, each game cell shrunk to a random holding); no pooled fold rate enters.
 - No unshown cards: the table is fitted from shown cards only; the decision reads the public state, the Horse's own cards and the known dead cards.
 
 ## Replay
 
-- Replay: fixed 3; newlyWrong 1; changed 4; unchanged 865; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm value vs off; replayed 869 of 869
-- Replay: fixed 2; newlyWrong 0; changed 2; unchanged 2695; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm value vs off; replayed 2697 of 2697
-- Note (v2, 2026-11-26 08:20Z: his checking range moved by his own river bet rate; the opponent's public river fold and unopened-wager records as of the decision installed for every arm): arm value is this option alone; sets are the PLO hand audits' tier-A postflop nodes placed at their node (scratch /Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-postflop/src/build-job.py); verdict-only.
+- Replay: fixed 2; newlyWrong 1; changed 3; unchanged 866; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm VAL vs off; replayed 869 of 869
+- Replay: fixed 1; newlyWrong 0; changed 1; unchanged 2696; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm VAL vs off; replayed 2697 of 2697
+- Note (2026-11-26, river range refit on people only, v3-2026-11-26-people): arm VAL is this option alone, the opponent's public river fold and unopened-wager records as of the decision installed for every arm (seeds 1,7,42); verdict-only. Before the refit (pooled range, arm value): 3 / 1 and 2 / 0. Real-hands river law: nodes 492c593d and ac3272e1 (both the audit's bet) are now checks; the fixture bar of at least 6 value bets is not loosened and fails at 4.

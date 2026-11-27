@@ -123,6 +123,8 @@ import {
 import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
+import { omahaOpeningBluffRule } from './HorseOmahaOpeningBluff.js';
+import { omahaPeopleFoldLineOf, omahaPeopleRiverCurve } from './HorseOmahaPeopleFold.js';
 import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
 import {
@@ -3955,6 +3957,27 @@ export interface HorseDecideOpts {
    */
   omahaRiverBluffIsPricedOnBlockers?: boolean;
   /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash turn, heads-up,
+   * nothing to call: a final check becomes the best-priced bet only when it is worth more than the check (his fold
+   * share from equilibrium moved by his own turn record, the Horse's share with a card to come when called, the
+   * engine's turn realization) by more than its error AND the Horse's cards remove more of his continuing hands
+   * than of his folding ones (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaTurnBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): the same turn spot and price; the
+   * second leg is the range advantage: the Horse's measured range for its line beats his on this texture and the
+   * hand is in the weakest share of the Horse's range that its value carries at the size
+   * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaTurnBluffIsPricedOnRangeAdvantage?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up,
+   * nothing to call: the price of omahaRiverBluffIsPricedOnBlockers with the range advantage as the second leg
+   * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
+   */
+  omahaRiverBluffIsPricedOnRangeAdvantage?: boolean;
+  /**
    * PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river facing a
    * wager: a raise with a full house on a trips board that quads or a straight flush can beat (exact count, the
    * Horse's own cards removed) becomes the call (HorseOmahaTripsBoardBoat.ts). It changes only such a raise.
@@ -3975,6 +3998,12 @@ export interface HorseDecideOpts {
    * on; with no record it is the population curve exactly. One formula for every opponent. Never PLO6.
    */
   omahaRiverBetFoldIsHisRecord?: boolean;
+  /**
+   * PLO-OWNER lead-7 2026-11-26 (default off, read `=== true`): the answer curve omahaRiverFirstToActBetIsPriced and
+   * omahaRiverCheckedToBetIsMeasured price a heads-up river bet with is re-measured on PEOPLE's answers for the
+   * Horse's line and the size (HorseOmahaPeopleFold.omahaPeopleRiverCurve); their own curve pools every player.
+   */
+  omahaRiverBetFoldIsPeopleMeasured?: boolean;
   /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
    * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
    * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
@@ -20441,16 +20470,28 @@ export class HorseLogic {
       // river bet rules price with is the population's moved by the opponent's own lifetime public river fold record
       // (HorseOmahaRiverBetFoldRecord.ts). Absent = the population curve, as before.
       let riverFoldRecordWeight = 0;
+      // omahaRiverBetFoldIsPeopleMeasured (PLO-OWNER lead-7 2026-11-26, default off): the population curve of the two
+      // river bet rules is re-measured on people's answers for the Horse's line and the size (omahaPeopleRiverCurve);
+      // with omahaRiverBetFoldIsHisRecord on, his own record is shrunk to that people curve.
+      const riverPeopleCurve = opts.omahaRiverBetFoldIsPeopleMeasured === true;
       const riverResponseOf =
-        opts.omahaRiverBetFoldIsHisRecord === true
+        opts.omahaRiverBetFoldIsHisRecord === true || riverPeopleCurve
           ? <P extends OmahaRiverBetAnswerPoint>(
               opponent: SeatPlayer,
               population: readonly P[]
             ): readonly P[] => {
               const variant = String(gs.gameVariant ?? '');
+              const base = riverPeopleCurve
+                ? omahaPeopleRiverCurve(
+                    variant.toLowerCase(),
+                    omahaPeopleFoldLineOf(gs.actionHistory, 'river', player.seat),
+                    population
+                  )
+                : population;
+              if (opts.omahaRiverBetFoldIsHisRecord !== true) return base;
               const his = omahaRiverBetFoldRecordCurve(
                 variant,
-                population,
+                base,
                 HorseMind.omahaStrongHandCheckRecordsOf(opponent.user_id, variant, 'river', 1)
               );
               riverFoldRecordWeight = his.weight;
@@ -20543,6 +20584,62 @@ export class HorseLogic {
           );
         }
       }
+      // PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (omahaTurnBluffIsPricedOnBlockers,
+      // omahaTurnBluffIsPricedOnRangeAdvantage, omahaRiverBluffIsPricedOnRangeAdvantage, each default off): a final
+      // heads-up turn or river check with nothing to call becomes the best-priced bluff only when the bet beats the
+      // check by more than its error AND the Horse's cards block his continuing hands, or the range advantage is the
+      // Horse's and the hand is in the weakest share of its range that its value carries
+      // (HorseOmahaOpeningBluff.ts). It changes only a check into a bet.
+      const openingBluffOn = {
+        turnBlockers: opts.omahaTurnBluffIsPricedOnBlockers === true,
+        turnRange: opts.omahaTurnBluffIsPricedOnRangeAdvantage === true,
+        riverRange: opts.omahaRiverBluffIsPricedOnRangeAdvantage === true,
+      };
+      const openingBluffAny =
+        openingBluffOn.turnBlockers || openingBluffOn.turnRange || openingBluffOn.riverRange;
+      const openingBluff = omahaOpeningBluffRule(opening.decision, player, gs, openingBluffOn, {
+        rake: openingBluffAny ? omahaPricedDeps(player, gs).rake : 0,
+        realization: openingBluffAny ? omahaPricedDeps(player, gs).realization : 1,
+        legalize: (d) => this.legalize(d, player, gs, vi),
+        recordOf: (opponent, street) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            street,
+            1
+          ),
+        betRecordOf: (opponent) =>
+          HorseMind.omahaStabDefenceRecordOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            1
+          ),
+      });
+      if (openingBluff.changed && openingBluff.kind && tele) {
+        if (openingBluff.kind === 'turn_blockers') {
+          noteFire('omaha_turn_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_turn_bluff_priced_on_blockers',
+            opening.decision,
+            openingBluff.decision
+          );
+        } else if (openingBluff.kind === 'turn_range') {
+          noteFire('omaha_turn_bluff_priced_on_range');
+          noteDecisionRuleReceipt(
+            'omaha_turn_bluff_priced_on_range',
+            opening.decision,
+            openingBluff.decision
+          );
+        } else {
+          noteFire('omaha_river_bluff_priced_on_range');
+          noteDecisionRuleReceipt(
+            'omaha_river_bluff_priced_on_range',
+            opening.decision,
+            openingBluff.decision
+          );
+        }
+      }
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise
       // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
@@ -20551,7 +20648,7 @@ export class HorseLogic {
       // (HorseOmahaFlopRaisePriced.ts). It changes only a raise (its size, or into the call or the fold).
       const flopRaiseOn = opts.omahaFlopRaiseIsPriced === true;
       const flopRaise = omahaFlopRaisePricedRule(
-        opening.decision,
+        openingBluff.decision,
         player,
         gs,
         flopRaiseOn,
@@ -20588,21 +20685,21 @@ export class HorseLogic {
           noteFire('omaha_flop_raise_priced_resized');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_resized',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         } else if (flopRaise.changed === 'called') {
           noteFire('omaha_flop_raise_priced_called');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_called',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         } else {
           noteFire('omaha_flop_raise_priced_folded');
           noteDecisionRuleReceipt(
             'omaha_flop_raise_priced_folded',
-            opening.decision,
+            openingBluff.decision,
             flopRaise.decision
           );
         }
