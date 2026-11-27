@@ -66,7 +66,7 @@ import {
   selectLoadedRoster,
   allLoadedSelected,
 } from '../utils/rosterSelection';
-import { AGENT_ROLES, roleLabel } from '../types/clubRoles';
+import { AGENT_ROLES, clubLevel, roleLabel } from '../types/clubRoles';
 import ClubRosterService, {
   type RosterCursor,
   type RosterFilter,
@@ -2182,6 +2182,7 @@ export const MemberRow = memo(function MemberRow({
   return (
     <div
       className={`member-row${seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
+      data-club-level={clubLevel(member.role)}
       role="listitem"
       aria-posinset={position}
       aria-setsize={total}

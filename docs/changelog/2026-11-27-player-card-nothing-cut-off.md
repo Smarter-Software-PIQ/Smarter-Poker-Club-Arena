@@ -44,3 +44,16 @@ The first push of this branch failed `CSS Beat general shard 1` at 360px and
 so its cards came out taller. The pitches are now measured both ways
 (`FONTCONFIG_FILE` mapping every missing face to DejaVu Sans reproduces the
 runner's failure exactly) and the spec passes under both.
+
+## The left edge shows the club level
+
+Dan, the same afternoon: "THE COLORS ON THE LEFT SIDE SHOULD BE REPRESENTIVE
+OF WHAT THERE LEVEL IN THE CLUB IS, THEY SHOULDN'T ALL BE BLUE. OWNER, CO
+OWNER AND ADMINS ARE GREEN. SUPER AGENTS, AGENTS AND SUB AGENTS TEAL, AND
+PLAYERS BLUE."
+
+The edge used to follow presence (cyan online, blue seated, grey otherwise).
+Each card now carries `data-club-level` from `clubLevel()` in
+`src/types/clubRoles.ts` (staff, agent, player), and the edge is green
+`#35d95a`, teal `#2dd4bf` or blue `#45adff`. Presence keeps the portrait ring
+and the Online / At A Table line. `tests/unit/aPlayerCardShowsItsClubLevel.test.ts`.

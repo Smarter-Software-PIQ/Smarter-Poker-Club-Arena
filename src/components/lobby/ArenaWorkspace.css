@@ -1197,6 +1197,25 @@
   grid-area: 1 / 3 / 3 / 4;
   align-self: center;
 }
+/* The card's left edge says the player's level in the club (Dan, 2026-11-27):
+   owners, co-owners and admins green, super agents, agents and sub agents
+   teal, players blue. Presence keeps its own signals (the portrait ring and
+   the Online / At A Table line), so the edge no longer changes with them. */
+.arena-workspace.club-members-page .member-row[data-club-level]::before {
+  width: 4px;
+}
+.arena-workspace.club-members-page .member-row[data-club-level='staff']::before {
+  background: #35d95a;
+  box-shadow: 0 0 10px rgba(53, 217, 90, 0.7);
+}
+.arena-workspace.club-members-page .member-row[data-club-level='agent']::before {
+  background: #2dd4bf;
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.7);
+}
+.arena-workspace.club-members-page .member-row[data-club-level='player']::before {
+  background: #45adff;
+  box-shadow: 0 0 10px rgba(69, 173, 255, 0.7);
+}
 .arena-workspace.club-members-page .member-select {
   position: absolute;
   z-index: 3;
