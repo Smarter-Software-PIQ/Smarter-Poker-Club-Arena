@@ -187,7 +187,11 @@ def current_schema(control, evidence, serving=None, target=None, production=None
     # A version neither the target's nor control's tree ships (World Hub shares
     # the history table) is compared on neither side; unreadable compares all (O23).
     tree = module.tree_versions('.', target, control) if target else None
-    ok, why = module.judge(evidence['schemaEvidence'], db, production, required, tree)
+    # A version whose file in control's tree is engine-inert (only horse option
+    # whitelist registrations, which no engine reads) is compared on neither
+    # side either; unreadable leaves nothing out (O33).
+    inert = module.inert_versions('.', control, *([target] if target else []))
+    ok, why = module.judge(evidence['schemaEvidence'], db, production, required, tree, inert)
     return ok, why, diagnostics
 
 

@@ -353,14 +353,24 @@
   .stats-page .stats-readouts .heatmap-scroll {
     container-type: inline-size;
   }
+  @container stats-interior (max-width: 24rem) {
+    .stats-page.arena-workspace .stats-readouts .heatmap-card {
+      padding-inline: 0.4rem;
+    }
+    .stats-page .stats-readouts .heatmap-scroll {
+      padding-inline: 0;
+    }
+  }
   .stats-page .stats-readouts .heatmap-grid {
     min-width: 0;
     grid-template-columns: repeat(13, minmax(0, 1fr));
     gap: clamp(1px, 0.35cqi, 2px);
   }
   .stats-page .stats-readouts .heatmap-cell {
+    width: 100%;
     min-width: 0;
     min-height: 24px;
+    overflow-wrap: anywhere;
     font:
       700 clamp(0.625rem, 3.3cqi, 0.81rem)/1 'Roboto Condensed',
       sans-serif;

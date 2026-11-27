@@ -227,7 +227,12 @@ async function main() {
     return 0;
   }
 
-  const { createProductionE2EAccount, cleanupProductionE2EAccount, participantOfRetiredFixtureHistory } = await import(
+  const {
+    createProductionE2EAccount,
+    cleanupProductionE2EAccount,
+    participantOfRetiredFixtureHistory,
+    provenPlayerOfRetiredFixtureHistory,
+  } = await import(
     pathToFileURL(join(repoRoot, 'scripts/ci/production-e2e-account.mjs')).href
   );
   const scratch = mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), 'hu-rematch-cert-'));
@@ -291,6 +296,20 @@ async function main() {
       if (!(outcome.seated === null || outcome.seated.length)) {
         for (const role of ['a', 'b', 'owner']) {
           if (!S.accounts[role]) continue;
+          if (role !== 'owner' && S.clubId) {
+            // A player of the completed match keeps its entry with the retired
+            // club, and the account door refuses any identity with an entry, so
+            // it is proved kept from the rows and the door is never asked
+            // (2026-11-26: two refused calls per run, every run).
+            const proven = await provenPlayerOfRetiredFixtureHistory({
+              environment: envFor(role),
+              account: S.accounts[role],
+            }).catch(() => null);
+            if (proven?.includes(S.clubId)) {
+              note(`retire the ${role} account`, true, `kept as a player of record of retired club ${S.clubId}`);
+              continue;
+            }
+          }
           try {
             await cleanupProductionE2EAccount({ environment: envFor(role), expectedEmail: S.accounts[role].email });
             note(`retire the ${role} account`, true);

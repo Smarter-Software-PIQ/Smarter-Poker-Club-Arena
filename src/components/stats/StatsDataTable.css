@@ -75,6 +75,11 @@
   color: #f4f7fb;
 }
 
+.stats-data-table__reading {
+  white-space: normal;
+  overflow-wrap: normal;
+}
+
 .stats-data-table__extra-label {
   display: none;
 }
@@ -91,7 +96,7 @@
   }
   .stats-data-table__extended tr {
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(calc(6ch + 0.5rem), 1fr));
   }
   .stats-data-table__extended thead th:nth-child(n + 5) {
     position: absolute;
@@ -103,13 +108,53 @@
   .stats-data-table__extended td:nth-child(n + 5) {
     border-top: 0;
     padding-top: 0;
-  }
-  .stats-data-table__extended td:nth-child(5) {
     grid-column: span 2;
   }
-  .stats-data-table__extended .stats-data-table__extra-label {
+  .stats-data-table__extended td:last-child {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 0.5rem;
+  }
+  .stats-data-table__extended td:nth-child(n + 5) .stats-data-table__extra-label {
     display: block;
     color: #b1c7dc;
     font-size: 0.78rem;
+  }
+}
+
+/* Long signed figures in the four-measure chart disclosure each get the
+   available line. Keep the native headers for assistive technology. */
+@container stats-chart-table (max-width: 26rem) {
+  .stats-data-table table[data-columns='4'],
+  .stats-data-table table[data-columns='4'] tbody,
+  .stats-data-table table[data-columns='4'] caption,
+  .stats-data-table table[data-columns='4'] tbody tr,
+  .stats-data-table table[data-columns='4'] tbody th {
+    display: block;
+    width: 100%;
+  }
+  .stats-data-table table[data-columns='4'] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .stats-data-table table[data-columns='4'] tbody th .stats-data-table__extra-label {
+    margin-inline-end: 0.5rem;
+  }
+  .stats-data-table table[data-columns='4'] td {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 0.5rem;
+    border-top: 0;
+    padding-top: 0;
+  }
+  .stats-data-table table[data-columns='4'] .stats-data-table__extra-label {
+    display: inline;
+    color: #b1c7dc;
   }
 }
