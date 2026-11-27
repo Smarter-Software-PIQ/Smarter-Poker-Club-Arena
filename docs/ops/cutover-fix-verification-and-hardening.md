@@ -371,6 +371,7 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Hardening:** `JobLogReaderTests` (4 cases; 33 in total, pinned by `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`). Changelog `docs/changelog/2026-11-27-readiness-reads-a-job-log-on-every-gh.md`.
 - **Lesson for Step 1:** a live replay of a workflow-run reader is run with the runner's tool versions, or its first run log is read before the fix is called proven.
 - **Live proof:** pending the readiness posts of the 19:00 CST cycle.
+
 ### The Apply Run Reports Its Own Refusal (2026-11-27)
 
 - **Why it broke:** `Migration Apply Refusal Alert` listened for `workflow_run` of `Apply Merged Migration`. The merge dispatcher starts the applier with the Actions job token, and GitHub raises no `workflow_run` event for a run the job token started. Apply run `46054847104` refused `20261127172908` (statement timeout) at 13:13 CST and nothing was posted on #12217 or on #11599; the alert workflow's whole history was one manual dispatch (`45943016172`). Separately, the script read the job log with plain `gh api`, which the hosted runner's gh (2.97 and later) refuses for a body holding terminal escape sequences, and it swallowed that into an empty log.
