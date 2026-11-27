@@ -186,7 +186,13 @@ export function validatedHorsePolicySamplingKey(
   // existing baseline strategy. The full request key still binds its bytes.
   // lightningVpipFloor (2026-11-18) is likewise newly captured: a pool's floor and the Horse's own
   // count are read only with lightningVpipFloorLimpOnly on, so carrying them resamples nothing.
-  const gameState = project(capturedState, ['smallBlind', 'lightningVpipFloor'])!;
+  // ownVpipFloorLimpThisHand (vpipFloorLimpFoldsToARaise, 2026-11-27) likewise: read only with that option on,
+  // and then only to fold; carrying it resamples nothing.
+  const gameState = project(capturedState, [
+    'smallBlind',
+    'lightningVpipFloor',
+    'ownVpipFloorLimpThisHand',
+  ])!;
   return mods === input.mods &&
     opts === input.opts &&
     gameState === input.gameState &&

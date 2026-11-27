@@ -594,6 +594,9 @@ const defaultLogger: LightningWorkerLogger = {
 };
 
 export class LightningHandHost {
+  /** vpipFloorLimpFoldsToARaise (default OFF): the Horses whose accepted limp this hand was the pool floor's one
+   *  action (one host is one hand). Empty with the option off. */
+  private readonly horseVpipFloorLimps = new Set<string>();
   readonly instanceId: string;
   readonly clusterId: string;
   private state: LightningHostState = 'created';
@@ -2062,6 +2065,7 @@ export class LightningHandHost {
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
         vpipFloor: this.horseVpipFloorFor(userId),
+        vpipFloorLimped: this.horseVpipFloorLimps.has(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -2676,6 +2680,7 @@ export class LightningHandHost {
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
         vpipFloor: this.horseVpipFloorFor(userId),
+        vpipFloorLimped: this.horseVpipFloorLimps.has(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -2882,6 +2887,10 @@ export class LightningHandHost {
         undefined,
         observe
       );
+      // vpipFloorLimpFoldsToARaise (default OFF): the accepted call was the pool floor's limp; this hand remembers
+      // it. The mark is set by the worker only with the option on.
+      if (r.success && shaped.action === 'call' && fast?.decision.vpipFloorLimp === true)
+        this.horseVpipFloorLimps.add(userId);
       if (
         r.success &&
         fast &&

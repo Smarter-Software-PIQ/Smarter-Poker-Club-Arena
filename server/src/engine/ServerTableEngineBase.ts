@@ -12070,6 +12070,14 @@ export abstract class ServerTableEngineBase {
    */
   protected currentHandOptionReceipts: Map<string, number> = new Map();
 
+  /**
+   * vpipFloorLimpFoldsToARaise (default OFF): the Horses whose accepted limp THIS hand was the VPIP floor's one
+   * action. Filled when a Horse's accepted call carries the decision's own private mark `vpipFloorLimp` (set by
+   * the worker only with the option on), cleared at the deal, handed back to that Horse's later decisions of the
+   * hand as gs.ownVpipFloorLimpThisHand. With the option off it stays empty and nothing reads it.
+   */
+  protected currentHandVpipFloorLimps: Set<string> = new Set();
+
   /** The table row's kill configuration; `off` on any row without it. */
   protected killSettingsFromTable(): KillSettings {
     return readKillSettings(this.tableInfo as never);

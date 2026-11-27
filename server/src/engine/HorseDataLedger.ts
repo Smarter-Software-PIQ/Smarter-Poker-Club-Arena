@@ -1601,6 +1601,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'vpipFloorLimpFoldsToARaise',
+    'Owner 2026-11-17 14:34 Chicago ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops.") and 18:38 (the floor never buys a call of a raise). Lead-8 lane preflop 2026-11-27: the limp-only floors made the limp and forgot it; raised, the unfloored decision stood, and the whole preflop brain could call or re-raise with a hand it had just folded for one big blind (hands with a person, PLO4/PLO5 cash, 2026-11-20 to 11-27: 322 of 2,407 floor limps that faced a raise called it and 1 re-raised; with the raiser own record loaded the call comes from the measured-wide-raiser price). With this on, the limp vpipFloorLimpOnlyStep makes (a table under vpipFloorLimpOnly, a ten-hand table under vpipFloorLimpOnlyTenHandWindow, a pool under lightningVpipFloorLimpOnly) carries the private mark vpipFloorLimp; the table engine or the Lightning hand host remembers the accepted limp for that hand (gs.ownVpipFloorLimpThisHand); and that Horse preflop decision facing a raise after the limp is a fold whatever the brain proposed (vpipFloorLimpFoldsToARaiseStep). It makes no limp, adds no floor to any game, leaves a limp the unfloored brain chose alone and does nothing postflop. Default OFF (opt-in, read === true): no mark, nothing remembered, every decision the one it was.',
+    'V94'
+  ),
+  flag(
     'omahaReraisedPositionInLightning',
     'Lightning parity lane 2026-11-18 (owner 10:51 Chicago: the same fixes are to be active in the Lightning PLO5 game): the re-raised-pot pricing of #11287 (finding F-02, position by seat order = acts after the re-raiser; the measured realization: players who called the price read by their bands or charged as dilution, a raiser or caller still to act carries no charge) excluded Lightning (omahaReraisedLaneUntouched). With this on a Lightning PLO4/PLO5 cash call of a re-raise is priced as a table call is (omahaReraisedCallPricingOf); off, Lightning keeps the reading it had (after every player in for the price, a raiser still to act counted, 0.35 each on heads-up equity). The measurements are Classic-table hands (12,473 calls, 2026-10-15..11-17), none from a pool. Tournaments unchanged. Default off (opt-in) until its declared evaluation on Lightning hands passes.',
     'V94'
@@ -3704,6 +3709,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.vpipFloorMul'
   ),
   state(
+    'ownVpipFloorLimpThisHand',
+    'this seat: its own accepted limp of this hand was the VPIP floor one action (remembered by the table engine or the Lightning hand host from the decision own vpipFloorLimp mark, which exists only with vpipFloorLimpFoldsToARaise on); no card, no opponent; never stored with the public node and outside the policy sampling key',
+    'HorseLogic.vpipFloorLimpFoldsToARaiseStep'
+  ),
+  state(
     'lightningVpipFloor',
     "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its window and this Horse's last window - 1 hands this pool sitting, how many entered and whether the oldest was entered (LightningHorseVpipLedger.readWindow); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
     'HorseLogic.lightningVpipFloorLimpOnlyInputs'
@@ -4415,6 +4425,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'under its line but the price is not a one big blind limp (a raised pot, a straddle, the whole stack or a priced refusal): the floor took no action and the fold stands',
     'VPIP',
     'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold',
+    'HorseLogic (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'the Horse own accepted limp of this hand was the VPIP floor one action and the pot was raised after it: the brain proposed a call or a re-raise and the decision is the fold (owner 2026-11-17: limp fold for a big blind, nothing else)',
+    'VPIP'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold_restored',
+    'HorseLogic.decide (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'a later owner of the decision reopened the fold of a raised floor limp and the option frame restored the fold: counts how often the fold needed its last guard',
+    'VPIP'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold_kept',
+    'HorseLogic (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'the Horse own accepted limp of this hand was the VPIP floor one action and the pot was raised after it: the brain already folded, and the fold is guarded against a later recovery',
+    'VPIP'
   ),
   receipt(
     'lightning_vpip_floor_limp_only_seen',
