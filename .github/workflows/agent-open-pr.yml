@@ -76,6 +76,17 @@ jobs:
             exit 0
           fi
 
+          # Bounded grace window so an agent's own immediate `gh pr create` after
+          # push wins without racing this workflow and creating a duplicate PR
+          # whose closure cancels a parallel CI run on the same SHA (#12166/#12167).
+          sleep 15
+          EXISTING=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+            --json number --jq 'length')
+          if [ "$EXISTING" != "0" ]; then
+            echo "A PR for $BRANCH was opened during the grace window; no duplicate was created."
+            exit 0
+          fi
+
           AHEAD=$(gh api "repos/$REPO/compare/${DEFAULT_BRANCH}...${BRANCH}" --jq '.ahead_by')
           if [ "$AHEAD" = "0" ]; then
             echo "$BRANCH has no commit beyond $DEFAULT_BRANCH; nothing to propose."
@@ -85,6 +96,27 @@ jobs:
           TITLE=$(gh api "repos/$REPO/commits/$SIGNAL_SHA" \
             --jq '.commit.message | split("\n")[0]')
           [ -n "$TITLE" ] || TITLE="Propose $BRANCH"
-          gh pr create --repo "$REPO" --head "$BRANCH" --base "$DEFAULT_BRANCH" \
+          CREATED_URL=""
+          if ! CREATED_URL=$(gh pr create --repo "$REPO" --head "$BRANCH" --base "$DEFAULT_BRANCH" \
             --title "$TITLE" \
-            --body "Opened by the reviewed Agent Open PR workflow from branch proposal signal $SIGNAL_SHA. Required checks and protected squash auto-merge remain authoritative."
+            --body "Opened by the reviewed Agent Open PR workflow from branch proposal signal $SIGNAL_SHA. Required checks and protected squash auto-merge remain authoritative." 2>&1); then
+            EXISTING=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+              --json number --jq 'length')
+            if [ "$EXISTING" != "0" ]; then
+              echo "A concurrent PR for $BRANCH won the race; no duplicate was created."
+              exit 0
+            fi
+            echo "$CREATED_URL" >&2
+            exit 1
+          fi
+
+          CREATED_NUM=$(printf '%s\n' "$CREATED_URL" | sed -nE 's#.*/pull/([0-9]+).*#\1#p' | tail -n 1)
+          if [ -n "$CREATED_NUM" ]; then
+            OPEN_COUNT=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+              --json number --jq 'length')
+            if [ "$OPEN_COUNT" -gt 1 ]; then
+              gh pr close "$CREATED_NUM" --repo "$REPO" \
+                --comment "Closed automatically by Agent Open PR: another pull request for \`$BRANCH\` opened concurrently, so this duplicate was retired to avoid parallel CI runs on the same SHA."
+              echo "Closed duplicate bot-created PR #$CREATED_NUM after concurrent PR creation on $BRANCH."
+            fi
+          fi

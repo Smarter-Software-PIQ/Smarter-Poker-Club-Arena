@@ -685,6 +685,64 @@ COMMIT;
     check('G1 applier: dropping a hand door without naming its successor is refused',
           status != 0 and 'hand_path_door_missing' in err, err[-300:])
 
+    # ── G1.4 catalog-fingerprint fast-path soundness (no false negatives) ──
+    def guarded_mode(sql):
+        """Run guarded SQL and read ca.hand_path_check_mode just before COMMIT."""
+        g = guarded(CHECKED, sql)
+        idx = g.rfind('COMMIT;')
+        assert idx != -1
+        probe = g[:idx] + "SELECT current_setting('ca.hand_path_check_mode') || '|' || current_setting('search_path');\nCOMMIT;"
+        return attempt('synth', probe)
+
+    unrelated_fn = """BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_synth_unrelated_report() RETURNS int LANGUAGE sql AS $$ SELECT 42 $$;
+COMMIT;
+"""
+    status, out_mode, err = guarded_mode(unrelated_fn)
+    check('G1 fast-path: unrelated function DDL hits fast_path and restores search_path',
+          status == 0 and out_mode.startswith('fast_path|') and 'pg_catalog' not in out_mode.split('|', 1)[1],
+          f'status={status} out={out_mode!r} err={err[-300:]}')
+
+    overload_adds = """BEGIN;
+CREATE FUNCTION public.fn_synth_nowait(u uuid, extra int) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN UPDATE unions SET id = id WHERE id = u; END $$;
+COMMIT;
+"""
+    status, _, err = attempt('synth', guarded(CHECKED, overload_adds))
+    check('G1 fast-path: adding a new overload of a reachable callee invalidates fingerprint and is refused',
+          status != 0 and 'migration_adds_a_shared_write_to_the_hand_path' in err
+          and 'fn_synth_nowait write unions' in err, err[-400:])
+
+    mutate_reachable = """BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_synth_nowait(u uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN UPDATE unions SET id = id WHERE id = u; END $$;
+COMMIT;
+"""
+    status, _, err = attempt('synth', guarded(CHECKED, mutate_reachable))
+    check('G1 fast-path: mutating a reachable function body invalidates fingerprint and is refused',
+          status != 0 and 'migration_adds_a_shared_write_to_the_hand_path' in err
+          and 'fn_synth_nowait write unions' in err, err[-400:])
+
+    share_written_table = """BEGIN;
+CREATE UNIQUE INDEX idx_synth_club_table_shared ON public.club_table_rake_totals (club_id);
+COMMIT;
+"""
+    status, _, err = attempt('synth', guarded(CHECKED, share_written_table))
+    check('G1 fast-path: adding a unique shared-scope index on a written table invalidates fingerprint and is refused',
+          status != 0 and 'migration_adds_a_shared_write_to_the_hand_path' in err
+          and 'fn_synth_totals write club_table_rake_totals' in err, err[-400:])
+
+    safe_reachable_edit = """BEGIN;
+CREATE OR REPLACE FUNCTION public.fn_synth_nowait(u uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN PERFORM 1 FROM union_wallets WHERE union_id = u FOR NO KEY UPDATE NOWAIT;
+      UPDATE union_wallets SET rake_wallet = rake_wallet + 2 WHERE union_id = u; END $$;
+COMMIT;
+"""
+    status, out_mode, err = guarded_mode(safe_reachable_edit)
+    check('G1 fast-path: safe edit to a reachable function runs full_bfs and installs cleanly',
+          status == 0 and out_mode.startswith('full_bfs|'),
+          f'status={status} out={out_mode!r} err={err[-300:]}')
+
     # ── G1.2 production texts, before and after #11270 / #11266 ───────────
     production_before('handpre')
     before = answer('handpre')

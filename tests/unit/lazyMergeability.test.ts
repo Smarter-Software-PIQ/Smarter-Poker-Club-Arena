@@ -40,4 +40,12 @@ describe('event-driven branch proposal and protected merge', () => {
       .join('\n');
     expect(executable).not.toMatch(/GITHUB_TOKEN_FALLBACK|GH_PAT|\bsweep\b/);
   });
+
+  it('guards against duplicate PR races with a bounded grace re-check and self-cleanup of only its own duplicate', () => {
+    expect(opener).toContain('sleep 15');
+    expect(
+      opener.match(/gh pr list --repo "\$REPO" --head "\$BRANCH" --state open/g)?.length
+    ).toBeGreaterThanOrEqual(3);
+    expect(opener).toContain('gh pr close "$CREATED_NUM"');
+  });
 });
