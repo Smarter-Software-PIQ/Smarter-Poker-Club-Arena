@@ -90,7 +90,26 @@ describe('the build typechecks where it ships', () => {
       jobs['css-beats-e2e'].steps.find((step: { run?: string }) => step.run === 'npm run build:ci')
         .if
     ).toBe("needs.changes.outputs.server != 'true'");
-    expect(plain).toHaveLength(0);
+    // The one plain `npm run build` in ci.yml is the SERVER build (server/package.json, a different program
+    // from this client build), which the Server Engine job runs exactly as the engine prequalification does
+    // (tests/the-pull-request-builds-what-ships.law.test.ts). No client job may run the plain build.
+    const serverBuilds = Object.entries(jobs).flatMap(([name, job]) =>
+      (
+        (
+          job as {
+            steps?: { run?: string; 'working-directory'?: string }[];
+            defaults?: { run?: { 'working-directory'?: string } };
+          }
+        ).steps ?? []
+      )
+        .filter((step) => step.run === 'npm run build')
+        .map(
+          (step) =>
+            `${name}:${step['working-directory'] ?? (job as { defaults?: { run?: { 'working-directory'?: string } } }).defaults?.run?.['working-directory'] ?? '.'}`
+        )
+    );
+    expect(serverBuilds).toEqual(['server_shards:server']);
+    expect(plain).toHaveLength(serverBuilds.length);
   });
 
   it('TypeScript compilation still runs on every pull request and no diff filter can skip it', () => {

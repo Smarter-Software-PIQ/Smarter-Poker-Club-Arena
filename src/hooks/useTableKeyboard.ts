@@ -105,6 +105,12 @@ export interface UseTableKeyboardOptions {
    * hotkeys; absent, the key does nothing and Shift+F stays an ordinary F.
    */
   onLightningFold?: () => void;
+  /**
+   * Shift+L: log the last completed canonical hand to World Hub Personal Assistant.
+   * Registered by the Table HUD quick-bookmark control only when a completed hand
+   * UUID is available for the signed-in player.
+   */
+  onLogLastHand?: () => void;
 }
 
 /**
@@ -160,14 +166,20 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
       // the player is not looking at.
       if (!opts.isActive) return;
 
-      // Skip if user is typing in an input/textarea
+      // Skip if user is typing in an input/textarea/select/contenteditable
+      const isEditable = (el: HTMLElement | null): boolean =>
+        Boolean(
+          el &&
+          (el.tagName === 'INPUT' ||
+            el.tagName === 'TEXTAREA' ||
+            el.tagName === 'SELECT' ||
+            el.isContentEditable ||
+            el.getAttribute?.('contenteditable') === 'true' ||
+            el.getAttribute?.('contenteditable') === '' ||
+            el.closest?.('[contenteditable="true"], [contenteditable=""]'))
+        );
       const target = e.target as HTMLElement | null;
-      if (
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.tagName === 'SELECT' ||
-        target?.isContentEditable
-      ) {
+      if (isEditable(target) || isEditable(document.activeElement as HTMLElement | null)) {
         return;
       }
 
@@ -180,6 +192,25 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
         opts.onClosePanel?.();
         return;
       }
+
+      // ── Shift+L: Log Last Completed Hand to Personal Assistant ──
+      if (
+        key === 'l' &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.repeat &&
+        !e.isComposing &&
+        !opts.isSpectator &&
+        !opts.isModalOpen &&
+        opts.onLogLastHand
+      ) {
+        e.preventDefault();
+        opts.onLogLastHand();
+        return;
+      }
+
       if (opts.onLightningFold && document.querySelector('[aria-modal="true"]')) return;
 
       // ── Lightning key: Shift+F, before the single-letter row ──

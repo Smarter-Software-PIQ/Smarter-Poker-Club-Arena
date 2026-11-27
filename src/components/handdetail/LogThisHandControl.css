@@ -163,3 +163,109 @@
   color: #ffd6dc !important;
   -webkit-text-fill-color: #ffd6dc;
 }
+
+/* ── Table HUD quick-bookmark variant (`variant="hud"`) ── */
+.lth--hud {
+  order: 2;
+  flex-wrap: nowrap;
+  padding: 0;
+  border-top: none;
+  box-shadow: none;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.lth--hud .lth__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.lth--hud .lth__btn--hud,
+.lth--hud .lth__retry--hud {
+  width: auto;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 11px;
+  gap: 6px;
+  border: 1px solid rgb(120 190 255 / 42%) !important;
+  border-top-color: rgb(180 224 255 / 55%) !important;
+  border-radius: var(--sp-hud-tile-radius, 10px) !important;
+  background: var(--sp-hud-tile-bg, rgb(10 12 18 / 78%)) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  color: var(--sp-hud-tile-fg, rgb(255 255 255 / 90%)) !important;
+  -webkit-text-fill-color: var(--sp-hud-tile-fg, rgb(255 255 255 / 90%));
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.lth--hud .lth__btn--saving {
+  border-color: rgb(154 165 179 / 38%) !important;
+  color: #b4becb !important;
+  -webkit-text-fill-color: #b4becb;
+}
+
+.lth--hud .lth__saved--hud {
+  width: auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 4px 0 10px;
+  border: 1px solid rgb(63 185 80 / 48%);
+  border-radius: var(--sp-hud-tile-radius, 10px);
+  background: var(--sp-hud-tile-bg, rgb(10 12 18 / 82%));
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+}
+
+.lth--hud .lth__badge--hud {
+  gap: 4px;
+  min-height: 28px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.lth--hud .lth__link--hud {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.lth--hud .lth__error-row--hud {
+  width: auto;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.lth--hud .lth__retry--hud {
+  border-color: rgb(255 91 110 / 68%) !important;
+  border-top-color: rgb(255 160 171 / 78%) !important;
+  color: #ffd6dc !important;
+  -webkit-text-fill-color: #ffd6dc;
+}
+
+.lth__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

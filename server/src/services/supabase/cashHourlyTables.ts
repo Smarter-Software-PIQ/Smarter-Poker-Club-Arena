@@ -50,6 +50,38 @@ export async function readHourlyCashRoom(): Promise<{ cap: number; counted: numb
   }
 }
 
+/**
+ * HANDS OWED IN PROFIT, BY TABLE (2026-11-26). Open cash sessions at these
+ * tables whose hit-and-run count is not complete, counted per table. The
+ * variety drain prefers, among equal choices, a table whose Horses owe no
+ * hands: it empties in one sweep. Null on any failed read (no preference).
+ */
+export async function readHandsOwedByTable(
+  tableIds: ReadonlyArray<string>
+): Promise<Map<string, number> | null> {
+  if (tableIds.length === 0) return new Map();
+  try {
+    const { data, error } = await supabase
+      .from('cash_player_session')
+      .select('table_id, hr_hands_required, hr_hands_played')
+      .in('table_id', [...tableIds])
+      .is('closed_at', null)
+      .eq('hr_completed', false);
+    if (error || !Array.isArray(data)) return null;
+    const out = new Map<string, number>();
+    for (const r of data as Array<Record<string, unknown>>) {
+      const required = Number(r.hr_hands_required) || 0;
+      const played = Number(r.hr_hands_played) || 0;
+      if (required <= played) continue;
+      const id = String(r.table_id);
+      out.set(id, (out.get(id) ?? 0) + 1);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export type HourlyCashClose =
   | { closed: false; reason: string }
   | { closed: true; departures: SeatCashoutReceipt[] };

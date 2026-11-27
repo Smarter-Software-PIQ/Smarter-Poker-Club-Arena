@@ -57,6 +57,7 @@ import type { HeroHandFacts } from '../../services/HandHistoryService';
 import { gameTypeLabel, money, stamp } from '../../utils/handFormat';
 import { handNotesService, type HandNote } from '../../services/HandNotesService';
 import { handFlagService, type HandFlag } from '../../services/HandFlagService';
+import { checkSavedHandsBatch, type SavedHandsBatchMap } from '../../services/SavedHandsService';
 import { filterBySubjects, handSearchSubject } from '../../lib/handSearch';
 import { formatTableChips } from '../../utils/format';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -349,6 +350,7 @@ function HandEntry({
   flag,
   flagKnown,
   onFlagFiled,
+  savedHandId,
 }: {
   hand: HandRecord;
   heroId: string;
@@ -362,6 +364,7 @@ function HandEntry({
   flag?: HandFlag | null;
   flagKnown?: boolean;
   onFlagFiled?: (handId: string, flag: HandFlag | null) => void;
+  savedHandId?: string | null;
 }) {
   const heroNet = hand.replay.players.find((p) => p.userId === heroId)?.net ?? hand.heroResult;
   const tone = heroNet > 0 ? 'up' : heroNet < 0 ? 'down' : 'flat';
@@ -442,7 +445,12 @@ function HandEntry({
             noteKnown={noteKnown}
             onSaved={onNoteSaved}
           />
-          <LogThisHandControl handId={hand.id} accountId={heroId} compact />
+          <LogThisHandControl
+            handId={hand.id}
+            accountId={heroId}
+            initialSavedHandId={savedHandId}
+            compact
+          />
           {(onReplay || onOpenDetail) && (
             <div className="hh-entry__actions-row">
               {onOpenDetail && (
@@ -509,6 +517,7 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
      thinks something went wrong is while they are still sitting there. */
   const [flags, setFlags] = useState<Map<string, HandFlag>>(new Map());
   const [flagsKnown, setFlagsKnown] = useState(false);
+  const [savedByHandId, setSavedByHandId] = useState<SavedHandsBatchMap>({});
   const noteIdKey = hands.map((h) => h.id).join('|');
   useEffect(() => {
     const ids = noteIdKey ? noteIdKey.split('|') : [];
@@ -528,6 +537,32 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
       alive = false;
     };
   }, [noteIdKey]);
+
+  useEffect(() => {
+    if (!heroId || !isOpen) {
+      if (!heroId) setSavedByHandId({});
+      return;
+    }
+    const ids = noteIdKey ? noteIdKey.split('|') : [];
+    if (ids.length === 0) {
+      setSavedByHandId({});
+      return;
+    }
+    const controller = new AbortController();
+    let alive = true;
+    setSavedByHandId({});
+    void checkSavedHandsBatch(ids, {
+      signal: controller.signal,
+      userId: heroId,
+    }).then((map) => {
+      if (!alive) return;
+      setSavedByHandId(map);
+    });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [isOpen, heroId, noteIdKey]);
 
   const onNoteSaved = useCallback((handId: string, saved: HandNote | null) => {
     setNotes((prev) => {
@@ -855,6 +890,7 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
                     flag={flags.get(hand.id) ?? null}
                     flagKnown={flagsKnown}
                     onFlagFiled={onFlagFiled}
+                    savedHandId={savedByHandId[hand.id]?.id ?? null}
                   />
                 </div>
               ))

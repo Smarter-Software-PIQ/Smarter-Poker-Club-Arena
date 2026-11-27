@@ -343,6 +343,12 @@ export interface VarietyDrainInput<T extends DrainTable> {
   owedStartsFit: boolean;
   /** The table drained last cycle, kept while it is still a candidate. */
   current?: string | null;
+  /**
+   * Seats at a table still owing hands in profit (2026-11-26). Among new
+   * candidates the table whose Horses owe fewest goes first: it empties in
+   * one sweep. Absent (or a failed read): no preference.
+   */
+  owingAt?: (tableId: string) => number;
 }
 
 export interface VarietyDrainManyInput<T extends DrainTable> extends Omit<
@@ -472,8 +478,13 @@ export function varietyDrainTables<T extends DrainTable>(
   }).length;
   if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false)
     return kept;
+  const owing = (x: T) => {
+    const n = input.owingAt?.(String(x.id)) ?? 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
   candidates.sort(
     (a, b) =>
+      owing(a) - owing(b) ||
       seated(a) - seated(b) ||
       String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')) ||
       String(a.id).localeCompare(String(b.id))

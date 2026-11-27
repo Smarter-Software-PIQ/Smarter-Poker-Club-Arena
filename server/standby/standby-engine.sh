@@ -1192,12 +1192,17 @@ PY_SPENT
 BACKUP_DISK_KEEP_HOURS=${BACKUP_DISK_KEEP_HOURS:-24}
 BACKUP_DISK_MIN_FREE_GIB=${BACKUP_DISK_MIN_FREE_GIB:-12}
 
-reclaim_backup_disk() {  # candidate sha
-  local keep="$1" now cutoff tag created_epoch removed=0
+reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
+  local keep="$1" serving="${2:-}" now cutoff tag created_epoch removed=0
   now=$(date +%s); cutoff=$((now - BACKUP_DISK_KEEP_HOURS * 3600))
   while read -r tag; do
     [ -n "$tag" ] || continue
     [ "$tag" = "$IMAGE_REPO:$keep" ] && continue
+    # THE RECLAIM KEEPS THE SERVING IMAGE (2026-11-27). Both rehearsal swaps
+    # run production's serving release. When nothing has sealed for more than
+    # BACKUP_DISK_KEEP_HOURS its image is older than the cutoff, and deleting
+    # it made the rehearsal run a rebuild instead of the bytes production runs.
+    [ -n "$serving" ] && [ "$tag" = "$IMAGE_REPO:$serving" ] && continue
     created_epoch=$(date -d "$(docker image inspect -f '{{.Created}}' "$tag" 2>/dev/null)" +%s 2>/dev/null) || continue
     [ "$created_epoch" -lt "$cutoff" ] || continue
     # No -f: an image a container still uses is refused and kept.
@@ -1241,7 +1246,10 @@ cmd_certify() {
   local result="$CERT_DIR/$sha.json"
   record() { reasons+=("$1"); verdict=fail; log "certify $sha: FAIL $1"; }
 
-  reclaim_backup_disk "$sha"
+  local reclaim_serving=''
+  reclaim_serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha 2>/dev/null) || reclaim_serving=''
+  [[ "$reclaim_serving" =~ ^[0-9a-f]{40}$ ]] || reclaim_serving=''
+  reclaim_backup_disk "$sha" "$reclaim_serving"
   local free_gib; free_gib=$(backup_disk_free_gib)
   if ! [[ "$free_gib" =~ ^[0-9]+$ ]]; then
     record 'backup_disk_unreadable'

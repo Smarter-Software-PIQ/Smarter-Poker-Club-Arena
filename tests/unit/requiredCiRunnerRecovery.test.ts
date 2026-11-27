@@ -60,11 +60,21 @@ const promoLightningStep = {
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py',
 };
+const exactServerBuildStep = {
+  name: 'Build the exact server tree (as engine prequalification does)',
+  if: 'matrix.shard == 1',
+  env: { NODE_OPTIONS: '--max-old-space-size=6144' },
+  run: 'npm run build',
+};
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
   expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
   expect(job.steps[index]).toStrictEqual(hourlyCashStep);
-  expect(job.steps[index - 1]?.name).toBe('TypeScript Check (server scripts)');
+  // The exact server build (2026-11-27, tests/the-pull-request-builds-what-ships.law.test.ts) rides directly
+  // in front: pinned exactly, then removed so every original field stays fingerprinted.
+  expect(job.steps[index - 1]).toStrictEqual(exactServerBuildStep);
+  expect(job.steps.filter((step) => step.name === exactServerBuildStep.name)).toHaveLength(1);
+  expect(job.steps[index - 2]?.name).toBe('TypeScript Check (server scripts)');
   // The seat-call proof rides directly behind it (20261123013241): pinned
   // exactly, then removed with it so every original field stays fingerprinted.
   expect(job.steps[index + 1]).toStrictEqual(calledNameStep);
@@ -79,7 +89,7 @@ const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>
   expect(job.steps.filter((step) => step.name === promoLightningStep.name)).toHaveLength(1);
   expect(job.steps[index + 4]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
   // Pin these exact added proofs; every original engine job field stays fingerprinted.
-  job.steps.splice(index, 4);
+  job.steps.splice(index - 1, 5);
 };
 
 const backupSequenceStep = {
@@ -1876,6 +1886,7 @@ it.each([
     normalizeCashQueueFeedbackAddition,
   ],
   ['hourly cash cap', ci.jobs.server_shards, hourlyCashStep, normalizeHourlyCashAddition],
+  ['exact server build', ci.jobs.server_shards, exactServerBuildStep, normalizeHourlyCashAddition],
 ] as const)(
   'refuses a missing, duplicated, moved or weakened %s regression',
   (_name, original, step, normalize) => {

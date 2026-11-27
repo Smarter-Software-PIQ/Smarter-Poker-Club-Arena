@@ -25,7 +25,9 @@ import {
 } from '../../scripts/ci/certification-failure-streak.mjs';
 import {
   assertReceiptOrigins,
+  retainedOriginMidMove,
   retainedRuntimeSupersededBy,
+  settleRetainedOrigins,
   // @ts-expect-error untyped CI module
 } from '../../scripts/ci/client-runtime-retention.mjs';
 import { createHash } from 'node:crypto';
@@ -503,12 +505,85 @@ describe('a retained runtime replaced by a newer main publish stands down as sup
     ).toBeNull();
   });
 
+  // 2026-11-27: a read between a publish's two origin writes sees one origin on
+  // the retained runtime and one on the newer revision; it re-reads instead of failing.
+  it('names exactly the mid-move shape: one origin retained, the other on another full revision', () => {
+    const other = 'b'.repeat(40);
+    expect(retainedOriginMidMove(movedTo(info(newer, '1'), retained), receipt)).toBe(true);
+    expect(retainedOriginMidMove(movedTo(retained, info(newer, '1')), receipt)).toBe(true);
+    expect(retainedOriginMidMove(movedTo(info(newer, '1'), info(newer, '1')), receipt)).toBe(false);
+    expect(retainedOriginMidMove(movedTo(info(newer, '1'), info(other, '2')), receipt)).toBe(false);
+    expect(retainedOriginMidMove(movedTo(Buffer.from('{}'), retained), receipt)).toBe(false);
+    expect(retainedOriginMidMove(new Error('backlog differs'), receipt)).toBe(false);
+  });
+
+  it('a mid-move read settles: onto the newer revision it stands down, back on the runtime it passes', async () => {
+    const reads = [
+      movedTo(info(newer, '1'), retained),
+      movedTo(info(newer, '1'), info(newer, '1')),
+    ];
+    const sleeps: number[] = [];
+    const check = async () => {
+      throw reads.shift();
+    };
+    const settled = await settleRetainedOrigins(receipt, {
+      check,
+      sleep: async (ms: number) => void sleeps.push(ms),
+    }).catch((e: unknown) => e);
+    expect(sleeps).toHaveLength(1);
+    expect(retainedRuntimeSupersededBy(settled, receipt, onMainAbove)).toBe(newer);
+
+    let n = 0;
+    const back = async () => {
+      n += 1;
+      if (n === 1) throw movedTo(retained, info(newer, '1'));
+      return 'current';
+    };
+    expect(await settleRetainedOrigins(receipt, { check: back, sleep: async () => {} })).toBe(
+      'current'
+    );
+  });
+
+  it('only a mid-move read waits, and never past its re-read budget', async () => {
+    let calls = 0;
+    const broken = async () => {
+      calls += 1;
+      throw new Error('The complete client backlog differs from its receipt.');
+    };
+    await expect(
+      settleRetainedOrigins(receipt, { check: broken, sleep: async () => {} })
+    ).rejects.toThrow('backlog');
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const stuck = async () => {
+      calls += 1;
+      throw movedTo(info(newer, '1'), retained);
+    };
+    const error = await settleRetainedOrigins(receipt, {
+      check: stuck,
+      rereads: 3,
+      sleep: async () => {},
+    }).catch((e: unknown) => e);
+    expect(calls).toBe(4);
+    expect(retainedOriginMidMove(error, receipt)).toBe(true);
+    expect(retainedRuntimeSupersededBy(error, receipt, onMainAbove)).toBeNull();
+  });
+
   it('the retention script stands down only when the caller opts in', () => {
     const body = readFileSync(
       join(process.cwd(), 'scripts/ci/client-runtime-retention.mjs'),
       'utf8'
     );
-    expect(body).toContain("process.env.RETAINED_RUNTIME_SUPERSEDE !== 'stand-down'");
+    expect(body).toContain(
+      "const standDown = process.env.RETAINED_RUNTIME_SUPERSEDE === 'stand-down';"
+    );
+    expect(body).toContain('if (!standDown) throw error;');
+    // Only the opt-in caller waits out a mid-move read.
+    expect(body).toMatch(
+      /if \(standDown\)\s+await settleRetainedOrigins\(receipt, \{ check: requireCurrentReceipt/
+    );
+    expect(body).toContain('else await requireCurrentReceipt(receipt);');
     expect(body.match(/await requireCurrentOrSuperseded\(receipt\)/g)?.length).toBe(2);
     // Other workflows that receive or harness a retained runtime keep the strict refusal.
     for (const file of readdirSync(DIR).filter((f) => f !== 'club-create-certification.yml'))

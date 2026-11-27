@@ -1,0 +1,7 @@
+{
+  "_owner": "agent/hd-drain6-01TLQer9/the-drain-measures-its-own-speed",
+  "_comment": "cash_player_session.hr_hands_required and hr_hands_played were added by migration 20261106203853_hit_and_run_ten_hands_in_profit and are live (read back 2026-11-26); the base columns snapshot predates them. readHandsOwedByTable reads them.",
+  "tables": [],
+  "functions": [],
+  "columns": { "cash_player_session": ["hr_hands_required", "hr_hands_played"] }
+}
