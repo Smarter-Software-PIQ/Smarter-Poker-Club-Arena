@@ -178,5 +178,44 @@ class AFailedStepNamesItsCause(unittest.TestCase):
             self.assertLessEqual(len(qualification.log_tail(log)), qualification.LOG_TAIL_BYTES)
             self.assertIn('log unreadable', qualification.log_tail(Path(tmp) / 'missing.log'))
 
+
+class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
+    """2026-11-27: speed up certification without weakening any assertion."""
+
+    def test_dockerfiles_install_dependencies_before_copying_full_tree(self):
+        src = Path(__file__).with_name('qualify-tournament-freeze-fixes.py').read_text()
+        node_idx = src.index("Qualification.node').write_text(")
+        node_end = src.index("run(['docker', 'build', '-f', 'Qualification.node'", node_idx)
+        node_block = src[node_idx:node_end]
+        self.assertLess(
+            node_block.index('COPY server/package.json server/package-lock.json ./'),
+            node_block.index('RUN npm ci --include=dev --no-audit --no-fund'),
+        )
+        self.assertLess(
+            node_block.index('RUN node scripts/build-public-hist215-native.mjs'),
+            node_block.index('COPY . /source'),
+        )
+
+        pg_idx = src.index('native_dependencies = (')
+        pg_end = src.index("run(['docker', 'build', '--platform', pg_platform", pg_idx)
+        pg_block = src[pg_idx:pg_end]
+        self.assertIn('COPY --chown=postgres:postgres server/package.json server/package-lock.json /source/server/', pg_block)
+        self.assertIn('chown -R postgres:postgres /source/server/node_modules', pg_block)
+        self.assertLess(
+            pg_block.index('+ native_dependencies'),
+            pg_block.index('COPY --chown=postgres:postgres . /source'),
+        )
+
+    def test_native_probes_run_bounded_concurrently_with_isolated_tmpdirs(self):
+        src = Path(__file__).with_name('qualify-tournament-freeze-fixes.py').read_text()
+        self.assertGreaterEqual(qualification.MAX_NATIVE_PROBE_WORKERS, 2)
+        self.assertLessEqual(qualification.MAX_NATIVE_PROBE_WORKERS, 4)
+        self.assertIn('ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)', src)
+        self.assertIn('cancel_futures=True', src)
+        self.assertIn('TMPDIR=/evidence/tmp-awards', src)
+        self.assertIn('TMPDIR=/evidence/tmp-feeders', src)
+        self.assertNotIn('TMPDIR=/evidence\'', src)
+        self.assertIn('with COMMANDS_LOCK:', src)
+
 if __name__ == '__main__':
     unittest.main()

@@ -20,6 +20,12 @@ export const PERSONAL_ASSISTANT_REVIEW_PATH = '/hub/personal-assistant/review';
 export const SAVED_HANDS_BROADCAST_CHANNEL = 'smarter-poker-saved-hands';
 export const DEFAULT_SAVED_HANDS_TIMEOUT_MS = 15_000;
 export const MAX_SAVED_HANDS_BATCH_SIZE = 50;
+export const MAX_SAVED_HANDS_BATCH_TOTAL = 250;
+
+export const SAVED_HANDS_TAB_ID =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `ca-${crypto.randomUUID()}`
+    : `ca-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 
 export const CANONICAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -75,6 +81,7 @@ export interface SavedHandBroadcastMessage {
   handId: string;
   savedRowId: string;
   reviewUrl: string;
+  tabId: string;
   at: number;
 }
 
@@ -85,17 +92,162 @@ export interface CachedSavedHandEntry {
   savedAt?: string | null;
 }
 
-export interface SavedHandCacheUpdateEvent {
-  userId: string;
-  handId: string;
-  entry: CachedSavedHandEntry;
-}
+export type SavedHandCacheUpdateEvent =
+  | {
+      type: 'updated';
+      userId: string;
+      handId: string;
+      entry: CachedSavedHandEntry;
+    }
+  | {
+      type: 'deleted';
+      userId: string | null;
+      handId: string | null;
+      savedHandId: string | null;
+    };
 
 type SavedHandUpdateListener = (event: SavedHandCacheUpdateEvent) => void;
 
 let activeCacheUserId: string | null = null;
 const savedHandCache = new Map<string, CachedSavedHandEntry>();
 const savedHandUpdateListeners = new Set<SavedHandUpdateListener>();
+let sharedBroadcastChannel: BroadcastChannel | null = null;
+
+function notifySavedHandListeners(event: SavedHandCacheUpdateEvent): void {
+  for (const listener of savedHandUpdateListeners) {
+    try {
+      listener(event);
+    } catch {
+      /* isolate subscriber failures */
+    }
+  }
+}
+
+function closeSharedBroadcastChannel(): void {
+  if (!sharedBroadcastChannel) return;
+  try {
+    sharedBroadcastChannel.close();
+  } catch {
+    /* ignore close failures */
+  } finally {
+    sharedBroadcastChannel = null;
+  }
+}
+
+function handleIncomingBroadcastMessage(rawData: unknown): void {
+  if (!isPlainObject(rawData)) return;
+  if (typeof rawData.tabId === 'string' && rawData.tabId === SAVED_HANDS_TAB_ID) {
+    return;
+  }
+
+  const msgType = typeof rawData.type === 'string' ? rawData.type : '';
+  const msgUserId = normalizeUserId(rawData.userId);
+
+  if (msgUserId && activeCacheUserId && msgUserId !== activeCacheUserId) {
+    return;
+  }
+
+  if (msgType === 'saved-hand-updated') {
+    const sourceHandId =
+      normalizeCanonicalUuid(rawData.sourceHandId) ?? normalizeCanonicalUuid(rawData.handId);
+    const savedRowId =
+      normalizeSavedHandId(rawData.savedRowId) ??
+      normalizeSavedHandId(rawData.savedHandId) ??
+      normalizeSavedHandId(rawData.id);
+    const targetUserId = activeCacheUserId ?? msgUserId;
+    if (!targetUserId || !sourceHandId || !savedRowId) return;
+
+    const reviewUrl =
+      typeof rawData.reviewUrl === 'string' &&
+      rawData.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
+        ? rawData.reviewUrl
+        : buildPersonalAssistantReviewUrl(savedRowId);
+    const savedAt = typeof rawData.savedAt === 'string' ? rawData.savedAt : null;
+
+    setCachedSavedHand(targetUserId, sourceHandId, {
+      savedHandId: savedRowId,
+      status: rawData.status === 'already_saved' ? 'already_saved' : 'saved',
+      reviewUrl,
+      savedAt,
+    });
+    return;
+  }
+
+  if (msgType === 'saved-hand-deleted') {
+    const sourceHandId =
+      normalizeCanonicalUuid(rawData.sourceHandId) ?? normalizeCanonicalUuid(rawData.handId);
+    const savedRowId =
+      normalizeSavedHandId(rawData.savedRowId) ??
+      normalizeSavedHandId(rawData.savedHandId) ??
+      normalizeSavedHandId(rawData.id);
+    if (!sourceHandId && !savedRowId) return;
+
+    const lowerSourceHandId = sourceHandId ? sourceHandId.toLowerCase() : null;
+    const evicted: Array<{ userId: string; handId: string; savedHandId: string }> = [];
+
+    for (const [cacheKey, entry] of Array.from(savedHandCache.entries())) {
+      const sep = cacheKey.indexOf(':');
+      if (sep <= 0) continue;
+      const entryUserId = cacheKey.slice(0, sep);
+      const entryHandId = cacheKey.slice(sep + 1);
+      if (msgUserId && entryUserId !== msgUserId) continue;
+
+      const matchesHand = lowerSourceHandId !== null && entryHandId === lowerSourceHandId;
+      const matchesRow = savedRowId !== null && entry.savedHandId === savedRowId;
+      if (matchesHand || matchesRow) {
+        savedHandCache.delete(cacheKey);
+        evicted.push({
+          userId: entryUserId,
+          handId: entryHandId,
+          savedHandId: entry.savedHandId,
+        });
+      }
+    }
+
+    if (evicted.length > 0) {
+      for (const item of evicted) {
+        notifySavedHandListeners({
+          type: 'deleted',
+          userId: item.userId,
+          handId: item.handId,
+          savedHandId: item.savedHandId,
+        });
+      }
+    } else {
+      notifySavedHandListeners({
+        type: 'deleted',
+        userId: msgUserId ?? activeCacheUserId,
+        handId: sourceHandId,
+        savedHandId: savedRowId,
+      });
+    }
+  }
+}
+
+/**
+ * Lazily initialize the persistent singleton BroadcastChannel listener so
+ * cross-tab saves and World Hub deletions propagate into Club Arena immediately.
+ */
+export function ensureSavedHandsBroadcastListener(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === 'undefined') return null;
+  if (sharedBroadcastChannel) return sharedBroadcastChannel;
+  try {
+    const channel = new BroadcastChannel(SAVED_HANDS_BROADCAST_CHANNEL);
+    const onMessage = (event: MessageEvent) => {
+      handleIncomingBroadcastMessage(event?.data);
+    };
+    if (typeof channel.addEventListener === 'function') {
+      channel.addEventListener('message', onMessage);
+    } else {
+      channel.onmessage = onMessage;
+    }
+    sharedBroadcastChannel = channel;
+    return channel;
+  } catch {
+    /* Safari / restricted browsing contexts may disallow BroadcastChannel */
+    return null;
+  }
+}
 
 function normalizeUserId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -131,6 +283,7 @@ export function clearSavedHandsCache(userId?: string | null): void {
   if (!normalized) {
     savedHandCache.clear();
     activeCacheUserId = null;
+    closeSharedBroadcastChannel();
     return;
   }
   const prefix = `${normalized}:`;
@@ -181,38 +334,41 @@ export function setCachedSavedHand(
   }
   activeCacheUserId = normalizedUser;
 
+  const cacheKey = makeCacheKey(normalizedUser, normalizedHand);
+  const existing = savedHandCache.get(cacheKey);
+  const resolvedStatus: 'saved' | 'already_saved' =
+    entry.status === 'already_saved' ||
+    (existing?.savedHandId === normalizedSavedId && existing.status === 'already_saved')
+      ? 'already_saved'
+      : 'saved';
+
   const normalizedEntry: CachedSavedHandEntry = {
     savedHandId: normalizedSavedId,
-    status: entry.status === 'already_saved' ? 'already_saved' : 'saved',
+    status: resolvedStatus,
     reviewUrl:
       typeof entry.reviewUrl === 'string' &&
       entry.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
         ? entry.reviewUrl
         : buildPersonalAssistantReviewUrl(normalizedSavedId),
-    savedAt: entry.savedAt ?? null,
+    savedAt: entry.savedAt ?? existing?.savedAt ?? null,
   };
 
-  savedHandCache.set(makeCacheKey(normalizedUser, normalizedHand), normalizedEntry);
+  savedHandCache.set(cacheKey, normalizedEntry);
 
-  const event: SavedHandCacheUpdateEvent = {
+  notifySavedHandListeners({
+    type: 'updated',
     userId: normalizedUser,
     handId: normalizedHand,
     entry: normalizedEntry,
-  };
-  for (const listener of savedHandUpdateListeners) {
-    try {
-      listener(event);
-    } catch {
-      /* isolate subscriber failures */
-    }
-  }
+  });
 }
 
 /**
- * Subscribe to in-tab saved-hand cache updates so HandDetailModal,
+ * Subscribe to in-tab and cross-tab saved-hand cache updates so HandDetailModal,
  * HandHistoryPanel, and the Table HUD stay instantaneously in sync.
  */
 export function subscribeSavedHandsUpdates(listener: SavedHandUpdateListener): () => void {
+  ensureSavedHandsBroadcastListener();
   savedHandUpdateListeners.add(listener);
   return () => {
     savedHandUpdateListeners.delete(listener);
@@ -220,27 +376,21 @@ export function subscribeSavedHandsUpdates(listener: SavedHandUpdateListener): (
 }
 
 function broadcastSavedHandUpdate(handId: string, savedRowId: string, reviewUrl: string): void {
-  if (typeof BroadcastChannel === 'undefined') return;
-  let channel: BroadcastChannel | null = null;
+  const channel = ensureSavedHandsBroadcastListener();
+  if (!channel) return;
   try {
-    channel = new BroadcastChannel(SAVED_HANDS_BROADCAST_CHANNEL);
     const message: SavedHandBroadcastMessage = {
       type: 'saved-hand-updated',
       source: 'club-arena',
       handId,
       savedRowId,
       reviewUrl,
+      tabId: SAVED_HANDS_TAB_ID,
       at: Date.now(),
     };
     channel.postMessage(message);
   } catch {
     /* Safari / restricted browsing contexts may disallow BroadcastChannel */
-  } finally {
-    try {
-      channel?.close();
-    } catch {
-      /* ignore close failures */
-    }
   }
 }
 
@@ -671,7 +821,6 @@ export async function findSavedClubArenaHand(
           reviewUrl,
         });
       }
-      broadcastSavedHandUpdate(canonicalHandId, savedHandId, reviewUrl);
     }
     return { found: true, savedHandId };
   }
@@ -707,7 +856,6 @@ export async function findSavedClubArenaHand(
           reviewUrl,
         });
       }
-      broadcastSavedHandUpdate(canonicalHandId, savedHandId, reviewUrl);
     }
     return { found: true, savedHandId };
   }
@@ -739,7 +887,7 @@ export async function checkSavedHandsBatch(
     return {};
   }
 
-  // Filter to valid canonical UUIDs, deduplicate case-insensitively, cap at 50.
+  // Filter to valid canonical UUIDs, deduplicate case-insensitively, cap safely at 250 total.
   const validIds: string[] = [];
   const requestedByLower = new Map<string, string>();
   for (const rawId of handIds) {
@@ -749,7 +897,7 @@ export async function checkSavedHandsBatch(
     if (requestedByLower.has(lower)) continue;
     requestedByLower.set(lower, canonical);
     validIds.push(canonical);
-    if (validIds.length >= MAX_SAVED_HANDS_BATCH_SIZE) break;
+    if (validIds.length >= MAX_SAVED_HANDS_BATCH_TOTAL) break;
   }
 
   if (validIds.length === 0) {
@@ -786,81 +934,105 @@ export async function checkSavedHandsBatch(
     setActiveSavedHandsUser(resolvedUserId);
   }
 
-  const url = `${SAVED_HANDS_ENDPOINT}?source=club-arena&handIds=${validIds.join(',')}`;
-  const reqSignal = createRequestSignal(options.signal, options.timeoutMs);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      signal: reqSignal.signal,
-    });
-  } catch {
-    return {};
-  } finally {
-    reqSignal.cleanup();
-  }
-
-  if (!response.ok || options.signal?.aborted) {
-    return {};
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    return {};
-  }
-
-  if (
-    options.signal?.aborted ||
-    !isPlainObject(payload) ||
-    payload.success !== true ||
-    !isPlainObject(payload.savedByHandId)
-  ) {
-    return {};
-  }
-
-  // If the active account switched while this batch request was in flight,
-  // discard the stale user's results so they cannot bleed into the new account.
-  if (resolvedUserId && activeCacheUserId !== null && activeCacheUserId !== resolvedUserId) {
-    return {};
-  }
-
   const result: SavedHandsBatchMap = {};
-  for (const [rawHandId, rawEntry] of Object.entries(payload.savedByHandId)) {
-    const canonicalKey = normalizeCanonicalUuid(rawHandId);
-    if (!canonicalKey) continue;
-    const requestedKey = requestedByLower.get(canonicalKey.toLowerCase());
-    if (!requestedKey || !isPlainObject(rawEntry)) continue;
 
-    const savedRowId = normalizeSavedHandId(rawEntry.id);
-    if (!savedRowId) continue;
+  for (let offset = 0; offset < validIds.length; offset += MAX_SAVED_HANDS_BATCH_SIZE) {
+    if (options.signal?.aborted) {
+      return result;
+    }
+    if (resolvedUserId && activeCacheUserId !== null && activeCacheUserId !== resolvedUserId) {
+      return {};
+    }
 
-    const reviewUrl =
-      typeof rawEntry.reviewUrl === 'string' &&
-      rawEntry.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
-        ? rawEntry.reviewUrl
-        : buildPersonalAssistantReviewUrl(savedRowId);
-    const savedAt = typeof rawEntry.savedAt === 'string' ? rawEntry.savedAt : null;
-    const status = typeof rawEntry.status === 'string' ? rawEntry.status : null;
-
-    result[requestedKey] = {
-      id: savedRowId,
-      savedAt,
-      status,
-      reviewUrl,
-    };
-
-    if (resolvedUserId) {
-      setCachedSavedHand(resolvedUserId, requestedKey, {
-        savedHandId: savedRowId,
-        status: 'saved',
-        reviewUrl,
-        savedAt,
+    const chunk = validIds.slice(offset, offset + MAX_SAVED_HANDS_BATCH_SIZE);
+    const url = `${SAVED_HANDS_ENDPOINT}?source=club-arena&handIds=${chunk.join(',')}`;
+    const reqSignal = createRequestSignal(options.signal, options.timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal: reqSignal.signal,
       });
+    } catch {
+      continue;
+    } finally {
+      reqSignal.cleanup();
+    }
+
+    if (options.signal?.aborted) {
+      return result;
+    }
+    if (!response) {
+      continue;
+    }
+    if (response.status === 401 || response.status === 403) {
+      return result;
+    }
+    if (!response.ok) {
+      continue;
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      continue;
+    }
+
+    if (
+      options.signal?.aborted ||
+      !isPlainObject(payload) ||
+      payload.success !== true ||
+      !isPlainObject(payload.savedByHandId)
+    ) {
+      continue;
+    }
+
+    // If the active account switched while this batch request was in flight,
+    // discard the stale user's results so they cannot bleed into the new account.
+    if (resolvedUserId && activeCacheUserId !== null && activeCacheUserId !== resolvedUserId) {
+      return {};
+    }
+
+    for (const [rawHandId, rawEntry] of Object.entries(payload.savedByHandId)) {
+      const canonicalKey = normalizeCanonicalUuid(rawHandId);
+      if (!canonicalKey) continue;
+      const requestedKey = requestedByLower.get(canonicalKey.toLowerCase());
+      if (!requestedKey || !isPlainObject(rawEntry)) continue;
+
+      const savedRowId = normalizeSavedHandId(rawEntry.id);
+      if (!savedRowId) continue;
+
+      const reviewUrl =
+        typeof rawEntry.reviewUrl === 'string' &&
+        rawEntry.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
+          ? rawEntry.reviewUrl
+          : buildPersonalAssistantReviewUrl(savedRowId);
+      const savedAt = typeof rawEntry.savedAt === 'string' ? rawEntry.savedAt : null;
+      const status = typeof rawEntry.status === 'string' ? rawEntry.status : null;
+
+      result[requestedKey] = {
+        id: savedRowId,
+        savedAt,
+        status,
+        reviewUrl,
+      };
+
+      if (resolvedUserId) {
+        const existing = getCachedSavedHand(resolvedUserId, requestedKey);
+        setCachedSavedHand(resolvedUserId, requestedKey, {
+          savedHandId: savedRowId,
+          status:
+            existing?.savedHandId === savedRowId && existing.status === 'already_saved'
+              ? 'already_saved'
+              : 'saved',
+          reviewUrl,
+          savedAt,
+        });
+      }
     }
   }
 

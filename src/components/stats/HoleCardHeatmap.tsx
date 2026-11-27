@@ -415,7 +415,7 @@ export default function HoleCardHeatmap({
                 {hoveredCell.hands >= MIN_CONFIDENT_HANDS ? (
                   <span className={hoveredCell.bb100 >= 0 ? 'is-up' : 'is-down'}>
                     {hoveredCell.bb100 >= 0 ? '+' : ''}
-                    {n(hoveredCell.bb100).toFixed(0)} BB/100
+                    {n(hoveredCell.bb100).toFixed(0)} BB/100 Hands
                   </span>
                 ) : (
                   <span className="is-thin-note">Too Few Hands To Rate</span>

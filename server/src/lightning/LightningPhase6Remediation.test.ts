@@ -50,6 +50,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 const foldAll = (_u: string, legal: string[]) => (legal.includes('fold') ? 'fold' : null);
@@ -615,6 +616,9 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
+    // Seed RNG so card dealing, horse decisions, and think-time tank rolls are
+    // 100% deterministic across CI and engine prequalification shards.
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(8900));
     const formed = formedHand(3, 8900);
     const horses = new Set(formed.players);
     const t = buildHost(formed, [100, 100, 100], {
@@ -626,7 +630,7 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
         })),
     });
     await t.host.start();
-    for (let i = 0; i < 80 && t.host.lifecycle === 'dealing'; i++) {
+    for (let i = 0; i < 240 && t.host.lifecycle === 'dealing'; i++) {
       await vi.advanceTimersByTimeAsync(1_000);
       await flush(4);
     }
@@ -655,6 +659,7 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(9000));
     const formed = formedHand(2, 9000);
     const failing = kit.fakeHorseLane({ fail: true });
     const decide = vi.spyOn(HorseLogic, 'decide');
@@ -663,7 +668,7 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
       deps: { horseLane: () => failing.lane },
     });
     await t.host.start();
-    for (let i = 0; i < 30 && t.host.lifecycle === 'dealing'; i++) {
+    for (let i = 0; i < 120 && t.host.lifecycle === 'dealing'; i++) {
       await vi.advanceTimersByTimeAsync(1_000);
       await flush(4);
     }

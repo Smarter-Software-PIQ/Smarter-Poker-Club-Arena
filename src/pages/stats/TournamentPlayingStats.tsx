@@ -1,3 +1,4 @@
+import './StatsReadouts.css';
 import { StatRow } from './StatRow';
 import { ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import type { FullStats, OverallStats } from './types';
@@ -14,30 +15,30 @@ export default function TournamentPlayingStats({
   onOpenLeakFinder?: () => void;
 }) {
   return (
-    <>
+    <div className="stats-workbench stats-readouts">
       <section
         className="stats-workbench-surface tournament-playing"
         aria-label="Tournament Playing Statistics"
       >
         <div className="stats-section-header">
-          <h3>Tournament Playing Statistics</h3>
+          <h3>Playing Statistics</h3>
         </div>
         {(onOpenHands || onOpenLeakFinder) && (
           <div className="stats-club-actions tournament-study-actions">
             {onOpenHands && (
               <button type="button" onClick={onOpenHands}>
-                Review Tournament Hands
+                Review Hands
               </button>
             )}
             {onOpenLeakFinder && (
               <button type="button" onClick={onOpenLeakFinder}>
-                Analyze Tournament Leaks
+                Analyze Leaks
               </button>
             )}
           </div>
         )}
-        <div className="stats-grid">
-          <StatRow label="Recorded Hands" value={overall.tourney_hands.toLocaleString()} />
+        <div className="stats-rate-grid">
+          <StatRow label="Hands" value={overall.tourney_hands.toLocaleString()} />
           <StatRow
             label="VPIP"
             value={ratioOrUnmeasured(
@@ -104,7 +105,7 @@ export default function TournamentPlayingStats({
           aria-label="Tournament Position Statistics"
         >
           <div className="stats-section-header">
-            <h3>Tournament Positions</h3>
+            <h3>Positions</h3>
           </div>
           <div className="stats-club-table-wrap">
             <table
@@ -147,13 +148,12 @@ export default function TournamentPlayingStats({
             (full.contract.coverage.analysis_sampled_sections === undefined ||
               full.contract.coverage.analysis_sampled_sections.includes('positions')) && (
               <p className="stats-notice">
-                Position Analysis Uses The Most Recent{' '}
-                {full.contract.coverage.analysis_hand_cap.toLocaleString()} Tournament Hands In This
-                Range.
+                Based On The Most Recent {full.contract.coverage.analysis_hand_cap.toLocaleString()}{' '}
+                Hands.
               </p>
             )}
         </section>
       )}
-    </>
+    </div>
   );
 }

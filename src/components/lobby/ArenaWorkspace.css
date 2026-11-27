@@ -1058,25 +1058,6 @@
   margin: 0 0 7px;
   padding: 3px;
 }
-.arena-workspace.club-members-page .member-row__open {
-  box-sizing: border-box;
-  grid-template-columns: auto minmax(0, 1fr) 10px;
-  gap: clamp(5px, 1vw, 12px);
-  min-height: 0;
-  padding: 3px clamp(3px, 1vw, 10px);
-}
-.arena-workspace.club-members-page .member-avatar {
-  box-sizing: border-box;
-  width: clamp(32px, 6vw, 46px);
-  height: auto;
-  aspect-ratio: 1;
-}
-.arena-workspace.club-members-page .member-main {
-  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
-  grid-template-rows: auto auto;
-  gap: 4px 8px;
-  align-content: center;
-}
 .arena-workspace.club-members-page .member-simple-balance {
   max-width: none;
   gap: 2px;
@@ -1126,14 +1107,8 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
-    left: 0;
-  }
 }
 @media (max-width: 480px) {
-  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
-  }
   .arena-workspace.club-members-page .member-simple-balance {
     min-width: 0;
     max-width: none;
@@ -1150,61 +1125,133 @@
   }
 }
 
+/* ── Player card: portrait in the upper left corner (Dan, 2026-11-27) ──────
+   "THE PROFILE IMAGE OR AVATAR SHOULD ALWAYS BE IN THE UPPER LEFT HAND
+   CORNER, AND IT SHOULD BE DOUBLE THE SIZE, WITH THE NAME AND OTHER INFO
+   BELOW IT, NOT IN THE MIDDLE WITH THIS WEIRD GAPS."
+   One layout at every width. The left column stacks the portrait (pinned to
+   the top left corner), then the name and upline, then the role, PlayerID and
+   status. The figures keep the right column and the chevron the far edge.
+   The portrait used to be a vertically centred grid column beside the text,
+   re-placed by four separate width rules; that is what floated it mid-card
+   and opened the gaps, so those rules are gone and this block is the only
+   one that places a card's parts. The selection box sits
+   in the card's upper right corner, above the figures. */
+.arena-workspace.club-members-page .member-row {
+  --member-portrait: clamp(64px, 12vw, 92px);
+  --member-card-inset: 7px;
+}
+.arena-workspace.club-members-page .member-row__open {
+  box-sizing: border-box;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content) 10px;
+  grid-template-rows: auto auto;
+  align-content: start;
+  align-items: start;
+  gap: 4px clamp(6px, 1vw, 12px);
+  min-height: 0;
+  padding: var(--member-card-inset) clamp(4px, 1vw, 10px) 4px var(--member-card-inset);
+}
+.arena-workspace.club-members-page .member-main {
+  display: contents;
+}
+.arena-workspace.club-members-page .member-avatar {
+  box-sizing: border-box;
+  grid-area: 1 / 1;
+  justify-self: start;
+  align-self: start;
+  width: var(--member-portrait);
+  min-width: var(--member-portrait);
+  height: var(--member-portrait);
+  aspect-ratio: 1;
+  font-size: calc(var(--member-portrait) * 0.36);
+}
+.arena-workspace.club-members-page .member-identity {
+  /* The portrait and the name share the first cell, so the name always sits
+     directly under the portrait however tall the figures beside them are. The
+     portrait's ring is drawn 4px outside its box (box-shadow), so the name
+     keeps 8px of clear air under the ring (Dan, 2026-11-27: "MAKE SURE THE
+     NAME TITLE ISN'T TOUCHING THE FRAME"). */
+  grid-area: 1 / 1;
+  align-self: start;
+  margin-top: calc(var(--member-portrait) + 12px);
+  min-width: 0;
+}
+/* The PlayerID, role and status line runs the full width of the card under
+   the portrait column and the figures (Dan, 2026-11-27: a seated player's
+   table name ran off the bottom of the card when it had to wrap inside the
+   name column). */
+.arena-workspace.club-members-page .member-subline {
+  grid-area: 2 / 1 / 3 / 3;
+  min-width: 0;
+}
+.arena-workspace.club-members-page .member-simple-balance {
+  grid-area: 1 / 2 / 2 / 3;
+  align-self: start;
+}
+/* The selection box sits in the card's upper right corner (Dan, 2026-11-27),
+   so the figures start below its 44px target instead of under it. */
+.arena-workspace.club-members-page .member-row:has(> .member-select) .member-simple-balance {
+  padding-top: 46px;
+}
+.arena-workspace.club-members-page .member-chevron {
+  grid-area: 1 / 3 / 3 / 4;
+  align-self: center;
+}
+/* The card's left edge says the player's level in the club (Dan, 2026-11-27):
+   owners, co-owners and admins red, super agents, agents and sub agents neon
+   teal, players dark neon blue (colours corrected by Dan the same day). Presence keeps its own signals (the portrait ring and
+   the Online / At A Table line), so the edge no longer changes with them. */
+.arena-workspace.club-members-page .member-row[data-club-level]::before {
+  width: 4px;
+}
+.arena-workspace.club-members-page .member-row[data-club-level='staff']::before {
+  background: #ff3b4f;
+  box-shadow:
+    0 0 6px #ff3b4f,
+    0 0 14px rgba(240, 40, 73, 0.85);
+}
+.arena-workspace.club-members-page .member-row[data-club-level='agent']::before {
+  background: #00ffe1;
+  box-shadow:
+    0 0 6px #00ffe1,
+    0 0 14px rgba(0, 255, 225, 0.8);
+}
+.arena-workspace.club-members-page .member-row[data-club-level='player']::before {
+  background: #1f5bff;
+  box-shadow:
+    0 0 6px #1f5bff,
+    0 0 14px rgba(31, 91, 255, 0.85);
+}
+.arena-workspace.club-members-page .member-select {
+  position: absolute;
+  z-index: 3;
+  top: 4px;
+  right: 4px;
+  left: auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+}
+@media (max-width: 480px) {
+  .arena-workspace.club-members-page .member-row__open {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 46%) 10px;
+  }
+}
+/* The narrowest phones: the name keeps one full line in the left column. */
 @media (max-width: 400px) {
-  .arena-workspace.club-members-page .member-main {
+  .arena-workspace.club-members-page .member-row__open {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 44%) 8px;
     column-gap: 4px;
-  }
-  /* Share the first line with the identity so neither the avatar nor the
-     narrow name track consumes the space needed for a complete signed net. */
-  .arena-workspace.club-members-page .member-row__open:has(.member-simple-balance) {
-    grid-template-columns: auto minmax(0, 1fr) 50% 10px;
-    grid-template-rows: auto auto;
-    align-content: center;
-  }
-  /* Reserve the end of the identity line for the selection target and
-     chevron. The ledger retains the same combined width in the line below. */
-  .arena-workspace.club-members-page
-    .member-row:has(> .member-select)
-    .member-row__open:has(.member-simple-balance) {
-    grid-template-columns: auto minmax(0, 1fr) minmax(0, calc(50% - 44px)) 54px;
-    grid-template-rows: minmax(44px, max-content) auto;
-  }
-  .arena-workspace.club-members-page .member-row:has(.member-simple-balance) > .member-select {
-    inset: 2px 2px auto auto;
-  }
-  .arena-workspace.club-members-page .member-row:has(> .member-select) .member-chevron {
-    justify-self: start;
-  }
-  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) {
-    display: contents;
-  }
-  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-identity {
-    grid-area: 1 / 2 / 2 / 4;
-  }
-  .arena-workspace.club-members-page .member-main:has(.member-simple-balance) .member-subline {
-    grid-area: 2 / 1 / 3 / 3;
-    align-self: start;
-  }
-  .arena-workspace.club-members-page .member-simple-balance {
-    grid-area: 2 / 3 / 3 / 5;
-    row-gap: 1px;
-  }
-  .arena-workspace.club-members-page .member-row__open:has(.member-simple-balance) .member-chevron {
-    grid-area: 1 / 4;
   }
   .arena-workspace.club-members-page .member-alias {
     font-size: 13px;
   }
-  .arena-workspace.club-members-page .member-row__open {
-    gap: 4px;
-  }
 }
-
-/* Select a record below its avatar without taking space from the name or ledger. */
-.arena-workspace.club-members-page .member-select {
-  position: absolute;
-  inset: auto auto 2px 5px;
-  width: 44px;
-  height: 44px;
-  border: 0;
+@media (max-width: 340px) {
+  .arena-workspace.club-members-page .member-row__open {
+    padding-left: 5px;
+  }
+  .arena-workspace.club-members-page .member-alias {
+    font-size: 12px;
+  }
 }

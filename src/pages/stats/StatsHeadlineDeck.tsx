@@ -120,7 +120,7 @@ export default function StatsHeadlineDeck(props: Props) {
                   {/* max() prints the ALL-TIME count when it is larger, on a range-scoped
               page: say so (2026-09-20). */}
                   <span className="hero-stat-label">
-                    {lifetime.hands > overall.total_hands ? 'Recorded Cash Hands' : 'Cash Hands'}
+                    {lifetime.hands > overall.total_hands ? 'Recorded Hands' : 'Hands'}
                   </span>
                   <span className="hero-stat-value cyan">
                     {Math.max(lifetime.hands, overall.total_hands).toLocaleString()}
@@ -132,7 +132,7 @@ export default function StatsHeadlineDeck(props: Props) {
                   )}
                 </div>
                 <div className="hero-stat">
-                  <span className="hero-stat-label">BB/100</span>
+                  <span className="hero-stat-label">BB/100 Hands</span>
                   <span
                     className={
                       'hero-stat-value' +
@@ -160,9 +160,7 @@ export default function StatsHeadlineDeck(props: Props) {
                 <HandsWonGauge handsWonPct={overall.total_hands > 0 ? handsWonPct : null} />
                 <div className="hero-stat">
                   <span className="hero-stat-label">
-                    {rangeKey === 'all' && !overall.hands_capped
-                      ? 'Cash Profit'
-                      : 'Analysis Cash Result'}
+                    {rangeKey === 'all' && !overall.hands_capped ? 'Profit' : 'Analysis Result'}
                   </span>
                   <span
                     className={`hero-stat-value ${overall.total_profit >= 0 ? 'positive' : 'negative'}`}
@@ -244,8 +242,8 @@ export default function StatsHeadlineDeck(props: Props) {
           overall.cash_hands > 0 &&
           statsContract.quality.cash_money_source === 'reconstructed_actions' && (
             <div className="stats-notice stats-notice-warn">
-              Cash Result And BB/100 Are Reconstructed From Recorded Actions For This Window. No
-              Exact Settlement Rows Exist For These Hands Yet.
+              Cash Result And BB/100 Hands Are Reconstructed From Recorded Actions For This Window.
+              No Exact Settlement Rows Exist For These Hands Yet.
             </div>
           )}
         {hasData &&
