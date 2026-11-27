@@ -1,6 +1,10 @@
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
-import { readHourlyCashAdmissions, readHourlyCashRoom } from './supabase/cashHourlyTables.js';
+import {
+  readHandsOwedByTable,
+  readHourlyCashAdmissions,
+  readHourlyCashRoom,
+} from './supabase/cashHourlyTables.js';
 import {
   HORSE_STARTED_CASH_GAMES,
   LIGHTNING_HORSE_SEEDED,
@@ -318,6 +322,10 @@ interface CycleBeat {
   varietyDrainTable: string | null;
   /** Every extra table this cycle releases (the drain scales with the backlog, 2026-11-26). */
   varietyDrainTables: string[];
+  /** The hourly cap and the counted tables as this cycle read them (null when not
+   *  read): the live check judges the cap at every beat, not only at the moment
+   *  it runs (detail.cash_room, 2026-11-26). */
+  cashRoom: { cap: number; counted: number } | null;
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -1487,6 +1495,7 @@ export class HorseFleetManager {
       varietyOwedGames: [],
       varietyDrainTable: null,
       varietyDrainTables: [],
+      cashRoom: null,
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -3185,11 +3194,47 @@ export class HorseFleetManager {
       ) {
         const room = await readHourlyCashRoom();
         if (!readIsCurrent()) return;
+        beat.cashRoom = room;
         const personWaitingGames = new Set<string>();
         for (const t of tables) {
           if (t.cluster_id && (humansWaitingByTable.get(t.id) ?? 0) > 0)
             personWaitingGames.add(String(t.cluster_id));
         }
+        const shortfall = drainShortfall({
+          cap: room?.cap ?? null,
+          counted: room?.counted ?? null,
+          openingFeeders: tables.filter(
+            (t) =>
+              t.cluster_id &&
+              t.role === 'feeder' &&
+              t.lifecycle === 'opening' &&
+              (seatsByTable.get(t.id) ?? []).length === 0
+          ).length,
+          owedStarts: beat.varietyOwedGames.length,
+          anOwedStartAdmitted: [...variety.owedStarts.keys()].some((tableId) =>
+            hourlyAdmissions.has(tableId)
+          ),
+        });
+        const mayAddNew = Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS;
+        /* A TABLE THAT EMPTIES IN ONE SWEEP GOES FIRST (2026-11-26): only when a
+           new table may be added, the hands still owed in profit at the
+           Horse-only cluster tables are read once; a failed read is no
+           preference. */
+        const owing =
+          mayAddNew && shortfall > 0
+            ? await readHandsOwedByTable(
+                tables
+                  .filter(
+                    (t) =>
+                      t.cluster_id &&
+                      !(t.role === 'main' && Number(t.main_index) === 1) &&
+                      (seatsByTable.get(t.id) ?? []).length > 0 &&
+                      (seatsByTable.get(t.id) ?? []).every((x) => horseIdSet.has(x.user_id))
+                  )
+                  .map((t) => String(t.id))
+              )
+            : null;
+        if (!readIsCurrent()) return;
         varietyDrain = varietyDrainTables({
           tables,
           seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
@@ -3198,23 +3243,10 @@ export class HorseFleetManager {
           personWaitingGames,
           neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...cashPlanLightningGames]),
           owedGames: beat.varietyOwedGames,
-          shortfall: drainShortfall({
-            cap: room?.cap ?? null,
-            counted: room?.counted ?? null,
-            openingFeeders: tables.filter(
-              (t) =>
-                t.cluster_id &&
-                t.role === 'feeder' &&
-                t.lifecycle === 'opening' &&
-                (seatsByTable.get(t.id) ?? []).length === 0
-            ).length,
-            owedStarts: beat.varietyOwedGames.length,
-            anOwedStartAdmitted: [...variety.owedStarts.keys()].some((tableId) =>
-              hourlyAdmissions.has(tableId)
-            ),
-          }),
+          shortfall,
           current: this.varietyDrainTableIds,
-          mayAddNew: Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS,
+          mayAddNew,
+          owingAt: owing ? (tableId) => owing.get(tableId) ?? 0 : undefined,
         });
         if (varietyDrain.some((id) => !this.varietyDrainTableIds.includes(id)))
           this.varietyDrainNewAtMs = Date.now();
@@ -5598,6 +5630,7 @@ export class HorseFleetManager {
             variety_owed_games: beat.varietyOwedGames,
             variety_drain_table: beat.varietyDrainTable,
             variety_drain_tables: beat.varietyDrainTables,
+            cash_room: beat.cashRoom,
           },
         },
       });
