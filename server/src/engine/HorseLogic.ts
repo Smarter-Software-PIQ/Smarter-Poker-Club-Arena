@@ -19272,7 +19272,13 @@ export class HorseLogic {
         // step, so a floor limp and the floor's limp-fold are never touched. A strong first-in raise may become the
         // priced limp (in position against the likeliest raiser behind, or a connected rundown), and the Horse's own
         // limp, raised heads-up, the priced pot re-raise (HorseOmahaLimpReraise.ts). Off: not entered.
-        if (opts.omahaLimpReraiseVsIsoRaiser === true) {
+        // An exact chart_bb_defend answer is never touched; a change made after a chart_open_jam or variant_price
+        // route is the intent's, so the receipt names the active reference owner (as holdemAllInCallReference does).
+        if (
+          opts.omahaLimpReraiseVsIsoRaiser === true &&
+          phase6Reference.route !== 'chart_bb_defend'
+        ) {
+          const beforeLimpReraise = decision;
           const lrLimp = limpReraiseLimpStep(decision, player, gs, opts.mind !== false);
           decision = lrLimp.decision;
           // Literal keys: the ledger contract finds each receipt by its noteFire call.
@@ -19284,6 +19290,15 @@ export class HorseLogic {
             if (tele && lrRaise.receipt === 'reraised') noteFire('omaha_limp_reraise_reraised');
             else if (tele && lrRaise.receipt === 'reraise_kept')
               noteFire('omaha_limp_reraise_reraise_kept');
+          }
+          if (
+            decision !== beforeLimpReraise &&
+            (phase6Reference.route === 'chart_open_jam' ||
+              phase6Reference.route === 'variant_price')
+          ) {
+            phase6Reference.route =
+              (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop';
+            phase6Reference.lookup = null;
           }
         }
       } else {
