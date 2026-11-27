@@ -19,6 +19,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sliceStatement } from '../testHelpers/sourceWindow.js';
 import { supabase } from '../services/supabase.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import {
@@ -120,7 +121,8 @@ describe('a carried sit-out takes its table first', () => {
       const src = readFileSync(file, 'utf8');
       let at = src.indexOf("from('table_seats')");
       while (at >= 0) {
-        const window = src.slice(at, at + 400);
+        // the whole chained statement, to its ending semicolon (never a byte count)
+        const window = sliceStatement(src.slice(at), 'from(');
         const update = window.match(/\.(update|upsert)\(([^)]*)\)/);
         if (update && /is_sitting_out|leave_pending/.test(update[2])) {
           offenders.push(relative(root, file));
