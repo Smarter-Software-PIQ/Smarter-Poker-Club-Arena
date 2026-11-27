@@ -11,6 +11,7 @@ import {
   isNutsExact,
   nutClass,
   comboDrawForRaise,
+  drawForRaiseBar,
   outsToStraightPlus,
   preflopScore,
 } from './omaha.mjs';
@@ -353,6 +354,8 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
   const madeCat = sc === null ? null : category(sc);
   // the engine's own nut class ('nuts' | 'effective' | null), read only where the owner rule reads it
   const nutCls = st === 'turn' || st === 'river' ? (nuts ? 'nuts' : nutClass(hero, board)) : null;
+  // a draw as the engine's draw-raise bar defines it (drawForRaiseBar = omahaDrawRaiseBar's test), flop and turn
+  const oopDraw = (st === 'flop' || st === 'turn') && d.oop && drawForRaiseBar(hero, board);
   // the owner's 12:30 exception the engine keeps (omahaTurnComboDrawRaisePermitted): on the turn, in position, the
   // combo draw (comboDrawForRaise = omahaComboDrawForRaise) may raise; hand 13456d61
   const turnComboIp =
@@ -363,6 +366,7 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
           nuts,
           nutCls,
           turnComboIp,
+          oopDraw,
           outs,
           madeCat,
           eqNow: eqNow.eq,
@@ -386,15 +390,7 @@ export function gradeDecision(hand, di, tables, pop, opts = DEFAULTS, hindsight 
     else if (nutCls === null) breach.push('non-nut raise turn/river');
     else if (nutCls === 'effective') notes.push('nut-class raise turn/river, not the exact nuts');
   }
-  if (
-    actTaken === 'raise' &&
-    d.toCall > 0 &&
-    d.oop &&
-    (st === 'flop' || st === 'turn') &&
-    madeCat !== null &&
-    madeCat <= 1 &&
-    outs >= 4
-  )
+  if (actTaken === 'raise' && d.toCall > 0 && d.oop && (st === 'flop' || st === 'turn') && oopDraw)
     breach.push('draw raised OOP');
   return {
     eq: eqNow.eq,
@@ -464,7 +460,8 @@ export function mistakeType(hand, d, actTaken, best, x) {
       (x.nutCls === undefined ? x.nuts === false : x.nutCls === null)
     )
       return 'raised a non-nut hand on turn/river';
-    if (d.oop && x.madeCat <= 1 && x.outs >= 4) return 'raised a draw out of position';
+    if (d.oop && (x.oopDraw === undefined ? x.madeCat <= 1 && x.outs >= 4 : x.oopDraw))
+      return 'raised a draw out of position';
     return 'raise without price';
   }
   if (actTaken === 'bet') {

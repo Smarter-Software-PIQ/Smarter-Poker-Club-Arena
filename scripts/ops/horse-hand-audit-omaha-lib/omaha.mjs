@@ -446,6 +446,25 @@ export function comboDrawForRaise(hole, board) {
   for (const c of deck) if (ranks.has((c >> 2) + 2)) straight++;
   return straight >= 8;
 }
+/**
+ * The engine's draw for the owner rule "draws are never raised out of position" (drawForRaiseBar is a port of the
+ * draw test in omahaDrawRaiseBar, HorseOmahaBigDrawAggression.ts): on a flop or turn board, a hand below two pair
+ * with five or more next cards that make a flush, or eight or more next cards that make a straight (drawOuts: a card
+ * that makes a flush counts as a flush out, not a straight out). One pair with a 4-out gutshot is a made hand, not a
+ * draw (lead ruling 2026-11-27 on hand 8332e6c2).
+ */
+export function drawForRaiseBar(hole, board) {
+  if (board.length !== 3 && board.length !== 4) return false;
+  if (category(omaha(hole, board)) >= 2) return false;
+  let flushOuts = 0;
+  let straightOuts = 0;
+  for (const c of deckWithout([...hole, ...board])) {
+    const k = category(omaha(hole, [...board, c]));
+    if (k === 5) flushOuts++;
+    else if (k === 4) straightOuts++;
+  }
+  return flushOuts >= 5 || straightOuts >= 8;
+}
 /** cards that improve the hand to a straight or better on the next card (outs), for "draw" typing */
 export function outsToStraightPlus(hole, board) {
   if (board.length >= 5) return 0;

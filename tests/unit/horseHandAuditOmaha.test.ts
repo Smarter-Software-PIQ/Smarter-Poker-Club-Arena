@@ -5,6 +5,7 @@ import { assertReadOnlySql } from '../../scripts/ops/holdem-blanket-scoreboard-l
 import {
   category,
   comboDrawForRaise,
+  drawForRaiseBar,
   eval5,
   holdingPool,
   boatsAbove,
@@ -20,7 +21,10 @@ import { parseHand, shownCards } from '../../scripts/ops/horse-hand-audit-omaha-
 import { nodeFoldCost } from '../../scripts/ops/horse-hand-audit-omaha-lib/rangetier.mjs';
 import { mistakeClass } from '../../scripts/ops/horse-hand-audit-omaha-lib/grade.mjs';
 import { omahaNutClassNow } from '../../server/src/engine/HorseOmahaMadeHandDefense';
-import { omahaComboDrawForRaise } from '../../server/src/engine/HorseOmahaBigDrawAggression';
+import {
+  omahaComboDrawForRaise,
+  omahaDrawRaiseBar,
+} from '../../server/src/engine/HorseOmahaBigDrawAggression';
 import { aggregate } from '../../scripts/ops/horse-hand-audit-omaha-lib/aggregate.mjs';
 import {
   EXIT_FAILED,
@@ -566,5 +570,135 @@ describe('owner rule "a hand that is not nut class never raises the turn or rive
     expect(d).toBeTruthy();
     expect(d.pos).toBe('OOP');
     expect(d.breach).toContain('non-nut raise turn/river');
+  });
+
+  /** Hand 8332e6c2 shape (PLO4, build 3aa21caa): the Horse checks the flop out of position and raises the bet. With
+   * 8d Td Qc 7h on Ts 6c 3h (top pair and a 4-out gutshot) that is a made hand raising, not a draw (lead ruling
+   * 2026-11-27); a bare wrap or a bare flush draw raising there is the breach. */
+  const flopCheckRaise = (hole: string[], board: string[]) => ({
+    id: '8332e6c2-0000-4000-8000-00000000000' + (hole[0] === '8d' ? '5' : '6'),
+    created_at: '2026-11-27 17:06:00.000000+00',
+    gv: 'plo4',
+    bb: '1.00',
+    btn: '1',
+    build: '3aa21caa9f7d',
+    hh: true,
+    rake: '0',
+    bbj: '0',
+    pot: '46.00',
+    tid: 't1',
+    cc: board,
+    cc2: null,
+    rit: null,
+    bomb: false,
+    pl: [
+      [1, P, 200, 'ShapePerson', false],
+      [2, H, 200, 'ShapeHorse', true],
+    ],
+    ac: [
+      [1, 'preflop', 'sb', 0.5, 'forced', false, null, null, P],
+      [2, 'preflop', 'bb', 1, 'forced', false, null, null, H],
+      [1, 'preflop', 'raise', 3, 'human', null, null, null, P],
+      [2, 'preflop', 'call', 2, 'horse_policy', null, null, null, H],
+      [2, 'flop', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'flop', 'bet', 5, 'human', null, null, null, P],
+      [2, 'flop', 'raise', 20, 'horse_policy', null, null, null, H],
+      [1, 'flop', 'call', 15, 'human', null, null, null, P],
+      [2, 'turn', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'turn', 'check', 0, 'human', null, null, null, P],
+      [2, 'river', 'check', 0, 'horse_policy', null, null, null, H],
+      [1, 'river', 'check', 0, 'human', null, null, null, P],
+    ],
+    w: [{ userId: H, amount: 46, potIndex: 0 }],
+    pots: [{ amount: 46, eligible: [H, P] }],
+    sd: [
+      [1, P, true],
+      [2, H, false],
+    ],
+    hc: { [H]: hole.map(card) },
+  });
+  const flopRaiseRow = (row: unknown) =>
+    buildAudit([row], { tables, opts: FAST }).decisions.find(
+      (d: { street: string; act_taken?: string; tier: string }) =>
+        d.street === 'flop' && d.tier === 'A' && d.act_taken === 'raise'
+    );
+  it('the draw for "draw raised OOP" is the engine\'s (omahaDrawRaiseBar) on 400 seeded flop and turn holdings', () => {
+    const r = rng(20261128);
+    const names = (cs: number[]) =>
+      cs.map((c) => ({
+        rank: '23456789TJQKA'[c >> 2],
+        suit: ['clubs', 'diamonds', 'hearts', 'spades'][c & 3],
+      }));
+    let draws = 0;
+    for (let i = 0; i < 400; i++) {
+      const deck = Array.from({ length: 52 }, (_, k) => k);
+      for (let k = 51; k > 0; k--) {
+        const j = Math.floor(r() * (k + 1));
+        [deck[k], deck[j]] = [deck[j]!, deck[k]!];
+      }
+      const nb = i % 2 === 0 ? 3 : 4;
+      const nh = i % 3 === 0 ? 5 : 4;
+      const board = deck.slice(0, nb);
+      const hole = deck.slice(nb, nb + nh);
+      if (i % 2 === 1) {
+        const s0 = board[0]! & 3;
+        hole.splice(
+          0,
+          2,
+          ...deck
+            .slice(nb + nh)
+            .filter((c) => (c & 3) === s0)
+            .slice(0, 2)
+        );
+      }
+      const engine = omahaDrawRaiseBar({
+        variant: nh === 5 ? 'plo5' : 'plo4',
+        street: nb === 3 ? 'flop' : 'turn',
+        hole: names(hole) as never,
+        board: names(board) as never,
+        inPosition: false,
+        hiLo: false,
+        multiBoard: false,
+        bombPot: false,
+        tournament: false,
+        allInOrFold: false,
+      });
+      const mine = drawForRaiseBar(hole, board);
+      expect(mine, `${hole} on ${board}`).toBe(engine === 'out_of_position');
+      if (mine) draws++;
+    }
+    expect(draws).toBeGreaterThan(0);
+  });
+  it('one pair with a 4-out gutshot raising out of position is a made hand, not a draw raise (hand 8332e6c2)', () => {
+    expect(drawForRaiseBar(C('8d Td Qc 7h'), C('Ts 6c 3h'))).toBe(false);
+    const row = flopCheckRaise(
+      ['8d', 'Td', 'Qc', '7h'],
+      ['Tspades', '6clubs', '3hearts', 'Qhearts', 'Kspades']
+    );
+    const d = flopRaiseRow(row);
+    expect(d).toBeTruthy();
+    expect(d.pos).toBe('OOP');
+    expect(d.breach).toBe('');
+    expect(d.mtype).not.toBe('raised a draw out of position');
+    expect(buildAudit([row], { tables, opts: FAST }).summary.breaches).toEqual([]);
+  });
+  it('a bare wrap or a bare flush draw raising out of position is still the breach', () => {
+    expect(drawForRaiseBar(C('9d 8c 5h 4s'), C('7s 6c Kh'))).toBe(true);
+    expect(drawForRaiseBar(C('Ah Kh 4c 5d'), C('9h 8h Qs'))).toBe(true);
+    const wrap = flopRaiseRow(
+      flopCheckRaise(
+        ['9d', '8c', '5h', '4s'],
+        ['7spades', '6clubs', 'Khearts', '2diamonds', '2clubs']
+      )
+    );
+    expect(wrap.pos).toBe('OOP');
+    expect(wrap.breach).toBe('draw raised OOP');
+    const flush = flopRaiseRow(
+      flopCheckRaise(
+        ['Ah', 'Kh', '4c', '5d'],
+        ['9hearts', '8hearts', 'Qspades', '2diamonds', '3clubs']
+      )
+    );
+    expect(flush.breach).toBe('draw raised OOP');
   });
 });
