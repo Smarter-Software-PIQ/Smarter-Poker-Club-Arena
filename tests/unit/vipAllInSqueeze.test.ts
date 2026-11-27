@@ -415,7 +415,9 @@ describe('the setting (R4, R5)', () => {
   });
   it('the panel answers a non-VIP tap with the upsell and NO write', () => {
     const panel = read('src/components/table/TableSettingsPanel.tsx');
-    expect(panel).toMatch(/if \(!isVIP\) \{\s*announceVipRequired\(\);\s*return;\s*\}/);
+    expect(panel).toMatch(
+      /if \(!isVIP\) \{\s*announceVipRequired\(vipIntro\.priceLine\);\s*return;\s*\}/
+    );
     expect(panel).toContain("masterBus.emit('SHOW_TOAST'");
     expect(panel).toContain('onClick={onClick}');
   });

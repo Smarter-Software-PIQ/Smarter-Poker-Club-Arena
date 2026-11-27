@@ -84,6 +84,17 @@ describe('VIP first month for one dollar', () => {
       'firstMonthOffer ? { introCents: VIP_INTRO_OFFER.firstPeriodCents } : {}'
     );
     expect(tab).toContain('First Month, Then ');
+    // A readable sentence in its own class, never the 9px term label, and
+    // the amount never breaks away from its unit on the painted button.
+    expect(tab).toContain('<div className={styles.planOffer}>');
+    expect(tab).toContain("'Subscribe For 1\\u00a0USD'");
+    expect(tab).not.toContain('Subscribe With Card: 1 USD First Month');
+    const css = readFileSync(
+      resolve(__dirname, '../../src/pages/MarketplacePage.module.css'),
+      'utf8'
+    );
+    expect(css).toMatch(/\.planOffer \{[^}]*700 12\.5px\/1\.35 Inter/);
+    expect(css).toMatch(/\.planPeriod,\n\.pkgLabel \{[^}]*800 9px\/1/);
     // The Club Arena shows no dollar sign: the offer is worded in USD.
     expect(tab).not.toMatch(/\$1 First Month/);
   });
