@@ -27,6 +27,10 @@ Two changes written on 2026-11-26 and never merged, replayed onto current main w
 - The selector names every candidate it refused and why (`refusedCandidates`, `uncertifiedCommits` in `daily-selection.json`, and on the cutover log). On 2026-11-25 three cycles kept serving while the log read `Deferred candidates: (none)` for builds the Backup had refused.
 - The readiness post names the commit an active Backup run is really certifying after an in-place retarget.
 
+## Also Replayed From #12058
+
+A freeze baseline certified before or across a seal rehearsed its rollback against the outgoing engine, so the selector refused it for good ("serving rollback rehearsal unavailable"), and the post-seal run printed NOTHING TO CERTIFY. The post-seal run now plans a `claimed` or `done` baseline that is ahead of the sealed build again, and hands the host back with no soak when the standing certificate already rehearsed against the sealed build. Law: `tests/the-post-seal-backup-certifies-the-next-candidate.law.test.ts` (42 cases pass). The commit applied to current main without conflict.
+
 ## Proof
 
 - `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`, "mid-soak yield" (6 cases): the far-from-cutoff case now expects `YIELDED_OBSOLETE` with `5400s to next cutoff`; the still-selectable, no-waiting-run, deferred-migration, unreadable and never-yield cases are unchanged.
