@@ -4706,6 +4706,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-27 (lead-8 lane preflop): omahaReraisedPotFoldReraiseIsPriced, default OFF: facing a 3-bet or more
+  // heads-up against the re-raiser, a standing fold priced against the pot-size re-raise. Both arms carry
+  // production's live set; a adds the option (docs/horse-option-authority.d/omahaReraisedPotFoldReraiseIsPriced.md).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_fold_reraise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPotFoldReraiseIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a

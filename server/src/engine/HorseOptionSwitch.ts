@@ -385,6 +385,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // field by position, depth and players (ships dark)
   'omahaReraisedPotCallIsPriced',
   'omahaReraisedPotReraiseIsPriced',
+  // 2026-11-27 lead-8 lane preflop: a standing fold facing a 3-bet or more priced against the pot-size re-raise
+  // (ships dark)
+  'omahaReraisedPotFoldReraiseIsPriced',
   // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',

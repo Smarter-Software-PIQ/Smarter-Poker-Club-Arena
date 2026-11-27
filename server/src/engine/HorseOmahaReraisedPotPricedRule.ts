@@ -35,6 +35,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire } from './BrainTelemetry.js';
 import { variantInfo } from './HorseEval.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
+import { indifferenceFold } from './HorsePreflopIndifferenceAnchor.js';
 import { exploitEnvelopeFor, reRaiseLineWidth } from './HorseOpponentExploit.js';
 import { preflopRaiseCount } from './HorseOmahaReraisedPot.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
@@ -42,6 +43,7 @@ import { omahaPreflopDefenceRake } from './HorseOmahaPreflopReraiseDefence.js';
 import { reraiseResponseNodeOf, type ReraiseResponseNode } from './HorseOmahaReraiseResponse.js';
 import {
   OMAHA_RERAISED_POT_PRICED_VARIANTS,
+  RERAISED_POT_PRICED_SAMPLES,
   RERAISED_POT_BEHIND_WIDTH_RATIO,
   RERAISED_POT_CALLER_WIDTH_RATIO,
   reraisedPotRaiserWidth,
@@ -86,6 +88,44 @@ export const RERAISED_POT_PRIOR = {
   facesFourBetCold: { fold: 0.768, call: 0.135, reraise: 0.097 },
 } as const;
 
+/**
+ * THE PEOPLE PRIOR of omahaReraisedPotFoldReraiseIsPriced (lead-8 lane preflop, 2026-11-27; owner order 2026-11-26
+ * 12:21 Chicago: every statistic about an opponent is measured from people's play only). One formula for every
+ * opponent: his own public record, then this prior. Measured read-only from public actions of PLO4/PLO5 cash hands
+ * with a person, 2026-11-19 23:00Z to 11-27 05:00Z (7,995 hands; S7/l8-preflop/stats.md), people's actions only.
+ * Each cell is the PERSON-LEVEL distribution (the mean over persons and the mass of a beta fitted to their spread
+ * by moments), because these rates belong to the person: a pooled rate is one or two frequent players.
+ *  - threeBet: a person facing one open re-raised 42.9% in PLO5 (1,219 of 2,843) and 7.3% in PLO4 (70 of 953),
+ *    but 15 person-game cells with 30 or more opportunities run from 0% to 53%: mean 0.156, mass 2.7. An own
+ *    record of a dozen opportunities outweighs it four to one.
+ *  - a 3-bettor facing a 4-bet: 9 persons, 277 answers, ONE fold (PLO5 0 of 265, PLO4 1 of 12): person mean 0.028,
+ *    mass 3.4. The cell is not thin, so it stands alone: the first build put the indifference fold (2/3 for a pot
+ *    re-raise) beside it at mass 2, which read an unknown 3-bettor as folding 27% of the time, a fold equity no
+ *    person had shown; against a scripted tight 3-bettor that build lost 15.3 +/- 5.2 bb/100 heads-up and was
+ *    withdrawn (S7/l8-preflop/BUILD.md, v1).
+ *  - a 4-bettor facing a 5-bet: 6 persons, 15 answers, no fold. Thin, so the option does not price that node at
+ *    all (reraisedPotFoldReraise acts facing exactly a 3-bet); the cell is kept, anchored to the indifference fold
+ *    of the re-raise he would face (HorsePreflopIndifferenceAnchor.indifferenceFold) at mass 2, for a later build
+ *    with more answers.
+ * Nothing here is fitted on a Horse's play, a HUD population row or an unshown card.
+ */
+export const RERAISED_POT_PEOPLE_PRIOR = {
+  threeBetRate: { people: 0.156, peopleMass: 2.7 },
+  threeBetFacesFourBetFold: { anchorMass: 0, people: 0.028, peopleMass: 3.4 },
+  fourBetFacesFiveBetFold: { anchorMass: 2, people: 0, peopleMass: 3.4 },
+} as const;
+
+/**
+ * The sampling error of the price (omahaReraisedPotFoldReraiseIsPriced): the equity behind EV(re-raise) is a sample
+ * of RERAISED_POT_PRICED_SAMPLES joint draws, so the called branch carries a standard error of at most
+ * 0.5 / sqrt(samples) of the called pot. A fold becomes a re-raise only when the price clears that error as well as
+ * the deadband: a re-raise risks many times what a call does, on the same sample.
+ */
+export function reraisedPotFoldReraiseSamplingMargin(calledPot: number, allFold: number): number {
+  const p = Math.max(0, Math.min(1, Number.isFinite(allFold) ? allFold : 0));
+  return (0.5 / Math.sqrt(RERAISED_POT_PRICED_SAMPLES)) * Math.max(0, calledPot) * (1 - p);
+}
+
 export interface ReraisedPotPricedContext {
   mind: boolean;
   telemetry: boolean;
@@ -98,13 +138,36 @@ const order = (seat: number, dealerSeat: number | undefined): number => {
 
 const fin = (x: unknown, d = 0): number => (typeof x === 'number' && Number.isFinite(x) ? x : d);
 
+/** His own decayed 3-bet record as the decision in flight reads it (0 of 0 with none, or with memory off). */
+function reraisedPotOwnThreeBetRecord(
+  userId: string,
+  mind: boolean
+): { hits: number; opp: number } {
+  if (!mind || !userId) return { hits: 0, opp: 0 };
+  try {
+    const c = HorseMind.currentExploitCounters(userId);
+    if (!c) return { hits: 0, opp: 0 };
+    const opp = Math.max(0, fin(c.threeBetOpp));
+    return { hits: Math.min(opp, Math.max(0, fin(c.threeBet))), opp };
+  } catch {
+    return { hits: 0, opp: 0 };
+  }
+}
+
 /** His posterior re-raise rate: own record, then the self-play baseline and the population at their masses. */
 export function reraisedPotRaiseRateOf(
   userId: string,
   variant: string,
   dealt: number,
-  mind: boolean
+  mind: boolean,
+  /** omahaReraisedPotFoldReraiseIsPriced: his own record against the people prior (RERAISED_POT_PEOPLE_PRIOR). */
+  peoplePrior = false
 ): number {
+  if (peoplePrior) {
+    const q = RERAISED_POT_PEOPLE_PRIOR.threeBetRate;
+    const own = reraisedPotOwnThreeBetRecord(userId, mind);
+    return (own.hits + q.people * q.peopleMass) / (own.opp + q.peopleMass);
+  }
   const p = RERAISED_POT_PRIOR.threeBetRate;
   let pop: number = p.baseline;
   try {
@@ -137,8 +200,36 @@ export function reraisedPotRaiseRateOf(
 export function reraisedPotFoldToReraiseOf(
   userId: string,
   node: ReraiseResponseNode,
-  mind: boolean
+  mind: boolean,
+  /**
+   * omahaReraisedPotFoldReraiseIsPriced: his own record, then the people prior, then the equilibrium anchor: the
+   * indifference fold of the re-raise he would face, of size `anchorSize` times the pot it is made into.
+   */
+  people?: { anchorSize: number }
 ): number {
+  if (people) {
+    const q =
+      node === 'threeBetFacesFourBet'
+        ? RERAISED_POT_PEOPLE_PRIOR.threeBetFacesFourBetFold
+        : RERAISED_POT_PEOPLE_PRIOR.fourBetFacesFiveBetFold;
+    let f = 0;
+    let n = 0;
+    if (mind && userId) {
+      try {
+        const c = HorseMind.omahaReraiseResponseOf(userId)?.[node];
+        if (c && fin(c.opp) > 0) {
+          n = fin(c.opp);
+          f = Math.min(n, Math.max(0, fin(c.fold)));
+        }
+      } catch {
+        /* prior alone */
+      }
+    }
+    return (
+      (f + indifferenceFold(people.anchorSize) * q.anchorMass + q.people * q.peopleMass) /
+      (n + q.anchorMass + q.peopleMass)
+    );
+  }
   const p =
     node === 'threeBetFacesFourBet'
       ? RERAISED_POT_PRIOR.threeBetFacesFourBetFold
@@ -175,9 +266,10 @@ export function reraisedPotRaiserWidthOf(
   dealt: number,
   preflopRaises: number,
   raiserOpened: boolean,
-  mind: boolean
+  mind: boolean,
+  peoplePrior = false
 ): number {
-  const rate = reraisedPotRaiseRateOf(userId, variant, dealt, mind);
+  const rate = reraisedPotRaiseRateOf(userId, variant, dealt, mind, peoplePrior);
   let width = reraisedPotRaiserWidth(rate, preflopRaises);
   if (preflopRaises >= 3 && raiserOpened && mind && userId) {
     try {
@@ -215,7 +307,9 @@ export interface ReraisedPotPricedSpotFound {
 export function reraisedPotPricedSpot(
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  mind: boolean
+  mind: boolean,
+  /** omahaReraisedPotFoldReraiseIsPriced: the re-raiser read from his own record against the people prior. */
+  peoplePrior = false
 ): ReraisedPotPricedSpotFound | null {
   if (String(gs.stage ?? '') !== 'preflop') return null;
   const variant = String(gs.gameVariant ?? '').toLowerCase();
@@ -270,9 +364,14 @@ export function reraisedPotPricedSpot(
     dealt,
     preflopRaises,
     raiserOpened,
-    mind
+    mind,
+    peoplePrior
   );
   const node = reraiseResponseNodeOf(preflopRaises) ?? 'threeBetFacesFourBet';
+  // the size of the Horse's own pot re-raise as a bluff: the chips it adds over the pot it is made into
+  const stackNow = Math.max(0, fin(player.stack));
+  const potReraiseRisk = Math.min(stackNow, 2 * toCall + pot);
+  const anchorSize = pot > 0 ? potReraiseRisk / pot : 2;
   const opponents: ReraisedPotOpponent[] = [
     {
       seat: raiser.seat,
@@ -281,7 +380,12 @@ export function reraisedPotPricedSpot(
       behind: Math.max(0, fin(raiser.stack)),
       toMatch: 0,
       width: raiserWidth,
-      foldToReraise: reraisedPotFoldToReraiseOf(String(raiser.user_id ?? ''), node, mind),
+      foldToReraise: reraisedPotFoldToReraiseOf(
+        String(raiser.user_id ?? ''),
+        node,
+        mind,
+        peoplePrior ? { anchorSize } : undefined
+      ),
     },
   ];
   const cold = preflopRaises >= 3 ? RERAISED_POT_PRIOR.facesFourBetCold : null;
@@ -359,6 +463,8 @@ export function reraisedPotPotRaise(
 export interface ReraisedPotPricedOptions {
   call: boolean;
   reraise: boolean;
+  /** omahaReraisedPotFoldReraiseIsPriced: a standing fold is priced against the pot-size re-raise. */
+  foldReraise?: boolean;
 }
 
 const cents = (x: number): number => Math.round(x * 100) / 100;
@@ -381,6 +487,13 @@ export function reraisedPotPricedDecision(
   const givenRaise = given === 'raise' || (given === 'all_in' && !callIsAllIn);
   const kind: 'fold' | 'call' | 'raise' = given === 'fold' ? 'fold' : givenRaise ? 'raise' : 'call';
   if (kind === 'raise' && !which.reraise) return same;
+  // omahaReraisedPotFoldReraiseIsPriced (default OFF): the standing FOLD against the pot-size re-raise, heads-up
+  // against the re-raiser, read from his own record against the people prior. Asked first; when it does not
+  // re-raise, the fold goes on to the call price below exactly as before (omahaReraisedPotCallIsPriced, if on).
+  if (kind === 'fold' && which.foldReraise === true) {
+    const r = reraisedPotFoldReraise(standing, player, gs, ctx);
+    if (r && (r.receipt === 'fold_reraised' || !which.call)) return r;
+  }
   if (kind === 'fold' && !which.call) return same;
   if (kind === 'call' && !which.call && !which.reraise) return same;
   let risk: number | null = null;
@@ -440,6 +553,70 @@ export function reraisedPotPricedDecision(
   return { decision: asFold(), verdict, receipt: 'reraise_folded' };
 }
 
+/**
+ * omahaReraisedPotFoldReraiseIsPriced (lead-8 lane preflop, 2026-11-27; default OFF, read `=== true`).
+ *
+ * THE GAP. Every re-raised-pot rule priced a standing fold against the CALL only. A Horse that opened and met a
+ * 3-bet out of position therefore folded (calling there is a losing play: the measured out-of-position realization
+ * prices it out) and never asked what the pot-size 4-bet was worth. Against people that fold was 72% of the Horses'
+ * out-of-position answers to a 3-bet in PLO5 (495 decisions, 2026-11-19..27), while those people re-raised 43% of
+ * opens and folded 0 of 265 4-bets: a range that wide, which never folds, is one the top of an opening range is
+ * ahead of with the pot already built.
+ *
+ * WHAT IT DOES. PLO4/PLO5 cash, preflop, facing exactly a 3-bet (a fold facing a 4-bet or more is not priced here:
+ * people's answers to a 5-bet are 15, too thin to price a stack on), OUT OF POSITION against him on the later streets
+ * (in position the fold is already weighed against the call by the live in-position defence, and the realization fit
+ * credits an in-position aggressor with more than his equity on far stronger ranges), heads-up against the re-raiser (no other live
+ * player in the hand: with callers in or players to act the called pot is not the two-range pot priced here, so
+ * the fold stands), a pot-size re-raise or the all-in it amounts to being legal: the standing fold becomes that
+ * re-raise when EV(re-raise) > max(EV(call), 0) + deadband + the sampling error of the price
+ * (reraisedPotFoldReraiseSamplingMargin) on HorseOmahaReraisedPotPriced's verdict, with the
+ * re-raiser's width and his fold to the re-raise read from HIS OWN public record, then the people prior
+ * (RERAISED_POT_PEOPLE_PRIOR), then the equilibrium anchor. It never makes a call (a call of a 3-bet or 4-bet out
+ * of position stays what the call price says it is), never changes a size and never touches a standing call or
+ * re-raise. Receipts omaha_reraised_pot_priced_fold_reraised / _fold_reraise_kept.
+ */
+function reraisedPotFoldReraise(
+  standing: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  ctx: ReraisedPotPricedContext
+): { decision: HorseDecision; verdict: ReraisedPotVerdict | null; receipt: string | null } | null {
+  const found = reraisedPotPricedSpot(player, gs, ctx.mind, true);
+  if (!found) return null;
+  const { spot, heroBet } = found;
+  // exactly a 3-bet (the measured gap: the opener's fold); a fold facing a 4-bet or more is left to the fold
+  if (spot.preflopRaises !== 2) return null;
+  if (spot.opponents.length !== 1) return null;
+  // out of position against the re-raiser only: in position the standing fold has already been weighed against the
+  // call (omahaPreflopReraiseDefencePricedInPosition), and the fit credits an in-position aggressor with more than
+  // his equity on ranges far stronger than a hand that was folded
+  if (spot.heroOrder > spot.opponents[0]!.order) return null;
+  const potRaise = reraisedPotPotRaise(spot, heroBet, gs);
+  if (!potRaise || !(potRaise.risk > spot.call + 0.005)) return null;
+  const verdict = reraisedPotVerdict(
+    spot,
+    player.cards ?? [],
+    player.knownDeadCards ?? [],
+    potRaise.risk
+  );
+  if (!verdict || verdict.evRaise === null) return null;
+  // the called pot of the re-raise, as the verdict builds it (the re-raiser calls what he can)
+  const raiser = spot.opponents[0]!;
+  const hisCall = Math.max(0, Math.min(potRaise.risk - spot.call, raiser.behind));
+  const calledPot = spot.pot + spot.call + 2 * hisCall;
+  const margin =
+    verdict.deadband + reraisedPotFoldReraiseSamplingMargin(calledPot, raiser.foldToReraise);
+  if (!(verdict.evRaise > Math.max(verdict.evCall, 0) + margin))
+    return { decision: standing, verdict, receipt: 'fold_reraise_kept' };
+  const r: HorseDecision = potRaise.allIn
+    ? { ...standing, action: 'all_in' }
+    : { ...standing, action: 'raise', amount: cents(potRaise.to) };
+  if (potRaise.allIn) delete r.amount;
+  delete r.continuationGuard;
+  return { decision: r, verdict, receipt: 'fold_reraised' };
+}
+
 /** The rule: the standing decision, or the priced one. Never throws. */
 export function omahaReraisedPotPricedRule(
   standing: HorseDecision,
@@ -448,7 +625,7 @@ export function omahaReraisedPotPricedRule(
   which: ReraisedPotPricedOptions,
   ctx: ReraisedPotPricedContext
 ): HorseDecision {
-  if (!which.call && !which.reraise) return standing;
+  if (!which.call && !which.reraise && which.foldReraise !== true) return standing;
   try {
     if (String(gs.stage ?? '') !== 'preflop') return standing;
     const r = reraisedPotPricedDecision(standing, player, gs, which, ctx);
@@ -459,6 +636,9 @@ export function omahaReraisedPotPricedRule(
       else if (r.receipt === 'call_reraised') noteFire('omaha_reraised_pot_priced_call_reraised');
       else if (r.receipt === 'fold_called') noteFire('omaha_reraised_pot_priced_fold_called');
       else if (r.receipt === 'fold_kept') noteFire('omaha_reraised_pot_priced_fold_kept');
+      else if (r.receipt === 'fold_reraised') noteFire('omaha_reraised_pot_priced_fold_reraised');
+      else if (r.receipt === 'fold_reraise_kept')
+        noteFire('omaha_reraised_pot_priced_fold_reraise_kept');
       else if (r.receipt === 'reraise_kept') noteFire('omaha_reraised_pot_priced_reraise_kept');
       else if (r.receipt === 'reraise_called') noteFire('omaha_reraised_pot_priced_reraise_called');
       else if (r.receipt === 'reraise_folded') noteFire('omaha_reraised_pot_priced_reraise_folded');

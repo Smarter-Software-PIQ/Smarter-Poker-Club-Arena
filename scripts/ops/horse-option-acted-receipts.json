@@ -1310,6 +1310,16 @@
       "prefixes": [],
       "unlessOn": ["omahaReraisedPotCallIsPriced"]
     },
+    "omahaReraisedPotFoldReraiseIsPriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_reraised_pot_priced_fold_reraise_kept",
+        "omaha_reraised_pot_priced_fold_reraised"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "omahaStabDefenceIsPriced": {
       "releaseDefault": "off",
       "source": "ledger",
