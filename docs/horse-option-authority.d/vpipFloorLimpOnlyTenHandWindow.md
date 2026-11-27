@@ -61,6 +61,21 @@ PLO5 against the declared bars: correctness MET; churn 0.52 (six-Horse) and 0.56
 
 Order: a serving engine refuses a whole settings version that names a key it does not register, so `horse.vpipFloorTenHandWindowGame.plo5 = 1` is published only after a build with this scope serves on every engine host, and it is published and accepted BEFORE the switch row goes on (the switch tool does not check the scope; with no list the switch would act in every game).
 
+## Cost (2026-11-27, lead-8 lane tenhand)
+
+Engine's own `HorseLogic.decide` on the compiled build, the real PLO4/PLO5 floored preflop nodes of lane preflop (hands with a person, 2026-11-20 to 11-27; public actions and the deciding Horse's own cards only), each made a table KNOWN to be judged at ten hands (window 10, the Horse's own judged row 10 hands at 30%), production option set plus `vpipFloorLimpOnly`; host load about 17. Arms: today (switch off), on with no list, on with the list [plo5].
+
+| game | arm             | spots | p50 ms | p95 ms | max ms | over 25 ms | over 50 ms |
+| ---- | --------------- | ----- | ------ | ------ | ------ | ---------- | ---------- |
+| PLO5 | today           | 4,786 | 0.22   | 0.96   | 2.80   | 0          | 0          |
+| PLO5 | on, no list     | 4,786 | 0.19   | 0.94   | 3.23   | 0          | 0          |
+| PLO5 | on, list [plo5] | 4,786 | 0.18   | 0.93   | 2.84   | 0          | 0          |
+| PLO4 | today           | 284   | 0.58   | 1.66   | 3.08   | 0          | 0          |
+| PLO4 | on, no list     | 284   | 1.38   | 9.19   | 24.65  | 0          | 0          |
+| PLO4 | on, list [plo5] | 284   | 0.56   | 1.74   | 6.88   | 0          | 0          |
+
+PLO5 is inside the bar (p95 <= 10 ms, max <= 25 ms, nothing over 50 ms). With the list [plo5] every PLO5 decision equals the switch on (4,786 of 4,786) and every PLO4 decision equals today (284 of 284). PLO4 on (the priced limp) is close to the bar on fewer than 500 spots: measure again before PLO4 is listed. On these nodes (limps and limps raised behind) no PLO5 action changes with the switch on, because today's old floor already limps and folds there through `omahaVpipFloorByLimp`; the receipts move from `vpip_floor_limp_only_not_governed_ten_hand_window` to `vpip_floor_limp_only_governed_ten_hand_window`. The decisions the switch changes are the old floor's widened opens and its call-downs of raises (`vpip_floor_call_down`), measured in the sitting model above.
+
 ## Prior anchor
 
 None needed: the option prices nothing and reads no population or opponent statistic. It removes the old floor's widening (`vpipFloorMul`), call-down (`vpipFloorCallDown`) and intent swap (`omahaVpipFloorByLimp`) at ten-hand tables, which is the owner's ruling as written; the one action left is `vpipFloorLimpOnlyStep`, whose priced limp (hold'em, PLO4) is that of `vpipFloorLimpOnly` and uses no person-or-Horse prior. No hidden card is read.
@@ -96,7 +111,7 @@ Machine-read (README.md, "The Replay row"); a run row is written by the scorer a
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm TH vs off; replayed 869 of 869
 - Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2697; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm TH vs off; replayed 2697 of 2697
 
-What the rows mean (2026-11-27): no audited decision changes, because an audited node is replayed from the stored public node, which carries the table's floor and window but not the Horse's own judged row, so no audited table is KNOWN to be judged at ten hands (`vpipFloorLimpOnlyTenHandTable` needs that row) and the option has nothing to act on there. The audits hold no decision the option would have changed; what it changes is measured by the sitting model above and by the real-node run in "Cost" below.
+What the rows mean (2026-11-27): no audited decision changes, because an audited node is replayed from the stored public node, which carries the table's floor and window but not the Horse's own judged row, so no audited table is KNOWN to be judged at ten hands (`vpipFloorLimpOnlyTenHandTable` needs that row) and the option has nothing to act on there. The audits hold no decision the option would have changed; what it changes is measured by the sitting model above and by the real-node run in "Cost" above.
 
 ## Rollback
 
