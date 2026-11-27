@@ -2,7 +2,8 @@
 // Pure core of the read-only Horse option shadow watcher (horse-option-shadow-watch.mjs).
 // It builds read-only SELECTs and turns their rows into a report and a one-line VERDICT. No I/O here.
 //
-// What a live shadow trial is read from (one shadow row globally, so the shared counters are the option's):
+// What a live shadow trial is read from (the shared stage counters are the option's only with ONE shadow row; with
+// several rows read the per-option ones, option_shadow_<option>_stage_*, scripts/ops/shadow-read-report.mjs):
 //   ca_horse_style_switch                 the option's switch row (state) and its companions'
 //   horse_brain_flush_receipts.fires      option_shadow_<option>_<changed|same>[_person]_seen,
 //                                         option_shadow_<option>_dir_<from>_to_<to>[_person]_seen (hold'em stage),
@@ -45,7 +46,7 @@ export const ACTED_RECEIPTS = Object.freeze(
   ).options
 );
 
-/** The counters of the stage and the shadow that are not the option's own (one shadow row globally). */
+/** The counters of the stage and the shadow that are not the option's own (the option's only with one shadow row). */
 export const GUARD_FEATURES = Object.freeze({
   breaker: 'option_shadow_stage_self_disabled_seen',
   inlineBreaker: 'option_shadow_inline_self_disabled_seen',
@@ -378,13 +379,13 @@ export function formatWatchReport(rep) {
     `  person  hands reached=${rep.personHands} agree=${rep.samePerson} disagree=${rep.changedPerson}`
   );
   L.push(`  horse   re-decisions=${rep.redecisions - rep.personHands}`);
-  L.push("--- disagree by direction (hold'em stage) ---");
+  L.push("--- disagree by direction (hold'em and PLO stage) ---");
   if (rep.directions.length === 0) L.push('  (none)');
   for (const d of rep.directions)
     L.push(`  ${d.direction.padEnd(18)} all=${d.all} person=${d.person}`);
   if (rep.directions.length > 0 && rep.directionTotal !== rep.changed)
     L.push(
-      `  (directions ${rep.directionTotal} of ${rep.changed} changed: PLO and inline re-decisions count no direction)`
+      `  (directions ${rep.directionTotal} of ${rep.changed} changed: inline re-decisions, and PLO staged ones before 2026-11-27, count no direction)`
     );
   L.push('--- breaker and guards ---');
   L.push(

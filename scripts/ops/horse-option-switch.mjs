@@ -40,6 +40,7 @@ import {
   assertSafeOptionName,
   assertSafeState,
   buildEvidenceLookupSql,
+  buildPerOptionStageCountersSql,
   buildPickupTelemetrySql,
   buildReadbackSql,
   buildRegistryRefusalSql,
@@ -58,6 +59,7 @@ import {
   parseCliArgs,
   parseReleaseDefaultOnOptions,
   parseSupabaseQueryJson,
+  perOptionStageCountersServing,
   snapshotFromRows,
 } from './horse-option-switch-lib.mjs';
 
@@ -377,6 +379,13 @@ async function runPreflightCore(option, targetState, flags, deps) {
   const whitelistStates = readWhitelistStates(deps.queryDb, safeOpt);
   const dbMaintenance = loadDbMaintenance(deps.queryDb);
   const recentConfigAlarms = deps.queryDb(queries.recentConfigAlarms);
+  // ROWS IN SHADOW AT ONCE (2026-11-27): a second or third row only once every serving release counts per option
+  const perOptionStageCounters = SHADOW_STATES.includes(safeState)
+    ? perOptionStageCountersServing(
+        servingRegistries,
+        deps.queryDb(buildPerOptionStageCountersSql())
+      )
+    : false;
   const engineHealth = await deps.fetchHealth(flags.healthUrl);
   const ownerWindowsConfig = loadOwnerWindows(flags.windowsFile, deps.readFile);
   const inboxText = loadInboxText(flags.inboxFile, deps.readFile);
@@ -417,6 +426,7 @@ async function runPreflightCore(option, targetState, flags, deps) {
     recentConfigAlarms,
     authorityEvidence,
     whitelistStates,
+    perOptionStageCounters,
   });
 
   return {

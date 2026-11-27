@@ -391,22 +391,87 @@ export function checkServingRegistry({ option, targetState, registryRefusal, ser
   };
 }
 
+/**
+ * ROWS IN SHADOW AT ONCE (2026-11-27, PLO-OWNER lead-8 lane acttool). The engine re-decides at most ONE option in
+ * shadow per decision (optionShadowPick over the options in the decision's game and street), so its cost, the
+ * per-minute budget, the Horse-only cap and each option's breaker do not grow with the number of rows; the old limit
+ * of one row globally existed because the stage's skip / breaker / latency counters were shared. Since the release
+ * that counts them per option (OPTION_SHADOW_STAGE_MAX_ROWS in server/src/engine/HorseOptionShadowStage.ts, mirrored
+ * here and held equal by tests/unit/horseOptionSwitchCli.test.ts) up to MAX_CONCURRENT_SHADOW_ROWS non-style rows
+ * may be in shadow or on_shadow at once, and only when every serving release has been SEEN counting per-option stage
+ * time (perOptionStageCounters, buildPerOptionStageCountersSql). A style option (it takes canary: the style read's
+ * own shadow), a row of one, or no proof keeps the old rule: no other row in shadow.
+ */
+export const MAX_CONCURRENT_SHADOW_ROWS = 3;
+
+/** Per serving release: staged re-decisions timed per option in the last 30 minutes (latency scope ..._opt_<option>). */
+export function buildPerOptionStageCountersSql() {
+  return `SELECT r.source_release AS release_sha, count(*)::bigint AS n
+FROM public.horse_brain_flush_receipts r, LATERAL jsonb_array_elements(r.latency) e
+WHERE r.collected_at > now() - interval '30 minutes'
+  AND jsonb_typeof(r.latency) = 'array'
+  AND e->>'scope' LIKE 'option\\_shadow\\_stage\\_redecide\\_opt\\_%' ESCAPE '\\'
+GROUP BY r.source_release;`;
+}
+
+/** True when every fresh serving release has been seen counting per-option stage time (rows of the SQL above). */
+export function perOptionStageCountersServing(servingRegistries, counterRows) {
+  const fresh = Array.isArray(servingRegistries) ? servingRegistries : [];
+  if (fresh.length === 0) return false;
+  const seen = new Map(
+    (Array.isArray(counterRows) ? counterRows : []).map((r) => [String(r.release_sha), Number(r.n)])
+  );
+  return fresh.every((r) => (seen.get(String(r.release_sha)) ?? 0) > 0);
+}
+
+/** The style options (they take canary) named by the serving registries. */
+export function styleOptionsOfRegistries(servingRegistries) {
+  const out = new Set();
+  for (const row of Array.isArray(servingRegistries) ? servingRegistries : []) {
+    const reg = row && row.registry && typeof row.registry === 'object' ? row.registry : {};
+    for (const [name, states] of Object.entries(reg))
+      if (Array.isArray(states) && states.includes('canary')) out.add(name);
+  }
+  return out;
+}
+
 export function checkShadowConcurrency({
   option,
   targetState,
   currentRows,
   releaseDefaultOn = false,
+  perOptionStageCounters = false,
+  styleOptions = new Set(),
+  isStyleOption = false,
 }) {
   const rows = Array.isArray(currentRows) ? currentRows : [];
   const currentRow = rows.find((r) => r.option === option) ?? null;
 
   if (SHADOW_STATES.includes(targetState)) {
     const activeShadow = rows.filter((r) => SHADOW_STATES.includes(r.state));
-    if (activeShadow.length > 0) {
+    const style = (name) => (styleOptions instanceof Set ? styleOptions.has(name) : false);
+    const others = activeShadow.filter((r) => r.option !== option);
+    const several =
+      perOptionStageCounters === true &&
+      !isStyleOption &&
+      !style(option) &&
+      !others.some((r) => style(r.option));
+    if (!several && activeShadow.length > 0) {
       return {
         ok: false,
         code: 'SHADOW_CONCURRENCY_VIOLATION',
-        reason: `Active shadow/on_shadow row(s) already exist across lanes (must be 0 before entering ${targetState}): ${activeShadow
+        reason: `Active shadow/on_shadow row(s) already exist across lanes (must be 0 before entering ${targetState}${
+          perOptionStageCounters === true
+            ? ': a style option is involved'
+            : ': the serving release is not yet seen counting per-option stage time'
+        }): ${activeShadow.map((r) => `${r.option}=${r.state}`).join(', ')}`,
+      };
+    }
+    if (several && others.length + 1 > MAX_CONCURRENT_SHADOW_ROWS) {
+      return {
+        ok: false,
+        code: 'SHADOW_CONCURRENCY_VIOLATION',
+        reason: `${others.length} other shadow/on_shadow row(s) already (at most ${MAX_CONCURRENT_SHADOW_ROWS} at once): ${others
           .map((r) => `${r.option}=${r.state}`)
           .join(', ')}`,
       };
@@ -953,6 +1018,7 @@ export function evaluatePreflight(input) {
     recentConfigAlarms = [],
     authorityEvidence = null,
     whitelistStates = undefined,
+    perOptionStageCounters = false,
   } = input;
 
   const failures = [];
@@ -997,6 +1063,9 @@ export function evaluatePreflight(input) {
     targetState,
     currentRows,
     releaseDefaultOn,
+    perOptionStageCounters,
+    styleOptions: styleOptionsOfRegistries(servingRegistries),
+    isStyleOption,
   });
   if (!shadowCheck.ok) failures.push(shadowCheck);
 

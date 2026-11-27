@@ -27,7 +27,10 @@
  *    hold'em game that changed the action counts its direction, option_shadow_<option>_dir_<from>_to_<to>_seen (or
  *    _dir_size_seen when only the amount moved; + _person_seen with a person dealt in), and its time is noted per
  *    game, latency scope option_shadow_stage_redecide_game_<plo4|plo5|nlh_cash|nlh_lightning|nlh_tournament>, beside
- *    the scope option_shadow_stage_redecide it always had. A PLO re-decision counts the counters it counted before.
+ *    the scope option_shadow_stage_redecide it always had. Since 2026-11-27 a changed PLO re-decision counts the same
+ *    direction counters and its street x size cell (optionShadowStagePloDirectionKeys), and every stage skip, slow
+ *    re-decision and trip is also counted per option (optionShadowStageOptionSkipKeys), so up to
+ *    OPTION_SHADOW_STAGE_MAX_ROWS rows in shadow are read apart.
  *
  * REGISTERING AN OPTION (one line). Add `<option>: holdemStage(['nlh_cash', 'nlh_lightning'], ['flop'])` (or an
  * Omaha entry) to OPTION_SHADOW_STAGE. A registered option whose name says it is priced (/pric/i) and that takes
@@ -55,6 +58,7 @@
  * and no person/Horse fact for any decision.
  */
 import { omahaOptionGameOf, type OmahaOptionGame } from './HorseOmahaOptionGameScope.js';
+import { v81StreetWager, type V81Action } from './HorseOmahaBigBetCalls.js';
 
 /** A hold'em game of the stage: no-limit hold'em cash table, cash Lightning, or a tournament. */
 export type OptionShadowStageHoldemGame = 'nlh_cash' | 'nlh_lightning' | 'nlh_tournament';
@@ -547,6 +551,154 @@ export function optionShadowStageDirectionKeys(receipt: {
   const key = `option_shadow_${receipt.option}_dir_${dir}`;
   return receipt.personDealt ? [`${key}_seen`, `${key}_person_seen`] : [`${key}_seen`];
 }
+
+/**
+ * PLO DIRECTION BY STREET AND SIZE (2026-11-27, PLO-OWNER lead-8 lane acttool).
+ *
+ * WHY. A PLO trial read only same/changed: the lead could not tell from the counters whether a changed re-decision
+ * was a fold that would call (the over-fold fixes) or a call that would fold, nor on which street and against which
+ * size; the per-decision receipts sit in the engine-host journal only. A PLO re-decision now counts the same
+ * direction counters as hold'em, option_shadow_<option>_dir_<from>_to_<to>_seen (+ _person_seen), and beside them
+ * the cell, option_shadow_<option>_cell_<street>_<size>_<from>_to_<to>_seen (+ _person_seen): <street> preflop, flop,
+ * turn, river (other for anything else), <size> the wager the decision faced as a share of the pot just before it,
+ * measured as the bet read measures it (v81StreetWager): facing_lt40 (under 0.4 pot), facing_40to70 (0.4 to under
+ * 0.7), facing_70plus (0.7 or more), facing_raise (the street already had a bet and a raise), facing_unread (it faced
+ * a wager the street's actions do not reproduce), unopened (nothing to call), any (preflop). The bands are the cells
+ * the over-fold audit and alarm grade on. Only a CHANGED PLO receipt of the staged path reads this, after the answer:
+ * it reads the public action history, the street bets and the pot only (never a card), costs one pass over the
+ * street's actions, and never throws.
+ */
+export type OptionShadowStagePloSize =
+  | 'any'
+  | 'unopened'
+  | 'facing_lt40'
+  | 'facing_40to70'
+  | 'facing_70plus'
+  | 'facing_raise'
+  | 'facing_unread';
+
+const PLO_CELL_STREETS: ReadonlySet<string> = new Set(['preflop', 'flop', 'turn', 'river']);
+
+interface StagePloSeat {
+  readonly seat?: unknown;
+  readonly bet?: unknown;
+}
+
+/** The size cell of a PLO decision (see above). Public actions, street bets and the pot only; never throws. */
+export function optionShadowStagePloSize(
+  player: unknown,
+  gameState: unknown
+): OptionShadowStagePloSize {
+  try {
+    const gs = gameState as {
+      readonly stage?: unknown;
+      readonly pot?: unknown;
+      readonly players?: readonly StagePloSeat[];
+      readonly actionHistory?: readonly V81Action[];
+    } | null;
+    const street = String(gs?.stage ?? '').toLowerCase();
+    if (street === 'preflop') return 'any';
+    const hero = player as StagePloSeat | null;
+    const heroBet = Number(hero?.bet ?? 0);
+    const bets = new Map<number, number>();
+    let maxBet = 0;
+    for (const p of gs?.players ?? []) {
+      const b = Number(p?.bet ?? 0);
+      if (typeof p?.seat === 'number' && Number.isFinite(b)) bets.set(p.seat, b);
+      if (Number.isFinite(b) && b > maxBet) maxBet = b;
+    }
+    if (!(maxBet > (Number.isFinite(heroBet) ? heroBet : 0) + 0.005)) return 'unopened';
+    let wagers = 0;
+    for (const a of gs?.actionHistory ?? [])
+      if (
+        String(a?.stage) === street &&
+        (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') &&
+        Number(a.amount) > 0
+      )
+        wagers++;
+    if (wagers >= 2) return 'facing_raise';
+    const faced = v81StreetWager(gs?.actionHistory, street, bets, Number(gs?.pot ?? 0));
+    if (!faced || faced.bettorSeat === hero?.seat) return 'facing_unread';
+    const frac = faced.wager / faced.potBefore;
+    if (!Number.isFinite(frac) || !(frac > 0)) return 'facing_unread';
+    return frac < 0.4 ? 'facing_lt40' : frac < 0.7 ? 'facing_40to70' : 'facing_70plus';
+  } catch {
+    return 'facing_unread';
+  }
+}
+
+/**
+ * The counters of one changed staged PLO receipt: the direction (as hold'em) and its street x size cell. Empty when
+ * it did not change; the size is read only then.
+ */
+export function optionShadowStagePloDirectionKeys(
+  receipt: {
+    readonly option: string;
+    readonly changed: boolean;
+    readonly personDealt: boolean;
+    readonly street: string;
+    readonly actual: { readonly action: string };
+    readonly would: { readonly action: string } | null;
+  },
+  player: unknown,
+  gameState: unknown
+): string[] {
+  const dir = optionShadowStageDirection(receipt);
+  if (dir === null) return [];
+  const keys = optionShadowStageDirectionKeys(receipt);
+  const s = String(receipt.street ?? '').toLowerCase();
+  const street = PLO_CELL_STREETS.has(s) ? s : 'other';
+  const cell = `option_shadow_${receipt.option}_cell_${street}_${optionShadowStagePloSize(player, gameState)}_${dir}`;
+  keys.push(`${cell}_seen`);
+  if (receipt.personDealt) keys.push(`${cell}_person_seen`);
+  return keys;
+}
+
+/**
+ * True for a Lightning decision (styleReceiptFormat's reading: not a tournament, public memory speed lightning).
+ * The staged PLO receipt counters are counted again under fmt_l_ there (lead-8 2026-11-27: Lightning is about a third
+ * of PLO decisions). Never throws.
+ */
+export function optionShadowStageIsLightning(gameState: unknown): boolean {
+  try {
+    const gs = gameState as StageGameState | null;
+    if (!gs || gs.gameMode === 'tournament' || gs.tournament) return false;
+    return gs.publicMemoryDomain?.speed === 'lightning';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PER-OPTION STAGE COUNTERS (2026-11-27, PLO-OWNER lead-8 lane acttool). The stage's skips, breaker and slow
+ * re-decisions were counted under shared names only (option_shadow_skipped_<reason>_seen,
+ * option_shadow_stage_self_disabled_seen, latency scope option_shadow_stage_redecide), so a trial could be read only
+ * with ONE shadow row globally. Each is now also counted under the option it concerns: a staged pick that is skipped
+ * counts option_shadow_<option>_stage_skipped_<reason>_seen (+ _person_seen where the shared one has it; reason
+ * backlog, budget, scale, stage_disabled, horse_only, rate), a re-decision charged over the slow line counts
+ * option_shadow_<option>_stage_slow_seen, a trip counts option_shadow_<option>_stage_self_disabled_seen, and its time
+ * goes to latency scope option_shadow_stage_redecide_opt_<option>. The shared names are unchanged. With these, two or
+ * three rows in shadow at once are read apart (OPTION_SHADOW_STAGE_MAX_ROWS); nothing decides on them.
+ */
+export function optionShadowStageOptionSkipKeys(
+  option: string,
+  reason: string,
+  personDealt: boolean
+): string[] {
+  const key = `option_shadow_${option}_stage_skipped_${reason}`;
+  return personDealt ? [`${key}_seen`, `${key}_person_seen`] : [`${key}_seen`];
+}
+
+/**
+ * THE NUMBER OF ROWS IN SHADOW AT ONCE (2026-11-27, PLO-OWNER lead-8 lane acttool). The engine never had a limit: a
+ * decision re-decides at most ONE of the options in shadow that are in its game and street (optionShadowPick, by
+ * decision key), so the cost a decision can carry, the per-minute budget, the Horse-only cap and each option's
+ * breaker do not grow with the number of rows. What grows is only how the samples of a decision that two options
+ * both cover are split between them. The limit of one row was a rule of the read tools (the stage's skip, breaker and
+ * latency counters were shared). With the per-option stage counters above, the switch tool admits up to this many
+ * rows in shadow or on_shadow at once (scripts/ops/horse-option-switch-lib.mjs checkShadowConcurrency).
+ */
+export const OPTION_SHADOW_STAGE_MAX_ROWS = 3;
 
 /**
  * The options in shadow this decision may re-decide: every option that is not listed, unchanged and in order, and a
