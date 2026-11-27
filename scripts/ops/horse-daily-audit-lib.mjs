@@ -9,7 +9,10 @@
 //   horse-exploit-report.mjs      (--gate regression split at every switch change and build boundary; at most 4
 //                                  splits a call, so more splits run as consecutive calls over overlapping ranges)
 //   person-vs-horse-results.mjs   (people's results, split at the same instants, at most 8 a call)
+//   horse-plo-overfold-gate.mjs   (PLO4/PLO5 heads-up turn/river folds facing a person's first bet, against the
+//                                  people-measured or break-even fold ceiling and the previous 3 days pooled)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
+import { cellTable } from './horse-plo-overfold-gate-lib.mjs';
 
 export const RANGE_HOURS = 24;
 /** Two boundaries closer than this are one (a cutover starts the engine and its standby minutes apart). */
@@ -110,6 +113,12 @@ export function planRuns(sinceMs, untilMs, splits) {
       args: [...range, '--json', '--csv', 'omaha-audit-csv'],
       out: 'omaha-audit.json',
     },
+    {
+      name: 'plo-overfold',
+      script: 'horse-plo-overfold-gate.mjs',
+      args: [...range, '--json'],
+      out: 'plo-overfold.json',
+    },
   ];
   splitGroups(sinceMs, untilMs, splits, EXPLOIT_MAX_SPLITS).forEach((g, i) => {
     const r = ['--since', iso(g.since), '--until', iso(g.until)];
@@ -156,6 +165,12 @@ export function exitMeaning(name, code) {
     return (
       ['clean', 'FINDING (a HARD leak versus people got worse)', 'too few hands'][code] ??
       `exit ${code}`
+    );
+  if (name === 'plo-overfold')
+    return (
+      ['clean', 'FINDING (Horses fold above the ceiling facing people)', 'too few decisions'][
+        code
+      ] ?? `exit ${code}`
     );
   return `exit ${code}`;
 }
@@ -225,6 +240,10 @@ export function regressionRows(results) {
         text: `exploit (${name}): ${j?.gate?.line ?? `gate finding (see ${r.out})`}`,
       });
     }
+    // the over-fold gate: one finding per gating cell (identity: street and size, the same in every run); read from
+    // the tool's JSON, so a run before (whose exit code was not stored) lists the same identities
+    if (name === 'plo-overfold')
+      for (const c of arr(j?.cells).filter((x) => x.gating)) out.push({ id: c.key, text: c.line });
     if (name.startsWith('person-vs-horse') && r.code === 1)
       out.push({
         id: `pvh|${name}`,
@@ -363,6 +382,19 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
     ownerRuleBreaches(results, listing),
     'None graded in the PLO audit (the NLH audit grades no owner-rule class).'
   );
+  L.push("## PLO Over-Fold Gate (heads-up turn and river, facing a person's first bet)");
+  L.push('');
+  const of = results['plo-overfold']?.json;
+  if (!of || !Array.isArray(of.cells))
+    L.push('Not measured (the tool failed or did not run: see Tools).');
+  else {
+    L.push(
+      `${of.gate?.line ?? ''}. Ceiling: ${of.prior ?? 'break-even fold'}; previous window from ${of.previousSince ?? '-'}.`
+    );
+    L.push('');
+    L.push(...cellTable(of.cells));
+  }
+  L.push('');
   section(
     'Top Leaks',
     topLeaks(results),

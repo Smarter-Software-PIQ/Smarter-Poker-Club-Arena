@@ -48,6 +48,26 @@ describe('the variety drain live check', () => {
     expect(body).toContain('variety_drain_table');
   });
 
+  it('review 2026-11-26: judges every naming, not one first-to-last block, and fails closed with no release', () => {
+    /* a Horse re-joining after the LAST naming (the walk refilling an un-named table) is counted */
+    expect(body).toMatch(
+      /n\.beat_at < s\.joined_at AND n\.beat_at >= s\.joined_at - interval '10 minutes'/
+    );
+    /* only Horses count as re-joins; a person sitting down is the person rule, not churn */
+    expect(body).toMatch(/is_horse, false\) = true/);
+    expect(body).toMatch(/is_horse, false\) = false/);
+    /* a person who sat down inside the last fleet cycle is not yet the fleet's to see */
+    expect(body).toContain("interval '35 seconds'");
+    /* no shipped release, or no heartbeat since it, is a FAIL, never a PASS on zero rows */
+    expect(body).toContain(
+      "CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) > 0 THEN 'PASS' ELSE 'FAIL' END"
+    );
+    expect(body).toContain(
+      "CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END"
+    );
+    expect(body).not.toMatch(/first_named AND|BETWEEN n\.first_named/);
+  });
+
   it('is the R11 read the regression method names', () => {
     expect(method).toContain('scripts/sql/variety-drain-live-check.sql');
   });

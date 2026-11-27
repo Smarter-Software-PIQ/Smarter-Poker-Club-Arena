@@ -64,15 +64,36 @@ import type { VerifiedSatelliteQualifierReceipt } from './satelliteQualifierRece
  * it needed was busy (55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY: the player's keys,
  * or a bounty settle past its 500 ms bound, 20261119013430). The same request
  * is idempotent, so the caller may send it again.
+ *
+ * ANY 55P03 IS BUSY (2026-11-26). process_tournament_rebuy also takes the
+ * player's profiles row FOR NO KEY UPDATE NOWAIT, and that NOWAIT raises the
+ * bare Postgres text "could not obtain lock on row in relation "profiles""
+ * with no PLAYER_BUSY marker. Seven horse rebuys in the 24 hours to
+ * 2026-11-26 21:45 UTC ended "purchase_unproven" on that text and waited a
+ * whole re-ask cycle. A 55P03 is a database error: the RPC's transaction rolled
+ * back and nothing was written, whichever lock refused, so the same idempotent
+ * request is safe to send again exactly as the marked refusal is.
  */
 export function isTournamentPurchasePlayerBusy(
   error: { code?: string; message?: string } | null | undefined
 ): boolean {
-  return (
-    !!error &&
-    error.code === '55P03' &&
-    String(error.message ?? '').includes('TOURNAMENT_PURCHASE_PLAYER_BUSY')
-  );
+  return !!error && error.code === '55P03';
+}
+
+/**
+ * A tournament chip purchase refused by a rule that the same request cannot
+ * pass on a resend inside the decision window: 23514 check_violation, raised by
+ * the booking cap trigger (fn_enforce_booking_game_cap, "FOUR TABLE LIMIT") or
+ * a balance CHECK. The transaction rolled back, so nothing was bought. On
+ * 2026-11-26 05:36:58-05:37:17 one horse's rebuy was refused FOUR TABLE LIMIT
+ * twelve times because the input device re-asked the unanswered offer every
+ * two seconds. A human shown that refusal does not click again; the horse
+ * takes it as its final no.
+ */
+export function isFinalTournamentPurchaseRefusal(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
+  return !!error && error.code === '23514';
 }
 /**
  * Sends a purchase refused TOURNAMENT_PURCHASE_PLAYER_BUSY again, at most
@@ -3327,6 +3348,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               if (error || (data as { success?: boolean } | null)?.success !== true) {
                 const message = error?.message ?? 'purchase response unproven';
                 declined.set(message, (declined.get(message) || 0) + 1);
+                // A refusal the same request cannot pass (23514, rolled back,
+                // nothing bought) is the horse's final no, persisted through the
+                // ordinary decline door, exactly as a human who reads the
+                // refusal and does not click again (2026-11-26).
+                if (isFinalTournamentPurchaseRefusal(error)) {
+                  await this.declineHorseRebuyOffer(h.id, mayMutate);
+                  answered.add(h.id);
+                  return;
+                }
                 // A transport error can follow a committed purchase. Keep the
                 // decision grace open and re-read chips next pass; never eliminate
                 // this horse from a stale pre-rebuy snapshot.

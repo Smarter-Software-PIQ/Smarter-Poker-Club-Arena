@@ -1,0 +1,23 @@
+{
+  "comment": "OpenClaw cron on Dan's Mac Studio (CLAUDE.md 10.85: a real cron, never the Claude scheduler). Opens the required 'Migration merge window' status for every pull request before each install window, because GitHub schedules barely fire on this repository. Restore with: openclaw cron add --name ca-migration-merge-window-open --cron \"4 1,4,7,10,13,16,19,22 * * *\" --tz America/Chicago --exact --no-deliver --timeout-seconds 120 --command \"gh workflow run migration-merge-window.yml --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --ref main -f mode=keep\". Check: openclaw cron runs --id <id>.",
+  "id": "471acb81-41ba-43cf-ab5c-5008874e1633",
+  "name": "ca-migration-merge-window-open",
+  "schedule": {
+    "kind": "cron",
+    "expr": "4 1,4,7,10,13,16,19,22 * * *",
+    "tz": "America/Chicago",
+    "staggerMs": 0
+  },
+  "payload": {
+    "kind": "command",
+    "argv": [
+      "sh",
+      "-lc",
+      "gh workflow run migration-merge-window.yml --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --ref main -f mode=keep"
+    ],
+    "timeoutSeconds": 120
+  },
+  "delivery": {
+    "mode": "none"
+  }
+}

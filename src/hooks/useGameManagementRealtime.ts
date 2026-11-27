@@ -19,6 +19,7 @@ interface ManagementEventRow {
 
 /**
  * Read the compact, indexed management feed only while the board is visible.
+ * The read is fn_game_management_feed, never the table through RLS.
  * Its table is deliberately unpublished: a WAL subscription joins successfully
  * but cannot deliver. This read scales with open boards, not every live game.
  * Named invalidations retain the board's targeted/coalesced authoritative reads.
@@ -86,14 +87,14 @@ export function useGameManagementRealtime({
       setStatus('connecting');
     },
     read: async (signal) => {
-      const query = supabase
-        .from('game_management_events')
-        .select('sequence, event_type, scope_kind, scope_id, club_id, entity_type, entity_id')
-        .eq('scope_kind', scope)
-        .eq('scope_id', scopeId)
-        .order('sequence', { ascending: false })
-        .limit(128);
-      const { data, error } = await query.abortSignal(signal);
+      // fn_game_management_feed decides the caller's authority once and reads
+      // by index (2026-11-26). Reading the table through its RLS policy
+      // evaluated the authority functions per row and, for a member who is
+      // not an operator, walked the whole scope looking for 128 visible rows:
+      // the GET timed out at 8 s 13 times in one day. Same rows, newest first.
+      const { data, error } = await supabase
+        .rpc('fn_game_management_feed', { p_scope_kind: scope, p_scope_id: scopeId, p_limit: 128 })
+        .abortSignal(signal);
       if (error) throw error;
       if (!Array.isArray(data)) throw new Error('The management feed could not be read');
       for (const row of data) {

@@ -23,6 +23,7 @@ import {
   validateCompareHours,
   validateHexSha,
   evaluateSwitchRecords,
+  buildPsqlJsonSql,
 } from '../../scripts/ops/post-cutover-audit-lib.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -725,5 +726,38 @@ describe('switch_records: the committed snapshot against the live switch rows', 
       unreadable.checks.find((c: { name: string }) => c.name === 'switch_records').status
     ).toBe('unknown');
     expect(unreadable.passed).toBe(true);
+  });
+});
+
+// 2026-11-26: the audit read the database only through the Mac's linked Supabase CLI, so it could not run where
+// the cutover runs (a CI runner with a database URL). --db-url-env reads through psql in a read-only transaction.
+describe('the audit reads a database URL through psql, read-only', () => {
+  it('wraps a checked read in one JSON array and refuses what the guard refuses', () => {
+    expect(buildPsqlJsonSql('SELECT x FROM t ORDER BY x')).toBe(
+      "SELECT coalesce(json_agg(q), '[]'::json) FROM (SELECT x FROM t ORDER BY x) q"
+    );
+    expect(() => buildPsqlJsonSql('DELETE FROM t')).toThrow();
+    expect(() => buildPsqlJsonSql('SELECT 1; DROP TABLE t')).toThrow();
+    expect(() =>
+      buildPsqlJsonSql('WITH d AS (DELETE FROM t RETURNING x) SELECT x FROM d')
+    ).toThrow();
+  });
+
+  it('takes the NAME of the variable, never the URL itself, on the command line', () => {
+    expect(parseCliArgs(['--db-url-env', 'AUDIT_DATABASE_URL']).dbUrlEnv).toBe(
+      'AUDIT_DATABASE_URL'
+    );
+    expect(() => parseCliArgs(['--db-url-env', 'postgres://u:p@h/db'])).toThrow(/NAME/);
+    expect(() => parseCliArgs(['--db-url-env'])).toThrow(/NAME/);
+    expect(parseCliArgs([]).dbUrlEnv).toBeNull();
+  });
+
+  it('runs psql with the read-only transaction option', () => {
+    const src = readFileSync(
+      path.resolve(__dirname, '../../scripts/ops/post-cutover-audit.mjs'),
+      'utf8'
+    );
+    expect(src).toContain("PGOPTIONS: '-c default_transaction_read_only=on'");
+    expect(src).toContain('buildPsqlJsonSql(safeSql)');
   });
 });

@@ -419,6 +419,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-21 EMERG lane STAB-DEFENCE-5: the two river bet rules price the opponent's own lifetime public river
   // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetFoldIsHisRecord',
+  'omahaRiverBetFoldIsPeopleMeasured',
   // 2026-11-24 PLO-OWNER lead-6 (plo-overfold F1-F3, F6; multiway M1-M3): the corrected PLO4/PLO5 cash facing-bet
   // price on measured ranges and the priced multiway value bet (ship dark)
   'omahaFacingBetRangeIsMeasuredByLine',
@@ -435,6 +436,11 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // (ship dark)
   'omahaRiverValueBetInPositionIsPriced',
   'omahaRiverBluffIsPricedOnBlockers',
+  // 2026-11-26 PLO-OWNER lead-7 lane plo-bluffs: the heads-up turn and river opening bluff: the price, and blockers
+  // or the range advantage (ship dark)
+  'omahaTurnBluffIsPricedOnBlockers',
+  'omahaTurnBluffIsPricedOnRangeAdvantage',
+  'omahaRiverBluffIsPricedOnRangeAdvantage',
   // 2026-11-26 PLO-OWNER lead-7 (lead decision on job 5): a river full house on a trips board that quads or a
   // straight flush can beat may call, never raise (ships dark)
   'omahaRiverTripsBoardBoatIsNotNutClass',
