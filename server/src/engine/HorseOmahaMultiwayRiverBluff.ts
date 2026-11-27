@@ -10,8 +10,10 @@
  *
  * WHY (the measured node; NODES.md of the lane, 25,944 hands with a person, Oct 28 to Nov 27 2026): on a multiway
  * river after a checked-through turn Horses bet 10.9% (PLO5) and 12.5% (PLO4) of the time against people's 15.9% and
- * 18.9%, and people fold 92% / 90% of their answers to those bets; the heads-up river bluffs
- * (HorseOmahaRiverOpeningBet.ts, HorseOmahaOpeningBluff.ts) do not act multiway. Owner order: a late-street bluff is
+ * 18.9%, and people fold 92% / 90% of their answers to those bets; the priced river bluffs
+ * (HorseOmahaRiverOpeningBet.ts, HorseOmahaOpeningBluff.ts) are heads-up, and the baseline multiway river bluff
+ * (HorseMultiwayRiverBluff.ts, 2026-11-06: a nut blocker, a capped line and a frequency draw) prices nobody's fold;
+ * the gap was measured with it on, and this rule prices the checks it leaves. Owner order: a late-street bluff is
  * never random; it is math dependent and blocker dependent.
  *
  * EACH OPPONENT'S FOLD. One estimate for every opponent, in the order his own lifetime public multiway river fold

@@ -10,7 +10,7 @@ Each opponent's fold is one estimate, the same function for every opponent: his 
 
 ## Why (The Measured Node)
 
-Lane node map (`plo-lead7-01TLQer8/l9-underbluff/NODES.md`): 25,944 PLO4/PLO5 cash hands with a person and a Horse, 2026-10-28 to 2026-11-27, public actions only. On a multiway river after a checked-through turn Horses bet 10.9% of the time in PLO5 against people's 15.9% (z -3.2) and 12.5% against 18.9% in PLO4 (z -2.2); people folded 92% of 158 answers (PLO5) and 90% of 59 (PLO4) to those Horse bets; a zero-equity bet there was worth +20.2 +/- 5.0 bb (PLO5, 171 bets) and +8.1 +/- 3.4 bb (PLO4, 59 bets) against the field (people and Horses). No other option acts on a multiway river: the river bluffs are heads-up, and omahaMultiwayCheckedToBetIsPriced prices the flop and turn only. Limits of that measurement: the field's fold-through includes Horse opponents; in PLO5 one person gave 67% of the people answers.
+Lane node map (`plo-lead7-01TLQer8/l9-underbluff/NODES.md`): 25,944 PLO4/PLO5 cash hands with a person and a Horse, 2026-10-28 to 2026-11-27, public actions only. On a multiway river after a checked-through turn Horses bet 10.9% of the time in PLO5 against people's 15.9% (z -3.2) and 12.5% against 18.9% in PLO4 (z -2.2); people folded 92% of 158 answers (PLO5) and 90% of 59 (PLO4) to those Horse bets; a zero-equity bet there was worth +20.2 +/- 5.0 bb (PLO5, 171 bets) and +8.1 +/- 3.4 bb (PLO4, 59 bets) against the field (people and Horses). The priced river bluffs (omahaRiverBluffIsPricedOnBlockers, omahaRiverBluffIsPricedOnRangeAdvantage) are heads-up and omahaMultiwayCheckedToBetIsPriced prices the flop and turn only; the one thing that bluffs a multiway river today is the baseline riverBluffMultiway of 2026-11-06 (`HorseMultiwayRiverBluff.ts`: a nut blocker, a capped line and a frequency draw, not a price on anybody's fold), and the gap above was measured with it on. This option runs after it and prices the checks it leaves. Limits of that measurement: the field's fold-through includes Horse opponents; in PLO5 one person gave 67% of the people answers.
 
 ## What Was Measured
 
@@ -25,4 +25,5 @@ Bars were written in the lane's BUILD.md before any grade. Results: see the Grad
 
 ## Replay
 
-- Replay: NOT RUN (pending: the lane runs the audited sets before the pull request is opened)
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm MB vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2697; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm MB vs off; replayed 2697 of 2697
