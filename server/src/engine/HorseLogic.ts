@@ -132,6 +132,7 @@ import {
   type OmahaRiverBetAnswerPoint,
   omahaRiverBetCheckRead,
 } from './HorseOmahaRiverBetFoldRecord.js';
+import { omahaRiverCallRead } from './HorseOmahaRiverCallRecord.js';
 import { omahaStrongHandCheckRule } from './HorseOmahaStrongHandCheck.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
@@ -4017,6 +4018,14 @@ export interface HorseDecideOpts {
    * nothing unless one of those two rules is on; with no record the model is exactly as before. Never PLO6.
    */
   omahaRiverBetCheckIsHisRecord?: boolean;
+  /**
+   * PLO-OWNER lead-7 lane river-call 2026-11-26 (default off, read `=== true`): the range model of
+   * omahaRiverFirstToActBetIsPriced and omahaRiverCheckedToBetIsMeasured reads his flop and turn CALLS through his own
+   * lifetime public heads-up first-wager fold record shrunk to PEOPLE's rate (HorseOmahaRiverCallRecord.omahaRiverCallRead):
+   * a player who never folds keeps almost all of his range after a call, so thin river value against him is priced.
+   * It does nothing unless one of those two rules is on; with no record the model is exactly as before. Never PLO6.
+   */
+  omahaRiverCallRangeIsHisRecord?: boolean;
   /** OPPONENT HUD (2026-11-20, PLO-OWNER lane OPPONENT-HUD; owner 3:15 PM Chicago Nov 20, "FROM HAND #1"): in
    * PLO4/PLO5 cash every opponent read of HorseMind.opponentRead takes the opponent's counters from his lifetime
    * public profile carried by the decision request (opponentHud, attached by the engine while armed); one formula
@@ -20513,14 +20522,36 @@ export class HorseLogic {
           : undefined;
       // omahaRiverBetCheckIsHisRecord (PLO-OWNER lead-7 lane river-station 2026-11-26, default off): the two rules'
       // range model reads his turn and river checks through his own unopened bet record (HorseOmahaRiverBetFoldRecord.omahaRiverBetCheckRead).
+      // omahaRiverCallRangeIsHisRecord (PLO-OWNER lead-7 lane river-call 2026-11-26, default off): the same model reads
+      // his calls through his own first-wager fold record (HorseOmahaRiverCallRecord.omahaRiverCallRead).
+      const checkRecordOn = opts.omahaRiverBetCheckIsHisRecord === true;
+      const callRecordOn = opts.omahaRiverCallRangeIsHisRecord === true;
       const riverReadOf =
-        opts.omahaRiverBetCheckIsHisRecord === true
+        checkRecordOn || callRecordOn
           ? (opponent: SeatPlayer, read: OmahaCardImpactRead): OmahaCardImpactRead => {
               const variant = String(gs.gameVariant ?? '');
-              return omahaRiverBetCheckRead(variant, read, [
-                HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'turn', 1),
-                HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'river', 1),
-              ]);
+              let out = read;
+              if (checkRecordOn)
+                out = omahaRiverBetCheckRead(variant, out, [
+                  HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'turn', 1),
+                  HorseMind.omahaStabDefenceRecordOf(opponent.user_id, variant, 'river', 1),
+                ]);
+              if (callRecordOn)
+                out = omahaRiverCallRead(variant, out, {
+                  turn: HorseMind.omahaStrongHandCheckRecordsOf(
+                    opponent.user_id,
+                    variant,
+                    'turn',
+                    1
+                  ),
+                  river: HorseMind.omahaStrongHandCheckRecordsOf(
+                    opponent.user_id,
+                    variant,
+                    'river',
+                    1
+                  ),
+                });
+              return out;
             }
           : undefined;
       const firstToAct = omahaRiverFirstToActBetRule(

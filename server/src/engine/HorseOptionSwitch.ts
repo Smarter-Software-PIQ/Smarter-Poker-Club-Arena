@@ -423,6 +423,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-26 PLO-OWNER lead-7 lane river-station: the two river bet rules read his checks through his own
   // unopened bet record (ships dark; silent without lifetime counts and without one of the two river rules on)
   'omahaRiverBetCheckIsHisRecord',
+  // 2026-11-26 PLO-OWNER lead-7 lane river-call: the two river bet rules read his calls through his own first-wager
+  // fold record (ships dark; silent without lifetime counts and without one of the two river rules on)
+  'omahaRiverCallRangeIsHisRecord',
   // 2026-11-24 PLO-OWNER lead-6 (plo-overfold F1-F3, F6; multiway M1-M3): the corrected PLO4/PLO5 cash facing-bet
   // price on measured ranges and the priced multiway value bet (ship dark)
   'omahaFacingBetRangeIsMeasuredByLine',

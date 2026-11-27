@@ -61,6 +61,7 @@ import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
 import { omahaTurnRiverTables } from './HorseOmahaRiverTables.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+import { omahaCallStepKeep } from './HorseOmahaRiverCallRecord.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
 import {
   omahaCashOnlyExcludes,
@@ -126,6 +127,12 @@ export interface OmahaCardImpactRead {
    * (HorseOmahaRiverBetFoldRecord.omahaRiverBetCheckRead).
    */
   checkBetShare?: number;
+  /**
+   * omahaRiverCallRangeIsHisRecord (PLO-OWNER lead-7 2026-11-26; default absent): HIS fold share at a first wager over
+   * people's (shrunk), applied to the fold side of every call step of his line: the step keeps 1 - m x (1 - keep) of
+   * his range (HorseOmahaRiverCallRecord.omahaCallStepKeep). Absent: exactly as before.
+   */
+  callFoldRatio?: number;
 }
 
 /** The share his checks are read with: checkBetShare when given, else betCheckedTo. */
@@ -779,7 +786,12 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
   for (const step of line) {
     const c = cOf(step.boardLen);
     if (step.kind === 'call') {
-      const keep = topMask(c, keepOf(step.keep, step.boardLen === 5));
+      const keep = topMask(
+        c,
+        read.callFoldRatio === undefined
+          ? keepOf(step.keep, step.boardLen === 5)
+          : omahaCallStepKeep(keepOf(step.keep, step.boardLen === 5), read.callFoldRatio)
+      );
       const raises = topMask(c, P.raiseShare);
       for (let k = 0; k < K; k++) w[k] *= keep[k] ? (raises[k] ? 0.5 : 1) : 0.05;
     } else if (step.kind === 'raise') {

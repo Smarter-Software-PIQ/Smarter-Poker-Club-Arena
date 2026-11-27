@@ -2901,6 +2901,13 @@
       "keys": [],
       "prefixes": ["omaha_river_checked_to_bet_measured", "omaha_river_first_to_act_bet_priced"],
       "unlessOn": ["omahaRiverCheckedToBetIsMeasured", "omahaRiverFirstToActBetIsPriced"]
+    },
+    "omahaRiverCallRangeIsHisRecord": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_checked_to_bet_measured", "omaha_river_first_to_act_bet_priced"],
+      "unlessOn": ["omahaRiverCheckedToBetIsMeasured", "omahaRiverFirstToActBetIsPriced"]
     }
   }
 }

@@ -6152,6 +6152,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "PLO-OWNER lead-7 lane river-station 2026-11-26 (root cause of the PLO5 calling-station loss of the two river bet rules). PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the card-impact range those rules price a river bet against reads his checks (what a check of his caps, and his bet after the Horse checks; his bets as before) through his own lifetime PUBLIC heads-up unopened turn and river bet record (OPPONENT-HUD hudFirstWagerRecord via HorseMind.omahaStabDefenceRecordOf, the two streets pooled) shrunk to PEOPLE's rate on the same counter by n / (n + k) (people only: PLO4 212/713, PLO5 989/2684; k = 23.2): the share his checks are read with = betCheckedTo x his shrunk rate / people's. A player who never bets unopened has checks that do not cap his range. With no record the read object is unchanged. One formula for every opponent; never PLO6. HorseOmahaRiverBetFoldRecord.ts (omahaRiverBetCheckRead)",
     'V94'
   ),
+  flag(
+    'omahaRiverCallRangeIsHisRecord',
+    "PLO-OWNER lead-7 lane river-call 2026-11-26 (the thin-value gap omahaRiverBetCheckIsHisRecord left against a calling station). PLO4/PLO5 cash (table and Lightning), river, heads-up; default off (read === true). It does nothing by itself: with omahaRiverFirstToActBetIsPriced or omahaRiverCheckedToBetIsMeasured on, the card-impact range those rules price a river bet against reads each flop and turn CALL of his (the share of his range a call keeps; his bets, raises and checks as before) through his own lifetime PUBLIC heads-up first answers to a turn or river first wager (OPPONENT-HUD x.foldToBet.small / .big via HorseMind.omahaStrongHandCheckRecordsOf, streets and sizes pooled) against PEOPLE's fold for his own mix, shrunk by n / (n + k) (people only: HorseOmahaRiverCallRecordPeople.data.ts from server/scripts/omaha-river-call-record-people-fit.ts, k = 134.2): a call keeps 1 - m x (1 - pot odds) of his range, m = his shrunk fold share / people's. A player who never folds keeps almost all of his range after a call. With no record the read object is unchanged. One formula for every opponent; never PLO6. HorseOmahaRiverCallRecord.ts (omahaRiverCallRead)",
+    'V94'
+  ),
   receipt(
     'omaha_river_bet_fold_his_record_read',
     'HorseLogic wager_rules (omahaRiverBetFoldRecordCurve, omahaRiverBetFoldIsHisRecord)',
@@ -10971,6 +10976,11 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   },
   // his check read acts only through the two river bet rules; their receipts, legitimate while either is on
   omahaRiverBetCheckIsHisRecord: {
+    prefixes: ['omaha_river_first_to_act_bet_priced', 'omaha_river_checked_to_bet_measured'],
+    unlessOn: ['omahaRiverFirstToActBetIsPriced', 'omahaRiverCheckedToBetIsMeasured'],
+  },
+  // his call read acts only through the two river bet rules; their receipts, legitimate while either is on
+  omahaRiverCallRangeIsHisRecord: {
     prefixes: ['omaha_river_first_to_act_bet_priced', 'omaha_river_checked_to_bet_measured'],
     unlessOn: ['omahaRiverFirstToActBetIsPriced', 'omahaRiverCheckedToBetIsMeasured'],
   },
