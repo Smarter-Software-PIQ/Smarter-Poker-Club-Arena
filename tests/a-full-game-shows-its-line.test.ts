@@ -47,6 +47,9 @@ describe('a running game status says how many tables, never the list', () => {
 
 describe('the count is live (2026-11-07)', () => {
   const page = readFileSync(resolve(__dirname, '../src/pages/ClubHomePage.tsx'), 'utf8');
+  // The channel and its net moved out of the page on 2026-11-27, onto the
+  // shared realtime poll rule; the page watches through it.
+  const watch = readFileSync(resolve(__dirname, '../src/lib/gameWaitlistWatch.ts'), 'utf8');
   const sql = readFileSync(
     resolve(
       __dirname,
@@ -59,9 +62,10 @@ describe('the count is live (2026-11-07)', () => {
     expect(sql).toContain(
       'AFTER INSERT OR DELETE OR UPDATE OF status ON public.cash_game_waitlist'
     );
-    expect(page).toContain(".channel('cash-game-waitlist')");
-    expect(page).toContain("on('broadcast', { event: 'changed' }");
-    expect(page).toContain('if (channel) void supabase.removeChannel(channel)');
-    expect(page).toContain("typeof supabase.channel === 'function'");
+    expect(page).toContain('watchGameWaitlistCounts(ids, load)');
+    expect(watch).toContain(".channel('cash-game-waitlist')");
+    expect(watch).toContain("on('broadcast', { event: 'changed' }");
+    expect(watch).toContain('if (channel) void supabase.removeChannel(channel)');
+    expect(watch).toContain("typeof supabase.channel === 'function'");
   });
 });
