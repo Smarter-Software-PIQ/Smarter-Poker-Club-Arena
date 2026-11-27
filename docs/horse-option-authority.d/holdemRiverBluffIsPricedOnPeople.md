@@ -11,7 +11,7 @@ Every daily real-hand audit lists "NLH cash river: missed profitable bluff" as t
 No existing option prices that:
 
 - `holdemRiverBluffIsPriced`, `holdemRiverLeadRangeIsPriced`, `holdemRiverBluffMultiwayIsPriced` (unregistered, OFF) price on `HOLDEM_EMPIRICAL_RIVER_FOLD_TO_FIRST_BET`, a curve of 14,830 Horse answers pooled with 793 people's (72.7% and 79.2% folds at 67 to 100% pot and above, where people fold 55.6% and 58.3%). That is a population fitted on Horse play: it breaks the owner order and they are not repaired here.
-- `holdemOpeningBluffIsPriced` (registered, OFF) has the right shape (the price, and blockers or the range advantage) but reads his own decayed record shrunk to the equilibrium anchor with no people step and no size cell: with no record a pure bluff is worth exactly nothing, so against a new person it fires almost never (0 of the 61 audited river missed bluffs with no memory, 5 with memory).
+- `holdemOpeningBluffIsPriced` (registered, OFF) has the right shape (the price, and blockers or the range advantage) but reads his own decayed record shrunk to the equilibrium anchor with no people step and no size cell: with no record a pure bluff is worth exactly nothing, so against a new person it fires almost never (it bets 2 of the 61 audited river missed bluffs with no memory, 6 with memory).
 
 ## What It Does
 
