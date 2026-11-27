@@ -13,10 +13,13 @@
  */
 
 import { getFreshAccessToken } from '../lib/authToken';
+import { parseJwtPayload } from '../lib/authUtils';
 
 export const SAVED_HANDS_ENDPOINT = '/api/poker/saved-hands';
 export const PERSONAL_ASSISTANT_REVIEW_PATH = '/hub/personal-assistant/review';
+export const SAVED_HANDS_BROADCAST_CHANNEL = 'smarter-poker-saved-hands';
 export const DEFAULT_SAVED_HANDS_TIMEOUT_MS = 15_000;
+export const MAX_SAVED_HANDS_BATCH_SIZE = 50;
 
 export const CANONICAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -54,6 +57,191 @@ export interface SavedHandsRequestOptions {
   signal?: AbortSignal;
   accessToken?: string;
   timeoutMs?: number;
+  userId?: string | null;
+}
+
+export interface SavedHandBatchEntry {
+  id: string;
+  savedAt: string | null;
+  status: string | null;
+  reviewUrl: string;
+}
+
+export type SavedHandsBatchMap = Record<string, SavedHandBatchEntry>;
+
+export interface SavedHandBroadcastMessage {
+  type: 'saved-hand-updated';
+  source: 'club-arena';
+  handId: string;
+  savedRowId: string;
+  reviewUrl: string;
+  at: number;
+}
+
+export interface CachedSavedHandEntry {
+  savedHandId: string;
+  status: 'saved' | 'already_saved';
+  reviewUrl: string;
+  savedAt?: string | null;
+}
+
+export interface SavedHandCacheUpdateEvent {
+  userId: string;
+  handId: string;
+  entry: CachedSavedHandEntry;
+}
+
+type SavedHandUpdateListener = (event: SavedHandCacheUpdateEvent) => void;
+
+let activeCacheUserId: string | null = null;
+const savedHandCache = new Map<string, CachedSavedHandEntry>();
+const savedHandUpdateListeners = new Set<SavedHandUpdateListener>();
+
+function normalizeUserId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function makeCacheKey(userId: string, handId: string): string {
+  return `${userId}:${handId.toLowerCase()}`;
+}
+
+function extractJwtSub(token: string): string | null {
+  const payload = parseJwtPayload(token);
+  return normalizeUserId(payload?.sub);
+}
+
+/**
+ * Align the in-memory cache with the active authenticated account.
+ * Clears all cached saved-hand entries immediately on any user switch.
+ */
+export function setActiveSavedHandsUser(userId: string | null | undefined): void {
+  const normalized = normalizeUserId(userId);
+  if (activeCacheUserId === normalized) return;
+  savedHandCache.clear();
+  activeCacheUserId = normalized;
+}
+
+/**
+ * Clear the in-memory saved-hand cache (all entries, or only a specific user's entries).
+ */
+export function clearSavedHandsCache(userId?: string | null): void {
+  const normalized = normalizeUserId(userId);
+  if (!normalized) {
+    savedHandCache.clear();
+    activeCacheUserId = null;
+    return;
+  }
+  const prefix = `${normalized}:`;
+  for (const key of savedHandCache.keys()) {
+    if (key.startsWith(prefix)) {
+      savedHandCache.delete(key);
+    }
+  }
+  if (activeCacheUserId === normalized) {
+    activeCacheUserId = null;
+  }
+}
+
+/**
+ * Read a cached saved-hand entry for `(userId, handId)`.
+ * Enforces strict per-user isolation and clears stale entries if the user changed.
+ */
+export function getCachedSavedHand(
+  userId: string | null | undefined,
+  handId: string | null | undefined
+): CachedSavedHandEntry | null {
+  const normalizedUser = normalizeUserId(userId);
+  const normalizedHand = normalizeCanonicalUuid(handId);
+  if (!normalizedUser || !normalizedHand) return null;
+  if (activeCacheUserId !== null && activeCacheUserId !== normalizedUser) {
+    savedHandCache.clear();
+    activeCacheUserId = normalizedUser;
+    return null;
+  }
+  return savedHandCache.get(makeCacheKey(normalizedUser, normalizedHand)) ?? null;
+}
+
+/**
+ * Write a cached saved-hand entry for `(userId, handId)` and notify in-tab listeners.
+ */
+export function setCachedSavedHand(
+  userId: string | null | undefined,
+  handId: string | null | undefined,
+  entry: Omit<CachedSavedHandEntry, 'reviewUrl'> & { reviewUrl?: string }
+): void {
+  const normalizedUser = normalizeUserId(userId);
+  const normalizedHand = normalizeCanonicalUuid(handId);
+  const normalizedSavedId = normalizeSavedHandId(entry.savedHandId);
+  if (!normalizedUser || !normalizedHand || !normalizedSavedId) return;
+
+  if (activeCacheUserId !== null && activeCacheUserId !== normalizedUser) {
+    savedHandCache.clear();
+  }
+  activeCacheUserId = normalizedUser;
+
+  const normalizedEntry: CachedSavedHandEntry = {
+    savedHandId: normalizedSavedId,
+    status: entry.status === 'already_saved' ? 'already_saved' : 'saved',
+    reviewUrl:
+      typeof entry.reviewUrl === 'string' &&
+      entry.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
+        ? entry.reviewUrl
+        : buildPersonalAssistantReviewUrl(normalizedSavedId),
+    savedAt: entry.savedAt ?? null,
+  };
+
+  savedHandCache.set(makeCacheKey(normalizedUser, normalizedHand), normalizedEntry);
+
+  const event: SavedHandCacheUpdateEvent = {
+    userId: normalizedUser,
+    handId: normalizedHand,
+    entry: normalizedEntry,
+  };
+  for (const listener of savedHandUpdateListeners) {
+    try {
+      listener(event);
+    } catch {
+      /* isolate subscriber failures */
+    }
+  }
+}
+
+/**
+ * Subscribe to in-tab saved-hand cache updates so HandDetailModal,
+ * HandHistoryPanel, and the Table HUD stay instantaneously in sync.
+ */
+export function subscribeSavedHandsUpdates(listener: SavedHandUpdateListener): () => void {
+  savedHandUpdateListeners.add(listener);
+  return () => {
+    savedHandUpdateListeners.delete(listener);
+  };
+}
+
+function broadcastSavedHandUpdate(handId: string, savedRowId: string, reviewUrl: string): void {
+  if (typeof BroadcastChannel === 'undefined') return;
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel(SAVED_HANDS_BROADCAST_CHANNEL);
+    const message: SavedHandBroadcastMessage = {
+      type: 'saved-hand-updated',
+      source: 'club-arena',
+      handId,
+      savedRowId,
+      reviewUrl,
+      at: Date.now(),
+    };
+    channel.postMessage(message);
+  } catch {
+    /* Safari / restricted browsing contexts may disallow BroadcastChannel */
+  } finally {
+    try {
+      channel?.close();
+    } catch {
+      /* ignore close failures */
+    }
+  }
 }
 
 export type LogClubArenaHandErrorCode =
@@ -331,9 +519,24 @@ export async function logClubArenaHand(
   }
 
   const alreadySaved = response.status === 200 && payload.alreadySaved === true;
+  const resolvedStatus = alreadySaved ? 'already_saved' : 'saved';
+  const reviewUrl = buildPersonalAssistantReviewUrl(savedHandId);
+  const resolvedUserId = normalizeUserId(options.userId) ?? extractJwtSub(token);
+
+  if (!options.signal?.aborted) {
+    if (resolvedUserId) {
+      setCachedSavedHand(resolvedUserId, canonicalHandId, {
+        savedHandId,
+        status: resolvedStatus,
+        reviewUrl,
+      });
+    }
+    broadcastSavedHandUpdate(canonicalHandId, savedHandId, reviewUrl);
+  }
+
   return {
     ok: true,
-    status: alreadySaved ? 'already_saved' : 'saved',
+    status: resolvedStatus,
     savedHandId,
     alreadySaved,
   };
@@ -458,6 +661,18 @@ export async function findSavedClubArenaHand(
         possiblyCommitted: true,
       });
     }
+    if (!options.signal?.aborted) {
+      const reviewUrl = buildPersonalAssistantReviewUrl(savedHandId);
+      const resolvedUserId = normalizeUserId(options.userId) ?? extractJwtSub(token);
+      if (resolvedUserId) {
+        setCachedSavedHand(resolvedUserId, canonicalHandId, {
+          savedHandId,
+          status: 'already_saved',
+          reviewUrl,
+        });
+      }
+      broadcastSavedHandUpdate(canonicalHandId, savedHandId, reviewUrl);
+    }
     return { found: true, savedHandId };
   }
 
@@ -482,6 +697,18 @@ export async function findSavedClubArenaHand(
         possiblyCommitted: true,
       });
     }
+    if (!options.signal?.aborted) {
+      const reviewUrl = buildPersonalAssistantReviewUrl(savedHandId);
+      const resolvedUserId = normalizeUserId(options.userId) ?? extractJwtSub(token);
+      if (resolvedUserId) {
+        setCachedSavedHand(resolvedUserId, canonicalHandId, {
+          savedHandId,
+          status: 'already_saved',
+          reviewUrl,
+        });
+      }
+      broadcastSavedHandUpdate(canonicalHandId, savedHandId, reviewUrl);
+    }
     return { found: true, savedHandId };
   }
 
@@ -493,4 +720,149 @@ export async function findSavedClubArenaHand(
     httpStatus: response.status,
     possiblyCommitted: true,
   });
+}
+
+/**
+ * Batch saved-status lookup for Club Arena hand history rows.
+ *
+ * Calls `GET /api/poker/saved-hands?source=club-arena&handIds=<csv up to 50 valid UUIDs>`
+ * with the current Supabase Bearer token, caller abort signal, and request deadline.
+ *
+ * Always degrades fail-open: offline/network errors, timeouts, 401/5xx responses,
+ * or malformed payloads return `{}` without blocking the history UI.
+ */
+export async function checkSavedHandsBatch(
+  handIds: readonly (string | null | undefined)[],
+  options: SavedHandsRequestOptions = {}
+): Promise<SavedHandsBatchMap> {
+  if (!Array.isArray(handIds) || handIds.length === 0) {
+    return {};
+  }
+
+  // Filter to valid canonical UUIDs, deduplicate case-insensitively, cap at 50.
+  const validIds: string[] = [];
+  const requestedByLower = new Map<string, string>();
+  for (const rawId of handIds) {
+    const canonical = normalizeCanonicalUuid(rawId);
+    if (!canonical) continue;
+    const lower = canonical.toLowerCase();
+    if (requestedByLower.has(lower)) continue;
+    requestedByLower.set(lower, canonical);
+    validIds.push(canonical);
+    if (validIds.length >= MAX_SAVED_HANDS_BATCH_SIZE) break;
+  }
+
+  if (validIds.length === 0) {
+    return {};
+  }
+
+  const expectedUserId = normalizeUserId(options.userId);
+  if (expectedUserId) {
+    setActiveSavedHandsUser(expectedUserId);
+  }
+
+  let token: string | null = null;
+  let aborted = false;
+  try {
+    const resolved = await resolveBearerToken(options.accessToken, options.signal);
+    token = resolved.token;
+    aborted = resolved.aborted;
+  } catch {
+    return {};
+  }
+
+  if (aborted || !token) {
+    return {};
+  }
+
+  const tokenUserId = extractJwtSub(token);
+  if (expectedUserId && tokenUserId && tokenUserId !== expectedUserId) {
+    // Late or mismatched account token — degrade cleanly without crossing accounts.
+    return {};
+  }
+
+  const resolvedUserId = expectedUserId ?? tokenUserId;
+  if (resolvedUserId) {
+    setActiveSavedHandsUser(resolvedUserId);
+  }
+
+  const url = `${SAVED_HANDS_ENDPOINT}?source=club-arena&handIds=${validIds.join(',')}`;
+  const reqSignal = createRequestSignal(options.signal, options.timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal: reqSignal.signal,
+    });
+  } catch {
+    return {};
+  } finally {
+    reqSignal.cleanup();
+  }
+
+  if (!response.ok || options.signal?.aborted) {
+    return {};
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return {};
+  }
+
+  if (
+    options.signal?.aborted ||
+    !isPlainObject(payload) ||
+    payload.success !== true ||
+    !isPlainObject(payload.savedByHandId)
+  ) {
+    return {};
+  }
+
+  // If the active account switched while this batch request was in flight,
+  // discard the stale user's results so they cannot bleed into the new account.
+  if (resolvedUserId && activeCacheUserId !== null && activeCacheUserId !== resolvedUserId) {
+    return {};
+  }
+
+  const result: SavedHandsBatchMap = {};
+  for (const [rawHandId, rawEntry] of Object.entries(payload.savedByHandId)) {
+    const canonicalKey = normalizeCanonicalUuid(rawHandId);
+    if (!canonicalKey) continue;
+    const requestedKey = requestedByLower.get(canonicalKey.toLowerCase());
+    if (!requestedKey || !isPlainObject(rawEntry)) continue;
+
+    const savedRowId = normalizeSavedHandId(rawEntry.id);
+    if (!savedRowId) continue;
+
+    const reviewUrl =
+      typeof rawEntry.reviewUrl === 'string' &&
+      rawEntry.reviewUrl.startsWith(`${PERSONAL_ASSISTANT_REVIEW_PATH}?`)
+        ? rawEntry.reviewUrl
+        : buildPersonalAssistantReviewUrl(savedRowId);
+    const savedAt = typeof rawEntry.savedAt === 'string' ? rawEntry.savedAt : null;
+    const status = typeof rawEntry.status === 'string' ? rawEntry.status : null;
+
+    result[requestedKey] = {
+      id: savedRowId,
+      savedAt,
+      status,
+      reviewUrl,
+    };
+
+    if (resolvedUserId) {
+      setCachedSavedHand(resolvedUserId, requestedKey, {
+        savedHandId: savedRowId,
+        status: 'saved',
+        reviewUrl,
+        savedAt,
+      });
+    }
+  }
+
+  return result;
 }
