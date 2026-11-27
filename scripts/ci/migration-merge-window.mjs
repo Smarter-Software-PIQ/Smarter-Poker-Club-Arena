@@ -162,6 +162,15 @@ function gh(args, input) {
   });
 }
 
+// A head's files never change, so a keeper reads them once per head (2026-11-26):
+// its first pass uses the full query, every later minute the slim one (no
+// files), and only a head it has not seen costs a file read. 369 open pull
+// requests made each minute of a window cost ten file-heavy pages.
+const filesByHead = new Map();
+const PR_FIELDS_SLIM = `number state headRefOid baseRefName body
+  labels(first:30){nodes{name}}
+  commits(last:1){nodes{commit{status{contexts{context state description}}}}}`;
+
 const PR_QUERY = `query($owner:String!,$name:String!,$after:String,$number:Int!,$one:Boolean!){
   repository(owner:$owner,name:$name){
     single: pullRequest(number:$number) @include(if:$one){ ...pr }
@@ -178,12 +187,15 @@ fragment pr on PullRequest{
   commits(last:1){nodes{commit{status{contexts{context state description}}}}}
 }`;
 
-function readPullRequests(repo, number) {
+function readPullRequests(repo, number, slim = false) {
   const [owner, name] = repo.split('/');
   const out = [];
   let after = null;
+  const query = slim
+    ? PR_QUERY.replace('first:40', 'first:100').replace(/fragment pr on PullRequest\{[\s\S]*\}$/, `fragment pr on PullRequest{\n  ${PR_FIELDS_SLIM}\n}`)
+    : PR_QUERY;
   for (;;) {
-    const args = ['api', 'graphql', '-f', `query=${PR_QUERY}`, '-F', `owner=${owner}`, '-F', `name=${name}`];
+    const args = ['api', 'graphql', '-f', `query=${query}`, '-F', `owner=${owner}`, '-F', `name=${name}`];
     args.push('-F', `number=${number ?? 0}`, '-F', `one=${number ? 'true' : 'false'}`);
     if (after) args.push('-F', `after=${after}`);
     const data = JSON.parse(gh(args)).data.repository;
@@ -198,11 +210,22 @@ function readPullRequests(repo, number) {
 }
 
 function allFiles(repo, pr) {
-  if (pr.files.totalCount <= pr.files.nodes.length) return pr.files.nodes;
-  const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr.number}/files?per_page=100`]));
-  const map = { added: 'ADDED', removed: 'DELETED', modified: 'MODIFIED', renamed: 'RENAMED', copied: 'COPIED', changed: 'CHANGED' };
-  return rows.flat().map((f) => ({ path: f.filename, changeType: map[f.status] ?? 'CHANGED' }));
+  const known = filesByHead.get(pr.headRefOid);
+  if (known) return known;
+  let files;
+  if (pr.files && pr.files.totalCount <= pr.files.nodes.length) {
+    files = pr.files.nodes;
+  } else {
+    const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr.number}/files?per_page=100`]));
+    const map = { added: 'ADDED', removed: 'DELETED', modified: 'MODIFIED', renamed: 'RENAMED', copied: 'COPIED', changed: 'CHANGED' };
+    files = rows.flat().map((f) => ({ path: f.filename, changeType: map[f.status] ?? 'CHANGED' }));
+  }
+  filesByHead.set(pr.headRefOid, files);
+  return files;
 }
+
+/** True once a pass has read every open pull request in full, so later passes may use the slim query. */
+export const sweepState = { fullPassDone: false };
 
 const textCache = new Map();
 function headText(repo, sha, path) {
@@ -227,7 +250,8 @@ function currentStatus(pr) {
 /** Sweeps every open pull request (or one); writes a status only where it changed. Returns the verdicts. */
 export function sweep({ repo, number = null, nowMs = Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
   const results = [];
-  for (const pr of readPullRequests(repo, number)) {
+  const slim = number === null && sweepState.fullPassDone;
+  for (const pr of readPullRequests(repo, number, slim)) {
     let verdict;
     try {
       const files = allFiles(repo, pr).map((f) =>
@@ -256,6 +280,7 @@ export function sweep({ repo, number = null, nowMs = Date.now(), cadence = decla
     log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
     results.push({ number: pr.number, ...verdict, changed });
   }
+  if (number === null) sweepState.fullPassDone = true;
   return results;
 }
 

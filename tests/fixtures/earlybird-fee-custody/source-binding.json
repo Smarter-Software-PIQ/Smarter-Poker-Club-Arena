@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d",
+    "scripts/qualification/ci-accounting-inputs.json": "f03d2753dcdbd0bbc8496675d70fa03fa4ad1794adde1daa5bb3ab53635573b1",
     "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -1033,7 +1033,20 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "kind": "sha256",
         "previous": "4176646df74bc3b79fbe8d23904649d158e968607dd0328d7f5063f91812caab",
-        "current": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d"
+        "current": "f03d2753dcdbd0bbc8496675d70fa03fa4ad1794adde1daa5bb3ab53635573b1"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "fullServerTypecheckHeapAccountingShard2_20261126": {
+    "reason": "Required accounting shard 2's opponent-memory step (and the server shards' own server typecheck, outside this projection) gains one env line, NODE_OPTIONS=--max-old-space-size=6144, plus a comment: its tsc over all of server/src aborted with 'heap out of memory' (exit 134) on most runs from 2026-11-27 00:38Z, the defect #12130 fixed for the engine promise lint. No command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "a9f08de6a80e29b80c01777911dd507cab6f08b0b2ffee739b3382de4b1eef9d",
+        "current": "f03d2753dcdbd0bbc8496675d70fa03fa4ad1794adde1daa5bb3ab53635573b1"
       }
     ],
     "financialRecertification": false,

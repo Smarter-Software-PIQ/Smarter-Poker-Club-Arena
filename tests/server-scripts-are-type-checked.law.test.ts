@@ -28,14 +28,22 @@ describe('server scripts are type-checked', () => {
   });
 
   it('is run by the Server Engine job right after the server compile', () => {
-    const at = ci.indexOf('- name: TypeScript Check (server)\n        run: npx tsc --noEmit\n');
+    // The step may carry an env block (2026-11-26: the heap it needs) between its name and its run line.
+    const at = ci.indexOf('- name: TypeScript Check (server)\n');
+    expect(
+      sliceBetween(ci.slice(at), '- name: TypeScript Check (server)\n', '\n      - name: ')
+    ).toContain('run: npx tsc --noEmit');
     expect(at).toBeGreaterThan(0);
     const next = ci.indexOf('- name: TypeScript Check (server scripts)', at);
     expect(next).toBeGreaterThan(at);
     // The step itself: from its name to the next step.
-    const step = sliceBetween(ci.slice(next), '- name: TypeScript Check (server scripts)', '\n      - name: ');
+    const step = sliceBetween(
+      ci.slice(next),
+      '- name: TypeScript Check (server scripts)',
+      '\n      - name: '
+    );
     expect(step).toContain('run: npx tsc -p tsconfig.scripts.json --noEmit');
     // Inside the same job: no other job heading between the two steps.
-    expect(ci.slice(at, next)).not.toMatch(/\n  [a-z_]+:\n/);
+    expect(ci.slice(at, next)).not.toMatch(/\n {2}[a-z_]+:\n/);
   });
 });
