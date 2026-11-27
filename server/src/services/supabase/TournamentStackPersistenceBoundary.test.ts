@@ -20,7 +20,10 @@ vi.mock('./client.js', () => ({
     }),
   },
 }));
-vi.mock('./handProjection.js', () => ({ wakeHandProjection: mock.wakeProjection }));
+vi.mock('./handProjection.js', () => ({
+  wakeHandProjection: mock.wakeProjection,
+  claimLocalPostCommitEnvelope: vi.fn(),
+}));
 vi.mock('../errorReporter.js', () => ({ reportError: mock.reportError }));
 vi.mock('./handFacts.js', () => ({ writeHandFacts: vi.fn() }));
 vi.mock('../HorseHandReview.js', () => ({ recordHorseHandReviews: vi.fn() }));

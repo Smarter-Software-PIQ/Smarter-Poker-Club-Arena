@@ -133,6 +133,9 @@ jobs:
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           SOURCE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
           REPOSITORY_ID: ${{ github.repository_id }}
+          # A retained runtime that a newer publish replaced on both endpoints
+          # stands down as superseded (client-runtime-retention.mjs).
+          RETAINED_RUNTIME_SUPERSEDE: stand-down
         shell: bash
         run: |
           set -euo pipefail
@@ -177,12 +180,26 @@ jobs:
       - name: Wait For This Exact Revision On Both Public Endpoints
         id: live
         shell: bash
+        env:
+          RETAINED_RUNTIME_SUPERSEDE: stand-down
         run: |
           set -euo pipefail
+          # A RETAINED RUNTIME A NEWER PUBLISH REPLACED IS NOT RED (2026-11-26).
+          # Runs 45758383418, 45770507484, 45774223349 and 45892509266 failed
+          # here or in the Resolve step because the retained-runtime check
+          # refused before the supersede rule below could run. Resolve or the
+          # harness now stand down the same way when both endpoints serve one
+          # main descendant of the retained runtime and its source.
+          if [ '${{ steps.published.outputs.superseded }}' = 'true' ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "superseded_by=${{ steps.published.outputs.superseded_by }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           expected='${{ steps.published.outputs.sha }}'
           if [ -z "$expected" ]; then expected="$(git rev-parse HEAD)"; fi
           if [ '${{ steps.published.outputs.retained }}' = 'true' ]; then
             node scripts/ci/client-runtime-retention.mjs harness "$expected" "$(git rev-parse HEAD)" "$RUNNER_TEMP/create-retained-runtime/retained-runtime.json" '${{ github.event.workflow_run.id }}' '${{ github.event.workflow_run.head_sha }}' '${{ github.repository_id }}'
+            if grep -qx 'superseded=true' "$GITHUB_OUTPUT"; then exit 0; fi
           fi
           for attempt in $(seq 1 40); do
             origin="$(curl -fsS -H 'Cache-Control: no-cache' "https://ca-static.smarter.poker/build-info.json?cert=$RANDOM" || true)"
