@@ -100,6 +100,9 @@ interface Cell {
   bets: number;
   shown: number;
   value: number;
+  /** omahaPeoplePriorCountsHiddenBets: his bets never shown although he did not win them uncontested (he folded
+   *  later in the hand, or reached the showdown and mucked): public events only; read only with that option on */
+  hidden: number;
 }
 interface Row {
   seen: Record<OmahaBetReadStreet, number>;
@@ -117,7 +120,7 @@ interface Row {
   cellR: Record<OmahaBetReadStreet, Cell>;
 }
 function cell0(): Cell {
-  return { bets: 0, shown: 0, value: 0 };
+  return { bets: 0, shown: 0, value: 0, hidden: 0 };
 }
 const streetCells = (): Record<OmahaBetReadStreet, Record<OmahaBetReadBucket, Cell>> => ({
   flop: { small: cell0(), mid: cell0(), big: cell0() },
@@ -288,7 +291,13 @@ export interface OmahaBetReadIncrement {
   /** he made the first bet of the previous street (a bet here is his second or later barrel) */
   barrelOpp: boolean;
   street: OmahaBetReadStreet;
-  bet: { bucket: OmahaBetReadBucket; shown: boolean; value: boolean } | null;
+  bet: {
+    bucket: OmahaBetReadBucket;
+    shown: boolean;
+    value: boolean;
+    /** omahaPeoplePriorCountsHiddenBets: not shown, and he folded later or the hand reached a showdown */
+    hidden?: boolean;
+  } | null;
   /** omahaBetReadIsModeSplit: nobody wagered on the previous postflop street (always false on the flop) */
   checkedThrough?: boolean;
   /** omahaBetReadIsModeSplit: he acted facing a wager he had not made (not the first bettor of the street) */
@@ -407,6 +416,17 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
     pot += amount;
   }
   flush();
+  // omahaPeoplePriorCountsHiddenBets: a bet not shown is hidden when he folded later in the hand or the hand
+  // reached a showdown (two or more players listed); a bet he won uncontested is not (public events only)
+  const foldedUids = new Set<string>();
+  for (const a of hand.actions) {
+    const uid = a?.userId ?? a?.user_id;
+    if (uid && a.action === 'fold') foldedUids.add(uid.toLowerCase());
+  }
+  const showdownHeld = (hand.showdown ?? []).filter((s) => s && s.user_id).length >= 2;
+  for (const inc of out)
+    if (inc.bet && !inc.bet.shown)
+      inc.bet.hidden = foldedUids.has(inc.userId.toLowerCase()) || showdownHeld;
   return out;
 }
 
@@ -445,12 +465,14 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
           c.bets *= d;
           c.shown *= d;
           c.value *= d;
+          c.hidden *= d;
         }
         if (inc.bet) {
           const c = r.cells[inc.street][inc.bet.bucket];
           c.bets += 1;
           if (inc.bet.shown) c.shown += 1;
           if (inc.bet.value) c.value += 1;
+          if (inc.bet.hidden === true) c.hidden += 1;
         }
         if (inc.checkedThrough === true) {
           r.seenX[inc.street] = r.seenX[inc.street] * d + 1;
@@ -459,12 +481,14 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
             c.bets *= d;
             c.shown *= d;
             c.value *= d;
+            c.hidden *= d;
           }
           if (inc.bet) {
             const c = r.cellsX[inc.street][inc.bet.bucket];
             c.bets += 1;
             if (inc.bet.shown) c.shown += 1;
             if (inc.bet.value) c.value += 1;
+            if (inc.bet.hidden === true) c.hidden += 1;
           }
         }
         if (inc.facedWager === true) {
@@ -473,6 +497,7 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
           c.bets *= d;
           c.shown *= d;
           c.value *= d;
+          c.hidden *= d;
           if (inc.raise) {
             c.bets += 1;
             if (inc.raise.shown) c.shown += 1;
@@ -486,12 +511,14 @@ export function omahaBetReadLearn(hand: OmahaBetReadHand): boolean {
             c.bets *= d;
             c.shown *= d;
             c.value *= d;
+            c.hidden *= d;
           }
           if (inc.bet) {
             const c = r.cells2[inc.street][inc.bet.bucket];
             c.bets += 1;
             if (inc.bet.shown) c.shown += 1;
             if (inc.bet.value) c.value += 1;
+            if (inc.bet.hidden === true) c.hidden += 1;
           }
         }
       }
@@ -863,7 +890,9 @@ export function omahaBetReadOwnCellOf(
   variant: string,
   street: string,
   potFrac: number,
-  laterBarrel: boolean
+  laterBarrel: boolean,
+  /** omahaPeoplePriorCountsHiddenBets: his hidden bets count as shown not-value bets (in the record's unit) */
+  countHidden = false
 ): { shown: number; value: number } | null {
   const v = String(variant ?? '').toLowerCase();
   if (!userId || !OMAHA_BET_READ_VARIANTS.has(v) || !Number.isFinite(potFrac)) return null;
@@ -871,5 +900,5 @@ export function omahaBetReadOwnCellOf(
   const me = rows.get(rowKey(userId, v));
   if (!me) return null;
   const c = (laterBarrel ? me.cells2 : me.cells)[street][omahaBetReadBucketOf(potFrac)];
-  return { shown: c.shown, value: c.value };
+  return { shown: c.shown + (countHidden ? c.hidden : 0), value: c.value };
 }

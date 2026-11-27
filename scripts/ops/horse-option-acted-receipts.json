@@ -1257,6 +1257,13 @@
       "prefixes": ["omaha_people_prior_"],
       "unlessOn": []
     },
+    "omahaPeoplePriorCountsHiddenBets": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_hidden_bets_prior_"],
+      "unlessOn": []
+    },
     "omahaMultiwayFieldIsPeopleMeasured": {
       "releaseDefault": "off",
       "source": "declared",
