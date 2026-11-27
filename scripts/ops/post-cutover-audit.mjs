@@ -28,6 +28,7 @@ import {
   DEFAULT_HEALTH_URL,
   DEFAULT_MAX_REGISTRY_AGE_SEC,
   assertReadOnlySql,
+  buildPsqlJsonSql,
   formatAuditReportText,
   parseCliArgs,
   parseSupabaseJsonOutput,
@@ -53,22 +54,25 @@ Options:
   --strict-records              Fail overall verdict when docs/horse-option-switch-state.json does not
                                 hold the live switch rows (a warning otherwise)
   --supabase-workdir <dir>      Override auto-resolved linked Supabase workdir
+  --db-url-env <NAME>           Read the database through psql with the URL in env NAME (read-only
+                                transaction) instead of the linked Supabase CLI, e.g. on a CI runner
   --json                        Emit machine-readable JSON output
   -h, --help                    Show this help text
 `;
 
-export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir } = {}) {
-  const linkedWorkdir =
-    supabaseWorkdir ??
-    resolveLinkedSupabaseWorkdir({
-      cwd,
-      gitCommonDirRunner: (dir) =>
-        execFileSync('git', ['rev-parse', '--git-common-dir'], {
-          cwd: dir,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-        }),
-    });
+export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir, dbUrl = null } = {}) {
+  const linkedWorkdir = dbUrl
+    ? null
+    : (supabaseWorkdir ??
+      resolveLinkedSupabaseWorkdir({
+        cwd,
+        gitCommonDirRunner: (dir) =>
+          execFileSync('git', ['rev-parse', '--git-common-dir'], {
+            cwd: dir,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }),
+      }));
 
   return {
     now: () => Date.now(),
@@ -91,6 +95,22 @@ export function createRealDeps({ cwd = REPO_ROOT, supabaseWorkdir } = {}) {
 
     async querySupabase(sql) {
       const safeSql = assertReadOnlySql(sql);
+      if (dbUrl) {
+        const res = spawnSync(
+          process.env.PSQL_BIN || 'psql',
+          [dbUrl, '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', buildPsqlJsonSql(safeSql)],
+          {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 30_000,
+            maxBuffer: 10 * 1024 * 1024,
+            env: { ...process.env, PGOPTIONS: '-c default_transaction_read_only=on' },
+          }
+        );
+        if (res.error) throw res.error;
+        if (res.status !== 0) throw new Error((res.stderr || `psql exit ${res.status}`).trim());
+        return JSON.parse(res.stdout.trim() || '[]');
+      }
       const res = spawnSync(
         'supabase',
         ['db', 'query', '--linked', '-o', 'json', '--agent=no', safeSql],
@@ -194,9 +214,20 @@ async function main() {
     process.exit(0);
   }
 
+  let dbUrl = null;
+  if (options.dbUrlEnv) {
+    dbUrl = process.env[options.dbUrlEnv] || '';
+    if (!dbUrl) {
+      process.stderr.write(
+        `Error: --db-url-env ${options.dbUrlEnv}: that environment variable is empty\n`
+      );
+      process.exit(2);
+    }
+  }
   const deps = createRealDeps({
     cwd: REPO_ROOT,
     supabaseWorkdir: options.supabaseWorkdir,
+    dbUrl,
   });
 
   const report = await runPostCutoverAudit(options, deps);
