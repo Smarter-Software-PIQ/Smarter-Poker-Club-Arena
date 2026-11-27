@@ -15351,9 +15351,12 @@ function omahaFacingBetEvCount(
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
         const variant = String(gs.gameVariant ?? '').toLowerCase();
-        // omahaPeoplePriorCountsHiddenBets (default off): the turn's hidden-corrected split cell and record
+        // omahaPeoplePriorCountsHiddenBets (default off): the turn's hidden-corrected split cell and record, for a bet
+        // (a raise keeps today's people raise cell: the option corrects bets only)
         const hiddenKey =
-          opts.omahaPeoplePriorCountsHiddenBets === true && spot.street === 'turn'
+          opts.omahaPeoplePriorCountsHiddenBets === true &&
+          spot.street === 'turn' &&
+          spot.isRaise !== true
             ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
