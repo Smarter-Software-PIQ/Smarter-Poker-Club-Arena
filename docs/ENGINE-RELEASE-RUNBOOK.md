@@ -608,6 +608,13 @@ break does not wait for a release.
   supplies no SHA, date, migration or receiver inputs. The 03:30 cutoff still
   applies to every candidate. When an earlier eligible run exists, follow it.
   After 03:50 the next ordinary window is the next opportunity.
+  Since 2026-11-26 this step runs on a real clock: the OpenClaw cron
+  `ops/openclaw/ca-cutover-operator-preparation.json` on the Mac Studio runs
+  `scripts/ops/cutover-operator-preparation.mjs` three and eleven minutes after
+  every cycle's preparation opens. It sends the dispatch below only when no Stage
+  run can own the cycle, and follows an owner that exists
+  (`tests/every-cycle-gets-an-owner.law.test.ts`). A person sends it by hand only
+  when the Mac is off.
 
   ```sh
   gh run list -R Smarter-Software-PIQ/Smarter-Poker-Club-Arena --workflow stage-engine-release.yml --branch main --limit 20 --json databaseId,event,createdAt
