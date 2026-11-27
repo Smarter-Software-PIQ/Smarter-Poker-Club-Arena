@@ -3480,7 +3480,12 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
              reads. The sleep is capped by what is left of the handover so the
              ceiling really is the budget. */
           this.markProgress();
-          const backoffMs = Math.min(150 * 2 ** Math.min(attempt - 1, 5), 5_000);
+          const backoffMs = Math.min(
+            Math.round(
+              Math.min(150 * 2 ** Math.min(attempt - 1, 5), 5_000) * (0.75 + 0.5 * Math.random())
+            ),
+            5_000
+          );
           const handoverLeftMs = Math.max(0, drainDeadline - Date.now());
           await this.sleep(
             this.lifecycleCanMutate() ? backoffMs : Math.min(backoffMs, handoverLeftMs)

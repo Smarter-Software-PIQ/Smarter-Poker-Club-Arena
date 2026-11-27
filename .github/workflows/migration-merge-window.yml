@@ -20,7 +20,9 @@ name: Migration merge window
 # dispatches mode=keep at :04 of every cycle hour (ops/openclaw/
 # ca-migration-merge-window-open.json; a replay of every merge since 11-20 showed
 # pushes alone miss 9 of 56 windows). The :10 keeper and :40 sweep are
-# best-effort backstops.
+# best-effort backstops. A keeper reads 25 s before each minute and writes on
+# the minute, ready and recently updated pull requests first, each verdict at
+# its own write time (scripts/ci/migration-merge-window.mjs, 2026-11-27).
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
@@ -44,9 +46,17 @@ permissions:
   pull-requests: read
   statuses: write
 
+# ONE KEEPER AT A TIME (2026-11-27). A pull request event holds its own pull
+# request and is replaced by its next event. Every other run (push, schedule,
+# dispatch) shares ONE group and is never cancelled: a later one waits behind
+# the running keeper instead of cancelling it. On 2026-11-27 the 04:04 keeper
+# and a push keeper wrote the same statuses at once (04:15:44-04:16:19), each
+# push cancelled the push keeper before it, so every replacement began with a
+# 3.5-minute cold read, and a hand dispatch at 04:18:04 cancelled the keeper
+# that was opening the window.
 concurrency:
-  group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event.schedule || github.event_name }}
-  cancel-in-progress: true
+  group: migration-merge-window-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || 'keeper' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   merge-window:

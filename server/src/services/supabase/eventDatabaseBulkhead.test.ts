@@ -3,13 +3,17 @@ import {
   ALL_EVENTS_DB_MAX_IN_FLIGHT,
   DB_POOL_SIZE,
   EVENT_DB_BACKOFF_MAX_MS,
+  EVENT_DB_HEALTHY_RECOVERY_MS,
   EVENT_DB_HIGH_PRIORITY_BURST_LIMIT,
+  EVENT_DB_IDLE_RESET_MS,
   EVENT_DB_MAX_IN_FLIGHT,
   EVENT_DB_MIN_IN_FLIGHT,
   EventDatabaseBulkhead,
   classifyEventDbFailure,
   classifyEventDbOutcome,
   classifyEventDbPriority,
+  getEventDbPriorityOverride,
+  runWithEventDbPriority,
   type EventDbPermit,
   type EventDbPriority,
 } from './eventDatabaseBulkhead.js';
@@ -428,6 +432,12 @@ describe('priority queueing for hand-path and seat-move RPCs (1e532243)', () => 
       'fn_f06_retain_hand_continuation',
       'fn_f06_claim_hand_continuation',
       'fn_f06_finish_hand',
+      'fn_next_hand_number',
+      'fn_time_bank_allowance_v2',
+      'fn_time_bank_allowance',
+      'fn_consume_time_bank',
+      'fn_ca_operator_floor_state',
+      'fn_ca_resolve_unbound_pending_addons',
       'insert_hole_cards',
       'save_hand_state_snapshot',
       'complete_hand_snapshot',
@@ -603,5 +613,45 @@ describe('priority queueing for hand-path and seat-move RPCs (1e532243)', () => 
       'poker_event_db_bulkhead_queue_wait_ms_bucket{priority="normal",le="100"} 1'
     );
     expect(after).not.toContain(STUCK);
+  });
+
+  it('recovers a throttled event via time-based healthy steps and resets idle throttled events so /metrics never stays stuck', async () => {
+    const bulkhead = quiet();
+    // Sustained slowness halves 24 -> 12.
+    let call = ask(bulkhead, STUCK);
+    bulkhead.release(call.permit!, 'slow');
+    call = ask(bulkhead, STUCK);
+    bulkhead.release(call.permit!, 'slow');
+    expect(bulkhead.snapshot().events[0].limit).toBe(12);
+    expect(bulkhead.toPrometheusLines().join('\n')).toContain(
+      'poker_event_db_bulkhead_throttled_events 1'
+    );
+
+    // One healthy window (30 s) steps active limit up by +2 (12 -> 14) even with a single call.
+    await vi.advanceTimersByTimeAsync(EVENT_DB_HEALTHY_RECOVERY_MS);
+    call = ask(bulkhead, STUCK);
+    expect(bulkhead.snapshot().events[0].limit).toBe(14);
+    bulkhead.release(call.permit!, 'ok');
+
+    // Another healthy window (30 s) steps up by +2 again (14 -> 16).
+    await vi.advanceTimersByTimeAsync(EVENT_DB_HEALTHY_RECOVERY_MS);
+    expect(bulkhead.snapshot().events[0].limit).toBe(16);
+
+    // An idle window of EVENT_DB_IDLE_RESET_MS (120 s) restores full bound and evicts the idle entry.
+    await vi.advanceTimersByTimeAsync(EVENT_DB_IDLE_RESET_MS);
+    expect(bulkhead.snapshot().events).toHaveLength(0);
+    expect(bulkhead.toPrometheusLines().join('\n')).toContain(
+      'poker_event_db_bulkhead_throttled_events 0'
+    );
+  });
+
+  it('propagates runWithEventDbPriority override across async boundaries and restores undefined outside', async () => {
+    expect(getEventDbPriorityOverride()).toBeUndefined();
+    const seen = await runWithEventDbPriority('high', async () => {
+      await Promise.resolve();
+      return getEventDbPriorityOverride();
+    });
+    expect(seen).toBe('high');
+    expect(getEventDbPriorityOverride()).toBeUndefined();
   });
 });

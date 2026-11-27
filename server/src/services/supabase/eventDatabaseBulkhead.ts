@@ -81,6 +81,8 @@
  * Limits are per engine process. Production runs one dealing process.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 /** PostgREST `db_pool` on the production project, as set 2026-11-18 19:51 UTC. */
 export const DB_POOL_SIZE = 100;
 /** Healthy ceiling for one event. See the arithmetic above. */
@@ -94,6 +96,14 @@ export const ALL_EVENTS_DB_MAX_IN_FLIGHT = 60;
 export const EVENT_DB_SLOW_CALL_MS = 2_000;
 /** The bound is halved at most this often, so one wave of slow answers counts once. */
 export const EVENT_DB_DECREASE_INTERVAL_MS = 1_000;
+/** Time without slow/congested answers after which a throttled event steps its
+ * concurrency bound back up (+2 slots per window), preventing quiet or late-stage
+ * tournaments from remaining pinned below maxPerEvent for hours. */
+export const EVENT_DB_HEALTHY_RECOVERY_MS = 30_000;
+/** Idle window with zero in-flight, cooling, or parked calls and zero recent
+ * slow/congested answers after which a throttled event resets straight to its
+ * full ceiling (e.g. tournament breaks or completed events). */
+export const EVENT_DB_IDLE_RESET_MS = 120_000;
 /** First pause after a congested answer; doubles per consecutive one. */
 export const EVENT_DB_BACKOFF_BASE_MS = 100;
 /** Longest pause. Bounded so a recovered lane is found again within two seconds. */
@@ -103,6 +113,22 @@ export const EVENT_DB_BACKOFF_MAX_MS = 2_000;
 export const EVENT_DB_MAX_PARKED = 512;
 
 export type EventDbPriority = 'high' | 'normal';
+
+const eventDbPriorityOverride = new AsyncLocalStorage<EventDbPriority>();
+
+/**
+ * Run an async boundary (such as a parked gap-balance source's door/board reads)
+ * under an explicit bulkhead priority override so its table/seat SELECTs jump
+ * ahead of background sweep/rebuy traffic in the same tournament bulkhead.
+ */
+export function runWithEventDbPriority<T>(priority: EventDbPriority, fn: () => T): T {
+  return eventDbPriorityOverride.run(priority, fn);
+}
+
+/** Active AsyncLocalStorage priority override, if any. */
+export function getEventDbPriorityOverride(): EventDbPriority | undefined {
+  return eventDbPriorityOverride.getStore();
+}
 
 /** Maximum consecutive high-priority admissions while normal callers are waiting,
  * preventing starvation of background balance/sweep reads under heavy hand load. */
@@ -130,7 +156,13 @@ export const EVENT_DB_HIGH_PRIORITY_RPCS: ReadonlySet<string> = new Set([
   'fn_f06_finish_original_no_start',
   'fn_f06_cancel_prepared_hand',
   'fn_f06_cancel_retained_prepared_hand',
-  // Dealing & hand snapshot writes on the live deal/settlement path
+  // Dealing, hand number, time-bank, operator-floor & pre-deal add-on boundaries
+  'fn_next_hand_number',
+  'fn_time_bank_allowance_v2',
+  'fn_time_bank_allowance',
+  'fn_consume_time_bank',
+  'fn_ca_operator_floor_state',
+  'fn_ca_resolve_unbound_pending_addons',
   'insert_hole_cards',
   'save_hand_state_snapshot',
   'complete_hand_snapshot',
@@ -220,6 +252,7 @@ interface EventState {
   limit: number;
   goodSinceIncrease: number;
   lastDecreaseAt: number;
+  lastCongestionOrSlowAt: number;
   congestedStreak: number;
   slowStreak: number;
   lastLoggedAt: number;
@@ -323,6 +356,7 @@ export class EventDatabaseBulkhead {
         limit: this.maxPerEvent,
         goodSinceIncrease: 0,
         lastDecreaseAt: Number.NEGATIVE_INFINITY,
+        lastCongestionOrSlowAt: Number.NEGATIVE_INFINITY,
         congestedStreak: 0,
         slowStreak: 0,
         lastLoggedAt: Number.NEGATIVE_INFINITY,
@@ -334,6 +368,7 @@ export class EventDatabaseBulkhead {
       this.events.set(key, found);
     }
     const state = found;
+    this.recoverLimitOnTime(key, state, this.now());
     const permit: EventDbPermit = { key, released: false };
     if (
       this.parkedCount(state) === 0 &&
@@ -397,6 +432,7 @@ export class EventDatabaseBulkhead {
     if (outcome === 'ok') {
       state.congestedStreak = 0;
       state.slowStreak = 0;
+      this.recoverLimitOnTime(key, state, this.now());
       if (state.limit < this.maxPerEvent && ++state.goodSinceIncrease >= state.limit) {
         state.goodSinceIncrease = 0;
         state.limit++;
@@ -406,6 +442,8 @@ export class EventDatabaseBulkhead {
         }
       }
     } else if (outcome === 'slow' || outcome === 'congested') {
+      const at = this.now();
+      state.lastCongestionOrSlowAt = at;
       if (outcome === 'congested') state.congestedStreak++;
       else state.slowStreak++;
       // An isolated serialization retry (e.g. a single 40001 on a quiet event
@@ -420,7 +458,6 @@ export class EventDatabaseBulkhead {
         outcome === 'slow'
           ? state.slowStreak >= 2 || state.congestedStreak >= 1
           : state.congestedStreak >= 2 || state.inFlight + state.cooling >= this.minPerEvent;
-      const at = this.now();
       if (shouldHalve && at - state.lastDecreaseAt >= EVENT_DB_DECREASE_INTERVAL_MS) {
         state.lastDecreaseAt = at;
         state.goodSinceIncrease = 0;
@@ -473,6 +510,7 @@ export class EventDatabaseBulkhead {
   }
 
   snapshot(): EventDbBulkheadSnapshot {
+    this.sweepRecoveredEvents(this.now());
     return {
       open: this.open,
       totalInFlight: this.totalInFlight,
@@ -495,6 +533,7 @@ export class EventDatabaseBulkhead {
    */
   toPrometheusLines(): string[] {
     const nowMs = this.now();
+    this.sweepRecoveredEvents(nowMs);
     let parkedCurrent = 0;
     let parkedHigh = 0;
     let parkedNormal = 0;
@@ -627,6 +666,64 @@ export class EventDatabaseBulkhead {
       if (this.parkedCount(bestState) > 0) this.waiting.add(bestKey);
       waiter.resolve(waiter.permit);
     }
+  }
+
+  /**
+   * Time-based recovery for throttled events. Pure call-count AIMD requires
+   * ~210 consecutive ok calls to climb from 12 to 24, leaving quiet/late-stage
+   * tournaments or finished/on-break events pinned below maxPerEvent for hours.
+   * Stepping +2 per EVENT_DB_HEALTHY_RECOVERY_MS without slow/congested replies
+   * (and resetting idle events after EVENT_DB_IDLE_RESET_MS) restores healthy
+   * capacity cleanly while still backing off immediately if congestion returns.
+   */
+  private recoverLimitOnTime(key: string, state: EventState, at: number): boolean {
+    if (
+      state.limit >= this.maxPerEvent ||
+      state.cooling > 0 ||
+      !Number.isFinite(state.lastCongestionOrSlowAt)
+    ) {
+      return false;
+    }
+    const elapsed = at - state.lastCongestionOrSlowAt;
+    if (elapsed < EVENT_DB_HEALTHY_RECOVERY_MS) return false;
+    if (
+      state.inFlight === 0 &&
+      this.parkedCount(state) === 0 &&
+      elapsed >= EVENT_DB_IDLE_RESET_MS
+    ) {
+      state.limit = this.maxPerEvent;
+      state.goodSinceIncrease = 0;
+      state.congestedStreak = 0;
+      state.slowStreak = 0;
+      state.lastLoggedAt = Number.NEGATIVE_INFINITY;
+      this.note(key, state, 'recovered its full bound after idle window');
+      return true;
+    }
+    const steps = Math.floor(elapsed / EVENT_DB_HEALTHY_RECOVERY_MS);
+    const nextLimit = Math.min(this.maxPerEvent, state.limit + steps * 2);
+    state.lastCongestionOrSlowAt += steps * EVENT_DB_HEALTHY_RECOVERY_MS;
+    if (nextLimit <= state.limit) return false;
+    state.limit = nextLimit;
+    state.goodSinceIncrease = 0;
+    if (state.limit === this.maxPerEvent) {
+      state.congestedStreak = 0;
+      state.slowStreak = 0;
+      state.lastLoggedAt = Number.NEGATIVE_INFINITY;
+      this.note(key, state, 'recovered its full bound');
+    }
+    return true;
+  }
+
+  private sweepRecoveredEvents(nowMs: number): void {
+    if (this.open) return;
+    let recoveredAny = false;
+    for (const [key, state] of [...this.events]) {
+      if (state.limit < this.maxPerEvent && this.recoverLimitOnTime(key, state, nowMs)) {
+        recoveredAny = true;
+      }
+      this.forgetIfIdle(key, state);
+    }
+    if (recoveredAny && this.waiting.size > 0) this.pump();
   }
 
   private parkedCount(state: EventState): number {
