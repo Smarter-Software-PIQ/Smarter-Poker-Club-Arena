@@ -2,7 +2,15 @@
 
 Built 2026-11-26 by a PLO-OWNER lead-7 worker (session 01TLQer8) on Dan's orders of 2026-11-26 ("the stats need to be used against human players, not horses"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFlopPressureCapIsPriced`). This file states the evidence; the switch is turned on only through the shadow stage and the live-switch procedure.
 
-**Evidence MET (2026-11-26, pre-registered value-only verdict).** The lead pre-registered the value-only bar before any new run: 4 new seeds (51 to 54) x 12,000 deals, value-only bettor, 100 bb, Horses ON minus OFF, pooled, not below 0 by more than 1 pooled SE on both variants. PLO4 pooled -0.93 +/- 1.11 (-0.83 SE: pass); PLO5 pooled +2.65 +/- 1.86 (pass). The heads-up PLO4 league mirror at 24,000 hands (new seed 61) is -0.30 +/- 1.59. The earlier single runs stand as recorded below: the first value-only PLO4 seed was -1.04 SE. Nothing else changed. One limit stays: the scored audited replay judged none of its 17 changes (all calls the live Horse made; the auditors called 4 CORRECT and 13 a missed value raise). This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
+**Evidence NOT MET (independent review 2026-11-27).** Pooled over every value-only PLO4 100 bb seed ever run, the option costs -1.11 +/- 0.78 bb/100 (-1.43 pooled SE, 7 of 9 seeds negative), which fails the lead's own bar (not below -1 pooled SE), and no probe shows a PLO4 gain to set against it. The 2026-11-26 pass rested on the pre-registered subset, seeds 51 to 54 (-0.93 +/- 1.11, -0.83 SE), which the full pool shows was the luckiest subset. The option stays default OFF and is not to be switched on until a follow-up passes a fresh pre-registered pool. This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
+
+Independent review 2026-11-27 (`plo-lead7-01TLQer8/l8-of-skeptic/REVIEW.md`, item 2). Every value-only PLO4 run (top 15%, pot-sized flop bet, 100 bb, 12,000 deals, Horses ON minus OFF, bb/100 +/- SE), in run order:
+
+| Seed | 21             | 41             | 51             | 52             | 53             | 54             | 71             | 72             | 73             | Pooled (9)                |
+| ---- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | ------------------------- |
+| PLO4 | -2.75 +/- 2.65 | +1.58 +/- 2.19 | +1.78 +/- 2.12 | -2.13 +/- 2.51 | -1.55 +/- 2.05 | -1.80 +/- 2.21 | -1.63 +/- 2.55 | -2.18 +/- 2.01 | -1.31 +/- 2.60 | -1.11 +/- 0.78 (-1.43 SE) |
+
+Inverse-variance pooling gives -1.00 +/- 0.76 (-1.31 SE); the three fresh seeds alone -1.71 +/- 1.39, all negative. Gain side: over-bluffer PLO4 +1.30 +/- 2.46, PLO5 -4.45 +/- 4.46; balanced PLO4 -0.44 +/- 3.37. PLO5 value-only over its 6 seeds (21, 41, 51 to 54) pools +3.37 +/- 1.50, but its over-bluffer probe does not support a PLO5-only switch-on either. The replay fold-rate change stands: PLO5 heads-up flop facing a person's bet of 0.7 pot and over, Horses fold 60.4% live (n 91, 24 h) against a ceiling of 44.7%, 46.1% with the option on in replay.
 
 ## The Defect It Answers
 
