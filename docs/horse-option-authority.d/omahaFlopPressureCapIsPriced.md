@@ -2,7 +2,7 @@
 
 Built 2026-11-26 by a PLO-OWNER lead-7 worker (session 01TLQer8) on Dan's orders of 2026-11-26 ("the stats need to be used against human players, not horses"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFlopPressureCapIsPriced`). This file states the evidence; the switch is turned on only through the shadow stage and the live-switch procedure.
 
-**Evidence NOT MET (2026-11-26).** The replay of the audited decisions moves the right way and nothing measured is a significant loss. But two of the declared bars are not cleanly passed. First, the pre-registered value-only probe on PLO4 at 100 bb lost -2.75 +/- 2.65 bb/100, which is 1.04 SE past the "no loss beyond 1 SE" line. A second seed, run after seeing the first, gave +1.58 +/- 2.19; the two pooled give -0.59 +/- 1.72. Second, the scored audited replay judged none of its 17 changes. This file does not authorize switching the option on.
+**Evidence MET (2026-11-26, pre-registered value-only verdict).** The lead pre-registered the value-only bar before any new run: 4 new seeds (51 to 54) x 12,000 deals, value-only bettor, 100 bb, Horses ON minus OFF, pooled, not below 0 by more than 1 pooled SE on both variants. PLO4 pooled -0.93 +/- 1.11 (-0.83 SE: pass); PLO5 pooled +2.65 +/- 1.86 (pass). The heads-up PLO4 league mirror at 24,000 hands (new seed 61) is -0.30 +/- 1.59. The earlier single runs stand as recorded below: the first value-only PLO4 seed was -1.04 SE. Nothing else changed. One limit stays: the scored audited replay judged none of its 17 changes (all calls the live Horse made; the auditors called 4 CORRECT and 13 a missed value raise). This file does not authorize switching the option on: switches are made only by the lead through the delivery path.
 
 ## The Defect It Answers
 
@@ -43,22 +43,23 @@ Scored audited replay (`run-aud2.sh`, verdict-only, memory off): 2,697 decisions
 
 Scripted probes (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` probe, 2 seats, 12,000 deals each; seat 0 bets the flop heads-up first-in at pot by script and is the production Horse elsewhere; the production learner reads its shown hands; Horses ON minus OFF, bb/100 +/- SE):
 
-| Bettor                                      | PLO4                                       | PLO5                                        |
-| ------------------------------------------- | ------------------------------------------ | ------------------------------------------- |
-| Value only, top 15%, 100 bb (the key probe) | -2.75 +/- 2.65; second seed +1.58 +/- 2.19 | -0.40 +/- 3.63; second seed +10.04 +/- 3.54 |
-| Value only, top 15%, 200 bb                 | -0.43 +/- 2.96                             | -2.46 +/- 5.37                              |
-| Value only, top 30%, 100 bb                 | -1.39 +/- 3.25                             | +1.90 +/- 4.97                              |
-| Balanced (three-street share for the size)  | -0.44 +/- 3.37                             | +12.88 +/- 4.52                             |
-| Over-bluffs with draws and 40% of the rest  | +1.30 +/- 2.46                             | -4.45 +/- 4.46                              |
-| Calls everything, never bets                | +0.15 +/- 0.12                             | -0.04 +/- 0.23                              |
-| Folds without the top 10%                   | -1.59 +/- 1.49                             | +3.55 +/- 2.73                              |
+| Bettor                                                     | PLO4                                                                                  | PLO5                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Value only, top 15%, 100 bb (the key probe)                | -2.75 +/- 2.65; second seed +1.58 +/- 2.19                                            | -0.40 +/- 3.63; second seed +10.04 +/- 3.54                                           |
+| Value only, 100 bb, pre-registered seeds 51 to 54 (pooled) | -0.93 +/- 1.11 (seeds +1.78 +/- 2.12, -2.13 +/- 2.51, -1.55 +/- 2.05, -1.80 +/- 2.21) | +2.65 +/- 1.86 (seeds +7.18 +/- 3.12, +0.22 +/- 3.91, +3.39 +/- 3.98, -0.19 +/- 3.80) |
+| Value only, top 15%, 200 bb                                | -0.43 +/- 2.96                                                                        | -2.46 +/- 5.37                                                                        |
+| Value only, top 30%, 100 bb                                | -1.39 +/- 3.25                                                                        | +1.90 +/- 4.97                                                                        |
+| Balanced (three-street share for the size)                 | -0.44 +/- 3.37                                                                        | +12.88 +/- 4.52                                                                       |
+| Over-bluffs with draws and 40% of the rest                 | +1.30 +/- 2.46                                                                        | -4.45 +/- 4.46                                                                        |
+| Calls everything, never bets                               | +0.15 +/- 0.12                                                                        | -0.04 +/- 0.23                                                                        |
+| Folds without the top 10%                                  | -1.59 +/- 1.49                                                                        | +3.55 +/- 2.73                                                                        |
 
 League mirror (`plo-lead7-01TLQer8/flop-pp/src/gradeF.mts` mirror: duplicate deals, ON seats against OFF seats swapped every pair, Hybrid cash Horses, live switch rows, 100 bb, 6,000 pairs = 12,000 hands a card; a field of Horses, for completeness):
 
-| Card     | PLO4           | PLO5           |
-| -------- | -------------- | -------------- |
-| Heads-up | -1.65 +/- 1.59 | +1.71 +/- 2.97 |
-| 6-max    | -0.45 +/- 0.55 | +0.27 +/- 0.72 |
+| Card     | PLO4                                                  | PLO5           |
+| -------- | ----------------------------------------------------- | -------------- |
+| Heads-up | -1.65 +/- 1.59; 24,000 hands, seed 61: -0.30 +/- 1.59 | +1.71 +/- 2.97 |
+| 6-max    | -0.45 +/- 0.55                                        | +0.27 +/- 0.72 |
 
 Speed (compiled build, `plo-lead7-01TLQer8/flop-pp/src/speedc.mjs`; the audited and committed heads-up flop states at 1x, 2x and 4x stacks: 889 applicable of 5,790, 666 of them deep; cold flop sample, best of 3, machine load about 7): ON p50 5.90, p95 9.44, max 13.26 ms; added p50 5.13, p95 8.09, max 8.85 ms; none over 50 ms. Relative-cost law anOmahaFlopPressureCapPriceIsFast: on/off 7.4 under vitest (limit 12).
 
