@@ -176,7 +176,9 @@ export function holdemOpeningPrice(
   spot: HoldemOpeningSpot,
   range: HoldemPricedRange,
   base: HoldemPricedRange,
-  targets: readonly number[]
+  targets: readonly number[],
+  /** his fold to a matched bet into the pot, when it is not the record-shrunk price (holdemRiverBluffIsPricedOnPeople) */
+  foldOf?: (matched: number, pot: number) => number
 ): { check: number; equity: number; bets: HoldemOpeningCandidate[] } {
   const all = holdemEquityOfShare(range, 1).equity;
   const check = spot.r * all * spot.pot;
@@ -189,7 +191,9 @@ export function holdemOpeningPrice(
     // his fold is his record's (shrunk to the anchor), never capped by the modelled weak share of his range: the
     // cap overrode a measured over-folder's record and priced his medium hands as callers (league: river value bets
     // -12.0 +- 4.1 bb/100 with the cap, -1.7 +- 4.3 without, heads-up, seed 3303)
-    const fb = holdemPricedFold(spot.foldRef, matched, spot.pot);
+    const fb = foldOf
+      ? Math.max(0, Math.min(1, foldOf(matched, spot.pot)))
+      : holdemPricedFold(spot.foldRef, matched, spot.pot);
     const cut = holdemFoldCutoff(base, fb);
     const g = holdemFoldAndCallEquity(range, cut);
     const ev =

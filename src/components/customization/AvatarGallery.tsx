@@ -47,6 +47,7 @@ import { AvatarCustomizer } from './AvatarCustomizer';
 import AvatarCosmetics from '../avatars/AvatarCosmetics';
 import type { AvatarCosmetic, CosmeticKind } from '../../cosmetics/avatarCosmetics';
 import { useHeaderDataStore } from '../../stores/useHeaderDataStore';
+import { useVipIntroEligibility, withVipUpgradePrice } from '../../hooks/useVipIntroEligibility';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -97,6 +98,10 @@ export function AvatarGallery({
   const [saving, setSaving] = useState(false);
   const toast = useToast();
   const [notice, setNotice] = useState<string | null>(null);
+  /* The first-month price beside every "requires VIP" notice. Only an answer
+     from the server prints one (src/hooks/useVipIntroEligibility.ts). */
+  const vipIntro = useVipIntroEligibility(!isVip);
+  const vipPriceNote = vipIntro.priceLine ? `VIP ${vipIntro.priceLine}` : null;
   /* The Hub preset API did not answer. Distinct from "the library is empty",
      which is what this modal used to render for both. */
   const [presetsFailed, setPresetsFailed] = useState(false);
@@ -346,7 +351,10 @@ export function AvatarGallery({
         if (result.reason === 'not-owned') {
           toast.error('You Have Not Unlocked That Yet');
           setNotice(
-            'Premium Frames And Auras Require Active VIP, A Club-Shop Purchase, Or A Separate Reward Unlock.'
+            withVipUpgradePrice(
+              'Premium Frames And Auras Require Active VIP, A Club-Shop Purchase, Or A Separate Reward Unlock.',
+              vipPriceNote
+            )
           );
         } else if (result.reason === 'unknown-cosmetic') {
           toast.error('That Style Is No Longer Available');
@@ -374,7 +382,7 @@ export function AvatarGallery({
       cosmeticInFlightRef.current = false;
       setSavingCosmetic(false);
     },
-    [userId, cosmeticsOk, equippedFrame, equippedAura, toast]
+    [userId, cosmeticsOk, equippedFrame, equippedAura, toast, vipPriceNote]
   );
 
   const freeAvatars = useMemo(() => avatars.filter((a) => a.category === 'free'), [avatars]);
@@ -520,7 +528,10 @@ export function AvatarGallery({
       if (avatar.category === 'vip' && !isVip && !avatar.isOwned) {
         haptic.light();
         setNotice(
-          'This Premium Avatar Requires Active VIP, A Club-Shop Purchase, Or A Reward Unlock.'
+          withVipUpgradePrice(
+            'This Premium Avatar Requires Active VIP, A Club-Shop Purchase, Or A Reward Unlock.',
+            vipPriceNote
+          )
         );
         return;
       }
@@ -531,7 +542,7 @@ export function AvatarGallery({
       setSelectedAvatar(avatar.imageUrl);
       void saveAvatar(avatar.imageUrl, previousUrl);
     },
-    [isVip, saveAvatar]
+    [isVip, saveAvatar, vipPriceNote]
   );
 
   /** Applies immediately and toasts from inside AvatarCustomizer. */
@@ -877,7 +888,10 @@ export function AvatarGallery({
                               if (isLocked) {
                                 haptic.light();
                                 setNotice(
-                                  'Premium Frames And Auras Require Active VIP, A Club-Shop Purchase, Or A Separate Reward Unlock.'
+                                  withVipUpgradePrice(
+                                    'Premium Frames And Auras Require Active VIP, A Club-Shop Purchase, Or A Separate Reward Unlock.',
+                                    vipPriceNote
+                                  )
                                 );
                                 return;
                               }

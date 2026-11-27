@@ -359,6 +359,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-25 plo-lead7: the opening side of NLH cash priced (value bets; blocker or range-advantage bluffs) (ship dark)
   'holdemOpeningValueBetIsPriced',
   'holdemOpeningBluffIsPriced',
+  // 2026-11-27 PLO-OWNER + Hold'em owner lead-8: the NLH cash heads-up river bluff priced on people's river fold by
+  // size and his own river record by size; blockers or the range advantage required (ship dark)
+  'holdemRiverBluffIsPricedOnPeople',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -428,6 +431,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetMinimumDefencePrior',
   // 2026-11-26 PLO-OWNER lead-7 lane PLO-DEFENCE: the bettor's non-value share anchored to the balanced share (ships dark)
   'omahaFacingBetPriorIsPeopleMeasured',
+  // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
+  // on people-only flop shares for the call-or-fold check (ships dark)
+  'omahaFlopPressureCapIsPriced',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
@@ -1151,6 +1157,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up, turn/river, not facing a wager',
     "a check becomes a bluff only when it prices above the check and blockers or the range advantage are the Horse's",
+  ],
+  holdemRiverBluffIsPricedOnPeople: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, river, not facing a wager',
+    "a check becomes a bluff only when it prices above the check on his river record by size, then people's, with blockers or the range advantage",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

@@ -1,0 +1,158 @@
+{
+  "version": "v1-2026-11-27-people-cash-river",
+  "note": "People-only answers (responder not a Horse) to the first wager of a heads-up NLH cash river, by the bettor's line and the bet's size; eq = sum of the equilibrium fold B/(P+B) of the bets answered. sm / bg are the OPPONENT-HUD size cells (at most 0.7 pot / above). scripts/ops/holdem-people-river-fold-fit.mjs.",
+  "source": {
+    "from": "2026-10-01 18:30:53.241444+00",
+    "to": "2026-11-26 20:02:04.593818+00",
+    "handsRead": 18911,
+    "answersUsed": 494
+  },
+  "sizes": {
+    "a<40": [0, 0.4],
+    "b40-70": [0.4, 0.7],
+    "c70-110": [0.7, 1.1],
+    "d>110": [1.1, null]
+  },
+  "priorStrength": {
+    "cash|bg": {
+      "players": 10,
+      "answers": 133,
+      "fold": 0.5639,
+      "k": 12.3
+    },
+    "cash|sm": {
+      "players": 17,
+      "answers": 249,
+      "fold": 0.4297,
+      "k": 7.6
+    },
+    "pooled|bg": {
+      "players": 18,
+      "answers": 281,
+      "fold": 0.573,
+      "k": 19.9
+    },
+    "pooled|sm": {
+      "players": 23,
+      "answers": 484,
+      "fold": 0.4442,
+      "k": 18.9
+    },
+    "tournament|bg": {
+      "players": 10,
+      "answers": 125,
+      "fold": 0.568,
+      "k": 18
+    },
+    "tournament|sm": {
+      "players": 14,
+      "answers": 212,
+      "fold": 0.4528,
+      "k": null
+    }
+  },
+  "cells": {
+    "river|agg|a<40": {
+      "n": 57,
+      "fold": 16,
+      "raise": 7,
+      "eq": 12.0474
+    },
+    "river|agg|b40-70": {
+      "n": 119,
+      "fold": 50,
+      "raise": 14,
+      "eq": 41.2182
+    },
+    "river|agg|c70-110": {
+      "n": 92,
+      "fold": 50,
+      "raise": 11,
+      "eq": 43.6135
+    },
+    "river|agg|d>110": {
+      "n": 17,
+      "fold": 8,
+      "raise": 2,
+      "eq": 9.4527
+    },
+    "river|all|a<40": {
+      "n": 94,
+      "fold": 31,
+      "raise": 10,
+      "eq": 19.7416
+    },
+    "river|all|b40-70": {
+      "n": 202,
+      "fold": 101,
+      "raise": 17,
+      "eq": 70.0642
+    },
+    "river|all|bg": {
+      "n": 197,
+      "fold": 110,
+      "raise": 17,
+      "eq": 95.4264
+    },
+    "river|all|c70-110": {
+      "n": 162,
+      "fold": 90,
+      "raise": 14,
+      "eq": 76.0099
+    },
+    "river|all|d>110": {
+      "n": 36,
+      "fold": 21,
+      "raise": 3,
+      "eq": 19.8283
+    },
+    "river|all|sm": {
+      "n": 297,
+      "fold": 133,
+      "raise": 27,
+      "eq": 90.2176
+    },
+    "river|chk|a<40": {
+      "n": 36,
+      "fold": 14,
+      "raise": 3,
+      "eq": 7.4523
+    },
+    "river|chk|b40-70": {
+      "n": 70,
+      "fold": 46,
+      "raise": 2,
+      "eq": 24.2829
+    },
+    "river|chk|c70-110": {
+      "n": 58,
+      "fold": 35,
+      "raise": 3,
+      "eq": 26.838
+    },
+    "river|chk|d>110": {
+      "n": 19,
+      "fold": 13,
+      "raise": 1,
+      "eq": 10.3756
+    },
+    "river|vsAgg|a<40": {
+      "n": 1,
+      "fold": 1,
+      "raise": 0,
+      "eq": 0.2419
+    },
+    "river|vsAgg|b40-70": {
+      "n": 13,
+      "fold": 5,
+      "raise": 1,
+      "eq": 4.5631
+    },
+    "river|vsAgg|c70-110": {
+      "n": 12,
+      "fold": 5,
+      "raise": 0,
+      "eq": 5.5585
+    }
+  }
+}

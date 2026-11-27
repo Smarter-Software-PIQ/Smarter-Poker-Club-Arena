@@ -82,6 +82,28 @@ tournaments are untouched.
   registry files after the PR's base, and skips the merge if they fail. The keeper job is excluded from the
   non-green count.
 
+## P8: Heads-up flop over-folding to big bets came from a class cap, not the flop verdict
+
+- **What broke:** heads-up on the PLO4 cash flop the Horses folded 72.9% to bets over 0.8 pot where people fold
+  49.4% (plo4-audit, Nov 19 to 26). The first diagnosis blamed the flop verdict's stated bettor share
+  (`omahaFlopFacingBetEv`). Checked before building: that option has been off since Nov 24 07:08Z, the audit split by
+  its switch period gives 72.5% with it off and 73.4% with it on, and even an unblended people share inside it moves
+  the replayed fold rate only from 71.3% to 70.3%. So no fix was built there. The replay of the 445 audited decisions
+  puts 75 of 76 of these folds on the reference call-or-fold check (`v38_ev_fold`), with the V40 Omaha pressure cap
+  (a fixed equity ceiling per made-hand class: one pair 0.28 plus 0.10 on the flop) cutting the equity in 53.
+- **Root fix:** `omahaFlopPressureCapIsPriced` (default OFF). In exactly the spots the cap prices (heads-up flop,
+  single bet), the call-or-fold check reads the equity against the bettor's range: the flop value region plus the
+  people-only measured flop non-value share, moved by his own shown flop bets. It is a separate branch before the V40
+  block. The block, and `v87DeepDiveDiscipline` inside it, run unchanged; only call vs fold can change.
+- **Guards:** law anOmahaFlopPressureCapIsPriced (people-only fit filters, blend, record unit; on the audited decisions
+  big people bets folded less, small bets not more, no raise added or removed; turn, river, raises, multiway, PLO6
+  and tournaments identical; v87 on and off identical outside the scope and v87 receipts identical inside it; a
+  source check that the branch sits before the V40 block and names nothing of v87). Cost law
+  anOmahaFlopPressureCapPriceIsFast. The people fit's flop cells use their own random stream, so the turn and river
+  cells it already served are byte-identical.
+- **Lesson:** confirm which switch is live, and split the audit by the switch periods, before attributing a rate to
+  an option.
+
 ## Release Discipline For All Of The Above
 
 Every option ships default OFF with a flag-off check (0 differences), a shadow watch of at least 60 minutes

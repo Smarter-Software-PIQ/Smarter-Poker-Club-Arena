@@ -59,8 +59,8 @@ describe('VIP Cards Modal', () => {
     const onClose = vi.fn();
     render(<VIPCardsModal isOpen={true} onClose={onClose} vipStatus="none" />);
 
-    const link = screen.getByRole('link', { name: 'Join Club Arena For A Membership' });
-    expect(link.getAttribute('href')).toBe('/hub/vip-membership');
+    const link = screen.getByRole('link', { name: 'Get VIP Membership' });
+    expect(link.getAttribute('href')).toMatch(/\/marketplace\?tab=membership&plan=vip-monthly$/);
     expect(link.getAttribute('target')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close VIP Benefits' }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe('VIP Cards Modal', () => {
     const corner = screen.getByRole('button', { name: 'Close' });
     expect(corner.className).toContain('sc__close');
     expect(screen.getByRole('button', { name: 'Close VIP Benefits' })).toBeTruthy();
-    const join = screen.getByRole('link', { name: 'Join Club Arena For A Membership' });
+    const join = screen.getByRole('link', { name: 'Get VIP Membership' });
 
     await waitFor(() => expect(corner).toHaveFocus());
     expect(document.body.style.overflow).toBe('hidden');

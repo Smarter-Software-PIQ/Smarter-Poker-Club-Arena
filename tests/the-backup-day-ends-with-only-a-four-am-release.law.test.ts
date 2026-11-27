@@ -2381,7 +2381,7 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
 
       // 2026-11-22T02:30:00Z = 2026-11-21 20:30 CST -> 60m (3600s < 4500s) before 21:30 CST (03:30Z) cutoff.
       const CLOSE_TO_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:30:00Z') / 1000));
-      // 2026-11-22T02:00:00Z = 2026-11-21 20:00 CST -> 90m (5400s >= 4500s) before 21:30 CST cutoff.
+      // 2026-11-22T02:00:00Z = 2026-11-21 20:00 CST -> 90m (5400s) before 21:30 CST cutoff: no longer a reason to keep soaking (O35).
       const FAR_FROM_CUTOFF_EPOCH = String(Math.floor(Date.parse('2026-11-22T02:00:00Z') / 1000));
 
       function withOrigin(f: ReturnType<typeof fixture>) {
@@ -2680,7 +2680,7 @@ gh() {
         }
       });
 
-      it('does NOT yield when SHA is still selectable (only ordinary server code changed), far from cutoff (>= 75m), or no newer waiting push exists', () => {
+      it('does NOT yield when SHA is still selectable (only ordinary server code changed) or no newer waiting push exists, and yields far from cutoff (>= 75m) since O35', () => {
         const f = fixture();
         const origin = withOrigin(f);
         try {
@@ -2697,7 +2697,7 @@ gh() {
           expect(stillSelectable.stdout).not.toContain('yielded=1');
           expect(stillSelectable.calls).not.toContain('CLEANUP_CALLED');
 
-          // Now diverge CONTROL_INPUTS on main, and test >= 75m from cutoff and 0 waiting runs.
+          // Now diverge CONTROL_INPUTS on main, and test >= 75m from cutoff (yields since O35) and 0 waiting runs (keeps soaking).
           f.git('checkout', '-q', 'main');
           f.write('server/scripts/engine-release-transaction.sh', '# diverged\n');
           f.commit('c5: control diverged');
@@ -2709,10 +2709,17 @@ gh() {
             nowEpoch: FAR_FROM_CUTOFF_EPOCH,
             soakSeconds: 2,
           });
+          // O35 (2026-11-26): an unselectable soak yields however far the
+          // cutoff is. Backup 45938154669 soaked a certificate that could
+          // never be selected for 38 more minutes because the 01:00 cutoff
+          // was 134 minutes away, and the selectable commit's run waited.
           expect(farFromCutoff.status, farFromCutoff.stderr).toBe(0);
-          expect(farFromCutoff.stdout).toContain('rc=0');
-          expect(farFromCutoff.stdout).not.toContain('yielded=1');
-          expect(farFromCutoff.calls).not.toContain('gh ');
+          expect(farFromCutoff.stdout).toContain('YIELDED_OBSOLETE:');
+          expect(farFromCutoff.stdout).toContain('control_projection_diverged');
+          expect(farFromCutoff.stdout).toContain('5400s to next cutoff');
+          expect(farFromCutoff.stdout).toContain('yielded=1');
+          expect(farFromCutoff.stdout).not.toContain('rc=');
+          expect(farFromCutoff.calls).toContain('CLEANUP_CALLED');
 
           const noWaitingRun = runCertifyStep(f, {
             sha: soakingSha,

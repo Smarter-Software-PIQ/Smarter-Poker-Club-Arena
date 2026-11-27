@@ -1357,6 +1357,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopPressureCapIsPriced',
+    "PLO-OWNER lead-7 2026-11-26 (plo4-audit FINDINGS.md: heads-up flop fold to bets over 0.8 pot 72.9% vs people 49.4%; flop-pp/BUILD.md: 75 of 76 replayed folds are v38_ev_fold, the V40 class cap on 53). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop facing a single bet, where the V40 pressure cap prices a weak made class, the reference call-or-fold check reads the equity against the bettor's range (flop value region plus the PEOPLE-ONLY measured flop non-value share, balanced share weighting a thin cell, moved by his own shown flop bets) instead of the class ceiling; every other consumer reads the cap as before (call vs fold only); turn, river, multiway and raises keep today's price. HorseOmahaFlopPressureCapPriced.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetPriorIsPeopleMeasured',
     "PLO-OWNER lead-7 2026-11-26 (audit-rootcause/REPORT.md section B; woowoo/REPORT.md gap 1). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters; a multiway spot keeps today's price. HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
     'V94'
@@ -1598,6 +1603,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'lightningVpipFloorLimpOnly',
     'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone), and since migration 20261121152102 the switch-off does not judge the pool sitting either (the sample of the table starts at the switch-off). Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
+    'vpipFloorLimpFoldsToARaise',
+    'Owner 2026-11-17 14:34 Chicago ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops.") and 18:38 (the floor never buys a call of a raise). Lead-8 lane preflop 2026-11-27: the limp-only floors made the limp and forgot it; raised, the unfloored decision stood, and the whole preflop brain could call or re-raise with a hand it had just folded for one big blind (hands with a person, PLO4/PLO5 cash, 2026-11-20 to 11-27: 322 of 2,407 floor limps that faced a raise called it and 1 re-raised; with the raiser own record loaded the call comes from the measured-wide-raiser price). With this on, the limp vpipFloorLimpOnlyStep makes (a table under vpipFloorLimpOnly, a ten-hand table under vpipFloorLimpOnlyTenHandWindow, a pool under lightningVpipFloorLimpOnly) carries the private mark vpipFloorLimp; the table engine or the Lightning hand host remembers the accepted limp for that hand (gs.ownVpipFloorLimpThisHand); and that Horse preflop decision facing a raise after the limp is a fold whatever the brain proposed (vpipFloorLimpFoldsToARaiseStep). It makes no limp, adds no floor to any game, leaves a limp the unfloored brain chose alone and does nothing postflop. Default OFF (opt-in, read === true): no mark, nothing remembered, every decision the one it was.',
     'V94'
   ),
   flag(
@@ -2917,6 +2927,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemRiverBluffIsPricedOnPeople',
+    "PLO-OWNER + Hold'em owner lead-8 2026-11-27 (daily real-hand audits, NLH cash against people: the missed river bluff is the top Hold'em chip leak; people fold 49% of heads-up river first bets where equilibrium folds 38%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random; the stats are measured from people, never from Horses). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, river, not facing a wager: the brain's check becomes a bluff at the legal priced size only when the hand has no value size, the bet prices above the check by more than the error of his fold, AND either the Horse's cards remove more of his calling part than of his folding part or the Horse's public line range outscores his on this board. His fold is read size by size in the order his own lifetime river record of that size (OPPONENT-HUD r.fb.sm.hu / r.fb.bg.hu; with none, his recent river response record) -> PEOPLE's measured fold to a heads-up river first bet for the Horse's line and that size (answers by people only; HorseHoldemPeopleRiverFoldTables.json) -> equilibrium, each shrunk to the next by 19.9 pseudo-answers (HorseHoldemPeopleRiverFold). The same formula for every opponent. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -3704,6 +3719,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.vpipFloorMul'
   ),
   state(
+    'ownVpipFloorLimpThisHand',
+    'this seat: its own accepted limp of this hand was the VPIP floor one action (remembered by the table engine or the Lightning hand host from the decision own vpipFloorLimp mark, which exists only with vpipFloorLimpFoldsToARaise on); no card, no opponent; never stored with the public node and outside the policy sampling key',
+    'HorseLogic.vpipFloorLimpFoldsToARaiseStep'
+  ),
+  state(
     'lightningVpipFloor',
     "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its window and this Horse's last window - 1 hands this pool sitting, how many entered and whether the oldest was entered (LightningHorseVpipLedger.readWindow); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
     'HorseLogic.lightningVpipFloorLimpOnlyInputs'
@@ -4415,6 +4435,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'under its line but the price is not a one big blind limp (a raised pot, a straddle, the whole stack or a priced refusal): the floor took no action and the fold stands',
     'VPIP',
     'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold',
+    'HorseLogic (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'the Horse own accepted limp of this hand was the VPIP floor one action and the pot was raised after it: the brain proposed a call or a re-raise and the decision is the fold (owner 2026-11-17: limp fold for a big blind, nothing else)',
+    'VPIP'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold_restored',
+    'HorseLogic.decide (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'a later owner of the decision reopened the fold of a raised floor limp and the option frame restored the fold: counts how often the fold needed its last guard',
+    'VPIP'
+  ),
+  receipt(
+    'vpip_floor_limp_raised_fold_kept',
+    'HorseLogic (VPIP floor, vpipFloorLimpFoldsToARaise)',
+    'the Horse own accepted limp of this hand was the VPIP floor one action and the pot was raised after it: the brain already folded, and the fold is guarded against a later recovery',
+    'VPIP'
   ),
   receipt(
     'lightning_vpip_floor_limp_only_seen',
@@ -6265,6 +6303,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_facing_bet_min_defence_bounded',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPriced)',
     "the corrected facing-bet price raised a no-record prior to the cell's minimum-defence share (omahaFacingBetMinimumDefencePrior)",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_pressure_cap_priced',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    "the heads-up flop call-or-fold check read the equity against the bettor's people-measured range in place of the V40 class cap (omahaFlopPressureCapIsPriced)",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_pressure_cap_priced_call',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    'the priced heads-up flop call-or-fold check called (omahaFlopPressureCapIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_pressure_cap_priced_fold',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopPressureCapPriced)',
+    'the priced heads-up flop call-or-fold check folded (omahaFlopPressureCapIsPriced)',
     'V94'
   ),
   receipt(
@@ -10432,6 +10488,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   receipt(
+    'holdem_river_people_bluff_bet',
+    'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
+    "not facing a wager heads-up (NLH cash), river, a check became a bluff: priced on his own river record by size and people's measured river fold it clears the check by more than the error of his fold, and the Horse's cards block his calling part or its range outscores his",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_bluff_no_edge',
+    'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
+    "a river bluff priced above the check on people's fold but neither blockers nor the range advantage were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_bluff_below_check',
+    'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
+    "no river bluff size cleared the check by more than the error of his fold on his own record and people's measured river fold: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
     'holdem_opening_priced_unpriced',
     'HorseLogic.holdemOpeningPriced (holdemOpeningValueBetIsPriced / holdemOpeningBluffIsPriced)',
     'the opening side could not be priced (no range): the decision stands',
@@ -10956,6 +11030,7 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   // on by release), whose omaha_reraised_call_priced_* receipts fire by design
   // the people-measured facing-bet prior names its own receipts in their descriptions; declared by prefix
   omahaFacingBetPriorIsPeopleMeasured: { prefixes: ['omaha_people_prior_'] },
+  omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

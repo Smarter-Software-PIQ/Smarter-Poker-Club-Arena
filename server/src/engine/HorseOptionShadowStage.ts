@@ -170,6 +170,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
+  omahaFlopPressureCapIsPriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFacingBetFieldIsJoint: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
@@ -273,6 +277,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     ['flop', 'turn', 'river']
   ),
   holdemOpeningBluffIsPriced: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn', 'river']),
+  // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
+  holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
 });
 
 /**

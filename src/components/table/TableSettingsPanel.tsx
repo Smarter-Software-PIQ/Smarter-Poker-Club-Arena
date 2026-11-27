@@ -43,6 +43,7 @@ import {
 } from '../../services/rabbitHuntPricing';
 import { masterBus } from '../../core/MasterBus';
 import { ALL_IN_SQUEEZE_VIP_REQUIRED_MESSAGE } from '../../presentation/cardPresentation/squeezeEligibility';
+import { useVipIntroEligibility, withVipUpgradePrice } from '../../hooks/useVipIntroEligibility';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TableSettingsPanel.css';
 
@@ -70,10 +71,11 @@ export function effectiveSettingValue(
  * hamburger inline) say it without needing a Toast provider in scope. The
  * Toast layer applies the house Title Case transform (popupStyle.ts).
  */
-export function announceVipRequired(): void {
+export function announceVipRequired(priceLine: string | null = null): void {
   masterBus.emit('SHOW_TOAST', {
     severity: 'info',
-    message: ALL_IN_SQUEEZE_VIP_REQUIRED_MESSAGE,
+    // The first-month price rides along only when the server has answered.
+    message: withVipUpgradePrice(ALL_IN_SQUEEZE_VIP_REQUIRED_MESSAGE, priceLine),
     source: 'TableSettingsPanel',
   });
 }
@@ -105,6 +107,7 @@ export function TableSettingsPanel({
 }: TableSettingsPanelProps) {
   const [visibleItems, setVisibleItems] = useState<Set<number>>(new Set());
   const { isVIP, isLoading: vipLoading } = useVIPStatus();
+  const vipIntro = useVipIntroEligibility(!isVIP && !vipLoading);
   /* THE AUTO RUN ALLOWANCE, LIVE (2026-11-02): how many reveals are left, read
      from fn_rabbit_hunt_charge_preview, so Auto Run never spends by surprise. */
   const [rabbitAllowance, setRabbitAllowance] = useState<string | null>(null);
@@ -165,7 +168,7 @@ export function TableSettingsPanel({
               }
               if (vipLoading) return;
               if (!isVIP) {
-                announceVipRequired();
+                announceVipRequired(vipIntro.priceLine);
                 return;
               }
               onToggle(meta.key);

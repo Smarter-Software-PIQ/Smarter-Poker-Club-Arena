@@ -4532,6 +4532,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // gets the floor, window and ITS OWN judged figure - the same numbers the
       // eviction reads - and widens toward the floor like a regular would.
       ...this.horseVpipDecisionInputs(authoritativePlayer.user_id),
+      // vpipFloorLimpFoldsToARaise (default OFF): this Horse's own floor limp of this hand, remembered from its
+      // accepted decision's mark. Absent unless that mark was set, so with the option off the state is unchanged.
+      ...(this.currentHandVpipFloorLimps.has(authoritativePlayer.user_id)
+        ? { ownVpipFloorLimpThisHand: true }
+        : {}),
       // V18 / V87.1 STRADDLE (2026-08-26, hardened 2026-11-11): straddle posts
       // are not ActionRecords, so report whether a straddle was actually posted
       // on THIS hand (plus its exact posted amount) rather than merely whether
@@ -5815,6 +5820,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 executedAmount = normalizedAmount;
                 // PER-HAND OPTION RECEIPTS: this decision's action was accepted. An in-memory count, total.
                 countHandOptionReceipts(this.currentHandOptionReceipts, pendingOptionReceipts);
+                // vpipFloorLimpFoldsToARaise (default OFF): the accepted call was the floor's limp; remember it
+                // for this hand. The mark is set by the worker only with the option on.
+                if (decision.vpipFloorLimp === true && action === 'call')
+                  this.currentHandVpipFloorLimps.add(authoritativePlayer.user_id);
               }
               const acceptedWager = acceptedActions.length === 1 ? acceptedActions[0] : null;
               // omahaValueSizeIsUnreadable (default off): the river value alarm excuses exactly

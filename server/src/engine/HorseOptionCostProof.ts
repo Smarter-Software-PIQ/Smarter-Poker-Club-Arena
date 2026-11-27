@@ -51,6 +51,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the people-measured bettor prior inside the facing-bet price (#12116, 2026-11-26): its cell lookup and, with
   // telemetry on, the second verdict that names omaha_people_prior_changed; on against off where it prices
   omahaFacingBetPriorIsPeopleMeasured: 'engine/anOmahaPeoplePriorIsFast.law.test.ts',
+  // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
+  omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
   // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)
   omahaMultiwayValueBetIsPriced: 'engine/anOmahaMultiwayValueBetIsFast.law.test.ts',
   // the PLO re-raised pot price (id samplers, #12081)
@@ -68,6 +70,7 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // Hold'em: the opening side (cash, heads-up) and the tournament bluff
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemOpeningBluffIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
+  holdemRiverBluffIsPricedOnPeople: 'engine/aHoldemRiverBluffIsPricedOnPeople.law.test.ts',
   holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
 });

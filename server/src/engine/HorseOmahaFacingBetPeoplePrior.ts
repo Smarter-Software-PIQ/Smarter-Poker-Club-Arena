@@ -131,6 +131,34 @@ export function omahaPeopleNonTop20(
   return c.share;
 }
 
+/** Step 3 behind step 2: the people cell blended toward the balanced share by its n (the balanced share alone
+ *  with no measurement). One function for the turn, the river and the flop. */
+function omahaPeoplePriorBlend(cell: Cell, balanced: number): number {
+  return cell.share === null
+    ? balanced
+    : clamp(
+        (cell.n * cell.share + OMAHA_PEOPLE_PRIOR_ANCHOR_BETS * balanced) /
+          (cell.n + OMAHA_PEOPLE_PRIOR_ANCHOR_BETS)
+      );
+}
+
+/** Step 1: his not-value rate in the record's own unit over people's rate in that unit (1 with no record). */
+function omahaPeoplePriorRecordRatio(
+  rec: { shown: number; value: number } | null,
+  pNT: number | null
+): { ratio: number; shown: number } {
+  const shown = rec && pNT !== null && Number.isFinite(rec.shown) && rec.shown > 0 ? rec.shown : 0;
+  if (!(shown > 0)) return { ratio: 1, shown: 0 };
+  const value = Math.max(0, Math.min(shown, Number.isFinite(rec!.value) ? rec!.value : 0));
+  return {
+    ratio:
+      (OMAHA_PEOPLE_PRIOR_RECORD_BETS * pNT! + (shown - value)) /
+      (OMAHA_PEOPLE_PRIOR_RECORD_BETS + shown) /
+      pNT!,
+    shown,
+  };
+}
+
 /** The share priced against this bettor: his record over the people cell over the balanced share. */
 export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeoplePriorShare | null {
   if (input.street !== 'turn' && input.street !== 'river') return null;
@@ -138,13 +166,7 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
   const balanced = omahaEquilibriumAnchor(input.paid, input.winnable, input.rake, input.twoStreet);
   if (balanced === null) return null;
   const cell = omahaPeoplePriorCell(input.street, input.potFrac, input.isRaise, input.multiway);
-  const prior =
-    cell.share === null
-      ? balanced
-      : clamp(
-          (cell.n * cell.share + OMAHA_PEOPLE_PRIOR_ANCHOR_BETS * balanced) /
-            (cell.n + OMAHA_PEOPLE_PRIOR_ANCHOR_BETS)
-        );
+  const prior = omahaPeoplePriorBlend(cell, balanced);
   // river: the blended region weights (core, middle, bottom) before his record
   let base: { core: number; middle: number; bottom: number } | null = null;
   if (input.street === 'river') {
@@ -160,16 +182,7 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
   }
   const rec = input.isRaise ? null : input.record;
   const pNT = omahaPeopleNonTop20(input.street, input.potFrac, input.isRaise, input.multiway);
-  const shown = rec && pNT !== null && Number.isFinite(rec.shown) && rec.shown > 0 ? rec.shown : 0;
-  const value =
-    shown > 0 ? Math.max(0, Math.min(shown, Number.isFinite(rec!.value) ? rec!.value : 0)) : 0;
-  // his not-value rate in the record's own unit over people's rate in that unit (1 with no record)
-  const ratio =
-    shown > 0
-      ? (OMAHA_PEOPLE_PRIOR_RECORD_BETS * pNT! + (shown - value)) /
-        (OMAHA_PEOPLE_PRIOR_RECORD_BETS + shown) /
-        pNT!
-      : 1;
+  const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;
   if (base) {
@@ -179,4 +192,82 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     regions = { core: 1 - nonCore, middle: nonCore * mShare, bottom: nonCore * (1 - mShare) };
   }
   return { share, people: cell.share, peopleN: cell.n, balanced, prior, shown, regions };
+}
+
+// ───────────── the flop (omahaFlopPressureCapIsPriced; PLO-OWNER lead-7 2026-11-26) ─────────────
+/**
+ * THE FLOP CELLS. The same three steps on the flop, in the flop verdict's value unit: a person's shown flop bet is
+ * non-value when it lies outside the strongest OMAHA_FLOP_EV_VALUE_SHARE x line of holdings on the flop
+ * (HorseOmahaFlopFacingBetEv; data.flop, same fit, same people-only filters). The bet may have been answered by
+ * anyone: a heads-up flop bet answered by a PERSON and shown is too thin to fit alone (data.flop.*.answeredByAPerson,
+ * 45 heads-up bets in 30 days), so the bettor side is people-only and the answer side is not filtered. The balanced
+ * share is the price's, over the streets still to bet: one on a final call, three with the turn and the river still
+ * to come (1 - (1 - b)^3, b the one-street share of omahaEquilibriumAnchor), inside the same bounds.
+ */
+type FlopCell = { n: number; share: number | null; nonTop20: number | null };
+/** The people-only flop cell for this bet ('over' reads 'big'): n 0 when not measured. */
+export function omahaPeopleFlopCell(
+  potFrac: number,
+  isRaise: boolean,
+  multiway: boolean
+): { n: number; share: number | null; nonTop20: number | null } {
+  const table = OMAHA_FACING_BET_PEOPLE_PRIOR_DATA.flop[multiway ? 'mw' : 'hu'] as Record<
+    string,
+    FlopCell
+  >;
+  const b = isRaise ? 'raise' : omahaBetSizeBucket(potFrac);
+  const c = table[b === 'over' ? 'big' : b];
+  if (!c || !(c.n > 0) || c.share === null || !Number.isFinite(c.share))
+    return { n: 0, share: null, nonTop20: null };
+  const nt = c.nonTop20 !== null && c.nonTop20 > 0 && c.nonTop20 < 1 ? c.nonTop20 : null;
+  return { n: c.n, share: c.share, nonTop20: nt };
+}
+
+export interface OmahaFlopPeoplePriorInput {
+  potFrac: number;
+  isRaise: boolean;
+  multiway: boolean;
+  paid: number;
+  winnable: number;
+  rake: number;
+  /** no later decision: the whole stack, or nobody left who can bet */
+  final: boolean;
+  /** his own shown flop bets of this size, or null (always null for a raise) */
+  record: { shown: number; value: number } | null;
+}
+
+/** The balanced non-value share of a flop bet: one street on a final call, three otherwise. */
+export function omahaFlopBalancedShare(
+  paid: number,
+  winnable: number,
+  rake: number,
+  final: boolean
+): number | null {
+  const b = omahaEquilibriumAnchor(paid, winnable, rake, false);
+  if (b === null) return null;
+  return clamp(final ? b : 1 - (1 - b) ** 3);
+}
+
+/** The flop share priced against this bettor: his record over the people flop cell over the balanced share. */
+export function omahaFlopPeoplePriorShare(
+  input: OmahaFlopPeoplePriorInput
+): OmahaPeoplePriorShare | null {
+  if (!Number.isFinite(input.potFrac)) return null;
+  const balanced = omahaFlopBalancedShare(input.paid, input.winnable, input.rake, input.final);
+  if (balanced === null) return null;
+  const cell = omahaPeopleFlopCell(input.potFrac, input.isRaise, input.multiway);
+  const prior = omahaPeoplePriorBlend({ n: cell.n, share: cell.share }, balanced);
+  const { ratio, shown } = omahaPeoplePriorRecordRatio(
+    input.isRaise ? null : input.record,
+    cell.nonTop20
+  );
+  return {
+    share: clamp(prior * ratio),
+    people: cell.share,
+    peopleN: cell.n,
+    balanced,
+    prior,
+    shown,
+    regions: null,
+  };
 }
