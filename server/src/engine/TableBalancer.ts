@@ -52,6 +52,21 @@ export interface BalancerPlayer {
   seat: number;
 }
 
+export interface CalculateMovesOptions {
+  /**
+   * Source tables already parked between hands waiting for a tournament move.
+   * When multiple tables tie on playerCount, preferring already-parked sources
+   * avoids fencing a fresh mid-hand table while leaving an idle parked table
+   * waiting (incident 1e532243).
+   */
+  parkedSourceIds?: ReadonlySet<string>;
+  /**
+   * Source tables already fenced to park at their next hand boundary.
+   * Preferred over unfenced tables of identical playerCount, after parked ones.
+   */
+  fencedSourceIds?: ReadonlySet<string>;
+}
+
 export interface MoveInstruction {
   playerId: string;
   fromTableId: string;
@@ -322,14 +337,26 @@ export class TableBalancer {
    * Moves players from over-seated to under-seated tables.
    * Minimizes total moves while achieving gap <= 1.
    */
-  calculateMoves(tables: BalancerTable[]): MoveInstruction[] {
+  calculateMoves(tables: BalancerTable[], options?: CalculateMovesOptions): MoveInstruction[] {
     if (tables.length <= 1) return [];
 
     const totalPlayers = tables.reduce((s, t) => s + t.playerCount, 0);
     const idealPerTable = Math.floor(totalPlayers / tables.length);
     const remainder = totalPlayers % tables.length;
 
-    // Sort tables by player count descending — most populated get the +1 targets
+    const parkedSourceIds = options?.parkedSourceIds;
+    const fencedSourceIds = options?.fencedSourceIds;
+    const sourcePreference = (tableId: string): number => {
+      if (parkedSourceIds?.has(tableId)) return 2;
+      if (fencedSourceIds?.has(tableId)) return 1;
+      return 0;
+    };
+
+    // Sort tables by player count descending — most populated get the +1 targets.
+    // On exact playerCount ties, place unfenced tables first (getting the +1
+    // targets and staying undisturbed) and already-parked / fenced tables last
+    // (getting the lower target so they shed immediately instead of sitting
+    // parked while a new mid-hand table is fenced; incident 1e532243).
     //
     // B2 2026-08-27: `players` is COPIED, not shared. The spread below clones
     // the table object but not its arrays, so the `under.players.push(...)`
@@ -343,14 +370,24 @@ export class TableBalancer {
         players: [...t.players],
         target: 0,
       }))
-      .sort((a, b) => b.playerCount - a.playerCount);
+      .sort(
+        (a, b) =>
+          b.playerCount - a.playerCount || sourcePreference(a.tableId) - sourcePreference(b.tableId)
+      );
 
     for (let i = 0; i < sortedByCount.length; i++) {
       sortedByCount[i].target = i < remainder ? idealPerTable + 1 : idealPerTable;
     }
 
-    // Identify over-seated and under-seated tables
-    const overSeated = sortedByCount.filter((t) => t.playerCount > t.target);
+    // Identify over-seated and under-seated tables. When multiple over-seated
+    // tables tie on playerCount, let already-parked and already-fenced sources
+    // claim open destination chairs first.
+    const overSeated = sortedByCount
+      .filter((t) => t.playerCount > t.target)
+      .sort(
+        (a, b) =>
+          b.playerCount - a.playerCount || sourcePreference(b.tableId) - sourcePreference(a.tableId)
+      );
     const underSeated = sortedByCount.filter((t) => t.playerCount < t.target);
 
     const moves: MoveInstruction[] = [];

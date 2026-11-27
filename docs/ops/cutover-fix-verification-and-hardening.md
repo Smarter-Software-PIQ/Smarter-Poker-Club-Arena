@@ -253,6 +253,35 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Answer, read from the code on 2026-11-25:** no. `select-daily-engine.py` walks every first-parent commit from the cutoff control back to the serving build and ships the newest one with valid evidence, so an older certificate stays shippable when newer engine commits land. The mid-soak yield (O1, `backup-engine.yml`) fires only when the release-control projection (`read-engine-prequalification.py` `projection`, `CONTROL_INPUTS` only) diverged or production installed a migration the copy lacks (O16), inside 75 minutes of the cutoff: exactly the cases where the soaking candidate could not be selected. A server-only merge never stops a soak. A waiting run moves to the newest commit (O11), which contains everything older. No separate cut-off is built.
 - **What a lane must still respect:** a `CONTROL_INPUTS` merge inside 75 minutes of a cutoff stops the soak in flight. Merge release-control changes in the post-seal slot or before the next election window opens.
 
+### O30c: The Player Witness Lasts As Long As The Rehearsal It Watches (#12160)
+
+- **Why it broke:** the swap rehearsal's player witness (`server/standby/player-reconnect.mjs`) had a shorter budget than the rehearsal it watched, so a slow but successful swap was refused as a lost player.
+- **Fix:** `WITNESS_BUDGET_MS` equals the rehearsal's own budget (1800 s + 1200 s) and a law pins the two together; the log mask keeps error codes and release SHAs.
+- **Live proof:** both swaps passed at 20:10 to 20:18 CST on 2026-11-26 (Backup run `45923483257`, recorded by the custody session that merged it).
+
+### A Failed Qualification Step Names Its Cause (#12165)
+
+- **Why it broke:** `qualify-tournament-freeze-fixes.py` reported only `tournament_freeze_qualification_failed`. Three candidates were refused on it at 19:00 to 22:00 CST with no cause in the log.
+- **Fix:** a failed step raises with the tail of its own log (`log_tail`).
+- **Live proof:** the first run with it (`45930467830`, `d88a03fd2e91`) printed `OSError: [Errno 28] No space left on device`, which is how the full disk below was found.
+
+### 2026-11-26: The 22:00 CST Cycle Kept Serving Because The Backup Host Disk Was Full (O34, #12183)
+
+- **Why it broke:** every certification builds one engine image per commit and nothing removed them. `8a853e382063`, `1ec2ff9d4df8` and `d88a03fd2e91` passed both swaps and then failed the tournament freeze qualification when its build could not write. Three good builds were refused for the host, not for their code.
+- **Fix:** `standby-engine certify` first calls `reclaim_backup_disk` (engine images older than 24 h) and refuses with `backup_disk_low:<n>GiB` under 12 GiB free, before any build or soak is spent. Law: `tests/the-backup-host-reclaims-its-disk.law.test.ts`.
+- **Live proof (2026-11-26 22:15:45 CST, run `45938154669`, job `140306355263`):** `disk: removed 366 engine image(s) older than 24h; free 114 GiB`. The same run certified `e21eb7d915ed` (verdict pass, 22:53:47 CST). So the cause was the images: 366 of them had accumulated.
+- **What is measured and what is not:** one reading, 114 GiB free after a reclaim. The 12 GiB floor and the 24 h retention are still the values chosen on the day; the free space each certification logs is the series to re-derive them from. The standby database volume and restore dumps are not touched by the reclaim.
+
+### A Keep-Serving Backup Yields To A Newer Push: Live Proof (O27c, #12136)
+
+- Run `45922456751` (`Backup after keep-serving 2026-11-26T19`) yielded to the newer push at 19:36 CST and ended green without holding the host. Run `45939810519` (`Backup after keep-serving 2026-11-26T22`) did the same at 22:35 CST. No keep-serving run has yet certified a build itself; each one so far has yielded to a push.
+
+### A Release-Control Change Merges Only In The Merge Window (2026-11-26)
+
+- **Why it broke:** a merge that changes one file of the release-control projection makes every existing certificate unselectable. The rule "merge release controls only after a seal" was Custodian Checklist rule 1 and nothing enforced it. O27 merged at 22:50 CST on 11-25 and the 01:00 cycle kept serving; the O31 batch merged at 12:40 CST on 11-26 and 13:00 kept serving.
+- **Fix:** the required status `Migration merge window` now also fails a pull request that changes a projected file, outside the minutes an ordinary migration may merge (10 to 27 minutes after each cycle and 04:15 to 04:27 CST), unless it carries the written outage override. The projected paths are read from the constants of `scripts/ci/read-engine-prequalification.py` as text (`scripts/ci/release-control-paths.mjs`), never from a copy.
+- **What stops it returning:** `tests/a-release-control-change-merges-only-after-a-cycle.law.test.ts` replays both merges, checks every minute of a day against the migration window, and runs the JavaScript classifier and the Python filter over every tracked file.
+- **Limits:** there is no window between 22:27 and 04:15 CST (the nightly schema freeze), so a release-control change made overnight waits for 04:15 or uses the override. The status is computed by the default branch's script, so it takes effect on open pull requests at the next sweep after this merges.
 ### Every Cycle Gets An Owner: The Operator Fallback Runs On A Real Clock (2026-11-26)
 
 - **Why it broke:** a cycle is prepared only when a Stage run created in its election window claims it. GitHub delivers few of Stage's scheduled runs, and it creates no `workflow_run` for a Backup the job token started, so a window with no merge to main had no owner. The 10:00 CST cycles of 11-25 and 11-26 never ran. O32 announced such a cycle; it did not give it an owner.
@@ -297,16 +326,16 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 
 **Per-cycle timetable.** A slot `S` is 01, 04, 07, 10, 13, 16, 19 or 22 Chicago time.
 
-| When                    | What                                                                                           |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `[S - 130 m, S - 10 m)` | Stage election window; the first eligible run created inside it owns the cycle                 |
-| `S - 105 m`             | Recommended start of the combined migration and release-control hold (cutoff minus 75 minutes) |
-| `[S - 150 m, S + 10 m)` | O3/O21: ordinary merged migrations are deferred; they install only in `[S + 10 m, S + 30 m)`   |
-| `S - 30 m`              | Preparation cutoff; the owner run selects one certified candidate or keeps serving             |
-| `S` to `S + 5 m`        | Engine break and replacement; the SEALED post reaches `#11599` at about `S + 2 m`              |
-| `[SEALED, S + 50 m)`    | Post-seal release-control slot: the only time a `CONTROL_INPUTS` change may merge              |
-| `S + 25 m`              | O27: when the cycle did not seal, one `Backup after keep-serving` run starts the next election |
-| 23:45 to 04:15 Chicago  | Nightly release schema freeze (enforced in the database since `#11906`)                        |
+| When                    | What                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `[S - 130 m, S - 10 m)` | Stage election window; the first eligible run created inside it owns the cycle                   |
+| `S - 105 m`             | Recommended start of the combined migration and release-control hold (cutoff minus 75 minutes)   |
+| `[S - 150 m, S + 10 m)` | O3/O21: ordinary merged migrations are deferred; they install only in `[S + 10 m, S + 30 m)`     |
+| `S - 30 m`              | Preparation cutoff; the owner run selects one certified candidate or keeps serving               |
+| `S` to `S + 5 m`        | Engine break and replacement; the SEALED post reaches `#11599` at about `S + 2 m`                |
+| `[S + 10 m, S + 27 m)`  | Merge window: the only time a migration or a `CONTROL_INPUTS` change may merge (required status) |
+| `S + 25 m`              | O27: when the cycle did not seal, one `Backup after keep-serving` run starts the next election   |
+| 23:45 to 04:15 Chicago  | Nightly release schema freeze (enforced in the database since `#11906`)                          |
 
 **No timer starts a release.** No timer, watcher or scheduled agent may initiate, advance, retry or certify a release. A cycle that cannot ship keeps serving, and the next cycle tries again. `tests/no-workflow-gains-a-new-timer.law.test.ts` guards the workflows.
 
