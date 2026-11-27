@@ -1360,8 +1360,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // Every other normalized job and prior accounting command is unchanged.
       // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
       // November 20: retain the exact added shard 4 Horse dealt hole cards PostgreSQL proof.
-      accounting_postgres: '46c7a5c5d4dfb388c7c9cc61c1445e233b99402ad54d821cdda7b88e26fc1e68',
-      server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
+      accounting_postgres: '36237b6221a814e849226ae223616b1dc59fd1f69051687026adc5b822e4ad62',
+      server_shards: '603a82952706343181b88fe1d3f6dc083a855279696cbd6d8e90cec6da8a7187',
       // Added 2026-11-19: builds native qualification image when its inputs change.
       native_qualification_image:
         'bfa42b6b249314ab3191e5a4c8b5bc09ed3da27edbfdd25cf0669bc71a453c9a',

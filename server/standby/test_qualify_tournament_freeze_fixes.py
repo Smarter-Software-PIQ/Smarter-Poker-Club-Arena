@@ -152,5 +152,31 @@ class SeedEligibility(unittest.TestCase):
                     seed.main()
 
 
+
+class AFailedStepNamesItsCause(unittest.TestCase):
+    """2026-11-26: run 45921051609 was refused with only "exit status 1"."""
+
+    def test_a_failed_logged_step_carries_the_tail_of_its_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'hand-native.log'
+            script = 'import sys\nfor i in range(60): print("line", i)\nprint("AssertionError: receipt missing")\nsys.exit(1)\n'
+            with patch.object(qualification, 'DEADLINE', qualification.time.monotonic() + 60), \
+                 patch.object(qualification, 'COMMANDS', []):
+                with self.assertRaises(RuntimeError) as caught:
+                    qualification.run(['python3', '-c', script], log=log)
+            message = str(caught.exception)
+            self.assertIn('returned non-zero exit status 1', message)
+            self.assertIn('last lines of hand-native.log', message)
+            self.assertIn('AssertionError: receipt missing', message)
+            self.assertNotIn('line 0\n', message)
+            self.assertIsInstance(caught.exception.__cause__, subprocess.CalledProcessError)
+
+    def test_the_tail_is_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'big.log'
+            log.write_text('x' * 20000 + '\n')
+            self.assertLessEqual(len(qualification.log_tail(log)), qualification.LOG_TAIL_BYTES)
+            self.assertIn('log unreadable', qualification.log_tail(Path(tmp) / 'missing.log'))
+
 if __name__ == '__main__':
     unittest.main()

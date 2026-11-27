@@ -42,6 +42,13 @@ import {
   pushAction,
 } from '../scripts/ci/migration-merge-window.mjs';
 import { releaseFreezeAdmission } from '../scripts/ci/release-freeze-admission.mjs';
+import {
+  ALERT_NAME as WATCH_ALERT,
+  FLEET_TASK_ID,
+  decide as watchDecide,
+  lastClosedWindow,
+  windowVerdict,
+} from '../scripts/ci/merge-window-watch.mjs';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -345,5 +352,125 @@ esac
     const check = script.indexOf('# A FILE REVERTED WHILE HELD IS NOT SENT');
     expect(check).toBeGreaterThan(script.indexOf('sleep "$WAIT"'));
     expect(check).toBeLessThan(script.indexOf('repos/$REPO/dispatches'));
+  });
+});
+
+describe('a missed merge window is paged (2026-11-26)', () => {
+  const win = { open: at('2026-11-27T01:10:00Z'), close: at('2026-11-27T01:27:00Z') }; // 7:10-7:27 PM CST
+  const status = (state: string, description: string, iso: string) => ({
+    state,
+    description,
+    created_at: iso,
+  });
+  const before = status(
+    'failure',
+    'Migrations merge 10-27 min after a cycle or 4:15-4:27 AM; next 7:10 PM CST.',
+    '2026-11-26T22:27:46Z'
+  );
+
+  it('finds the window that last closed, never one still open', () => {
+    expect(lastClosedWindow(at('2026-11-27T01:31:00Z'), C)).toEqual(win);
+    // 7:20 PM: the 7:10 window is still open, so the last closed one is 4:10-4:27.
+    expect(lastClosedWindow(at('2026-11-27T01:20:00Z'), C)).toEqual({
+      open: at('2026-11-26T22:10:00Z'),
+      close: at('2026-11-26T22:27:00Z'),
+    });
+  });
+
+  it('held when a head older than the window turned green inside it; missed when it did not', () => {
+    const held = [
+      {
+        number: 2303,
+        statuses: [
+          status(
+            'success',
+            'Install window open: merge before 7:27 PM CST',
+            '2026-11-27T01:11:19Z'
+          ),
+          before,
+        ],
+      },
+    ];
+    expect(windowVerdict(win, held)).toBe('held');
+    expect(windowVerdict(win, [{ number: 2303, statuses: [before] }])).toBe('missed');
+    // A green status from another window does not count.
+    expect(
+      windowVerdict(win, [
+        {
+          number: 2303,
+          statuses: [
+            status(
+              'success',
+              'Install window open: merge before 4:27 PM CST',
+              '2026-11-26T22:10:57Z'
+            ),
+            before,
+          ],
+        },
+      ])
+    ).toBe('missed');
+    // No head that predates the window: unknown is not held.
+    expect(
+      windowVerdict(win, [
+        { number: 9, statuses: [status('failure', 'x', '2026-11-27T01:20:00Z')] },
+      ])
+    ).toBe('could-not-tell');
+    expect(windowVerdict(win, [])).toBe('not-needed');
+  });
+
+  it('fires one fleet-addressed episode for a missed window and resolves it on the next held one', () => {
+    const fire = watchDecide('missed', win, undefined);
+    expect(fire.action).toBe('fire');
+    expect(fire.payload.target_task_id).toBe(FLEET_TASK_ID);
+    expect(fire.payload.check_first).toContain('ca-migration-merge-window-open');
+    expect(fire.eventKey).toBe('missed:2026-11-27T01:10:00.000Z');
+    const open = { event_key: fire.eventKey, status: 'firing', investigation_status: null };
+    expect(watchDecide('missed', win, open).eventKey).toBe(fire.eventKey); // one episode, not one per window
+    expect(watchDecide('held', win, open)).toMatchObject({
+      action: 'resolve',
+      eventKey: `${fire.eventKey}:resolved`,
+    });
+    expect(watchDecide('held', win, undefined).action).toBe('none');
+    expect(
+      watchDecide('held', win, { ...open, investigation_status: 'verified_fixed' }).action
+    ).toBe('none');
+    expect(WATCH_ALERT).toBe('MigrationMergeWindowNotOpened');
+  });
+
+  it('is wired: its own job, never on pull_request_target, database only when there is something to record', () => {
+    const wf = parse(read('.github/workflows/migration-merge-window.yml')) as Record<string, any>;
+    const job = wf.jobs.watch;
+    expect(job.environment).toBe('ci-main');
+    expect(job.if).toContain("github.event_name != 'pull_request_target'");
+    const names = job.steps.map((s: { name?: string }) => s.name);
+    expect(names).toContain('Read the last window');
+    const install = job.steps.find(
+      (s: { name?: string }) => s.name === 'Install the pinned database client'
+    );
+    const rec = job.steps.find(
+      (s: { name?: string }) => s.name === 'Record or resolve the missed-window alert'
+    );
+    expect(install.if).toBe("steps.verdict.outputs.needs_db == 'true'");
+    expect(rec.if).toBe("steps.verdict.outputs.needs_db == 'true'");
+    expect(rec.env.DATABASE_URL).toBe('${{ secrets.DATABASE_URL }}');
+    expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
+  });
+});
+
+describe('a window pass reads each head once (2026-11-26)', () => {
+  it('the first pass reads in full, later passes are slim, and files are cached by head', () => {
+    const src = read('scripts/ci/migration-merge-window.mjs');
+    expect(src).toContain('const filesByHead = new Map();');
+    expect(src).toContain('const slim = number === null && sweepState.fullPassDone;');
+    expect(src).toContain('if (number === null) sweepState.fullPassDone = true;');
+    // The slim query has no file list and pages 100 at a time.
+    const fields = src.match(/const PR_FIELDS_SLIM = `([\s\S]*?)`;/)?.[1] ?? '';
+    expect(fields).not.toContain('files(');
+    expect(fields).toContain('headRefOid');
+    expect(src).toContain("PR_QUERY.replace('first:40', 'first:100')");
+    // A head it has not seen still costs a file read: a cache hit is keyed by the head commit.
+    expect(src).toMatch(
+      /const known = filesByHead\.get\(pr\.headRefOid\);\s+if \(known\) return known;/
+    );
   });
 });

@@ -70,9 +70,6 @@ const RETAINED: Record<string, string> = {
   'src/components/emoji/EmojiPicker.css': 'read by path: scripts/ci/check-no-emoji.mjs',
   'src/components/emoji/EmojiPicker.tsx':
     'read by path: scripts/ci/check-no-emoji.mjs tests/no-emoji-gate.test.ts',
-  'src/components/feedback/RatingModal.css': 'imported only by another retained file',
-  'src/components/feedback/RatingModal.tsx': 'imported only by another retained file',
-  'src/components/feedback/index.ts': 'read by path: tests/tip-dealer-guards.test.tsx',
   'src/components/gamification/LuckyDrawWheel.css':
     'dead wheel; on the Math.random allowlist of a-player-is-never-shown-an-invented-number, delete both together',
   'src/components/gamification/LuckyDrawWheel.tsx':
@@ -142,7 +139,6 @@ const RETAINED: Record<string, string> = {
   'src/components/wallet/index.ts': 'read by path: tests/wallet-display-ledger.test.ts',
   'src/constants/index.ts': 'read by path: tests/unit/theAppDoesNotLieToPlayers.test.ts',
   'src/constants/timing.ts': 'imported only by another retained file',
-  'src/core/AntiGravityBoot.tsx': 'read by path: tests/unit/AntiGravityBoot.test.ts',
   'src/core/SupabaseIntegration.ts': 'read by path: tests/unit/SupabaseIntegration.test.ts',
   'src/i18n/index.ts': 'read by path: scripts/ci/check-title-case.mjs',
   'src/lib/diamondArenaIdentity.ts': 'read by path: tests/poker-arena-access.test.ts',
@@ -151,6 +147,16 @@ const RETAINED: Record<string, string> = {
     'read by path: tests/promotion-assigns-the-rate.law.test.ts tests/theArenaIsAlwaysTheAlias.law.test.ts tests/unit/CompleteSetReadsDoNotTruncate.test.ts',
   'src/services/ChipFlowService.ts':
     'read by path: supabase/migrations/20260902130000_the_dead_pool_stops_taking_deposits.sql tests/cashier-ui-role-scoping.test.ts tests/config/roleScopedCashier.test.ts',
+  'src/services/index.ts':
+    'read by path: tests/the-promo-slice-names-its-purse.law.test.ts; imported by the retained src/components/agent/AgentHierarchyTree.tsx',
+  'src/services/POYService.ts':
+    'imported by tests/unit/POYService.test.ts tests/unit/finalSweep20260908.test.tsx',
+  'src/services/PermissionService.ts':
+    'imported by tests/unit/PermissionService.test.ts tests/components/agent-management-authority-revocation.test.tsx',
+  'src/services/PresenceService.ts':
+    'imported by tests/unit/PresenceService.test.ts and the retained src/pages/ClubDetailPage.tsx',
+  'src/services/PushNotificationService.ts':
+    'imported or mocked by tests/unit/PushNotificationService.test.ts tests/cashout-escrow-flow.test.ts and four other tests',
   'src/services/SettlementCronService.ts':
     'tested retired browser API: tests/unit/SettlementCronService.test.ts tests/unit/ServiceBootstrap.test.ts',
   'src/services/ClubMessagingPermissions.ts':
@@ -237,9 +243,12 @@ function roots(): Set<string> {
       if (r) out.add(r);
     }
   }
+  // A path vite.config.ts names is an entry only when it is a file. An alias
+  // target such as './src/lib' is a directory, and resolving it would root
+  // the directory's index barrel, which nothing imports.
   for (const m of vite.matchAll(/['"]\.?\/?src\/([^'"]+)['"]/g)) {
-    const r = resolveSpec(ROOT, '/src/' + m[1]);
-    if (r) out.add(r);
+    const named = normalize(join(SRC, m[1]));
+    if (ALL.has(named)) out.add(named);
   }
   return out;
 }
@@ -269,6 +278,26 @@ describe('every file under src/ is reachable from the entry, or it is listed', (
   it('the walk starts from the real entry', () => {
     expect([...roots()].map((r) => relative(ROOT, r))).toContain('src/main.tsx');
     expect([...roots()].map((r) => relative(ROOT, r))).toContain('src/diamond-test.tsx');
+  });
+
+  it('an alias directory named in vite.config.ts is not an entry', () => {
+    // vite.config.ts names './src/lib', './src/stores', './src/types' and
+    // './src/services' as alias targets. Taken as entries, each resolved to
+    // its directory's index barrel, which rooted the barrel and everything it
+    // re-exported: until 2026-11-27 four barrels, and src/lib/api.ts and
+    // src/lib/validation.ts behind one of them, counted as reachable though
+    // nothing imported them.
+    const vite = readFileSync(join(ROOT, 'vite.config.ts'), 'utf8');
+    const dirs = [...vite.matchAll(/['"]\.?\/?(src\/[^'"]+)['"]/g)]
+      .map((m) => m[1].replace(/\/$/, ''))
+      .filter((p) => existsSync(join(ROOT, p)) && statSync(join(ROOT, p)).isDirectory());
+    expect(dirs).toContain('src/services');
+    const rooted = roots();
+    const barrels = dirs
+      .map((d) => resolveSpec(ROOT, '/' + d))
+      .filter((b): b is string => b !== null && rooted.has(b))
+      .map((b) => relative(ROOT, b).replace(/\\/g, '/'));
+    expect(barrels, 'a directory alias rooted its barrel').toEqual([]);
   });
 
   it('no unlisted file under src/ is unreachable', () => {

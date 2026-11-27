@@ -63,8 +63,8 @@ import { filterBySubjects, handSearchSubject, type HandQuery } from '../lib/hand
 import { handNotesService, type HandNote } from '../services/HandNotesService';
 import { handFlagService, type HandFlag } from '../services/HandFlagService';
 import { toPokerStarsFile } from '../utils/pokerStarsExport';
-import { openInBrowser } from '../lib/openExternal';
-import { WEB_ORIGIN } from '../lib/appBase';
+import { leaveForHub, openInBrowser } from '../lib/openExternal';
+import { IS_NATIVE_BUILD, WEB_ORIGIN, isNativePlatform } from '../lib/appBase';
 import { downloadBlob } from '../utils/downloadCsv';
 import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { useSharedHandShortLink } from '../hooks/useSharedHandShortLink';
@@ -853,18 +853,44 @@ export default function HandHistoryPage() {
    * the analysis page reads the record itself under the viewer's own session
    * and owner-scoped RLS. Never serialise hole cards into a query string.
    */
-  const openPersonalAssistantPath = (path: string, toastMessage: string) => {
+  const openPersonalAssistantPath = (
+    path: string,
+    toastMessage: string,
+    options?: { sameTab?: boolean }
+  ) => {
     // Dan 2026-09-05: with a live table open, Leak Finder opens in a hub tab
     // beside the game (the strip can see it, swipe reaches it); otherwise
-    // the browser tab it has always been.
+    // same-tab return uses window.location.assign or new browser tab via openInBrowser.
     const liveTables = Number(document.body?.dataset.caLiveTables ?? '0');
     if (liveTables > 0) {
       masterBus.emit('OPEN_HUB_TAB', { path, requestedBy: userId ?? undefined });
-      toast.info('Opening Leak Finder (Live Detection Locked While Seated)');
-    } else {
-      openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer');
-      toast.info(toastMessage);
+      const seatedToast = toastMessage
+        ? toastMessage.includes('Live Detection Locked While Seated')
+          ? toastMessage
+          : toastMessage.endsWith(')')
+            ? `${toastMessage} · Live Detection Locked While Seated`
+            : `${toastMessage} (Live Detection Locked While Seated)`
+        : 'Opening Leak Finder (Live Detection Locked While Seated)';
+      toast.info(seatedToast);
+      return;
     }
+    const url = `${WEB_ORIGIN}${path}`;
+    if (options?.sameTab) {
+      if (IS_NATIVE_BUILD && isNativePlatform()) {
+        leaveForHub(url);
+      } else {
+        window.location.assign(url);
+      }
+      toast.info(toastMessage);
+      return;
+    }
+    const opened = openInBrowser(`${WEB_ORIGIN}${path}`, 'noopener,noreferrer') as unknown;
+    if (opened === null) {
+      window.location.assign(url);
+      toast.info(`${toastMessage} (Opened In Current Tab)`);
+      return;
+    }
+    toast.info(toastMessage);
   };
 
   const analyzeInPersonalAssistant = (hand: HandRecord) => {
@@ -897,11 +923,25 @@ export default function HandHistoryPage() {
     try {
       const params = new URLSearchParams();
       if (linkedHandId) {
+        const linkedHand = hands.find((h) => h.id === linkedHandId);
+        const linkedServiceRow =
+          rows.find((r) => r.id === linkedHandId) ??
+          (linkedRow?.id === linkedHandId ? linkedRow : null);
+        const isTournamentHand = linkedHand
+          ? Boolean(linkedHand.tournamentId)
+          : linkedServiceRow
+            ? Boolean(linkedServiceRow.tournament_id)
+            : gameMode === 'tournament';
+        const formatParam = isTournamentHand ? 'tournament' : 'cash';
         params.set('hand', linkedHandId);
         params.set('source', 'club-arena');
+        params.set('format', formatParam);
       }
       if (returnLeakId) {
         params.set('leak', returnLeakId);
+        if (!params.has('format')) {
+          params.set('format', gameMode === 'tournament' ? 'tournament' : 'cash');
+        }
       }
       const query = params.toString();
       const basePath =
@@ -910,7 +950,8 @@ export default function HandHistoryPage() {
           : '/hub/personal-assistant/leaks';
       openPersonalAssistantPath(
         `${basePath}${query ? `?${query}` : ''}`,
-        'Returning To Personal Assistant'
+        'Returning To Personal Assistant',
+        { sameTab: true }
       );
     } catch (err) {
       reportError(err, 'HandHistoryPage.return_to_personal_assistant_failed');
@@ -1480,6 +1521,7 @@ export default function HandHistoryPage() {
                 toast.error('Could Not Build A Share Link For That Hand');
               }
             }}
+            onAnalyze={(hand) => analyzeInPersonalAssistant(hand)}
           />,
           document.body
         )}
