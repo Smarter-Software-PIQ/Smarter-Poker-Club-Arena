@@ -16,7 +16,7 @@ The Supabase advisor listed 37 production functions with no fixed search_path (f
 - three sealed `fn_gto_v31_public215_*` functions, whose definitions and settings feed the seal qualification fingerprint;
 - six SQL helpers that production's planner inlines on hot or set-oriented paths (club history snapshot predicates, the union P&L tournament entry and touched-registration helpers, the messenger continuity filter, the Diamond kind bucket). A SET clause stops inlining; measured locally at about 10x on a per-row predicate.
 
-**Law:** `tests/a-definer-function-pins-its-search-path.law.test.ts` fails if a migration from 2026-09-01 on creates or alters a SECURITY DEFINER routine without SET search_path, or puts a SET clause on a procedure that COMMITs.
+**Law:** `tests/a-definer-function-pins-its-search-path.law.test.ts` fails if a migration from 2026-09-01 on creates or alters a SECURITY DEFINER routine without SET search_path, or puts a SET clause on a procedure that COMMITs. It also fails if a later migration redefines one of the 23 without SET search_path, because CREATE OR REPLACE would drop the pin.
 
 **Test:** `tests/unit/invokerFunctionsPinTheirSearchPath.pg.test.ts` installs the migration on a scratch PostgreSQL and shows a temporary `notice_board_entries` no longer shadows public, results and grants are unchanged, the exemptions stay unpinned, a grant change rolls everything back, and a pinned committing procedure fails.
 

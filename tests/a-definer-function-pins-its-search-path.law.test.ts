@@ -19,7 +19,9 @@
  *      clause, because PostgreSQL then refuses its first COMMIT ("invalid
  *      transaction termination"). That is the trap a well-meant advisor fix
  *      falls into, and why five procedures stay unpinned (migration
- *      20261127005018, which also pins 23 invoker functions).
+ *      20261127005018, which also pins 23 invoker functions);
+ *   4. no later migration redefines one of those 23 without SET search_path,
+ *      since CREATE OR REPLACE would silently drop the pin.
  *
  * Plain (SECURITY INVOKER) functions are not held to (1). They run with the
  * caller's own rights, ~300 have been created without a SET clause since
@@ -262,6 +264,39 @@ describe('a definer function pins its search path', () => {
         "a SET clause: pin it from inside with set_config('search_path', ..., true).",
       ].join('\n')
     ).toEqual([]);
+  });
+
+  it('a function the pin migration pinned keeps its pin when a later migration redefines it', () => {
+    // CREATE OR REPLACE replaces proconfig with the new definition's own SET
+    // clauses, so a redefinition without one silently undoes the pin.
+    const corpus = migrationCorpus();
+    const pin = corpus.find((m) => m.name === PIN_MIGRATION);
+    expect(pin, `${PIN_MIGRATION} must exist`).toBeDefined();
+    const list = pin!.sql.slice(pin!.sql.indexOf('c_pinned CONSTANT text[]'));
+    const names = new Set(
+      [...list.slice(0, list.indexOf('];')).matchAll(/'(public\.[a-z_0-9]+)\(/g)].map((m) => m[1])
+    );
+    expect(names.size).toBe(23);
+    const found: string[] = [];
+    for (const m of corpus) {
+      if (m.name <= PIN_MIGRATION) continue;
+      for (const r of routineDefinitions(m.sql)) {
+        if (names.has(r.name) && !PINS_PATH.test(r.options)) {
+          found.push(`${m.name}: redefines ${r.name} without SET search_path`);
+        }
+      }
+    }
+    expect(
+      found,
+      `Keep SET search_path = public, pg_temp on these; ${PIN_MIGRATION} pinned them.`
+    ).toEqual([]);
+    // the check sees such a redefinition
+    expect(
+      routineDefinitions(
+        `CREATE OR REPLACE FUNCTION public.fn_ca_hand_tags_ok(p text[]) RETURNS boolean
+           LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;`
+      ).filter((r) => names.has(r.name) && !PINS_PATH.test(r.options))
+    ).toHaveLength(1);
   });
 
   it('the pin migration pins exactly what it proves live, and touches no grant', () => {
