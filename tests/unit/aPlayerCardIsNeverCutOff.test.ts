@@ -29,7 +29,7 @@ describe('a player card is never cut off', () => {
   });
 
   it('gives the status line the full card width', () => {
-    expect(CSS).toMatch(/\.club-members-page \.member-subline \{\s*grid-area: 3 \/ 1 \/ 4 \/ 3;/);
+    expect(CSS).toMatch(/\.club-members-page \.member-subline \{\s*grid-area: 2 \/ 1 \/ 3 \/ 3;/);
   });
 
   it('only ever grows the card on a narrower screen', () => {

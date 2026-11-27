@@ -520,6 +520,13 @@ for (const rosterLoadsLast of [false, true]) {
             found.push('player name is not below the portrait');
           if (avatar.left - r.left > 16 || avatar.top - r.top > 16)
             found.push('portrait is not in the upper left corner');
+          // The portrait's ring is drawn 4px outside its box; the name keeps
+          // clear air below it (Dan, 2026-11-27).
+          if (name.top - avatar.bottom < 8) found.push('player name touches the portrait frame');
+          // The selection box sits in the card's upper right corner.
+          const box = row.querySelector('.member-select input')!.getBoundingClientRect();
+          if (r.right - box.right > 24 || box.top - r.top > 24)
+            found.push('selection box is not in the upper right corner');
           if (avatar.width < 64 || Math.abs(avatar.width - avatar.height) > 1)
             found.push(`portrait is not double size: ${avatar.width}x${avatar.height}`);
           row

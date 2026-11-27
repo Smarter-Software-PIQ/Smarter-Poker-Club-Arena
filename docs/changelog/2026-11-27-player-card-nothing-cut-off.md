@@ -24,3 +24,23 @@ left out `.member-seated` and `.member-online`.
 - The containment spec now renders every card at that pitch and requires the
   seated table line and the online status to stay inside the card too.
   `tests/unit/aPlayerCardIsNeverCutOff.test.ts` pins the wiring.
+
+## Selection box in the corner, and air under the portrait
+
+Dan, the same afternoon: "PUT THE CHECK BOX IN THE UPPER RIGHT HAND CORNER,
+NOT NEXT TO THE AVATAR. AND MAKE SURE THE NAME TITLE ISN'T TOUCHING THE FRAME
+OF THE AVATAR."
+
+- The selection box sits in the card's upper right corner; the figures start
+  below its 44px target.
+- The portrait and the name share the first grid cell, the name offset 12px
+  below the portrait box (8px clear of the 4px ring), so it sits directly
+  under the portrait however tall the figures are.
+- The containment spec requires both: name at least 8px below the portrait,
+  and the box within 24px of the card's top right.
+
+The first push of this branch failed `CSS Beat general shard 1` at 360px and
+375px: the hosted runner draws with DejaVu Sans where this machine has Inter,
+so its cards came out taller. The pitches are now measured both ways
+(`FONTCONFIG_FILE` mapping every missing face to DejaVu Sans reproduces the
+runner's failure exactly) and the spec passes under both.

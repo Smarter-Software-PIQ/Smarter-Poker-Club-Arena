@@ -1135,8 +1135,8 @@
    The portrait used to be a vertically centred grid column beside the text,
    re-placed by four separate width rules; that is what floated it mid-card
    and opened the gaps, so those rules are gone and this block is the only
-   one that places a card's parts. The selection box sits beside the portrait
-   in the top band, clear of the name and the figures. */
+   one that places a card's parts. The selection box sits
+   in the card's upper right corner, above the figures. */
 .arena-workspace.club-members-page .member-row {
   --member-portrait: clamp(64px, 12vw, 92px);
   --member-card-inset: 7px;
@@ -1144,7 +1144,7 @@
 .arena-workspace.club-members-page .member-row__open {
   box-sizing: border-box;
   grid-template-columns: minmax(0, 1fr) minmax(0, max-content) 10px;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto;
   align-content: start;
   align-items: start;
   gap: 4px clamp(6px, 1vw, 12px);
@@ -1166,7 +1166,14 @@
   font-size: calc(var(--member-portrait) * 0.36);
 }
 .arena-workspace.club-members-page .member-identity {
-  grid-area: 2 / 1;
+  /* The portrait and the name share the first cell, so the name always sits
+     directly under the portrait however tall the figures beside them are. The
+     portrait's ring is drawn 4px outside its box (box-shadow), so the name
+     keeps 8px of clear air under the ring (Dan, 2026-11-27: "MAKE SURE THE
+     NAME TITLE ISN'T TOUCHING THE FRAME"). */
+  grid-area: 1 / 1;
+  align-self: start;
+  margin-top: calc(var(--member-portrait) + 12px);
   min-width: 0;
 }
 /* The PlayerID, role and status line runs the full width of the card under
@@ -1174,22 +1181,28 @@
    table name ran off the bottom of the card when it had to wrap inside the
    name column). */
 .arena-workspace.club-members-page .member-subline {
-  grid-area: 3 / 1 / 4 / 3;
+  grid-area: 2 / 1 / 3 / 3;
   min-width: 0;
 }
 .arena-workspace.club-members-page .member-simple-balance {
-  grid-area: 1 / 2 / 3 / 3;
-  align-self: center;
+  grid-area: 1 / 2 / 2 / 3;
+  align-self: start;
+}
+/* The selection box sits in the card's upper right corner (Dan, 2026-11-27),
+   so the figures start below its 44px target instead of under it. */
+.arena-workspace.club-members-page .member-row:has(> .member-select) .member-simple-balance {
+  padding-top: 46px;
 }
 .arena-workspace.club-members-page .member-chevron {
-  grid-area: 1 / 3 / 4 / 4;
+  grid-area: 1 / 3 / 3 / 4;
   align-self: center;
 }
 .arena-workspace.club-members-page .member-select {
   position: absolute;
   z-index: 3;
-  top: calc(3px + var(--member-card-inset) + (var(--member-portrait) - 44px) / 2);
-  left: calc(3px + var(--member-card-inset) + var(--member-portrait) + 4px);
+  top: 4px;
+  right: 4px;
+  left: auto;
   width: 44px;
   height: 44px;
   border: 0;
