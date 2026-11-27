@@ -38,6 +38,7 @@ import {
   rrHands,
 } from './HorseOmahaReraisedPotPriced.test-support.js';
 import { measureRelativeCost } from '../testing/relativeCost.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 
 enableBrainTelemetry();
 afterEach(() => {
@@ -328,6 +329,38 @@ describe('omahaLimpReraiseVsIsoRaiser: the re-raise', () => {
         expect([h, kind, on.d.action, on.d.amount]).toEqual([h, kind, off.d.action, off.d.amount]);
       }
     }
+  }, 240_000);
+});
+
+describe('the worker admits every decision the option changes', () => {
+  it('no receipt refusal on any limp or re-raise it makes (PLO4 and PLO5)', () => {
+    let seen = 0;
+    for (const variant of ['plo5', 'plo4'] as const)
+      for (const h of strongHands(variant, 30, 5150))
+        for (const kind of [
+          'btnFirstIn',
+          'huFirstIn',
+          'sbFirstIn',
+          'btnLimpRaised',
+          'huLimpRaised',
+          'coLimpRaised',
+        ] as const)
+          for (const read of [HABITUAL, [0, 0] as [number, number]]) {
+            const off = decide(h, kind, OFF, { variant }, read);
+            const on = decide(h, kind, ON, { variant }, read);
+            if (on.d.action === off.d.action && on.d.amount === off.d.amount) continue;
+            seen++;
+            expect([
+              h,
+              kind,
+              horseDecisionReceiptRefusal(on.d, variant, {
+                player: on.hero,
+                gameState: on.gs,
+              } as never),
+            ]).toEqual([h, kind, null]);
+            // (the phase-6 attribution check needs the live snapshot fields these synthetic states lack: off and on alike)
+          }
+    expect(seen).toBeGreaterThan(0);
   }, 240_000);
 });
 
