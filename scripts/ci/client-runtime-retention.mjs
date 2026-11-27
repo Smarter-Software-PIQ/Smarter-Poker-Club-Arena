@@ -277,6 +277,53 @@ export function retainedRuntimeSupersededBy(error, receipt, isMainDescendant) {
   return first;
 }
 
+/* AN ORIGIN CAUGHT MID-MOVE IS RE-READ, NOT REFUSED (2026-11-27).
+   A publish replaces the two origins one after the other. A read that lands
+   between them sees one origin still on the retained runtime and the other on
+   a newer revision; retainedRuntimeSupersededBy then sees disagreeing origins
+   and returns null, so the run fails although waiting would settle it either
+   way: back to the retained runtime (the receipt passes) or onto one newer
+   revision (the supersede rule decides). This names exactly that shape: one
+   origin on the retained runtime, the other on a different full revision.
+   An unreadable origin, a moved build-info on the retained revision, or both
+   origins moved is NOT mid-move and keeps its own verdict. */
+export function retainedOriginMidMove(error, receipt) {
+  if (!(error instanceof RetainedOriginMovedError)) return false;
+  const observed = error.observed;
+  if (!Array.isArray(observed) || observed.length !== 2) return false;
+  const shas = observed.map((entry) => entry?.caSha);
+  const onRetained = shas.filter((sha) => sha === receipt.runtimeSha).length;
+  const elsewhere = shas.filter(
+    (sha) => typeof sha === 'string' && SHA.test(sha) && sha !== receipt.runtimeSha
+  ).length;
+  return onRetained === 1 && elsewhere === 1;
+}
+
+export const MID_MOVE_REREAD_MS = 15_000;
+export const MID_MOVE_REREADS = 12; // 3 minutes, well inside the 60-minute job
+
+/** Runs check(receipt); while it fails mid-move it re-reads, then returns or throws the settled verdict. */
+export async function settleRetainedOrigins(
+  receipt,
+  {
+    check,
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+    rereads = MID_MOVE_REREADS,
+    delayMs = MID_MOVE_REREAD_MS,
+    log = () => {},
+  }
+) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await check(receipt);
+    } catch (error) {
+      if (attempt >= rereads || !retainedOriginMidMove(error, receipt)) throw error;
+      log(`Origins mid-move (read ${attempt + 1}); re-reading in ${delayMs / 1000} s. ${error.message}`);
+      await sleep(delayMs);
+    }
+  }
+}
+
 function gitIsMainDescendant(ancestor, descendant) {
   try {
     git('fetch', '--no-tags', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main');
@@ -296,11 +343,15 @@ function gitIsMainDescendant(ancestor, descendant) {
 // Opt-in (RETAINED_RUNTIME_SUPERSEDE=stand-down): only Club Create
 // Certification stands down; every other caller keeps the strict refusal.
 async function requireCurrentOrSuperseded(receipt) {
+  const standDown = process.env.RETAINED_RUNTIME_SUPERSEDE === 'stand-down';
   try {
-    await requireCurrentReceipt(receipt);
+    // Only the opt-in caller waits out a mid-move read; strict callers refuse at once.
+    if (standDown)
+      await settleRetainedOrigins(receipt, { check: requireCurrentReceipt, log: (line) => console.log(line) });
+    else await requireCurrentReceipt(receipt);
     return null;
   } catch (error) {
-    if (process.env.RETAINED_RUNTIME_SUPERSEDE !== 'stand-down') throw error;
+    if (!standDown) throw error;
     const by = retainedRuntimeSupersededBy(error, receipt, gitIsMainDescendant);
     if (!by) throw error;
     appendFileSync(process.env.GITHUB_OUTPUT, `superseded=true\nsuperseded_by=${by}\n`);
