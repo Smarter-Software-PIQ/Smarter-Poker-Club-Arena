@@ -296,7 +296,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                   <span style={{ color: positionRateColor(hovered.winRate, hovered.handsPlayed) }}>
                     {hovered.winRate === null
                       ? 'Not Yet Measured'
-                      : `${hovered.winRate.toFixed(1)} BB/100`}
+                      : `${hovered.winRate.toFixed(1)} BB/100 Hands`}
                   </span>
                 </div>
                 <div className="tooltip-stat total">
@@ -318,14 +318,16 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
             <div className="callout-text">
               <span className="callout-label">Strongest Position</span>
               <span className="callout-value">{bestPosition.position}</span>
-              <span className="callout-detail">{bestPosition.winRate.toFixed(1)} BB/100</span>
+              <span className="callout-detail">{bestPosition.winRate.toFixed(1)} BB/100 Hands</span>
             </div>
           </div>
           <div className="callout weakest">
             <div className="callout-text">
               <span className="callout-label">Weakest Position</span>
               <span className="callout-value">{worstPosition.position}</span>
-              <span className="callout-detail">{worstPosition.winRate.toFixed(1)} BB/100</span>
+              <span className="callout-detail">
+                {worstPosition.winRate.toFixed(1)} BB/100 Hands
+              </span>
             </div>
           </div>
         </div>
@@ -419,7 +421,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
           },
           {
             key: 'bb100',
-            label: 'BB/100',
+            label: 'BB/100 Hands',
             render: (row) => (row.winRate === null ? 'Not Yet Measured' : row.winRate.toFixed(1)),
           },
           { key: 'profit', label: 'Profit', render: (row) => compactChips(row.totalProfit) },

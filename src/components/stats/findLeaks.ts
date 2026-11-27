@@ -305,7 +305,7 @@ export function findLeaks(
       title: `You Are Losing Heavily From ${bleeding.position}`,
       evidence: `${bleeding.bb100.toFixed(
         0
-      )} bb/100 over ${bleeding.hands_played.toLocaleString()} hands from ${bleeding.position}.`,
+      )} BB/100 Hands over ${bleeding.hands_played.toLocaleString()} hands from ${bleeding.position}.`,
       action:
         bleeding.position === 'BB' || bleeding.position === 'SB'
           ? 'Some loss from the blinds is unavoidable, since the money is already in. If it is this steep, defend fewer hands rather than more.'

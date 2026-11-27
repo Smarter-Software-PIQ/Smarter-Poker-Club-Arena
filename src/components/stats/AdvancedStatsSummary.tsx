@@ -132,7 +132,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
     {
       id: 'bbPer100',
       measured: n(d.cash_hands) > 0,
-      label: 'BB/100',
+      label: 'BB/100 Hands',
       value: n(d.bb_per_100),
       format: (val) => `${val >= 0 ? '+' : ''}${val.toFixed(1)}`,
       description: 'Big Blinds Won Per 100 Cash Hands',
@@ -198,7 +198,7 @@ const AdvancedStatsSummary: React.FC<AdvancedStatsSummaryProps> = ({ initialData
         <summary>Metric Definitions</summary>
         <div className="stats-legend">
           <div className="legend-item">
-            <span className="legend-label">BB/100</span>
+            <span className="legend-label">BB/100 Hands</span>
             <p>Big Blinds Won Per 100 Hands - Primary Win Rate Metric</p>
           </div>
           <div className="legend-item">

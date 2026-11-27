@@ -127,7 +127,9 @@ describe('Stats truth and reproducibility boundary', () => {
     // Since 2026-09-03 the money source is measured per payload: the page
     // says how many hands are exact and warns only when NONE are.
     expect(HEADLINE).toContain("Cash Hands Use The Engine's Exact Settlement");
-    expect(HEADLINE).toContain('Cash Result And BB/100 Are Reconstructed From Recorded Actions');
+    expect(HEADLINE).toContain(
+      'Cash Result And BB/100 Hands Are Reconstructed From Recorded Actions'
+    );
     expect(BOUNDED_MIGRATION).toContain("'advanced_facts_source', 'ca_hand_player_stat'");
     expect(BOUNDED_MIGRATION).toContain("'live_tail_included', false");
     expect(BOUNDED_MIGRATION).toContain("'rollup_covered_through', to_jsonb(v_rollup_ceil)");

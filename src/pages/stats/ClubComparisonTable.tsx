@@ -22,7 +22,7 @@ function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
             <th scope="col">Club</th>
             <th scope="col">Hands</th>
             {!tournament && <th scope="col">Profit</th>}
-            {!tournament && <th scope="col">BB/100</th>}
+            {!tournament && <th scope="col">BB/100 Hands</th>}
             <th scope="col">VPIP</th>
             <th scope="col">PFR</th>
             <th scope="col">Hours</th>
@@ -46,7 +46,9 @@ function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
                     {row.profit >= 0 ? '+' : ''}
                     {compactChips(row.profit)}
                   </td>
-                  <td data-label="BB/100">{row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}</td>
+                  <td data-label="BB/100 Hands">
+                    {row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}
+                  </td>
                 </>
               )}
               <td data-label="VPIP">
