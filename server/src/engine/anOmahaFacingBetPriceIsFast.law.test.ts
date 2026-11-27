@@ -9,9 +9,9 @@
  *  - omahaFacingBetFieldIsJoint (M1), omahaMultiwayCallNeedsNutShare (M2): three-way facing a bet with F1, on against
  *    off.
  * Measured 2026-11-26 (vitest, source build): F1+F2+F6 heads-up 7.6 ms on against 5.7 off per decision (ratio 1.3);
- * F1+M1+M2 three-way 13.0 against 5.4 (ratio 2.4). The priced multiway value bet (omahaMultiwayValueBetIsPriced, M3)
- * is NOT here: on the same three-way states checked to the Horse it measured 40.5 ms on against 1.1 off per decision
- * (ratio 36.9), over the worker speed rule; it needs a speed fix before it can carry a cost law.
+ * F1+M1+M2 three-way 13.0 against 5.4 (ratio 2.4). The priced multiway value bet (M3) has its own cost law,
+ * anOmahaMultiwayValueBetIsFast.law.test.ts (its joint sample was made fast on 2026-11-26, the same numbers:
+ * anOmahaPricedJointRowsIsUnchanged.law.test.ts).
  * Measured the way theServerSuiteAssertsNoTightWallClockBound requires (src/testing/relativeCost.ts): each set costs
  * at most RATIO times the same decisions off. The per-decision times print with the ratio.
  */

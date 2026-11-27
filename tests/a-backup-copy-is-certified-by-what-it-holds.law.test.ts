@@ -80,8 +80,10 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     expect(fn).not.toMatch(/int\(newest\)\s*<=\s*epoch/);
     // O23: versions neither the target's nor control's tree ships are not compared.
     expect(fn).toContain("tree = module.tree_versions('.', target, control) if target else None");
+    // O33: an engine-inert version (horse option whitelist registrations only) is not compared either.
+    expect(fn).toContain("inert = module.inert_versions('.', control, *([target] if target else []))");
     expect(fn).toContain(
-      "module.judge(evidence['schemaEvidence'], db, production, required, tree)"
+      "module.judge(evidence['schemaEvidence'], db, production, required, tree, inert)"
     );
     expect(fn).toContain('diagnosis only');
     expect(SELECTOR).toContain("EVIDENCE_FILE = 'schema-evidence.json'");

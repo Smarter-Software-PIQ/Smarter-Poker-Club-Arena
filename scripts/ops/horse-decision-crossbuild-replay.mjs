@@ -23,7 +23,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  symlinkSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -78,7 +78,7 @@ Options file: the production switch snapshot kept in the repo (default docs/hors
 plain rows {"rows": {"<option>": "on"}}. A variant changes one row ("+omahaStreetPlan=on") or sets a decide option
 past the switch registry ("+raw:someOption=true"). Each build maps the rows with its OWN switch code.
 
-<worktree> needs server/node_modules (a symlink to an installed one is enough) for the TypeScript loader.
+<worktree> needs its own server/node_modules for the TypeScript loader (a copy-on-write clone of an installed one: cp -Rc; never a symlink, npm writes through one).
 `;
 
 function parseArgs(argv) {
@@ -139,7 +139,7 @@ function serverDirOf(build) {
     throw new Error(`${build} is not a Club Arena checkout (no server/src/engine/HorseLogic.ts)`);
   if (!existsSync(join(server, 'node_modules', 'tsx')))
     throw new Error(
-      `${server}/node_modules has no tsx: link an installed server/node_modules into the worktree (ln -s <installed>/server/node_modules ${server}/node_modules)`
+      `${server}/node_modules has no tsx: clone an installed server/node_modules into the worktree (cp -Rc <installed>/server/node_modules ${server}/node_modules)`
     );
   return server;
 }
@@ -439,9 +439,25 @@ export function diff(args) {
   return result.differences === 0 ? 0 : 1;
 }
 
+/* A TEMPORARY TREE OWNS ITS node_modules (2026-11-26). A symlink to the
+   installed node_modules is shared state: npm writes through it, so one
+   `npm ci` in a throwaway tree empties the source for every tree using it
+   (scripts/agent-workspace.sh forbids linked node_modules on the Mac). The
+   tree gets a copy-on-write clone (APFS: no extra disk), else a plain copy. */
+export function cloneNodeModules(src, dst) {
+  const tmp = `${dst}.provision-${process.pid}`;
+  try {
+    execFileSync('cp', ['-Rc', src, tmp], { stdio: 'ignore' });
+  } catch {
+    rmSync(tmp, { recursive: true, force: true });
+    execFileSync('cp', ['-R', src, tmp], { stdio: 'ignore' });
+  }
+  renameSync(tmp, dst);
+}
+
 function addWorktree(repo, dir, ref, nodeModules) {
   git(repo, 'worktree', 'add', '--detach', dir, ref);
-  symlinkSync(nodeModules, join(dir, 'server', 'node_modules'));
+  cloneNodeModules(nodeModules, join(dir, 'server', 'node_modules'));
 }
 
 export async function bisect(args) {

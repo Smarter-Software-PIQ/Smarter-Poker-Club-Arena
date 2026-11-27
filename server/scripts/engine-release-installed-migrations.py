@@ -89,6 +89,42 @@ after its trees; a cutover host that reads fewer trees, or a larger control
 tree whose extra versions production holds, sees a different digest and
 refuses (the current engine keeps running).
 
+AN ENGINE-INERT MIGRATION DOES NOT STALE A COPY (2026-11-26, O33). The
+only candidate certified that day, 13bce958d4c3, was refused at the 13:00
+Chicago selection: "Backup copy lacks installed migration 20261126011318,
+20261126014018, 20261126014434, 20261126064723" (issue #11599). Those four
+merged and installed at about 07:15 Chicago, after the copy was taken, and
+each is nothing but BEGIN, SET LOCAL lock_timeout, one or two
+public.fn_ca_horse_option_register(...) calls with literal arguments, and
+COMMIT. A register call writes one row of public.ca_horse_option_whitelist.
+No engine code reads that table; the engine's only runtime reads that reach it
+(fn_ca_horse_option_switch_effective and fn_ca_horse_style_switch_effective,
+through fn_ca_horse_option_switch_states) use only an option's KIND, which a
+register call never changes for an option that already has a switch row (a
+switch row requires the option registered first, and the whitelist guard keeps
+a kind for ever). A copy lacking such a row certifies the same engine.
+
+So a version whose ONE file in the control tree is engine-inert
+(engine_inert(): every statement, after whole-line "--" comments and blank
+lines are dropped, is exactly BEGIN;, COMMIT;, SET LOCAL lock_timeout = '<n>s';
+or one SELECT of fn_ca_horse_option_register / _allow_shadow / _unlock with
+literal arguments of fixed shapes, at least one call, BEGIN first and COMMIT
+last), and which the exact target's tree does not ship, is
+left out of the comparison on BOTH sides by the selector (judge) and
+refresh-due, like a foreign version, and is reported as "left out as
+engine-inert: <versions>". The certificate's digest is unchanged (the copy's
+set). At cutover, status still accepts production's set when it equals that
+digest, and otherwise accepts it only when removing some non-empty subset of
+the inert versions production holds gives exactly that digest: production is
+the certified copy plus inert versions and nothing else. At most
+INERT_SUBSET_LIMIT (10) such versions are tried; with more, nothing is left
+out anywhere (bounded_inert), so the selector never accepts a copy the cutover
+cannot recognise. "Inert" means only versions the exact target does not ship:
+the candidate's own files are still required by version and name. No control,
+a tree git cannot list or a file it cannot read leaves nothing out as inert.
+tests/an-engine-inert-migration-does-not-stale-a-certificate.law.test.ts
+re-checks the premise (no engine reader of the whitelist) on every change.
+
 Read-only: never writes the database, GitHub or the host.
 """
 import argparse
@@ -121,6 +157,132 @@ FILE = re.compile(r'(\d{14})_([A-Za-z0-9_.-]+)\.sql')
 TREE_FILE = re.compile(r'(\d+)_[^/]*\.sql')
 RECORDINGS = 'scripts/ci/recorded-migrations.manifest.json'
 READY, REFUSED, UNKNOWN = 0, 1, 3
+
+# ---- AN ENGINE-INERT MIGRATION (O33) ----
+# Literal shapes only: an option name, a migration name; neither can hold a
+# quote, a semicolon, a space or an expression.
+_OPTION = r"'[A-Za-z][A-Za-z0-9]{0,62}'"
+_MIGRATION = r"'[0-9]{14}_[a-z0-9]+(?:_[a-z0-9]+)*'"
+INERT_CALLS = (
+    re.compile(r"SELECT public\.fn_ca_horse_option_register\(" + _OPTION + r", '(?:plain|style)', (?:true|false), "
+               r"'(?:none|on_shadow|shadow)', " + _MIGRATION + r"\);"),
+    re.compile(r"SELECT public\.fn_ca_horse_option_allow_shadow\(" + _OPTION + r", '(?:on_shadow|shadow)', "
+               + _MIGRATION + r"\);"),
+    re.compile(r"SELECT public\.fn_ca_horse_option_unlock\(" + _OPTION + r", ARRAY\[" + _MIGRATION
+               + r"(?:, " + _MIGRATION + r")*\], " + _MIGRATION + r"\);"),
+)
+INERT_FRAME = (re.compile(r'BEGIN;'), re.compile(r"SET LOCAL lock_timeout = '[0-9]{1,3}s';"), re.compile(r'COMMIT;'))
+# Narrows the files engine_inert() reads; a file without one of these names cannot be inert.
+INERT_HINT = r'fn_ca_horse_option_(register|allow_shadow|unlock)\('
+
+
+def engine_inert(text):
+    """True only when every statement of the migration text is BEGIN;, COMMIT;,
+    SET LOCAL lock_timeout = '<n>s'; or one INERT_CALLS call, one statement per
+    line, after whole-line "--" comments and blank lines are dropped: BEGIN
+    first, COMMIT last, each once, at least one call. Anything else (another
+    statement, a trailing comment, a block comment, a DO block, a non-literal
+    argument, two statements on one line, a byte that is not text) is False."""
+    if not isinstance(text, str) or '\x00' in text:
+        return False
+    lines = []
+    for raw in text.split('\n'):
+        line = raw.strip()
+        if not line or line.startswith('--'):
+            continue
+        lines.append(line)
+    if len(lines) < 3 or lines[0] != 'BEGIN;' or lines[-1] != 'COMMIT;':
+        return False
+    calls = 0
+    for line in lines[1:-1]:
+        if any(p.fullmatch(line) for p in INERT_CALLS):
+            calls += 1
+        elif not INERT_FRAME[1].fullmatch(line):
+            return False
+    return calls > 0
+
+
+def _migration_blobs(repo, sha):
+    """{version: [(path, blob), ...]} of the tree's migration files."""
+    blobs = {}
+    for line in git(repo, 'ls-tree', '-r', sha, '--', MIGRATIONS).splitlines():
+        meta, _, path = line.partition('\t')
+        parts = meta.split()
+        match = TREE_FILE.fullmatch(path.rsplit('/', 1)[-1])
+        if len(parts) == 3 and parts[1] == 'blob' and match:
+            blobs.setdefault(match[1], []).append((path, parts[2]))
+    return blobs
+
+
+def inert_versions(repo, control, *others):
+    """Versions whose one file in control's tree is engine_inert() and which
+    none of `others` (the exact target) ships. A certified copy holds what its
+    target ships (the candidate's own files are required by version and name),
+    so only versions merged after the target can be missing from it. Fail safe:
+    no control, an invalid SHA or anything git cannot list or show returns an
+    empty set, which leaves nothing out."""
+    try:
+        for sha in (control, *others):
+            if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+                return frozenset()
+        mine = _migration_blobs(repo, control)
+        hits = git(repo, 'grep', '-l', '-E', '-e', INERT_HINT, control, '--', MIGRATIONS, ok=(0, 1))
+        theirs = [_migration_blobs(repo, sha) for sha in others]
+        found = set()
+        for hit in hits.splitlines():
+            path = hit.split(':', 1)[1] if hit.startswith(control + ':') else hit
+            match = TREE_FILE.fullmatch(path.rsplit('/', 1)[-1])
+            if not match or len(mine.get(match[1], [])) != 1 or mine[match[1]][0][0] != path:
+                continue
+            version, blob = match[1], mine[match[1]][0][1]
+            if any(version in other for other in theirs):
+                continue
+            raw = subprocess.run(['git', '-C', repo, 'cat-file', 'blob', blob], capture_output=True, timeout=30,
+                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'})
+            if raw.returncode:
+                return frozenset()
+            try:
+                text = raw.stdout.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+            if engine_inert(text):
+                found.add(version)
+        return frozenset(found)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        return frozenset()
+
+
+INERT_SUBSET_LIMIT = 10
+
+
+def bounded_inert(inert, production):
+    """`inert`, or nothing when production holds more of it than the cutover
+    can try (inert_left_out), so a copy the selector accepts is one the cutover
+    can recognise."""
+    return inert if len([v for v in inert if v in production]) <= INERT_SUBSET_LIMIT else frozenset()
+
+
+def inert_left_out(production, inert, certified):
+    """The engine-inert versions whose removal from production's comparable set
+    gives exactly the certified digest, or None. The certificate names only a
+    digest of the copy's set, so the cutover tries each non-empty subset of the
+    inert versions production holds (at most INERT_SUBSET_LIMIT of them; more
+    leaves nothing out). A match means production is the certified copy's set
+    plus those versions and nothing else, which is what the selector accepted."""
+    held = sorted(v for v in inert if v in production)
+    if not held or len(held) > INERT_SUBSET_LIMIT:
+        return None
+    for mask in range(1, 1 << len(held)):
+        drop = [v for i, v in enumerate(held) if mask >> i & 1]
+        if digest({v: n for v, n in production.items() if v not in drop}) == certified:
+            return drop
+    return None
+
+
+def inert_note(copy, production, inert):
+    """The inert versions on which the copy and production actually differ."""
+    left = sorted(v for v in inert if copy.get(v, ...) != production.get(v, ...))
+    return '; left out as engine-inert: ' + ', '.join(left) if left else ''
 
 
 def evidence_module():
@@ -335,9 +497,10 @@ def tree_versions(repo, *shas):
     return versions
 
 
-def ours(rows, tree):
-    """The rows whose version the tree ships; every row when tree is None."""
-    return dict(rows) if tree is None else {v: n for v, n in rows.items() if v in tree}
+def ours(rows, tree, inert=frozenset()):
+    """The rows whose version the tree ships (every row when tree is None),
+    less engine-inert versions (inert_versions(); none when empty)."""
+    return {v: n for v, n in rows.items() if (tree is None or v in tree) and v not in inert}
 
 
 def foreign_note(rows, tree):
@@ -345,8 +508,8 @@ def foreign_note(rows, tree):
     return f'; {count} version(s) Club Arena never shipped left out' if count else ''
 
 
-def comparable(rows, windows, tree=None):
-    return {v: n for v, n in ours(rows, tree).items() if v not in windows}
+def comparable(rows, windows, tree=None, inert=frozenset()):
+    return {v: n for v, n in ours(rows, tree, inert).items() if v not in windows}
 
 
 def lacking_required(required, installed):
@@ -423,12 +586,13 @@ def bound_evidence(evidence_bytes, evidence_sha, dump_sha=None):
     return evidence
 
 
-def judge(evidence_bytes, database, production, required=None, tree=None):
+def judge(evidence_bytes, database, production, required=None, tree=None, inert=frozenset()):
     """(ok, reason) for the daily selector. Contents decide; nothing else.
     `required` ({version: name}, or a callable returning it) is read only once
     the copy's set and definitions already equal production's. `tree` is
     tree_versions(target, control): versions outside it are compared on
-    neither side; None compares every version."""
+    neither side; None compares every version. `inert` is
+    inert_versions(control, target): compared on neither side (O33)."""
     try:
         if database.get('schemaEvidenceValidated') is not True:
             raise ValueError('the restore did not validate its schema evidence')
@@ -436,9 +600,11 @@ def judge(evidence_bytes, database, production, required=None, tree=None):
         copy = rows_of(evidence['migrations'])
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         return False, f'Backup schema evidence is invalid ({error})'
-    difference = compare(ours(copy, tree), ours(production['migrations'], tree))
+    inert = bounded_inert(inert, production['migrations'])
+    difference = compare(ours(copy, tree, inert), ours(production['migrations'], tree, inert))
+    note = inert_note(copy, production['migrations'], inert)
     if any(difference.values()):
-        return False, 'Backup copy ' + describe(difference)
+        return False, 'Backup copy ' + describe(difference) + note
     changed = differing_functions(evidence['functions'], production['functions'])
     if changed:
         return False, 'Backup copy does not hold production\'s definition of ' + ', '.join(changed[:5])
@@ -447,8 +613,8 @@ def judge(evidence_bytes, database, production, required=None, tree=None):
     lacking = lacking_required(required or {}, copy)
     if lacking:
         return False, 'Backup copy lacks the exact candidate migration(s) ' + ', '.join(lacking[:5])
-    return True, (f'Backup copy holds production\'s installed migrations {digest(ours(copy, tree))[:12]}'
-                  + foreign_note(production['migrations'], tree))
+    return True, (f'Backup copy holds production\'s installed migrations {digest(ours(copy, tree, inert))[:12]}'
+                  + foreign_note(production['migrations'], tree) + note)
 
 
 def recently_added(repo, control, hours=26):
@@ -486,7 +652,7 @@ def await_installed(versions, read, wait, pause=20, clock=time.time, sleep=time.
         sleep(min(pause, max(1, deadline - clock())))
 
 
-def refresh_due(evidence_bytes, evidence_sha, production, tree=None):
+def refresh_due(evidence_bytes, evidence_sha, production, tree=None, inert=frozenset()):
     """(due, reason). Absent, unbound or different evidence is always due.
     Versions outside `tree` (tree_versions() of --control and --sha) are
     compared on neither side; None compares every version."""
@@ -496,14 +662,16 @@ def refresh_due(evidence_bytes, evidence_sha, production, tree=None):
         copy = rows_of(evidence['migrations'])
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         return True, f'{error}; production holds {len(production["migrations"])} migrations ({now[:12]})'
-    difference = compare(ours(copy, tree), ours(production['migrations'], tree))
+    inert = bounded_inert(inert, production['migrations'])
+    difference = compare(ours(copy, tree, inert), ours(production['migrations'], tree, inert))
+    note = inert_note(copy, production['migrations'], inert)
     if any(difference.values()):
-        return True, f'the copy ({digest(copy)[:12]}) {describe(difference)}; production holds {now[:12]}'
+        return True, f'the copy ({digest(copy)[:12]}) {describe(difference)}; production holds {now[:12]}{note}'
     changed = differing_functions(evidence['functions'], production['functions'])
     if changed:
         return True, 'the copy does not hold production\'s definition of ' + ', '.join(changed[:5])
     return False, (f'the copy holds production\'s installed set {now[:12]} and its required definitions'
-                   + foreign_note(production['migrations'], tree))
+                   + foreign_note(production['migrations'], tree) + note)
 
 
 def certified_digest(evidence_bytes, certificate, repo, sha, control=None):
@@ -620,6 +788,7 @@ def status(env_file, repo, sha, certified, attempts=2, pause=1, control=None):
         return REFUSED
     windows = window_versions(repo, sha)
     tree = tree_versions(repo, sha, control) if control else None
+    inert = inert_versions(repo, control, sha) if control else frozenset()
     last = None
     for attempt in range(attempts):
         try:
@@ -633,6 +802,13 @@ def status(env_file, repo, sha, certified, attempts=2, pause=1, control=None):
         print(f'UNKNOWN - production\'s installed migrations could not be compared: {str(last)[:200]}')
         return UNKNOWN
     now = digest(production)
+    left = inert_left_out(production, inert, certified) if now != certified else None
+    if left:
+        print(f'READY - production holds the certified installed migration set {certified[:12]} plus '
+              f'{len(left)} engine-inert migration(s) installed after certification; left out as engine-inert: '
+              + ', '.join(left)
+              + (f' (this target\'s {len(windows)} break-window file(s) are left to the door check)' if windows else ''))
+        return READY
     if now != certified:
         print(f'REFUSED - production\'s installed migrations ({now[:12]}, {len(production)} rows) are not the '
               f'set the Backup copy was certified with ({certified[:12]}): a migration installed or changed '
@@ -745,7 +921,10 @@ def main(argv):
         # Club Arena's versions are those its given trees ship (control, --sha).
         given = [s for s in (args.control, args.sha) if s]
         due_tree = tree_versions(args.repo, *given) if given else None
-        due, why = refresh_due(evidence, args.copy_evidence_sha, production, due_tree)
+        # Engine-inert versions are read from control's tree (O33); no control, none.
+        due_inert = inert_versions(args.repo, args.control, *([args.sha] if args.sha else [])) \
+            if args.control else frozenset()
+        due, why = refresh_due(evidence, args.copy_evidence_sha, production, due_tree, due_inert)
         if pending:
             why += f'; still not installed after {args.wait}s: {", ".join(pending[:5])}'
         comparable_sha = args.sha or args.control

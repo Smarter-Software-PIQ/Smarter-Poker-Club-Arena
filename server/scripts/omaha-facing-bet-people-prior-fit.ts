@@ -1,0 +1,320 @@
+/**
+ * Fits the PEOPLE-ONLY population of the PLO4/PLO5 cash facing-bet price
+ * (server/src/engine/HorseOmahaFacingBetPeoplePrior.data.ts; option omahaFacingBetPriorIsPeopleMeasured).
+ *
+ * Owner order 2026-11-26: "the stats need to be used against human players, not horses." Every population number
+ * the facing-bet price is fed is measured from PEOPLE's play only:
+ *   - a bet or raise counts only when the BETTOR is a person (profiles.is_horse = false AND the action's origin is
+ *     not a Horse policy); a Horse's bet never enters, whoever answers it;
+ *   - a fold / call / continue counts only when the RESPONDER is a person;
+ *   - cards are read only where a PERSON showed them at showdown (mucked = false); the export carries no other cards
+ *     (omaha-facing-bet-people-prior-export.sql). The HUD '*' population rows (about 99.5% Horse play) are never read.
+ * The law anOmahaFacingBetPriorIsPeopleMeasured checks this file keeps those three filters.
+ *
+ * Measured, PLO4 and PLO5 pooled, per street (turn, river), heads-up / multiway, size bucket (under40, mid, big,
+ * over) and raise:
+ *   bluff    of a person's bets of that cell that were SHOWN, the share whose shown holding lies in the price's OTHER
+ *            region: on the turn outside the value region the price uses for that bet (the strongest
+ *            OMAHA_EV_VALUE_SHARE x line factors of holdings on that board), on the river inside the weakest
+ *            OMAHA_EV_BLUFF_POOL of holdings (a hand between the two counts as value: the conservative side).
+ *            Showdown sample: only called bets are shown (stated in the authority doc).
+ *   fold     of the times a person faced a bet of that cell (first answer on the street), the share that folded.
+ *   caller   per street: 2 x the mean beat share (share of holdings that beat it on that board) of a person's shown
+ *            holding after calling a bet: the width of a uniform top region with the same mean.
+ * Every cell carries its n. Run from server/:
+ *   npx tsx scripts/omaha-facing-bet-people-prior-fit.ts <out.data.ts> <export.json>...
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import type { Card } from '../src/types.js';
+import { scoreOmahaHiPartial } from '../src/engine/HorseEval.js';
+import {
+  OMAHA_EV_BLUFF_POOL,
+  OMAHA_EV_VALUE_SHARE,
+  omahaBetSizeBucket,
+} from '../src/engine/HorseOmahaFacingBetEv.js';
+
+type Act = {
+  seat: number;
+  stage: string;
+  action: string;
+  amount: number | null;
+  origin: string | null;
+  dead: boolean | null;
+  pot: number | null;
+  toCall: number | null;
+};
+type Hand = {
+  id: string;
+  gv: string;
+  bb: number;
+  cc: string[] | null;
+  players: { seat: number; userId: string; isHorse: boolean }[];
+  actions: Act[];
+  shown: Record<string, Card[]> | null;
+};
+
+/** A person acted: the seat's profile is not a Horse AND the action did not come from a Horse policy. */
+export function isPersonAction(p: { isHorse: boolean } | undefined, a: Act): boolean {
+  return !!p && p.isHorse === false && a.origin !== 'horse_policy';
+}
+
+const SUIT_NAMES = ['hearts', 'spades', 'diamonds', 'clubs'];
+const cardOf = (s: string): Card => ({ rank: s[0], suit: s.slice(1) }) as Card;
+const RANKS = '23456789TJQKA';
+const DECK: Card[] = [];
+for (const r of RANKS) for (const s of SUIT_NAMES) DECK.push({ rank: r, suit: s } as Card);
+const k = (c: Card): string => `${c.rank}${c.suit}`;
+
+let seed = 12345;
+const rnd = (): number => {
+  seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+  return seed / 0x80000000;
+};
+/** Share of random holdings (same card count) that beat this holding on this board: 4000 seeded draws. */
+function beatShare(hole: Card[], board: Card[]): number {
+  const seen = new Set([...hole, ...board].map(k));
+  const rest = DECK.filter((c) => !seen.has(k(c)));
+  const me = scoreOmahaHiPartial(hole, board);
+  let beat = 0;
+  let tie = 0;
+  const N = 4000;
+  const n = hole.length;
+  for (let t = 0; t < N; t++) {
+    for (let i = 0; i < n; i++) {
+      const j = i + Math.floor(rnd() * (rest.length - i));
+      const x = rest[i];
+      rest[i] = rest[j];
+      rest[j] = x;
+    }
+    const s = scoreOmahaHiPartial(rest.slice(0, n), board);
+    if (s > me) beat++;
+    else if (s === me) tie++;
+  }
+  return (beat + tie / 2) / N;
+}
+
+type Cell = { n: number; k: number };
+const cell = (): Cell => ({ n: 0, k: 0 });
+const BUCKETS = ['under40', 'mid', 'big', 'over', 'raise'] as const;
+type Tab = Record<'turn' | 'river', Record<'hu' | 'mw', Record<(typeof BUCKETS)[number], Cell>>>;
+const tab = (): Tab => {
+  const o: any = {};
+  for (const st of ['turn', 'river'])
+    for (const w of ['hu', 'mw']) {
+      o[st] ??= {};
+      o[st][w] = {};
+      for (const b of BUCKETS) o[st][w][b] = cell();
+    }
+  return o;
+};
+const bluff = tab();
+const fold = tab();
+/** River only: the shown bettor's region. core = inside the price's value region (beat share <= V), bottom = the
+ *  weakest OMAHA_EV_BLUFF_POOL of holdings, middle = between. The river verdict prices each region separately. */
+type Reg = { n: number; core: number; middle: number };
+const regTab = (): Record<'hu' | 'mw', Record<(typeof BUCKETS)[number], Reg>> => {
+  const o: any = { hu: {}, mw: {} };
+  for (const w of ['hu', 'mw']) for (const b of BUCKETS) o[w][b] = { n: 0, core: 0, middle: 0 };
+  return o;
+};
+const riverRegions = regTab();
+const callerSum = { turn: { n: 0, s: 0 }, river: { n: 0, s: 0 } };
+
+const [out, ...files] = process.argv.slice(2);
+let hands = 0;
+let used = 0;
+const ids = new Set<string>();
+for (const f of files) {
+  const rows: Hand[] = JSON.parse(readFileSync(f, 'utf8'));
+  for (const h of rows) {
+    if (!h || ids.has(h.id)) continue;
+    ids.add(h.id);
+    if (h.gv !== 'plo4' && h.gv !== 'plo5') continue;
+    hands++;
+    const board = (h.cc ?? []).map(cardOf);
+    const P = new Map(h.players.map((p) => [p.seat, p]));
+    const shown = h.shown ?? {};
+    const folded = new Set<number>();
+    let st = '';
+    let sc = new Map<number, number>();
+    const aggrOn: Record<string, Set<number>> = {
+      flop: new Set(),
+      turn: new Set(),
+      river: new Set(),
+    };
+    const callOn: Record<string, Set<number>> = {
+      flop: new Set(),
+      turn: new Set(),
+      river: new Set(),
+    };
+    const answered = new Set<string>();
+    const pending: { seat: number; street: 'turn' | 'river'; cell: Cell; V: number; reg: Reg }[] =
+      [];
+    const calls: { seat: number; street: 'turn' | 'river' }[] = [];
+    let ok = true;
+    for (const a of h.actions ?? []) {
+      if (a.stage !== st && ['preflop', 'flop', 'turn', 'river'].includes(a.stage)) {
+        st = a.stage;
+        sc = new Map();
+      }
+      const amt = Number(a.amount) || 0;
+      if (['sb', 'bb', 'post'].includes(a.action) && !a.dead) {
+        sc.set(a.seat, (sc.get(a.seat) ?? 0) + amt);
+        continue;
+      }
+      if (!['fold', 'check', 'call', 'bet', 'raise', 'all_in'].includes(a.action)) continue;
+      const mine = sc.get(a.seat) ?? 0;
+      const cur = Math.max(0, ...sc.values());
+      const toCall = cur - mine;
+      const pot = Number(a.pot);
+      const active = h.players.filter((p) => !folded.has(p.seat)).length;
+      let act = a.action;
+      let to = mine;
+      if (act === 'all_in') {
+        to = amt;
+        act = cur === 0 && st !== 'preflop' ? 'bet' : to > cur + 1e-9 ? 'raise' : 'call';
+      } else if (act === 'raise' || act === 'bet') to = amt;
+      else if (act === 'call') to = mine + amt;
+      const street = st as 'turn' | 'river';
+      const late = st === 'turn' || st === 'river';
+      const person = isPersonAction(P.get(a.seat), a);
+      if (late && person && toCall > 0 && (act === 'fold' || act === 'call' || act === 'raise')) {
+        const key = `${st}:${a.seat}`;
+        if (!answered.has(key) && Number.isFinite(pot) && pot - toCall > 0) {
+          answered.add(key);
+          const frac = toCall / (pot - toCall);
+          const c = fold[street][active > 2 ? 'mw' : 'hu'][omahaBetSizeBucket(frac)];
+          c.n++;
+          if (act === 'fold') c.k++;
+        }
+        if (act === 'call') calls.push({ seat: a.seat, street });
+      }
+      if (late && person && (act === 'bet' || act === 'raise') && Number.isFinite(pot) && pot > 0) {
+        const isRaise = act === 'raise';
+        const frac = isRaise ? (to - cur) / (pot + toCall) : (to - mine) / pot;
+        if (Number.isFinite(frac) && frac > 0) {
+          const bucket = isRaise ? 'raise' : omahaBetSizeBucket(frac);
+          const earlier = st === 'turn' ? ['flop'] : ['flop', 'turn'];
+          const ag = earlier.filter((e) => aggrOn[e].has(a.seat)).length;
+          const ca = earlier.filter((e) => !aggrOn[e].has(a.seat) && callOn[e].has(a.seat)).length;
+          const V = OMAHA_EV_VALUE_SHARE[street][bucket as 'raise'] * 0.8 ** ag * 0.9 ** ca;
+          pending.push({
+            seat: a.seat,
+            street,
+            cell: bluff[street][active > 2 ? 'mw' : 'hu'][bucket],
+            V,
+            reg: riverRegions[active > 2 ? 'mw' : 'hu'][bucket],
+          });
+        }
+      }
+      if (st === 'flop' || late) {
+        if (act === 'bet' || act === 'raise') aggrOn[st].add(a.seat);
+        if (act === 'call') callOn[st].add(a.seat);
+      }
+      if (act === 'fold') folded.add(a.seat);
+      sc.set(a.seat, Math.max(mine, to));
+      if (!Number.isFinite(pot)) ok = false;
+    }
+    if (!ok || board.length < 5) continue;
+    let any = false;
+    const bs = new Map<string, number>();
+    const strength = (seat: number, street: 'turn' | 'river'): number | null => {
+      const p = P.get(seat);
+      const cards = p ? shown[p.userId] : undefined;
+      if (
+        !p ||
+        p.isHorse !== false ||
+        !Array.isArray(cards) ||
+        cards.length !== (h.gv === 'plo4' ? 4 : 5)
+      )
+        return null;
+      const key = `${seat}:${street}`;
+      if (!bs.has(key)) bs.set(key, beatShare(cards, board.slice(0, street === 'turn' ? 4 : 5)));
+      return bs.get(key)!;
+    };
+    for (const b of pending) {
+      const s = strength(b.seat, b.street);
+      if (s === null) continue;
+      b.cell.n++;
+      // the price's other region: turn, every non-value holding; river, the weakest OMAHA_EV_BLUFF_POOL of holdings
+      // (a shown hand between the value edge and that pool is counted as value: the conservative side)
+      if (s > (b.street === 'river' ? Math.max(b.V, 1 - OMAHA_EV_BLUFF_POOL) : b.V)) b.cell.k++;
+      if (b.street === 'river') {
+        b.reg.n++;
+        if (s <= b.V) b.reg.core++;
+        else if (s <= 1 - OMAHA_EV_BLUFF_POOL) b.reg.middle++;
+      }
+      any = true;
+    }
+    for (const c of calls) {
+      const s = strength(c.seat, c.street);
+      if (s === null) continue;
+      callerSum[c.street].n++;
+      callerSum[c.street].s += s;
+      any = true;
+    }
+    if (any) used++;
+  }
+}
+const r3 = (x: number): number => Math.round(x * 1000) / 1000;
+const shape = (t: Tab) => {
+  const o: any = {};
+  for (const st of ['turn', 'river'] as const)
+    for (const w of ['hu', 'mw'] as const) {
+      o[st] ??= {};
+      o[st][w] = {};
+      for (const b of BUCKETS) {
+        const c = t[st][w][b];
+        o[st][w][b] = { n: c.n, share: c.n > 0 ? r3(c.k / c.n) : null };
+      }
+    }
+  return o;
+};
+const callerOf = (c: { n: number; s: number }) => ({
+  n: c.n,
+  share: c.n ? r3(Math.min(0.95, (2 * c.s) / c.n)) : null,
+});
+const data = {
+  source: 'people-only',
+  filters: {
+    bettor: 'profiles.is_horse = false and origin <> horse_policy',
+    responder: 'profiles.is_horse = false and origin <> horse_policy',
+    cards: 'shown at showdown by a person (mucked = false)',
+    hudPopulationRows: 'not read',
+  },
+  hands,
+  handsWithAShownPersonRead: used,
+  bluff: shape(bluff),
+  fold: shape(fold),
+  caller: { turn: callerOf(callerSum.turn), river: callerOf(callerSum.river) },
+  riverRegions: Object.fromEntries(
+    (['hu', 'mw'] as const).map((w) => [
+      w,
+      Object.fromEntries(
+        BUCKETS.map((b) => {
+          const r = riverRegions[w][b];
+          return [
+            b,
+            r.n > 0
+              ? {
+                  n: r.n,
+                  core: r3(r.core / r.n),
+                  middle: r3(r.middle / r.n),
+                  bottom: r3((r.n - r.core - r.middle) / r.n),
+                }
+              : { n: 0, core: null, middle: null, bottom: null },
+          ];
+        })
+      ),
+    ])
+  ),
+};
+const ts = `/**
+ * GENERATED by server/scripts/omaha-facing-bet-people-prior-fit.ts from omaha-facing-bet-people-prior-export.sql
+ * (PLO4/PLO5 cash, people only: bettor and responder are people, cards shown by people at showdown, no HUD
+ * population rows, no Horse play). Do not edit by hand: re-run the fit. Read by HorseOmahaFacingBetPeoplePrior.ts.
+ */
+export const OMAHA_FACING_BET_PEOPLE_PRIOR_DATA = ${JSON.stringify(data, null, 2)} as const;
+`;
+writeFileSync(out, ts);
+console.log(JSON.stringify(data));

@@ -1,0 +1,3 @@
+# tests/weekly-pnl-is-certified-before-the-money.law.test.ts
+
+Between the week close and ten minutes before the payout, `smarter_private.weekly_pnl_precertify` (called first by `weekly_union_books_due`) seals the boundary inventory and certifies the closed week's union P&L with the scheduler's own nonpaying sequence, only try-locking the shared `union-accounting:` scope key, never holding it into the money, waiting for the week's cash and idle preparation, moving no chips, and raising one deduplicated critical alert when the P&L is blocked, so union invoices follow the 4 AM payout instead of the afternoon.
