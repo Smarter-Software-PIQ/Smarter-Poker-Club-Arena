@@ -202,6 +202,54 @@ export async function requestAccessToken(): Promise<string> {
   return data.session?.access_token ?? supabaseAnonKey ?? '';
 }
 
+// Defense-in-depth (2026-11-27): a refused or missing WebSocket constructor
+// inside realtime-js must never throw synchronously out of a React effect.
+// realtimeAdmission.transport catches constructor throws at the socket layer;
+// this guard also catches any synchronous connect()/subscribe() throw before
+// the transport is reached.
+{
+  const rt = supabase.realtime as unknown as { connect?: (...a: unknown[]) => unknown } | undefined;
+  if (rt && typeof rt.connect === 'function') {
+    const origConnect = rt.connect.bind(rt);
+    rt.connect = (...args: unknown[]) => {
+      try {
+        return origConnect(...args);
+      } catch (err) {
+        console.warn(
+          '[Realtime] connect() refused; degrading live updates cleanly:',
+          err instanceof Error ? err.message : String(err)
+        );
+        return undefined;
+      }
+    };
+  }
+  const origChannel = supabase.channel.bind(supabase);
+  (supabase as unknown as { channel: typeof supabase.channel }).channel = ((
+    ...args: Parameters<typeof supabase.channel>
+  ) => {
+    const ch = origChannel(...args);
+    const origSubscribe = ch.subscribe.bind(ch);
+    ch.subscribe = ((callback?: Parameters<typeof ch.subscribe>[0], timeout?: number) => {
+      try {
+        return origSubscribe(callback, timeout);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (typeof callback === 'function') {
+          queueMicrotask(() => {
+            try {
+              callback('CHANNEL_ERROR' as never, error);
+            } catch {
+              /* ignore degraded callback error */
+            }
+          });
+        }
+        return ch;
+      }
+    }) as typeof ch.subscribe;
+    return ch;
+  }) as typeof supabase.channel;
+}
+
 (supabase as unknown as { accessToken?: () => Promise<string> }).accessToken = requestAccessToken;
 
 // The page coming back (shown, online, restored, focused) probes the socket at
