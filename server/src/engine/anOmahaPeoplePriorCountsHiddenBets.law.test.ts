@@ -157,6 +157,13 @@ describe('LAW: the people prior counts the bets people never showed', () => {
     actions: [
       { userId: 'p', stage: 'flop', action: 'bet', amount: 8, publicNode: { pot: 10, toCall: 0 } },
       { userId: 'h', stage: 'flop', action: 'call', amount: 8, publicNode: { pot: 18, toCall: 8 } },
+      {
+        userId: 'p',
+        stage: 'turn',
+        action: 'check',
+        amount: 0,
+        publicNode: { pot: 26, toCall: 0 },
+      },
       { userId: 'h', stage: 'turn', action: 'bet', amount: 20, publicNode: { pot: 26, toCall: 0 } },
       {
         userId: 'p',
@@ -192,6 +199,41 @@ describe('LAW: the people prior counts the bets people never showed', () => {
         ]),
     } as never).find((i) => i.userId === 'p' && i.bet);
     expect(won?.bet?.hidden).toBe(false);
+  });
+
+  it('a fold facing a raise of his own wager is not a give-up (a value hand can be outdrawn or priced out)', () => {
+    const raised = omahaBetReadIncrementsOf({
+      handKey: 'x',
+      variant: 'plo5',
+      mode: 'cash',
+      board: null,
+      shown: new Map(),
+      showdown: [],
+      actions: [
+        {
+          userId: 'p',
+          stage: 'flop',
+          action: 'bet',
+          amount: 8,
+          publicNode: { pot: 10, toCall: 0 },
+        },
+        {
+          userId: 'h',
+          stage: 'flop',
+          action: 'raise',
+          amount: 30,
+          publicNode: { pot: 18, toCall: 8 },
+        },
+        {
+          userId: 'p',
+          stage: 'flop',
+          action: 'fold',
+          amount: 0,
+          publicNode: { pot: 48, toCall: 22 },
+        },
+      ],
+    } as never).find((i) => i.userId === 'p' && i.bet);
+    expect(raised?.bet?.hidden).toBe(false);
   });
 
   it('his record counts his hidden bets only when asked (the option)', () => {

@@ -184,6 +184,10 @@ for (const f of files) {
     const P = new Map(h.players.map((p) => [p.seat, p]));
     const shown = h.shown ?? {};
     const folded = new Set<number>();
+    // voluntary give-ups (lead ruling 2026-11-27): he checked a street and then folded to a bet on it; a fold facing a
+    // raise of his own wager is NOT one (a value hand can be outdrawn or priced out)
+    const giveUp = new Set<number>();
+    let checkedHere = new Set<number>();
     let st = '';
     let sc = new Map<number, number>();
     const aggrOn: Record<string, Set<number>> = {
@@ -225,6 +229,7 @@ for (const f of files) {
       if (a.stage !== st && ['preflop', 'flop', 'turn', 'river'].includes(a.stage)) {
         st = a.stage;
         sc = new Map();
+        checkedHere = new Set();
       }
       const amt = Number(a.amount) || 0;
       if (['sb', 'bb', 'post'].includes(a.action) && !a.dead) {
@@ -328,12 +333,16 @@ for (const f of files) {
         if (act === 'bet' || act === 'raise') aggrOn[st].add(a.seat);
         if (act === 'call') callOn[st].add(a.seat);
       }
+      if (act === 'fold' && checkedHere.has(a.seat)) giveUp.add(a.seat);
+      if (act === 'check') checkedHere.add(a.seat);
       if (act === 'fold') folded.add(a.seat);
       sc.set(a.seat, Math.max(mine, to));
       if (!Number.isFinite(pot)) ok = false;
     }
     if (!ok || board.length < 5) continue;
-    // hidden: not shown, and he folded after the bet or reached a showdown (two or more players never folded)
+    // hidden: not shown, and a voluntary give-up (checked, then folded to a bet) or a muck at the showdown (he never
+    // folded and two or more players reached it; the river's wager-maker is always shown, so a muck is a showdown he
+    // did not lead). A fold facing a raise of his own wager is not counted.
     const liveAtEnd = h.players.filter((p) => !folded.has(p.seat)).length;
     const shownBy = (seat: number): boolean => {
       const p = P.get(seat);
@@ -341,7 +350,9 @@ for (const f of files) {
       return !!p && Array.isArray(cards) && cards.length === (h.gv === 'plo4' ? 4 : 5);
     };
     const hiddenOf = (seat: number): boolean =>
-      P.get(seat)?.isHorse === false && !shownBy(seat) && (folded.has(seat) || liveAtEnd >= 2);
+      P.get(seat)?.isHorse === false &&
+      !shownBy(seat) &&
+      (giveUp.has(seat) || (!folded.has(seat) && liveAtEnd >= 2));
     for (const b of pendingFlop) if (!shownBy(b.seat) && hiddenOf(b.seat)) b.split.h++;
     for (const b of pending) if (b.split && !shownBy(b.seat) && hiddenOf(b.seat)) b.split.h++;
     let any = false;

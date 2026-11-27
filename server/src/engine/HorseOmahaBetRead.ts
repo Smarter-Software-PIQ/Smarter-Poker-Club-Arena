@@ -416,17 +416,33 @@ export function omahaBetReadIncrementsOf(hand: OmahaBetReadHand): OmahaBetReadIn
     pot += amount;
   }
   flush();
-  // omahaPeoplePriorCountsHiddenBets: a bet not shown is hidden when he folded later in the hand or the hand
-  // reached a showdown (two or more players listed); a bet he won uncontested is not (public events only)
+  // omahaPeoplePriorCountsHiddenBets: a bet not shown is hidden when it ended in a VOLUNTARY give-up (he checked a
+  // street and then folded to a bet on it) or a muck at the showdown (he never folded, two or more players listed);
+  // a fold facing a raise of his own wager is not counted (a value hand can be outdrawn or priced out), nor a bet he
+  // won uncontested (public events only; lead ruling 2026-11-27)
   const foldedUids = new Set<string>();
+  const giveUps = new Set<string>();
+  let st = '';
+  let checked = new Set<string>();
   for (const a of hand.actions) {
-    const uid = a?.userId ?? a?.user_id;
-    if (uid && a.action === 'fold') foldedUids.add(uid.toLowerCase());
+    if (!a || typeof a.stage !== 'string') continue;
+    if (a.stage !== st) {
+      st = a.stage;
+      checked = new Set();
+    }
+    const uid = (a.userId ?? a.user_id)?.toLowerCase();
+    if (!uid) continue;
+    if (a.action === 'fold') {
+      if (checked.has(uid)) giveUps.add(uid);
+      foldedUids.add(uid);
+    } else if (a.action === 'check') checked.add(uid);
   }
   const showdownHeld = (hand.showdown ?? []).filter((s) => s && s.user_id).length >= 2;
   for (const inc of out)
-    if (inc.bet && !inc.bet.shown)
-      inc.bet.hidden = foldedUids.has(inc.userId.toLowerCase()) || showdownHeld;
+    if (inc.bet && !inc.bet.shown) {
+      const u = inc.userId.toLowerCase();
+      inc.bet.hidden = giveUps.has(u) || (!foldedUids.has(u) && showdownHeld);
+    }
   return out;
 }
 
