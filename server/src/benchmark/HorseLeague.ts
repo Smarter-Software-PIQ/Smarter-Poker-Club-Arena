@@ -5111,6 +5111,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   })),
   // 2026-11-27 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the multiway field of the facing-bet price measured on
   // people (HorseOmahaMultiwayPeopleField).
+  // 2026-11-27 lead-8 lane OFA (default OFF, PLO4/PLO5 cash): the flop / turn people cells count people's hidden bets
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_people_prior_counts_hidden_bets`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaFlopPressureCapIsPriced: true,
+    },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_multiway_field_is_people_measured`,
     variant,
@@ -5118,6 +5136,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { omahaFacingBetEv: true, omahaMultiwayFieldIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-27 lead-8 lane OFB (default OFF, PLO4/PLO5 cash): the turn bettor priced on the people cell of the flop
+  // line (checked through / wagered), heads-up and multiway (HorseOmahaTurnLinePeoplePrior).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_facing_bet_prior_is_line_split`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaTurnFacingBetPriorIsLineSplit: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,

@@ -241,6 +241,10 @@ import {
   omahaPeoplePriorShare,
   type OmahaPeoplePriorShare,
 } from './HorseOmahaFacingBetPeoplePrior.js';
+import {
+  omahaTurnFlopLineOf,
+  omahaTurnLinePeoplePriorShare,
+} from './HorseOmahaTurnLinePeoplePrior.js';
 import { omahaPeopleMultiwayField } from './HorseOmahaMultiwayPeopleField.js';
 import {
   classCapFloorKeepsTheCall,
@@ -1215,6 +1219,10 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
+import {
+  omahaPeoplePriorHiddenKeyOf,
+  omahaPeoplePriorRecordCountsHidden,
+} from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
 import {
@@ -3927,6 +3935,14 @@ export interface HorseDecideOpts {
    */
   omahaFlopPressureCapIsPriced?: boolean;
   /**
+   * lead-8 lane OFA 2026-11-27 (HorseOmahaPeoplePriorHidden.ts). Default OFF, read `=== true`. PLO4/PLO5 cash: where
+   * omahaFlopPressureCapIsPriced (flop) and omahaFacingBetPriorIsPeopleMeasured (turn) read the people-only cell,
+   * they read the split cell (flop: pot type; turn: the bettor's flop line; per game) that counts the bets people
+   * never showed although they did not win them uncontested (folded later, mucked) as non-value, and the bettor's
+   * own record counts his hidden bets the same way. River untouched (every called river bettor is shown).
+   */
+  omahaPeoplePriorCountsHiddenBets?: boolean;
+  /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
    * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
@@ -4649,6 +4665,11 @@ export interface HorseDecideOpts {
    *  multiway continue rate (HorseOmahaMultiwayPeopleField), each anchored to equilibrium; heads-up untouched.
    *  Default OFF, read `=== true`. */
   omahaMultiwayFieldIsPeopleMeasured?: boolean;
+  /** lead-8 lane OFB 2026-11-27. PLO4/PLO5 cash, the turn, inside omahaFacingBetEv, a first wager (never a raise),
+   *  heads-up AND multiway: the bettor's non-value share is the people-only cell of the FLOP LINE (checked through /
+   *  wagered; HorseOmahaTurnLinePeoplePrior), his own shown bets first, the balanced share behind a thin cell; with
+   *  omahaPeoplePriorCountsHiddenBets on, the multiway cell counts people's hidden bets as non-value and a heads-up turn bet stays with that option. Default OFF, read `=== true`. */
+  omahaTurnFacingBetPriorIsLineSplit?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14852,6 +14873,13 @@ function omahaFacingBetEvRule(
         if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
         if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
+      if (ev.lineSplit) {
+        noteFire('omaha_turn_line_prior_priced');
+        if (ev.lineSplit.checked) noteFire('omaha_turn_line_prior_checked_flop');
+        if (ev.lineSplit.multiway) noteFire('omaha_turn_line_prior_multiway');
+        if (ev.lineSplit.shown > 0) noteFire('omaha_turn_line_prior_record_read');
+        if (ev.lineSplit.changed) noteFire('omaha_turn_line_prior_changed');
+      }
       if (ev.peopleField) {
         noteFire('omaha_mw_people_field_priced');
         if (ev.peopleField.changed) noteFire('omaha_mw_people_field_changed');
@@ -14906,6 +14934,9 @@ type OmahaFacingBetEvAnswer = {
   /** omahaMultiwayFieldIsPeopleMeasured: the people-measured field priced the call, and whether the verdict differs
    *  from the one the stated field constants give */
   peopleField?: { changed: boolean };
+  /** omahaTurnFacingBetPriorIsLineSplit: the flop line's people cell priced the turn bettor (checked: the flop checked
+   *  through; shown: his own shown bets read), and whether the verdict differs from the one without it */
+  lineSplit?: { checked: boolean; multiway: boolean; shown: number; changed: boolean };
 };
 
 /** The turn and river facing-bet verdict decides (omahaFacingBetEv, or omahaFacingBetValueShareIsMeasured). */
@@ -14952,6 +14983,9 @@ let omahaFacingBetEvCountMemo: {
   equilibriumAnchor: boolean;
   /** omahaMultiwayFieldIsPeopleMeasured */
   multiwayFieldPeople: boolean;
+  /** omahaTurnFacingBetPriorIsLineSplit (and whether its cell counts hidden bets) */
+  turnLineSplit: boolean;
+  turnLineHidden: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -15173,6 +15207,15 @@ function omahaFacingBetEvCount(
     opts.omahaFacingBetPriorIsPeopleMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaTurnFacingBetPriorIsLineSplit (default off): PLO4/PLO5 cash only.
+  const turnLineSplit =
+    opts.omahaTurnFacingBetPriorIsLineSplit === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  const turnLineHidden =
+    turnLineSplit &&
+    (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
+      true;
   // omahaMultiwayFieldIsPeopleMeasured (default off): PLO4/PLO5 cash only.
   const multiwayFieldPeople =
     opts.omahaMultiwayFieldIsPeopleMeasured === true &&
@@ -15207,6 +15250,8 @@ function omahaFacingBetEvCount(
     memo.valueShareMeasured === valueShareMeasured &&
     memo.equilibriumAnchor === equilibriumAnchor &&
     memo.multiwayFieldPeople === multiwayFieldPeople &&
+    memo.turnLineSplit === turnLineSplit &&
+    memo.turnLineHidden === turnLineHidden &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15347,7 +15392,17 @@ function omahaFacingBetEvCount(
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
         const variant = String(gs.gameVariant ?? '').toLowerCase();
+        // omahaPeoplePriorCountsHiddenBets (default off): the turn's hidden-corrected split cell and record, for a bet
+        // (a raise keeps today's people raise cell: the option corrects bets only)
+        const hiddenKey =
+          opts.omahaPeoplePriorCountsHiddenBets === true &&
+          spot.street === 'turn' &&
+          spot.isRaise !== true
+            ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
+            : null;
+        if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
         const anchored = omahaPeoplePriorShare({
+          hidden: hiddenKey,
           street: spot.street,
           potFrac: spot.potFrac,
           isRaise: spot.isRaise === true,
@@ -15364,7 +15419,8 @@ function omahaFacingBetEvCount(
                   spot.street,
                   spot.potFrac,
                   omahaMeasuredLineOf(gs.actionHistory, spot.street, spot.bettorSeat, false) ===
-                    'agg'
+                    'agg',
+                  omahaPeoplePriorRecordCountsHidden(hiddenKey)
                 )
               : null,
         });
@@ -15379,6 +15435,63 @@ function omahaFacingBetEvCount(
         }
       } catch {
         equilibriumAnchored = null;
+      }
+    }
+    // omahaTurnFacingBetPriorIsLineSplit (default off): a turn first wager, heads-up or multiway: the flop line's
+    // people cell (HorseOmahaTurnLinePeoplePrior) replaces the line-blind heads-up cell and the old multiway constant.
+    // With omahaPeoplePriorCountsHiddenBets on, a HEADS-UP turn bet stays with that option's own hidden-corrected
+    // split cell and hidden-counting record (#12116's path); this option then prices the multiway turn only.
+    let lineSplitPriced: { checked: boolean; multiway: boolean; shown: number } | null = null;
+    const lineSplitMultiway = spot.callers + spot.allIns + spot.behind > 0;
+    if (
+      turnLineSplit &&
+      spot.street === 'turn' &&
+      spot.isRaise !== true &&
+      (lineSplitMultiway || !turnLineHidden)
+    ) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        const variant = String(gs.gameVariant ?? '').toLowerCase();
+        const multiway = lineSplitMultiway;
+        const line = omahaTurnFlopLineOf(gs.actionHistory);
+        const anchored = omahaTurnLinePeoplePriorShare({
+          street: 'turn',
+          potFrac: spot.potFrac,
+          isRaise: false,
+          multiway,
+          paid: spot.paid,
+          winnable: spot.winnable,
+          rake: omahaFacingBetDeduction(player, gs, opts),
+          twoStreet: !spot.final && spot.bettorCanBarrelRiver !== false,
+          record:
+            mind && bettor
+              ? omahaBetReadOwnCellOf(
+                  bettor.user_id,
+                  variant,
+                  'turn',
+                  spot.potFrac,
+                  omahaMeasuredLineOf(gs.actionHistory, 'turn', spot.bettorSeat, false) === 'agg'
+                )
+              : null,
+          line,
+          countsHidden: turnLineHidden,
+        });
+        if (anchored) {
+          // the line cell replaces the line-blind heads-up cell of omahaFacingBetPriorIsPeopleMeasured where both apply
+          if (equilibriumAnchored) {
+            read = readBeforeAnchor;
+            equilibriumAnchored = null;
+          }
+          readBeforeAnchor = read;
+          read = {
+            ...OMAHA_EV_UNKNOWN_READ,
+            pricedShare: anchored.share,
+            pricedRegions: anchored.regions,
+          };
+          lineSplitPriced = { checked: line === 'checked', multiway, shown: anchored.shown };
+        }
+      } catch {
+        lineSplitPriced = null;
       }
     }
     // omahaMultiwayFieldIsPeopleMeasured (default off): the people-measured field, multiway only.
@@ -15456,6 +15569,11 @@ function omahaFacingBetEvCount(
     const peopleFieldChanged =
       peopleFieldPriced && verdict !== null && telemetryOn(opts)
         ? verdictOf(spot, read, true)?.call !== verdict.call
+        : false;
+    // Receipt only: the line split changed the verdict the reads before it give.
+    const lineSplitChanged =
+      lineSplitPriced !== null && verdict !== null && telemetryOn(opts)
+        ? verdictOf(spot, readBeforeAnchor)?.call !== verdict.call
         : false;
     // Receipt only: the anchored share changed the verdict the population prior and the public reads give.
     const anchorChanged =
@@ -15629,6 +15747,8 @@ function omahaFacingBetEvCount(
       };
     if (answer && peopleFieldPriced)
       answer = { ...answer, peopleField: { changed: peopleFieldChanged } };
+    if (answer && lineSplitPriced)
+      answer = { ...answer, lineSplit: { ...lineSplitPriced, changed: lineSplitChanged } };
   }
   omahaFacingBetEvCountMemo = {
     player,
@@ -15650,6 +15770,8 @@ function omahaFacingBetEvCount(
     valueShareMeasured,
     equilibriumAnchor,
     multiwayFieldPeople,
+    turnLineSplit,
+    turnLineHidden,
     pricedKey,
     answer,
   };
@@ -32086,6 +32208,17 @@ export class HorseLogic {
         const spotP = omahaFlopPressureCapPricedSpot(player, gs);
         if (spotP) {
           const bettorP = gs.players.find((p) => p.seat === spotP.bettorSeat);
+          // omahaPeoplePriorCountsHiddenBets (default off): the flop's hidden-corrected split cell and record
+          const hiddenKeyP =
+            opts.omahaPeoplePriorCountsHiddenBets === true
+              ? omahaPeoplePriorHiddenKeyOf(
+                  String(gs.gameVariant ?? ''),
+                  'flop',
+                  gs.actionHistory,
+                  spotP.bettorSeat
+                )
+              : null;
+          if (hiddenKeyP && tele15) noteFire('omaha_hidden_bets_prior_read');
           const priced = omahaFlopPressureCapPricedEquity(
             spotP,
             player.cards,
@@ -32098,9 +32231,11 @@ export class HorseLogic {
                   String(gs.gameVariant ?? '').toLowerCase(),
                   'flop',
                   spotP.potFrac,
-                  false
+                  false,
+                  omahaPeoplePriorRecordCountsHidden(hiddenKeyP)
                 )
-              : null
+              : null,
+            hiddenKeyP
           );
           if (priced) pricedCap38 = Math.min(eq15, priced.equity);
         }

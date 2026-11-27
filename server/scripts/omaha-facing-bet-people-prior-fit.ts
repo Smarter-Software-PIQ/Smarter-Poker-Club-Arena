@@ -151,6 +151,22 @@ const flopTab = (): Record<'hu' | 'mw', Record<(typeof BUCKETS)[number], FlopCel
   return o;
 };
 const flopCells = flopTab();
+/** HIDDEN BETS (omahaPeoplePriorCountsHiddenBets; lead-8 2026-11-27). A person's flop or turn bet whose cards are never
+ *  shown although he did not win it uncontested: he folded later in the hand, or he reached the showdown and mucked.
+ *  Public events only (a fold and a muck are public; no card is read). The shown sample never sees them, so it
+ *  over-states value: of called person bets only 37-57% are shown on the flop and the turn (every called river bettor
+ *  is shown). Split cells, per game: the flop by pot type (limped / single-raised / 3-bet or more: 3-bet pots are
+ *  value-heavy and must not borrow single-raised bluffs), the turn by line (the flop checked through / he made the
+ *  flop wager / another player did). Each cell keeps its shown counts (n, k, kTop20) and its hidden count h; the
+ *  corrected share counts every hidden bet as non-value ((k + h) / (n + h)); a bet won with no showdown keeps the
+ *  shown mix (not counted). Same people-only bettor filter as every cell above. */
+type SplitCell = { n: number; k: number; kTop20: number; h: number };
+const splitCells = new Map<string, SplitCell>();
+const splitOf = (key: string): SplitCell => {
+  let c = splitCells.get(key);
+  if (!c) splitCells.set(key, (c = { n: 0, k: 0, kTop20: 0, h: 0 }));
+  return c;
+};
 
 const [out, ...files] = process.argv.slice(2);
 let hands = 0;
@@ -168,6 +184,10 @@ for (const f of files) {
     const P = new Map(h.players.map((p) => [p.seat, p]));
     const shown = h.shown ?? {};
     const folded = new Set<number>();
+    // voluntary give-ups (lead ruling 2026-11-27): he checked a street and then folded to a bet on it; a fold facing a
+    // raise of his own wager is NOT one (a value hand can be outdrawn or priced out)
+    const giveUp = new Set<number>();
+    let checkedHere = new Set<number>();
     let st = '';
     let sc = new Map<number, number>();
     const aggrOn: Record<string, Set<number>> = {
@@ -186,7 +206,14 @@ for (const f of files) {
     let preAggressor: number | null = null;
     let flopWagers = 0;
     let aggressorChecked = false;
-    const pendingFlop: { seat: number; cell: FlopCell; V: number; byPerson: boolean }[] = [];
+    const pendingFlop: {
+      seat: number;
+      cell: FlopCell;
+      V: number;
+      byPerson: boolean;
+      split: SplitCell;
+    }[] = [];
+    let preRaises = 0;
     const pending: {
       seat: number;
       street: 'turn' | 'river';
@@ -194,6 +221,7 @@ for (const f of files) {
       V: number;
       reg: Reg;
       nt: Cell;
+      split: SplitCell | null;
     }[] = [];
     const calls: { seat: number; street: 'turn' | 'river' }[] = [];
     let ok = true;
@@ -201,6 +229,7 @@ for (const f of files) {
       if (a.stage !== st && ['preflop', 'flop', 'turn', 'river'].includes(a.stage)) {
         st = a.stage;
         sc = new Map();
+        checkedHere = new Set();
       }
       const amt = Number(a.amount) || 0;
       if (['sb', 'bb', 'post'].includes(a.action) && !a.dead) {
@@ -250,10 +279,19 @@ for (const f of files) {
             V,
             reg: riverRegions[active > 2 ? 'mw' : 'hu'][bucket],
             nt: nonTop20[street][active > 2 ? 'mw' : 'hu'][bucket],
+            split:
+              street === 'turn'
+                ? splitOf(
+                    `turn|${h.gv}|${active > 2 ? 'mw' : 'hu'}|${bucket}|${
+                      aggrOn.flop.has(a.seat) ? 'b' : flopWagers > 0 ? 'c' : 'x'
+                    }`
+                  )
+                : null,
           });
         }
       }
       if (st === 'preflop' && (act === 'bet' || act === 'raise') && to > preLevel + 1e-9) {
+        preRaises++;
         preLevel = to;
         preAggressor = a.seat;
       }
@@ -282,6 +320,11 @@ for (const f of files) {
               cell: flopCells[active > 2 ? 'mw' : 'hu'][bucket],
               V: OMAHA_FLOP_EV_VALUE_SHARE[bucket] * line,
               byPerson: others.length === 1 && others[0].isHorse === false,
+              split: splitOf(
+                `flop|${h.gv}|${active > 2 ? 'mw' : 'hu'}|${bucket}|${
+                  preRaises === 0 ? 'limped' : preRaises === 1 ? 'single' : 'reraised'
+                }`
+              ),
             });
           }
         }
@@ -290,11 +333,28 @@ for (const f of files) {
         if (act === 'bet' || act === 'raise') aggrOn[st].add(a.seat);
         if (act === 'call') callOn[st].add(a.seat);
       }
+      if (act === 'fold' && checkedHere.has(a.seat)) giveUp.add(a.seat);
+      if (act === 'check') checkedHere.add(a.seat);
       if (act === 'fold') folded.add(a.seat);
       sc.set(a.seat, Math.max(mine, to));
       if (!Number.isFinite(pot)) ok = false;
     }
     if (!ok || board.length < 5) continue;
+    // hidden: not shown, and a voluntary give-up (checked, then folded to a bet) or a muck at the showdown (he never
+    // folded and two or more players reached it; the river's wager-maker is always shown, so a muck is a showdown he
+    // did not lead). A fold facing a raise of his own wager is not counted.
+    const liveAtEnd = h.players.filter((p) => !folded.has(p.seat)).length;
+    const shownBy = (seat: number): boolean => {
+      const p = P.get(seat);
+      const cards = p ? shown[p.userId] : undefined;
+      return !!p && Array.isArray(cards) && cards.length === (h.gv === 'plo4' ? 4 : 5);
+    };
+    const hiddenOf = (seat: number): boolean =>
+      P.get(seat)?.isHorse === false &&
+      !shownBy(seat) &&
+      (giveUp.has(seat) || (!folded.has(seat) && liveAtEnd >= 2));
+    for (const b of pendingFlop) if (!shownBy(b.seat) && hiddenOf(b.seat)) b.split.h++;
+    for (const b of pending) if (b.split && !shownBy(b.seat) && hiddenOf(b.seat)) b.split.h++;
     let any = false;
     const bs = new Map<string, number>();
     const strength = (seat: number, street: 'turn' | 'river'): number | null => {
@@ -326,6 +386,9 @@ for (const f of files) {
       b.cell.n++;
       if (s > b.V) b.cell.k++;
       if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.cell.kTop20++;
+      b.split.n++;
+      if (s > b.V) b.split.k++;
+      if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.split.kTop20++;
       if (b.byPerson) b.cell.answeredByAPerson++;
       anyFlop = true;
     }
@@ -338,6 +401,11 @@ for (const f of files) {
       if (s > (b.street === 'river' ? Math.max(b.V, 1 - OMAHA_EV_BLUFF_POOL) : b.V)) b.cell.k++;
       b.nt.n++;
       if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.nt.k++;
+      if (b.split) {
+        b.split.n++;
+        if (s > b.V) b.split.k++;
+        if (s > OMAHA_PEOPLE_RECORD_VALUE_BEAT_SHARE) b.split.kTop20++;
+      }
       if (b.street === 'river') {
         b.reg.n++;
         if (s <= b.V) b.reg.core++;
@@ -438,4 +506,65 @@ const ts = `/**
 export const OMAHA_FACING_BET_PEOPLE_PRIOR_DATA = ${JSON.stringify(data, null, 2)} as const;
 `;
 writeFileSync(out, ts);
+// omahaPeoplePriorCountsHiddenBets: the split cells, in their own generated file beside the data file
+// the same split pooled over the two games (key game 'all'): the people cell a thin per-game cell shrinks toward
+for (const [key, c] of [...splitCells.entries()]) {
+  const parts = key.split('|');
+  parts[1] = 'all';
+  const all = splitOf(parts.join('|'));
+  all.n += c.n;
+  all.k += c.k;
+  all.kTop20 += c.kTop20;
+  all.h += c.h;
+}
+const hiddenCells = Object.fromEntries(
+  [...splitCells.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, c]) => {
+      // RE-RAISED FLOP POTS keep the shown-only share (hidden bets reported, not counted): the public evidence does not
+      // separate their give-ups and mucks from value (they are deep, SPR 4+, like single-raised pots, so the low-SPR
+      // stack-off reading is refuted), the serving engine already folds there under the pure-bluff break-even
+      // (PLO5 30.7% vs 46.1%), and the calls the correction added there lost (OFC: -40.6 +/- 17.2 bb, n 5).
+      // l8-ofa/BUILD.md "re-raised pots". A fit decision on the counts, not a bound on the output.
+      const count = !key.endsWith('|reraised');
+      const h = count ? c.h : 0;
+      return [
+        key,
+        {
+          shown: c.n,
+          hidden: c.h,
+          hiddenCounted: count,
+          share: c.n + h > 0 ? r3((c.k + h) / (c.n + h)) : null,
+          nonTop20: c.n + h > 0 ? r3((c.kTop20 + h) / (c.n + h)) : null,
+          shownShare: c.n > 0 ? r3(c.k / c.n) : null,
+        },
+      ];
+    })
+);
+const cellsOut = out.replace(/[^/]*$/, 'HorseOmahaPeoplePriorHidden.data.ts');
+writeFileSync(
+  cellsOut,
+  `/**
+ * GENERATED by server/scripts/omaha-facing-bet-people-prior-fit.ts (the same people-only export and filters as
+ * HorseOmahaFacingBetPeoplePrior.data.ts). Do not edit by hand: re-run the fit. Read by HorseOmahaPeoplePriorHidden.ts
+ * (omahaPeoplePriorCountsHiddenBets). Key: street|game (plo4, plo5, or all = both games pooled)|hu or mw|size bucket|split (flop: limped / single / reraised
+ * pot; turn: x the flop checked through, b he made the flop wager, c another player did). shown / hidden: the bets
+ * counted; hiddenCounted: whether the cell counts them (re-raised flop pots do not); share / nonTop20: non-value shares
+ * (hidden bets as non-value where counted); shownShare: shown only.
+ */
+export const OMAHA_PEOPLE_PRIOR_HIDDEN_DATA: Readonly<
+  Record<
+    string,
+    {
+      shown: number;
+      hidden: number;
+      hiddenCounted: boolean;
+      share: number | null;
+      nonTop20: number | null;
+      shownShare: number | null;
+    }
+  >
+> = ${JSON.stringify(hiddenCells, null, 2)};
+`
+);
 console.log(JSON.stringify(data));
