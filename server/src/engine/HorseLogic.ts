@@ -2354,6 +2354,14 @@ export interface HorseGameStateV2 extends HorseGameState {
    */
   ownVpip?: { hands: number; vpip: number | null };
   /**
+   * vpipFloorLimpFoldsToARaise (default OFF): true when THIS Horse's own limp earlier in THIS hand was the VPIP
+   * floor's one action (vpipFloorLimpOnlyStep) and was accepted. The table engine and the Lightning hand host
+   * remember it for the hand from the decision's own `vpipFloorLimp` mark, which is set only with the option on;
+   * so with the option off the field is never present. The Horse's own fact about its own action: no card, no
+   * opponent, never stored with the public node and outside the policy sampling key.
+   */
+  ownVpipFloorLimpThisHand?: boolean;
+  /**
    * A LIGHTNING POOL'S FLOOR (owner 2026-11-18). The game's floor (percent),
    * its window (tables.maintain_hands) and this Horse's last window - 1
    * settled hands of this pool sitting (LightningHorseVpipLedger.readWindow):
@@ -4352,6 +4360,20 @@ export interface HorseDecideOpts {
    * Independent of vpipFloorLimpOnly, which never governs a pool. Default
    * OFF (opt-in, read `=== true`). */
   lightningVpipFloorLimpOnly?: boolean;
+  /** Owner 2026-11-17 14:34 Chicago ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops.")
+   * and 18:38 (the floor never buys a call of a raise). vpipFloorLimpOnly and lightningVpipFloorLimpOnly make the
+   * limp and then forget it: raised, "the unfloored decision stands", and the whole preflop brain may call or
+   * re-raise with a hand it had just folded for one big blind (measured 2026-11-20..27, hands with a person:
+   * 322 of 2,407 floor limps that faced a raise called it, 1 re-raised; mostly the measured-wide-raiser price).
+   * With this on, the limp the floor makes carries the private mark `vpipFloorLimp` on its decision; the table
+   * engine / Lightning hand host remembers the accepted limp for the hand and hands it back as
+   * gs.ownVpipFloorLimpThisHand; and a preflop decision of that Horse facing a raise after that limp is a fold,
+   * whatever the brain proposed (vpipFloorLimpFoldsToARaiseStep; receipts vpip_floor_limp_raised_fold /
+   * vpip_floor_limp_raised_fold_kept). It adds no floor to any game, makes no limp of its own, changes no
+   * natural limp (a limp the unfloored brain chose keeps the unfloored answer) and nothing postflop. Default OFF
+   * (opt-in, read `=== true`): off, no mark is set, the engine remembers nothing and every decision is the one
+   * it was. */
+  vpipFloorLimpFoldsToARaise?: boolean;
   /** The re-raised-pot pricing of 2026-11-18 (finding F-02 position by seat
    * order and the measured realization, #11287) in a fast-table cash hand:
    * with this on, omahaReraisedCallPricingOf prices a Lightning PLO4/PLO5
@@ -7329,6 +7351,73 @@ export function vpipFloorLimpOnlyStep(
     receipt: 'vpip_floor_limp_only_limp',
   };
 }
+
+export type VpipFloorLimpFoldsToARaiseReceipt =
+  | 'vpip_floor_limp_raised_fold'
+  | 'vpip_floor_limp_raised_fold_kept';
+
+/** vpipFloorLimpFoldsToARaise: true when this is the preflop decision of a Horse whose own accepted limp this hand
+ *  was the floor's (gs.ownVpipFloorLimpThisHand), now facing a raise made after that limp. Public action facts and
+ *  the Horse's own mark only. */
+export function vpipFloorLimpFacesARaise(
+  player: { seat: number; bet: number },
+  gs: {
+    stage: string;
+    currentBet: number;
+    ownVpipFloorLimpThisHand?: boolean;
+    actionHistory?: readonly {
+      stage: string;
+      seat: number;
+      action: string;
+      isFullRaise?: boolean;
+    }[];
+  }
+): boolean {
+  return (
+    gs.ownVpipFloorLimpThisHand === true &&
+    gs.stage === 'preflop' &&
+    Number(gs.currentBet) > Number(player.bet) + 1e-9 &&
+    heroLimpedPreflop(gs.actionHistory, player.seat)
+  );
+}
+
+/**
+ * vpipFloorLimpFoldsToARaise (default OFF; owner 2026-11-17: "Table VPIP must limp fold for a bb ... nothing
+ * else"): the floor's limp, raised, folds. Returns the fold (the proposal with its action made a fold, guarded
+ * against a later recovery as a priced preflop refusal) and the receipt, or the untouched decision and null when
+ * the option is off or this is not that spot. No price, no draw: the hand was a fold for one big blind before the
+ * floor bought the limp, and the floor buys nothing else.
+ */
+export function vpipFloorLimpFoldsToARaiseStep(
+  decision: HorseDecision,
+  player: { seat: number; bet: number },
+  gs: Parameters<typeof vpipFloorLimpFacesARaise>[1],
+  opts: { vpipFloorLimpFoldsToARaise?: boolean }
+): { decision: HorseDecision; receipt: VpipFloorLimpFoldsToARaiseReceipt | null } {
+  if (opts.vpipFloorLimpFoldsToARaise !== true || !vpipFloorLimpFacesARaise(player, gs))
+    return { decision, receipt: null };
+  if (decision.action === 'fold') {
+    return decision.continuationGuard === 'preflop_priced_refusal'
+      ? { decision, receipt: 'vpip_floor_limp_raised_fold_kept' }
+      : {
+          decision: { ...decision, continuationGuard: 'preflop_priced_refusal' },
+          receipt: 'vpip_floor_limp_raised_fold_kept',
+        };
+  }
+  const folded: HorseDecision = {
+    ...decision,
+    action: 'fold',
+    continuationGuard: 'preflop_priced_refusal',
+  };
+  delete folded.amount;
+  delete folded.valueSize;
+  return { decision: folded, receipt: 'vpip_floor_limp_raised_fold' };
+}
+
+/** vpipFloorLimpFoldsToARaise: set when vpipFloorLimpOnlyStep made the limp in the decision being asked; read and
+ *  cleared only by the option's own frame in HorseLogic.decide (with the option off nothing reads it). */
+let vpipFloorLimpMadePending = false;
+let vpipFloorLimpFrameOpen = false;
 
 /**
  * lightningVpipFloorLimpOnly: what a floored pool asks of this decision, or
@@ -18167,6 +18256,39 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // vpipFloorLimpFoldsToARaise (default OFF; owner 2026-11-17: the floor limps for a big blind and folds to a
+    // raise, nothing else). The option's frame around the whole decision: the floor's own limp leaves with the
+    // private mark the engine remembers it by, and a remembered floor limp facing a raise leaves as a fold whatever
+    // any later owner of the decision made of it. Off: this block is not entered.
+    if (opts.vpipFloorLimpFoldsToARaise === true && !vpipFloorLimpFrameOpen) {
+      vpipFloorLimpFrameOpen = true;
+      vpipFloorLimpMadePending = false;
+      try {
+        const asked = HorseLogic.decide(
+          player,
+          gameState,
+          style,
+          mods,
+          opts,
+          rangeCapture,
+          planReadCapture,
+          deepDiveCapture
+        );
+        const made = vpipFloorLimpMadePending;
+        vpipFloorLimpMadePending = false;
+        const closed = vpipFloorLimpFoldsToARaiseStep(asked, player, gameState, opts);
+        if (closed.receipt === 'vpip_floor_limp_raised_fold') {
+          // a later owner reopened the fold the reference made: the fold stands
+          if (telemetryOn(opts)) noteFire('vpip_floor_limp_raised_fold_restored');
+          return closed.decision;
+        }
+        return made && asked.action === 'call' && gameState.stage === 'preflop'
+          ? { ...asked, vpipFloorLimp: true }
+          : asked;
+      } finally {
+        vpipFloorLimpFrameOpen = false;
+      }
+    }
     // THE EQUILIBRIUM ANCHOR (2026-11-26, lane prior-anchor; HorseEquilibriumAnchor.ts): with
     // the lifetime store on and omahaOpponentLifetimeHudDecides or omahaPreflopReadIsPricedFromLifetime on, every
     // HUD read of this decision shrinks toward the equilibrium anchor
@@ -18937,7 +19059,15 @@ export class HorseLogic {
         const beforeCallDown = decision;
         const limpFold = vpipFloorLimpFoldPending;
         vpipFloorLimpFoldPending = false;
-        if (vpipFloorLimpOnlyApplies(gs, opts, isTournamentMode(gs))) {
+        // vpipFloorLimpFoldsToARaise (default OFF): the floor's own limp, raised, folds; nothing else.
+        const raisedFloorLimp = vpipFloorLimpFoldsToARaiseStep(decision, player, gs, opts);
+        if (raisedFloorLimp.receipt !== null) {
+          decision = raisedFloorLimp.decision;
+          // Literal keys: the ledger contract finds each receipt by its noteFire call.
+          if (tele && raisedFloorLimp.receipt === 'vpip_floor_limp_raised_fold')
+            noteFire('vpip_floor_limp_raised_fold');
+          else if (tele) noteFire('vpip_floor_limp_raised_fold_kept');
+        } else if (vpipFloorLimpOnlyApplies(gs, opts, isTournamentMode(gs))) {
           // vpipFloorLimpOnly: no call-down; the floor's one action is the limp.
           const limpOnly = vpipFloorLimpOnlyStep(
             decision,
@@ -18947,6 +19077,7 @@ export class HorseLogic {
             vpipFloorLimpOnlySelectionFor(gs.gameVariant)
           );
           decision = limpOnly.decision;
+          if (limpOnly.receipt === 'vpip_floor_limp_only_limp') vpipFloorLimpMadePending = true;
           if (tele && limpOnly.receipt !== null) {
             // Literal keys: the ledger contract finds each receipt by its noteFire call.
             if (limpOnly.receipt === 'vpip_floor_limp_only_limp')
@@ -18978,6 +19109,7 @@ export class HorseLogic {
                 )
               : { decision, receipt: null };
           decision = limpOnly.decision;
+          if (limpOnly.receipt === 'vpip_floor_limp_only_limp') vpipFloorLimpMadePending = true;
           if (tele) {
             noteFire('lightning_vpip_floor_limp_only_seen');
             // Literal keys: the ledger contract finds each receipt by its noteFire call.

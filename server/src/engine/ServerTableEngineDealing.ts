@@ -3627,6 +3627,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandKillCancellation = null;
       // PER-HAND OPTION RECEIPTS: the count belongs to one hand.
       this.currentHandOptionReceipts = new Map();
+      // vpipFloorLimpFoldsToARaise: a floor limp is remembered for one hand.
+      if (this.currentHandVpipFloorLimps.size > 0) this.currentHandVpipFloorLimps = new Set();
       this.currentHandWinnersByBoard = [];
       // SHOWDOWN POLISH 2026-08-25: per-pot award breakdown is per-hand.
       this.currentHandPerPotAwards = [];

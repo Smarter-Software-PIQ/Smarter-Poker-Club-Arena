@@ -96,6 +96,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_vpip_floor_limp_only',
         'plo5_vpip_floor_limp_only',
         'plo6_vpip_floor_limp_only',
+        // 2026-11-27: vpipFloorLimpFoldsToARaise, the same reason.
+        'nlh_vpip_floor_limp_folds_to_a_raise',
+        'plo4_vpip_floor_limp_folds_to_a_raise',
+        'plo5_vpip_floor_limp_folds_to_a_raise',
+        'plo6_vpip_floor_limp_folds_to_a_raise',
         // 2026-11-19: vpipFloorLimpOnlyTenHandWindow, the same reason.
         'nlh_vpip_floor_limp_only_ten_hand_window',
         'plo4_vpip_floor_limp_only_ten_hand_window',

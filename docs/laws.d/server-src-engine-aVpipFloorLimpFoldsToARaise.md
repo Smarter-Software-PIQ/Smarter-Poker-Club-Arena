@@ -1,0 +1,3 @@
+# server/src/engine/aVpipFloorLimpFoldsToARaise.law.test.ts
+
+With vpipFloorLimpFoldsToARaise on (default OFF), a Horse whose own accepted limp of the hand was the VPIP floor's one action never calls or re-raises a raise made after that limp (owner 2026-11-17: "Table VPIP must limp fold for a bb ... nothing else"): fold on every seed and style at 13 real production nodes where the live Horse called or re-raised, and on built hold'em, PLO4, PLO5 and PLO6 tables (thirty-hand, ten-hand under the window option, Lightning pool); off the decision is byte for byte and draw for draw the one it was, the private mark is never set, a limp the unfloored brain chose keeps the unfloored answer, and the remembered limp is outside the policy sampling key.

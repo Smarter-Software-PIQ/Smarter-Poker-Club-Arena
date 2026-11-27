@@ -1561,6 +1561,17 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "vpipFloorLimpFoldsToARaise": {
+      "releaseDefault": "code",
+      "source": "ledger",
+      "keys": [
+        "vpip_floor_limp_raised_fold",
+        "vpip_floor_limp_raised_fold_kept",
+        "vpip_floor_limp_raised_fold_restored"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "omahaReraisedPositionInLightning": {
       "releaseDefault": "code",
       "source": "ledger",

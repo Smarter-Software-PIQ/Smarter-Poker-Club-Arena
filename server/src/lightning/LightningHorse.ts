@@ -110,6 +110,9 @@ export interface LightningHorseTurn {
    * this sitting (LightningHorseVpipLedger). Null or absent: no floor.
    */
   vpipFloor?: LightningHorseVpipFloorInput | null;
+  /** vpipFloorLimpFoldsToARaise (default OFF): this Horse's accepted limp of this hand was the pool floor's one
+   *  action (remembered by the hand host from the decision's own mark). Absent or false: no field in the snapshot. */
+  vpipFloorLimped?: boolean;
   /**
    * ENGINE RUNTIME SETTINGS (2026-11-19): the Horse parameters the hand pinned that differ from the compiled defaults
    * (horseDecideOptsFromRuntimeSettings). Absent at the defaults: the snapshot carries no options, as before.
@@ -227,6 +230,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
           },
         }
       : {}),
+    ...(turn.vpipFloorLimped === true ? { ownVpipFloorLimpThisHand: true } : {}),
     ...(turn.sevenDeuceEnabled === true
       ? {
           sevenDeuceEnabled: true,
