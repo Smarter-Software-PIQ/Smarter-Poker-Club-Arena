@@ -621,6 +621,39 @@ describe('the owner note says it plainly, once per cycle', () => {
     );
   });
 
+  it('reads refusedCandidates so pending soak, safety refusal, and failed prequal give exact plain reasons', () => {
+    expect(
+      noteFor('2026-11-27T13', 'false', {
+        reason: NO_EVIDENCE,
+        deferredCandidates: [],
+        refusedCandidates: [{ sha: 'f'.repeat(40), reason: 'Backup certificate is pending' }],
+      })
+    ).toBe(
+      'Engine cutover at 1:00 PM CST did not happen: the newest build was still finishing its test at the cutoff. The current engine keeps running, and the next build is being tested for the 4:00 PM CST cutover.'
+    );
+    expect(
+      noteFor('2026-11-27T07', 'false', {
+        reason: NO_EVIDENCE,
+        deferredCandidates: [],
+        refusedCandidates: [
+          {
+            sha: 'a'.repeat(40),
+            reason: 'Engine release prequalification unavailable (failure)',
+          },
+        ],
+      })
+    ).toContain(
+      'did not happen: the newest build did not pass pre-release checks before the cutoff.'
+    );
+    expect(
+      noteFor('2026-11-27T07', 'false', {
+        reason: NO_EVIDENCE,
+        deferredCandidates: [],
+        refusedCandidates: [{ sha: 'b'.repeat(40), reason: 'Backup Engine refused the candidate' }],
+      })
+    ).toContain('did not happen: the newest build failed its safety test before the cutoff.');
+  });
+
   it('says nothing when the cycle had nothing new to ship', () => {
     expect(noteFor('2026-11-25T16', 'false', { reason: 'current', deferredCandidates: [] })).toBe(
       ''

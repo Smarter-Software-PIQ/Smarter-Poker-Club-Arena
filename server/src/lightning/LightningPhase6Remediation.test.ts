@@ -626,7 +626,11 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
         })),
     });
     await t.host.start();
-    for (let i = 0; i < 80 && t.host.lifecycle === 'dealing'; i++) {
+    // Real 3-player multi-street hands with HorseLogic think times and time-bank
+    // burns can exceed 80 simulated seconds (flaked prequalification 46052191027
+    // on ec879864d4). Under fake timers, 400 simulated seconds executes in <5 ms
+    // and guarantees any legal betting sequence completes deterministically.
+    for (let i = 0; i < 400 && t.host.lifecycle === 'dealing'; i++) {
       await vi.advanceTimersByTimeAsync(1_000);
       await flush(4);
     }
