@@ -308,7 +308,44 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **Disk floor (12 GiB):** free space before each certification 93 to 114 GiB; one certification consumes at most 4 GiB net (median 3). The floor is three times that. Kept.
 - **Retention (24 h):** every rehearsal found the serving release's image on disk (no rebuild in any of the 15 logs). Kept. A serving release older than 24 h would be rebuilt by `cmd_build` from the same commit rather than refused.
 - **Rule:** each value is re-derived only once its own series holds 15 observations, and only with the measurement written beside it. No value changed; no gate loosened. This is also the first live proof of item H: 14 certifications ran the 900 s soak with the memory gate judging, 11 of them certified.
-- **Open:** keep the serving release's image by name in `reclaim_backup_disk`; log free space after (or at the peak of) a certification so the floor's transient can be measured; the container memory series has read about twice the engine RSS slope since row 13 of the series.
+- **Open:** log free space after (or at the peak of) a certification so the floor's transient can be measured; the container memory series has read about twice the engine RSS slope since row 13 of the series.
+
+### 2026-11-27: 04:00 Kept Serving, 07:00 Lost, 10:00 Sealed
+
+- **04:00 CST:** kept serving with reason `current`: the serving release already held every engine change on main.
+- **07:00 CST:** lost. The newest candidates failed engine prequalification out of memory (fixed by `#12205`, another lane), and the readiness check reported READY for `7c301a85a5e4` and `4f2a8bcc269e`, which the selector then refused as certified on copies the 04:15 window installs had passed. That false READY is O36 below.
+- **10:00 CST:** sealed `3aa21caa9f7d` (receiver run `46025597521`), with the post-seal audit passing. Every engine and database change merged before it shipped.
+
+### O36: Readiness Tells The Truth About A Stale Copy (2026-11-27)
+
+- **Why it broke:** `scripts/release/three-hourly-readiness.py` judged a candidate by its certificate alone. It never asked whether production had installed a migration after the certified copy was restored, so it reported READY for candidates the selector was bound to refuse.
+- **Fix:** the copy is dated by the certificate's own `database.restoredAt` (not the refresh job, which can reuse an older copy). Production installs after that time are read from Apply Merged Migration runs and the Stage window-install job (`[apply] APPLIED` lines only), engine-inert versions (O33) are excused, and the first selectable candidate is judged. A stale candidate reads DISQUALIFIED; a log or artifact that cannot be read makes the verdict UNKNOWN, never READY.
+- **What stops it returning:** `CopyFreshnessTests` in `tests/operations/three-hourly-readiness.test.py` (29 tests) and `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`.
+- **Live proof:** replayed on the Mac against the 07:00 CST data: `7c301a85a5e4` and `4f2a8bcc269e` read stale (copy restored 01:25:01 CST lacks `20261124195144`, `20261126191910`, `20261127043816`), matching the selector; `3aa21caa9f7d` reads fresh. Record: `docs/changelog/2026-11-27-o36-readiness-tells-the-truth-about-a-stale-copy.md`.
+
+### The Pull Request Builds What Ships (2026-11-27)
+
+- **Why it broke:** engine prequalification runs `npm run build` on the exact server tree after merge; the pull request only typechecked it. A tree that typechecked but could not build passed every required check and was found only after merge, where it cost a cycle.
+- **Fix:** the Server Engine job in `.github/workflows/ci.yml` runs the same `npm run build` with the same heap, once (shard 1), before merge.
+- **What stops it returning:** `tests/the-pull-request-builds-what-ships.law.test.ts` requires a pull-request twin, with at least the same heap, for every prequalification compile command. It fails on the tree before this change.
+
+### The Merge Window Opens On Time (2026-11-27)
+
+- **Why it broke:** the 04:04 CST keeper wrote 217 statuses one after another, about 0.86 s each, lowest pull request number first, so `#12191` only turned green at 04:18:15 CST, three minutes into its own 04:15 window.
+- **Fix:** `scripts/ci/migration-merge-window.mjs` prepares every verdict first and publishes ready pull requests first (most recently updated first, drafts last), each verdict computed at write time with a 25 s lead; one keeper concurrency group that never cancels a running sweep.
+- **What stops it returning:** the "window opens on time" block of the merge-window law.
+
+### The Backup Reclaim Keeps The Serving Image (2026-11-27)
+
+- **Why it mattered:** `reclaim_backup_disk` kept images by age alone. A serving release older than the retention would be removed and rebuilt at the next rehearsal, adding build time to a certification.
+- **Fix:** `server/standby/standby-engine.sh` reads the serving release from `/health` before the reclaim and keeps its image by name.
+- **What stops it returning:** the new case in `tests/the-backup-host-reclaims-its-disk.law.test.ts`.
+
+### Decided Against Or Deferred (2026-11-27)
+
+- **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.
+- **Dispatching the keep-serving and post-seal runs as the estate App:** deferred. Design: mint an App token in a `github-app-main` job for `stage-engine-release.yml` (keep-serving dispatch) and `auto-deploy-hetzner.yml` (post-seal dispatch), and extend the intent proof in `backup-engine.yml` to that actor, with `tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts` updated. Not verifiable from here: whether the App installation grants `actions: write`. The operator fallback cron covers the gap while the Mac Studio is on.
+- **The 7.7 s hand stall:** stays with the Alert Root-Fix lane.
 
 ## Open Items
 
