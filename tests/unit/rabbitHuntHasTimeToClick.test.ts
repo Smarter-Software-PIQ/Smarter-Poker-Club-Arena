@@ -72,7 +72,10 @@ describe('the hand rests before the next one', () => {
 
   it('the engine arms it AFTER the hand-free broadcast and awaits it right before the deal', () => {
     const hold = DEALING_CODE.indexOf("this.setLoopPhase('post_hand_hold')");
-    const broadcast = DEALING_CODE.indexOf('this.broadcastCurrentState();', hold);
+    const broadcast = DEALING_CODE.indexOf(
+      "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());",
+      hold
+    );
     const arm = DEALING_CODE.indexOf('this.armNextHandRest(', broadcast);
     const awaited = DEALING_CODE.indexOf('await this.awaitNextHandRest();');
     const deal = DEALING_CODE.indexOf("this.setLoopPhase('dealing');");
@@ -117,7 +120,10 @@ describe('the hand rests before the next one', () => {
 
   it('it happens on EVERY hand, with nothing to branch on', () => {
     const hold = DEALING_CODE.indexOf("this.setLoopPhase('post_hand_hold')");
-    const broadcast = DEALING_CODE.indexOf('this.broadcastCurrentState();', hold);
+    const broadcast = DEALING_CODE.indexOf(
+      "this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());",
+      hold
+    );
     const arm = DEALING_CODE.indexOf('this.armNextHandRest(', broadcast);
     const between = DEALING_CODE.slice(broadcast, arm);
     expect(between).not.toMatch(/\bif\s*\(/);
