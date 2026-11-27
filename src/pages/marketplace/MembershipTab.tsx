@@ -655,16 +655,22 @@ export default function MembershipTab({
                     100-per-dollar conversion. A term shows USD only when the
                     server marks its complete Card lifecycle ready. */}
                 {firstMonthOfferFor(plan)
-                  ? '1 USD'
+                  ? '1\u00a0USD'
                   : cardCheckoutIsReady(plan)
                     ? `${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`
                     : `${fmt(plan.priceDiamonds)} Diamonds`}
               </div>
-              <div className={styles.planPeriod}>
-                {firstMonthOfferFor(plan)
-                  ? `First Month, Then ${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} USD Per Month. Cancel Anytime.`
-                  : formatPopupText(plan.period)}
-              </div>
+              {/* The first-month offer is a sentence a player decides on, not a
+                  nine pixel term label: it has its own readable class, and
+                  planPeriod stays as it was for Per Month, Per Year and One
+                  Payment. The amount and its unit never break apart. */}
+              {firstMonthOfferFor(plan) ? (
+                <div className={styles.planOffer}>
+                  {`First Month, Then ${(plan.priceUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}\u00a0USD Per Month. Cancel Anytime.`}
+                </div>
+              ) : (
+                <div className={styles.planPeriod}>{formatPopupText(plan.period)}</div>
+              )}
               <ul className={styles.planFeatures}>
                 {plan.features.map((f) => (
                   <li key={f}>{formatPopupText(f)}</li>
@@ -698,7 +704,7 @@ export default function MembershipTab({
                           : native
                             ? 'Subscribe'
                             : firstMonthOfferFor(plan)
-                              ? 'Subscribe With Card: 1 USD First Month'
+                              ? 'Subscribe For 1\u00a0USD'
                               : 'Subscribe With Card'}
                     </button>
                   )}
