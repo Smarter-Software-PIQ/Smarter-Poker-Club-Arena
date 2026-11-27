@@ -1,0 +1,125 @@
+{
+  "version": "v1-2026-11-27-people",
+  "note": "People-only answers (responder not a Horse) to the first wager of a PLO4/PLO5 cash river made with two or more opponents live, by game, turn line (chk: turn checked through; bet: the turn had a wager) and size; eq = sum of the multiway equilibrium fold of one opponent of N, (B/(P+B))^(1/N). Public actions only. scripts/ops/omaha-multiway-river-fold-fit.mjs.",
+  "source": {
+    "from": "2026-10-28 06:35:54.1186+00",
+    "to": "2026-11-27 04:51:40.548265+00",
+    "handsRead": 26399
+  },
+  "sizes": {
+    "a<40": [0, 0.4],
+    "b40-70": [0.4, 0.7],
+    "c70-110": [0.7, 1.1],
+    "d>110": [1.1, null]
+  },
+  "cells": {
+    "plo4|all|a<40": {
+      "n": 11,
+      "fold": 11,
+      "raise": 0,
+      "eq": 5.5856
+    },
+    "plo4|all|b40-70": {
+      "n": 40,
+      "fold": 31,
+      "raise": 3,
+      "eq": 24.0489
+    },
+    "plo4|all|c70-110": {
+      "n": 57,
+      "fold": 53,
+      "raise": 0,
+      "eq": 39.7702
+    },
+    "plo4|bet|a<40": {
+      "n": 6,
+      "fold": 6,
+      "raise": 0,
+      "eq": 3.0328
+    },
+    "plo4|bet|b40-70": {
+      "n": 21,
+      "fold": 16,
+      "raise": 3,
+      "eq": 12.5747
+    },
+    "plo4|bet|c70-110": {
+      "n": 22,
+      "fold": 20,
+      "raise": 0,
+      "eq": 15.2873
+    },
+    "plo4|chk|a<40": {
+      "n": 5,
+      "fold": 5,
+      "raise": 0,
+      "eq": 2.5528
+    },
+    "plo4|chk|b40-70": {
+      "n": 19,
+      "fold": 15,
+      "raise": 0,
+      "eq": 11.4742
+    },
+    "plo4|chk|c70-110": {
+      "n": 35,
+      "fold": 33,
+      "raise": 0,
+      "eq": 24.4829
+    },
+    "plo5|all|a<40": {
+      "n": 38,
+      "fold": 27,
+      "raise": 5,
+      "eq": 18.614
+    },
+    "plo5|all|b40-70": {
+      "n": 96,
+      "fold": 78,
+      "raise": 3,
+      "eq": 60.3992
+    },
+    "plo5|all|c70-110": {
+      "n": 177,
+      "fold": 158,
+      "raise": 6,
+      "eq": 129.3389
+    },
+    "plo5|bet|a<40": {
+      "n": 16,
+      "fold": 10,
+      "raise": 2,
+      "eq": 6.6938
+    },
+    "plo5|bet|b40-70": {
+      "n": 45,
+      "fold": 34,
+      "raise": 3,
+      "eq": 26.9343
+    },
+    "plo5|bet|c70-110": {
+      "n": 84,
+      "fold": 67,
+      "raise": 5,
+      "eq": 59.0648
+    },
+    "plo5|chk|a<40": {
+      "n": 22,
+      "fold": 17,
+      "raise": 3,
+      "eq": 11.9202
+    },
+    "plo5|chk|b40-70": {
+      "n": 51,
+      "fold": 44,
+      "raise": 0,
+      "eq": 33.4648
+    },
+    "plo5|chk|c70-110": {
+      "n": 93,
+      "fold": 91,
+      "raise": 1,
+      "eq": 70.2741
+    }
+  }
+}
