@@ -1382,6 +1382,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaHiddenBetsArePricedAsGiveUps',
+    "lead-9 lane HUOOP 2026-11-27 (plo-lead7-01TLQer8/l9-huresid/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaPeoplePriorCountsHiddenBets' heads-up turn bet (never a raise, never a re-raised pot): the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; Horse play never enters. HorseOmahaFacingBetEv.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaPeoplePriorHidden.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
@@ -6377,6 +6382,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_hidden_give_up_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    "the turn verdict priced the hidden part of the bettor's non-value share as his weakest holdings at full realization (omahaHiddenBetsArePricedAsGiveUps)",
+    'V94'
+  ),
+  receipt(
+    'omaha_hidden_give_up_priced_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the turn verdict that priced the give-up share called (omahaHiddenBetsArePricedAsGiveUps)',
+    'V94'
+  ),
+  receipt(
     'omaha_mw_people_field_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
     'the facing-bet verdict priced a multiway turn or river call on the people-measured caller width and multiway continue rate (omahaMultiwayFieldIsPeopleMeasured)',
@@ -11153,6 +11170,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaMultiwayFieldIsPeopleMeasured: { prefixes: ['omaha_mw_people_field_'] },
   // the hidden-bet people cells name their own receipt in its description
   omahaPeoplePriorCountsHiddenBets: { prefixes: ['omaha_hidden_bets_prior_'] },
+  // the give-up pricing names its own receipts in their descriptions; declared by prefix
+  omahaHiddenBetsArePricedAsGiveUps: { prefixes: ['omaha_hidden_give_up_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   // the line-split turn prior names its own receipts in their descriptions; declared by prefix
   omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },

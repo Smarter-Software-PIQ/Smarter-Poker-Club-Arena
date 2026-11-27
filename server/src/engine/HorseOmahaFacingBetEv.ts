@@ -204,6 +204,10 @@ export interface OmahaFacingBetEvRead {
   /** omahaFacingBetPriorIsPeopleMeasured (default off), river only: the bettor's measured weights on the three regions
    *  (core value region / middle / weakest pool; sum 1). With them the river verdict prices each region apart. */
   pricedRegions?: { core: number; middle: number; bottom: number } | null;
+  /** omahaHiddenBetsArePricedAsGiveUps (default off), turn only: the part of pricedShare that is the give-up class
+   *  (people's hidden bets: he checked and folded later, or mucked). The turn verdict prices it as his weakest
+   *  OMAHA_EV_BLUFF_POOL of holdings, with no realization discount (a give-up does not bet the river). */
+  pricedGiveUp?: number | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -844,6 +848,9 @@ export interface OmahaEvHandCounts {
     /** the value region reaches the weakest pool: no holding lies between them */
     middleEmpty?: boolean;
   };
+  /** turn only: against the weakest OMAHA_EV_BLUFF_POOL of holdings as they rank on the turn board, averaged over
+   *  every river card. Counted only when asked (omahaHiddenBetsArePricedAsGiveUps). */
+  bottomOf?: () => OmahaEvShares;
 }
 
 /**
@@ -1157,6 +1164,7 @@ function evHandCounts(
   const noBnow = cnt('B', () => Bnow);
   const noBTnow = cnt('BT', () => BTnow);
   const topMemo = new Map<number, OmahaEvShares & { share: number }>();
+  let bottomShares: OmahaEvShares | null = null;
   return {
     street: 'turn',
     unseen: m,
@@ -1171,6 +1179,34 @@ function evHandCounts(
     other: othN > 0 ? { win: othWin / othN, tie: othTie / othN } : { win: 0, tie: 0 },
     valueShare: v.above / total,
     runout,
+    bottomOf() {
+      if (bottomShares) return bottomShares;
+      const pool = topShareThreshold(core, 1 - OMAHA_EV_BLUFF_POOL, memo);
+      const P = pairsAbove(scores, m, pool.t, false);
+      let bN = 0;
+      let bWin = 0;
+      let bTie = 0;
+      for (let k = 0; k < m; k++) {
+        const { B, BT } = rivers[k];
+        const one = (name: string, bar: () => PairSet): number => {
+          counts++;
+          let c = core.counted.get(name);
+          if (c === undefined) {
+            c = countHoldingsWithout(m, n, bar(), k);
+            core.counted.set(name, c);
+          }
+          return c;
+        };
+        const noP = one(`${k}:P${pool.t}`, () => P);
+        const noBP = one(`${k}:B+P${pool.t}`, () => B.union(P));
+        const noBTP = one(`${k}:BT+P${pool.t}`, () => BT.union(P));
+        bN += noP;
+        bWin += noBTP;
+        bTie += noBP - noBTP;
+      }
+      bottomShares = bN > 0 ? { win: bWin / bN, tie: bTie / bN } : { win: 0, tie: 0 };
+      return bottomShares;
+    },
     top: (s: number) => {
       const kk = Math.round(s * 1000);
       let r = topMemo.get(kk);
@@ -1548,6 +1584,8 @@ export interface OmahaFacingBetEvVerdict {
   riverBluffCatch?: OmahaRiverBluffCatchVerdict;
   /** omahaTurnCallRealizationByRunout: the runout factor, when it was the one read */
   runoutRealization?: number;
+  /** omahaHiddenBetsArePricedAsGiveUps: the give-up share priced as the weakest pool at full realization */
+  giveUp?: number;
   /** pot odds of the call, for the record */
   price: number;
   /** omahaPairedBoardRiverIsPriced: present when call, ev, pWin and pTie were priced on the bettor's
@@ -1774,6 +1812,24 @@ export function omahaFacingBetEvVerdict(
   }
   pWin *= realization;
   pTie *= realization;
+  // omahaHiddenBetsArePricedAsGiveUps (default off): heads-up turn bet, the give-up part g of the non-value share q is
+  // priced as his weakest pool at full realization; the rest of q stays the non-value region at the realization above.
+  let giveUpPriced: number | undefined;
+  const g0 = spot.street === 'turn' && !spot.isRaise ? read?.pricedGiveUp : null;
+  if (
+    typeof g0 === 'number' &&
+    g0 > 0 &&
+    q > 0 &&
+    hole.length !== 6 &&
+    spot.callers + spot.allIns + spot.behind === 0 &&
+    counted.bottomOf
+  ) {
+    const g = Math.min(q, g0);
+    const bottom = counted.bottomOf();
+    pWin += g * (bottom.win - counted.other.win * realization);
+    pTie += g * (bottom.tie - counted.other.tie * realization);
+    giveUpPriced = g;
+  }
   const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? ctx.rake! : 0));
   const win = spot.winnable * (1 - rake);
   const pLose = Math.max(0, 1 - pWin - pTie);
@@ -1908,6 +1964,7 @@ export function omahaFacingBetEvVerdict(
     field,
     realization,
     ...(runoutRealization !== undefined ? { runoutRealization } : {}),
+    ...(giveUpPriced !== undefined ? { giveUp: giveUpPriced } : {}),
     price: spot.paid / (spot.winnable + spot.paid),
     pairsScored: counted.pairsScored,
     counts: counted.counts,
