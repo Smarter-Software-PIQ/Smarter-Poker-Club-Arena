@@ -16,7 +16,11 @@ name: Migration merge window
 # GitHub's schedule, which drops most ticks here. A pull request event holds
 # its own pull request; every push to main holds all when a window is near
 # (merges land many times an hour, so this is the reliable opener); mode=keep
-# by hand holds all. The :10 keeper and :40 sweep are best-effort backstops.
+# by hand holds all. THE CLOCK (2026-11-26): an OpenClaw cron on the Mac Studio
+# dispatches mode=keep at :04 of every cycle hour (ops/openclaw/
+# ca-migration-merge-window-open.json; a replay of every merge since 11-20 showed
+# pushes alone miss 9 of 56 windows). The :10 keeper and :40 sweep are
+# best-effort backstops.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
