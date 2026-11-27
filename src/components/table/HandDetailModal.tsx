@@ -58,6 +58,7 @@ import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
 import LogThisHandControl from '../handdetail/LogThisHandControl';
+import { getCachedSavedHand, type SavedHandsBatchMap } from '../../services/SavedHandsService';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
 import {
@@ -161,6 +162,8 @@ export interface HandDetailModalProps {
   } | null;
   /** Pool/table display name shown in the modal header (e.g. Lightning cluster title). */
   tableNameFallback?: string | null;
+  /** Optional pre-hydrated saved-hands lookup map keyed by canonical Club Arena hand UUID. */
+  savedHandsByHandId?: SavedHandsBatchMap;
 }
 
 /** How many face-down cards a muck shows - the variant's own holding size. */
@@ -567,6 +570,7 @@ export function HandDetailModal({
   olderHandsLoading = false,
   pendingLightningDeal = null,
   tableNameFallback = null,
+  savedHandsByHandId,
 }: HandDetailModalProps) {
   /* THE SUBJECT IS A HAND, NOT A POSITION. `hands` is newest-first and can be
      replaced while the modal is open (a hand finishing behind it). Holding an
@@ -1278,7 +1282,15 @@ export function HandDetailModal({
               </button>
             )}
           </div>
-          <LogThisHandControl handId={hand.id} accountId={heroId} />
+          <LogThisHandControl
+            handId={hand.id}
+            accountId={heroId}
+            initialSavedHandId={
+              savedHandsByHandId?.[hand.id]?.id ??
+              getCachedSavedHand(heroId, hand.id)?.savedHandId ??
+              null
+            }
+          />
           {/* The sender's own view of a hand they sent: how many people opened
               it, and the way to take it back. A stopped link opens nothing;
               the next Link or Share makes a new one. */}

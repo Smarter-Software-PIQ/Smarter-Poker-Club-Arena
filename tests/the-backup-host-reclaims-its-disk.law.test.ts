@@ -97,6 +97,32 @@ describe('the Backup host reclaims its disk', () => {
     expect(r.stderr).toMatch(/disk: removed 1 engine image\(s\) older than 24h; free 40 GiB/);
   });
 
+  it('keeps the serving release image however old it is, and still reclaims when serving is unknown', () => {
+    // 2026-11-27: both rehearsal swaps run production's serving release. When nothing seals for
+    // more than 24 h that image is older than the cutoff; deleting it made the rehearsal run a
+    // rebuild instead of the bytes production runs.
+    const dir = mkdtempSync(join(tmpdir(), 'reclaim-serving-'));
+    mkdirSync(join(dir, 'log'), { recursive: true });
+    const calls = join(dir, 'calls');
+    writeFileSync(calls, '');
+    const kept = run(`${DOCKER_STUB(calls)}\nreclaim_backup_disk ${CANDIDATE} ${OLD}`, dir);
+    expect(kept.status, kept.stderr).toBe(0);
+    const removed = readFileSync(calls, 'utf8')
+      .split('\n')
+      .filter((l) => l.startsWith('image rm'));
+    expect(removed.join('\n')).not.toContain(OLD);
+    expect(removed).toContain(`image rm club-arena-engine-standby:${IN_USE}`);
+    writeFileSync(calls, '');
+    const unknown = run(`${DOCKER_STUB(calls)}\nreclaim_backup_disk ${CANDIDATE} ''`, dir);
+    expect(unknown.status, unknown.stderr).toBe(0);
+    expect(readFileSync(calls, 'utf8')).toContain(`image rm club-arena-engine-standby:${OLD}`);
+    const body = sliceBetween(STANDBY, 'cmd_certify() {', 'trial_regression_replay "$sha"');
+    expect(body).toContain('reclaim_backup_disk "$sha" "$reclaim_serving"');
+    expect(body).toMatch(
+      /\[\[ "\$reclaim_serving" =~ \^\[0-9a-f\]\{40\}\$ \]\] \|\| reclaim_serving=''/
+    );
+  });
+
   it('reports the smallest free space of the paths it writes, and unknown when it cannot read it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'free-'));
     mkdirSync(join(dir, 'state'), { recursive: true });
@@ -111,7 +137,7 @@ describe('the Backup host reclaims its disk', () => {
 
   it('certify reclaims first and refuses by name when space is still short or unreadable', () => {
     const body = sliceBetween(STANDBY, 'cmd_certify() {', 'trial_regression_replay "$sha"');
-    const reclaim = body.indexOf('reclaim_backup_disk "$sha"');
+    const reclaim = body.indexOf('reclaim_backup_disk "$sha" "$reclaim_serving"');
     expect(reclaim).toBeGreaterThan(0);
     expect(reclaim).toBeLessThan(body.indexOf('assert_valid_copy'));
     expect(body).toContain(`record 'backup_disk_unreadable'`);

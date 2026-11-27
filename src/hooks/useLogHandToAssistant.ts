@@ -23,8 +23,12 @@ import { parseJwtPayload } from '../lib/authUtils';
 import {
   buildPersonalAssistantReviewUrl,
   findSavedClubArenaHand,
+  getCachedSavedHand,
   logClubArenaHand,
   normalizeCanonicalUuid,
+  normalizeSavedHandId,
+  setActiveSavedHandsUser,
+  subscribeSavedHandsUpdates,
 } from '../services/SavedHandsService';
 
 export type LogHandStatus = 'idle' | 'saving' | 'saved' | 'already_saved' | 'error';
@@ -46,6 +50,10 @@ const IDLE_ENTRY: LogHandEntryState = {
 export interface UseLogHandToAssistantOptions {
   handId: string | null | undefined;
   accountId: string | null | undefined;
+  /** Optional pre-hydrated saved row ID (e.g. from batch lookup). */
+  initialSavedHandId?: string | null;
+  /** Optional initial status when `initialSavedHandId` is supplied; defaults to `'saved'`. */
+  initialSavedStatus?: 'saved' | 'already_saved';
   /** Override token retrieval in tests; defaults to Club Arena canonical authToken helper. */
   getAccessToken?: () => Promise<string | null>;
   /** Override POST helper in tests; defaults to `logClubArenaHand`. */
@@ -65,12 +73,14 @@ export interface UseLogHandToAssistantReturn extends LogHandEntryState {
 
 function makeKey(accountId: string | null, handId: string | null): string | null {
   if (!accountId || !handId) return null;
-  return `${accountId}::${handId}`;
+  return `${accountId}::${handId.toLowerCase()}`;
 }
 
 export function useLogHandToAssistant({
   handId,
   accountId,
+  initialSavedHandId = null,
+  initialSavedStatus = 'saved',
   getAccessToken = getFreshAccessToken,
   logHand = logClubArenaHand,
   findSavedHand = findSavedClubArenaHand,
@@ -79,6 +89,7 @@ export function useLogHandToAssistant({
   const normalizedAccountId =
     typeof accountId === 'string' && accountId.trim().length > 0 ? accountId.trim() : null;
   const normalizedHandId = normalizeCanonicalUuid(handId);
+  const normalizedInitialSavedId = normalizeSavedHandId(initialSavedHandId);
   const activeKey = makeKey(normalizedAccountId, normalizedHandId);
 
   const [entriesByKey, setEntriesByKey] = useState<Record<string, LogHandEntryState>>({});
@@ -92,6 +103,8 @@ export function useLogHandToAssistant({
   const activeKeyRef = useRef<string | null>(activeKey);
   const prevAccountRef = useRef<string | null>(normalizedAccountId);
   const prevHandRef = useRef<string | null>(normalizedHandId);
+  const initialSavedIdRef = useRef<string | null>(normalizedInitialSavedId);
+  const initialSavedStatusRef = useRef<'saved' | 'already_saved'>(initialSavedStatus);
 
   const inFlightKeyRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -110,6 +123,8 @@ export function useLogHandToAssistant({
   activeAccountRef.current = normalizedAccountId;
   activeHandRef.current = normalizedHandId;
   activeKeyRef.current = activeKey;
+  initialSavedIdRef.current = normalizedInitialSavedId;
+  initialSavedStatusRef.current = initialSavedStatus;
 
   // Reset and abort on unmount.
   useEffect(() => {
@@ -121,6 +136,40 @@ export function useLogHandToAssistant({
       abortControllerRef.current = null;
       inFlightKeyRef.current = null;
     };
+  }, []);
+
+  // Keep same-tab surfaces (Table HUD, HandDetailModal, HandHistoryPanel) in sync
+  // whenever any surface saves or hydrates a hand for the active account.
+  useEffect(() => {
+    return subscribeSavedHandsUpdates((event) => {
+      if (!mountedRef.current) return;
+      const currentAccount = activeAccountRef.current;
+      if (!currentAccount || event.userId !== currentAccount) return;
+      const key = makeKey(event.userId, event.handId);
+      if (!key) return;
+      setEntriesByKey((prev) => {
+        const existing = prev[key];
+        if (
+          existing &&
+          (existing.status === 'saved' || existing.status === 'already_saved') &&
+          existing.savedHandId === event.entry.savedHandId &&
+          existing.status === event.entry.status
+        ) {
+          return prev;
+        }
+        const next: Record<string, LogHandEntryState> = {
+          ...prev,
+          [key]: {
+            status: event.entry.status,
+            savedHandId: event.entry.savedHandId,
+            errorMessage: null,
+            needsReconcile: false,
+          },
+        };
+        entriesByKeyRef.current = next;
+        return next;
+      });
+    });
   }, []);
 
   // Account-change and hand-selection guards: bump generation, abort stale
@@ -141,6 +190,7 @@ export function useLogHandToAssistant({
     inFlightKeyRef.current = null;
 
     if (accountChanged) {
+      setActiveSavedHandsUser(normalizedAccountId);
       entriesByKeyRef.current = {};
       setEntriesByKey({});
       return;
@@ -175,7 +225,25 @@ export function useLogHandToAssistant({
       // Double-click single-flight guard (synchronous before any await or state flush).
       if (inFlightKeyRef.current === capturedKey) return;
 
-      const currentEntry = entriesByKeyRef.current[capturedKey] ?? IDLE_ENTRY;
+      const localEntry = entriesByKeyRef.current[capturedKey];
+      const cached = getCachedSavedHand(capturedAccountId, capturedHandId);
+      const hydratedEntry: LogHandEntryState | null = cached
+        ? {
+            status: cached.status,
+            savedHandId: cached.savedHandId,
+            errorMessage: null,
+            needsReconcile: false,
+          }
+        : initialSavedIdRef.current
+          ? {
+              status: initialSavedStatusRef.current,
+              savedHandId: initialSavedIdRef.current,
+              errorMessage: null,
+              needsReconcile: false,
+            }
+          : null;
+      const currentEntry =
+        localEntry && localEntry.status !== 'idle' ? localEntry : (hydratedEntry ?? IDLE_ENTRY);
       if (currentEntry.status === 'saving') return;
       if (
         !isRetry &&
@@ -251,6 +319,7 @@ export function useLogHandToAssistant({
               signal: controller.signal,
               accessToken: trimmedToken,
               timeoutMs: timeoutMsRef.current,
+              userId: capturedAccountId,
             });
 
             if (!isStillCurrent()) return;
@@ -287,6 +356,7 @@ export function useLogHandToAssistant({
           signal: controller.signal,
           accessToken: trimmedToken,
           timeoutMs: timeoutMsRef.current,
+          userId: capturedAccountId,
         });
 
         if (!isStillCurrent()) return;
@@ -322,7 +392,31 @@ export function useLogHandToAssistant({
   const logThisHand = useCallback(() => execute(false), [execute]);
   const retry = useCallback(() => execute(true), [execute]);
 
-  const activeEntry = activeKey ? (entriesByKey[activeKey] ?? IDLE_ENTRY) : IDLE_ENTRY;
+  const localEntry = activeKey ? entriesByKey[activeKey] : undefined;
+  const cachedEntry =
+    activeKey && normalizedAccountId && normalizedHandId
+      ? getCachedSavedHand(normalizedAccountId, normalizedHandId)
+      : null;
+
+  let activeEntry: LogHandEntryState = IDLE_ENTRY;
+  if (localEntry && localEntry.status !== 'idle') {
+    activeEntry = localEntry;
+  } else if (cachedEntry) {
+    activeEntry = {
+      status: cachedEntry.status,
+      savedHandId: cachedEntry.savedHandId,
+      errorMessage: null,
+      needsReconcile: false,
+    };
+  } else if (activeKey && normalizedInitialSavedId) {
+    activeEntry = {
+      status: initialSavedStatus,
+      savedHandId: normalizedInitialSavedId,
+      errorMessage: null,
+      needsReconcile: false,
+    };
+  }
+
   const reviewUrl =
     (activeEntry.status === 'saved' || activeEntry.status === 'already_saved') &&
     activeEntry.savedHandId
