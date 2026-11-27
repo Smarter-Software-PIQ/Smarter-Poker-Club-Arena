@@ -15405,7 +15405,7 @@ function omahaFacingBetEvCount(
                 )
               : null,
           line,
-          hidden: turnLineHidden,
+          countsHidden: turnLineHidden,
         });
         if (anchored) {
           readBeforeAnchor = read;

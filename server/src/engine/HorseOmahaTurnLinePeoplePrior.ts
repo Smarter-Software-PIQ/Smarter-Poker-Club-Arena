@@ -92,13 +92,18 @@ const clamp = (q: number): number =>
 /** The share priced against a turn bettor (a first wager, never a raise): his record over this line's people cell
  *  over the balanced share. Null off the turn, for a raise, or with no price. */
 export function omahaTurnLinePeoplePriorShare(
-  input: OmahaPeoplePriorInput & { line: OmahaTurnFlopLine; hidden: boolean }
+  input: Omit<OmahaPeoplePriorInput, 'hidden'> & { line: OmahaTurnFlopLine; countsHidden: boolean }
 ): OmahaPeoplePriorShare | null {
   if (input.street !== 'turn' || input.isRaise) return null;
   if (!Number.isFinite(input.potFrac)) return null;
   const balanced = omahaEquilibriumAnchor(input.paid, input.winnable, input.rake, input.twoStreet);
   if (balanced === null) return null;
-  const cell = omahaTurnLinePeopleCell(input.potFrac, input.multiway, input.line, input.hidden);
+  const cell = omahaTurnLinePeopleCell(
+    input.potFrac,
+    input.multiway,
+    input.line,
+    input.countsHidden
+  );
   const prior =
     cell.share === null
       ? balanced

@@ -68,7 +68,7 @@ describe('LAW: the turn bettor is priced on the people cell of his flop line', (
       rake: 0,
       twoStreet: true,
       line: 'checked' as const,
-      hidden: false,
+      countsHidden: false,
     };
     const none = omahaTurnLinePeoplePriorShare({ ...base, record: null })!;
     const valueOnly = omahaTurnLinePeoplePriorShare({ ...base, record: { shown: 20, value: 20 } })!;
