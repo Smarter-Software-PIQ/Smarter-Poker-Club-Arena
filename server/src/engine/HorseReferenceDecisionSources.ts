@@ -129,6 +129,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the balanced non-value share for a price (PLO-OWNER lead-7 2026-11-26): the weight behind a thin people cell in omahaFacingBetPriorIsPeopleMeasured',
     'src/engine/HorseOmahaFacingBetPeoplePrior.ts':
       "the default-off people-measured bettor prior (PLO-OWNER lead-7 2026-11-26, omahaFacingBetPriorIsPeopleMeasured): inside omahaFacingBetEv in PLO4/PLO5 cash, heads-up, a turn or river bet or raise priced on people-only measured shares (river: three regions), moved by the bettor's own shown bets",
+    'src/engine/HorseOmahaMultiwayPeopleField.ts':
+      'the default-off people-measured multiway field (PLO-OWNER lead-7 2026-11-27, omahaMultiwayFieldIsPeopleMeasured): inside omahaFacingBetEv in PLO4/PLO5 cash, a multiway turn or river call priced with callers at the people-measured caller width and players behind at the people multiway continue rate, each anchored to equilibrium',
     'src/engine/HorseOmahaFlopPressureCapPriced.ts':
       "the default-off priced flop pressure cap (PLO-OWNER lead-7 2026-11-26, omahaFlopPressureCapIsPriced): in PLO4/PLO5 cash, heads-up on the flop facing one bet where the V40 class cap prices a weak made hand, the reference call-or-fold check reads the equity against the bettor's value region plus the people-only measured flop non-value share, moved by his own shown flop bets",
     'src/engine/HorseOmahaFacingBetPeoplePrior.data.ts':

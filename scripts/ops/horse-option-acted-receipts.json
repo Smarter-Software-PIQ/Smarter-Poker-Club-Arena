@@ -1257,6 +1257,13 @@
       "prefixes": ["omaha_people_prior_"],
       "unlessOn": []
     },
+    "omahaMultiwayFieldIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_mw_people_field_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",
