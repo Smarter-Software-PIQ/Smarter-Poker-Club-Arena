@@ -217,6 +217,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off R4 Omaha checked-to flop/turn big-draw bet pricing on lifetime HUD response (PLO-OWNER lane REPLACEMENTS-5 2026-11-21, omahaBigDrawBetIsPricedOnHisResponse): PLO4/PLO5 cash checked-to big-draw bets priced on lifetime HUD fold, raise-back and stab cells with a prove-it-to-bet uncertainty bar and no categorical OOP bar; off returns null',
     'src/engine/HorseHoldemOpeningIsPriced.ts':
       "the default-off priced Hold'em opening side (plo-lead7 2026-11-25, holdemOpeningValueBetIsPriced and holdemOpeningBluffIsPriced): NLH cash heads-up, not facing a wager, a check becomes a value bet or a blocker / range-advantage bluff only when it prices above the check against his record-first fold anchored to equilibrium; off never runs",
+    'src/engine/HorseHoldemPeopleRiverFold.ts':
+      "the default-off people-measured Hold'em river fold (lead-8 2026-11-27, holdemRiverBluffIsPricedOnPeople): his fold to a heads-up NLH cash river first bet read size by size, his own lifetime river record of that size shrunk to people's measured fold for the Horse's line and that size, shrunk to equilibrium; off never runs",
+    'src/engine/HorseHoldemPeopleRiverFoldTables.json':
+      'the people-only river fold table behind HorseHoldemPeopleRiverFold.ts (answers by people only; scripts/ops/holdem-people-river-fold-fit.mjs)',
     'src/engine/HorseHoldemTournamentLateIsPriced.ts':
       "the default-off priced Hold'em tournament bluff after the flop (plo-lead7 tourney-postflop 2026-11-26, holdemTournamentRiverBluffIsPriced and holdemTournamentTurnBluffIsPriced): NLH tournaments heads-up in the pot, not facing a wager, a check becomes a blocker / range-advantage bluff only when it prices above the check with its losses weighted by the pay-jump bubble factor; a pay jump the context cannot price stands it down; off never runs",
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':

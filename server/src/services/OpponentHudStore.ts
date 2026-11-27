@@ -119,6 +119,13 @@ export const HUD_RECONCILE_PAGE_ROWS = HUD_BACKFILL_PAGE_LIMIT;
 export const HUD_RECONCILE_MAX_PAGES = 1_600;
 /** Live boot prewarm & IPC snapshot families with active decision consumers (PLO4/PLO5 cash). */
 export const HUD_LIVE_SNAPSHOT_FAMILIES: readonly HudFamily[] = ['plo4', 'plo5'];
+/**
+ * NLH cash consumers of the lifetime river record (lead-8 2026-11-27). While one of these options has a switch row that
+ * is not off (on, shadow or on_shadow) AND the store is armed, the HEADS-UP RIVER decision of an NLH cash hand carries
+ * its opponent's packet (the option reads r.fb.sm.hu / r.fb.bg.hu). Every other NLH decision, and every NLH decision
+ * while none is switched, carries nothing, exactly as before (AUDIT-24H P1-2).
+ */
+export const HUD_NLH_RIVER_CONSUMERS: readonly string[] = ['holdemRiverBluffIsPricedOnPeople'];
 export const HUD_CATCHUP_PAUSE_MS = 200;
 export const HUD_CATCHUP_SLOW_MS = 1_000;
 export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
@@ -290,6 +297,15 @@ export class OpponentHudStore {
   /** load-gap catch-ups run (operator report) */
   gapCatchUps = 0;
   private armedState = false;
+  /** an NLH river consumer (HUD_NLH_RIVER_CONSUMERS) has a switch row that is not off */
+  private nlhRiverConsumerState = false;
+  setNlhRiverConsumer(on: boolean): void {
+    this.nlhRiverConsumerState = on === true;
+  }
+  /** True while armed and an NLH river consumer is switched: heads-up NLH cash river decisions then carry a packet. */
+  nlhRiverConsumer(): boolean {
+    return this.armedState && this.nlhRiverConsumerState;
+  }
   /** the migration is not installed: nothing is read or written until this time (re-probed every 10 minutes) */
   private disabledUntil = 0;
   private persisting = false;
@@ -1616,14 +1632,20 @@ export function warmOpponentHudSeats(
 }
 
 /** The decision snapshot field (ServerTableEngineTurns, LightningHorse): `{ opponentHud }` while armed for a PLO4/PLO5
- *  cash decision, `{}` otherwise (then the snapshot is byte-identical). Never throws. */
+ *  cash decision, and for a heads-up NLH cash river decision while an NLH river consumer is switched
+ *  (HUD_NLH_RIVER_CONSUMERS); `{}` otherwise (then the snapshot is byte-identical). Never throws. */
 export function opponentHudSnapshotField(
   gs: {
     gameVariant?: unknown;
     gameMode?: unknown;
     tournament?: unknown;
     stage?: unknown;
-    players?: readonly { user_id?: string; is_folded?: boolean }[];
+    players?: readonly {
+      user_id?: string;
+      is_folded?: boolean;
+      is_sitting_out?: boolean;
+      is_all_in?: boolean;
+    }[];
     bigBlind?: unknown;
   },
   heroId: string,
@@ -1635,8 +1657,17 @@ export function opponentHudSnapshotField(
     // or tournament decisions/journals before an NLH/tournament consumer explicitly opts in).
     const family = familyOf(gs.gameVariant);
     const cash = gs.gameMode !== 'tournament' && !gs.tournament;
-    if (!family || !cash || !HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) return {};
+    if (!family || !cash) return {};
     const stage = String(gs.stage ?? 'preflop');
+    if (!HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) {
+      // NLH cash: the heads-up river decision only, and only while an NLH river consumer is switched
+      if (family !== 'nlh' || stage !== 'river' || !shared.nlhRiverConsumer()) return {};
+      // two players live in the hand (a seat sitting out that is not all in holds no cards)
+      const live = (gs.players ?? []).filter(
+        (p) => p && p.is_folded !== true && !(p.is_sitting_out === true && p.is_all_in !== true)
+      );
+      if (live.length !== 2) return {};
+    }
     const street: HudStreet =
       stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : 'preflop';
     return shared.packetFor({
@@ -1666,8 +1697,16 @@ export function armOpponentHudFromSwitch(message: { status?: unknown; config?: u
     shared.setArmed(
       parsed.ok && optionSwitchDecisionOpts(parsed.states).omahaOpponentLifetimeHud === true
     );
+    shared.setNlhRiverConsumer(
+      parsed.ok &&
+        HUD_NLH_RIVER_CONSUMERS.some((name) => {
+          const state = parsed.states[name];
+          return state === 'on' || state === 'shadow' || state === 'on_shadow';
+        })
+    );
   } catch {
     shared?.setArmed(false);
+    shared?.setNlhRiverConsumer(false);
   }
 }
 
