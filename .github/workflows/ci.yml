@@ -4028,6 +4028,21 @@ jobs:
       - name: TypeScript Check (server scripts)
         run: npx tsc -p tsconfig.scripts.json --noEmit
 
+      # THE PULL REQUEST BUILDS WHAT SHIPS (2026-11-27, release custody). The
+      # engine release prequalification ("Compile and test the exact server
+      # tree") runs `npm run build` (the hist215 native step plus an emitting
+      # tsc) after merge; this job only ran `tsc --noEmit`. On 2026-11-27 four
+      # merged commits passed this check and then failed prequalification
+      # with "heap out of memory" in `npm run build`, and the 07:00 Chicago
+      # cycle kept serving. The build is deterministic, so one shard runs it.
+      # tests/the-pull-request-builds-what-ships.law.test.ts keeps every
+      # prequalification command here.
+      - name: Build the exact server tree (as engine prequalification does)
+        if: matrix.shard == 1
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run build
+
       # Exercise the cash policy on the runner's installed PostgreSQL as well
       # as native PG17; the driver discovers the bundled major without a new
       # runner, service, install step or skip when ubuntu-latest advances.

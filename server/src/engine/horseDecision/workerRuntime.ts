@@ -319,7 +319,12 @@ import {
   optionShadowStageIsHoldem,
   OptionShadowStageGuard,
   optionShadowStageInScope,
+  optionShadowStageIsLightning,
+  optionShadowStageChargedMs,
+  optionShadowStageOptionSkipKeys,
+  optionShadowStagePloDirectionKeys,
   optionShadowStageWallOnlySlow,
+  OPTION_SHADOW_STAGE_SLOW_MS,
   type OptionShadowStageTable,
 } from '../HorseOptionShadowStage.js';
 import {
@@ -4083,6 +4088,9 @@ export class HorseDecisionWorkerRuntime {
     if (!task) return;
     if (this.stopped || !this.accepting || this.pendingRequestIds.size > 0) {
       this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+      // PER-OPTION STAGE COUNTERS (2026-11-27): the same skip under the option it concerns
+      for (const key of optionShadowStageOptionSkipKeys(task.option, 'backlog', false))
+        this.deps.noteFeature(key);
       return;
     }
     this.operation = this.operation
@@ -4116,6 +4124,8 @@ export class HorseDecisionWorkerRuntime {
       this.laneJobs !== task.lane
     ) {
       this.deps.noteFeature('option_shadow_skipped_backlog_seen');
+      for (const key of optionShadowStageOptionSkipKeys(task.option, 'backlog', false))
+        this.deps.noteFeature(key);
       return;
     }
     // PEOPLE FIRST (2026-11-21): after the answer, so reading the seats here costs the decision nothing
@@ -4131,6 +4141,9 @@ export class HorseDecisionWorkerRuntime {
     const skipped = (reason: string): void => {
       this.deps.noteFeature(`option_shadow_skipped_${reason}_seen`);
       if (personDealt) this.deps.noteFeature(`option_shadow_skipped_${reason}_person_seen`);
+      // PER-OPTION STAGE COUNTERS (2026-11-27): the same skip under the option it concerns
+      for (const key of optionShadowStageOptionSkipKeys(task.option, reason, personDealt))
+        this.deps.noteFeature(key);
     };
     // HOLD'EM SHADOW (2026-11-24): the decision's stage game, after the answer (it reads what the scope read)
     let game: ReturnType<typeof optionShadowStageGameOf> = null;
@@ -4152,9 +4165,11 @@ export class HorseDecisionWorkerRuntime {
     let admitted: 'within' | 'person_over' | null = null;
     if (scaleMoved) skipped('scale');
     else if (this.optionShadowStageGuard.disabled(task.option)) skipped('stage_disabled');
-    else if (!personDealt && !this.optionShadowStageGuard.admitHorseOnly(this.deps.now()))
+    else if (!personDealt && !this.optionShadowStageGuard.admitHorseOnly(this.deps.now())) {
       this.deps.noteFeature('option_shadow_skipped_stage_horse_only_seen');
-    else if ((admitted = this.optionShadowBudget.admit(this.deps.now(), personDealt)) === null)
+      for (const key of optionShadowStageOptionSkipKeys(task.option, 'horse_only', false))
+        this.deps.noteFeature(key);
+    } else if ((admitted = this.optionShadowBudget.admit(this.deps.now(), personDealt)) === null)
       skipped('rate');
     else {
       if (admitted === 'person_over') this.deps.noteFeature('option_shadow_rate_person_over_seen');
@@ -4178,6 +4193,20 @@ export class HorseDecisionWorkerRuntime {
             // HOLD'EM SHADOW (2026-11-24): in a hold'em game a changed receipt also counts what it would change
             if (optionShadowStageIsHoldem(game))
               for (const key of optionShadowStageDirectionKeys(receipt)) this.deps.noteFeature(key);
+            // PLO DIRECTION (2026-11-27): a changed PLO receipt counts its direction and its street x size cell; a
+            // Lightning decision counts every one of its receipt's counters again under fmt_l_ (table = all minus
+            // fmt_l_), so a read shows Lightning re-decisions apart
+            else if (game === 4 || game === 5) {
+              const ploKeys = optionShadowStagePloDirectionKeys(
+                receipt,
+                task.player,
+                task.gameState
+              );
+              for (const key of ploKeys) this.deps.noteFeature(key);
+              if (optionShadowStageIsLightning(task.gameState))
+                for (const key of [...optionShadowCounterKeys(receipt), ...ploKeys])
+                  this.deps.noteFeature(`fmt_l_${key}`);
+            }
             this.deps.onStagedOptionShadowReceipt?.(task.request, receipt);
             if (!(this.deps.journalEnabled?.() ?? true)) return;
             if (this.stagedOptionShadowReceipts.length >= STAGED_RECEIPTS_HELD) {
@@ -4207,8 +4236,19 @@ export class HorseDecisionWorkerRuntime {
           this.deps.noteDecision('option_shadow_stage_redecide_cpu', timed.threadCpuMs);
         if (optionShadowStageWallOnlySlow(timed.wallMs, timed.threadCpuMs))
           this.deps.noteFeature('option_shadow_stage_wall_only_slow_seen');
-        if (this.optionShadowStageGuard.note(task.option, timed.wallMs, timed.threadCpuMs))
+        // PER-OPTION STAGE COUNTERS (2026-11-27): its time, a slow charge and a trip under the option itself
+        this.deps.noteDecision(`option_shadow_stage_redecide_opt_${task.option}`, timed.wallMs);
+        if (
+          !(
+            optionShadowStageChargedMs(timed.wallMs, timed.threadCpuMs) <=
+            OPTION_SHADOW_STAGE_SLOW_MS
+          )
+        )
+          this.deps.noteFeature(`option_shadow_${task.option}_stage_slow_seen`);
+        if (this.optionShadowStageGuard.note(task.option, timed.wallMs, timed.threadCpuMs)) {
           this.deps.noteFeature('option_shadow_stage_self_disabled_seen');
+          this.deps.noteFeature(`option_shadow_${task.option}_stage_self_disabled_seen`);
+        }
       }
     }
   }

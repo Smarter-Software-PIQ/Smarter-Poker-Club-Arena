@@ -63,6 +63,11 @@ export const MERGE_WINDOW_OVERRIDE_LABEL = 'migration-outage-override';
 export const MERGE_IN_FLIGHT_MARGIN_MINUTES = 3;
 export const KEEPER_HORIZON_MINUTES = 25;
 export const KEEPER_MAX_MINUTES = 40;
+/** After the close, an unclean closing pass is retried this often, for at most the grace below. */
+export const KEEPER_CLOSE_RETRY_MS = 15_000;
+// The hard stop (KEEPER_MAX_MINUTES + this) stays under the job's timeout-minutes,
+// so the keeper, not the runner, decides when it stops (law-tested).
+export const KEEPER_CLOSE_GRACE_MINUTES = 7;
 const MIGRATION_PATH = /^supabase\/migrations\/[^/]+\.sql$/;
 const OVERRIDE_LINE = /^\s*Outage override:\s*(.+?)\s*$/im;
 const MINUTE = 60_000;
@@ -173,13 +178,45 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
 }
 
 // -- GitHub runner ------------------------------------------------------------
-function gh(args, input) {
-  return execFileSync('gh', args, {
-    encoding: 'utf8',
-    input,
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+// One GitHub hiccup must not end a pass (2026-11-27): at 7:23 AM CST a keeper
+// died on a single 'gh: HTTP 504' reading the first page, and had it been the
+// only keeper the window would have stayed green past 7:27. So every call
+// retries what GitHub itself says is transient (5xx, secondary rate limit,
+// abuse detection, a dropped connection) with a short backoff, and nothing else:
+// a 4xx is an answer, not a hiccup.
+export const GH_RETRY_DELAYS_MS = [2_000, 5_000, 12_000];
+export const TRANSIENT_GH_ERROR =
+  /HTTP 5\d\d|secondary rate limit|abuse detection|was submitted too quickly|ETIMEDOUT|ECONNRESET|EAI_AGAIN|connection reset|TLS handshake timeout|unexpected EOF/i;
+
+/** The runner `gh` goes through; tests replace exec and pause. */
+export const ghRunner = {
+  exec(args, input) {
+    return execFileSync('gh', args, {
+      encoding: 'utf8',
+      input,
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  },
+  pause(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  },
+};
+
+function ghErrorText(error) {
+  return `${error?.message ?? ''}\n${error?.stderr ?? ''}`;
+}
+
+export function gh(args, input) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return ghRunner.exec(args, input);
+    } catch (error) {
+      const delay = GH_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !TRANSIENT_GH_ERROR.test(ghErrorText(error))) throw error;
+      ghRunner.pause(delay);
+    }
+  }
 }
 
 // A head's files never change, so a keeper reads them once per head (2026-11-26):
@@ -296,16 +333,41 @@ export function sweep({ repo, number = null, nowMs = Date.now(), cadence = decla
     }
     const now = currentStatus(pr);
     const changed = !now || now.state.toLowerCase() !== verdict.state || now.description !== verdict.description;
+    // One refused write skips that pull request, never the rest of the pass
+    // (2026-11-27). Its status is unchanged on GitHub, so the next pass sees it
+    // as changed and writes it again.
+    let writeFailed = false;
     if (changed) {
       const args = ['api', '-X', 'POST', `repos/${repo}/statuses/${pr.headRefOid}`, '-f', `state=${verdict.state}`, '-f', `context=${MERGE_WINDOW_CONTEXT}`, '-f', `description=${verdict.description}`];
       if (targetUrl) args.push('-f', `target_url=${targetUrl}`);
-      gh(args);
+      try {
+        gh(args);
+      } catch (error) {
+        writeFailed = true;
+        log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} WRITE FAILED (${verdict.state}): ${String(ghErrorText(error)).trim().slice(0, 160)}`);
+      }
     }
-    log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
-    results.push({ number: pr.number, ...verdict, changed });
+    if (!writeFailed) log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
+    results.push({ number: pr.number, ...verdict, changed, writeFailed });
   }
   if (number === null) sweepState.fullPassDone = true;
   return results;
+}
+
+/** A pass is clean when it read every pull request and wrote every status it changed. */
+export function passClean(results) {
+  return Array.isArray(results) && results.every((r) => !r.writeFailed);
+}
+
+/** One pass that never throws: a read that fails after its retries is an unclean pass, not a dead keeper. */
+function guardedSweep(options) {
+  try {
+    const results = sweep(options);
+    return { results, clean: passClean(results) };
+  } catch (error) {
+    options.log(`Pass failed: ${String(ghErrorText(error)).trim().slice(0, 200)}`);
+    return { results: null, clean: false };
+  }
 }
 
 /** Keeper: sweeps every minute while a window is open or opens within the horizon, then a closing sweep. */
@@ -318,15 +380,28 @@ export async function keep({ repo, number = null, cadence = declaredCutoverCaden
   }
   const closes = mergeWindowCloses(Math.max(next, started), cadence);
   log(`Merge window ${chicagoTime(next)} to ${chicagoTime(closes)}; keeping it.`);
+  // A failed pass never ends the keeper (2026-11-27). Past the close it keeps
+  // sweeping until one closing pass is clean, so a window can never be left
+  // green after it closes; the hard stop is KEEPER_MAX_MINUTES plus
+  // KEEPER_CLOSE_GRACE_MINUTES.
   for (;;) {
     const t = now();
-    sweep({ repo, number, nowMs: t, cadence, targetUrl, log });
-    if (t >= closes || t - started > KEEPER_MAX_MINUTES * MINUTE) break;
+    const pass = guardedSweep({ repo, number, nowMs: t, cadence, targetUrl, log });
+    if (t >= closes && pass.clean) {
+      log('Window closed; closing sweep done.');
+      return true;
+    }
+    if (t - started > (KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * MINUTE) {
+      log('Keeper stopped before a clean closing sweep; the next pass must close it.');
+      return false;
+    }
+    if (t >= closes) {
+      await sleep(KEEPER_CLOSE_RETRY_MS);
+      continue;
+    }
     const wait = Math.min(MINUTE - (t % MINUTE) + 2_000, Math.max(closes - t, 1_000));
     await sleep(wait);
   }
-  log('Window closed; closing sweep done.');
-  return true;
 }
 
 async function main(argv) {
@@ -340,21 +415,22 @@ async function main(argv) {
     const i = rest.indexOf('--pr');
     const number = i >= 0 ? Number(rest[i + 1]) : null;
     if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
-    sweep({ repo, number, targetUrl });
+    if (!passClean(sweep({ repo, number, targetUrl }))) process.exitCode = 1;
     return;
   }
   if (mode === 'on-push') {
     const action = pushAction(Date.now(), declaredCutoverCadence());
     console.log(`push: ${action}`);
-    if (action === 'keep') await keep({ repo, targetUrl });
-    if (action === 'sweep') sweep({ repo, targetUrl });
+    if (action === 'keep' && (await keep({ repo, targetUrl })) === false) process.exitCode = 1;
+    if (action === 'sweep' && !passClean(sweep({ repo, targetUrl }))) process.exitCode = 1;
     return;
   }
   if (mode === 'keep') {
     const i = rest.indexOf('--pr');
     const number = i >= 0 ? Number(rest[i + 1]) : null;
     if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
-    await keep({ repo, number, targetUrl });
+    const kept = await keep({ repo, number, targetUrl });
+    if (kept === false || (Array.isArray(kept) && !passClean(kept))) process.exitCode = 1;
     return;
   }
   throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N] | on-push');
