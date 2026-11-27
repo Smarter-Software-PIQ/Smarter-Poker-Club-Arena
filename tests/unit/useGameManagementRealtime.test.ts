@@ -13,37 +13,18 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
+    // The board never reads the table through RLS (a full-scope walk for a
+    // non-operator); only the authorized, indexed feed function.
     from: (table: string) => {
-      const request: Record<string, unknown> = { table };
-      const query = {
-        select: (fields: string) => {
-          request.fields = fields;
-          return query;
-        },
-        eq: (field: string, value: string) => {
-          request[field] = value;
-          return query;
-        },
-        gt: (field: string, value: string) => {
-          request.after = [field, value];
-          return query;
-        },
-        order: (field: string, options: unknown) => {
-          request.order = [field, options];
-          return query;
-        },
-        limit: (limit: number) => {
-          request.limit = limit;
-          return query;
-        },
-        abortSignal: async (signal: AbortSignal) => {
-          mocks.reads.push(request);
-          expect(signal).toBeInstanceOf(AbortSignal);
-          return { data: mocks.rows, error: mocks.error };
-        },
-      };
-      return query;
+      throw new Error(`unexpected table read: ${table}`);
     },
+    rpc: (fn: string, args: Record<string, unknown>) => ({
+      abortSignal: async (signal: AbortSignal) => {
+        mocks.reads.push({ rpc: fn, ...args });
+        expect(signal).toBeInstanceOf(AbortSignal);
+        return { data: mocks.rows, error: mocks.error };
+      },
+    }),
   },
 }));
 
@@ -83,11 +64,11 @@ describe('visible management feed', () => {
     const { result } = renderHook(() => useGameManagementRealtime({ ...base, onResync }));
     expect(result.current).toBe('connecting');
     await flush();
-    expect(mocks.reads[0]).toMatchObject({
-      table: 'game_management_events',
-      scope_kind: 'club',
-      scope_id: 'club-1',
-      limit: 128,
+    expect(mocks.reads[0]).toEqual({
+      rpc: 'fn_game_management_feed',
+      p_scope_kind: 'club',
+      p_scope_id: 'club-1',
+      p_limit: 128,
     });
     expect(result.current).toBe('current');
     expect(onResync).toHaveBeenCalledOnce();
@@ -174,7 +155,7 @@ describe('visible management feed', () => {
     await flush();
     hook.rerender({ scopeId: 'club-2' });
     await flush();
-    expect(mocks.reads[1]).toMatchObject({ scope_id: 'club-2', limit: 128 });
+    expect(mocks.reads[1]).toMatchObject({ p_scope_id: 'club-2', p_limit: 128 });
     expect(mocks.reads[1].after).toBeUndefined();
     expect(onResync).toHaveBeenCalledTimes(2);
   });

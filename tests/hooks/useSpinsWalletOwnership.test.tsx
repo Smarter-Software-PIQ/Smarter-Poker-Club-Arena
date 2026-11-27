@@ -33,7 +33,7 @@ it.each(['owner', 'viewer', 'disabled'] as const)(
   'never paints a previous wallet during a %s change',
   async (change) => {
     mocks.getState
-      .mockResolvedValueOnce({ state: state('club-a', 1234) })
+      .mockResolvedValueOnce({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) })
       .mockImplementationOnce(() => new Promise(() => {}));
     const renders: Array<{ owner: string; viewer: string; enabled: boolean; state: any }> = [];
     const { result, rerender } = renderHook(
@@ -42,12 +42,12 @@ it.each(['owner', 'viewer', 'disabled'] as const)(
         renders.push({ owner, viewer: mocks.userId, enabled, state: value.state });
         return value;
       },
-      { initialProps: { owner: 'club-a', enabled: true } }
+      { initialProps: { owner: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', enabled: true } }
     );
     await waitFor(() => expect(result.current.balance).toBe(1234));
     renders.length = 0;
     if (change === 'viewer') mocks.userId = 'viewer-b';
-    rerender({ owner: change === 'owner' ? 'club-b' : 'club-a', enabled: change !== 'disabled' });
+    rerender({ owner: change === 'owner' ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', enabled: change !== 'disabled' });
     expect(renders.every((row) => row.state === null)).toBe(true);
     expect(result.current.state).toBeNull();
     expect(result.current.active).toBe(false);
@@ -57,18 +57,18 @@ it('keeps a late previous-owner reply out of both current state and the new owne
   const old = deferred();
   mocks.getState
     .mockReturnValueOnce(old.promise)
-    .mockResolvedValueOnce({ state: state('club-b', 99) });
+    .mockResolvedValueOnce({ state: state('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 99) });
   const { result, rerender } = renderHook(({ owner }) => useSpinsWallet(owner), {
-    initialProps: { owner: 'club-a' },
+    initialProps: { owner: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
   });
-  rerender({ owner: 'club-b' });
+  rerender({ owner: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
   await waitFor(() => expect(result.current.balance).toBe(99));
-  await act(async () => old.resolve({ state: state('club-a', 1234) }));
-  expect(result.current.state?.owner_id).toBe('club-b');
+  await act(async () => old.resolve({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) }));
+  expect(result.current.state?.owner_id).toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
   expect(result.current.balance).toBe(99);
 });
 it('uses the new owner fresh cache without painting the previous owner or requesting it again', async () => {
-  mocks.getState.mockResolvedValue({ state: state('club-a', 1234) });
+  mocks.getState.mockResolvedValue({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) });
   const renders: any[] = [];
   const { result, rerender } = renderHook(
     ({ owner }) => {
@@ -76,13 +76,13 @@ it('uses the new owner fresh cache without painting the previous owner or reques
       renders.push(value.state);
       return value;
     },
-    { initialProps: { owner: 'club-a' } }
+    { initialProps: { owner: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } }
   );
   await waitFor(() => expect(result.current.balance).toBe(1234));
-  writeWalletCache(walletCacheKey('viewer-a', 'spins', 'club-b'), { s: state('club-b', 99) });
+  writeWalletCache(walletCacheKey('viewer-a', 'spins', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), { s: state('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 99) });
   renders.length = 0;
-  rerender({ owner: 'club-b' });
-  expect(renders.every((value) => value === null || value.owner_id === 'club-b')).toBe(true);
+  rerender({ owner: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+  expect(renders.every((value) => value === null || value.owner_id === 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')).toBe(true);
   expect(result.current.balance).toBe(99);
   expect(mocks.getState).toHaveBeenCalledTimes(1);
 });
@@ -90,13 +90,13 @@ it('uses the new owner fresh cache without painting the previous owner or reques
 it('keeps the next owner unknown after a failed read, without restoring the old balance', async () => {
   const next = deferred();
   mocks.getState
-    .mockResolvedValueOnce({ state: state('club-a', 1234) })
+    .mockResolvedValueOnce({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) })
     .mockReturnValueOnce(next.promise);
   const { result, rerender } = renderHook(({ owner }) => useSpinsWallet(owner), {
-    initialProps: { owner: 'club-a' },
+    initialProps: { owner: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
   });
   await waitFor(() => expect(result.current.balance).toBe(1234));
-  rerender({ owner: 'club-b' });
+  rerender({ owner: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
   expect(result.current.loading).toBe(true);
   expect(result.current.state).toBeNull();
   await act(async () => next.reject(new Error('not permitted')));
@@ -107,25 +107,25 @@ it('keeps the next owner unknown after a failed read, without restoring the old 
 it('an explicit reload still fetches a new value while retaining only this owner cache', async () => {
   const fresh = deferred();
   mocks.getState
-    .mockResolvedValueOnce({ state: state('club-a', 1234) })
+    .mockResolvedValueOnce({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) })
     .mockReturnValueOnce(fresh.promise);
-  const { result } = renderHook(() => useSpinsWallet('club-a'));
+  const { result } = renderHook(() => useSpinsWallet('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
   await waitFor(() => expect(result.current.balance).toBe(1234));
   act(() => result.current.reload());
   expect(mocks.getState).toHaveBeenCalledTimes(2);
-  expect(result.current.state?.owner_id).toBe('club-a');
-  await act(async () => fresh.resolve({ state: state('club-a', 2000) }));
+  expect(result.current.state?.owner_id).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  await act(async () => fresh.resolve({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 2000) }));
   expect(result.current.balance).toBe(2000);
 });
 
 it('a late disabled request cannot restore a wallet or leave loading active', async () => {
   const old = deferred();
   mocks.getState.mockReturnValueOnce(old.promise);
-  const { result, rerender } = renderHook(({ enabled }) => useSpinsWallet('club-a', enabled), {
+  const { result, rerender } = renderHook(({ enabled }) => useSpinsWallet('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', enabled), {
     initialProps: { enabled: true },
   });
   rerender({ enabled: false });
-  await act(async () => old.resolve({ state: state('club-a', 1234) }));
+  await act(async () => old.resolve({ state: state('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1234) }));
   expect(result.current.loading).toBe(false);
   expect(result.current.state).toBeNull();
 });

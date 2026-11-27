@@ -150,8 +150,8 @@ describe('the category says what broke, not which component held it', () => {
   });
 });
 
-describe('a repeated bug is one row, refreshed', () => {
-  it('50 occurrences across two literals produce ONE report and ONE write', () => {
+describe('a repeated bug is one report, and a browser never upserts it', () => {
+  it('50 occurrences across two literals produce ONE report and NO table write', () => {
     horseBugReporter.startCapturing();
     for (let i = 0; i < 25; i++) {
       console.error(err('demo'));
@@ -161,20 +161,20 @@ describe('a repeated bug is one row, refreshed', () => {
     expect(reports.length).toBe(1);
     expect(reports[0].id.startsWith('cbug:')).toBe(true);
     expect(reports[0].context.occurrences_this_session).toBe(50);
-    const persisted = writes.filter((w) => w.op === 'upsert:horse_bug_reports');
-    expect(persisted.length).toBe(1);
+    // 2026-11-26: the fold an upsert needs is refused to every player role by
+    // the table's policies (production: "new row violates row-level security
+    // policy for table horse_bug_reports"). The console it came from already
+    // reaches client_error_events through fn_report_client_errors.
+    expect(writes.filter((w) => w.op.endsWith(':horse_bug_reports')).length).toBe(0);
   });
 
-  it('the row it writes is an upsert on the primary key, with no created_at', () => {
+  it('no fingerprinted report is ever written as an upsert', () => {
     horseBugReporter.startCapturing();
     console.error(err('demo'));
-    const w = writes.find((x) => x.op === 'upsert:horse_bug_reports')!;
-    expect(w).toBeTruthy();
-    expect(w.row.__opts).toEqual({ onConflict: 'id' });
-    // created_at must keep its column default, so it means FIRST seen.
-    expect('created_at' in w.row).toBe(false);
-    expect(w.row.context.fingerprint).toBe(bugFingerprint(err('demo')));
-    expect(w.row.resolved).toBe(false);
+    expect(writes.some((x) => x.op === 'upsert:horse_bug_reports')).toBe(false);
+    const [report] = horseBugReporter.getReports();
+    expect(report.context.fingerprint).toBe(bugFingerprint(err('demo')));
+    expect(report.resolved).toBe(false);
   });
 
   it('a distinct report is still one row per call, with the original id shape', () => {

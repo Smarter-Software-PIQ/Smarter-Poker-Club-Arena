@@ -265,10 +265,28 @@ export function feederStartWaitsForVariety(move: {
   player_id: string;
 }): boolean {
   return (
-    move.reason === 'balance' &&
-    move.swap_move_id == null &&
-    moveWaitsForVariety(move.to_table_id, move.player_id)
+    (move.reason === 'balance' &&
+      move.swap_move_id == null &&
+      moveWaitsForVariety(move.to_table_id, move.player_id)) ||
+    aHorseMoveWaitsForTheDrain(move)
   );
+}
+
+/**
+ * NO HORSE IS MOVED ONTO A TABLE BEING RELEASED (review 2026-11-26). A cluster
+ * balance move, a must-move or a seat change could seat a Horse at the very
+ * table the drain is emptying. A Horse's move onto a published released table
+ * waits (it stays pending and expires by its own clock); a person's move and a
+ * break move never wait.
+ */
+function aHorseMoveWaitsForTheDrain(move: {
+  reason: string;
+  to_table_id: string;
+  player_id: string;
+}): boolean {
+  if (move.reason === 'break' || !publishedDrain) return false;
+  if (!varietyDrainingTables().includes(String(move.to_table_id))) return false;
+  return publishedDrain.horses.has(String(move.player_id));
 }
 
 /** A cycle that cannot make an owed start holds nothing, at once. */
@@ -335,7 +353,29 @@ export interface VarietyDrainManyInput<T extends DrainTable> extends Omit<
   shortfall: number;
   /** The tables released last cycle, each kept while it is still the top of its ladder. */
   current: ReadonlyArray<string>;
+  /**
+   * May a NEW table be added this cycle? False until VARIETY_DRAIN_NEW_TABLE_MS
+   * has passed since the last new release (the rotator's cycle). Default true.
+   */
+  mayAddNew?: boolean;
 }
+
+/**
+ * THE RAMP IS THE ROTATOR'S PACE (review 2026-11-26). The fleet cycles every
+ * 30 s but a released table's Horses go home on the rotator's 90 s cycle, so
+ * "one new table per fleet cycle" released three tables per rotator cycle.
+ * One new table per rotator cycle. Pinned equal to HorseSessionRotator's
+ * CYCLE_MS by anExtraTableYieldsToAnOwedMain.law.test.ts.
+ */
+export const VARIETY_DRAIN_NEW_TABLE_MS = 90_000;
+
+/**
+ * How long a drain publication names tables (review 2026-11-26). Shorter than
+ * the hold's 90 s: a fleet cycle that returned early must not leave the rotator
+ * acting on a list built from an older waiting-list read for a whole minute
+ * and a half. Two fleet cycles plus slack.
+ */
+export const VARIETY_DRAIN_FRESH_MS = 65_000;
 
 /** PURE. The one extra table to release this cycle, or null (the single-table view). */
 export function varietyDrainTable<T extends DrainTable>(
@@ -393,6 +433,10 @@ export function varietyDrainTables<T extends DrainTable>(
       .filter((t) => t.role === 'main')
       .sort((a, b) => Number(a.main_index ?? 999) - Number(b.main_index ?? 999));
     const lowestMain = mains[0];
+    /* An empty live feeder stays the top on purpose (reviewed 2026-11-26): it
+       either fills, and is then released, or closes by itself and frees its
+       slot. Releasing the highest Main beside it would drain two tables for
+       one slot. Pinned by "a released table stays released: empty...". */
     const feeders = live
       .filter((t) => t.role === 'feeder')
       .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
@@ -418,7 +462,16 @@ export function varietyDrainTables<T extends DrainTable>(
   }
   /* A new table is released only when the cap has no free slot and the tables
      already released do not cover the owed starts (drainShortfall). */
-  if (candidates.length === 0 || kept.length >= input.shortfall) return kept;
+  /* A released table that has already emptied is off the census and covers no
+     owed start (review 2026-11-26): only kept tables with Horses still seated
+     count against the shortfall. New tables are added at the rotator's pace
+     (mayAddNew), never faster than its Horses can leave. */
+  const stillSeated = kept.filter((id) => {
+    const n = input.seatedAt(id);
+    return Number.isFinite(n) && n > 0;
+  }).length;
+  if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false)
+    return kept;
   candidates.sort(
     (a, b) =>
       seated(a) - seated(b) ||
@@ -465,15 +518,23 @@ export function owedStartsFit(room: {
   return room.counted + room.openingFeeders < room.cap;
 }
 
-let publishedDrain: { tableIds: readonly string[]; atMs: number } | null = null;
+let publishedDrain: {
+  tableIds: readonly string[];
+  horses: ReadonlySet<string>;
+  atMs: number;
+} | null = null;
 
-/** The fleet names the tables it is releasing, once per cycle (or none). */
+/**
+ * The fleet names the tables it is releasing, once per cycle (or none), with
+ * its Horse ids, so the engine's move door can keep Horses off them.
+ */
 export function publishVarietyDrain(
   tables: string | ReadonlyArray<string> | null,
-  nowMs: number
+  nowMs: number,
+  horses: ReadonlySet<string> = new Set()
 ): void {
   const ids = tables === null ? [] : typeof tables === 'string' ? [tables] : [...tables];
-  publishedDrain = ids.length > 0 ? { tableIds: ids, atMs: nowMs } : null;
+  publishedDrain = ids.length > 0 ? { tableIds: ids, horses, atMs: nowMs } : null;
 }
 
 /**
@@ -484,7 +545,7 @@ export function publishVarietyDrain(
 export function varietyDrainingTables(nowMs: number = Date.now()): readonly string[] {
   if (!publishedDrain) return [];
   const age = nowMs - publishedDrain.atMs;
-  return age >= 0 && age < VARIETY_HOLD_FRESH_MS ? publishedDrain.tableIds : [];
+  return age >= 0 && age < VARIETY_DRAIN_FRESH_MS ? publishedDrain.tableIds : [];
 }
 
 /** The first released table (the single-table view). */

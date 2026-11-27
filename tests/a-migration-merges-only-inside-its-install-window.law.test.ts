@@ -156,6 +156,38 @@ describe('a migration merges only inside its install window', () => {
     expect(pushAction(at('2026-11-26T04:54:00Z'), C)).toBe('none'); // the 22:54 merge
   });
 
+  it('a real cron opens every window: the OpenClaw job fires within the keeper horizon before each one', () => {
+    const job = JSON.parse(read('ops/openclaw/ca-migration-merge-window-open.json'));
+    expect(job.schedule.kind).toBe('cron');
+    expect(job.schedule.tz).toBe('America/Chicago');
+    expect(job.delivery.mode).toBe('none');
+    expect(job.payload.argv.join(' ')).toContain(
+      'gh workflow run migration-merge-window.yml --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --ref main -f mode=keep'
+    );
+    const [minute, hours] = String(job.schedule.expr).split(' ');
+    const fires = hours.split(',').map((h: string) => [Number(h), Number(minute)]);
+    // Every window opening over a whole day (Chicago is UTC-6 on this date).
+    const day = at('2026-11-26T06:00:00Z');
+    let t = day;
+    const openings: number[] = [];
+    while (t < day + 24 * 3_600_000) {
+      const next = nextMergeWindow(t, C);
+      if (next === null || next >= day + 24 * 3_600_000) break;
+      openings.push(next);
+      t = mergeWindowCloses(next, C) + 60_000;
+    }
+    expect(openings.length).toBe(7); // the 01:00 cycle window is inside the nightly freeze
+    for (const open of openings) {
+      const fired = fires.some(([h, m]: [number, number]) => {
+        const f = day + (h * 60 + m) * 60_000; // 06:00Z is 00:00 Chicago
+        const before = open - f;
+        return before >= 0 && before <= 25 * 60_000;
+      });
+      expect(fired, new Date(open).toISOString()).toBe(true);
+    }
+    expect(read('.github/workflows/migration-merge-window.yml')).toContain('ops/openclaw/');
+  });
+
   it('every description fits the 140-character status limit', () => {
     for (const iso of ['2026-11-26T22:31:00Z', '2026-11-26T18:31:00Z']) {
       expect(verdict(iso, [mig(ORDINARY)]).description.length).toBeLessThanOrEqual(140);

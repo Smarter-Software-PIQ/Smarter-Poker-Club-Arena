@@ -87,7 +87,11 @@ describe('nightly jobs - a restart must trigger the run, not prevent it', () => 
     // exactly one win.
     expect(leagueSrc).toContain('claimNightlyJob');
     expect(leagueSrc).toContain("from('horse_job_runs')");
-    expect(leagueSrc).toContain("'23505'"); // unique_violation => stand down
+    // The primary key is still the lock, but a lost claim is zero returned
+    // rows from ON CONFLICT DO NOTHING, never a unique_violation (2026-11-26).
+    expect(leagueSrc).toContain("{ onConflict: 'job,run_date', ignoreDuplicates: true }");
+    const claimBody = leagueSrc.slice(leagueSrc.indexOf('export async function claimNightlyJob'));
+    expect(claimBody.slice(0, claimBody.indexOf('\n}\n'))).not.toContain(".insert({ job, run_date: date");
     expect(tunerSrc).toContain("claimNightlyJob('self_tuner'");
   });
 

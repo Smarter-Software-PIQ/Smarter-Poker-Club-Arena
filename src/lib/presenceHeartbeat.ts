@@ -20,6 +20,7 @@
  */
 import { supabase } from './supabase';
 import { reportError } from '../utils/errorReporter';
+import { askToSignInAgain, isDeadSessionRefusal } from './deadSessionRefusal';
 
 /** How often a visible arena tab beats. Well inside the five-minute window. */
 export const PRESENCE_HEARTBEAT_MS = 120_000;
@@ -72,6 +73,37 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
+/*
+ * A REFUSAL THAT CAN NEVER SUCCEED STOPS THE BEATS (2026-11-26, CLAUDE.md
+ * 10.10 rule 4). fn_update_presence refuses a closed account with
+ * `ACCOUNT_CLOSED: ...` and the pre-request hook refuses a revoked session
+ * with `SESSION_REVOKED: ...` (PT401). Neither answer changes on the next
+ * beat, and the heartbeat used to send one every two minutes regardless: one
+ * closed account's open tab was refused 164 times in four hours. Such an
+ * answer now silences the account in this tab (no online beat, no leave
+ * beat) until a heartbeat starts for it again, which only a sign-in does,
+ * and a dead session is handed to the one place that decides on sign-out.
+ */
+export function isAccountClosedRefusal(error: unknown): boolean {
+  const message = (error as { message?: unknown } | null)?.message;
+  return typeof message === 'string' && message.startsWith('ACCOUNT_CLOSED');
+}
+
+export function isSessionRevokedRefusal(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return (
+    code === 'PT401' ||
+    (typeof message === 'string' && message.startsWith('SESSION_REVOKED')) ||
+    isDeadSessionRefusal(error)
+  );
+}
+
+/** True when no later beat from this tab can be answered differently. */
+export function isTerminalPresenceRefusal(error: unknown): boolean {
+  return isAccountClosedRefusal(error) || isSessionRevokedRefusal(error);
+}
+
 /** One beat: the signed-in player is (or is no longer) here. */
 export async function sendPresence(userId: string, online: boolean): Promise<void> {
   if (online && !activeStatusEnabled()) online = false;
@@ -96,7 +128,13 @@ export async function sendPresence(userId: string, online: boolean): Promise<voi
     );
   }
   const { error } = await request;
-  if (error) throw error;
+  if (error) {
+    if (isTerminalPresenceRefusal(error)) {
+      silenced = userId;
+      if (isSessionRevokedRefusal(error)) askToSignInAgain('presenceHeartbeat.sessionRevoked');
+    }
+    throw error;
+  }
   if (online) stampTabLease(userId);
 }
 

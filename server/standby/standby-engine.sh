@@ -1148,7 +1148,12 @@ rehearsal_engine_log() {
   logs=$(docker logs --since 60m "$CONTAINER" 2>&1) || return 1
   printf '%s\n' "$logs" \
     | grep -i -E 'maintenance|thaw|freeze|frozen|break|leader|standby|adopt|claim|FATAL|Uncaught|unhandledRejection' \
-    | sed -E 's/(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]{40,})/<masked>/g' \
+    | python3 -c 'import re,sys
+# A JWT, or a 32+ character run with digits and both letter cases (a key or a
+# token). Error codes (lower_snake_case) and lowercase hex release shas stay
+# readable: masking them hid the thaw error code on 2026-11-26.
+tok = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+|(?=[A-Za-z0-9+/=_-]*[a-z])(?=[A-Za-z0-9+/=_-]*[A-Z])(?=[A-Za-z0-9+/=_-]*[0-9])[A-Za-z0-9+/=_-]{32,}")
+for line in sys.stdin: sys.stdout.write(tok.sub("<masked>", line))' \
     | tail -n 80 | sed 's/^/rehearsal engine: /'
   return 0
 }
