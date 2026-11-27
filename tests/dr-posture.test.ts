@@ -1064,3 +1064,38 @@ it('table-kill compares running state and restart count separately', () => {
   expect(trial).not.toContain('{{.State.Running}} {{.RestartCount}}');
   expect(trial).toContain('"$restarts_before" ] || reasons="$reasons,engine_process_restarted"');
 });
+
+describe('trial_swap avoids redundant container reboot when from is already running', () => {
+  it.each(['already-running', 'different-sha', 'stopped'])(
+    'reuses running from container only on exact running SHA match (%s)',
+    (mode) => {
+      const from = 'a'.repeat(40);
+      const to = 'b'.repeat(40);
+      const inspectOut =
+        mode === 'already-running'
+          ? `${from} true`
+          : mode === 'different-sha'
+            ? `${to} true`
+            : `${from} false`;
+      const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+        docker() {
+          if [ "$1" = inspect ]; then echo '${inspectOut}'; return 0; fi
+          return 0
+        }
+        cmd_run() { echo "cmd_run:$1" >> "$STATE_DIR/calls"; return 0; }
+        wait_live() { echo "wait_live" >> "$STATE_DIR/calls"; return 1; }
+        trial_verdict() { echo "verdict:$1:$2" >> "$STATE_DIR/calls"; }
+        trial_swap '${from}' '${to}' || true
+        cat "$STATE_DIR/calls"
+      `);
+      expect(result.status, result.stderr).toBe(0);
+      const calls = result.stdout.trim().split('\n');
+      if (mode === 'already-running') {
+        expect(calls).not.toContain(`cmd_run:${from}`);
+      } else {
+        expect(calls).toContain(`cmd_run:${from}`);
+      }
+      expect(calls).toContain('wait_live');
+    }
+  );
+});

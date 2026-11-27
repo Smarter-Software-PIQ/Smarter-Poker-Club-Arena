@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -80,7 +82,15 @@ describe('Phase 7 reporting truth', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/Registration, Rebuy,/)).toHaveTextContent('Not Yet Reconciled');
+    // The accounting-coverage caveat lives behind the page's "?" since
+    // 2026-11-27 (Dan: remove unnecessary explanations from the boxes); the
+    // labels below still say Estimated and Reconstructed on the figures.
+    expect(screen.queryByText(/Registration, Rebuy,/)).not.toBeInTheDocument();
+    expect(
+      readFileSync(resolve(__dirname, '../../src/pages/stats/StatsWorkspaceHeader.tsx'), 'utf8')
+    ).toMatch(
+      /Registration, Rebuy, Add-On, Refund, Ticket, Prize And Bounty Ledgers Are Not Yet Reconciled/
+    );
     expect(screen.getByText('Estimated Entry Costs')).toBeInTheDocument();
     expect(screen.getByText('Reconstructed Net')).toBeInTheDocument();
     expect(screen.getByText(/Finalized Sep 2, 2026/)).toBeInTheDocument();

@@ -1,0 +1,3 @@
+# server/src/observability/handGapPerformanceLaws.law.test.ts
+
+Pins the permanent between-hands performance and anti-regression invariants from incident 1e532243 (Phases 1-3): bounded time-based EventDatabaseBulkhead recovery and high-priority hand/seat-move RPCs, TournamentManager boundary-plan recovery on drainBoundaryBalance finally and high-priority batched door-chair prefetch, root-bound format-cached TournamentBrainContext refresh with fail-closed count-drift retry, empty attempt-1 pending add-on RTT skip and jittered post-commit retry backoff, PR CI to prequalification server-test parity, seeded Lightning fake-timer RNG, and live /health nextHandGap and eventDbBulkhead SLO checks in post-cutover-audit-lib.mjs.

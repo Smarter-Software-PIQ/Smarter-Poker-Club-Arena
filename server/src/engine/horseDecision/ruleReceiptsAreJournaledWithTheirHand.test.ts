@@ -171,6 +171,12 @@ async function decideAt(
 const receiptsOf = (j: Journaled) => j.payload.ruleReceipts as DecisionRuleReceipt[] | undefined;
 
 it('journals the set pound on the record of the turn decision it sized, and on no other', async () => {
+  // HandController.performAction stamps every action with Date.now(), which is
+  // hashed into buildHorseDecisionKey -> workerRuntime.requestRngSeed -> fastRandom.
+  // Pinning Date.now() makes actionHistory, decisionKey, and the worker's RNG
+  // seed bit-for-bit identical across runs (fixes prequal flakes 44858061669,
+  // 45745715882, and 46067054367). Restored in afterEach via vi.restoreAllMocks().
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 14, 18, 0, 0));
   enableBrainTelemetry();
   const messages: HorseDecisionWorkerResponse[] = [];
   const journal: Journaled[] = [];
@@ -226,5 +232,8 @@ it('journals the set pound on the record of the turn decision it sized, and on n
     'omaha_turn_set_pound'
   );
   for (const r of receiptsOf(flopRecord) ?? [])
-    expect(r.after).toEqual({ action: flop.decision.action, amount: flop.decision.amount ?? null });
+    expect(r.after).toEqual({
+      action: flop.decision.action,
+      amount: flop.decision.amount ?? null,
+    });
 });

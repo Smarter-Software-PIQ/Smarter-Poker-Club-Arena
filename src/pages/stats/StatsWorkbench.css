@@ -570,3 +570,30 @@
     }
   }
 }
+
+/* HEADLINE BOXES READ AT A GLANCE (Dan, 2026-11-27): "increase font sizes ...
+   center any and all stats inside frames". :root lifts these above the
+   ArenaWorkspace.css stats rules whatever order the sheets load in. */
+@media screen {
+  :root .arena-workspace.stats-page .stats-hero .hero-stat {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 4px;
+    min-height: 76px;
+  }
+  :root .arena-workspace.stats-page .stats-hero .hero-stat-label {
+    font:
+      700 12px/1.2 Arial,
+      sans-serif;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    text-align: center;
+  }
+  :root .arena-workspace.stats-page .stats-hero .hero-stat .hero-stat-value {
+    font:
+      700 26px/1.1 Arial,
+      sans-serif;
+    text-align: center;
+  }
+}

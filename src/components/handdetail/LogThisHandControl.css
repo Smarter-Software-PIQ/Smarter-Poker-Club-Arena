@@ -245,13 +245,59 @@
   text-transform: none;
 }
 
+.lth--hud.lth--hud-hidden {
+  display: none;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .lth--hud .lth__error-row--hud {
+  position: relative;
   width: auto;
   flex-wrap: nowrap;
-  gap: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.lth--hud .lth__error-pill--hud {
+  display: inline-flex;
+  align-items: center;
+  max-width: 168px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid rgb(255 91 110 / 58%);
+  border-radius: 6px;
+  background: rgb(28 10 16 / 90%);
+  color: #ffb8c2;
+  -webkit-text-fill-color: #ffb8c2;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lth--hud .lth__hud-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.lth--hud .lth__hud-dot--saving {
+  background: #8fd4ff;
+}
+
+.lth--hud .lth__hud-dot--error {
+  background: #ff5b6e;
 }
 
 .lth--hud .lth__retry--hud {
+  position: relative;
   border-color: rgb(255 91 110 / 68%) !important;
   border-top-color: rgb(255 160 171 / 78%) !important;
   color: #ffd6dc !important;
@@ -268,4 +314,76 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Mobile bottom-left HUD compact tile: fits alongside PreviousHandCard and
+   TimebankCounter/RabbitHunt without overflowing into Hero's seat/cards. */
+@media (max-width: 640px) {
+  .lth--hud {
+    gap: 4px;
+  }
+
+  .lth--hud .lth__btn--hud,
+  .lth--hud .lth__retry--hud {
+    position: relative;
+    width: var(--sp-hud-tile-size, 44px);
+    height: var(--sp-hud-tile-size, 44px);
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .lth--hud .lth__icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .lth--hud .lth__hud-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .lth--hud .lth__hud-dot {
+    display: block;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+  }
+
+  .lth--hud .lth__saved--hud {
+    min-height: var(--sp-hud-tile-size, 44px);
+    height: var(--sp-hud-tile-size, 44px);
+    padding: 0 4px;
+    gap: 4px;
+  }
+
+  .lth--hud .lth__badge--hud {
+    min-width: 24px;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .lth--hud .lth__link--hud {
+    min-width: 36px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .lth--hud .lth__error-pill--hud {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 6px);
+    max-width: min(210px, 58vw);
+    z-index: 2;
+  }
 }

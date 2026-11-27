@@ -2008,11 +2008,47 @@ gh() {
           controlSha?: string;
           head: string;
           headState?: string;
+          headPrequal?: 'passed' | 'failed' | 'pending' | 'absent' | 'FAIL';
           livePriority?: string;
         }
       ) {
         const dir = mkdtempSync(resolve(tmpdir(), 'backup-late-retarget-'));
+        const binDir = resolve(dir, 'bin');
+        mkdirSync(binDir, { recursive: true });
+        const prequalReply = (() => {
+          switch (opts.headPrequal) {
+            case 'failed':
+              return `print(json.dumps({'workflow_runs': [{'id': 46052191027, 'head_sha': sha, 'status': 'completed', 'conclusion': 'failure'}]}))`;
+            case 'passed':
+              return `print(json.dumps({'workflow_runs': [{'id': 46050162216, 'head_sha': sha, 'status': 'completed', 'conclusion': 'success'}]}))`;
+            case 'pending':
+              return `print(json.dumps({'workflow_runs': [{'id': 46052191028, 'head_sha': sha, 'status': 'in_progress', 'conclusion': None}]}))`;
+            case 'absent':
+              return `print(json.dumps({'workflow_runs': []}))`;
+            default:
+              return `sys.exit(1)`;
+          }
+        })();
+        writeFileSync(
+          resolve(binDir, 'gh'),
+          `#!/usr/bin/env python3
+import json, re, sys
+url = sys.argv[2] if len(sys.argv) > 2 else ''
+m = re.search(r'head_sha=([0-9a-f]{40})', url)
+if 'engine-release-prequalification.yml/runs' in url and m:
+    sha = m.group(1)
+    ${prequalReply}
+    sys.exit(0)
+sys.exit(1)
+`,
+          { mode: 0o755 }
+        );
         const calls = resolve(dir, 'calls');
+        const realStepDown = resolve(
+          __dirname,
+          '..',
+          'scripts/release/step-down-past-held-migration.py'
+        );
         const harness = `
 gh() {
   echo "gh $*" >> "$CALLS"
@@ -2033,11 +2069,20 @@ gh() {
     *) return 1 ;;
   esac
 }
+python3() {
+  if [ "$1" = -B ] && [ "$2" = scripts/release/step-down-past-held-migration.py ]; then
+    shift 2
+    command python3 -B ${JSON.stringify(realStepDown)} "$@"
+    return
+  fi
+  command python3 "$@"
+}
 `;
         try {
           const result = planShell(
             harness + lateRetarget.run,
             {
+              PATH: `${binDir}:${process.env.PATH ?? ''}`,
               CALLS: calls,
               HOME: dir,
               SHA: opts.sha,
@@ -2195,6 +2240,44 @@ gh() {
           expect(wfBlocked.stdout).toContain('preserve producer provenance');
           expect(wfBlocked.stdout).toContain(`sha=${f.shas.c1}`);
           expect(wfBlocked.stdout).toContain('retargeted=0');
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O37: late_retarget refuses to retarget in-place onto a head whose prequalification already failed, and keeps existing behavior on pending/absent/passed/unknown', () => {
+        const f = fixture();
+        const origin = withOriginRemote(f);
+        try {
+          f.git('checkout', '-q', f.shas.c1);
+          const refused = runLateRetarget(f, {
+            sha: f.shas.c1,
+            head: f.shas.c3,
+            headState: 'missing',
+            headPrequal: 'failed',
+          });
+          expect(refused.status, refused.stderr).toBe(0);
+          expect(refused.stdout).toContain(
+            `SKIPPED RETARGET: main's newest commit ${f.shas.c3} already failed Engine release prequalification; keeping ${f.shas.c1}.`
+          );
+          expect(refused.stdout).toContain(`sha=${f.shas.c1}`);
+          expect(refused.stdout).toContain('retargeted=0');
+          expect(f.git('rev-parse', 'HEAD')).toBe(f.shas.c1);
+
+          for (const headPrequal of ['pending', 'absent', 'passed', 'FAIL'] as const) {
+            f.git('checkout', '-q', f.shas.c1);
+            const allowed = runLateRetarget(f, {
+              sha: f.shas.c1,
+              head: f.shas.c3,
+              headState: 'missing',
+              headPrequal,
+            });
+            expect(allowed.status, allowed.stderr).toBe(0);
+            expect(allowed.stdout).toContain(`RETARGETED IN-PLACE: ${f.shas.c1} -> ${f.shas.c3}`);
+            expect(allowed.stdout).toContain(`sha=${f.shas.c3}`);
+            expect(allowed.stdout).toContain('retargeted=1');
+          }
         } finally {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
@@ -2414,9 +2497,46 @@ ssh() { echo "ssh $*" >> "$CALLS"; cat > /dev/null; }
           breakRemote?: boolean;
           // O16: what production's installed set says about the soaking copy.
           copyState?: 'stale' | 'definitions' | 'current' | 'unreadable' | 'no-evidence';
+          // O37: Engine release prequalification state for opts.sha.
+          prequalState?: 'passed' | 'failed' | 'pending' | 'absent' | 'FAIL';
         }
       ) {
         const dir = mkdtempSync(resolve(tmpdir(), 'backup-o1-certify-'));
+        const binDir = resolve(dir, 'bin');
+        mkdirSync(binDir, { recursive: true });
+        const prequalReply = (() => {
+          switch (opts.prequalState) {
+            case 'failed':
+              return `print(json.dumps({'workflow_runs': [{'id': 46052191027, 'head_sha': sha, 'status': 'completed', 'conclusion': 'failure'}]}))`;
+            case 'passed':
+              return `print(json.dumps({'workflow_runs': [{'id': 46050162216, 'head_sha': sha, 'status': 'completed', 'conclusion': 'success'}]}))`;
+            case 'pending':
+              return `print(json.dumps({'workflow_runs': [{'id': 46052191028, 'head_sha': sha, 'status': 'in_progress', 'conclusion': None}]}))`;
+            case 'absent':
+              return `print(json.dumps({'workflow_runs': []}))`;
+            default:
+              return `sys.exit(1)`;
+          }
+        })();
+        writeFileSync(
+          resolve(binDir, 'gh'),
+          `#!/usr/bin/env python3
+import json, re, sys
+url = sys.argv[2] if len(sys.argv) > 2 else ''
+m = re.search(r'head_sha=([0-9a-f]{40})', url)
+if 'engine-release-prequalification.yml/runs' in url and m:
+    sha = m.group(1)
+    ${prequalReply}
+    sys.exit(0)
+sys.exit(1)
+`,
+          { mode: 0o755 }
+        );
+        const realStepDown = resolve(
+          __dirname,
+          '..',
+          'scripts/release/step-down-past-held-migration.py'
+        );
         const copyState = opts.copyState ?? 'no-evidence';
         const A64 = 'a'.repeat(64);
         const toolOut: Record<string, string> = {
@@ -2458,6 +2578,11 @@ ssh() {
   esac
 }
 python3() {
+  if [ "$1" = -B ] && [ "$2" = scripts/release/step-down-past-held-migration.py ]; then
+    shift 2
+    command python3 -B ${JSON.stringify(realStepDown)} "$@"
+    return
+  fi
   if [ "$1" = -B ] && [ "$2" = server/scripts/engine-release-installed-migrations.py ] && [ "$3" = refresh-due ]; then
     echo "TOOL $*" >> "$CALLS"
     [ -n "\${DATABASE_URL:-}" ] || { echo "TOOL_WITHOUT_DATABASE_URL" >> "$CALLS"; }
@@ -2490,6 +2615,7 @@ gh() {
           const result = planShell(
             harness + certifyStep.run,
             {
+              PATH: `${binDir}:${process.env.PATH ?? ''}`,
               CALLS: calls,
               HOME: dir,
               GITHUB_STEP_SUMMARY: summary,
@@ -2527,6 +2653,9 @@ gh() {
         expect(cmdCertify).not.toContain('git fetch');
         expect(certifyCheckout.with['sparse-checkout']).toContain(
           'scripts/ci/read-engine-prequalification.py'
+        );
+        expect(certifyCheckout.with['sparse-checkout']).toContain(
+          'scripts/release/step-down-past-held-migration.py'
         );
         expect(certifyCheckout.with['sparse-checkout-cone-mode']).toBe(false);
         expect(certifyStep.env.EVENT).toBe('${{ github.event_name }}');
@@ -2608,7 +2737,7 @@ gh() {
         try {
           const soakingSha = f.shas.c1;
           f.write('supabase/migrations/20261122023000_new.sql', 'select 1;\n');
-          f.commit('c4: migration merged on main');
+          const mainSha = f.commit('c4: migration merged on main');
           origin.pushMain();
           f.git('checkout', '-q', soakingSha);
 
@@ -2620,8 +2749,11 @@ gh() {
             expect(r.stdout).toContain('yielded=1');
             expect(r.calls).toContain('CLEANUP_CALLED');
             expect(r.calls).toContain(
-              `TOOL -B server/scripts/engine-release-installed-migrations.py refresh-due --copy-evidence o1-copy-evidence.json --copy-evidence-sha ${'c'.repeat(64)}`
+              `TOOL -B server/scripts/engine-release-installed-migrations.py refresh-due --copy-evidence o1-copy-evidence.json --copy-evidence-sha ${'c'.repeat(64)} --control ${mainSha}`
             );
+            // O37/O35: o1_copy_state MUST judge against main_sha, never the old soaking CONTROL_SHA
+            // (otherwise O23's tree_versions(control) treats the newly merged+installed migration as foreign).
+            expect(r.calls).not.toContain(`--control ${soakingSha}`);
             expect(r.calls).not.toContain('TOOL_WITHOUT_DATABASE_URL');
           }
         } finally {
@@ -2785,6 +2917,61 @@ gh() {
           origin.cleanup();
           rmSync(f.dir, { recursive: true, force: true });
         }
+      });
+
+      it('O37: yields cleanly mid-soak as YIELDED_OBSOLETE: prequalification_failed even with ZERO newer push runs waiting, and keeps soaking on pending/absent/passed/unknown', () => {
+        const f = fixture();
+        const origin = withOrigin(f);
+        try {
+          const soakingSha = f.shas.c1;
+          f.git('checkout', '-q', soakingSha);
+
+          // Even with newerWaiting='0' (no newer push arrived yet), prequal=failed yields immediately.
+          const yielded = runCertifyStep(f, {
+            sha: soakingSha,
+            newerWaiting: '0',
+            soakSeconds: 10,
+            prequalState: 'failed',
+          });
+          expect(yielded.status, yielded.stderr).toBe(0);
+          expect(yielded.stdout).toContain('YIELDED_OBSOLETE: prequalification_failed');
+          expect(yielded.stdout).toContain('yielded=1');
+          expect(yielded.stdout).not.toContain('rc=1');
+          expect(yielded.calls).toContain('CLEANUP_CALLED');
+          expect(yielded.calls).toContain('stop_for_restore');
+          expect(yielded.summary).toContain('prequalification_failed');
+
+          // CLAUDE.md 10.86: pending, absent, passed, or unreadable (FAIL) never yields.
+          for (const prequalState of ['pending', 'absent', 'passed', 'FAIL'] as const) {
+            const kept = runCertifyStep(f, {
+              sha: soakingSha,
+              newerWaiting: '0',
+              soakSeconds: 2,
+              prequalState,
+            });
+            expect(kept.status, kept.stderr).toBe(0);
+            expect(kept.stdout).toContain('rc=0');
+            expect(kept.stdout).not.toContain('yielded=1');
+            expect(kept.stdout).not.toContain('YIELDED_OBSOLETE');
+            expect(kept.calls).not.toContain('CLEANUP_CALLED');
+          }
+        } finally {
+          origin.cleanup();
+          rmSync(f.dir, { recursive: true, force: true });
+        }
+      });
+
+      it('O37: engine-release-prequalification.yml schedules RetainedHistoricalCheckpointQualification on shard 2 (balancing shard 1) and keeps npm run build on all shards', () => {
+        const prequalWf = parse(read('.github/workflows/engine-release-prequalification.yml'));
+        const steps = prequalWf.jobs.qualify.steps as any[];
+        const compileStep = steps.find((s) => s.name === 'Compile and test the exact server tree');
+        expect(compileStep).toBeTruthy();
+        expect(compileStep.run).toContain('npm run build');
+        expect(compileStep.run).toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
+        expect(compileStep.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 1 ]; then');
+        expect(compileStep.run).toContain(
+          'src/engine/RetainedHistoricalCheckpointQualification.test.ts'
+        );
       });
     });
 

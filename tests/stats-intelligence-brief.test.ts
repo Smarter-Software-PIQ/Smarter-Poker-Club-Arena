@@ -27,7 +27,7 @@ describe('buildStatsIntelligenceBrief', () => {
         expect.objectContaining({
           id: 'position',
           value: 'BTN',
-          detail: '+8.6 BB/100 across 1,200 hands.',
+          detail: '+8.6 BB/100 Hands across 1,200 hands.',
         }),
         expect.objectContaining({ id: 'game', value: 'Holdem' }),
         expect.objectContaining({

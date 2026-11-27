@@ -55,8 +55,9 @@ jobs:
           [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
           npm ci --no-audit --no-fund
           npm run build
-          # Run this nested historical qualification once before CPU-heavy tests.
-          if [ "$RELEASE_TEST_SHARD" = 1 ]; then
+          # Run this nested historical qualification once on shard 2 (median ~14.2m vs shard 1's ~26.6m, O37)
+          # before CPU-heavy tests, cutting ~3.3m off critical-path prequalification.
+          if [ "$RELEASE_TEST_SHARD" = 2 ]; then
             npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
           fi
           npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"

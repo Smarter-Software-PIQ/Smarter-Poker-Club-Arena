@@ -6,6 +6,7 @@ Native probes own fresh PG17 clusters, not the restored backup database. The
 restored database is inspected read-only. Keep these three evidence claims apart.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import hashlib
 import json
@@ -15,11 +16,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.request
 
 DEADLINE = time.monotonic() + 1200
 COMMANDS = []
+COMMANDS_LOCK = threading.Lock()
+MAX_NATIVE_PROBE_WORKERS = 3
 
 TESTS = [
     'src/tournament/TournamentStopRejectionOwnership.test.ts',
@@ -62,7 +66,8 @@ def run(argv, *, cwd=None, log=None, timeout=1800):
     timeout = min(timeout, DEADLINE - time.monotonic())
     if timeout <= 0:
         raise RuntimeError('qualification exceeded its 20-minute total execution budget')
-    COMMANDS.append({'argv': argv, 'cwd': str(cwd) if cwd else None})
+    with COMMANDS_LOCK:
+        COMMANDS.append({'argv': argv, 'cwd': str(cwd) if cwd else None})
     if log:
         with open(log, 'w') as stream:
             try:
@@ -252,10 +257,18 @@ def main():
         node_tag = 'standby-freeze-node:' + output.name
         native_tag = 'standby-freeze-pg:' + output.name
         tags = [node_tag, native_tag]
+        # Copy dependency manifests and native-addon sources before the full tree
+        # so Docker reuses the cached npm ci + g++ layers whenever package-lock.json
+        # and the native kernel did not change (~60-100s saved per certification).
         (source / 'Qualification.node').write_text(
             'FROM ' + base.group(1) + '\nRUN apt-get update && apt-get install -y --no-install-recommends g++'
-            ' && rm -rf /var/lib/apt/lists/*\nCOPY . /source\nWORKDIR /source/server\n'
-            'RUN npm ci --include=dev --no-audit --no-fund && node scripts/build-public-hist215-native.mjs\n')
+            ' && rm -rf /var/lib/apt/lists/*\nWORKDIR /source/server\n'
+            'COPY server/package.json server/package-lock.json ./\n'
+            'RUN npm ci --include=dev --no-audit --no-fund\n'
+            'COPY server/native/public_hist215_wtl.cc ./native/public_hist215_wtl.cc\n'
+            'COPY server/scripts/build-public-hist215-native.mjs ./scripts/build-public-hist215-native.mjs\n'
+            'RUN node scripts/build-public-hist215-native.mjs\n'
+            'COPY . /source\n')
         run(['docker', 'build', '-f', 'Qualification.node', '-t', node_tag, '.'],
             cwd=source, log=output / 'node-build.log')
         report['nodeQualificationImage'] = run(['docker', 'image', 'inspect', '-f', '{{.Id}}', node_tag])
@@ -282,10 +295,15 @@ def main():
                           pg_image, '-g', 'postgres']))
         require_bubble = require_satellite_thaw and introduced_by(repo, args.sha, 'scripts/ci/satellite_bubble_handoff.py')
         native_packages = 'python3 nodejs npm' if require_bubble else ('python3 nodejs' if require_satellite_thaw else 'python3')
-        native_dependencies = 'RUN npm ci --prefix /source/server --include=dev --ignore-scripts --no-audit --no-fund\n' if require_bubble else ''
+        native_dependencies = (
+            'COPY --chown=postgres:postgres server/package.json server/package-lock.json /source/server/\n'
+            'RUN npm ci --prefix /source/server --include=dev --ignore-scripts --no-audit --no-fund'
+            ' && chown -R postgres:postgres /source/server/node_modules\n'
+            if require_bubble else ''
+        )
         (source / 'Qualification.pg').write_text(
             'FROM ' + pg_reference + f'\nUSER root\nRUN apk add --no-cache {native_packages}\n'
-            'COPY --chown=postgres:postgres . /source\n' + native_dependencies + 'USER postgres\nWORKDIR /source\n'
+            + native_dependencies + 'COPY --chown=postgres:postgres . /source\nUSER postgres\nWORKDIR /source\n'
             'ENV PG_BIN=/nix/var/nix/profiles/default/bin\nENTRYPOINT ["python3"]\n')
         run(['docker', 'build', '--platform', pg_platform, '-f', 'Qualification.pg', '-t', native_tag, '.'],
             cwd=source, log=output / 'native-build.log')
@@ -293,13 +311,43 @@ def main():
         evidence = output / 'native'
         evidence.mkdir(mode=0o700)
         os.chown(evidence, pg_uid, pg_gid)
+        for sub in ('tmp-awards', 'tmp-feeders'):
+            subdir = evidence / sub
+            subdir.mkdir(mode=0o700)
+            os.chown(subdir, pg_uid, pg_gid)
         common = ['docker', 'run', '--rm', '--network', 'none', '--cpus', '2', '--memory', '4g',
                   '--mount', 'type=bind,source=' + str(evidence) + ',target=/evidence']
-        run([*common, '--name', containers[1], native_tag, 'scripts/ci/test-hand-submission.py', '--pg-bin',
-             '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/hand'],
-            log=output / 'hand-native.log')
-        run([*common, '--name', containers[2], native_tag, 'scripts/ci/test-f06-shared-hand-lane.py', '--output', '/evidence/f06'],
-            log=output / 'f06-native.log')
+        # All native PG17 probes run in isolated --network none containers with
+        # disjoint evidence and temp directories; running up to 3 concurrently on
+        # the 8-vCPU/30 GiB standby host preserves every assertion while cutting
+        # sequential wall time by ~85s per certification.
+        probe_jobs = [
+            ([*common, '--name', containers[1], native_tag, 'scripts/ci/test-hand-submission.py', '--pg-bin',
+              '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/hand'], output / 'hand-native.log'),
+            ([*common, '--name', containers[2], native_tag, 'scripts/ci/test-f06-shared-hand-lane.py', '--output', '/evidence/f06'],
+             output / 'f06-native.log'),
+        ]
+        if require_satellite_thaw:
+            probe_jobs.extend([
+                ([*common, '--name', containers[3], native_tag, 'scripts/ci/test-satellite-qualifiers.py',
+                  '--peak-only', '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/satellite'],
+                 output / 'satellite-native.log'),
+                ([*common, '--name', containers[4], '-e', 'TMPDIR=/evidence/tmp-awards', native_tag, 'scripts/ci/test-satellite-value-awards.py',
+                  '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/awards'],
+                 output / 'satellite-awards.log'),
+                ([*common, '--name', containers[5], '-e', 'TMPDIR=/evidence/tmp-feeders', native_tag,
+                  'scripts/ci/test-fixed-sng-satellites.py'], output / 'satellite-feeders.log'),
+            ])
+        pool = ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)
+        try:
+            futures = [pool.submit(run, argv, log=log_path) for argv, log_path in probe_jobs]
+            for future in futures:
+                future.result()
+        except Exception:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        else:
+            pool.shutdown(wait=True)
         hand = json.loads((evidence / 'hand/result.json').read_text())
         f06 = json.loads((evidence / 'f06/RESULTS.json').read_text())
         if (hand.get('status') != 'passed' or f06.get('passed') is not True
@@ -307,9 +355,6 @@ def main():
                 or f06.get('stoppedCancelled', {}).get('passed') is not True):
             raise RuntimeError('native source verdict missing or failed')
         if require_satellite_thaw:
-            run([*common, '--name', containers[3], native_tag, 'scripts/ci/test-satellite-qualifiers.py',
-                 '--peak-only', '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/satellite'],
-                log=output / 'satellite-native.log')
             funded = json.loads((evidence / 'satellite/result.json').read_text())
             if require_bubble:
                 receipt = funded['bubble_handoff']
@@ -329,9 +374,6 @@ def main():
                 if funded['source_sha256'].get(path) != hashlib.sha256((source / path).read_bytes()).hexdigest():
                     raise RuntimeError('funded rehearsal source identity differs: ' + path)
             report['fundedSatelliteThaw'] = verified_satellite_thaw(funded)
-            run([*common, '--name', containers[4], '-e', 'TMPDIR=/evidence', native_tag, 'scripts/ci/test-satellite-value-awards.py',
-                 '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/awards'],
-                log=output / 'satellite-awards.log')
             awards = json.loads((evidence / 'awards/report.json').read_text())
             if (awards.get('passed') is not True or awards.get('status') != 'passed'
                     or sorted((r['asset'], r['release']) for r in awards['races']) != [
@@ -342,8 +384,6 @@ def main():
                                for c in awards['commands'])):
                 raise RuntimeError('funded running-target chair or ticket evidence missing')
             report['usableAwardCases'] = [r['case'] for r in awards['races']]
-            run([*common, '--name', containers[5], '-e', 'TMPDIR=/evidence', native_tag,
-                 'scripts/ci/test-fixed-sng-satellites.py'], log=output / 'satellite-feeders.log')
             if 'PASS: live-target retention, rescheduling, concurrent entrant, target expiry and replay' not in (
                     output / 'satellite-feeders.log').read_text().splitlines():
                 raise RuntimeError('missing feeder expiry and target schedule proof')
