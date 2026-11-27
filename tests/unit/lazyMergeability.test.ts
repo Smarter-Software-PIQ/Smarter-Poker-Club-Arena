@@ -41,11 +41,12 @@ describe('event-driven branch proposal and protected merge', () => {
     expect(executable).not.toMatch(/GITHUB_TOKEN_FALLBACK|GH_PAT|\bsweep\b/);
   });
 
-  it('guards against duplicate PR races with a bounded grace re-check and self-cleanup of only its own duplicate', () => {
+  it('guards against duplicate PR races with a bounded grace re-check and idempotent create handling without closing PRs', () => {
     expect(opener).toContain('sleep 15');
     expect(
       opener.match(/gh pr list --repo "\$REPO" --head "\$BRANCH" --state open/g)?.length
     ).toBeGreaterThanOrEqual(3);
-    expect(opener).toContain('gh pr close "$CREATED_NUM"');
+    expect(opener).toContain('A concurrent PR for $BRANCH won the race');
+    expect(opener).not.toMatch(/gh\s+pr\s+close/);
   });
 });

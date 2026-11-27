@@ -109,14 +109,4 @@ jobs:
             echo "$CREATED_URL" >&2
             exit 1
           fi
-
-          CREATED_NUM=$(printf '%s\n' "$CREATED_URL" | sed -nE 's#.*/pull/([0-9]+).*#\1#p' | tail -n 1)
-          if [ -n "$CREATED_NUM" ]; then
-            OPEN_COUNT=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
-              --json number --jq 'length')
-            if [ "$OPEN_COUNT" -gt 1 ]; then
-              gh pr close "$CREATED_NUM" --repo "$REPO" \
-                --comment "Closed automatically by Agent Open PR: another pull request for \`$BRANCH\` opened concurrently, so this duplicate was retired to avoid parallel CI runs on the same SHA."
-              echo "Closed duplicate bot-created PR #$CREATED_NUM after concurrent PR creation on $BRANCH."
-            fi
-          fi
+          echo "Opened PR: $CREATED_URL"
