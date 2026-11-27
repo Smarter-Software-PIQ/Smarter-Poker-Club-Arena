@@ -42,6 +42,10 @@ import {
   loadFlopCapNodes,
   type FlopCapNode,
 } from './HorseOmahaFlopPressureCap.test-support.js';
+import {
+  OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION,
+  omahaFlopPressureCapRegion,
+} from './HorseOmahaFlopPressureCapPriced.js';
 
 const OPTION = 'omahaFlopPressureCapIsPriced';
 const SEEDS = [1, 7, 42];
@@ -307,5 +311,32 @@ describe('LAW: the flop pressure cap is priced on the bettor range (omahaFlopPre
         expect(v87Of(on.fired)).toBe(v87Of(off.fired));
       }
     }
+  });
+
+  it('7. his record narrows the value region by the same ratio it moves q; no record, a loose record or a narrow region: unchanged', () => {
+    const v = 0.35;
+    const pNT = omahaPeopleFlopCell(0.9, false, false).nonTop20!;
+    expect(omahaFlopPressureCapRegion(v, 0.9, null)).toBe(v);
+    expect(omahaFlopPressureCapRegion(v, 0.9, { shown: 0, value: 0 })).toBe(v);
+    // as loose as people or looser: unchanged
+    expect(omahaFlopPressureCapRegion(v, 0.9, { shown: 20, value: 0 })).toBe(v);
+    // a value-only record: 0.20 + (v - 0.20) x r, r = his not-top-20% rate over people's
+    for (const shown of [1, 10, 50]) {
+      const k = OMAHA_PEOPLE_PRIOR_RECORD_BETS;
+      const r = (k * pNT) / (k + shown) / pNT;
+      expect(omahaFlopPressureCapRegion(v, 0.9, { shown, value: shown })).toBeCloseTo(
+        OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION + (v - OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION) * r,
+        12
+      );
+    }
+    // it never goes below the record's own resolution, and a region already at or under it is left alone
+    expect(omahaFlopPressureCapRegion(v, 0.9, { shown: 1e6, value: 1e6 })).toBeGreaterThanOrEqual(
+      OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION
+    );
+    expect(omahaFlopPressureCapRegion(0.18, 0.9, { shown: 50, value: 50 })).toBe(0.18);
+    // more value in the record never widens it
+    const a = omahaFlopPressureCapRegion(v, 0.9, { shown: 20, value: 12 });
+    const b = omahaFlopPressureCapRegion(v, 0.9, { shown: 20, value: 18 });
+    expect(b).toBeLessThanOrEqual(a);
   });
 });

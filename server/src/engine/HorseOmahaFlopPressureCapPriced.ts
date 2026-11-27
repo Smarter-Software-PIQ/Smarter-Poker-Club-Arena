@@ -39,7 +39,9 @@ import {
   type OmahaFlopFacingBetEvSpot,
 } from './HorseOmahaFlopFacingBetEv.js';
 import {
+  OMAHA_PEOPLE_PRIOR_RECORD_BETS,
   omahaFlopPeoplePriorShare,
+  omahaPeopleFlopCell,
   type OmahaPeoplePriorShare,
 } from './HorseOmahaFacingBetPeoplePrior.js';
 
@@ -91,6 +93,40 @@ export function omahaFlopPressureCapPricedSpot(
   return spot;
 }
 
+/**
+ * The record's own resolution: his shown flop bets are kept as "in the top 20% of holdings on that board or not"
+ * (HorseOmahaBetRead's value unit), so a record can show a value region as narrow as 0.20 and no narrower.
+ */
+export const OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION = 0.2;
+
+/**
+ * THE VALUE REGION HIS RECORD ALLOWS (follow-up 2026-11-27, lead-8 l8-of-flop). His shown flop bets already move q,
+ * the share of his range outside the value region, by r = his not-top-20% rate over people's (8 pseudo-bets toward
+ * people's rate). They did not move the region itself, so the price was always against the strongest
+ * OMAHA_FLOP_EV_VALUE_SHARE x line of holdings (about 0.35 for a pot bet), even for a bettor whose shown bets are
+ * all in the top 20%. Against such a bettor the probe found the changed one-pair calls priced about 0.13 equity
+ * above their real equity (l8-of-flop/BUILD.md). The same ratio now narrows the region:
+ * region = 0.20 + (valueShare - 0.20) x r when r < 1. It is unchanged with no record, with r >= 1 (a bettor as loose
+ * as people or looser), and for a raise (no record is read).
+ */
+export function omahaFlopPressureCapRegion(
+  valueShare: number,
+  potFrac: number,
+  record: { shown: number; value: number } | null
+): number {
+  const floor = OMAHA_FLOP_PRESSURE_CAP_RECORD_REGION;
+  if (!(valueShare > floor) || !record) return valueShare;
+  const shown = Number.isFinite(record.shown) && record.shown > 0 ? record.shown : 0;
+  if (!(shown > 0)) return valueShare;
+  const pNT = omahaPeopleFlopCell(potFrac, false, false).nonTop20;
+  if (pNT === null) return valueShare;
+  const value = Math.max(0, Math.min(shown, Number.isFinite(record.value) ? record.value : 0));
+  const k = OMAHA_PEOPLE_PRIOR_RECORD_BETS;
+  const r = (k * pNT + (shown - value)) / (k + shown) / pNT;
+  if (!Number.isFinite(r) || r >= 1) return valueShare;
+  return floor + (valueShare - floor) * Math.max(0, r);
+}
+
 export interface OmahaFlopPressureCapPricedEquity {
   /** the equity against his range (showdown share, ties halved) */
   equity: number;
@@ -126,7 +162,7 @@ export function omahaFlopPressureCapPricedEquity(
     hole,
     board,
     dead,
-    spot.valueShare,
+    omahaFlopPressureCapRegion(spot.valueShare, spot.potFrac, record),
     undefined,
     0,
     OMAHA_FLOP_PRESSURE_CAP_RIVERS
