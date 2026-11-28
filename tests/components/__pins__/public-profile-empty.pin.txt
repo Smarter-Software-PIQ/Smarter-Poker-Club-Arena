@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "◉ | Player Not Found",
+  "regions": [],
+  "controls": [
+    "button|button|Find Players|"
+  ]
+}

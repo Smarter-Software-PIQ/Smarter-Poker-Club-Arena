@@ -1,0 +1,23 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Player Safety | Report Player | Private | Unable to save report | False Reports May Result In Account Suspension. Please Only Report Genuine Violations. | Reason For Report | Description | Verbal abuse in table chat. | Hand ID (Optional) | Include Recent Chat Logs With This Player",
+  "regions": [
+    "p|alert|",
+    "div|group|Reason For Report"
+  ],
+  "controls": [
+    "button|button|Abusive Behavior|aria-pressed=true",
+    "button|button|Cancel|",
+    "button|button|Cheating|aria-pressed=false",
+    "button|button|Collusion|aria-pressed=false",
+    "button|button|Harassment|aria-pressed=false",
+    "button|button|Other|aria-pressed=false",
+    "button|button|Submit Report|",
+    "input|checkbox||unchecked,value=on",
+    "input|text||value=",
+    "textarea||Verbal abuse in table chat.|value=Verbal abuse in table chat."
+  ]
+}

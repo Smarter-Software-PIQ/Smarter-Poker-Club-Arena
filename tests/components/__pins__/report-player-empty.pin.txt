@@ -1,0 +1,22 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Player Safety | Report Player | Private | False Reports May Result In Account Suspension. Please Only Report Genuine Violations. | Reason For Report | Description | Hand ID (Optional) | Include Recent Chat Logs With This Player",
+  "regions": [
+    "div|group|Reason For Report"
+  ],
+  "controls": [
+    "button|button|Abusive Behavior|aria-pressed=true",
+    "button|button|Cancel|",
+    "button|button|Cheating|aria-pressed=false",
+    "button|button|Collusion|aria-pressed=false",
+    "button|button|Harassment|aria-pressed=false",
+    "button|button|Other|aria-pressed=false",
+    "button|button|Submit Report|disabled",
+    "input|checkbox||unchecked,value=on",
+    "input|text||value=",
+    "textarea|||value="
+  ]
+}

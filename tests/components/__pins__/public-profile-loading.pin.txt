@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Loading Profile...",
+  "regions": [
+    "div|status|Loading content"
+  ],
+  "controls": []
+}
