@@ -366,6 +366,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 PLO-OWNER + Hold'em owner lead-8: the NLH cash heads-up river bluff priced on people's river fold by
   // size and his own river record by size; blockers or the range advantage required (ship dark)
   'holdemRiverBluffIsPricedOnPeople',
+  // 2026-11-27 PLO-OWNER lead-9 (lane nlof): a fold facing the first bet of a heads-up NLH cash river re-priced on
+  // what the bettor's own called river bets were shown to be, then people's measured river first bets (ship dark)
+  'holdemRiverFacingBetPriorIsPeopleMeasured',
   // 2026-11-27 PLO-OWNER lead-9: the NLH cash heads-up turn bluff after a checked-through flop priced on people's
   // turn fold by size and his own turn record by size; blockers or the range advantage required (ship dark)
   'holdemTurnBluffIsPricedOnPeople',
@@ -1204,6 +1207,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up, river, not facing a wager',
     "a check becomes a bluff only when it prices above the check on his river record by size, then people's, with blockers or the range advantage",
+  ],
+  holdemRiverFacingBetPriorIsPeopleMeasured: [
+    HOLDEM,
+    "NLH cash (table and Lightning), heads-up, river, facing the river's first bet",
+    "a fold becomes a call when it clears its error on his own shown river bets, then people's measured river bets",
   ],
   holdemTurnBluffIsPricedOnPeople: [
     HOLDEM,

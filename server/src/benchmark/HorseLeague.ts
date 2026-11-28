@@ -5486,6 +5486,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverBluffIsPricedOnPeople: true },
     b: {},
   },
+  // 2026-11-27 lead-9 (default OFF): a fold facing the first bet of a heads-up NLH cash river re-priced on people's
+  // measured river bets; a switches it on, b is today's brain. Graded by the lane's own mirror, probes and replay.
+  {
+    name: 'nlh_holdem_river_facing_bet_prior_is_people_measured',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverFacingBetPriorIsPeopleMeasured: true },
+    b: {},
+  },
   // 2026-11-27 lead-9 (default OFF): the NLH cash heads-up turn bluff priced on people's turn fold; a switches it
   // on, b is today's brain. Graded by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
   {

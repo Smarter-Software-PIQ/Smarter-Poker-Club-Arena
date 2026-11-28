@@ -3009,6 +3009,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemRiverFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folded every Horse 72.5% of the time against a pure-bluff break-even of 46.4%, +11.3 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the river, facing the river's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: what the bettor's own called river bets were shown to be (HorseHoldemBetRead), shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium (HorseHoldemFacingBetPeoplePrior); how often he bets is not read. Never folds a call, never raises.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemTurnBluffIsPricedOnPeople',
     "PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits, NLH cash against people: missed turn bluffs are a top Hold'em chip leak; measured on people's answers: a heads-up turn barrel is not a profitable pure bluff, people fold 34% where break-even is 36%, while a small bet after a checked flop is, 39% where break-even is 22%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn, the flop checked through, not facing a wager (after a flop wager the option stands aside: people fold a turn bet at or below equilibrium there): the brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the bluff prices above the check by more than the error of his fold, and the Horse's cards block his calling part or its line range outscores his. His fold is read size by size: his own lifetime turn record of that size, shrunk to people's measured turn fold for the Horse's line and that size (answers by people only), shrunk to equilibrium (HorseHoldemPeopleTurnFold). Off never runs it.",
     "Hold'em Strategy"
@@ -10710,6 +10715,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_bluff_below_check',
     'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
     "no river bluff size cleared the check by more than the error of his fold on his own record and people's measured river fold: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_call',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river (NLH cash) the brain's fold became a call: priced on what the bettor's own called river bets were shown to be and people's measured river first bets of that size, line and pot type, the call clears its sampling error",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_fold_stands',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river the brain's fold was re-priced on the bettor's own shown river bets and people's measured river first bets and the call did not clear its sampling error: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_own_record_read',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "the bettor's own shown river bets (what his called heads-up river first bets turned out to be) moved people's measured shares of a river first bet",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_unpriced',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(

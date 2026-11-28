@@ -48,6 +48,14 @@ import {
   holdemRiverFoldMultiplierOnPeople,
 } from './HorseHoldemPeopleRiverFold.js';
 import {
+  holdemFacingBetLineOf,
+  holdemFacingBetOwnShares,
+  holdemFacingBetPotOf,
+  holdemFacingBetPrice,
+  holdemFacingBetRegionWins,
+} from './HorseHoldemFacingBetPeoplePrior.js';
+import { holdemBetReadOf } from './HorseHoldemBetRead.js';
+import {
   HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE,
   holdemPeopleTurnFold,
   holdemPeopleTurnFoldMultiplier,
@@ -6582,6 +6590,16 @@ export interface HorseDecideOpts {
    * fold is read size by size: his own lifetime river record of that size, shrunk to PEOPLE's measured river fold
    * for the Horse's line and that size, shrunk to equilibrium (HorseHoldemPeopleRiverFold). Off: byte-identical. */
   holdemRiverBluffIsPricedOnPeople?: boolean;
+  /** PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: "all overfolding fixes for PLO4, PLO5 and No Limit"; 30 days of
+   * NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folds every Horse 72.5% of the time where a
+   * pure bluff breaks even at 46.4%, +11.3 bb per bet): opt-in (`=== true`), default OFF. NLH cash (table and
+   * Lightning), one board, heads-up, river, facing the river's FIRST bet: the brain's FOLD becomes a call when the
+   * call prices above the fold by more than its sampling error against what such a bet is: what the bettor's own
+   * called river bets of that line and size turned out to be at showdown (HorseHoldemBetRead), shrunk to PEOPLE's
+   * measured river first bets for that size, line and pot type (shown cards only), shrunk to equilibrium
+   * (HorseHoldemFacingBetPeoplePrior). How often he bets is not read. It never folds a call, never raises, never
+   * acts facing a raise. Off: byte-identical. */
+  holdemRiverFacingBetPriorIsPeopleMeasured?: boolean;
   /** PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits list missed turn bluffs as a top Hold'em cash
    * leak; measured on people Oct 28 to Nov 27: a heads-up turn barrel is NOT a profitable pure bluff, people fold
    * 34% where break-even is 36%, while a small bet after a checked flop is, 43% where break-even is 22%): opt-in
@@ -19654,6 +19672,10 @@ export class HorseLogic {
           opts.holdemMultiwayOpeningValueBetIsPriced === true
         )
           decision = this.holdemMultiwayOpeningPriced(decision, player, gs, vi, opts);
+        // holdemRiverFacingBetPriorIsPeopleMeasured (default off): a fold facing the first bet of a heads-up river
+        // re-priced on the bettor's own shown river bets, then people's measured river bets.
+        if (opts.holdemRiverFacingBetPriorIsPeopleMeasured === true)
+          decision = this.holdemRiverFacingBetOnPeople(decision, player, gs, vi, opts);
         // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
         if (
           opts.holdemTournamentRiverBluffIsPriced === true ||
@@ -36575,6 +36597,122 @@ export class HorseLogic {
       return { ...(legal.get(best.bet.to) as HorseDecision), thinkTime };
     } catch {
       if (tele) noteFire('holdem_tourney_bluff_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemRiverFacingBetPriorIsPeopleMeasured (PLO-OWNER lead-9 2026-11-27, default off, read `=== true`): NLH cash
+   * (table and Lightning), one board, heads-up, the river, facing the river's FIRST bet (the Horse has put nothing in
+   * on the river and nobody has raised). The brain's FOLD becomes a call when the call's value clears its sampling
+   * error (HorseHoldemFacingBetPeoplePrior): the Horse's exact share of wins against his holdings of each region,
+   * weighted by what such a bet is: what his own called river bets were shown to be -> PEOPLE's measured river first
+   * bets of that size, line and pot type -> equilibrium. Every other decision is kept: it never folds a call, never
+   * raises, and prices nothing facing a raise. Draws nothing from fastRandom.
+   */
+  private static holdemRiverFacingBetOnPeople(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    if (opts.holdemRiverFacingBetPriorIsPeopleMeasured !== true) return decision;
+    if (decision.action !== 'fold' || gs.stage !== 'river') return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0] as SeatPlayer;
+    const tele = telemetryOn(opts);
+    try {
+      const board = gs.communityCards ?? [];
+      if (board.length !== 5) return decision;
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), villainIn);
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const owed = currentBet - heroIn;
+      // a bet made into more than one player (somebody has folded to it) is not a heads-up bet: not priced
+      if ((gs.actionHistory ?? []).some((x) => x.stage === 'river' && x.action === 'fold'))
+        return decision;
+      // the river's first bet only: the Horse has nothing in on the river, and exactly one wager was made on it
+      const riverWagers = (gs.actionHistory ?? []).filter(
+        (x) =>
+          x.stage === 'river' &&
+          (x.action === 'bet' || x.action === 'raise' || x.action === 'all_in')
+      );
+      if (
+        !(owed > 0) ||
+        heroIn > 0 ||
+        !(heroStack > 0) ||
+        riverWagers.length !== 1 ||
+        (riverWagers[0] as { seat: number }).seat !== opp.seat
+      )
+        return decision;
+      const toCall = Math.min(owed, heroStack);
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      // the part of his bet the Horse cannot match comes back to him: it is not won
+      const winnable = pot - (owed - toCall);
+      const before = pot - villainIn;
+      if (!(before > 0) || !(winnable > 0)) return decision;
+      const ratio = villainIn / before;
+      const wins = holdemFacingBetRegionWins(player.cards, board);
+      if (wins === null) {
+        if (tele) noteFire('holdem_river_people_prior_unpriced');
+        return decision;
+      }
+      const line = holdemFacingBetLineOf(gs.actionHistory, opp.seat);
+      const shares = holdemFacingBetOwnShares(
+        ratio,
+        line,
+        holdemFacingBetPotOf(gs.actionHistory),
+        opts.mind !== false ? holdemBetReadOf(opp.user_id, line, ratio) : null
+      );
+      if (tele && shares.shown > 0) noteFire('holdem_river_people_prior_own_record_read');
+      const price = holdemFacingBetPrice(
+        wins.wins,
+        shares,
+        winnable,
+        toCall,
+        rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+      );
+      if (price === null) {
+        if (tele) noteFire('holdem_river_people_prior_unpriced');
+        return decision;
+      }
+      if (!price.call) {
+        if (tele) noteFire('holdem_river_people_prior_fold_stands');
+        return decision;
+      }
+      const called = this.legalize(
+        { action: 'call', amount: toCall, thinkTime: 0 },
+        player,
+        gs,
+        vi
+      );
+      if (called.action !== 'call' && called.action !== 'all_in') {
+        if (tele) noteFire('holdem_river_people_prior_unpriced');
+        return decision;
+      }
+      if (tele) noteFire('holdem_river_people_prior_call');
+      return called;
+    } catch {
+      if (tele) noteFire('holdem_river_people_prior_unpriced');
       return decision;
     }
   }

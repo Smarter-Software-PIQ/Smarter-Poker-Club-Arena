@@ -2564,6 +2564,18 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "holdemRiverFacingBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_people_prior_call",
+        "holdem_river_people_prior_fold_stands",
+        "holdem_river_people_prior_own_record_read",
+        "holdem_river_people_prior_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "holdemTurnBluffIsPricedOnPeople": {
       "releaseDefault": "off",
       "source": "ledger",

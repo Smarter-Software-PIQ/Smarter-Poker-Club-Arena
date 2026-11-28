@@ -518,8 +518,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     },
     outside: {
       'const tele = telemetryOn(opts);': [
-        58,
-        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule, the multiway opening priced rule and the tournament bluff priced rule)',
+        60,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule, the multiway opening priced rule the tournament bluff priced rule and the river facing-bet people prior)',
       ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
