@@ -116,7 +116,14 @@ ssh() {
     *) echo "" ;;
   esac
 }
-curl() { echo "curl $*" >> "$CALLS"; return 1; }
+curl() {
+  echo "curl $*" >> "$CALLS"
+  if [ -n "\${LIVE_HEALTH_JSON:-}" ]; then
+    printf '%s\\n' "$LIVE_HEALTH_JSON"
+    return 0
+  fi
+  return 1
+}
 python3() {
   if [ "\${1:-}" = -B ] && [ "\${2:-}" = ${SCRIPT} ]; then
     shift 2
@@ -159,7 +166,13 @@ type PrequalMock = Record<
 >;
 type StatusMock = Record<
   string,
-  { state: string; description?: string; target_url?: string } | 'FAIL'
+  | {
+      state: string;
+      description?: string;
+      target_url?: string;
+      rehearsedServingSha?: string;
+    }
+  | 'FAIL'
 >;
 
 function writeFakeGh(binDir: string, prequal: PrequalMock = {}, statuses: StatusMock = {}) {
@@ -171,7 +184,7 @@ function writeFakeGh(binDir: string, prequal: PrequalMock = {}, statuses: Status
   writeFileSync(
     resolve(binDir, 'gh'),
     `#!/usr/bin/env python3
-import json, os, re, sys
+import io, json, os, re, sys, zipfile
 args = sys.argv[1:]
 calls = os.environ.get('CALLS')
 if calls:
@@ -205,6 +218,31 @@ if 'engine-release-prequalification.yml/runs' in url:
         run = {'id': entry.get('id', 46052191027), 'head_sha': sha, 'status': entry['status'], 'conclusion': entry.get('conclusion')}
     print(json.dumps({'workflow_runs': [run]}))
     sys.exit(0)
+
+m_art = re.search(r'actions/runs/([0-9]+)/artifacts', url)
+if m_art:
+    rid = m_art.group(1)
+    for sha, entry in statuses.items():
+        if isinstance(entry, dict) and str(entry.get('target_url', '')).endswith('/actions/runs/' + rid):
+            if entry.get('rehearsedServingSha'):
+                print(rid)
+                sys.exit(0)
+    print('')
+    sys.exit(0)
+
+m_zip = re.search(r'actions/artifacts/([0-9]+)/zip', url)
+if m_zip:
+    rid = m_zip.group(1)
+    for sha, entry in statuses.items():
+        if isinstance(entry, dict) and str(entry.get('target_url', '')).endswith('/actions/runs/' + rid):
+            rehearsed = entry.get('rehearsedServingSha')
+            if rehearsed:
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, 'w') as zf:
+                    zf.writestr('certificate.json', json.dumps({'rehearsedServingSha': rehearsed}))
+                sys.stdout.buffer.write(buf.getvalue())
+                sys.exit(0)
+    sys.exit(1)
 
 m = re.search(r'commits/([0-9a-f]{40})/statuses', url)
 if m:
@@ -596,9 +634,10 @@ describe('prequalification-aware pre-soak step-down and hand-back (O37)', () => 
     expect(chained.calls).not.toContain('LEASE_RELEASED');
   }, 120_000);
 
-  it('releases the host in seconds via O10 ALREADY CERTIFIED when the stepped-down good ancestor is already certified for the current copy', () => {
+  it('releases the host in seconds via O10 ALREADY CERTIFIED when the stepped-down good ancestor is already certified for the current copy and live serving engine, and re-certifies when rehearsedServingSha is stale (O37b BUG 1A)', () => {
     const f = fixturePrequal();
-    const { good, badPrequal } = f.shas;
+    const { serving, good, badPrequal } = f.shas;
+    const oldServing = '9'.repeat(40);
     // Compute the exact comparable installed-migrations digest that refresh-due emits for `good`.
     const compRun = spawnSync(
       'python3',
@@ -622,9 +661,15 @@ describe('prequalification-aware pre-soak step-down and hand-back (O37)', () => 
     const comparable = /^comparable=([0-9a-f]{64})$/m.exec(compRun.stdout)?.[1];
     expect(comparable).toMatch(/^[0-9a-f]{64}$/);
 
+    // Matching rehearsedServingSha == live serving: hands host back in seconds.
     const r = runDue(
       f,
-      { SHA: badPrequal, CONTROL: badPrequal, GITHUB_SHA: badPrequal },
+      {
+        SHA: badPrequal,
+        CONTROL: badPrequal,
+        GITHUB_SHA: badPrequal,
+        LIVE_HEALTH_JSON: JSON.stringify({ running: true, releaseSha: serving }),
+      },
       {
         copyMatchesProduction: true,
         prequal: { [badPrequal]: 'failed', [good]: 'passed' },
@@ -632,6 +677,8 @@ describe('prequalification-aware pre-soak step-down and hand-back (O37)', () => 
           [good]: {
             state: 'success',
             description: `Certified on the Backup Engine; installed migrations ${comparable}`,
+            target_url: 'https://github.com/fixture/repo/actions/runs/46090000001',
+            rehearsedServingSha: serving,
           },
         },
       }
@@ -647,6 +694,38 @@ describe('prequalification-aware pre-soak step-down and hand-back (O37)', () => 
     expect(r.out).toContain('due=false\n');
     expect(r.out).toContain('deferred=1\n');
     expect(r.calls).toContain('LEASE_RELEASED');
+
+    // Stale rehearsedServingSha != live serving (O37b BUG 1A): must NOT defer,
+    // must keep lease and re-certify `good` against the current live serving engine.
+    const stale = runDue(
+      f,
+      {
+        SHA: badPrequal,
+        CONTROL: badPrequal,
+        GITHUB_SHA: badPrequal,
+        LIVE_HEALTH_JSON: JSON.stringify({ running: true, releaseSha: serving }),
+      },
+      {
+        copyMatchesProduction: true,
+        prequal: { [badPrequal]: 'failed', [good]: 'passed' },
+        statuses: {
+          [good]: {
+            state: 'success',
+            description: `Certified on the Backup Engine; installed migrations ${comparable}`,
+            target_url: 'https://github.com/fixture/repo/actions/runs/46090000002',
+            rehearsedServingSha: oldServing,
+          },
+        },
+      }
+    );
+    expect(stale.status, stale.stderr).toBe(0);
+    expect(stale.stdout).toContain(
+      `STEPPED DOWN: ${badPrequal} failed Engine release prequalification`
+    );
+    expect(stale.stdout).not.toContain('ALREADY CERTIFIED');
+    expect(stale.out).toContain(`sha=${good}\n`);
+    expect(stale.out).not.toContain('deferred=1');
+    expect(stale.calls).not.toContain('LEASE_RELEASED');
   }, 60_000);
 
   it('defers cleanly and releases the host lease when target failed prequalification and no shippable commit remains below it', () => {
