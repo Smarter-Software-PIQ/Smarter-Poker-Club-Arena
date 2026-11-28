@@ -1,0 +1,123 @@
+/**
+ * THE AGENT PERFORMANCE SCORE IN #SMARTERDESIGN (2026-11-28)
+ *
+ * The card left the painted console. The Agent Dashboard seats it in its own
+ * chrome case (section "Score"), so the card draws no second frame: the
+ * eyebrow and chrome section title, the overall score on a chrome readout
+ * tile, and every other score and figure on a chrome ledger row. Every rule
+ * is scoped under .arena-workspace, the Agent Dashboard root
+ * (tests/unit/partialOperatorPanelsArenaIsScoped.test.ts). The cqw sizes in
+ * AgentScoreCard.css measured the console, so the sizes are set here in px.
+ * The threshold inks keep their colour words (green 80+, blue 60+, gold 40+,
+ * red below) in the workspace's tokens, without the painted glow or fill.
+ * No gradient, radius, shadow or :hover of its own.
+ */
+
+.arena-workspace .agent-score-card {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  filter: none;
+}
+
+.arena-workspace .agent-score-card > .arena-section-title {
+  margin: 0;
+}
+
+.arena-workspace .agent-score-card [class*='sc-ink--'] {
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
+}
+.arena-workspace .agent-score-card .sc-ink--green {
+  color: #35d95a;
+}
+.arena-workspace .agent-score-card .sc-ink--blue {
+  color: #74dfff;
+}
+.arena-workspace .agent-score-card .sc-ink--gold {
+  color: #ffd700;
+}
+.arena-workspace .agent-score-card .sc-ink--red {
+  color: #ff5b6e;
+}
+.arena-workspace .agent-score-card .sc-ink--silver {
+  color: #f1f5fc;
+}
+.arena-workspace .agent-score-card .sc-ink--muted {
+  color: #9fbacc;
+}
+
+.arena-workspace .agent-score-card .asc__pill {
+  font:
+    800 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-score-card .asc__state {
+  padding: 10px 0;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace .agent-score-card .asc__section {
+  gap: 4px;
+  padding-top: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+
+.arena-workspace .agent-score-card .asc__row {
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 10px;
+}
+
+/* AgentScoreCard.css engraves a 1px rule between rows; on a chrome row the
+   top rim is the row art's own 4px slice. */
+.arena-workspace .agent-score-card .asc__row + .asc__row {
+  border-top: 4px solid transparent;
+  box-shadow: none;
+}
+
+.arena-workspace .agent-score-card .asc__row--overall {
+  min-height: 64px;
+  text-align: left;
+}
+
+.arena-workspace .agent-score-card .asc__row-label {
+  color: #dce5ef;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .agent-score-card .asc__row-detail {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.arena-workspace .agent-score-card .asc__row-value {
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.arena-workspace .agent-score-card .asc__overall {
+  font:
+    800 34px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
