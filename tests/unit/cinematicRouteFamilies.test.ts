@@ -10,7 +10,6 @@ const REWARD_PAGES = [
   'src/pages/TransactionHistoryPage.tsx',
   'src/pages/VIPPage.tsx',
   'src/pages/RakebackPage.tsx',
-  'src/pages/PromotionsPage.tsx',
   'src/pages/DailyBonusPage.tsx',
   'src/pages/AchievementsPage.tsx',
   'src/pages/MarketplacePage.tsx',
@@ -34,6 +33,15 @@ const UNION_PAGES = [
 describe('cinematic retained route families', () => {
   it.each(REWARD_PAGES)('%s uses the live Rewards Circuit visual anchor', (path) => {
     expect(readFileSync(path, 'utf8')).toContain('RewardsSurfaceHeader');
+  });
+
+  it('Promotions wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Player Offers is a Club Operations page now: the chrome mast and case,
+    // never the painted Rewards Circuit console.
+    const source = readFileSync('src/pages/PromotionsPage.tsx', 'utf8');
+    expect(source).toContain('arena-workspace');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
   });
 
   it('opens the wallet on the routed Cashier desk (Dan 2026-10-16)', () => {

@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   getClubOperationBadge,
   getClubOperationQueueTotal,
   getClubOperationGroups,
 } from '../../config/clubOperationsNavigation';
-import { ErrorState, LoadingState, PermissionState } from '../../components/common/EmptyState';
 import { useClubNavigationAccess } from '../../hooks/useClubNavigationAccess';
 import { useClubWorkspace } from '../../contexts/ClubWorkspaceContext';
 import {
@@ -18,7 +17,8 @@ import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import PageBar from '../../components/help/PageBar';
 import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
-import { ArenaReadings, ArenaRow, type ArenaTone } from '../../components/ops/ArenaOps';
+import { ArenaReadings, ArenaRow, ArenaState, type ArenaTone } from '../../components/ops/ArenaOps';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
 import '../../components/lobby/ArenaWorkspace.css';
 import '../../components/ops/ArenaOps.css';
 import { freshnessLabel } from '../../utils/clubOperationsFreshness';
@@ -81,6 +81,8 @@ export default function ClubOperationsPage() {
      instead of waiting on a reading that is never asked for (2026-11-26). */
   const readingsDenied =
     overviewDenied || (!access.loading && !access.error && !access.canControlClub);
+  /* The club's name in the mast from the first frame, never "Club Arena". */
+  const mastClubName = useArenaClubName(overview?.club.name);
 
   /* The freshness line is a relative time, so it has to be re-rendered by
      something other than the next read or it silently ages on screen. */
@@ -151,20 +153,45 @@ export default function ClubOperationsPage() {
     return list;
   }, [overview, access.canViewFinance]);
 
+  /* Authorizing, a failed check and a refusal wear the same chrome mast and
+     case as the page itself (Dan 2026-11-27), never a generic full screen. */
+  const statePage = (state: ReactNode) => (
+    <div className={`arena-workspace ${styles.page}`}>
+      <ArenaWorkspaceHeader area="operations" title="Club Operations" context={mastClubName} />
+      <section className="arena-case arena-ops-case">{state}</section>
+    </div>
+  );
+
   if (access.loading) {
-    return <LoadingState message="Authorizing Club Operations" />;
+    return statePage(<ArenaState tone="loading" title="Authorizing Club Operations" />);
   }
 
   if (access.error) {
-    return <ErrorState message={access.error} onRetry={access.reload} />;
+    return statePage(
+      <ArenaState
+        tone="error"
+        title="This Surface Could Not Load"
+        message={access.error}
+        actions={
+          <button type="button" onClick={access.reload}>
+            Try Again
+          </button>
+        }
+      />
+    );
   }
 
   if (!access.isClubStaff) {
-    return (
-      <PermissionState
+    return statePage(
+      <ArenaState
+        tone="empty"
         title="Club Operations Is Restricted"
-        description="This Workspace Is Available To Club Owners, Administrators, And Authorized Agent Staff."
-        onBack={() => navigate(`/clubs/${clubId}`)}
+        message="This Workspace Is Available To Club Owners, Administrators, And Authorized Agent Staff."
+        actions={
+          <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+            Go Back
+          </button>
+        }
       />
     );
   }
@@ -175,11 +202,7 @@ export default function ClubOperationsPage() {
 
   return (
     <div className={`arena-workspace ${styles.page}`}>
-      <ArenaWorkspaceHeader
-        area="operations"
-        title="Club Operations"
-        context={overview?.club.name || null}
-      />
+      <ArenaWorkspaceHeader area="operations" title="Club Operations" context={mastClubName} />
       <PageBar
         title="Club Operations"
         titleAs={false}

@@ -491,7 +491,7 @@ describe('the page and the service carry no em dash', () => {
   it.each([
     'src/pages/club/ClubDiamondCostsPage.tsx',
     'src/services/ClubCommerceService.ts',
-    'src/pages/club/ClubDiamondCostsPage.module.css',
+    'src/components/club/DiamondOpsKit.css',
   ])('%s', (file) => {
     expect(readFileSync(resolve(ROOT, file), 'utf8').includes(EM_DASH)).toBe(false);
   });

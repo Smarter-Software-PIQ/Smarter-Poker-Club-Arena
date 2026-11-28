@@ -172,8 +172,9 @@ describe('one component, so the two consoles cannot drift apart', () => {
     }
   });
 
-  it('it is built on the painted chassis, not drawn', () => {
-    expect(ui).toContain("from '../console/SpadeConsole'");
+  it('it is built on the shared #SmarterDesign arena kit, not drawn', () => {
+    expect(ui).toContain("from './DiamondOpsKit'");
+    expect(ui).not.toContain('SpadeConsole');
     expect(ui).not.toMatch(/border-radius|linear-gradient|box-shadow/);
   });
 
@@ -204,6 +205,6 @@ describe('one component, so the two consoles cannot drift apart', () => {
 
   it('shows a refusal rather than an empty table that looks like no history', () => {
     expect(ui).toContain('[pnl, room, players].find((r) => r && !r.ok)?.error ?? null');
-    expect(ui).toContain('sc-ink--red');
+    expect(ui).toContain('dops-copy--danger');
   });
 });

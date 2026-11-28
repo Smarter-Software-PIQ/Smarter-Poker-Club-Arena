@@ -9,9 +9,9 @@
  * table creators were all printed inside ONE SpadeConsole whose title changed,
  * so every tool read as an interchangeable screen in the same physical window.
  * These tests pin the correction at the level Dan sees it: on every section
- * exactly one frame is drawn, it belongs to that section alone, and the three
- * principal sections wear three different approved frame families. The section
- * strip is navigation and sits outside every frame. The behaviour the frames
+ * exactly one chrome case is drawn and it belongs to that section alone
+ * (#SmarterDesign, Dan 2026-11-27: the painted frame families are the old
+ * style). The section strip is navigation and sits outside every case. The behaviour the frames
  * carry - access, the board's data, the draft guard - is unchanged and is
  * pinned by the suites beside this one.
  */
@@ -199,8 +199,10 @@ const renderInBrowser = () =>
 const BASE = '/clubs/deep-stack-society/table-management';
 /** Every painted frame on the page. SpadeConsole's root always carries `sc`. */
 const frames = () => Array.from(document.querySelectorAll<HTMLElement>('.sc'));
-const familyOf = (frame: HTMLElement) =>
-  Array.from(frame.classList).find((name) => name.startsWith('sc--family-'));
+/** Every chrome case on the page (#SmarterDesign, Dan 2026-11-27): the Game
+ *  Board, its states and its dialogs wear the arena workspace, never a
+ *  painted frame. */
+const cases = () => Array.from(document.querySelectorAll<HTMLElement>('.arena-case'));
 
 describe('each Table Management section is its own page on its own frame', () => {
   beforeEach(() => {
@@ -211,14 +213,17 @@ describe('each Table Management section is its own page on its own frame', () =>
     mocks.confirm.mockResolvedValue(true);
   });
 
-  it('draws the Game Board alone, on the spade console with the spade crest', async () => {
+  it('draws the Game Board alone, in one chrome case under the arena mast', async () => {
     renderAt(BASE);
     await screen.findByText('Friday Deep Stack');
-    const drawn = frames();
+    expect(frames()).toHaveLength(0);
+    const drawn = cases();
     expect(drawn).toHaveLength(1);
-    expect(drawn[0].classList).toContain('sc--family-spade');
-    expect(drawn[0].classList).toContain('sc--crest-spade');
-    expect(within(drawn[0]).getByRole('heading', { name: 'Table Management' })).toBeTruthy();
+    expect(drawn[0].getAttribute('aria-label')).toBe('Game Board');
+    expect(document.querySelector('.arena-workspace .arena-workspace-mast')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Table Management' }).id).toBe(
+      'table-management-title'
+    );
     expect(screen.queryByRole('heading', { name: 'Ticker Management' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Club Messages' })).toBeNull();
   });
@@ -316,14 +321,15 @@ describe('each Table Management section is its own page on its own frame', () =>
     await screen.findByText('Friday Deep Stack');
     const strip = screen.getByRole('navigation', { name: 'Management Sections' });
     expect(strip.closest('.sc')).toBeNull();
+    expect(strip.closest('.arena-case')).toBeNull();
   });
 
-  it('draws Ticker Management as its own shark console, with no board around it', async () => {
+  it('draws Ticker Management as its own chrome case, with no board around it', async () => {
     renderAt(`${BASE}?section=ticker`);
     const heading = await screen.findByRole('heading', { name: 'Ticker Management' });
-    const drawn = frames();
+    expect(frames()).toHaveLength(0);
+    const drawn = cases();
     expect(drawn).toHaveLength(1);
-    expect(drawn[0].classList).toContain('sc--family-shark');
     expect(drawn[0].contains(heading)).toBe(true);
     expect(document.getElementById('table-management-title')).toBeNull();
     expect(screen.queryByText('Friday Deep Stack')).toBeNull();
@@ -334,20 +340,20 @@ describe('each Table Management section is its own page on its own frame', () =>
     expect(screen.getByRole('button', { name: /Sit N Go/ })).toBeEnabled();
   });
 
-  it('draws Club Messages as its own riveted console, with no board around it', async () => {
+  it('draws Club Messages as its own chrome case, with no board around it', async () => {
     renderAt(`${BASE}?section=messages`);
     const heading = await screen.findByRole('heading', { name: 'Club Messages' });
-    const drawn = frames();
+    expect(frames()).toHaveLength(0);
+    const drawn = cases();
     expect(drawn).toHaveLength(1);
-    expect(drawn[0].classList).toContain('sc--family-riveted');
     expect(drawn[0].contains(heading)).toBe(true);
     expect(document.getElementById('table-management-title')).toBeNull();
     expect(within(drawn[0]).getByRole('button', { name: 'Save Identity' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Add Table/ })).toBeEnabled();
   });
 
-  it('gives the three principal sections three different frame families', async () => {
-    const seen = new Set<string | undefined>();
+  it('gives each of the three principal sections its own single chrome case', async () => {
+    const seen = new Set<string | null>();
     for (const [entry, title] of [
       [BASE, 'Table Management'],
       [`${BASE}?section=ticker`, 'Ticker Management'],
@@ -355,14 +361,13 @@ describe('each Table Management section is its own page on its own frame', () =>
     ] as const) {
       const view = renderAt(entry);
       await screen.findByRole('heading', { name: title });
-      seen.add(familyOf(frames()[0]));
+      if (entry === BASE) await screen.findByText('Friday Deep Stack');
+      expect(frames()).toHaveLength(0);
+      expect(cases()).toHaveLength(1);
+      seen.add(cases()[0].getAttribute('aria-label') ?? cases()[0].getAttribute('aria-labelledby'));
       view.unmount();
     }
-    expect([...seen].sort()).toEqual([
-      'sc--family-riveted',
-      'sc--family-shark',
-      'sc--family-spade',
-    ]);
+    expect(seen.size).toBe(3);
   });
 
   it('moves between sections by address, replacing the page on show', async () => {
@@ -374,7 +379,8 @@ describe('each Table Management section is its own page on its own frame', () =>
     });
     await screen.findByRole('heading', { name: 'Ticker Management' });
     expect(screen.getByTestId('location').textContent).toBe(`${BASE}?section=ticker`);
-    expect(frames()).toHaveLength(1);
+    expect(frames()).toHaveLength(0);
+    expect(cases()).toHaveLength(1);
     await act(async () => {
       fireEvent.click(within(strip).getByRole('button', { name: /Game Board/ }));
     });
@@ -494,13 +500,13 @@ describe('each Table Management section is its own page on its own frame', () =>
     expect(document.getElementById('table-management-title')).toBeNull();
   });
 
-  it('refuses an affiliated club on the one-plate shark frame, never the board', async () => {
+  it('refuses an affiliated club in one chrome case with one key, never the board', async () => {
     mocks.access = async () => ({ allowed: true, unionId: 'union-1', reason: 'ok' });
     renderAt(BASE);
     await screen.findByRole('heading', { name: 'This Club Is Managed By Its Union' });
-    const drawn = frames();
+    expect(frames()).toHaveLength(0);
+    const drawn = cases();
     expect(drawn).toHaveLength(1);
-    expect(drawn[0].classList).toContain('sc--family-shark');
     expect(
       within(drawn[0])
         .getAllByRole('button')
@@ -509,24 +515,21 @@ describe('each Table Management section is its own page on its own frame', () =>
     expect(screen.queryByText('Friday Deep Stack')).toBeNull();
   });
 
-  it('checks access on the flat-headed spade, not a borrowed crest', async () => {
+  it('checks access in one chrome case, announced as a status', async () => {
     mocks.access = () => new Promise(() => {});
     renderAt(BASE);
-    expect(await screen.findByText('Verifying Game-Management Access…')).toHaveAttribute(
-      'role',
-      'status'
-    );
-    const drawn = frames();
-    expect(drawn).toHaveLength(1);
-    expect(drawn[0].classList).toContain('sc--crest-flat');
+    const checking = await screen.findByText('Verifying Game-Management Access…');
+    expect(checking.closest('[role="status"]')).toBeTruthy();
+    expect(frames()).toHaveLength(0);
+    expect(cases()).toHaveLength(1);
   });
 
   it('marks the board busy while its authoritative game read is pending', async () => {
     mocks.list = () => new Promise(() => {});
     renderAt(BASE);
     const loadingState = await screen.findByText('Loading Live Game Controls…');
-    expect(loadingState.closest('.sc')).toHaveAttribute('aria-busy', 'true');
-    expect(loadingState).toHaveAttribute('role', 'status');
+    expect(loadingState.closest('.arena-case')).toHaveAttribute('aria-busy', 'true');
+    expect(loadingState.closest('[role="status"]')).toBeTruthy();
   });
 
   it('announces an authoritative empty board without presenting it as an error', async () => {
@@ -544,8 +547,8 @@ describe('each Table Management section is its own page on its own frame', () =>
     });
     renderAt(BASE);
     const empty = await screen.findByText('No Games In This View');
-    expect(empty.closest('section')).toHaveAttribute('role', 'status');
-    expect(empty.closest('.sc')).toHaveAttribute('aria-busy', 'false');
+    expect(empty.closest('[role="status"]')).toBeTruthy();
+    expect(empty.closest('.arena-case')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('announces a refused club-management route as an alert', async () => {
@@ -595,7 +598,7 @@ describe('each Table Management section is its own page on its own frame', () =>
   });
 });
 
-describe('the dialogs over the board wear their own families', () => {
+describe('the dialogs over the board are chrome cases', () => {
   const game = {
     id: 'game-1',
     kind: 'table' as const,
@@ -617,14 +620,20 @@ describe('the dialogs over the board wear their own families', () => {
     pendingSchedule: null,
   };
 
-  it('edits on the riveted frame with its two plates', () => {
+  /** The keys under a dialog: the direct children of its chrome switch. */
+  const keys = (frame: HTMLElement) =>
+    Array.from(frame.querySelectorAll(':scope > .arena-switch > button')).map((b) => b.textContent);
+
+  it('edits in a chrome case with Cancel and Save Changes', () => {
     render(<EditGameDialog game={game as any} busy={false} onClose={() => {}} onSave={() => {}} />);
-    const frame = frames()[0];
-    expect(frame.classList).toContain('sc--family-riveted');
-    expect(frame.querySelectorAll('.sc-plate')).toHaveLength(2);
+    expect(frames()).toHaveLength(0);
+    const frame = cases()[0];
+    expect(frame.getAttribute('role')).toBe('dialog');
+    expect(frame.closest('.arena-workspace')).toBeTruthy();
+    expect(keys(frame)).toEqual(['Cancel', 'Save Changes']);
   });
 
-  it('schedules a close on the flat-headed spade with its two plates', () => {
+  it('schedules a close in a chrome case with Cancel and Schedule Close', () => {
     render(
       <ScheduleCloseDialog
         game={game as any}
@@ -633,19 +642,20 @@ describe('the dialogs over the board wear their own families', () => {
         onSchedule={() => {}}
       />
     );
-    const frame = frames()[0];
-    expect(frame.classList).toContain('sc--family-spade');
-    expect(frame.classList).toContain('sc--crest-flat');
-    expect(frame.querySelectorAll('.sc-plate')).toHaveLength(2);
+    expect(frames()).toHaveLength(0);
+    const frame = cases()[0];
+    expect(frame.getAttribute('role')).toBe('dialog');
+    expect(keys(frame)).toEqual(['Cancel', 'Schedule Close']);
   });
 
-  it('shows contract history on the one-plate shark, so no painted plate sits empty', () => {
+  it('shows contract history in a chrome case with one Close key', () => {
     render(
       <ContractHistoryDialog game={game as any} versions={[]} loading={false} onClose={() => {}} />
     );
-    const frame = frames()[0];
-    expect(frame.classList).toContain('sc--family-shark');
-    expect(frame.querySelectorAll('.sc-plate')).toHaveLength(1);
+    expect(frames()).toHaveLength(0);
+    const frame = cases()[0];
+    expect(frame.getAttribute('role')).toBe('dialog');
+    expect(keys(frame)).toEqual(['Close']);
   });
 
   it('normalizes readiness and change-reason values in contract history', () => {
@@ -747,7 +757,7 @@ describe('the Game Board error state speaks plainly', () => {
     const errorMessage = await screen.findByText(
       'Connection Problem. Please Check Your Internet And Try Again.'
     );
-    expect(errorMessage.closest('section')).toHaveAttribute('role', 'alert');
+    expect(errorMessage.closest('[role="alert"]')).toBeTruthy();
     expect(screen.queryByText(/TypeError|Failed to fetch/i)).toBeNull();
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeTruthy();
   });

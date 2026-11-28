@@ -148,7 +148,7 @@ export default function ArenaWorkspaceHeader({
         {emblem ?? <WorkspaceEmblem area={area} />}
       </div>
       <div className="arena-mast-lettering">
-        <span>{context || 'Club Arena'}</span>
+        <span>{context || '\u00a0'}</span>
         <h1 id={id}>{title}</h1>
         {subtitle && <small>{subtitle}</small>}
       </div>

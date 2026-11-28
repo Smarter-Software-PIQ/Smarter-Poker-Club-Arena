@@ -1,611 +1,195 @@
-/* ═══════════════════════════════════════════════════════════════
-   Anti-Cheat Dashboard — CSS Module
-   #SMARTERCASINOREALISM - the material layer. The tokens are defined once on
-   :root in src/styles/club-engine.css, which main.tsx loads; this sheet only
-   consumes them. The page is the club's integrity console: collusion pairs,
-   chip-dumping flags and the open-flag review queue, with the modal an operator
-   uses to action or dismiss one. Every red and amber here is a verdict about a
-   player, so those keep their exact colours - only the greys, the surfaces and
-   the accent blue move onto the shared vocabulary.
-   ═══════════════════════════════════════════════════════════════ */
+/* Anti-Cheat in #SmarterDesign (Dan 2026-11-27). The page root is an arena
+   workspace: the chrome mast, chrome keys for the sections, chrome readout
+   tiles and chrome ledger rows come from ArenaWorkspace.css and ArenaOps.css.
+   This sheet only lays the casework out. Severity prints as a word in the
+   smarter.poker inks: red for critical and high, gold for medium, blue for
+   low. No :hover (tests/no-hover-effects.law.test.ts). */
 
 .page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
   max-width: 1200px;
+  min-height: calc(100vh - 64px);
   margin: 0 auto;
-  padding: 20px 16px max(100px, env(safe-area-inset-bottom));
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
+  padding: 12px 12px max(100px, env(safe-area-inset-bottom));
+  /* clip, not hidden - see src/styles/design-system.css on body. `hidden` on
      one axis computes the other to `auto`, which makes this a scroll container,
      and WebKit then resolves the fixed ClubBottomNav against IT instead of the
      viewport. The bar leaves the bottom of the screen and rides up the page. */
   overflow-x: hidden;
   overflow-x: clip;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: var(--realism-chrome-hot);
+  color: #f1f5fc;
+  background: #050d17;
+  font-family: 'Arial Narrow', Arial, sans-serif;
 }
 
-/* ── Header ─────────────────────────────────────────────── */
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.headerLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--realism-chrome-hot);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-}
-.headerActions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* ── Badges ─────────────────────────────────────────────── */
-.badgeRed {
-  font-size: 12px;
-  font-weight: 700;
-  background: rgba(228, 30, 63, 0.15);
-  color: #fa383e;
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-.severityBadge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 12px;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.statusBadge {
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--realism-gunmetal);
-  color: var(--realism-chrome);
-  padding: 3px 8px;
-  border-radius: 12px;
-  text-transform: uppercase;
-}
-.statusOpen {
-  background: rgba(228, 30, 63, 0.15);
-  color: #fa383e;
-}
-.eventTypeBadge {
-  font-size: 11px;
-  font-weight: 700;
-  background: var(--realism-gunmetal);
-  color: var(--realism-chrome-hot);
-  padding: 3px 8px;
-  border-radius: 4px;
-  text-transform: uppercase;
-}
-.eventDanger {
-  background: rgba(228, 30, 63, 0.15);
-  color: #fa383e;
-}
-.eventWarning {
-  background: rgba(245, 166, 35, 0.15);
-  color: #f5a623;
-}
-.foldedBadge {
-  font-size: 11px;
-  font-weight: 700;
-  background: rgba(228, 30, 63, 0.15);
-  color: #fa383e;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-
-/* ── Tabs ────────────────────────────────────────────────── */
-.tabNav {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 20px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--realism-gunmetal);
-  -webkit-overflow-scrolling: touch;
-}
-.tab {
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--realism-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
-}
-.tabActive {
-  color: var(--realism-cyan);
-  border-bottom-color: var(--realism-cyan);
-}
 .tabBadge {
-  font-size: 11px;
-  font-weight: 700;
-  background: rgba(228, 30, 63, 0.15);
-  color: #fa383e;
-  padding: 2px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
+  margin-left: 5px;
+  color: #ffd700;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ── Stats Grid ─────────────────────────────────────────── */
-.statsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-/* A tile sits IN its frame, not on the page: lit top edge, cavity under it. */
-.statCard {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  padding: 16px;
-  text-align: center;
-}
-.statValue {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--realism-chrome-hot);
-}
-.statValueRed {
-  font-size: 22px;
-  font-weight: 800;
-  color: #fa383e;
-}
-.statValueGold {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--realism-gold);
-}
-.statValueGreen {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--realism-green);
-}
-.statValueBlue {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--realism-cyan);
-}
-.statLabel {
-  font-size: 12px;
-  color: var(--realism-muted);
-  margin-top: 4px;
+.severityBadge {
+  color: #74dfff;
+  font:
+    800 11px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+}
+.severityBadge[data-tone='attention'] {
+  color: #ffd700;
+}
+.severityBadge[data-tone='danger'] {
+  color: #ff5a6a;
 }
 
-/* ── Sections ───────────────────────────────────────────── */
-.section {
-  margin-bottom: 24px;
-}
-.subsection {
-  margin-top: 24px;
-}
-.subsectionTitle {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--realism-chrome-hot);
-  margin: 0 0 12px;
-}
-.subsectionDesc {
-  font-size: 13px;
-  color: var(--realism-muted);
-  margin: -8px 0 12px;
-}
-
-/* ── Data Table ─────────────────────────────────────────── */
-.tableScroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-.dataTable {
+/* ── Case rows ──────────────────────────────────────────────────────── */
+.caseRow {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+  min-width: 0;
+  padding: 8px 10px;
 }
-.dataTable th {
-  text-align: left;
-  padding: 10px 12px;
-  font-weight: 700;
-  color: var(--realism-muted);
-  border-bottom: 1px solid var(--realism-gunmetal);
-  font-size: 12px;
+.caseRow > * {
+  position: relative;
+  z-index: 2;
+}
+.caseHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.flagType {
+  color: #f1f5fc;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-transform: capitalize;
+}
+.caseStatus {
+  margin-left: auto;
+  color: #9fbacc;
+  font:
+    700 11px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
 }
-.dataTable td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--realism-gunmetal);
-  color: var(--realism-chrome);
+.caseStatus[data-open] {
+  color: #ffd700;
 }
-.timeCell {
-  font-size: 12px;
-  color: var(--realism-muted);
-  white-space: nowrap;
+.caseFigure {
+  margin-left: auto;
+  color: #ffd700;
+  font:
+    800 16px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
-.detailsCell {
-  font-size: 12px;
-  color: var(--realism-muted);
-  max-width: 340px;
+.caseLine,
+.caseDetail {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.4 Arial,
+    sans-serif;
   overflow-wrap: anywhere;
-  white-space: normal;
-  line-height: 1.4;
 }
-.reasonAccounts {
-  color: var(--realism-muted);
+.caseDetail {
+  color: #b6c8d6;
+  font-size: 12px;
+}
+.caseKeys {
+  margin: 2px 0 0;
+}
+.page .caseKeys > .dangerKey {
+  color: #ff5a6a;
+}
+.eventRow {
+  min-height: 44px;
+}
+
+.reasonAccounts,
+.reasonHands {
+  color: #9fbacc;
 }
 .reasonLink {
-  color: var(--realism-gold);
-  font-weight: 600;
-  text-decoration: underline;
+  color: #74dfff;
+  text-decoration: none;
 }
-.reasonHands {
-  display: block;
-  font-size: 11px;
-  opacity: 0.8;
+.reasonLink:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+
+.collusionFlow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-family: ui-monospace, monospace;
+}
+.dumper {
+  color: #ff5a6a;
+}
+.arrow {
+  color: #9fbacc;
+}
+.receiver {
+  color: #74dfff;
+}
+.foldedBadge {
+  color: #ffd700;
+  font-weight: 700;
 }
 .handRank {
-  font-weight: 700;
-  color: var(--realism-gold);
+  color: #f1f5fc;
   text-transform: capitalize;
 }
 
-/* ── Filter Bar ─────────────────────────────────────────── */
-.filterBar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-/* ── Collusion ──────────────────────────────────────────── */
-.collusionFlow {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.dumper {
-  color: #fa383e;
-  font-weight: 600;
-  font-size: 12px;
-}
-.receiver {
-  color: var(--realism-green);
-  font-weight: 600;
-  font-size: 12px;
-}
-.arrow {
-  color: var(--realism-muted);
-}
-
-/* ── Buttons ────────────────────────────────────────────── */
-/* The milled face: a hairline of light on the top edge over a shallow drop.
-   `border: none` is kept on the primary so the control does not grow by 2px. */
-.btnPrimary {
-  padding: 8px 16px;
-  background: var(--realism-blue);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-  text-decoration: none;
-}
-.btnPrimary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btnGhost {
-  padding: 8px 16px;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  color: var(--realism-chrome);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 8px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-decoration: none;
-}
-.btnSmallGold {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(247, 197, 42, 0.12);
-  color: var(--realism-gold);
-  border: 1px solid rgba(247, 197, 42, 0.25);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.btnSmallDanger {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(250, 56, 62, 0.12);
-  color: #fa383e;
-  border: 1px solid rgba(250, 56, 62, 0.25);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.btnSmallDanger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-/* Neutral small action: clearing a screened pair is not a danger action, and
-   dressing it in red would push an operator toward removing a player instead
-   of dismissing a false positive. */
-.btnSmall {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--realism-chrome);
-  background: rgba(146, 173, 194, 0.12);
-  border: 1px solid rgba(146, 173, 194, 0.28);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.btnSmall:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-/* There is no hover in Club Arena (tests/no-hover-effects.law.test.ts), so the
-   press IS the feedback: the control drops into its own cavity and the lit top
-   edge goes out. Keyboard reachability lives in :focus-visible beside it. */
-.btnPrimary:active:not(:disabled),
-.btnGhost:active:not(:disabled),
-.btnSmall:active:not(:disabled),
-.btnSmallGold:active:not(:disabled),
-.btnSmallDanger:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-.tab:focus-visible,
-.btnPrimary:focus-visible,
-.btnGhost:focus-visible,
-.btnSmall:focus-visible,
-.btnSmallGold:focus-visible,
-.btnSmallDanger:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
-}
-.actionBtns {
-  display: flex;
-  gap: 6px;
-}
-
-/* ── Empty State ────────────────────────────────────────── */
-.emptyState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 20px;
-  text-align: center;
-}
-.emptyIcon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-.emptyText {
-  font-size: 14px;
-  color: var(--realism-muted);
-}
-
-/* ── Modal ──────────────────────────────────────────────── */
+/* ── Review dialog ──────────────────────────────────────────────────── */
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
   padding: 20px;
+  background: rgb(0 0 0 / 70%);
 }
 .modal {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  padding: 24px;
-  max-width: 500px;
+  box-sizing: border-box;
   width: 100%;
+  max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
-}
-.modalTitle {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--realism-chrome-hot);
-  margin: 0 0 16px;
-}
-.modalBody {
-  margin-bottom: 16px;
-}
-.modalActions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 20px;
+  background: #050d17;
 }
 .reviewHeader {
   display: flex;
+  align-items: baseline;
   gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
 }
-.flagType {
-  color: var(--realism-chrome-hot);
-  font-weight: 600;
-}
-.reviewPlayer {
-  font-size: 13px;
-  color: var(--realism-muted);
-}
-/* The raw flag payload: a cavity cut into the modal, not another raised face. */
 .detailsBlock {
-  font-size: 12px;
-  color: var(--realism-muted);
-  background: var(--realism-obsidian);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.65);
-  padding: 8px;
-  border-radius: 6px;
-  font-family: monospace;
-  max-height: 100px;
-  overflow: auto;
-  margin-top: 8px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-
-/* ── Form ───────────────────────────────────────────────── */
 .formGroup {
-  margin-bottom: 12px;
-}
-.formLabel {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--realism-muted);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.formInput {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--realism-obsidian);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 8px;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.65);
-  color: var(--realism-chrome-hot);
-  font-size: 13px;
-  outline: none;
-}
-.formInput:focus {
-  border-color: var(--realism-cyan);
-}
-.formSelect {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--realism-obsidian);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 8px;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.65);
-  color: var(--realism-chrome-hot);
-  font-size: 13px;
-  outline: none;
-}
-.formSelect:focus {
-  border-color: var(--realism-cyan);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   RESPONSIVE — Mobile
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-@media (max-width: 768px) {
-  .title {
-    font-size: 18px;
-  }
-
-  .tab,
-  .btnPrimary,
-  .btnGhost {
-    min-height: 44px;
-    touch-action: manipulation;
-  }
-
-  .btnSmallGold,
-  .btnSmallDanger {
-    min-height: 36px;
-    padding: 6px 12px;
-    touch-action: manipulation;
-  }
-
-  .statsGrid {
-    gap: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .page {
-    padding: 12px 12px max(100px, env(safe-area-inset-bottom));
-  }
-
-  .statGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-
-  .statValue {
-    font-size: 18px;
-  }
-
-  .logRow {
-    font-size: 10px;
-  }
-
-  .formSelect,
-  .formInput {
-    font-size: 16px;
-    min-height: 44px;
-  }
-
-  .actionBtn {
-    min-height: 36px;
-  }
-}
-
-/* Motion collapses under the OS setting, meaning never does (CLAUDE.md 10.6).
-   Listed selector by selector rather than through a descendant wildcard, so
-   this block can only reach the controls this sheet owns and never an animation
-   belonging to a component rendered inside the page. The tab still turns cyan
-   and still carries its underline; it just stops fading into it. */
-@media (prefers-reduced-motion: reduce) {
-  .tab,
-  .btnPrimary,
-  .btnGhost {
-    transition: none;
-  }
-
-  .btnPrimary:active:not(:disabled),
-  .btnGhost:active:not(:disabled),
-  .btnSmall:active:not(:disabled),
-  .btnSmallGold:active:not(:disabled),
-  .btnSmallDanger:active:not(:disabled) {
-    transform: none;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }

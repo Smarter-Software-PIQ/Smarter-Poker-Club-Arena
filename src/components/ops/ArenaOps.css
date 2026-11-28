@@ -300,3 +300,108 @@
   flex-wrap: wrap;
   width: 100%;
 }
+
+/* The status line under a Club Operations mast ("Updated Just Now") reads in
+   chrome type, not the old letter-spaced monospace. Attention and danger keep
+   their gold and red. */
+.arena-workspace:has(
+    .arena-workspace-mast:is(
+      [data-mast='operations'],
+      [data-mast='dashboard'],
+      [data-mast='reports'],
+      [data-mast='integrity'],
+      [data-mast='handreview'],
+      [data-mast='finance'],
+      [data-mast='control'],
+      [data-mast='settings']
+    )
+  )
+  .ca-page-bar__status {
+  font:
+    700 12px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.arena-workspace:has(
+    .arena-workspace-mast:is(
+      [data-mast='operations'],
+      [data-mast='dashboard'],
+      [data-mast='reports'],
+      [data-mast='integrity'],
+      [data-mast='handreview'],
+      [data-mast='finance'],
+      [data-mast='control'],
+      [data-mast='settings']
+    )
+  )
+  .ca-page-bar__status:is([data-tone='default'], [data-tone='live']) {
+  color: #9fbacc;
+}
+
+/* ── Empty, loading and error screens ───────────────────────────────── */
+.arena-workspace .arena-ops-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 12px;
+  text-align: center;
+}
+.arena-workspace .arena-ops-state__title {
+  color: #74dfff;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.arena-workspace .arena-ops-state[data-tone='error'] .arena-ops-state__title {
+  color: #ff5a6a;
+}
+.arena-workspace .arena-ops-state__message {
+  max-width: 46ch;
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-state .arena-switch {
+  width: min(100%, 320px);
+  margin-top: 6px;
+}
+.arena-workspace .arena-ops-state__meter {
+  position: relative;
+  overflow: hidden;
+  width: min(60%, 220px);
+  height: 4px;
+  background: #0b1a2a;
+  border: 1px solid #253e57;
+}
+.arena-workspace .arena-ops-state__meter::after {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  content: '';
+  background: linear-gradient(90deg, transparent, #45adff, transparent);
+  animation: arena-ops-state-sweep 1.2s linear infinite;
+}
+@keyframes arena-ops-state-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* A key a page hands the live line (Blacklist's Add Exclusion) takes the
+   whole row under the meters, like every other chrome key row. */
+.arena-workspace .ca-page-bar__live > .arena-switch {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 4px 0 0;
+}

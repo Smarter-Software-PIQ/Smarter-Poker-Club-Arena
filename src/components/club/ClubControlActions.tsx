@@ -8,6 +8,7 @@ import { masterBus } from '../../core/MasterBus';
 import { reportError } from '../../utils/errorReporter';
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 import { CLUB_ENTRY_MESSAGE_MAX } from './ClubEntryMessage';
+import { ArenaState } from '../ops/ArenaOps';
 import '../lobby/ArenaWorkspace.css';
 import '../ops/ArenaOps.css';
 import './ClubControlActions.css';
@@ -131,18 +132,17 @@ export default function ClubControlActions() {
       <div className="control-policy arena-case arena-ops-case">
         <h2 className="arena-section-title">Membership & Access</h2>
         {!current ? (
-          <p className="arena-ops-copy" role="status">
-            Loading Club Policy...
-          </p>
+          <ArenaState tone="loading" title="Loading Club Policy..." />
         ) : current.error ? (
-          <div className="control-policy-error" role="alert">
-            <p className="arena-ops-copy">{current.error}</p>
-            <div className="arena-switch">
+          <ArenaState
+            tone="error"
+            title={current.error}
+            actions={
               <button type="button" onClick={() => void load()}>
                 Retry Policy
               </button>
-            </div>
-          </div>
+            }
+          />
         ) : (
           <>
             <p className="arena-ops-copy">

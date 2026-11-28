@@ -22,9 +22,9 @@
  *   - Operator vocabulary: Lightning, Must Move, Lightning Fold, Fold & Watch.
  *   - Nothing here moves a player. Opening a Cluster changes this page only.
  *
- * #ClubArenaConsole: one console per view. Clusters print as records between
- * engraved rules with their figures beneath, never as drawn cards; Back and
- * Refresh sit on the two painted plates.
+ * #SmarterDesign (Dan 2026-11-27): the arena workspace. Clusters print as
+ * chrome ledger rows with their figures as chrome meters beneath; Refresh and
+ * Back are chrome keys under the mast.
  *
  * Phase 13 adds what an operator has done (Paused, Joins Disabled, Draining)
  * beneath a Cluster's name; the controls themselves live in the Cluster
@@ -37,11 +37,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; Lightning prints in the thin chrome case with chrome keys. */
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
-import '../../components/console/SpadeConsole.css';
-import '../../components/lobby/ArenaWorkspace.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../components/help/PageBar';
+import { ArenaState } from '../../components/ops/ArenaOps';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { formatStakes } from '../../lib/utils';
@@ -67,7 +65,17 @@ import {
   count,
   onOff,
 } from './lightning/lightningOperatorParts';
+import { inkClass } from './lightning/lightningInk';
 import styles from './ClubLightningOperationsPage.module.css';
+
+const SUMMARY =
+  'Every Lightning-Capable Cluster In The Club: Its Mode, Live Population Against The On And Off Thresholds, Pool Health, Safety Signals And Action Latency. Open A Cluster For The Full Detail And Its Controls.';
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,25 +138,25 @@ export function ClusterRecord({
   const notices = clusterNotices(c);
   const meta = clusterMeta(c);
   return (
-    <li className={`arena-ledger-row ${styles.record}`} data-cluster-id={c.clusterId}>
+    <li className={`${styles.record} arena-ledger-row`} data-cluster-id={c.clusterId}>
       <div className={styles.recordHead}>
-        <span className={`${styles.recordName} sc-ink--silver`}>
+        <span className={`${styles.recordName} ${inkClass('silver')}`}>
           {c.name ? titleCase(c.name) : 'Unnamed Cluster'}
         </span>
-        <span className={`${styles.mode} sc-ink--${MODE_INK[badge.tone]}`}>{badge.label}</span>
+        <span className={`${styles.mode} ${inkClass(MODE_INK[badge.tone])}`}>{badge.label}</span>
       </div>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>
         {meta ? `${meta} ` : ''}
         {badge.detail ? `${badge.detail} ` : ''}
         {c.modeSince ? `Since ${agoLabel(c.modeSince, now)}` : ''}
       </span>
       {warnings.map((w) => (
-        <p className={`${styles.warning} sc-ink--red`} key={w} role="status">
+        <p className={`${styles.warning} ${inkClass('red')}`} key={w} role="status">
           {w}
         </p>
       ))}
       {notices.map((n) => (
-        <p className={`${styles.notice} sc-ink--gold`} key={n} role="status">
+        <p className={`${styles.notice} ${inkClass('gold')}`} key={n} role="status">
           {n}
         </p>
       ))}
@@ -158,7 +166,7 @@ export function ClusterRecord({
         <Figure label="On At" value={count(c.onThreshold)} />
         <Figure label="Off At" value={count(c.offThreshold)} />
       </dl>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>Pool Health</span>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>Pool Health</span>
       <dl className={styles.figures} aria-label="Pool Health">
         <Figure label="Joining" value={count(c.pool.joining)} />
         <Figure label="Checking" value={count(c.pool.eligibilityCheck)} />
@@ -173,14 +181,14 @@ export function ClusterRecord({
         <Figure label="Holds Pending" value={count(c.reservations.pending)} />
         <Figure label="Holds Committed" value={count(c.reservations.committed)} />
       </dl>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>Instances</span>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>Instances</span>
       <dl className={styles.figures} aria-label="Instances">
         <Figure label="Forming" value={count(c.instances.forming)} />
         <Figure label="Reserved" value={count(c.instances.reserved)} />
         <Figure label="Dealing" value={count(c.instances.dealing)} />
         <Figure label="Settling" value={count(c.instances.settling)} />
       </dl>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>Safety</span>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>Safety</span>
       <dl className={styles.figures} aria-label="Safety">
         <Figure
           label="Orphan Holds"
@@ -199,7 +207,7 @@ export function ClusterRecord({
           ink={(c.integrityOpenSignals ?? 0) > 0 ? 'gold' : 'silver'}
         />
       </dl>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>Matcher And Flags</span>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>Matcher And Flags</span>
       <dl className={styles.figures} aria-label="Matcher And Flags">
         <Figure label="Worker" value={c.workerMode ? enumLabel(c.workerMode) : 'Unknown'} />
         <Figure label="Candidate" value={c.shadow ? verdictLabel(c.shadow.verdict) : 'None'} />
@@ -212,20 +220,16 @@ export function ClusterRecord({
       </dl>
       {c.latency && Object.keys(c.latency.legs).length > 0 ? (
         <>
-          <span className={`${styles.recordMeta} sc-ink--muted`}>
+          <span className={`${styles.recordMeta} ${inkClass('muted')}`}>
             Action Latency{c.latency.windowTo ? `, ${agoLabel(c.latency.windowTo, now)}` : ''}
           </span>
           <LatencyGrid legs={c.latency.legs} />
         </>
       ) : (
-        <span className={`${styles.recordMeta} sc-ink--muted`}>No Latency Windows Yet</span>
+        <span className={`${styles.recordMeta} ${inkClass('muted')}`}>No Latency Windows Yet</span>
       )}
-      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
-        <button
-          type="button"
-          className={`${styles.word} sc-ink--white`}
-          onClick={() => onOpen(c.clusterId)}
-        >
+      <div className={`${styles.words} arena-switch arena-ops-keys`}>
+        <button type="button" className={`${styles.word}`} onClick={() => onOpen(c.clusterId)}>
           Open Cluster
         </button>
       </div>
@@ -312,24 +316,25 @@ export default function ClubLightningOperationsPage() {
   if (resolution.key === clubId && resolution.status === 'not_found') {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <SpadeConsole
-          arena
-          className={styles.console}
-          eyebrow="Lightning"
+        <ArenaWorkspaceHeader
+          area="control"
           title="Club Not Found"
-          titleId="lightning-operations-title"
-          pill="Missing"
-          pillInk="muted"
-        >
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            No Club Answers To That Address.
-          </p>
-          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
-            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
-              Back To Clubs
-            </button>
-          </div>
-        </SpadeConsole>
+          context="Lightning"
+          id="lightning-operations-title"
+          summary={SUMMARY}
+        />
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="Missing"
+            message="No Club Answers To That Address."
+            actions={
+              <button type="button" onClick={() => navigate('/clubs')}>
+                Back To Clubs
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -353,47 +358,77 @@ export default function ClubLightningOperationsPage() {
       ? `${clusters.length} ${clusters.length === 1 ? 'Cluster' : 'Clusters'}`
       : 'Operator';
 
+  const counted = answer?.status === 'ok';
+  const lightningCount = clusters.filter((c) => modeBadge(c.mode).tone === 'lightning').length;
+  const frozenCount = clusters.filter((c) => modeBadge(c.mode).tone === 'frozen').length;
+  const warningCount = clusters.filter((c) => clusterWarnings(c).length > 0).length;
+
   return (
     <div className={`${styles.page} arena-workspace`}>
-      <SpadeConsole
-        arena
-        className={styles.console}
-        eyebrow="Club Operations"
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast with the club's name
+          and the "?" help, the Cluster counts as chrome meters, Back and
+          Refresh as chrome keys, and every Cluster as a chrome ledger row in
+          one thin chrome case. The painted spade console is the old style. */}
+      <ArenaWorkspaceHeader
+        area="control"
         title="Lightning"
-        titleId="lightning-operations-title"
-        pill={pill}
-        pillInk="blue"
-        plates={{
-          secondary: { label: 'Back', onClick: () => navigate(`/clubs/${clubId}/operations`) },
-          primary: {
-            label: overview.loading ? 'Reading' : 'Refresh',
-            ink: 'white',
-            onClick: overview.refresh,
-            disabled: !overviewScope,
+        context={clubContext(clubId)}
+        id="lightning-operations-title"
+        summary={SUMMARY}
+      />
+      <PageBar
+        title="Lightning"
+        titleAs={false}
+        showHelp={false}
+        status={overview.refreshedAt ? 'Lightning Live' : 'Reading Lightning'}
+        statusTone={overview.refreshedAt ? 'live' : 'attention'}
+        metrics={[
+          { label: 'Clusters', value: counted ? count(clusters.length) : '-', tone: 'live' },
+          { label: 'In Lightning', value: counted ? count(lightningCount) : '-' },
+          {
+            label: 'Frozen Clusters',
+            value: counted ? count(frozenCount) : '-',
+            tone: frozenCount > 0 ? 'attention' : 'default',
           },
-        }}
-      >
+          {
+            label: 'Warnings',
+            value: counted ? count(warningCount) : '-',
+            tone: warningCount > 0 ? 'attention' : 'default',
+          },
+        ]}
+      />
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" onClick={overview.refresh} disabled={!overviewScope}>
+          {overview.loading ? 'Reading' : 'Refresh'}
+        </button>
+        <button type="button" onClick={() => navigate(`/clubs/${clubId}/operations`)}>
+          Back
+        </button>
+      </div>
+
+      <section className="arena-case arena-ops-case" aria-label="Lightning Clusters">
+        <h2 className="arena-section-title">
+          Clusters<small>{pill}</small>
+        </h2>
         {resolution.key === clubId && resolution.status === 'error' ? (
-          <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="alert">
-            The Club Could Not Be Resolved
-          </p>
+          <ArenaState tone="error" title="The Club Could Not Be Resolved" />
         ) : !answer || answer.status !== 'ok' ? (
           <AnswerState answer={answer} onRetry={overview.refresh} />
         ) : (
           <>
-            <p className={`${styles.freshness} sc-ink--muted`}>
+            <p className="arena-ops-live">
               {overview.refreshedAt
                 ? `Updated ${agoLabel(new Date(overview.refreshedAt).toISOString(), now)}`
                 : 'Reading Lightning'}
               {', Updates On Lightning Events'}
             </p>
             {answer.data.truncated ? (
-              <p className={`${styles.freshness} sc-ink--gold`}>Showing The First 200 Clusters</p>
+              <p className={`${styles.freshness} ${inkClass('gold')}`}>
+                Showing The First 200 Clusters
+              </p>
             ) : null}
             {clusters.length === 0 ? (
-              <p className={`sc-copy sc-copy--center ${styles.state}`}>
-                No Lightning-Capable Games In This Club Yet
-              </p>
+              <ArenaState tone="empty" title="No Lightning-Capable Games In This Club Yet" />
             ) : (
               <ul className={styles.records} aria-label="Lightning Clusters">
                 {clusters.map((c) => (
@@ -403,7 +438,7 @@ export default function ClubLightningOperationsPage() {
             )}
           </>
         )}
-      </SpadeConsole>
+      </section>
     </div>
   );
 }

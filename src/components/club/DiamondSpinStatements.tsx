@@ -5,7 +5,7 @@ import {
   type DiamondStatement,
 } from '../../services/DiamondStatementService';
 import { reportError } from '../../utils/errorReporter';
-import { SpadeConsole } from '../console/SpadeConsole';
+import { OpsCase } from './DiamondOpsKit';
 import styles from './DiamondSpinStatements.module.css';
 
 const amount = (value: number) => value.toLocaleString();
@@ -72,46 +72,45 @@ function Statements() {
     };
   }, []);
   return (
-    <SpadeConsole eyebrow="Owner Wallet" title="Daily Diamond Statements" foot="foot">
-      <p className="sc-copy">
+    <OpsCase eyebrow="Owner Wallet" title="Daily Diamond Statements">
+      <p className="arena-ops-copy">
         Spin Entries And Prize Costs Are Recorded Throughout The Day. After Midnight, Chicago Time,
         Each Day Settles In One Wallet Transaction: The Platform Burns{' '}
         {burnBps === null ? '20%' : percent(burnBps)} Of A Profitable Day And The Rest Is Credited
         To Your Wallet. A Day With Zero Or Negative Net Burns Nothing. Chip Prizes Still Use The
         Promo Wallet First, With The Main Bank Covering Any Shortfall.
       </p>
-      <button className={styles.action} disabled={busy} type="button" onClick={() => void load()}>
-        Refresh Statements
-      </button>
+      <div className="arena-switch arena-ops-keys">
+        <button disabled={busy} type="button" onClick={() => void load()}>
+          Refresh Statements
+        </button>
+      </div>
       {busy && (
-        <p className="sc-copy" role="status">
+        <p className="arena-ops-copy" role="status">
           Loading Statements
         </p>
       )}
       {error && (
-        <div role="alert" className="sc-copy sc-ink--red">
+        <div role="alert" className={`arena-ops-copy ${styles.alert}`}>
           {error}
-          <button
-            type="button"
-            className={styles.action}
-            disabled={busy}
-            onClick={() => void load(failedCursor.current)}
-          >
-            Try Again
-          </button>
+          <div className="arena-switch arena-ops-keys">
+            <button type="button" disabled={busy} onClick={() => void load(failedCursor.current)}>
+              Try Again
+            </button>
+          </div>
         </div>
       )}
       {!busy && !error && days.length === 0 && (
-        <p className="sc-copy">Your First Diamond Spins Statement Will Appear Here.</p>
+        <p className="arena-ops-copy">Your First Diamond Spins Statement Will Appear Here.</p>
       )}
       {days.map((row) => (
-        <details className={styles.day} key={row.day}>
+        <details className={`arena-ledger-row ${styles.day}`} key={row.day}>
           <summary>
             <span>
               {dateLabel(row.day)}
               <small>{row.status === 'open' ? 'Awaiting Daily Settlement' : 'Settled'}</small>
             </span>
-            <strong className={row.net_diamonds < 0 ? 'sc-ink--red' : 'sc-ink--blue'}>
+            <strong className={row.net_diamonds < 0 ? styles.negative : styles.positive}>
               {amount(row.net_diamonds)} Diamonds
             </strong>
           </summary>
@@ -141,7 +140,7 @@ function Statements() {
               <dt>Credited To Your Wallet</dt>
               <dd
                 className={
-                  row.credited_net !== null && row.credited_net < 0 ? 'sc-ink--red' : undefined
+                  row.credited_net !== null && row.credited_net < 0 ? styles.negative : undefined
                 }
               >
                 {row.credited_net === null ? 'Settles After Midnight' : amount(row.credited_net)}
@@ -168,15 +167,12 @@ function Statements() {
         </details>
       ))}
       {next && (
-        <button
-          type="button"
-          disabled={busy}
-          className={styles.action}
-          onClick={() => void load(next)}
-        >
-          Older Statements
-        </button>
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" disabled={busy} onClick={() => void load(next)}>
+            Older Statements
+          </button>
+        </div>
       )}
-    </SpadeConsole>
+    </OpsCase>
   );
 }

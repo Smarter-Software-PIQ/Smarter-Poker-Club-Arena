@@ -1,379 +1,200 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   DISPUTE MANAGEMENT - on the spade console (#ClubArenaConsole)
-
-   PAINT WHAT NEVER CHANGES. PRINT WHAT DOES. The shared integrity header
-   above keeps its own approved art; beneath it the docket is Dan's approved
-   spade master (components/console/SpadeConsole.css) and this file lays the
-   cases on the black glass between the rails: the status filters as lit
-   words, the search printed straight on the glass over an engraved rule, and
-   every case a row - status in the master's own ink, the disputed sum in
-   silver, the reason as copy - with the review controls as lit words when it
-   is opened. Nothing is drawn: no card, no badge, no coloured stripe. Sizes
-   are cqw against the console. No :hover (tests/no-hover-effects.law.test.ts).
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* Dispute Management in #SmarterDesign (Dan 2026-11-27). The page root is an
+   arena workspace; the shared integrity header carries the chrome mast, the
+   live counts and the casework switch. The docket is one thin chrome case:
+   the status filters are a chrome switch that lights the selected tab, the
+   search sits in a dark well and every case is a chrome ledger row. Status
+   prints as a word in the smarter.poker inks, never in a drawn badge. No
+   :hover (tests/no-hover-effects.law.test.ts). */
 
 .dispute-management-page {
-  --dmp-rule: 1px solid #000;
-  --dmp-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  max-width: 100vw;
-  padding: 12px 8px max(70px, env(safe-area-inset-bottom));
+  max-width: 1100px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 12px max(70px, env(safe-area-inset-bottom));
   /* clip, not hidden - see src/styles/design-system.css on body. `hidden` on
      one axis computes the other to `auto`, which makes this a scroll container,
      and WebKit then resolves the fixed ClubBottomNav against IT instead of the
-     viewport. The bar leaves the bottom of the screen and rides up the page. */
+     viewport. */
   overflow-x: hidden;
   overflow-x: clip;
-  background: #020305;
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  color: #f1f5fc;
+  background: #050d17;
+  font-family: 'Arial Narrow', Arial, sans-serif;
   color-scheme: dark;
 }
 
-.dmp__console {
-  --sc-max: 640px;
-  filter: drop-shadow(0 18px 34px rgb(0 0 0 / 85%));
+.dispute-management-page .dmp__pill {
+  margin-left: 8px;
+  color: #9fbacc;
+}
+.dispute-management-page .dmp__pill[data-open] {
+  color: #ffd700;
 }
 
-/* ── Filters: lit words ─────────────────────────────────────────────────── */
-
-.dmp__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 1cqw;
-}
-
-.dmp-word {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.2cqw;
-  min-width: 44px; /* a short word ("All") still owns a full 44px target */
-  min-height: 44px;
+.dispute-management-page .dmp__tabs {
   margin: 0;
-  padding: 1.2cqw 1.6cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  touch-action: manipulation;
 }
-
-.dmp__tab {
-  padding-inline: 1.2cqw;
-}
-
-.dmp__tab-count {
-  font-size: 2.8cqw;
+.dispute-management-page .dmp__tab-count {
+  margin-left: 5px;
+  color: #ffd700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
-.dmp-word:active {
-  filter: brightness(1.25);
+.dispute-management-page .dmp__search {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
-.dmp-word:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.dispute-management-page .dmp__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
-.dmp-word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-/* ── Fields: printed on the glass, closed by an engraved rule ───────────── */
-
-.dmp__search {
-  display: grid;
-  gap: 1cqw;
-}
-
-.dmp__search-label {
-  font-size: 3cqw;
-  cursor: text;
-}
-
-.dmp__field {
+.dispute-management-page .dmp__case {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
   min-width: 0;
-  min-height: 44px; /* 16px text plus its rule is shorter than a touch target */
-  margin: 0;
-  padding: 2cqw 0;
-  border: 0;
-  border-bottom: var(--dmp-rule);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
-  background: transparent;
-  color: #f4f7fb;
-  font:
-    500 16px/1.5 Inter,
-    system-ui,
-    sans-serif; /* under 16px makes iOS zoom the page on focus */
-  text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
+  padding: 6px 10px 8px;
+  box-sizing: border-box;
 }
-
-.dmp__field--area {
-  resize: vertical;
+.dispute-management-page .dmp__case > * {
+  position: relative;
+  z-index: 2;
 }
-
-.dmp__field--select {
-  appearance: none;
-  cursor: pointer;
-}
-
-.dmp__field--select option {
-  background: #020305;
-  color: #f4f7fb;
-}
-
-.dmp__field::placeholder {
-  color: #9aa5b3;
-}
-
-.dmp__field:focus {
-  outline: 0;
-  border-bottom-color: #45adff;
-  box-shadow: 0 1px 0 rgb(69 173 255 / 45%);
-}
-
-/* ── States ─────────────────────────────────────────────────────────────── */
-
-.dmp__panel {
+.dispute-management-page .dmp__case-head {
   display: grid;
-  gap: 2cqw;
-}
-
-.dmp__state {
-  display: grid;
-  justify-items: center;
-  gap: 1.6cqw;
-  margin: 0;
-  padding: 3cqw 0;
-  text-align: center;
-}
-
-.dmp__state-title {
-  font-size: 4.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-/* ── The docket: cases as rows on the glass ─────────────────────────────── */
-
-.dmp__list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.dmp__case {
-  display: grid;
-  gap: 1.4cqw;
-  padding: 2cqw 0 2.4cqw;
-  border-top: var(--dmp-rule);
-  box-shadow: var(--dmp-rule-lit);
-}
-
-.dmp__case-head {
-  appearance: none;
-  display: grid;
-  gap: 1cqw;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   min-height: 44px;
-  margin: 0;
   padding: 0;
-  border: 0;
-  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.dmp__case-head:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.6cqw;
-}
-
-.dmp__case-meta,
-.dmp__case-target,
-.dmp__case-date {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.6cqw 2.4cqw;
-}
-
-.dmp__status,
-.dmp__target-type {
-  font-size: 3cqw;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.dmp__amount {
-  font-size: 4.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
-.dmp__submitter,
-.dmp__case-date {
-  font-size: 2.9cqw;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.dmp__sla {
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.dmp__reason {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.dmp__reason-label {
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 3cqw;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-/* ── The opened case: review controls as lit words ─────────────────────── */
-
-.dmp__actions {
-  display: grid;
-  gap: 1.6cqw;
-  padding-top: 1.6cqw;
-  border-top: var(--dmp-rule);
-  box-shadow: var(--dmp-rule-lit);
-}
-
-.dmp__form {
-  display: grid;
-  gap: 1.6cqw;
-}
-
-.dmp__adjust {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 3cqw;
-}
-
-.dmp__adjust > :only-child {
-  grid-column: 1 / -1;
-}
-
-.dmp__form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0 2cqw;
-}
-
-/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
-   The painted spade console was the old style for a page section. The docket
-   now prints in the arena workspace's thin chrome case (ClubPageSection
-   `arena`) under the arena integrity mast: the status filter one chrome
-   switch lit by aria-selected, search and resolution fields in dark wells,
-   every case a chrome ledger row, and Start Review, Resolve, Escalate and
-   Withdraw as chrome keys. Resolve keeps its green ink and Escalate and
-   Withdraw their red, so the decision still reads at a glance. */
-.dispute-management-page.arena-workspace.arena-workspace {
-  padding-top: 0;
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-}
-.dispute-management-page.arena-workspace .arena-case.dmp__console {
-  container-type: inline-size;
-  width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  filter: none;
-}
-.dispute-management-page.arena-workspace .dmp__console [class*='sc-ink--'] {
-  text-shadow: none;
-}
-.dispute-management-page.arena-workspace .dmp__console .arena-section-title small {
-  color: #74dfff;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.dispute-management-page.arena-workspace .dmp__tabs.arena-switch {
-  justify-content: stretch;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
+  background: none;
   border: 0;
-  box-shadow: none;
+  cursor: pointer;
 }
-.dispute-management-page.arena-workspace .arena-switch > .dmp-word {
-  flex: 1 1 calc(33% - 4px);
-  padding: 6px 8px;
+.dispute-management-page .dmp__case-head:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.dispute-management-page .dmp__case-head:active {
+  transform: translateY(1px);
+}
+.dispute-management-page .dmp__case-meta,
+.dispute-management-page .dmp__case-target {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dispute-management-page .dmp__status {
   font:
-    700 12px/1.1 'Arial Narrow',
+    800 12px/1.1 'Arial Narrow',
     Arial,
     sans-serif;
-  letter-spacing: 0.04em;
-  white-space: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffd700;
 }
-.dispute-management-page.arena-workspace .dmp__search {
-  padding-top: 4px;
-  border-top: 0;
-  box-shadow: none;
+.dispute-management-page .dmp__status[data-status='under_review'] {
+  color: #74dfff;
 }
-.dispute-management-page.arena-workspace .dmp__field {
-  box-sizing: border-box;
-  min-height: 44px;
-  padding: 8px 10px;
-  color: #f1f5fc;
-  background: #040d17;
-  border: 1px solid #476079;
-  box-shadow: none;
-  color-scheme: dark;
+.dispute-management-page .dmp__status[data-status='resolved'] {
+  color: #45adff;
+}
+.dispute-management-page .dmp__status[data-status='escalated'] {
+  color: #ff5a6a;
+}
+.dispute-management-page .dmp__status[data-status='withdrawn'] {
+  color: #9fbacc;
+}
+.dispute-management-page .dmp__amount {
+  color: #ffd700;
   font:
-    16px/1.3 Arial,
+    800 16px/1.1 'Arial Narrow',
+    Arial,
     sans-serif;
-  text-shadow: none;
+  font-variant-numeric: tabular-nums;
 }
-.dispute-management-page.arena-workspace .dmp__field:focus {
-  border-color: #74dfff;
-  box-shadow: none;
+.dispute-management-page .dmp__target-type {
+  color: #74dfff;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
-.dispute-management-page.arena-workspace .dmp__list {
-  gap: 4px;
+.dispute-management-page .dmp__submitter,
+.dispute-management-page .dmp__case-date {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
 }
-.dispute-management-page.arena-workspace .dmp__case.arena-ledger-row {
-  padding: 8px 10px;
+.dispute-management-page .dmp__case-date {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
 }
-.dispute-management-page.arena-workspace .dmp__case.arena-ledger-row + .dmp__case {
-  box-shadow: none;
+.dispute-management-page .dmp__sla {
+  color: #ffd700;
+  font-weight: 700;
 }
-.dispute-management-page.arena-workspace .dmp__actions {
+.dispute-management-page .dmp__sla[data-urgent] {
+  color: #ff5a6a;
+}
+.dispute-management-page .dmp__reason-label {
+  color: #74dfff;
+  font-weight: 700;
+}
+
+.dispute-management-page .dmp__actions,
+.dispute-management-page .dmp__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dispute-management-page .dmp__actions {
+  padding-top: 6px;
   border-top: 1px solid #253e57;
-  box-shadow: none;
 }
-.dispute-management-page.arena-workspace .dmp__keys {
-  margin: 0;
+.dispute-management-page .dmp__form textarea {
+  resize: vertical;
 }
-.dispute-management-page.arena-workspace .dmp__form-actions.arena-switch {
-  margin: 0;
+.dispute-management-page .dmp__adjust {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.dispute-management-page .arena-switch > .dmp__danger {
+  color: #ff5a6a;
+}
+
+@media (max-width: 620px) {
+  .dispute-management-page .dmp__case-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .dispute-management-page .dmp__case-target {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .dispute-management-page .dmp__adjust {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

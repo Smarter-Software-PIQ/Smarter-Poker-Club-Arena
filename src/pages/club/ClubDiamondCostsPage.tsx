@@ -28,8 +28,9 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * unions mounts a fresh console: no quote, key, receipt or late response from
  * the previous scope can land on the next one.
  *
- * THE PICTURE (#ClubArenaConsole): spade consoles, rows printed on the glass,
- * two plates or none. Nothing is drawn.
+ * THE PICTURE (#SmarterDesign, Dan 2026-11-27): the arena workspace, a chrome
+ * mast with the club name, chrome cases with ledger rows, dark wells for the
+ * fields and chrome keys, two or none. No painted plates.
  *
  * CATALOG, TERMS, WRITTEN QUOTES AND REVIEWS (20260924182605). While the
  * catalog is not published, the page lists no prices and quotes nothing. The
@@ -52,8 +53,19 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../components/common/Toast';
-import { LoadingState } from '../../components/common/EmptyState';
-import { SpadeConsole, type ConsoleInk } from '../../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../components/help/PageBar';
+import { ArenaState } from '../../components/ops/ArenaOps';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
+import {
+  OpsBack,
+  OpsCase,
+  OpsChoice as ChoiceRow,
+  OpsField as Field,
+  OpsRow as Row,
+  type OpsInk,
+} from '../../components/club/DiamondOpsKit';
+import '../../components/club/DiamondOpsKit.css';
 import ClubCommerceService, {
   REFUND_REASONS,
   ceilingSentence,
@@ -89,8 +101,6 @@ import { reportError } from '../../utils/errorReporter';
 import { uuid } from '../../utils/uuid';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useAuthUser } from '../../hooks/useAuthUser';
-import styles from '../diamondGames.module.css';
-import own from './ClubDiamondCostsPage.module.css';
 
 const BUY_DIAMONDS = '/marketplace?tab=diamonds';
 const RECEIPTS_SHOWN = 10;
@@ -212,110 +222,6 @@ function priceWord(p: CatalogProduct): string {
   return base;
 }
 
-function Row({
-  label,
-  value,
-  ink = 'silver',
-  meta,
-  wrap = false,
-}: {
-  label: string;
-  value: string;
-  ink?: ConsoleInk;
-  meta?: string;
-  /** Let a long label or value wrap inside the row (375px). */
-  wrap?: boolean;
-}) {
-  /* The meta is the row's third grid item and spans both columns, so a wide
-     value never squeezes the note into the label's half of the glass. */
-  return (
-    <div className={`${styles.row} ${own.rowWithMeta}`}>
-      <span className={`sc-label sc-ink--blue ${styles.rowLabel} ${wrap ? own.wrapLabel : ''}`}>
-        {label}
-      </span>
-      <span className={`${styles.rowValue} sc-ink--${ink} ${wrap ? own.wrapValue : ''}`}>
-        {value}
-      </span>
-      {meta ? (
-        <span className={`${styles.rowMeta} ${own.metaFull} sc-ink--muted`}>{meta}</span>
-      ) : null}
-    </div>
-  );
-}
-
-function ChoiceRow({
-  label,
-  meta,
-  value,
-  ink,
-  onClick,
-  disabled,
-  pressed,
-}: {
-  label: string;
-  meta: string;
-  value: string;
-  ink: ConsoleInk;
-  onClick: () => void;
-  disabled?: boolean;
-  pressed?: boolean;
-}) {
-  const metaId = useId();
-  return (
-    <button
-      type="button"
-      className={`${styles.rowButton} ${own.rowWithMeta}`}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={pressed}
-      aria-label={`${label}: ${value}`}
-      aria-describedby={metaId}
-    >
-      <span className={`sc-label sc-ink--silver ${styles.rowLabel} ${own.wrapLabel}`}>{label}</span>
-      <span className={`${styles.rowValue} sc-ink--${ink} ${own.wrapValue}`}>{value}</span>
-      <span id={metaId} className={`${styles.rowMeta} ${own.metaFull} sc-ink--muted`}>
-        {meta}
-      </span>
-    </button>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  hint,
-  mode = 'numeric',
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  hint?: string;
-  mode?: 'decimal' | 'numeric' | 'text';
-  disabled?: boolean;
-}) {
-  const hintId = useId();
-  return (
-    <label className={styles.field}>
-      <span className="sc-label sc-ink--blue">{label}</span>
-      <input
-        className={styles.fieldInput}
-        inputMode={mode}
-        value={value}
-        disabled={disabled}
-        aria-describedby={hint ? hintId : undefined}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {hint ? (
-        <span id={hintId} className="sc-copy sc-ink--muted">
-          {hint}
-        </span>
-      ) : null}
-    </label>
-  );
-}
-
 function entitlementTitle(e: Entitlement, catalog: Catalog | null): string {
   if (e.kind === 'trial_operating') return 'Free Operating Month';
   const p = catalog?.products.find((x) => x.sku === e.sku);
@@ -394,7 +300,7 @@ function basisWord(q: RefundRequest): string {
 }
 
 /** A refund request's state as its payer reads it: the value, its ink and the note. */
-function refundStateView(q: RefundRequest): { value: string; ink: ConsoleInk; meta: string } {
+function refundStateView(q: RefundRequest): { value: string; ink: OpsInk; meta: string } {
   const approved = q.approved_amount ?? q.policy_amount;
   const reason = refundReasonWord(q.reason_code);
   switch (q.state) {
@@ -711,7 +617,7 @@ function QuoteConsole({
   trialAction: TrialAction | null;
   onGetDiamonds: () => void;
   /** A consequence of this order the caller knows and the quote does not. */
-  notice?: { label: string; value: string; ink: ConsoleInk; meta: string } | null;
+  notice?: { label: string; value: string; ink: OpsInk; meta: string } | null;
   /** The refund policy version in effect, from fn_ca_commerce_policies. */
   refundPolicyVersion: number | null;
   /** The Operating Service Terms version the payer accepts by confirming. */
@@ -753,7 +659,7 @@ function QuoteConsole({
         disabled: paying || recovering,
       }
     : { label: 'Discard', onClick: order.discard, disabled: paying || busy };
-  let primary: { label: string; ink: ConsoleInk; onClick: () => void; disabled: boolean };
+  let primary: { label: string; ink: OpsInk; onClick: () => void; disabled: boolean };
   if (outcomeUnknown) {
     primary = {
       label: paying ? 'Retrying' : 'Retry Same Order',
@@ -791,7 +697,7 @@ function QuoteConsole({
   }
 
   return (
-    <SpadeConsole
+    <OpsCase
       id={sectionId}
       tabIndex={-1}
       aria-labelledby={titleId}
@@ -802,7 +708,7 @@ function QuoteConsole({
       pillInk={expired || left <= 10_000 ? 'red' : 'gold'}
       plates={{ secondary, primary }}
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         {forClub ? (
           <Row
             label="For Club"
@@ -905,12 +811,12 @@ function QuoteConsole({
           meta={`By Confirming, ${serviceTermsLine(serviceTermsVersion)}`}
         />
       </div>
-      <p className="sc-copy">
+      <p className="arena-ops-copy">
         Confirming Charges Your Diamonds Once. If The Connection Drops, Retrying Sends The Same
         Order Key And Never Charges Twice. {refundPolicyLine(refundPolicyVersion)} A Refund Returns
         To The Original Payer.
       </p>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -934,7 +840,7 @@ function ReceiptConsole({
   if (!receipt) return null;
   const titleId = `${sectionId}-title`;
   return (
-    <SpadeConsole
+    <OpsCase
       id={sectionId}
       tabIndex={-1}
       aria-labelledby={titleId}
@@ -945,7 +851,7 @@ function ReceiptConsole({
       pillInk="green"
       foot="foot"
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         {forClub ? <Row label="For Club" value={forClub} wrap /> : null}
         <Row label="Original Charge" value={diamonds(receipt.original_total_diamonds)} ink="gold" />
         {order.receiptFoundOnFile ? (
@@ -993,7 +899,7 @@ function ReceiptConsole({
           />
         ) : null}
       </div>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -1146,7 +1052,7 @@ function RefundRequestConsole({
   if (result) {
     const v = refundStateView(result);
     return (
-      <SpadeConsole
+      <OpsCase
         id={sectionId}
         tabIndex={-1}
         aria-labelledby={titleId}
@@ -1157,7 +1063,7 @@ function RefundRequestConsole({
         pillInk={v.ink}
         foot="foot"
       >
-        <div className={styles.rows}>
+        <div className="dops-rows">
           <Row label={titleCase(line.title)} value={diamonds(line.net)} wrap meta={orderLine} />
           <RefundStateRow request={result} />
           <Row
@@ -1184,16 +1090,16 @@ function RefundRequestConsole({
             onClick={onClose}
           />
         </div>
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Platform Staff Review Every Request. An Approved Refund Returns To You As The Original
           Payer, And You Are Told At Each Step.
         </p>
-      </SpadeConsole>
+      </OpsCase>
     );
   }
 
   return (
-    <SpadeConsole
+    <OpsCase
       id={sectionId}
       tabIndex={-1}
       aria-labelledby={titleId}
@@ -1227,7 +1133,7 @@ function RefundRequestConsole({
             },
       }}
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         <Row
           label={titleCase(line.title)}
           value={diamonds(line.net)}
@@ -1250,11 +1156,11 @@ function RefundRequestConsole({
           />
         ))}
       </div>
-      <div className={styles.fields}>
-        <label className={styles.field}>
-          <span className="sc-label sc-ink--blue">Details (Optional)</span>
+      <div className="dops-fields">
+        <label className="dops-field">
+          <span className="dops-field__label">Details (Optional)</span>
           <textarea
-            className={`${styles.fieldInput} ${own.detailsInput}`}
+            className="arena-ops-well"
             value={details}
             maxLength={2000}
             rows={3}
@@ -1262,12 +1168,12 @@ function RefundRequestConsole({
             aria-describedby={detailsId}
             onChange={(e) => setDetails(e.target.value)}
           />
-          <span id={detailsId} className="sc-copy sc-ink--muted">
+          <span id={detailsId} className="dops-field__hint">
             Up To 2,000 Characters. Platform Staff Read Them With Your Request.
           </span>
         </label>
       </div>
-      <div className={styles.rows}>
+      <div className="dops-rows">
         <Row
           label="Refund Policy"
           value={policyVersion ? `Version ${policyVersion}` : 'Current'}
@@ -1288,7 +1194,7 @@ function RefundRequestConsole({
           />
         ) : null}
       </div>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -1325,7 +1231,7 @@ function ReceiptsConsole({
   const [showAll, setShowAll] = usePlayerPreference('clubDiamondCosts.showAllReceipts', false);
   const shown = showAll ? receipts : receipts.slice(0, RECEIPTS_SHOWN);
   return (
-    <SpadeConsole
+    <OpsCase
       eyebrow="Records"
       title="Receipts"
       pill={
@@ -1338,7 +1244,7 @@ function ReceiptsConsole({
       pillInk={failed ? 'gold' : 'muted'}
       foot="foot"
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         {failed ? (
           <ChoiceRow
             label="Receipts Could Not Be Read"
@@ -1417,11 +1323,11 @@ function ReceiptsConsole({
           />
         ) : null}
       </div>
-      <p className="sc-copy">
+      <p className="arena-ops-copy">
         A Receipt Is Permanent Transaction Evidence. Your Wallet Balance Is Read Separately And May
         Have Changed Since. {refundPolicyLine(refundPolicyVersion)}
       </p>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -1442,15 +1348,15 @@ function PolicyConsole({
   const [serviceOpen, setServiceOpen] = useState(false);
   if (!refund && !terms && !service) return null;
   return (
-    <SpadeConsole
+    <OpsCase
       eyebrow="Policies"
       title={refund ? titleCase(refund.title) : 'Refund Policy'}
       pill={refund ? `Version ${refund.version}` : undefined}
       pillInk="blue"
       foot="foot"
     >
-      {refund ? <p className="sc-copy">{titleCase(refund.body)}</p> : null}
-      <div className={styles.rows}>
+      {refund ? <p className="arena-ops-copy">{titleCase(refund.body)}</p> : null}
+      <div className="dops-rows">
         {refund ? (
           <Row
             label="In Effect Since"
@@ -1480,8 +1386,8 @@ function PolicyConsole({
           />
         ) : null}
       </div>
-      {service && serviceOpen ? <p className="sc-copy">{titleCase(service.body)}</p> : null}
-    </SpadeConsole>
+      {service && serviceOpen ? <p className="arena-ops-copy">{titleCase(service.body)}</p> : null}
+    </OpsCase>
   );
 }
 
@@ -1658,7 +1564,7 @@ function SponsorBuyConsole({
 
   return (
     <>
-      <SpadeConsole
+      <OpsCase
         eyebrow="Sponsorship"
         title="Buy For A Covered Club"
         pill={clubs.length === 1 ? '1 Club' : `${clubs.length.toLocaleString()} Clubs`}
@@ -1685,7 +1591,7 @@ function SponsorBuyConsole({
           },
         }}
       >
-        <div className={styles.rows}>
+        <div className="dops-rows">
           {clubs.length === 0 ? <Row label="No Covered Clubs" value="" /> : null}
           {clubs.map((c) => {
             const cap = c.capacity?.capacity ?? null;
@@ -1721,7 +1627,7 @@ function SponsorBuyConsole({
           })}
         </div>
         {club && clubTrial ? (
-          <div className={styles.rows}>
+          <div className="dops-rows">
             <Row
               label="Club In Its Free Month"
               value="Not Yet"
@@ -1732,7 +1638,7 @@ function SponsorBuyConsole({
           </div>
         ) : null}
         {club && !clubTrial ? (
-          <div className={styles.rows}>
+          <div className="dops-rows">
             {!pricesPublished ? (
               <Row
                 label="Diamond Prices Are Not Published Yet"
@@ -1824,11 +1730,11 @@ function SponsorBuyConsole({
             ) : null}
           </div>
         ) : null}
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           A Sponsored Order Is Charged To You Once And Pays For That Club's Capacity Or Insurance
           Module; The Club Owner Is Never Charged For The Same Period. Its Receipt Is Listed Below.
         </p>
-      </SpadeConsole>
+      </OpsCase>
 
       <QuoteConsole
         order={order}
@@ -1854,7 +1760,7 @@ function SponsorBuyConsole({
         sectionId="diamond-costs-sponsor-receipt"
         forClub={club?.name}
       />
-      {order.recovering ? <LoadingState message="Checking Your Order" /> : null}
+      {order.recovering ? <ArenaState tone="loading" title="Checking Your Order" /> : null}
     </>
   );
 }
@@ -1868,7 +1774,7 @@ function SponsorBuyConsole({
 function writtenQuoteView(w: WrittenQuote): {
   label: string;
   value: string;
-  ink: ConsoleInk;
+  ink: OpsInk;
   meta: string;
 } {
   const cap = Number(w.offered_capacity ?? w.requested_capacity ?? 0).toLocaleString();
@@ -1963,7 +1869,7 @@ function WrittenQuotesConsole({
   };
 
   return (
-    <SpadeConsole
+    <OpsCase
       eyebrow="Above 2,500 Members"
       title="Written Quotes"
       pill={open ? 'Requested' : offered > 0 ? `${offered.toLocaleString()} Offered` : 'Ask'}
@@ -1990,7 +1896,7 @@ function WrittenQuotesConsole({
       }
       foot={asking ? 'plates' : 'foot'}
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         {quotes.length === 0 ? <Row label="No Written Quotes Yet" value="" /> : null}
         {quotes.map((w) => {
           const v = writtenQuoteView(w);
@@ -2023,7 +1929,7 @@ function WrittenQuotesConsole({
         })}
       </div>
       {asking ? (
-        <div className={styles.fields}>
+        <div className="dops-fields">
           <Field
             label="Members Needed (More Than 2,500)"
             value={capacity}
@@ -2031,10 +1937,10 @@ function WrittenQuotesConsole({
             disabled={busy}
             hint="Approved Members, Each Counted Once, Up To 1,000,000."
           />
-          <label className={styles.field}>
-            <span className="sc-label sc-ink--blue">Note (Optional)</span>
+          <label className="dops-field">
+            <span className="dops-field__label">Note (Optional)</span>
             <textarea
-              className={`${styles.fieldInput} ${own.detailsInput}`}
+              className="arena-ops-well"
               value={note}
               maxLength={2000}
               rows={3}
@@ -2042,17 +1948,17 @@ function WrittenQuotesConsole({
               aria-describedby={noteId}
               onChange={(e) => setNote(e.target.value)}
             />
-            <span id={noteId} className="sc-copy sc-ink--muted">
+            <span id={noteId} className="dops-field__hint">
               Up To 2,000 Characters. What Platform Staff Should Know About Your Club.
             </span>
           </label>
         </div>
       ) : null}
-      <p className="sc-copy">
+      <p className="arena-ops-copy">
         Above 2,500 Members There Is No List Price. Platform Staff Offer A Capacity And A Price In
         Writing For This Club Alone, And You Buy It Through The Same Order As Any Capacity.
       </p>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -2062,7 +1968,7 @@ function WrittenQuotesConsole({
    independent operation asks platform staff for a review with a statement;
    staff approve (a fresh 30 days for this one scope) or decline with a note. */
 
-function reviewView(r: TrialReview): { value: string; ink: ConsoleInk; meta: string } {
+function reviewView(r: TrialReview): { value: string; ink: OpsInk; meta: string } {
   const asked = `Asked ${when(r.created_at)}. Your Statement: ${noteWords(r.statement)}.`;
   const staff = r.staff_note ? ` Note From Platform Staff: ${noteWords(r.staff_note)}.` : '';
   if (r.state === 'approved')
@@ -2103,7 +2009,7 @@ function TrialReviewConsole({
     if (valid && (await onRequest(statement.trim()))) setStatement('');
   };
   return (
-    <SpadeConsole
+    <OpsCase
       eyebrow="Free Month"
       title="Free Month Review"
       pill={latest ? reviewView(latest).value : canAsk ? 'Available' : 'None'}
@@ -2127,7 +2033,7 @@ function TrialReviewConsole({
       }
       foot={canAsk ? 'plates' : 'foot'}
     >
-      <div className={styles.rows}>
+      <div className="dops-rows">
         {endedAt ? (
           <Row
             label="Free Month Ended"
@@ -2152,11 +2058,11 @@ function TrialReviewConsole({
         })}
       </div>
       {canAsk ? (
-        <div className={styles.fields}>
-          <label className={styles.field}>
-            <span className="sc-label sc-ink--blue">Why This Is A New Operation</span>
+        <div className="dops-fields">
+          <label className="dops-field">
+            <span className="dops-field__label">Why This Is A New Operation</span>
             <textarea
-              className={`${styles.fieldInput} ${own.detailsInput}`}
+              className="arena-ops-well"
               value={statement}
               maxLength={REVIEW_MAX}
               rows={4}
@@ -2164,13 +2070,13 @@ function TrialReviewConsole({
               aria-describedby={statementId}
               onChange={(e) => setStatement(e.target.value)}
             />
-            <span id={statementId} className="sc-copy sc-ink--muted">
+            <span id={statementId} className="dops-field__hint">
               {`${length.toLocaleString()} Of 2,000 Characters, At Least 20. No Documents Are Needed.`}
             </span>
           </label>
         </div>
       ) : null}
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -2204,15 +2110,15 @@ function EarningsConsole({
     o.refunded ? `, After ${diamonds(o.refunded)} Refunded` : ''
   }.${o.paid_by_others ? ` ${diamonds(o.paid_by_others)} More Paid By Your Union Sponsor.` : ''} All Your Operating Purchases: ${diamonds(o.owner_all_scopes_net_paid)}.`;
   return (
-    <SpadeConsole
+    <OpsCase
       eyebrow={`Last ${days} Days`}
       title="Settled Earnings"
       pill="Comparison"
       pillInk="muted"
       foot="foot"
     >
-      <p className="sc-copy">Settled Earnings Can Help Cover Operating Purchases.</p>
-      <div className={styles.rows}>
+      <p className="arena-ops-copy">Settled Earnings Can Help Cover Operating Purchases.</p>
+      <div className="dops-rows">
         <Row
           label="Settled Earnings"
           value={diamonds(e.net_settled)}
@@ -2228,12 +2134,12 @@ function EarningsConsole({
           meta={paidMeta}
         />
       </div>
-      <p className="sc-copy sc-ink--muted">
+      <p className="arena-ops-copy dops-copy--muted">
         A Comparison, Not A Record Of Which Diamonds Paid. Every Purchase Is Paid From Your
         Available Balance Under The Normal Accounting Order, And Earnings Already Spent Are Not
         Available Again.
       </p>
-    </SpadeConsole>
+    </OpsCase>
   );
 }
 
@@ -2242,17 +2148,44 @@ function EarningsConsole({
  * a switch between clubs or unions (or a retry after an error) mounts a fresh
  * console with no state, key or in-flight response carried across.
  */
+/** The chrome mast every view of this page wears, with the way back above it. */
+function CostsMast({
+  scopeKind,
+  backPath,
+  backLabel,
+}: {
+  scopeKind: ScopeKind;
+  /** Null when there is no scope to go back to (a route that names none). */
+  backPath: string | null;
+  backLabel?: string;
+}) {
+  const navigate = useNavigate();
+  const clubName = useArenaClubName();
+  const scopeWord = scopeKind === 'union' ? 'Union' : 'Club';
+  return (
+    <>
+      {backPath ? <OpsBack onClick={() => navigate(backPath)} ariaLabel={backLabel} /> : null}
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Diamond Costs"
+        context={scopeKind === 'club' ? clubName : null}
+        subtitle={`${scopeWord} Operations`}
+        summary="Read Your Operating Access And Its Time Left, The Published Diamond Prices And Every Receipt, And Buy Or Renew A Service With One Confirmed Order."
+      />
+    </>
+  );
+}
+
 /**
- * Loading, not found and read failures, on the same spade console as the page
- * (#ClubArenaConsole): the message printed on the glass, and the two painted
- * plates, Operations and Try Again. Try Again remounts the console, so it is
- * also the way out of a read that never answers.
+ * Loading, not found and read failures, on the same arena workspace as the
+ * page (#SmarterDesign): the chrome mast, then one chrome state screen with
+ * the message and two keys, Operations and Try Again. Try Again remounts the
+ * console, so it is also the way out of a read that never answers.
  */
 function StateConsole({
   scopeKind,
   backPath,
   pill,
-  pillInk,
   message,
   onRetry,
 }: {
@@ -2260,38 +2193,38 @@ function StateConsole({
   /** Null when there is no scope to go back to (a route that names none). */
   backPath: string | null;
   pill: string;
-  pillInk: ConsoleInk;
   message: string;
   onRetry?: () => void;
 }) {
   const navigate = useNavigate();
-  const scopeWord = scopeKind === 'union' ? 'Union' : 'Club';
+  const reading = pill === 'Reading';
   return (
-    <div className={styles.page}>
-      <SpadeConsole
-        eyebrow={`${scopeWord} Operations`}
-        title="Diamond Costs"
-        titleId="diamond-costs-title"
-        pill={pill}
-        pillInk={pillInk}
-        aria-busy={pill === 'Reading' ? true : undefined}
-        plates={{
-          secondary: {
-            label: backPath ? 'Operations' : 'Home',
-            onClick: () => navigate(backPath ?? '/'),
-          },
-          primary: {
-            label: 'Try Again',
-            ink: 'white',
-            onClick: () => onRetry?.(),
-            disabled: !onRetry,
-          },
-        }}
+    <div className="arena-workspace dops-page">
+      <CostsMast scopeKind={scopeKind} backPath={null} />
+      <section
+        className="arena-case arena-ops-case"
+        aria-labelledby="diamond-costs-title"
+        aria-busy={reading ? true : undefined}
+        data-pill={pill}
       >
-        <p className="sc-copy" role={pill === 'Reading' ? 'status' : 'alert'}>
-          {message}
-        </p>
-      </SpadeConsole>
+        <h2 id="diamond-costs-title" className="dops-case__title">
+          {pill}
+        </h2>
+        <ArenaState
+          tone={reading ? 'loading' : 'error'}
+          title={message}
+          actions={
+            <>
+              <button type="button" onClick={() => navigate(backPath ?? '/')}>
+                {backPath ? 'Operations' : 'Home'}
+              </button>
+              <button type="button" onClick={() => onRetry?.()} disabled={!onRetry}>
+                Try Again
+              </button>
+            </>
+          }
+        />
+      </section>
     </div>
   );
 }
@@ -2308,7 +2241,6 @@ export default function ClubDiamondCostsPage({ scopeKind }: { scopeKind: ScopeKi
         scopeKind={scopeKind}
         backPath={null}
         pill="Not Found"
-        pillInk="red"
         message={scopeKind === 'union' ? 'This Union Was Not Found' : 'This Club Was Not Found'}
       />
     );
@@ -3050,7 +2982,6 @@ function DiamondCostsConsole({
         scopeKind={scopeKind}
         backPath={backPath}
         pill="Reading"
-        pillInk="blue"
         message="Reading Diamond Costs"
         onRetry={onRetry}
       />
@@ -3059,20 +2990,25 @@ function DiamondCostsConsole({
   if (formerOwner && !error) {
     const word = scopeKind === 'union' ? 'Union' : 'Club';
     return (
-      <div className={styles.page}>
-        <SpadeConsole
+      <div className="arena-workspace dops-page">
+        <CostsMast
+          scopeKind={scopeKind}
+          backPath={backPath}
+          backLabel={`Back To ${word} Operations`}
+        />
+        <OpsCase
           eyebrow={`${word} Records`}
-          title="Diamond Costs"
+          title="Former Owner"
           titleId="diamond-costs-title"
           pill="Receipts Only"
           pillInk="muted"
           foot="foot"
         >
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             You No Longer Manage This {word}. The Receipts For What You Paid Here Stay Available To
             You, And A Refund Still Returns To You As The Original Payer.
           </p>
-          <div className={styles.rows}>
+          <div className="dops-rows">
             <ChoiceRow
               label="Back To Home"
               meta="Diamond Prices, Rights And Renewals Belong To The Current Owner."
@@ -3081,7 +3017,7 @@ function DiamondCostsConsole({
               onClick={() => navigate('/')}
             />
           </div>
-        </SpadeConsole>
+        </OpsCase>
         <ReceiptsConsole
           receipts={receipts}
           failed={false}
@@ -3105,7 +3041,6 @@ function DiamondCostsConsole({
         scopeKind={scopeKind}
         backPath={backPath}
         pill="Not Read"
-        pillInk="red"
         message={error ?? 'The Diamond Costs Could Not Be Read'}
         onRetry={onRetry}
       />
@@ -3128,7 +3063,7 @@ function DiamondCostsConsole({
         : trial
           ? 'Not Required Yet'
           : 'Not Started';
-  const accessInk: ConsoleInk = trialActive
+  const accessInk: OpsInk = trialActive
     ? 'blue'
     : paidActive
       ? 'green'
@@ -3140,25 +3075,25 @@ function DiamondCostsConsole({
     if (access.enforcedFrom === null)
       return {
         value: 'Not Required Yet',
-        ink: 'blue' as ConsoleInk,
+        ink: 'blue' as OpsInk,
         meta: 'Paid Operating Access Will Be Required From A Date That Will Be Announced. Until Then, Approving Members, Opening Tables And Creating Tournaments Are Not Limited By It.',
       };
     if (!access.enforced)
       return {
         value: dateWord(new Date(access.enforcedFrom).toISOString()),
-        ink: 'gold' as ConsoleInk,
+        ink: 'gold' as OpsInk,
         meta: `Required From ${when(new Date(access.enforcedFrom).toISOString())}. From Then, Approving New Members, Opening New Tables And Creating New Tournaments Need Active Access. Existing Games And Members Are Not Affected.`,
       };
     const since = when(new Date(access.enforcedFrom).toISOString());
     return trialActive || paidActive
       ? {
           value: 'Active',
-          ink: 'green' as ConsoleInk,
+          ink: 'green' as OpsInk,
           meta: `Required Since ${since}. Your ${trialActive ? 'Free Month' : 'Paid Access'} Covers New Members, Tables And Tournaments.`,
         }
       : {
           value: 'Required',
-          ink: 'gold' as ConsoleInk,
+          ink: 'gold' as OpsInk,
           meta: `Required Since ${since}. Choose A Service Under Diamond Prices To Approve New Members, Open New Tables Or Create New Tournaments. Existing Games And Members Are Not Affected.`,
         };
   })();
@@ -3190,7 +3125,7 @@ function DiamondCostsConsole({
   };
 
   /** How a renewal will go at today's price: the row's ink says it first. */
-  const renewalInk = (e: Entitlement): ConsoleInk => {
+  const renewalInk = (e: Entitlement): OpsInk => {
     const r = e.renewal;
     const price = renewalPrice(e);
     if (!r || price === null) return 'blue';
@@ -3222,7 +3157,7 @@ function DiamondCostsConsole({
     return {
       label: 'Renewal Ceiling',
       value: `Up To ${diamonds(mandate.max_diamonds)}`,
-      ink: 'red' as ConsoleInk,
+      ink: 'red' as OpsInk,
       meta: `Your Authorized Renewal Moves To The Upgrade At This Ceiling. The New Capacity Renews At ${diamonds(price)}, So That Renewal Would Not Complete. Cancel It And Authorize A New Ceiling After The Upgrade.`,
     };
   })();
@@ -3277,25 +3212,37 @@ function DiamondCostsConsole({
       : [];
 
   return (
-    <div className={styles.page}>
-      <button
-        type="button"
-        className={styles.back}
-        onClick={() => navigate(backPath)}
-        aria-label={`Back To ${scopeWord} Operations`}
-      >
-        ‹ Operations
-      </button>
-
-      <SpadeConsole
-        eyebrow={`${scopeWord} Operations`}
+    <div className="arena-workspace dops-page">
+      <CostsMast
+        scopeKind={scopeKind}
+        backPath={backPath}
+        backLabel={`Back To ${scopeWord} Operations`}
+      />
+      <PageBar
         title="Diamond Costs"
+        titleAs={false}
+        showHelp={false}
+        status={accessPill}
+        statusTone={access.enforced && !trialActive && !paidActive ? 'attention' : 'live'}
+        metrics={[
+          {
+            label: 'Available Diamonds',
+            value: balance === null ? 'N/A' : balance.toLocaleString(),
+          },
+          { label: 'Active Rights', value: activeRights.toLocaleString() },
+          { label: 'Receipts', value: listedReceipts.length.toLocaleString() },
+        ]}
+      />
+
+      <OpsCase
+        eyebrow={`${scopeWord} Operations`}
+        title="Operating Access"
         titleId="diamond-costs-title"
         pill={accessPill}
         pillInk={accessInk}
         foot="foot"
       >
-        <div className={styles.rows}>
+        <div className="dops-rows">
           <Row
             label="Your Role"
             value={
@@ -3403,20 +3350,20 @@ function DiamondCostsConsole({
           )}
           <BalanceRows breakdown={status.balance_breakdown} balance={balance} />
         </div>
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           One Diamond Has A Nominal Catalog Value Of One Cent. Operating Access Expires With Its
           Period; Purchased Diamonds Do Not.
         </p>
-      </SpadeConsole>
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Rights"
         title="Paid Access"
         pill={activeRights > 0 ? `${activeRights.toLocaleString()} Active` : 'None'}
         pillInk={activeRights > 0 ? 'green' : 'muted'}
         foot="foot"
       >
-        <div className={styles.rows}>
+        <div className="dops-rows">
           {rights.length === 0 ? <Row label="No Rights On File" value="" /> : null}
           {rights.map((e) => {
             const period = e.ends_at
@@ -3483,7 +3430,7 @@ function DiamondCostsConsole({
                       />
                     ) : null}
                     {isOwner && r?.state !== 'authorized' && r?.state !== 'completed' ? (
-                      <div className={styles.fields}>
+                      <div className="dops-fields">
                         <Field
                           label="Authorize Renewal Up To (Diamonds)"
                           value={
@@ -3550,13 +3497,13 @@ function DiamondCostsConsole({
                       />
                     ) : null}
                     {isOwner && r?.state !== 'authorized' ? (
-                      <div className={styles.fields}>
-                        <label className={styles.field}>
-                          <span className="sc-label sc-ink--blue">
+                      <div className="dops-fields">
+                        <label className="dops-field">
+                          <span className="dops-field__label">
                             Service To Start When The Free Month Ends
                           </span>
                           <select
-                            className={styles.fieldInput}
+                            className="arena-ops-well"
                             value={trialSku}
                             disabled={busy}
                             onChange={(ev) => {
@@ -3641,9 +3588,9 @@ function DiamondCostsConsole({
             );
           })}
         </div>
-      </SpadeConsole>
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Catalog"
         title="Diamond Prices"
         pill={
@@ -3673,7 +3620,7 @@ function DiamondCostsConsole({
         }
         foot={canBuy && !pricesHidden ? 'plates' : 'foot'}
       >
-        <div className={styles.rows}>
+        <div className="dops-rows">
           {pricesHidden ? (
             <Row
               label="Diamond Prices Are Not Published Yet"
@@ -3735,7 +3682,7 @@ function DiamondCostsConsole({
           ) : null}
         </div>
         {selected && selected.quantity_unit === 'covered_club' ? (
-          <div className={styles.fields}>
+          <div className="dops-fields">
             <Field
               label="Covered Clubs"
               value={quantity}
@@ -3749,7 +3696,7 @@ function DiamondCostsConsole({
           </div>
         ) : null}
         {selected && !trialActive && !sponsorshipId && isOwner ? (
-          <div className={styles.fields}>
+          <div className="dops-fields">
             <ChoiceRow
               label="Renew Automatically"
               meta="Optional. Authorizes The Next Period In Diamonds At Or Below Your Ceiling."
@@ -3789,7 +3736,7 @@ function DiamondCostsConsole({
           </div>
         ) : null}
         {clubSponsorships.length > 0 ? (
-          <div className={styles.rows}>
+          <div className="dops-rows">
             {clubSponsorships.map((s) =>
               viewerId && s.payer_id === viewerId ? (
                 <ChoiceRow
@@ -3819,17 +3766,17 @@ function DiamondCostsConsole({
             )}
           </div>
         ) : null}
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Prices Are Whole Diamonds Per Stated Term. No Per Hand, Per Table Hour Or Per Transfer
           Charge. Displayed Club Levels Are Not Purchased Capacity.
         </p>
         {scopeKind === 'club' ? (
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Member Capacity Counts Approved Accounts, Each Once. It Is Not A Limit On Tables Or
             Seats Played At Once.
           </p>
         ) : null}
-      </SpadeConsole>
+      </OpsCase>
 
       <QuoteConsole
         order={order}
@@ -3868,7 +3815,7 @@ function DiamondCostsConsole({
 
       <ReceiptConsole order={order} sectionId="diamond-costs-receipt" />
 
-      {order.recovering ? <LoadingState message="Checking Your Order" /> : null}
+      {order.recovering ? <ArenaState tone="loading" title="Checking Your Order" /> : null}
 
       {scopeKind === 'club' && writtenQuotes !== null ? (
         <WrittenQuotesConsole
@@ -3904,7 +3851,7 @@ function DiamondCostsConsole({
       {earnings && isOwner ? <EarningsConsole coverage={earnings} scopeWord={scopeWord} /> : null}
 
       {scopeKind === 'union' && isOwner ? (
-        <SpadeConsole
+        <OpsCase
           eyebrow="Sponsorship"
           title="Sponsor Your Clubs"
           pill={activeSponsorships > 0 ? `${activeSponsorships.toLocaleString()} Active` : 'None'}
@@ -3926,7 +3873,7 @@ function DiamondCostsConsole({
             },
           }}
         >
-          <div className={styles.rows}>
+          <div className="dops-rows">
             {status.sponsorships.length === 0 ? <Row label="No Sponsorships Yet" value="" /> : null}
             {status.sponsorships.map((s) => (
               <div key={s.id}>
@@ -3950,7 +3897,7 @@ function DiamondCostsConsole({
               </div>
             ))}
           </div>
-          <div className={styles.fields}>
+          <div className="dops-fields">
             <Field
               label="Total Budget (Diamonds)"
               value={budget}
@@ -3965,11 +3912,11 @@ function DiamondCostsConsole({
               disabled={busy}
             />
           </div>
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Sponsoring Pays For A Club Once; The Club Owner Is Never Charged For The Same Right.
             Refunds Return To You As The Original Payer.
           </p>
-        </SpadeConsole>
+        </OpsCase>
       ) : null}
 
       {payerSponsorships.length > 0 ? (
@@ -3991,7 +3938,7 @@ function DiamondCostsConsole({
       ) : null}
 
       {sponsoredRights.length > 0 ? (
-        <SpadeConsole
+        <OpsCase
           eyebrow="Sponsorship"
           title="Renewals"
           pill={
@@ -4002,7 +3949,7 @@ function DiamondCostsConsole({
           pillInk="blue"
           foot="foot"
         >
-          <div className={styles.rows}>
+          <div className="dops-rows">
             {sponsoredRights.map(({ receipt: sr, right, line }) => {
               const renewal = right.renewal;
               const product =
@@ -4015,7 +3962,7 @@ function DiamondCostsConsole({
                 renewDrafts[right.entitlement_id] ?? (price !== null ? price.toLocaleString() : '');
               const typed = parseWhole(draft);
               const accepted = acceptedTexts[right.entitlement_id];
-              const inkFor: ConsoleInk =
+              const inkFor: OpsInk =
                 renewal && price !== null && price > renewal.max_diamonds ? 'red' : 'blue';
               return (
                 <div key={right.entitlement_id}>
@@ -4068,7 +4015,7 @@ function DiamondCostsConsole({
                           meta="The Last Sponsored Renewal Did Not Complete. The Club's Current Paid Period Is Unchanged. Authorize Again To Renew."
                         />
                       ) : null}
-                      <div className={styles.fields}>
+                      <div className="dops-fields">
                         <Field
                           label="Authorize Renewal Up To (Diamonds)"
                           value={draft}
@@ -4101,12 +4048,12 @@ function DiamondCostsConsole({
               );
             })}
           </div>
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             A Sponsored Renewal Buys The Next Period Of That Club From Your Diamond Balance Within
             The Same Sponsorship Budget, Only At Or Below Your Ceiling. The Club Owner Is Never
             Charged For It.
           </p>
-        </SpadeConsole>
+        </OpsCase>
       ) : null}
 
       <ReceiptsConsole

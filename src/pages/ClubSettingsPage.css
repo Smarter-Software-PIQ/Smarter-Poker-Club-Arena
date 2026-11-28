@@ -239,11 +239,6 @@
 .club-settings-page .settings-save-keys {
   margin: 7px 0 0;
 }
-.club-settings-page .settings-empty-keys {
-  justify-content: center;
-  max-width: 240px;
-  margin: 0 auto;
-}
 .club-settings-page .arena-switch > .settings-key--danger {
   color: #ff5a6a;
 }
@@ -361,26 +356,6 @@
 .club-settings-page .settings-notice {
   border-color: #6b5a00;
   color: #ffd700;
-}
-
-.club-settings-page .settings-empty-state {
-  padding: 60px 20px;
-  text-align: center;
-  color: #9fbacc;
-}
-.club-settings-page .settings-empty-title {
-  margin: 0 0 8px;
-  color: #f1f5fc;
-  font:
-    800 20px 'Arial Narrow',
-    Arial,
-    sans-serif;
-}
-.club-settings-page .settings-empty-desc {
-  margin: 0 0 20px;
-  font:
-    13px/1.4 Arial,
-    sans-serif;
 }
 
 /* Visually hidden but FOCUSABLE. `display: none` on a file input removes it

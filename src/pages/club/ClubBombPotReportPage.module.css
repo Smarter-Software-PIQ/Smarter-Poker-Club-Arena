@@ -1,141 +1,22 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   CLUB BOMB POT REPORT - #SmarterDesign (Dan 2026-11-27)
+   CLUB BOMB POT REPORT - in #SmarterDesign (Dan 2026-11-27)
 
-   The painted spade console was the old style for a page section. The report
-   now prints in the arena workspace's thin chrome case (ClubPageSection's
-   `arena`, ArenaWorkspace.css): the window as one chrome switch lit by
-   aria-pressed, the totals as chrome meters, every record as a chrome ledger
-   row with its figures beneath, Back / Export CSV as chrome keys with the
-   primary lit. The chrome comes from the shared classes; this sheet only lays
-   the report out inside the case. No :hover.
+   The mast, chrome cases, switch, readouts, states and the ledger row frame
+   come from ArenaWorkspace.css and ArenaOps.css. This file lays out one
+   table's record inside its chrome row: the table and its trigger on top, the
+   seven figures in a grid beneath, numbers in gold. No pointer-rest states.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  min-height: 100vh;
   min-height: 100dvh;
-  overflow-x: hidden;
+  padding-bottom: max(70px, env(safe-area-inset-bottom));
   overflow-x: clip;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   color-scheme: dark;
-}
-
-.page:global(.arena-workspace.arena-workspace) {
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-}
-
-.page .console {
-  container-type: inline-size;
-  width: 100%;
-  max-width: 880px;
-  margin: 8px auto 0;
-}
-
-/* The inks keep their colour; the painted glow belonged to the glass. */
-.console [class*='sc-ink--'] {
-  text-shadow: none;
-}
-
-.console :global(.arena-section-title) small {
-  color: #74dfff;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.state,
-.notice {
-  margin: 0;
-  color: #b6c8d6;
-  font:
-    13px/1.45 Arial,
-    sans-serif;
-}
-
-.state {
-  padding: 14px 4px;
-  text-align: center;
-}
-
-.notice {
-  padding: 0 2px;
-}
-
-/* ── The window and the back-outs: chrome switches ──────────────────────── */
-
-.windows {
-  margin: 0;
-}
-
-.actions {
-  margin-top: 4px;
-}
-
-.word {
-  letter-spacing: 0.04em;
-  touch-action: manipulation;
-}
-
-.errorState {
-  display: grid;
-  gap: 6px;
-}
-
-/* ── Totals: chrome meters ──────────────────────────────────────────────── */
-
-.section {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  margin: 0;
-}
-
-.row {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  min-height: 58px;
-}
-
-.rowLabel {
-  font:
-    700 10px/1.2 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  overflow-wrap: anywhere;
-}
-
-.rowValue {
-  font:
-    800 18px/1.1 'Arial Narrow',
-    Arial,
-    sans-serif;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 520px) {
-  .section {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* ── Records: chrome ledger rows, figures beneath ───────────────────────── */
-
-.section:has(> .records) {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.sectionTitle {
-  margin: 6px 0 2px;
-  font-size: 16px;
 }
 
 .records {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -143,51 +24,75 @@
 
 .record {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
   padding: 8px 10px;
 }
 
 .recordHead {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
 .recordName {
+  min-width: 0;
+  color: #f1f5fc;
   font:
-    700 16px/1.15 'Arial Narrow',
+    800 15px/1.2 'Arial Narrow',
     Arial,
     sans-serif;
   overflow-wrap: anywhere;
 }
 
 .recordMeta {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: #74dfff;
   font:
-    700 11px/1.3 Arial,
+    700 12px/1.3 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.up {
+  color: #45adff;
+}
+
+/* The retry state keeps its own hook (a pinned class) around the chrome state. */
+.errorState {
+  display: block;
+}
+
+/* The ledger telling on itself: gold words, never a badge box. */
+.notice {
+  margin: 0;
+  color: #ffd700;
+  font:
+    700 12px/1.45 Arial,
+    sans-serif;
 }
 
 .figures {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 8px;
+  gap: 4px 8px;
   margin: 0;
-}
-
-@media (min-width: 721px) {
-  .figures {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
 }
 
 .figure {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
 .figureLabel {
+  color: #9aabba;
   font:
     700 10px/1.2 'Arial Narrow',
     Arial,
@@ -198,14 +103,11 @@
 
 .figureValue {
   margin: 0;
+  color: #ffd700;
   font:
-    800 15px/1.1 'Arial Narrow',
+    800 13px/1.2 'Arial Narrow',
     Arial,
     sans-serif;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-}
-
-.section + .section {
-  margin-top: 6px;
 }
