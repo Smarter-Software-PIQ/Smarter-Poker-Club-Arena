@@ -24,12 +24,18 @@ import { useUserStore } from '../stores/useUserStore';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { useClubStore } from '../stores/useClubStore';
 import { compactChips, formatWalletChips } from '../utils/format';
 import { exactChipFigure, parseTradeAmount, sumChips } from '../utils/cashierAmount';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { platformFrozenMessage } from '../utils/platformFrozen';
 import { titleCase } from '../utils/titleCase';
 import styles from './AgentPortalPage.module.css';
+import '../components/ops/ArenaOps.css';
+import './AgentPortalPage.css';
+
+const SUMMARY = 'Wallets, Credit And Commission Control For The Selected Club.';
 
 interface AgentWallet {
   agentBal: number;
@@ -109,6 +115,11 @@ export default function AgentPortalPage() {
   const [agentPkId, setAgentPkId] = useState<string | null>(null); // agents.id PK (different from auth.uid)
   const isMounted = useIsMounted();
   const walletReady = loadedWalletScope === renderScope && !!agentClubId;
+  // The mast names the club the wallet resolved to, from the membership
+  // already held; with none held the line stays blank.
+  const clubName = useClubStore(
+    (state) => state.memberships.find((m) => m.club?.id === agentClubId)?.club?.name
+  );
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const returnFocusRef = useRef<Element | null>(null);
@@ -455,168 +466,208 @@ export default function AgentPortalPage() {
     }
   };
 
+  /* #SmarterDesign (batch A2, 2026-11-28). The page wears the arena
+     workspace: Back a chrome key above the finance mast, the scope on the
+     live line, each section a thin chrome case under its title. Every word,
+     figure, handler and guard is the one the painted consoles printed. The
+     transfer dialog is a popup and keeps its painted console. */
+  const back = (
+    <div className="arena-switch arena-ops-keys agent-portal__back">
+      <button type="button" onClick={() => navigate(-1)}>
+        Back
+      </button>
+    </div>
+  );
+  // Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". What this page is
+  // lives behind the chrome "?"; the live line keeps the wallet scope.
+  const mast = (
+    <ArenaWorkspaceHeader
+      area="finance"
+      title="Agent Command Center"
+      context={clubName || undefined}
+      summary={SUMMARY}
+    />
+  );
+
   if (loading) {
     return (
-      <main className={styles.page}>
-        <h1 className={styles.srOnly}>Agent Command Center</h1>
-        <SpadeConsole
-          family="riveted"
-          crest="spade"
+      <main className="agent-portal arena-workspace" aria-busy="true">
+        {back}
+        {mast}
+        <PageBar
           title="Agent Command Center"
-          pill="Reading"
-          pillInk="gold"
-          plates={{
-            secondary: { label: 'Back', onClick: () => navigate(-1) },
-            primary: { label: 'Reading', disabled: true },
-          }}
-        >
-          <p className="sc-copy sc-copy--center" role="status">
+          titleAs={false}
+          showHelp={false}
+          status="Reading"
+          statusTone="attention"
+        />
+        <section className="arena-case arena-ops-case agent-portal__case">
+          <h2 className="arena-section-title">Agent Wallets</h2>
+          <p className="agent-portal__state" role="status">
             Reading The Selected Club Wallets And Commissions
           </p>
-        </SpadeConsole>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button type="button" disabled>
+              Reading
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className={styles.page}>
-      <h1 className={styles.srOnly}>Agent Command Center</h1>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
+    <main className="agent-portal arena-workspace">
+      {back}
+      {mast}
       <PageBar
         title="Agent Command Center"
         titleAs={false}
-        summary="Wallets, Credit And Commission Control For The Selected Club."
+        showHelp={false}
+        status={walletError ? 'Unavailable' : walletReady ? 'Scoped' : 'Closed'}
+        statusTone={walletError ? 'danger' : walletReady ? 'live' : 'attention'}
       />
-      <SpadeConsole
-        family="riveted"
-        crest="spade"
-        title="Agent Command Center"
-        pill={walletError ? 'Unavailable' : walletReady ? 'Scoped' : 'Closed'}
-        pillInk={walletError ? 'red' : walletReady ? 'blue' : 'gold'}
-        className={styles.section}
-        plates={{
-          secondary: { label: 'Back', onClick: () => navigate(-1) },
-          primary: walletError
-            ? { label: 'Open Clubs', onClick: () => navigate('/clubs') }
-            : {
-                label: 'Transfer To Play',
-                onClick: () => setTransferModalOpen(true),
-                disabled: !walletReady || isTransferring,
-              },
-        }}
-      >
-        {walletError ? (
-          <p className="sc-copy sc-copy--center sc-ink--red" role="alert">
+      {walletError ? (
+        <section className="arena-case arena-ops-case agent-portal__case">
+          <h2 className="arena-section-title">Agent Wallets</h2>
+          <p className="agent-portal__state agent-portal__state--error" role="alert">
             {titleCase(walletError)}
           </p>
-        ) : (
-          <>
-            <section
-              className={styles.walletRows}
-              aria-label="Agent Wallets"
-              data-visible={visibleSections.has(1)}
-            >
-              <div className={styles.moneyRow}>
-                <span>
-                  <strong>Business Wallet</strong>
-                  <small>Commissions And Settlements</small>
-                </span>
-                <b className="sc-ink--silver">{formatWalletChips(wallet.agentBal)}</b>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button type="button" onClick={() => navigate('/clubs')}>
+              Open Clubs
+            </button>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section
+            className="arena-case arena-ops-case agent-portal__case agent-portal__reveal"
+            aria-label="Agent Wallets"
+            data-visible={visibleSections.has(1)}
+          >
+            <h2 className="arena-section-title">Agent Wallets</h2>
+            <dl className="agent-portal__meters">
+              <div className="arena-meter">
+                <dt>Business Wallet</dt>
+                <dd className="agent-portal__meter-note">Commissions And Settlements</dd>
+                <dd className="agent-portal__meter-value">{formatWalletChips(wallet.agentBal)}</dd>
               </div>
-              <div className={styles.moneyRow}>
-                <span>
-                  <strong>Play Wallet</strong>
-                  <small>Selected Club Balance</small>
-                </span>
-                <b className="sc-ink--blue">{formatWalletChips(wallet.playerBal)}</b>
+              <div className="arena-meter">
+                <dt>Play Wallet</dt>
+                <dd className="agent-portal__meter-note">Selected Club Balance</dd>
+                <dd className="agent-portal__meter-value agent-portal__ink--live">
+                  {formatWalletChips(wallet.playerBal)}
+                </dd>
               </div>
-              <div className={styles.moneyRow}>
-                <span>
-                  <strong>Promo Wallet</strong>
-                  <small>Non-Cashable Giveaways</small>
-                </span>
-                <b className="sc-ink--gold">{formatWalletChips(wallet.promoBal)}</b>
+              <div className="arena-meter">
+                <dt>Promo Wallet</dt>
+                <dd className="agent-portal__meter-note">Non-Cashable Giveaways</dd>
+                <dd className="agent-portal__meter-value agent-portal__ink--pending">
+                  {formatWalletChips(wallet.promoBal)}
+                </dd>
               </div>
-            </section>
+            </dl>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button
+                type="button"
+                onClick={() => setTransferModalOpen(true)}
+                disabled={!walletReady || isTransferring}
+              >
+                Transfer To Play
+              </button>
+            </div>
+          </section>
 
-            <section
-              className={styles.creditRows}
-              aria-label="Credit Line"
-              data-visible={visibleSections.has(2)}
-            >
-              <h2 className={styles.glassHeading}>Credit Line</h2>
-              <div className={styles.moneyRow}>
-                <span>Tracking Amount</span>
-                <b className="sc-ink--silver">
-                  {wallet.isPrepaid ? 'Prepaid' : formatWalletChips(wallet.creditLimit)}
-                </b>
+          <section
+            className="arena-case arena-ops-case agent-portal__case agent-portal__reveal"
+            aria-label="Credit Line"
+            data-visible={visibleSections.has(2)}
+          >
+            <h2 className="arena-section-title">Credit Line</h2>
+            <div className="agent-portal__row arena-ledger-row">
+              <span>Tracking Amount</span>
+              <b>{wallet.isPrepaid ? 'Prepaid' : formatWalletChips(wallet.creditLimit)}</b>
+            </div>
+            <div className="agent-portal__row arena-ledger-row">
+              <span>Wallet Shortfall</span>
+              <b className="agent-portal__ink--error">
+                {formatWalletChips(wallet.isPrepaid ? 0 : wallet.debt)}
+              </b>
+            </div>
+            {!wallet.isPrepaid && wallet.debt > 0 && (
+              <div className="agent-portal__row agent-portal__debt arena-ledger-row" role="status">
+                <span>
+                  <strong className="agent-portal__ink--error">Top-Up Before Rakeback</strong>
+                  <small>
+                    {formatWalletChips(wallet.debt)} Chips Needed To Restore The Agent Wallet.
+                    Weekly Invoices Exclude Rakeback And Appear Below.
+                  </small>
+                </span>
               </div>
-              <div className={styles.moneyRow}>
-                <span>Wallet Shortfall</span>
-                <b className="sc-ink--red">
-                  {formatWalletChips(wallet.isPrepaid ? 0 : wallet.debt)}
-                </b>
-              </div>
-              {!wallet.isPrepaid && wallet.debt > 0 && (
-                <div className={styles.debtRow} role="status">
-                  <span>
-                    <strong className="sc-ink--red">Top-Up Before Rakeback</strong>
-                    <small>
-                      {formatWalletChips(wallet.debt)} Chips Needed To Restore The Agent Wallet.
-                      Weekly Invoices Exclude Rakeback And Appear Below.
-                    </small>
-                  </span>
-                </div>
-              )}
-            </section>
-          </>
-        )}
-      </SpadeConsole>
+            )}
+          </section>
+        </>
+      )}
 
-      <section className={styles.childSection} aria-label="Agent Invoices">
+      <section className="agent-portal__child" aria-label="Agent Invoices">
         <AgentInvoicesPanel agentId={agentPkId} />
       </section>
 
-      <SpadeConsole
-        family="spade"
-        crest="flat"
-        eyebrow="Seven Day Window"
-        title="Commission Ledger"
-        pill={commissionError ? 'Error' : 'Live'}
-        pillInk={commissionError ? 'red' : 'blue'}
-        foot="foot"
-        className={styles.section}
-      >
+      <section className="arena-case arena-ops-case agent-portal__case">
+        <h2 className="arena-section-title">Commission Ledger</h2>
+        <p className="agent-portal__status">
+          Seven Day Window
+          <span
+            className={commissionError ? 'agent-portal__ink--error' : 'agent-portal__ink--live'}
+          >
+            {commissionError ? 'Error' : 'Live'}
+          </span>
+        </p>
         {!walletReady ? (
-          <p className="sc-copy sc-copy--center" role="status">
+          <p className="agent-portal__state" role="status">
             Commission History Is Unavailable Until The Wallet Scope Is Verified
           </p>
         ) : commissionError ? (
-          <div className={styles.statusBlock} role="alert">
-            <p className="sc-copy sc-copy--center">{titleCase(commissionError)}</p>
-            <button type="button" className={styles.litAction} onClick={loadCommissionHistory}>
-              Retry Commission Reading
-            </button>
+          <div className="agent-portal__state-block" role="alert">
+            <p className="agent-portal__state agent-portal__state--error">
+              {titleCase(commissionError)}
+            </p>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button type="button" onClick={loadCommissionHistory}>
+                Retry Commission Reading
+              </button>
+            </div>
           </div>
         ) : (
-          <div className={styles.commissionRows} data-visible={visibleSections.has(3)}>
+          <div
+            className="agent-portal__rows agent-portal__reveal"
+            data-visible={visibleSections.has(3)}
+          >
             {commissionData.map((day) => (
-              <div className={styles.moneyRow} key={day.name}>
+              <div className="agent-portal__row arena-ledger-row" key={day.name}>
                 <span>{day.name}</span>
-                <b className="sc-ink--silver">{compactChips(day.commissions)} Chips</b>
+                <b>{compactChips(day.commissions)} Chips</b>
               </div>
             ))}
-            <div className={styles.totalRow}>
+            <div className="agent-portal__total">
               Total: {compactChips(sumChips(commissionData.map((day) => day.commissions)))} Chips
             </div>
           </div>
         )}
-      </SpadeConsole>
+      </section>
 
-      <section className={styles.childSection} aria-label="My Transactions">
-        <TransactionLedgerView userId={user?.id} clubId={agentClubId || undefined} limit={15} />
+      <section
+        className="arena-case arena-ops-case agent-portal__case agent-portal__ledger"
+        aria-label="My Transactions"
+      >
+        <h2 className="arena-section-title">My Transactions</h2>
+        <TransactionLedgerView
+          userId={user?.id}
+          clubId={agentClubId || undefined}
+          limit={15}
+          arena
+        />
       </section>
 
       {transferModalOpen &&

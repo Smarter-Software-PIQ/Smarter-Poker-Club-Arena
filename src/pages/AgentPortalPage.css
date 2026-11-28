@@ -1,0 +1,209 @@
+/* THE AGENT PORTAL in #SmarterDesign (batch A2, 2026-11-28).
+
+   The mast, cases, section titles, readout tiles, keys and ledger rows come
+   from ArenaWorkspace.css and ArenaOps.css; the Credit Invoices case wears
+   src/components/agent/AgentInvoicesArena.css and the ledger wears
+   src/components/common/TransactionLedgerArena.css. This sheet only lays the
+   page's own sections out and sets them in the workspace inks. Every rule is
+   scoped under .arena-workspace. Nothing reacts to a pointer resting on it.
+   The transfer dialog keeps its painted console (AgentPortalPage.module.css). */
+
+.arena-workspace.agent-portal {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace .agent-portal__back {
+  margin-bottom: 7px;
+}
+
+/* One Back key, not a full-width bar across the phone. */
+.arena-workspace .arena-switch.arena-ops-keys.agent-portal__back > button {
+  flex: 0 1 140px;
+}
+
+/* The sections fade in one after another, as they did on the consoles. */
+.arena-workspace .agent-portal__reveal {
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 320ms ease,
+    transform 320ms ease;
+}
+
+.arena-workspace .agent-portal__reveal[data-visible='true'] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Wallets: three chrome readout tiles ─────────────────────────────── */
+.arena-workspace .agent-portal__meters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+.arena-workspace .agent-portal__meters > .arena-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 4px;
+}
+
+.arena-workspace .agent-portal__meters dt {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-portal__meters dd {
+  margin: 0;
+}
+
+.arena-workspace .agent-portal__meter-note {
+  color: #9aabba;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-portal__meter-value {
+  margin-top: auto;
+  padding-top: 3px;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ── Rows: every figure on the chrome row rim ────────────────────────── */
+.arena-workspace .agent-portal__rows {
+  display: grid;
+  gap: 4px;
+}
+
+.arena-workspace .agent-portal__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+
+.arena-workspace .agent-portal__row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: #dce5ef;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-portal__row small {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-portal__row > b {
+  flex: 0 0 auto;
+  color: #f1f5fc;
+  font:
+    800 17px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.arena-workspace .agent-portal__debt {
+  border-left: 2px solid #f02849;
+}
+
+.arena-workspace .agent-portal__total {
+  padding: 6px 10px 0;
+  color: #74dfff;
+  font:
+    800 16px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── The case notes where the console pills stood ───────────────────── */
+.arena-workspace .agent-portal__status {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-portal__status > span {
+  font-weight: 700;
+}
+
+/* ── State lines ─────────────────────────────────────────────────────── */
+.arena-workspace .agent-portal__state {
+  margin: 0;
+  padding: 12px 6px;
+  color: #9fbacc;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace .agent-portal__state--error {
+  color: #ff5b6e;
+}
+
+.arena-workspace .agent-portal__state-block {
+  display: grid;
+  gap: 4px;
+}
+
+/* ── Inks (above the row and tile defaults) ─────────────────────────── */
+.arena-workspace.agent-portal .agent-portal__ink--live {
+  color: #74dfff;
+}
+
+.arena-workspace.agent-portal .agent-portal__ink--pending {
+  color: #ffe98a;
+}
+
+.arena-workspace.agent-portal .agent-portal__ink--error {
+  color: #ff5b6e;
+}
+
+/* The invoices case is its own section; the wrapper only names the region. */
+.arena-workspace .agent-portal__child {
+  display: block;
+}
+
+.arena-workspace .agent-portal__ledger {
+  container-type: inline-size;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arena-workspace .agent-portal__reveal {
+    transition-duration: 1ms;
+  }
+}

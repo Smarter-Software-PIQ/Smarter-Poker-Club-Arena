@@ -27,8 +27,14 @@ describe('operator Data surfaces use intentional Club Arena console families', (
     expect(hub).toMatch(/family="spade"[\s\S]*?crest="spade"/);
     expect(hub).not.toContain('family="shark"');
     expect(rates).toMatch(/family="shark"[\s\S]*?crest="flat"/);
-    expect(agent).toMatch(/family="riveted"[\s\S]*?crest="spade"/);
-    expect(agent).toMatch(/family="spade"[\s\S]*?crest="flat"/);
+    // #SmarterDesign batch A2 (2026-11-28): the Agent Portal's page sections
+    // wear the arena workspace; only its transfer dialog keeps a painted
+    // console (a popup, #ClubArenaConsole).
+    expect(agent).toContain('className="agent-portal arena-workspace"');
+    expect(agent).toContain('<ArenaWorkspaceHeader');
+    expect(agent.match(/<SpadeConsole\b/g)?.length).toBe(1);
+    expect(agent).toMatch(/<SpadeConsole\s+family="spade"\s+crest="flat"\s+as="div"/);
+    expect(agent).not.toContain('family="riveted"');
     expect(agent).not.toContain('family="shark"');
 
     for (const path of pages) {
