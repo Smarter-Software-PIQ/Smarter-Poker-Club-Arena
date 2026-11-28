@@ -49,7 +49,14 @@ const RERAISED = [
   pre(2, 'raise', 18),
   pre(1, 'call', 12),
 ];
-const RIVER_BET = { street: 'river' as const, paid: 10, winnable: 20, rake: 0, multiway: false };
+const RIVER_BET = {
+  street: 'river' as const,
+  paid: 10,
+  winnable: 20,
+  rake: 0,
+  multiway: false,
+  twoStreet: false,
+};
 const MIN_READ = 20;
 
 describe("LAW: the river bet of a re-raised pot is priced on people's re-raised-pot river bets", () => {
