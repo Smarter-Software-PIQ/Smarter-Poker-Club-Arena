@@ -6,7 +6,10 @@
  * (he checked and folded later in the hand, or mucked at the showdown) into the turn bettor's non-value share, but
  * the turn verdict then prices them like any non-value holding at the turn realization. A hidden bet is by
  * construction his weakest class and a bet that did not fire the river. With this option the hidden part of the
- * share is priced as his weakest OMAHA_EV_BLUFF_POOL of holdings at full realization; the rest as before.
+ * share is priced as his weakest OMAHA_EV_BLUFF_POOL of holdings; the rest as before. The give-up class takes the
+ * verdict's own realization, never a second one: that factor already averages over every river line of the bettor,
+ * his check-downs and give-ups included (lead-10 lane EFIX 2026-11-28: realization 1 on top of it over-called the
+ * bettor who also bet the flop, fold 6-7% against a 34% break-even).
  *
  * The laws: off (or without the hidden-bets prior) nothing changes; it never acts on a raise, multiway or the river;
  * the give-up share is people's hidden fraction, never more than the non-value share, shrinks with a value-heavy
@@ -18,6 +21,15 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { enableBrainTelemetry, withDecisionFireScope } from './BrainTelemetry.js';
 import { omahaPeoplePriorShare } from './HorseOmahaFacingBetPeoplePrior.js';
+import {
+  OMAHA_EV_UNKNOWN_READ,
+  OMAHA_EV_VALUE_SHARE,
+  OMAHA_EV_LINE_AGGRESSOR,
+  omahaBetSizeBucket,
+  omahaEvHandCounts,
+  omahaFacingBetEvVerdict,
+} from './HorseOmahaFacingBetEv.js';
+import type { Card } from '../types.js';
 import {
   omahaPeoplePriorHiddenFraction,
   omahaPeoplePriorHiddenReraisedCheckedKeyOf,
@@ -147,6 +159,84 @@ describe('LAW: a hidden bet is priced as a give-up', () => {
     expect(omahaPeoplePriorHiddenReraisedCheckedKeyOf('plo6', checked, 2)).toBeNull();
     // a single-raised pot is not this function's: the hidden-bets prior keys it itself
     expect(omahaPeoplePriorHiddenReraisedCheckedKeyOf('plo5', checked.slice(0, 1), 1)).toBeNull();
+  });
+
+  it('the give-up class takes the verdict realization, never a second one (bettor who also bet the flop)', () => {
+    // A real node the full-realization price turned from a fold into a call: PLO4, heads-up single-raised pot, he bet
+    // the flop and bets 0.55 pot on a paired turn; the Horse holds jacks up with no full-house out (realization 0.42).
+    const SU: Record<string, string> = { h: 'hearts', s: 'spades', d: 'diamonds', c: 'clubs' };
+    const cards = (x: string): Card[] =>
+      (x.match(/../g) ?? []).map((c) => ({ rank: c[0], suit: SU[c[1]] }) as Card);
+    const hole = cards('TcAhJh9d');
+    const board = cards('6sKcJdKh');
+    const paid = 7.6;
+    const winnable = 21.4;
+    const potFrac = paid / (winnable - paid);
+    const bucket = omahaBetSizeBucket(potFrac);
+    const key = { game: 'plo4' as const, split: 'b' as const };
+    const s = omahaPeoplePriorShare({
+      street: 'turn',
+      potFrac,
+      isRaise: false,
+      multiway: false,
+      paid,
+      winnable,
+      rake: 0.05,
+      twoStreet: true,
+      record: null,
+      hidden: key,
+      giveUps: true,
+    })!;
+    expect(s.giveUp!).toBeGreaterThan(0);
+    const valueShare = OMAHA_EV_VALUE_SHARE.turn[bucket as 'mid'] * OMAHA_EV_LINE_AGGRESSOR;
+    const spot = {
+      street: 'turn' as const,
+      bettorSeat: 1,
+      potFrac,
+      bucket,
+      isRaise: false,
+      aggressorStreets: 1,
+      callerStreets: 0,
+      callers: 0,
+      allIns: 0,
+      behind: 0,
+      callerSeats: [],
+      paid,
+      winnable,
+      allIn: false,
+      final: false,
+      bettorCanBarrelRiver: true,
+      valueShare,
+      priorBluff: 0.22,
+    };
+    const read = { ...OMAHA_EV_UNKNOWN_READ, pricedShare: s.share };
+    const ctx = { rake: 0.05, realization: 0.85 };
+    const off = omahaFacingBetEvVerdict(spot, hole, board, [], read, ctx)!;
+    const on = omahaFacingBetEvVerdict(
+      spot,
+      hole,
+      board,
+      [],
+      { ...read, pricedGiveUp: s.giveUp },
+      ctx
+    )!;
+    const h = omahaEvHandCounts(hole, board, [], valueShare)!;
+    const bottom = h.bottomOf!();
+    expect(on.realization).toBeLessThan(0.5);
+    expect(on.giveUp).toBeCloseTo(s.giveUp!, 12);
+    // exactly the equity moved from the non-value region to his weakest pool, at the same realization
+    expect(on.pWin - off.pWin).toBeCloseTo(
+      s.giveUp! * (bottom.win - h.other.win) * on.realization,
+      12
+    );
+    expect(on.pTie - off.pTie).toBeCloseTo(
+      s.giveUp! * (bottom.tie - h.other.tie) * on.realization,
+      12
+    );
+    // a hand that does as well against his weakest pool as against his other holdings gains (almost) nothing
+    expect(Math.abs(on.pWin - off.pWin)).toBeLessThan(0.01);
+    expect(off.call).toBe(false);
+    expect(on.call).toBe(false);
   });
 
   it('source law: the give-up code reads no identity', () => {
