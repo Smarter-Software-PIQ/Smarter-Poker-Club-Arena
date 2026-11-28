@@ -54,10 +54,10 @@ describe('the required server check joins independent accounting and engine work
     expect(aggregate).toMatch(/^ {4}if: always\(\)$/m);
     expect(shards).toMatch(/^ {4}needs: changes$/m);
     expect(shards).not.toContain('needs.accounting_postgres');
-    expect(shards).toMatch(/^ {8}shard: \[1, 2, 3, 4\]$/m);
+    expect(shards).toMatch(/^ {8}shard: \[1, 2, 3, 4, 5, 6, 7, 8\]$/m);
     expect(shards).not.toMatch(/^\s+(?:include|exclude|continue-on-error):/m);
     expect(shards).toMatch(
-      /^\s+npm test -- --exclude src\/engine\/RetainedHistoricalCheckpointQualification\.test\.ts --shard="\$SERVER_TEST_SHARD\/4"\s*$/m
+      /^\s+npm test -- --exclude src\/engine\/RetainedHistoricalCheckpointQualification\.test\.ts --shard="\$SERVER_TEST_SHARD\/8"\s*$/m
     );
     expect(shards).toContain("needs.changes.result != 'success'");
     expect(aggregate).toContain('ACCOUNTING_RESULT: ${{ needs.accounting_postgres.result }}');
@@ -244,8 +244,8 @@ describe('engine deployment reports what actually happened', () => {
     expect(shards).toMatch(/^ {8}working-directory: server$/m);
     expect(shards).toMatch(/^\s+npm ci --no-audit --no-fund\s*$/m);
     expect(shards).toMatch(/^\s+npm run build\s*$/m);
-    expect(shards).toMatch(/shard: \[1, 2, 3, 4\]/);
-    expect(shards).toContain('--shard="$RELEASE_TEST_SHARD/4"');
+    expect(shards).toMatch(/shard: \[1, 2, 3, 4, 5, 6, 7, 8\]/);
+    expect(shards).toContain('--shard="$RELEASE_TEST_SHARD/8"');
     expect(shards).not.toMatch(/secrets\.|continue-on-error|exclude:/);
     expect(preflight).toContain('scripts/ci/read-engine-prequalification.py');
     expect(preflight).not.toContain('npm test');

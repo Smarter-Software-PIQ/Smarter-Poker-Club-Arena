@@ -20,7 +20,7 @@ it('doubles only the declared qualification envelopes and preserves production o
       'diamond-playfield-e2e': 50,
     },
     // prestage: 45m build/transfer + 40m margin for the single-pass <= 2165s blackout wait (E1)
-    'engine-release-prequalification.yml': { qualify: 80, prestage: 85 },
+    'engine-release-prequalification.yml': { qualify: 80, prestage: 85, prequalification: 5 },
     'auto-deploy-hetzner.yml': {
       preflight: 10,
       deploy: 210,

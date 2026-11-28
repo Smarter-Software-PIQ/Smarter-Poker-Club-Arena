@@ -23,6 +23,21 @@ const retainedStep = {
   if: 'matrix.shard == 2',
   run: `npm test -- ${retainedWrapper}`,
 };
+const normalizeServer8ShardExpansion = (job: {
+  name?: string;
+  strategy?: { 'max-parallel'?: number; matrix?: { shard?: number[] } };
+  steps: Array<Record<string, unknown>>;
+}) => {
+  // Wave B-1 (2026-11-28): Server Engine expands from 4 -> 8 shards in lockstep
+  // with engine-release-prequalification.yml; normalize only the shard count back
+  // to 4 so every other server_shards field stays fingerprinted.
+  expect(job.name).toBe('Server Engine shard ${{ matrix.shard }}/8');
+  expect(job.strategy?.['max-parallel']).toBe(8);
+  expect(job.strategy?.matrix?.shard).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  job.name = 'Server Engine shard ${{ matrix.shard }}/4';
+  job.strategy!['max-parallel'] = 4;
+  job.strategy!.matrix!.shard = [1, 2, 3, 4];
+};
 const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === retainedStep.name);
   expect(job.steps.filter((step) => step.name === retainedStep.name)).toHaveLength(1);
@@ -30,7 +45,7 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   const full = job.steps[index + 1];
   expect(full?.name).toBe('Full server test suite');
   expect(full.run).toBe(
-    `[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --exclude ${retainedWrapper} --shard="$SERVER_TEST_SHARD/4"\n`
+    `[[ "$SERVER_TEST_SHARD" =~ ^[1-8]$ ]]\nnpm test -- --exclude ${retainedWrapper} --shard="$SERVER_TEST_SHARD/8"\n`
   );
   full.run = '[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --shard="$SERVER_TEST_SHARD/4"\n';
   job.steps.splice(index, 1);
@@ -1302,6 +1317,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
     normalized.jobs.server_shards['timeout-minutes'] = 25;
     normalizeHourlyCashAddition(normalized.jobs.server_shards);
+    normalizeServer8ShardExpansion(normalized.jobs.server_shards);
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeShard2Rebalance(normalized.jobs.server_shards);
     normalizeSpinNetOfRefundsAddition(normalized.jobs.accounting_postgres);

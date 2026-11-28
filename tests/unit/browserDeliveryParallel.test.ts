@@ -98,7 +98,7 @@ describe('browser qualification parallel delivery', () => {
       );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
-        job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]
+        job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7, 8]
       );
       expect(ci.jobs[job].strategy['fail-fast']).toBe(false);
     }

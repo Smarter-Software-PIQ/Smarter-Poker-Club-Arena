@@ -32,7 +32,8 @@ class Evidence(unittest.TestCase):
         tree = "e"*40
         image = "sha256:" + "1"*64
         rollback = "sha256:" + "2"*64
-        names = [f"Qualify exact engine ({n}/4)" for n in range(1, 5)]
+        names = [f"Qualify exact engine ({n}/8)" for n in range(1, 9)]
+        names.append("Retire superseded prequalification runs")
         names.append("Stage immutable candidate and rollback images")
         self.jobs = [dict(name=n, run_id=99, run_attempt=1, head_sha=self.args.target,
                           status="completed", conclusion="success", steps=[],
@@ -464,8 +465,9 @@ class ControlInputs(unittest.TestCase):
             run_row = dict(id=99, run_attempt=1, event="push", head_branch="main",
                            path=reader.PATH, head_sha=target, repository=name,
                            head_repository=name, status="completed", conclusion="success")
-            names = [f"Qualify exact engine ({n}/4)" for n in range(1, 5)] + [
-                "Stage immutable candidate and rollback images"
+            names = [f"Qualify exact engine ({n}/8)" for n in range(1, 9)] + [
+                "Retire superseded prequalification runs",
+                "Stage immutable candidate and rollback images",
             ]
             jobs = [dict(name=n, run_id=99, run_attempt=1, head_sha=target,
                          status="completed", conclusion="success", steps=[],
@@ -633,8 +635,9 @@ class ControlInputs(unittest.TestCase):
             run_row = dict(id=99, run_attempt=1, event="push", head_branch="main",
                            path=reader.PATH, head_sha=base, repository=name,
                            head_repository=name, status="completed", conclusion="success")
-            names = [f"Qualify exact engine ({n}/4)" for n in range(1, 5)] + [
-                "Stage immutable candidate and rollback images"
+            names = [f"Qualify exact engine ({n}/8)" for n in range(1, 9)] + [
+                "Retire superseded prequalification runs",
+                "Stage immutable candidate and rollback images",
             ]
             jobs = [dict(name=n, run_id=99, run_attempt=1, head_sha=base,
                          status="completed", conclusion="success", steps=[],
