@@ -1363,7 +1363,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // November 20: retain the 3 added migration-safety parallel invariant guards (PR #11547).
       // November 26: add the engine promise gate (no-floating-promises over server/src).
       // November 26: that gate gets a 6 GB heap (NODE_OPTIONS) so it stops running out of memory.
-      typecheck_compile: '182de10d8032c4642a432133a71dfd613a7e8e23238ced322fbc46266c8bcf19',
+      // 2026-11-28: the invariant guards add scripts/ci/check-table-skin-ink.mjs.
+      typecheck_compile: '4a845bb52d7c50d750976e8ba8836e4d6e8320e7efee67b02b726e6e81638205',
       unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
@@ -1382,7 +1383,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       build: 'c5d7a24f2cf5699273b3aa6cb0f6314202a47bd0bf7c45106293dbc54b7d8890',
       'live-e2e': '507be6a583b15b98f631644534cb71419537dfeaea290a3a0d77bf7a747b666d',
       'post-deploy-check': '86936192ff526aab46d57a6e263e27475c3e60da754b0f04f4948ec40b8b4fcd',
-      'css-beats-e2e': '68635e4d7547c07faefd1660556ff844a62452b0f1b1de4e9800885f8ee75b19',
+      // 2026-11-28: css-beats-e2e names the table surface ink guard
+      // (tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts).
+      'css-beats-e2e': 'cecf5c1a93c45df1bf77b66bc225010510ed4cea8a83f39d0c47091cde6f108a',
       'diamond-playfield-e2e': '64bf4d44870ecc46a7cd8de9b62346fd28f0cbebe928c835a404a6e45823a393',
       'css-beats-gate': '79747df21d67d09db6eaee0451c2e2cb8befbfdac82fc45c497760bb4d8521f2',
       // 2026-11-19 (browser cache): build, live-e2e, css-beats-e2e and

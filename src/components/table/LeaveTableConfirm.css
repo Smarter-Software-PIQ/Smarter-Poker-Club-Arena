@@ -174,18 +174,18 @@
   background: #06101b;
 }
 .leave-confirm__backdrop .leave-confirm__title {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 .leave-confirm__backdrop .leave-confirm__desc {
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font-variant-numeric: tabular-nums;
 }
 .leave-confirm__backdrop .leave-confirm__desc strong {
-  color: #f4f8ff;
+  color: var(--sd-white);
 }
 .leave-confirm__backdrop .leave-confirm__actions {
   gap: 8px;
@@ -198,7 +198,7 @@
   border-radius: 0;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   box-shadow: none;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 17px;
   font-weight: 700;

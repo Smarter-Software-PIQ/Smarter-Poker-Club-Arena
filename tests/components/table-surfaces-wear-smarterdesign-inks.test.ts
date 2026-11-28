@@ -238,7 +238,7 @@ describe('the table surfaces wear the #SmarterDesign inks', () => {
   it('Save Note is the lit cobalt primary and Flag This Hand a chrome key, inside the skin', () => {
     const note = read('src/components/handdetail/HandNoteEditor.css');
     expect(note).toMatch(
-      /\.sc--sd \.hand-note \.hand-note__save \{[^}]*border-image: var\(--sd-active\)[^}]*#087cfa/
+      /\.sc--sd \.hand-note \.hand-note__save \{[^}]*border-image: var\(--sd-active\)[^}]*(?:#087cfa|var\(--sd-cobalt-top\))/
     );
     const flag = read('src/components/handdetail/HandFlagControl.css');
     expect(flag).toMatch(/\.sc--sd \.hand-flag \.hand-flag__btn,[^{]*\{[^}]*var\(--sd-stat\)/);

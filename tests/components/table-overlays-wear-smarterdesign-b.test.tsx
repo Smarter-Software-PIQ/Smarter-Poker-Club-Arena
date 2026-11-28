@@ -58,6 +58,8 @@ describe('table overlays wear #SmarterDesign', () => {
 
   it('the warm announcement accents are re-inked ice blue', () => {
     const css = block('src/components/table/TournamentAnnouncementOverlay.css');
-    expect(css).toMatch(/\[style\*='#ffd700'\][\s\S]*?--accent-color: #86daff !important;/);
+    expect(css).toMatch(
+      /\[style\*='#ffd700'\][\s\S]*?--accent-color: (?:#86daff|var\(--sd-ice\)) !important;/
+    );
   });
 });
