@@ -220,9 +220,16 @@ describe('no identity surface prints a page hero', () => {
   });
 
   it('keeps the account palette tokenised for the brushed-silver light mode', () => {
-    for (const css of ['src/pages/ProfilePage.module.css', 'src/pages/SettingsPage.module.css']) {
-      expect(read(css)).toContain(":global([data-theme='light'])");
-    }
+    /* 2026-11-28: Profile and Settings wear the arena workspace
+       (#SmarterDesign, Dan 2026-11-27), which reads dark in either theme like
+       every other arena page. Settings keeps the light mode on its account
+       dialogs, which are not part of the page dress. */
+    expect(PROFILE).toContain('className={`${styles.page} arena-workspace`}');
+    expect(SETTINGS).toContain('className={`${styles.page} arena-workspace`}');
+    expect(read('src/pages/ProfilePage.module.css')).not.toContain("[data-theme='light']");
+    expect(read('src/pages/SettingsPage.module.css')).toContain(
+      ":global([data-theme='light']) .modal"
+    );
     // The shared account header lost its hero, and its stylesheet with it.
     expect(
       existsSync(resolve(ROOT, 'src/components/account/AccountSurfaceHeader.module.css'))
