@@ -189,6 +189,7 @@
   text-transform: none;
 }
 .daily-bonus-page.arena-workspace .dbs-row__action {
+  min-height: 0;
   padding: 0;
 }
 .daily-bonus-page.arena-workspace .dbs-row__action--locked {
@@ -300,6 +301,13 @@
 @media (max-width: 480px) {
   .daily-bonus-page.arena-workspace .dbs-row {
     grid-template-columns: 52px minmax(0, 1fr);
+    align-content: center;
+  }
+  .daily-bonus-page.arena-workspace .dbs-row__render {
+    grid-row: span 2;
+  }
+  .daily-bonus-page.arena-workspace .dbs-row .dbs-row__action {
+    min-height: 0;
   }
   .daily-bonus-page.arena-workspace .dbs-word {
     font-size: 13px;
