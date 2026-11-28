@@ -32,7 +32,7 @@
  *
  * 3. `/invite/...?code=XYZ` QUERIED A COLUMN THAT DOES NOT EXIST. InvitePage
  *    filtered `clubs.invite_code`; the column is `code`. PostgREST answered
- *    42703 and the catch reported "Club not found or invitation expired" - a
+ *    42703 and the catch reported "Club Not Found Or Invitation Expired" - a
  *    database error wearing a plausible business message, on a public route.
  *
  * 4. EVERY CUSTOM CLUB LOGO UPLOAD WAS REFUSED. CreateClubPage uploaded to

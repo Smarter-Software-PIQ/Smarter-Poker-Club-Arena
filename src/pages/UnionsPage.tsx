@@ -206,7 +206,7 @@ export default function UnionsPage() {
       .catch((err: any) => {
         reportError(err, 'UnionsPage.Failed_to_load_unions');
         toast.error(err.message || 'Failed to load unions');
-        setLoadError('Club Arena could not load union networks right now.');
+        setLoadError('Club Arena Could Not Load Union Networks Right Now.');
         setLoading(false);
       });
   }, [toast]);

@@ -51,7 +51,7 @@ describe('cashier integrity and wallet launcher', () => {
     expect(home).toContain('const target = loadFailed');
     expect(home).toContain("toast.info('Retrying Cashier Directory')");
     expect(home).toContain('void fetchUserData(false, () => isMountedRef.current)');
-    expect(page).toContain("setMembershipsError('Could not load your club cashiers.')");
+    expect(page).toContain("setMembershipsError('Could Not Load Your Club Cashiers.')");
   });
 
   it('keeps canonical cashier preload route identities after retiring the home tiles', () => {
@@ -68,7 +68,7 @@ describe('cashier integrity and wallet launcher', () => {
       'loadUnionData(id, requestVersion, unionResult.data as UnionRow, authorizedRole)'
     );
     expect(union).toContain("unionResult.data.owner_id === user.id ? 'union_lead'");
-    expect(union).toContain("setError('You are not a union admin or owner.')");
+    expect(union).toContain("setError('You Are Not A Union Admin Or Owner.')");
   });
 
   it('keeps safe mobile cashier sheets', () => {

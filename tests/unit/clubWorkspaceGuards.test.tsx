@@ -251,7 +251,7 @@ describe('club route guards', () => {
     workspace = makeWorkspace({
       status: 'error',
       isMember: false,
-      error: 'Club access could not be verified. Your membership has not been changed.',
+      error: 'Club Access Could Not Be Verified. Your Membership Has Not Been Changed.',
       isClubStaff: false,
       canViewFinance: false,
       canControlClub: false,

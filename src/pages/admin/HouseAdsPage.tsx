@@ -343,11 +343,11 @@ export default function HouseAdsPage() {
     setActionError(null);
     setNotice(null);
     if (!form.headline.trim()) {
-      setActionError('A headline is required.');
+      setActionError('A Headline Is Required.');
       return;
     }
     if (!editingId && !form.ad_key.trim()) {
-      setActionError('A key is required. It is how this campaign is named in reporting.');
+      setActionError('A Key Is Required. It Is How This Campaign Is Named In Reporting.');
       return;
     }
     setSaving(true);

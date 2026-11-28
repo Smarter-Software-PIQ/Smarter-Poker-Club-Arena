@@ -423,7 +423,7 @@ export default function UnionDetailPage() {
       } catch (err) {
         reportError(err, 'UnionDetailPage.Error_loading_data');
         toast.error('Failed to load union data');
-        if (isMounted) setLoadError('Club Arena could not load this union workspace.');
+        if (isMounted) setLoadError('Club Arena Could Not Load This Union Workspace.');
       } finally {
         loadingRef.current = false;
         if (isMounted) setLoading(false);

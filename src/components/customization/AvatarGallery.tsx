@@ -212,7 +212,7 @@ export function AvatarGallery({
           // The old copy here offered "You can still upload a photo" as the
           // consolation. There is no longer a photo to fall back to, so say
           // what is actually true instead of pointing at a removed feature.
-          setNotice('No avatars available right now. Please try again shortly.');
+          setNotice('No Avatars Available Right Now. Please Try Again Shortly.');
         }
       })
       .catch((e) => {
@@ -220,7 +220,7 @@ export function AvatarGallery({
         reportError(e, 'AvatarGallery.load');
         setPresetsFailed(true);
         setCustomFailed(true);
-        setNotice('Could not load avatars. Please try again shortly.');
+        setNotice('Could Not Load Avatars. Please Try Again Shortly.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -559,7 +559,7 @@ export function AvatarGallery({
   const handleCreateVipAvatar = useCallback(() => {
     haptic.medium();
     avatarService.openAvatarSelector();
-    setNotice('Finish your new avatar in the Hub window, then reopen this to pick it.');
+    setNotice('Finish Your New Avatar In The Hub Window, Then Reopen This To Pick It.');
   }, []);
 
   /**

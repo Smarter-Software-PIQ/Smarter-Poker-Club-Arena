@@ -58,7 +58,7 @@ test.describe('Visible achievement and rate history readers', () => {
       page.getByRole('button', { name: 'Open Getting Started', exact: true })
     ).toBeVisible();
     await expect(
-      page.getByText('Achievement progress could not be loaded.', { exact: true })
+      page.getByText('Achievement Progress Could Not Be Loaded.', { exact: true })
     ).toHaveCount(0);
     // Read-only proof: no unlock, reward, financial command or fixture mutation.
   });

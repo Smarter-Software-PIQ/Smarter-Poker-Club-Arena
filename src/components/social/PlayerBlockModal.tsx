@@ -89,7 +89,7 @@ export default function PlayerBlockModal({
     try {
       await onConfirm(reason.trim() || undefined);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Player could not be blocked.');
+      setSubmitError(error instanceof Error ? error.message : 'Player Could Not Be Blocked.');
     } finally {
       setSubmitting(false);
     }

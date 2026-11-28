@@ -301,7 +301,7 @@ function AgentDashboardContent() {
         setError(null);
         const targetClubId = cId || clubId;
         if (!targetClubId || !user?.id) {
-          setError('No club selected.');
+          setError('No Club Selected.');
           setLoading(false);
           return;
         }
@@ -571,7 +571,7 @@ function AgentDashboardContent() {
         setClubId(targetClub);
         loadDashboard(targetClub);
       } else if (!cancelled) {
-        setError('No club found or selected.');
+        setError('No Club Found Or Selected.');
         setLoading(false);
       }
     };
@@ -1612,7 +1612,7 @@ function AgentDashboardContent() {
                 try {
                   const promoAmt = Number(creditAmount);
                   if (isNaN(promoAmt) || promoAmt <= 0) {
-                    setError('Enter a valid chip amount');
+                    setError('Enter A Valid Chip Amount');
                     setProcessing(false);
                     return;
                   }
