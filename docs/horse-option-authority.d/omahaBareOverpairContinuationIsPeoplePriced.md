@@ -32,20 +32,20 @@ All flop decisions (4,858): 17 change, 11 fold to call and 6 call to fold (PLO4 
 
 Audit fixture (445 audited PLO4 heads-up flop decisions): 55 in the continuation's spot, 21 of them re-raised pots (untouched), 34 priced, 3 fold to call, 0 call to fold. Speed (relative-cost law, the 34 priced decisions): on 9.67 ms vs off 6.82 ms per decision telemetry off (ratio 1.42), 9.61 vs 6.64 telemetry on (1.45).
 
-Fixed harness (ON-minus-same-seed-no-op, base = live rows + the three options above): value-only bettor (flop) PLO4 +0.97 +/- 0.54 (>= -4.0, PASS); value-only bettor (flop) PLO5 +0.04 +/- 0.04 (>= -4.0, PASS); people-calibrated responder PLO4 -0.12 +/- 0.12 (>= -1 SE, PASS); people-calibrated responder PLO5 +0.14 +/- 0.14 (>= -1 SE, PASS); bot ftk PLO4 bluffer -3.77 +/- 0.37 bb/line with the option (change -0.07 +/- 0.52; PASS); bot ftk PLO5 bluffer -3.39 +/- 0.46 bb/line with the option (change +0.00 +/- 0.65; PASS); bot bp PLO4 bluffer -8.77 +/- 0.70 bb/line with the option (change -0.10 +/- 0.98; PASS); bot bp PLO5 bluffer -7.06 +/- 0.79 bb/line with the option (change +0.00 +/- 1.11; PASS). Pooled over seeds 211/212 (bots: seed 601, heads-up, 0.8 pot, ftk = flop+turn barrel that gives up the river, bp = production muck rule). Evidence cards (mirrors 311/312 heads-up and 6-max, over-folder, balanced, calling station; bars: not below -2 SE, station >= -1 SE): INCOMPLETE.
+Fixed harness (ON-minus-same-seed-no-op, base = live rows + the three options above): value-only bettor (flop) PLO4 +0.97 +/- 0.54 (>= -4.0, PASS); value-only bettor (flop) PLO5 +0.04 +/- 0.04 (>= -4.0, PASS); people-calibrated responder PLO4 -0.12 +/- 0.12 (>= -1 SE, PASS); people-calibrated responder PLO5 +0.14 +/- 0.14 (>= -1 SE, PASS); bot ftk PLO4 bluffer -3.77 +/- 0.37 bb/line with the option (change -0.07 +/- 0.52; PASS); bot ftk PLO5 bluffer -3.39 +/- 0.46 bb/line with the option (change +0.00 +/- 0.65; PASS); bot bp PLO4 bluffer -8.77 +/- 0.70 bb/line with the option (change -0.10 +/- 0.98; PASS); bot bp PLO5 bluffer -7.06 +/- 0.79 bb/line with the option (change +0.00 +/- 1.11; PASS). Pooled over seeds 211/212 (bots: seed 601, heads-up, 0.8 pot, ftk = flop+turn barrel that gives up the river, bp = production muck rule). Evidence cards (mirrors 311/312 heads-up and 6-max, over-folder, balanced, calling station; bars: not below -2 SE, station >= -1 SE): MET.
 
-| card         | game | pooled ON-minus-noop bb/100 | SE units | bar      | result        | per seed                                                          |
-| ------------ | ---- | --------------------------- | -------- | -------- | ------------- | ----------------------------------------------------------------- |
-| mirror HU    | PLO4 | +0.09 +/- 0.91              | +0.1     | >= -2 SE | PASS          | 311: +0.00 +/- 0.00 (ON div 0); 312: +0.17 +/- 1.81 (ON div 139)  |
-| mirror HU    | PLO5 | -0.18 +/- 2.05              | -0.1     | >= -2 SE | PASS          | 311: -0.22 +/- 1.74 (ON div 78); 312: -0.14 +/- 3.71 (ON div 372) |
-| mirror 6-max | PLO4 | -0.10 +/- 0.35              | -0.3     | >= -2 SE | PASS (1 seed) | 311: -0.10 +/- 0.35 (ON div 9)                                    |
-| mirror 6-max | PLO5 | -0.31 +/- 0.63              | -0.5     | >= -2 SE | PASS (1 seed) | 311: -0.31 +/- 0.63 (ON div 58)                                   |
-| over-folder  | PLO4 | +0.00 +/- 0.00              | +0.0     | >= -2 SE | PASS (1 seed) | 211: +0.00 +/- 0.00 (ON div 0)                                    |
-| over-folder  | PLO5 | +0.21 +/- 0.21              | +1.0     | >= -2 SE | PASS (1 seed) | 211: +0.21 +/- 0.21 (ON div 1)                                    |
-| balanced     | PLO4 | -0.33 +/- 0.33              | -1.0     | >= -2 SE | PASS (1 seed) | 211: -0.33 +/- 0.33 (ON div 1)                                    |
-| balanced     | PLO5 | +0.15 +/- 0.11              | +1.4     | >= -2 SE | PASS (1 seed) | 211: +0.15 +/- 0.11 (ON div 2)                                    |
-| caller       | PLO4 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS (1 seed) | 211: +0.00 +/- 0.00 (ON div 0)                                    |
-| caller       | PLO5 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS (1 seed) | 211: +0.00 +/- 0.00 (ON div 0)                                    |
+| card         | game | pooled ON-minus-noop bb/100 | SE units | bar      | result | per seed                                                          |
+| ------------ | ---- | --------------------------- | -------- | -------- | ------ | ----------------------------------------------------------------- |
+| mirror HU    | PLO4 | +0.09 +/- 0.91              | +0.1     | >= -2 SE | PASS   | 311: +0.00 +/- 0.00 (ON div 0); 312: +0.17 +/- 1.81 (ON div 139)  |
+| mirror HU    | PLO5 | -0.18 +/- 2.05              | -0.1     | >= -2 SE | PASS   | 311: -0.22 +/- 1.74 (ON div 78); 312: -0.14 +/- 3.71 (ON div 372) |
+| mirror 6-max | PLO4 | -0.23 +/- 0.29              | -0.8     | >= -2 SE | PASS   | 311: -0.10 +/- 0.35 (ON div 9); 312: -0.37 +/- 0.47 (ON div 19)   |
+| mirror 6-max | PLO5 | -0.40 +/- 0.43              | -0.9     | >= -2 SE | PASS   | 311: -0.31 +/- 0.63 (ON div 58); 312: -0.48 +/- 0.60 (ON div 78)  |
+| over-folder  | PLO4 | +0.00 +/- 0.00              | +0.0     | >= -2 SE | PASS   | 211: +0.00 +/- 0.00 (ON div 0); 212: +0.00 +/- 0.00 (ON div 0)    |
+| over-folder  | PLO5 | +0.33 +/- 0.20              | +1.7     | >= -2 SE | PASS   | 211: +0.21 +/- 0.21 (ON div 1); 212: +0.45 +/- 0.34 (ON div 2)    |
+| balanced     | PLO4 | -0.02 +/- 0.20              | -0.1     | >= -2 SE | PASS   | 211: -0.33 +/- 0.33 (ON div 1); 212: +0.30 +/- 0.21 (ON div 2)    |
+| balanced     | PLO5 | +0.11 +/- 0.07              | +1.7     | >= -2 SE | PASS   | 211: +0.15 +/- 0.11 (ON div 2); 212: +0.07 +/- 0.07 (ON div 1)    |
+| caller       | PLO4 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS   | 211: +0.00 +/- 0.00 (ON div 0); 212: +0.00 +/- 0.00 (ON div 0)    |
+| caller       | PLO5 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS   | 211: +0.00 +/- 0.00 (ON div 0); 212: +0.00 +/- 0.00 (ON div 0)    |
 
 ## Watch And Rollback
 
