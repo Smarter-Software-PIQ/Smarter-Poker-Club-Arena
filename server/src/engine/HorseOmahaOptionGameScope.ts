@@ -138,6 +138,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   // lead-9 lane HU2 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaBareOverpairContinuationIsPeoplePriced',
   'omahaGiveUpPricedTurnCallIsAtIndifference',
+  // PLO-OWNER lead-10 lane PLX3 2026-11-28: PLO4/PLO5 cash, default OFF (Evidence MET PLO5 only: publish scope 5)
+  'omahaFlopFacingBetEquityIsPeoplePriced',
   // lead-8 lane OFB 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaTurnFacingBetPriorIsLineSplit',
   // lead-9 lanes MWR + RV + RV2 2026-11-27: PLO4/PLO5 cash, default OFF

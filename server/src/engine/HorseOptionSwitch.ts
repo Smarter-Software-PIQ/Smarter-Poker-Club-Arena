@@ -468,6 +468,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBareOverpairContinuationIsPeoplePriced',
   // 2026-11-27 lead-9 lane HU2: the call on a give-up-priced turn bet at EV >= 0, not EV > the margin (ships dark)
   'omahaGiveUpPricedTurnCallIsAtIndifference',
+  // 2026-11-28 PLO-OWNER lead-10: heads-up single-raised flop facing one bet, the call-or-fold check reads the
+  // people-priced equity instead of min(sampler, priced) (ships dark)
+  'omahaFlopFacingBetEquityIsPeoplePriced',
   // 2026-11-27 lead-8 lane OFB: the turn bettor priced on the people cell of the flop line, heads-up and multiway (ships dark)
   'omahaTurnFacingBetPriorIsLineSplit',
   // 2026-11-27 lead-9 lanes MWR + RV + RV2: a multiway river first bet is priced on the bettor's own shown river bets over the people-only multiway river cell (ships dark)

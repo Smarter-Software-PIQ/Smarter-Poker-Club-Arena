@@ -278,6 +278,10 @@ import {
   omahaFlopPressureCapPricedSpot,
 } from './HorseOmahaFlopPressureCapPriced.js';
 import {
+  omahaFlopFacingBetCheckEquity,
+  omahaFlopFacingBetEquityIsPeoplePricedInScope,
+} from './HorseOmahaFlopFacingBetPeopleEquity.js';
+import {
   plo6FacingBetPriced,
   plo6FacingBetPricedScope,
   plo6PairedRiverBetPriced,
@@ -4013,6 +4017,14 @@ export interface HorseDecideOpts {
    * range; folding every hand between zero and the margin is the fold a zero-equity bluff is paid by.
    */
   omahaGiveUpPricedTurnCallIsAtIndifference?: boolean;
+  /**
+   * PLO-OWNER lead-10 lane PLX2 2026-11-28 (default OFF, read === true). PLO4/PLO5 cash, the flop, heads-up at the
+   * decision, a single bet MADE heads-up, a SINGLE-RAISED pot only, in the flop pressure cap's priced spot: the
+   * call-or-fold check reads the Horse's equity against the bettor's people-priced flop range (his record -> people's
+   * measured flop bets of this size -> equilibrium anchor) instead of min(sampler equity, that price), so the
+   * preflop-band sampler can no longer override measured postflop evidence downward only. Call vs fold only.
+   */
+  omahaFlopFacingBetEquityIsPeoplePriced?: boolean;
   /** PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision from the
    * hand and its equity against the opponent's perceived range for that
    * action, line and board and his measured tendencies; how far the Horse
@@ -32593,6 +32605,7 @@ export class HorseLogic {
     // omahaFlopPressureCapIsPriced (default off): computed BEFORE the V40 block and separate from it; the block below
     // runs exactly as with the option off. Only the call-or-fold check (eqRead38) reads this number.
     let pricedCap38: number | null = null;
+    let peoplePricedLift38 = false;
     if (
       opts.omahaFlopPressureCapIsPriced === true &&
       !noMadeClassCap &&
@@ -32647,7 +32660,25 @@ export class HorseLogic {
               : null,
             hiddenKeyP
           );
-          if (priced) pricedCap38 = Math.min(eq15, priced.equity);
+          if (priced) {
+            // omahaFlopFacingBetEquityIsPeoplePriced (default off): in a single-raised pot with the bet made heads-up,
+            // the people-priced equity is the one the check reads instead of min(sampler, priced).
+            const peopleEq38 =
+              opts.omahaFlopFacingBetEquityIsPeoplePriced === true &&
+              omahaFlopFacingBetEquityIsPeoplePricedInScope({
+                enabled: true,
+                tournament: isTournamentMode(gs),
+                holeCount: (player.cards ?? []).length,
+                potType: omahaPeoplePriorFlopPotOf(gs.actionHistory),
+                oppCount,
+                history: gs.actionHistory,
+              });
+            pricedCap38 = omahaFlopFacingBetCheckEquity(eq15, priced.equity, peopleEq38);
+            if (peopleEq38 && priced.equity > eq15) {
+              peoplePricedLift38 = true;
+              if (tele15) noteFire('omaha_flop_people_priced_equity');
+            }
+          }
         }
       } catch {
         pricedCap38 = null;
@@ -35835,6 +35866,8 @@ export class HorseLogic {
         noteFire(
           takeCall38 ? 'omaha_flop_pressure_cap_priced_call' : 'omaha_flop_pressure_cap_priced_fold'
         );
+      if (pricedCall38 && peoplePricedLift38 && takeCall38 && tele15)
+        noteFire('omaha_flop_people_priced_equity_call');
       if (takeCall38) {
         if (tele15) noteFire('v38_ev_call');
         return { action: 'call', amount: toCall, thinkTime: 0 };

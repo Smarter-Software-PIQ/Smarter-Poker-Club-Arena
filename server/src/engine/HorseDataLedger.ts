@@ -1357,6 +1357,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopFacingBetEquityIsPeoplePriced',
+    "PLO-OWNER lead-10 lanes PLX / PLX2 / PLX3 2026-11-28 (plo-lead7-01TLQer8/l10-plx/BUILD.md, l10-plx2/BUILD.md, l10-plx3/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop facing one bet in a SINGLE-RAISED pot, the bet made heads-up (nobody folded on the flop after it), inside omahaFlopPressureCapIsPriced's priced spot: the call-or-fold check reads the Horse's equity against the bettor's people-priced flop range (his own flop record -> people's measured heads-up flop bets of this size, hidden bets counted with omahaPeoplePriorCountsHiddenBets -> the balanced share behind a thin cell) instead of min(sampler equity, that price), so the sampler's preflop range band can no longer lower measured postflop evidence. Real-node replay with opponent memory on: PLO4 heads-up single-raised c-bet 0.7-1.1 pot fold 65% -> 46% (break-even 48%), PLO5 57% -> 48% (47%); 123 changes, all fold -> call, none in a limped or re-raised pot, none into a raise. Call vs fold only; identity never enters. HorseOmahaFlopFacingBetPeopleEquity.ts",
+    'V94'
+  ),
+  flag(
     'omahaFlopPressureCapIsPriced',
     "PLO-OWNER lead-7 2026-11-26 (plo4-audit FINDINGS.md: heads-up flop fold to bets over 0.8 pot 72.9% vs people 49.4%; flop-pp/BUILD.md: 75 of 76 replayed folds are v38_ev_fold, the V40 class cap on 53). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop facing a single bet, where the V40 pressure cap prices a weak made class, the reference call-or-fold check reads the equity against the bettor's range (flop value region plus the PEOPLE-ONLY measured flop non-value share, balanced share weighting a thin cell, moved by his own shown flop bets) instead of the class ceiling; every other consumer reads the cap as before (call vs fold only); turn, river, multiway and raises keep today's price. HorseOmahaFlopPressureCapPriced.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaFacingBetPeoplePrior.data.ts",
     'V94'
@@ -6431,6 +6436,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_flop_people_priced_equity',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopFacingBetPeopleEquity)',
+    "the heads-up single-raised flop call-or-fold check read the people-priced equity above the sampler's equity in place of min(sampler, priced) (omahaFlopFacingBetEquityIsPeoplePriced)",
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_people_priced_equity_call',
+    'HorseLogic.decidePostflop (V38 call-or-fold check, HorseOmahaFlopFacingBetPeopleEquity)',
+    "the heads-up single-raised flop call-or-fold check called on the people-priced equity above the sampler's (omahaFlopFacingBetEquityIsPeoplePriced)",
+    'V94'
+  ),
+  receipt(
     'omaha_people_prior_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetPeoplePrior)',
     'the facing-bet verdict priced a heads-up turn or river bet or raise on the people-only measured share (river: three measured regions) (omahaFacingBetPriorIsPeopleMeasured)',
@@ -11374,6 +11391,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaBareOverpairContinuationIsPeoplePriced: { prefixes: ['omaha_bare_overpair_people_priced'] },
   // the indifference call inside the give-up price names its own receipts in their descriptions; declared by prefix
   omahaGiveUpPricedTurnCallIsAtIndifference: { prefixes: ['omaha_give_up_indifference_'] },
+  // the people-priced flop facing-bet equity names its own receipts in their descriptions; declared by prefix
+  omahaFlopFacingBetEquityIsPeoplePriced: { prefixes: ['omaha_flop_people_priced_equity'] },
   // the line-split turn prior names its own receipts in their descriptions; declared by prefix
   omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },
   // the multiway river people prior names its own receipts in their descriptions; declared by prefix

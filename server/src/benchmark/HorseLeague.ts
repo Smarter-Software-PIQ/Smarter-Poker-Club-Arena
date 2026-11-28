@@ -5122,6 +5122,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopPressureCapIsPriced: true },
     b: {},
   })),
+  // 2026-11-28 PLO-OWNER lead-10 (default OFF, PLO4/PLO5 cash): the heads-up single-raised flop call-or-fold check
+  // reads the people-priced equity instead of min(sampler, priced) (HorseOmahaFlopFacingBetPeopleEquity).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_facing_bet_equity_is_people_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaFlopFacingBetEquityIsPeoplePriced: true,
+    },
+    b: { omahaFlopPressureCapIsPriced: true, omahaPeoplePriorCountsHiddenBets: true },
+  })),
   // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the bettor's non-value share anchored to the balanced
   // share for the price, moved only by his own shown bets (HorseOmahaEquilibriumAnchor).
   ...(['plo4', 'plo5'] as const).map((variant) => ({
