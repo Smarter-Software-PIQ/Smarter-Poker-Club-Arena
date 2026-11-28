@@ -7,7 +7,6 @@ import {
 } from '../helpers/dailyChallengesSources';
 
 const REWARD_PAGES = [
-  'src/pages/TransactionHistoryPage.tsx',
   'src/pages/VIPPage.tsx',
   'src/pages/RakebackPage.tsx',
   'src/pages/DailyBonusPage.tsx',
@@ -40,6 +39,16 @@ describe('cinematic retained route families', () => {
     // never the painted Rewards Circuit console.
     const source = readFileSync('src/pages/PromotionsPage.tsx', 'utf8');
     expect(source).toContain('arena-workspace');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
+  it('Transaction History wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // "THE SAME #SMARTERDESIGN UPGRADE TO EVERY SINGLE PAGE" (Dan, 2026-11-27)
+    // supersedes the Rewards Circuit anchor for this page: the chrome mast and
+    // the arena case, never the painted console (player pages batch P4).
+    const source = readFileSync('src/pages/TransactionHistoryPage.tsx', 'utf8');
+    expect(source).toContain('className="transaction-history-page arena-workspace"');
     expect(source).toContain('<ArenaWorkspaceHeader');
     expect(source).not.toContain('RewardsSurfaceHeader');
   });

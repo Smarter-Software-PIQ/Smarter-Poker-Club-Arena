@@ -63,8 +63,8 @@ export function RakebackWeekSoFar() {
 
   if (failed) {
     return (
-      <section className="rakeback-week" aria-label="Rakeback This Week">
-        <h3>Rakeback This Week</h3>
+      <section className="rakeback-week arena-case arena-ops-case" aria-label="Rakeback This Week">
+        <h3 className="arena-section-title">Rakeback This Week</h3>
         <p>This Week Is Unavailable Right Now.</p>
       </section>
     );
@@ -72,22 +72,22 @@ export function RakebackWeekSoFar() {
   if (!data) return null;
   if (data.clubs.length === 0) {
     return (
-      <section className="rakeback-week" aria-label="Rakeback This Week">
-        <h3>Rakeback This Week</h3>
+      <section className="rakeback-week arena-case arena-ops-case" aria-label="Rakeback This Week">
+        <h3 className="arena-section-title">Rakeback This Week</h3>
         <p>No Raked Hands Recorded For You This Week Yet.</p>
       </section>
     );
   }
   return (
-    <section className="rakeback-week" aria-label="Rakeback This Week">
-      <h3>Rakeback This Week So Far</h3>
+    <section className="rakeback-week arena-case arena-ops-case" aria-label="Rakeback This Week">
+      <h3 className="arena-section-title">Rakeback This Week So Far</h3>
       <p className="rakeback-week__note">
         Estimated From Every Raked Hand Recorded So Far At The Rate In Effect When It Was Played.
         Paid {payday(data.paid_at)}; The Paid Amount Is Computed Then.
       </p>
       <ul>
         {data.clubs.map((club) => (
-          <li key={club.club_id}>
+          <li key={club.club_id} className="arena-ledger-row">
             <span className="rakeback-week__club">{club.club_name || 'Club'}</span>
             <span>Rake Recorded {compactChips(Number(club.rake_recorded))}</span>
             <span>Rate Now {Number(club.current_rate_pct)}%</span>
