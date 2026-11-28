@@ -699,6 +699,23 @@ test.describe('LIVE E2E — the insurance dialog, on a short phone viewport', ()
       document.body.appendChild(overlay);
     });
 
+    /* Measure the dialog AT REST (2026-11-27). The dialog enters with
+       insuranceSlideUpModal (translateY(18px) scale(.98) to identity), and
+       this read used to land on the first frame of it: at 375x480 the INSURE
+       key's bottom then sat 0.46px past the viewport purely because of the
+       entry offset, and the check passed or failed on runner timing. The
+       contract is where the decision keys are painted once the dialog is
+       open, so wait for its finite entry animations (the animation itself
+       still plays; nothing here skips or shortens it). */
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => undefined))
+      )
+    );
+
     const verdict = await page.evaluate(() => {
       const modal = document.getElementById('insModal')!;
       const body = document.getElementById('insBody')!;
