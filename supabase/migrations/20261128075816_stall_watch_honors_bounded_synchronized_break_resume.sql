@@ -20,7 +20,7 @@
 --      observing paused="1" and ms_since_progress = 301-362 s.
 --   2. resumeFromBreak() commits clearPersistedBreak() (on_break = false,
 --      break_ends_at = null) to PostgreSQL BEFORE calling engine.resumeDealing().
---   3. fn_ca_table_stall_watch_ingest reads public.tournaments ~150-300 ms
+--   3. The stall-watch ingest RPC reads public.tournaments ~150-300 ms
 --      later, sees on_break = false, and fn_ca_table_stall_decide returns NULL.
 --
 -- WHAT THIS CHANGES (surgical preimage-guarded patch to fn_ca_table_stall_decide):
