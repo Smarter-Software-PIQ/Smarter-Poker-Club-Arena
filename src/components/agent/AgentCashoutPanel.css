@@ -145,6 +145,12 @@
   justify-content: flex-end;
 }
 
+/* The wrapper an arena case lays its chrome keys in. On the console it lays
+   nothing out, so the lit word sits exactly where it always did. */
+.acp-keys {
+  display: contents;
+}
+
 .acp-word {
   appearance: none;
   /* An agent decides real money on a phone; 44px is the floor. */
