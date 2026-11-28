@@ -108,8 +108,17 @@ export function jsonLdDocument(jsonLd) {
  * files of the two families the public pages use are preloaded. One
  * declaration per face, present before first paint, no second request.
  * Best effort: no fonts stylesheet in dist/fonts, no change.
+ *
+ * ROBOTO CONDENSED IS PRELOADED TOO (2026-11-27). dist/index.html is the
+ * shell for every route, and the arena workspace titles (Player Management,
+ * the Cashier, Stats) now name the self-hosted Roboto Condensed first instead
+ * of 'Arial Narrow', which Android and Linux do not have: a phone fell back
+ * to wide Arial, and only on a Mac did the lettering come out narrow. Its
+ * latin face is one variable file covering every weight the stylesheet
+ * declares, so one preload has the narrow face in hand before the first
+ * workspace paints and the titles do not swap widths under the player.
  */
-const PRERENDER_FONT_FAMILIES = ['Cinzel', 'Inter'];
+const PRERENDER_FONT_FAMILIES = ['Cinzel', 'Inter', 'Roboto Condensed'];
 
 /** The woff2 URLs of the latin faces of the families the public pages use. */
 export function latinFontUrls(fontsCss) {
