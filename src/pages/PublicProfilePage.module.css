@@ -11,9 +11,9 @@
    either theme. No :hover (tests/no-hover-effects.law.test.ts).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.publicProfilePage {
+.publicProfilePage.publicProfilePage {
   width: 100%;
-  max-width: 720px;
+  max-width: 960px;
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
@@ -239,43 +239,36 @@
   margin: 7px 0;
 }
 
-.publicProfilePage .actionBtn {
+.publicProfilePage .profileActions > .actionBtn {
   width: auto;
   min-width: 0;
   height: auto;
   min-height: 44px;
 }
 
-.publicProfilePage .addFriendBtn,
-.publicProfilePage .acceptBtn,
-.publicProfilePage .unblockBtn {
+.publicProfilePage .profileActions > .addFriendBtn,
+.publicProfilePage .profileActions > .acceptBtn,
+.publicProfilePage .profileActions > .unblockBtn {
   color: #ffffff;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
 }
 
-.publicProfilePage .addFriendBtn::after,
-.publicProfilePage .acceptBtn::after,
-.publicProfilePage .unblockBtn::after {
-  border-image-source: var(--arena-active);
-}
-
-.publicProfilePage .messageBtn {
+.publicProfilePage .profileActions > .messageBtn {
   color: #74dfff;
 }
 
-.publicProfilePage .friendsBtn {
+.publicProfilePage .profileActions > .friendsBtn {
   color: #c8ffd2;
 }
 
-.publicProfilePage .pendingBtn {
+.publicProfilePage .profileActions > .pendingBtn {
   color: #ffe98a;
 }
 
-.publicProfilePage .blockBtn {
+.publicProfilePage .profileActions > .blockBtn {
   color: #ff5b6e;
 }
 
-.publicProfilePage .reportBtn {
+.publicProfilePage .profileActions > .reportBtn {
   color: #ffd700;
 }
 

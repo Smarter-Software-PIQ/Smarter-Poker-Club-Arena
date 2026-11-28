@@ -495,7 +495,11 @@ export default function PublicProfilePage() {
 
       {/* Action Buttons */}
       <div
-        className={`${styles.profileActions} arena-switch arena-ops-keys`}
+        className={`${styles.profileActions} arena-switch arena-ops-keys${
+          isBlocked || friendStatus === 'none' || friendStatus === 'pending_received'
+            ? ' arena-ops-primary'
+            : ''
+        }`}
         role="group"
         aria-label="Player Actions"
       >

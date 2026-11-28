@@ -34,7 +34,7 @@ describe('PublicProfilePage wears the arena workspace, inside its own module', (
     expect(page.match(/<ArenaWorkspaceHeader/g)).toHaveLength(3);
     expect(page).toContain('`${styles.publicProfileHeader} arena-case arena-ops-case`');
     expect(page).toContain('`${styles.recordCell} arena-meter`');
-    expect(page).toContain('`${styles.profileActions} arena-switch arena-ops-keys`');
+    expect(page).toContain('`${styles.profileActions} arena-switch arena-ops-keys');
     expect(page).not.toMatch(/className="/);
     expect(page).not.toContain('SpadeConsole');
   });
@@ -43,7 +43,11 @@ describe('PublicProfilePage wears the arena workspace, inside its own module', (
     const all = selectors(css);
     expect(all.length).toBeGreaterThan(25);
     for (const s of all)
-      expect(s === '.publicProfilePage' || s.startsWith('.publicProfilePage ')).toBe(true);
+      expect(
+        s === '.publicProfilePage' ||
+          s === '.publicProfilePage.publicProfilePage' ||
+          s.startsWith('.publicProfilePage ')
+      ).toBe(true);
     expect(css).not.toContain(':global');
   });
 });
